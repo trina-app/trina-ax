@@ -7,7 +7,7 @@
 //   room, ‹ and the page's name below a tab;
 // - ‹ goes back in the history when the entry before is the app's own and otherwise replaces this entry with the tab's
 //   list, never pushes (the phone's own back would loop between the two);
-// - the 나 list starts with 알림함 (with the count) and, for admins, 관리자; its own 알림 row is left out there;
+// - the 나 list starts with 활동 (Activity, with the count) and, for admins, 관리자; 알림 (the settings) stays in its group;
 // - Home's latest AI chats: three, newest first, never a chat only made for a draft's attachments.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act, type ReactNode } from 'react'
@@ -104,7 +104,7 @@ describe('which tab an address belongs to', () => {
     for (const p of ['/', '/c/abc', '/projects', '/projects/p1', '/scheduled', '/scheduled/s1', '/skills', '/trash']) expect(tabOf(p)).toBe('ai')
     for (const p of ['/rooms', '/rooms/r1']) expect(tabOf(p)).toBe('chats')
     for (const p of ['/files', '/files/view']) expect(tabOf(p)).toBe('files')
-    for (const p of ['/settings', '/settings/notifications', '/admin', '/admin/members']) expect(tabOf(p)).toBe('me')
+    for (const p of ['/settings', '/settings/notifications', '/admin', '/admin/members', '/activity']) expect(tabOf(p)).toBe('me')
     for (const p of ['/welcome', '/skillsx', '/roomsy', '/nothing']) expect(tabOf(p)).toBeNull()
   })
 
@@ -364,13 +364,13 @@ describe('‹ never pushes', () => {
 describe('the 나 tab\'s list on a phone', () => {
   const dialog = () => mount(<MemoryRouter initialEntries={['/settings']}><Routes><Route path="/settings/:tab?" element={<SettingsDialog onClose={() => {}} />} /></Routes></MemoryRouter>)
 
-  test('알림함 first, with the unread count; its 알림 row is left out there', async () => {
+  test('활동 (Activity) first, with the unread count; the 알림 settings row stays in its group', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
     inboxCount = 7
     const m = await dialog()
     try {
       const inbox = m.get('settings-inbox')
-      expect(inbox.getAttribute('href')).toBe('/settings/notifications')
+      expect(inbox.getAttribute('href')).toBe('/activity')
       expect(inbox.textContent).toContain(ko('inbox.title'))
       await m.until(() => m.find('settings-inbox-unread'), 'the inbox count')
       expect(m.get('settings-inbox-unread').textContent).toContain('7')
@@ -378,7 +378,7 @@ describe('the 나 tab\'s list on a phone', () => {
       expect(m.find('settings-admin')).toBeNull()
       const own = m.get('settings-menu').querySelectorAll('a[href="/settings/notifications"]').filter((a) => a !== inbox)
       expect(own.length).toBe(1)
-      expect(own[0]!.getAttribute('class')).toContain('max-md:hidden')
+      expect(own[0]!.getAttribute('class')).not.toContain('max-md:hidden')
     } finally {
       await m.unmount()
     }

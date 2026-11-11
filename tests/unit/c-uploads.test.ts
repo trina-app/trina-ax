@@ -5,7 +5,8 @@ import path from 'node:path'
 import { UPLOAD_CHUNK_SIZE, uuidv7 } from '@mycel/shared/api'
 import { componentC } from '../../server/src/team-files/component'
 import { imageSize } from '../../server/src/uploads/image'
-import { MAX_OPEN_SESSIONS } from '../../server/src/uploads/sessions'
+import { MAX_OPEN_SESSIONS, SESSION_MAX_MS, SESSION_TTL_MS } from '../../server/src/uploads/sessions'
+import { JOBS_PER_USER } from '../../server/src/jobs/service'
 import { jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
 import { which } from '../../server/src/config'
 
@@ -194,6 +195,54 @@ describe('upload sessions', () => {
     expect(n).toBeGreaterThanOrEqual(2)
     expect(fs.existsSync(path.join(A.data, 'uploads', `${f.body.id}.part`))).toBe(false)
     expect(fs.existsSync(path.join(A.data, 'uploads', 'orphan.part'))).toBe(false)
+  })
+  test('expiry counts from the last chunk (a laptop that slept overnight resumes), capped at 7 days from the start', async () => {
+    const H = 3600_000
+    const data = blob(2 * UPLOAD_CHUNK_SIZE + 10, 7)
+    const s = await create({ kind: 'path', path: 'shared/idle.bin' }, data)
+    const part = path.join(A.data, 'uploads', `${s.body.id}.part`)
+    const age = (created: number, expires: number) => A.ctx.db.query('UPDATE upload_sessions SET created_at = ?, expires_at = ? WHERE id = ?')
+      .run(new Date(created).toISOString(), new Date(expires).toISOString(), s.body.id)
+    // started 23 h ago, one hour left: a chunk arriving now moves the expiry to 24 h from now
+    age(Date.now() - 23 * H, Date.now() + H)
+    const before = Date.now()
+    expect((await put(s.body.id, 0, chunk(data, 0))).status).toBe(200)
+    const g = await A.json(`/api/upload-sessions/${s.body.id}`, { as: 'alice' })
+    expect(Date.parse(g.body.expiresAt)).toBeGreaterThanOrEqual(before + SESSION_TTL_MS - 1000)
+    // the sweep 25 h after the start (2 h from now) keeps it and its part file
+    componentC(A.ctx).uploads.sweep(Date.now() + 2 * H)
+    expect(fs.existsSync(part)).toBe(true)
+    expect((await A.json(`/api/upload-sessions/${s.body.id}`, { as: 'alice' })).status).toBe(200)
+    // started 6.5 days ago: a chunk now gives only what is left of the 7 days, and the sweep after that drops it
+    const created = Date.now() - SESSION_MAX_MS + 12 * H
+    age(created, Date.now() + H)
+    expect((await put(s.body.id, 1, chunk(data, 1))).status).toBe(200)
+    expect((await A.json(`/api/upload-sessions/${s.body.id}`, { as: 'alice' })).body.expiresAt).toBe(new Date(created + SESSION_MAX_MS).toISOString())
+    componentC(A.ctx).uploads.sweep(Date.now() + 13 * H)
+    expect(fs.existsSync(part)).toBe(false)
+    expect((await A.json(`/api/upload-sessions/${s.body.id}`, { as: 'alice' })).status).toBe(404)
+  })
+  test('a recording refused for too many jobs (429) is not left in the work folder', async () => {
+    const C = componentC(A.ctx)
+    const work = path.join(A.data, 'work')
+    fs.mkdirSync(work, { recursive: true })
+    const sttIn = () => fs.readdirSync(work).filter((f) => f.startsWith('stt-in-'))
+    let release = () => {}
+    const hold = new Promise<void>((r) => { release = r })
+    const held = Array.from({ length: JOBS_PER_USER }, () => C.jobs.start({ kind: 'transcribe', userId: 'alice', run: () => hold }))
+    try {
+      const had = sttIn().length
+      const rec = path.join(work, 'recording-test.webm')
+      fs.writeFileSync(rec, 'audio')
+      let err: unknown = null
+      try { C.startTranscribe('alice', rec, 'a.webm') } catch (e) { err = e }
+      expect((err as { code?: string })?.code).toBe('rate_limited')
+      expect(fs.existsSync(rec)).toBe(false)
+      expect(sttIn().length).toBe(had)
+    } finally {
+      release()
+      await Promise.all(held.map((id) => C.jobs.wait(id)))
+    }
   })
   test('too many open sessions per person', async () => {
     const data = blob(1)

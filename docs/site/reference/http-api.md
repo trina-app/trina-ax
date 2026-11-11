@@ -172,7 +172,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/files/find` | Signed in | Files whose name contains q, among the files the caller can read (newest first). |
 | `GET` | `/api/files/search` | Signed in | Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person. |
 | `GET` | `/api/files/recent` | Signed in | Recently changed files the caller can read (for the attach picker). |
-| `POST` | `/api/upload-sessions` | Signed in | Start a chunked upload (8 MB chunks). Expires after 24 h. |
+| `POST` | `/api/upload-sessions` | Signed in | Start a chunked upload (8 MB chunks). Expires 24 h after the last chunk arrived, at most 7 days after the start. |
 | `PUT` | `/api/upload-sessions/:id/chunks/:n` | Signed in | Store chunk n (0-based). Re-sending a stored chunk is a no-op. |
 | `GET` | `/api/upload-sessions/:id` | Signed in | Which chunks arrived (to resume after a disconnect). |
 | `POST` | `/api/upload-sessions/:id/complete` | Signed in | Verify sha256 and move the file into place. |
