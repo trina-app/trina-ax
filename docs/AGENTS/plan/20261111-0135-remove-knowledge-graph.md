@@ -62,8 +62,9 @@ Stays:
 2. Server: delete the module, the tool, the lookup, the prompt notes, the routes and the shared types; Files search
    back to lines only.
 3. Old configs and data:
-   - `server.json` with `knowledgeGraph` still loads (the schema is strict): the key is accepted, ignored and logged
-     once as obsolete. CONFIGURATION.md says so.
+   - `server.json` with `knowledgeGraph` still loads: the key is accepted with any value, ignored and logged once as
+     obsolete. (Its own sub-object was strict; the top level strips unknown keys, so the key stays in the schema only
+     so that the start can say so.) CONFIGURATION.md says so.
    - On start, `<data>/knowledge-graph/` is deleted once (it holds copies of private document text), with one log line.
    - The downloaded model folder `<data>/models/Xenova/multilingual-e5-small` (and an empty `Xenova/` above it) is
      deleted the same way: nothing else uses it (whisper keeps `<data>/models/whisper`). A host's read-only
