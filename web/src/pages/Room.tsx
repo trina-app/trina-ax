@@ -3,10 +3,11 @@
 // 초대하기, the members), and the bell (my notifications for the room, components/rooms/RoomNotifyMenu.tsx); the messages (components/rooms/RoomMessages.tsx),
 // older ones loaded on scrolling up; the message box at the bottom (a file dropped anywhere on the room's column, its
 // header, messages or box, goes into the box: components/FileDropZone.tsx). What I see is marked read (POST
-// /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
+// /api/rooms/:id/read up to the newest message in sight) while the window has the focus: not while a page is loading,
+// and not over unread messages older than the pages loaded (lib/rooms.ts readUpTo).
 // A link or a search result (?m=<message>) older than the newest page opens the room as a window around it
 // (store/rooms.ts loadAround): newer pages load on scrolling down, nothing in it is marked read, new messages wait, and
-// "최근 메시지로" (or sending) goes back to the newest.
+// "최근 메시지로" (or sending) goes back to the newest, at the bottom with my reply in sight.
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
 // A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
@@ -25,7 +26,7 @@ import { Link, useLocation, useNavigate, useNavigationType, useParams, type Navi
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
-import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
+import { readUpTo, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { useBackCloses } from '../lib/backCloses'
 import { useStickToBottom } from '../lib/stickToBottom'
@@ -37,7 +38,7 @@ import { useSideChats } from '../store/sideChats'
 import { MembersDialog } from '../components/rooms/MembersDialog'
 import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
-import { RoomMessages } from '../components/rooms/RoomMessages'
+import { messageDomId, RoomMessages } from '../components/rooms/RoomMessages'
 import { ImageGroup } from '../components/ImageViewer'
 import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
@@ -237,8 +238,24 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     list.follow()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [last?.id, messages.length, pending.length, aiKey])
+  // my send or "최근 메시지로" from a window around an older message: the list lands at the bottom once the newest page
+  // has taken the window's place. The scroll events on the way (the box clearing, the window's own place) come while the
+  // window is still there and the list may not stick to it (onListScroll's canStick), so `stick` alone was lost and the
+  // reply stayed below the list with "최근 메시지로" gone (QA TC-155)
+  const toBottom = useRef(false)
+  const landing = !!timeline && !detached && !timeline.loading
+  useLayoutEffect(() => {
+    if (!landing || !toBottom.current) return
+    toBottom.current = false
+    stick.current = true
+    list.follow()
+    // the message the address pointed at is behind: a reload opens at the newest too
+    if (target) navigate({ pathname: location.pathname, search: '' }, { replace: true, state: location.state })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landing, timeline?.messages])
   const toNewest = () => {
     stick.current = true
+    toBottom.current = true
     void useRooms.getState().loadNewest(roomId)
   }
 
@@ -247,20 +264,23 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     const s = useRooms.getState()
     const r = s.rooms.find((x) => x.id === roomId)
     const th = s.timeline
-    if (!el || !r || !th || th.roomId !== roomId || !th.messages.length) return
-    // a window around an older message: the newest is not on screen
-    if (th.newerCursor) return
+    if (!el || !r || !th || th.roomId !== roomId) return
     // the timeline out of sight (a phone shows the thread over it): nothing in it is read
     if (!el.clientHeight) return
     // on screen and looked at (the phone app: on screen; lib/attention.ts)
     if (!lookingAt()) return
-    if (el.scrollHeight - el.scrollTop - el.clientHeight > 80) return
-    const seq = newestSeq(th.messages)
+    // up to the newest message shown (lib/rooms.ts readUpTo: not while a page loads, not over unread ones not loaded)
+    const bottom = el.getBoundingClientRect().bottom
+    const seq = readUpTo(th, r.lastReadSeq, (m) => {
+      const row = document.getElementById(messageDomId(m.id))
+      return !!row && row.getBoundingClientRect().top < bottom
+    })
     if (seq > r.lastReadSeq) void s.markRead(roomId, seq)
   }, [roomId])
+  // (a page that arrived, the older pages reaching the first unread, a message in sight: after the list has drawn it)
   useEffect(() => {
     tryRead()
-  }, [tryRead, last?.seq, room?.lastReadSeq, room?.unreadCount])
+  }, [tryRead, last?.seq, messages[0]?.seq, timeline?.loading, timeline?.error, detached, room?.lastReadSeq, room?.unreadCount])
   useEffect(() => {
     window.addEventListener('focus', tryRead)
     document.addEventListener('visibilitychange', tryRead)
@@ -394,6 +414,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         empty={!!timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length}
         onSent={() => {
           stick.current = true
+          // from a window around an older message the send goes back to the newest (store/rooms.ts send)
+          if (detached) toBottom.current = true
         }}
       />
       <MembersDialog

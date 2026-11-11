@@ -6,7 +6,7 @@ import { uuidv7, type Me } from '@mycel/shared/api'
 import { setNavigator } from '../../src/lib/nav'
 import { mergeMessages, placeKey, toggledReactions, withAiRun, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
+import { readUpTo, roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadViews: {}, ...o })
@@ -582,6 +582,42 @@ describe('a page read while messages come in', () => {
     const t = useRooms.getState().timeline!
     expect(t.messages.map((m) => m.id)).toEqual([newest.id, mine.id])
     expect(t.newerCursor ?? null).toBeNull()
+  })
+
+  // how far the page would read it with every message in sight (pages/Room.tsx tryRead)
+  const readNow = (roomId: string) => readUpTo(useRooms.getState().timeline!, useRooms.getState().rooms.find((x) => x.id === roomId)!.lastReadSeq, () => true)
+
+  test('opened from a notification with the first page slow: a live message alone on screen reads nothing (QA TC-155)', async () => {
+    const r = room({ lastSeq: 30, lastReadSeq: 0, unreadCount: 30 })
+    const backlog = Array.from({ length: 30 }, (_, i) => message({ roomId: r.id, seq: i + 1 }))
+    useRooms.setState({ rooms: [r], loaded: true })
+    useRooms.getState().open(r.id)
+    await tick()
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: message({ roomId: r.id, seq: 31, body: 'live-001' }) } })
+    expect(seqs()).toEqual([31])
+    expect(readNow(r.id)).toBe(0)
+    held.find((h) => h.path.endsWith('/messages'))!.release({ items: backlog, nextCursor: null })
+    await tick()
+    await tick()
+    expect(readNow(r.id)).toBe(31)
+  })
+
+  test('more unread than one page: the newest page reads nothing until the older one is loaded (QA TC-155)', async () => {
+    const r = room({ lastSeq: 62, lastReadSeq: 0, unreadCount: 62 })
+    const all = Array.from({ length: 62 }, (_, i) => message({ roomId: r.id, seq: i + 1 }))
+    useRooms.setState({ rooms: [r], loaded: true })
+    useRooms.getState().open(r.id)
+    await tick()
+    held.find((h) => h.path.endsWith('/messages'))!.release({ items: all.slice(12), nextCursor: 'older' })
+    await tick()
+    await tick()
+    expect(seqs()).toHaveLength(50)
+    expect(readNow(r.id)).toBe(0)
+    const older = useRooms.getState().loadOlder(r.id)
+    await tick()
+    held.find((h) => h.path.endsWith('/messages') && h !== held[0])!.release({ items: all.slice(0, 12), nextCursor: null })
+    await older
+    expect(readNow(r.id)).toBe(62)
   })
 
   test('an edit made while a page loads shows on that page', async () => {

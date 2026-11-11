@@ -213,6 +213,25 @@ export function newestSeq(messages: RoomMessage[]): number {
   return messages.at(-1)?.seq ?? 0
 }
 
+/** How far the room is read as it is on screen now (0: nothing to mark). The read position covers every message up to
+ * it, so it only moves over messages that were loaded and came into sight (QA TC-155):
+ * - nothing while a page is on its way or failed: the list may hold only messages that came meanwhile (a room opened
+ *   from a notice, its first page still loading), with the unread ones before them not shown yet;
+ * - nothing while unread messages are older than the pages loaded (more unread than one page): marking the newest
+ *   would read the ones never loaded too. Scrolling up to them loads them, and then it reads;
+ * - else the newest message whose top has come into sight (`inSight`), so a reader scrolled up reads up to there.
+ * A window around an older message (a search result) reads nothing: its newest is not the room's. */
+export function readUpTo(th: { messages: RoomMessage[]; nextCursor: string | null; newerCursor?: string | null; loading: boolean; error: unknown }, lastReadSeq: number, inSight: (m: RoomMessage) => boolean): number {
+  if (th.loading || th.error || th.newerCursor || !th.messages.length) return 0
+  if (th.nextCursor && th.messages[0]!.seq > lastReadSeq + 1) return 0
+  for (let i = th.messages.length - 1; i >= 0; i--) {
+    const m = th.messages[i]!
+    if (m.seq <= lastReadSeq) return 0
+    if (inSight(m)) return m.seq
+  }
+  return 0
+}
+
 /** A room's count for me: its unread messages, and the threads I follow there with replies I have not read (each one
  * thing to read). Thread replies never count otherwise (docs/DECISIONS.md "스레드와 반응"). */
 export const roomUnread = (r: Pick<Room, 'unreadCount'> & Partial<Pick<Room, 'threadsUnread'>>) => r.unreadCount + (r.threadsUnread ?? 0)

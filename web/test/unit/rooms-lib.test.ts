@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, roomBadge, roomTitle, runActive, threadClosing, threadOpening, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
+import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomTitle, runActive, threadClosing, threadOpening, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -247,5 +247,48 @@ describe('thread navigation (pages/Room.tsx)', () => {
     expect(h.at()).toEqual({ path: '/rooms/R/t/B', fromRoom: false })
     h.close()
     expect(h.at().path).toBe('/rooms/R')
+  })
+})
+
+describe('how far the room is read (pages/Room.tsx tryRead, QA TC-155)', () => {
+  const r = room()
+  const run = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => message({ roomId: r.id, seq: from + i }))
+  const tl = (messages: ReturnType<typeof message>[], o: { nextCursor?: string | null; newerCursor?: string | null; loading?: boolean; error?: unknown } = {}) => ({ messages, nextCursor: null, loading: false, error: null, ...o })
+  const all = () => true
+  const upTo = (seq: number) => (m: { seq: number }) => m.seq <= seq
+
+  test('at the bottom of the newest page with every unread one loaded: the newest', () => {
+    expect(readUpTo(tl(run(1, 30)), 10, all)).toBe(30)
+    // older pages too, as long as the first unread one is loaded
+    expect(readUpTo(tl(run(21, 70), { nextCursor: 'older' }), 20, all)).toBe(70)
+    expect(readUpTo(tl(run(21, 70), { nextCursor: 'older' }), 40, all)).toBe(70)
+  })
+
+  test('more unread than one page: nothing, until the older pages reach the first unread one', () => {
+    // 62 unread, the newest 50 (13…62) on screen: c-001…c-012 were never loaded
+    expect(readUpTo(tl(run(13, 62), { nextCursor: 'older' }), 0, all)).toBe(0)
+    // scrolled up: the page before is loaded, the reader at its top reads up to what is in sight
+    expect(readUpTo(tl(run(1, 62)), 0, upTo(9))).toBe(9)
+    expect(readUpTo(tl(run(1, 62)), 9, all)).toBe(62)
+  })
+
+  test('nothing while the first page is still on its way (only messages that came meanwhile are listed) or failed', () => {
+    // a room opened from a notice: 30 unread, the page slow, two live messages already in the list
+    const live = run(31, 32)
+    expect(readUpTo(tl(live, { loading: true }), 0, all)).toBe(0)
+    expect(readUpTo(tl(live, { error: new Error('offline') }), 0, all)).toBe(0)
+    // the page arrived: all of them
+    expect(readUpTo(tl(run(1, 32)), 0, all)).toBe(32)
+  })
+
+  test('scrolled up: up to the newest message in sight; nothing new in sight: nothing', () => {
+    expect(readUpTo(tl(run(1, 40)), 10, upTo(25))).toBe(25)
+    expect(readUpTo(tl(run(1, 40)), 30, upTo(25))).toBe(0)
+    expect(readUpTo(tl(run(1, 40)), 10, () => false)).toBe(0)
+    expect(readUpTo(tl([]), 0, all)).toBe(0)
+  })
+
+  test('a window around an older message (a search result): nothing', () => {
+    expect(readUpTo(tl(run(1, 50), { newerCursor: 'newer' }), 0, all)).toBe(0)
   })
 })
