@@ -122,6 +122,8 @@ const changed = (chatId: string) => changes.set(chatId, (changes.get(chatId) ?? 
 const LOAD_ROUNDS = 3
 /** a read that failed is tried once more after this long */
 export const LOAD_RETRY_MS = 3000
+/** chatId -> the retry waiting after a failed read (one per chat) */
+const loadRetries = new Map<string, ReturnType<typeof setTimeout>>()
 /** requests closed lately: a listTurnRequests answer computed before the close must not bring the card back */
 const closedRequests = new Set<string>()
 let generation = 0
@@ -271,7 +273,10 @@ export const useChats = create<ChatsState>((set, get) => {
           }
           if (failed && retry && get().threads[chatId]) {
             setThread(chatId, (t) => ({ ...t, stale: true }))
-            setTimeout(() => { if (session === generation && get().threads[chatId]?.stale) load(chatId, true, false).catch(() => {}) }, LOAD_RETRY_MS)
+            if (!loadRetries.has(chatId)) loadRetries.set(chatId, setTimeout(() => {
+              loadRetries.delete(chatId)
+              if (session === generation && get().threads[chatId]?.stale) load(chatId, true, false).catch(() => {})
+            }, LOAD_RETRY_MS))
           }
           // asked for again during the last round allowed: one more read of its own
           else if (!failed && l.again) load(chatId, false).catch(() => {})
@@ -417,6 +422,8 @@ export const useChats = create<ChatsState>((set, get) => {
       pending.clear()
       loads.clear()
       changes.clear()
+      for (const t of loadRetries.values()) clearTimeout(t)
+      loadRetries.clear()
       closedRequests.clear()
       set(initial())
     },
