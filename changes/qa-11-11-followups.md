@@ -1,0 +1,5 @@
+- Asked to delete a project's folder, the AI now says the project is deleted on the Projects screen. It said skill folders are deleted on the Files screen or the Skills page, also for a folder with no skills in it. A group's folder, your own folder and a folder with its own permissions each get their own reason too; the AI still never puts any of them in the trash.
+- A Trina answer sent to a thread or a room no longer shows doubled quote marks around a quote in it.
+- In the steps under an answer, every save after a card's **Allow once** shows its place in words ("Company-wide › …"), like the first one. They showed the raw path (shared/…).
+- After the AI moves files into a new folder, the file chip under the answer counts the files only and marks them **Moved**. It counted the new folder as a file and called the moved files "Created".
+- The dialog for sharing an existing chat with the project's people counts everyone who will see it, you included, like the line under the chat box and the copy-link message. It counted one person fewer.
