@@ -107,9 +107,17 @@ test('tabs: a tap adds no entry, Back never walks into another tab, each tab kee
   await tab(page, 'tab-chats').click()
   await expect(page).toHaveURL(/\/rooms$/)
   expect(await idx(page)).toBe(0)
+  // Forward onto what 파일's stack left behind: skipped, 대화 stays
+  await page.goForward()
+  await page.waitForTimeout(300)
+  await expect(page).toHaveURL(/\/rooms$/)
+  await expect(tab(page, 'tab-chats')).toHaveAttribute('aria-current', 'page')
   await tab(page, 'tab-files').click()
   await expect.poll(() => path(page)).toBe('groups/leads')
   expect(await idx(page)).toBe(2)
+  // a reload (or the app's WebView coming back) keeps the stack
+  await page.reload()
+  await expect(page.getByTestId('file-row').first()).toBeVisible()
   await page.goBack()
   await expect.poll(() => path(page)).toBe('groups')
   // the tab on show again: its root, without a new entry
