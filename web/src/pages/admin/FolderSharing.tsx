@@ -16,7 +16,7 @@ import type { Access, Folder, FolderEditPreview, Group, Project, User } from '@m
 import { api, API, errorText } from '../../lib/api'
 import { addNamed, draftOf, removeNamed, setNamed, type Basic, type Draft } from '../../lib/access-edit'
 import { isSkillsPath } from '../../lib/access-view'
-import { aboveRows, askTitle, generalLevel, hasPanel, namesText, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
+import { aboveRows, askTitle, generalLevel, hasPanel, latentLines, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
 import { useFolderName } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog } from '../../components/ui'
@@ -224,9 +224,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
               <p className="font-medium text-ink" data-testid="sharing-confirm-folder">{nameOf(path)}</p>
               {lines(fresh).filter((l) => l.kind !== 'none' && l.kind !== 'below').map((l) => <p key={l.kind} className={l.kind === 'lose' || l.kind === 'viewOnly' ? 'text-warn' : undefined}>{l.text}</p>)}
               {/* who gains that no head count can see, by name: people switched off, whoever joins these groups or the team */}
-              {fresh.latent?.off.length ? <p>{t('folderAccess.latentOff', { names: namesText(t, locale, fresh.latent.off.map((u) => u.name), fresh.latent.off.length) })}</p> : null}
-              {fresh.latent?.groups.length ? <p>{t('folderAccess.latentGroups', { groups: namesText(t, locale, fresh.latent.groups.map((g) => g.name), fresh.latent.groups.length) })}</p> : null}
-              {fresh.latent?.team && <p>{t('folderAccess.latentTeam', { team })}</p>}
+              {latentLines(t, locale, fresh.latent, team).map((l) => <p key={l} data-testid="sharing-confirm-latent">{l}</p>)}
               {ask.widen && fresh.below.some((b) => b.more > 0) && <p>{t('folderAccess.confirmBelow', { n: fresh.below.filter((b) => b.more > 0).length })}</p>}
               {ask.skillsEveryone && <p>{t('folderAccess.warnSkillsEveryone')}</p>}
               {ask.narrow.map((w) => (

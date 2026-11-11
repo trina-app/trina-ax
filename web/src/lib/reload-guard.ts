@@ -6,16 +6,19 @@ import { isBusy } from './busy'
 import { mergeDraft } from './composerDraft'
 import { readDraft, writeDraft } from './localData'
 import { useChats } from '../store/chats'
+import { roomDrafts } from '../store/rooms'
 import { useSession } from '../store/session'
 import { useUi } from '../store/ui'
 
 /**
  * A reload now would lose something: an upload, a non-empty draft or a recording (lib/busy.ts), an answer still
- * streaming on screen, or a message still being sent or marked "not sent" (it lives only in this tab's memory, chats
- * store `local`).
+ * streaming on screen, a message still being sent or marked "not sent" (it lives only in this tab's memory, chats
+ * store `local`), or a reply typed in a room's box, also one whose box is not on screen now (store/rooms.ts roomDrafts,
+ * this tab's memory only).
  */
 export function reloadWouldLose(): boolean {
   if (isBusy()) return true
+  if ([...roomDrafts.values()].some((d) => d.trim())) return true
   return Object.values(useChats.getState().threads).some((th) => th.messages.some((m) => m.status === 'streaming' || !!m.local))
 }
 

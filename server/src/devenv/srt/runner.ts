@@ -40,6 +40,7 @@ import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type P
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type SrtSystem } from './system'
+import { END_NOTE, endRow, type EndReason } from './end'
 
 export const MAX_WAITING_PER_PERSON = 3
 export const MAX_WAITING_SERVER = 10
@@ -51,21 +52,6 @@ const OUT_READ = 64 << 10
 const TAIL_BYTES = 4 << 10
 /** a dev server under this CPU share for idleStopMin stops (reason idle) */
 const IDLE_CPU_SHARE = 0.02
-
-export type EndReason = 'exit' | 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
-
-/** what each end reason says to people and to the AI */
-export const END_NOTE: Record<EndReason, string> = {
-  exit: '',
-  timeout: 'stopped at its time limit',
-  oom: 'stopped: it ran out of memory',
-  stopped: 'stopped by a person',
-  idle: 'stopped: unused',
-  disk: 'stopped: the server disk is nearly full',
-  setting: 'stopped: the dev environment setting, the allowed sites or the folder access of the person changed',
-  expired: 'did not start: it waited for 24 hours',
-  lost: 'the run ended with no exit code',
-}
 
 /** Where a run belongs and where it starts. root: the project folder (a project chat whose folder the person can
  * read), else the chat's work folder. */
@@ -515,27 +501,19 @@ async function startServerNow(ctx: AppContext, j: NewRow): Promise<{ ok: true; r
   return r.ok ? { ok: true, rowId: id } : r
 }
 
-/** the hook that ends a row (jobs.ts sets it, to keep one place for notices) */
-type Ender = (ctx: AppContext, rowId: string, end: { code: number | null; reason: EndReason; tail: string; lastLine: string }) => void
-let ender: Ender = (ctx, rowId, end) => {
-  ctx.db.query("UPDATE dev_env_runs SET ended_at = ?, state = 'ended', exit_code = ?, end_note = ?, end_reason = ? WHERE id = ? AND ended_at IS NULL")
-    .run(new Date().toISOString(), end.code, END_NOTE[end.reason], end.reason, rowId)
-}
-export function setEnder(e: Ender) { ender = e }
-
 async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { ok: false; message: string }> {
   const c = srtConfig()
   // the person must still be allowed at the start (the setting or the folder rules can change while a job waits);
   // spawnRun builds the folder access again and checks the root
   if (!mayUseDevEnv(ctx.db, ctx.files, row.user_id)) {
     takeCommand(c, row.id)
-    ender(ctx, row.id, { code: null, reason: 'setting', tail: '', lastLine: '' })
+    endRow(ctx, row.id, { code: null, reason: 'setting', tail: '', lastLine: '' })
     return { ok: false, message: 'the dev environment is off for this person now' }
   }
   const lim = limitsFor(ctx)
-  if (!lim.ok) { takeCommand(c, row.id); ender(ctx, row.id, { code: null, reason: 'setting', tail: '', lastLine: '' }); return lim }
+  if (!lim.ok) { takeCommand(c, row.id); endRow(ctx, row.id, { code: null, reason: 'setting', tail: '', lastLine: '' }); return lim }
   const command = takeCommand(c, row.id)
-  if (command === null) { ender(ctx, row.id, { code: null, reason: 'lost', tail: '', lastLine: '' }); return { ok: false, message: 'the command of this job is gone' } }
+  if (command === null) { endRow(ctx, row.id, { code: null, reason: 'lost', tail: '', lastLine: '' }); return { ok: false, message: 'the command of this job is gone' } }
   const runId = newRunId()
   const log = logFile(c, row.user_id, row.name)
   prepare(c, row.user_id)
@@ -560,7 +538,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
     return { ok: true }
   } catch (e) {
     const m = (e as Error).message.slice(0, 300)
-    ender(ctx, row.id, { code: null, reason: /cannot use|cannot open/.test(m) ? 'setting' : 'lost', tail: m, lastLine: '' })
+    endRow(ctx, row.id, { code: null, reason: /cannot use|cannot open/.test(m) ? 'setting' : 'lost', tail: m, lastLine: '' })
     return { ok: false, message: m }
   }
 }
@@ -580,7 +558,7 @@ async function startWaitingNow(ctx: AppContext): Promise<void> {
   endOrphanTickets(ctx.db)
   const tickets = ticketIds(ctx.db)
   for (const w of openRuns(ctx.db, 'waiting', 'job')) {
-    if (!tickets.has(w.id) && Date.now() - Date.parse(w.started_at) > WAIT_MAX_MS) { takeCommand(srtConfig(), w.id); ender(ctx, w.id, { code: null, reason: 'expired', tail: '', lastLine: '' }) }
+    if (!tickets.has(w.id) && Date.now() - Date.parse(w.started_at) > WAIT_MAX_MS) { takeCommand(srtConfig(), w.id); endRow(ctx, w.id, { code: null, reason: 'expired', tail: '', lastLine: '' }) }
   }
   // one start per round, read again each round: a start awaits, and a stop may end a row meanwhile. Each round starts
   // an entry (a slot less) or ends one (an entry less), so the loop ends.
@@ -689,14 +667,14 @@ async function stopRow(ctx: AppContext, r: RunRow, reason: EndReason) {
   const c = srtConfig()
   // a command's ticket: the waiting call ends (cancelled or stopped); no notice, no result as a job
   if (r.state === 'waiting' && cancelTicket(ctx.db, r.id, reason)) return
-  if (r.state === 'waiting') { takeCommand(c, r.id); ender(ctx, r.id, { code: null, reason, tail: '', lastLine: '' }); return }
+  if (r.state === 'waiting') { takeCommand(c, r.id); endRow(ctx, r.id, { code: null, reason, tail: '', lastLine: '' }); return }
   const runId = runIdOf(r.unit)
   const a = active.get(runId)
   if (a) a.stopReason = reason
   if (runId) await c.system.stop(runId, a?.pid)
   const tail = readTail(logFile(c, r.user_id, r.name), TAIL_BYTES)
   rm(path.join(personLogs(c.base, r.user_id), `${runId}.exit`))
-  ender(ctx, r.id, { code: null, reason, tail, lastLine: lastLine(tail) })
+  endRow(ctx, r.id, { code: null, reason, tail, lastLine: lastLine(tail) })
   active.delete(runId); idleSince.delete(runId)
 }
 

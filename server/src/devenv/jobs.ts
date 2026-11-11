@@ -22,7 +22,8 @@ import { carryLength, redactorFor, type Redactor } from '../integrations/connect
 import { notifyDevEnv } from '../notifications/service'
 import { boxd } from './boxd'
 import { devEnvRunner, mayUseBox } from './setting'
-import { END_NOTE, pollRuns, RCOLS, reconcile, setEnder, startWaiting, type EndReason, type RunRow } from './srt/runner'
+import { pollRuns, RCOLS, reconcile, startWaiting, type RunRow } from './srt/runner'
+import { END_NOTE, setEnder, type EndReason } from './srt/end'
 
 export const JOB_POLL_MS = 10_000
 /** an open row older than this ends: a job cannot outlive this with no answer from boxd (the row must not poll for ever) */

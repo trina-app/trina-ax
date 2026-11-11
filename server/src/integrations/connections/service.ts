@@ -31,6 +31,9 @@ import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transpo
 import { workspaceLibraryOf } from '../google-apps/library'
 
 export const MAX_PERSONAL = 20
+/** to a member whose connection made from a template was dropped: their Connectors page reads its lists again (no text:
+ * the inbox notice says what to do, notifyTemplateReconnect) */
+export const INTEGRATIONS_CHANGED = { type: 'notice', data: { level: 'info', code: 'integrations_changed', message: '' } } as const
 export const MAX_TEAM = 50
 const FLOW_TTL = 10 * 60_000
 const FLOWS_PER_HOUR = 20
@@ -369,10 +372,12 @@ export class Integrations {
    * own connection without its name, address, template or member. */
   async dropFromTemplate(rows: Row[], actor: string | null, why: 'template_moved' | 'template_deleted' | 'not_covered', wait = true): Promise<void> {
     const olds: Secret[] = []
+    const owners = new Set<string>()
     for (const row of rows) {
       if (!row.template_id) continue
       const old = row.secret_enc ? this.tryOpen(row) : null
       if (!this.db.query('DELETE FROM integrations WHERE id = ? AND template_id = ?').run(row.id, row.template_id).changes) continue
+      if (row.owner_user_id) owners.add(row.owner_user_id)
       this.dropClient(row.id)
       this.recent.delete(row.id)
       toolListsOf(this.db).drop(row.id)
@@ -384,6 +389,11 @@ export class Integrations {
         const t = this.db.query('SELECT version FROM integration_templates WHERE id = ?').get(row.template_id) as { version: number } | null
         if (t) notifyTemplateReconnect(this.ctx, row.owner_user_id, row.template_id, t.version)
       }
+    }
+    // a member's page open now still shows the connection: it reads its lists again (a quiet notice, no text; QA on dev
+    // 1565b39f1: the old row's "try again" said "not found" until a reload)
+    for (const id of owners) {
+      try { this.ctx.services.realtime.publish(id, INTEGRATIONS_CHANGED) } catch (err) { this.ctx.log.warn('connections notice failed', { err }) }
     }
     const revoking = Promise.all(olds.map((o) => this.revokeTokens(o).catch(() => false)))
     if (wait) await revoking

@@ -36,8 +36,10 @@ export function visibleChanges(rules: RuleSet, user: Principal, changes: FileCha
 export function publishChanges(ctx: AppContext, changes: FileChange[], before?: RuleSet) {
   if (!changes.length) return
   ctx.files.events.emit('hwp-invalidate')
-  // `by`: who made them (skills/examples.ts drops that person's reused team folder count)
-  ctx.files.events.emit('tree-changed', { paths: changes.flatMap((c) => (c.from !== undefined ? [c.path, c.from] : [c.path])), by: [...new Set(changes.flatMap((c) => (c.by ? [c.by.id] : [])))] })
+  // `by`: who made them (skills/examples.ts drops that person's reused team folder count); `moves`: where moved things
+  // went (file-list/service.ts moves their lines at once)
+  ctx.files.events.emit('tree-changed', { paths: changes.flatMap((c) => (c.from !== undefined ? [c.path, c.from] : [c.path])), by: [...new Set(changes.flatMap((c) => (c.by ? [c.by.id] : [])))],
+    moves: changes.flatMap((c) => (c.action === 'move' && c.from !== undefined ? [{ from: c.from, to: c.path }] : [])) })
   const rules = RuleSet.load(ctx.db)
   const people = new Map<string, Principal | null>()
   try {

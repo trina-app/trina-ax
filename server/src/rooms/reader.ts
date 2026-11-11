@@ -203,6 +203,7 @@ function eventText(m: RoomMessage): string {
     case 'renamed': return e.name ? `${who} renamed the room to "${attr(e.name, 80)}"` : `${who} gave the room back its usual name`
     case 'added': return `${who} invited ${listNames(e.users.map((u) => u.name))}`
     case 'left': return `${who} left`
+    case 'joined': return `${who} joined the team`
     case 'removed': return `${who} removed ${e.user ? attr(e.user.name, 80) : 'someone'}`
     default: return "The room's details changed"
   }

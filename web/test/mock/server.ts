@@ -61,6 +61,7 @@
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { LocalSpeechTool } from '@mycel/shared/api'
+import type { FileListStatus } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -481,8 +482,12 @@ export class MockServer {
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
   fileRankCalls: { entries: unknown[] }[] = []
 
+  /** Admin › Team settings › File list (server/src/file-list/): POST /__test/file-list {status fields} sets what the
+   * status says (a problem, the sign-in, counts); Run now runs at once and is done by the next status read */
+  fileList: FileListStatus = mockFileList()
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
+    this.fileList = mockFileList()
     this.presence = new Map()
     this.presenceSent = []
     this.statuses = new Map()
@@ -1792,6 +1797,23 @@ export class MockServer {
 
   // ---------------- handlers ----------------
   handlers: Partial<Record<ApiName, Handler>> = {
+    // like server/src/routes/file-list.ts: off clears the counts (the stored lines are deleted); Run now is refused while
+    // off; a run "ends" at the next status read
+    fileListStatus: () => {
+      const s = this.fileList
+      if (s.running) this.fileList = { ...s, running: false, listed: s.listed + s.waiting, waiting: 0, lastRun: { ...s.lastRun!, endedAt: new Date().toISOString(), read: s.waiting, stoppedBy: 'done' } }
+      return s
+    },
+    updateFileList: (c) => {
+      if (c.body.enabled && this.fileList.forcedOff) throw new Fail('conflict', 409, 'forced off', undefined, { reason: 'forced_off' })
+      this.fileList = c.body.enabled ? { ...this.fileList, enabled: true, nextRunAt: new Date(Date.now() + 9 * 3600_000).toISOString() } : { ...this.fileList, enabled: false, running: false, listed: 0, waiting: 0, nextRunAt: null, problem: null }
+      return this.fileList
+    },
+    runFileList: () => {
+      if (!this.fileList.enabled || this.fileList.forcedOff) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
+      this.fileList = { ...this.fileList, running: true, lastRun: { startedAt: new Date().toISOString(), endedAt: null, trigger: 'now', read: 0, stoppedBy: null } }
+      return this.fileList
+    },
     frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
     // like server/src/skills/popular.ts: only skills the caller can read now, with their title
     popularSkills: (c) => ({ items: this.popular.flatMap((p) => { const s = this.skillsFor(c.user).find((x) => x.path === p.path && !x.personal); return s ? [{ ...s, uses: p.uses, users: p.users }] : [] }), days: 30 }),
@@ -3661,8 +3683,9 @@ export class MockServer {
     },
     listTeamIntegrations: (c) => ({ items: this.integrations.filter((x) => x.scope === 'team').map((x) => this.integrationView(x, c.user)) }),
     // like server/src/integrations/connections/requests.ts: only the member asked sees or answers a request; no key in it
-    listIntegrationRequests: (c) => ({ items: this.integrationRequests.filter((r) => r.user.id === c.user.id && this.requestState(r) === 'waiting').map((r) => this.requestView(r)) }),
-    getIntegrationRequest: (c) => this.requestView(this.myRequest(c.user, c.params.id)),
+    // a member's own view never names the admin who asked (requests.ts view forMember)
+    listIntegrationRequests: (c) => ({ items: this.integrationRequests.filter((r) => r.user.id === c.user.id && this.requestState(r) === 'waiting').map((r) => ({ ...this.requestView(r), requestedBy: null })) }),
+    getIntegrationRequest: (c) => ({ ...this.requestView(this.myRequest(c.user, c.params.id)), requestedBy: null }),
     completeIntegrationRequest: (c) => {
       const r = this.waitingRequest(this.myRequest(c.user, c.params.id))
       if (r.auth !== 'oauth' && !c.body.secret) fail('validation', 400, '키가 아직 없어요. 키를 넣어 주세요.', { 'body.secret': 'required' })
@@ -3677,7 +3700,7 @@ export class MockServer {
     declineIntegrationRequest: (c) => {
       const r = this.waitingRequest(this.myRequest(c.user, c.params.id))
       Object.assign(r, { state: 'declined', endedAt: now() })
-      return this.requestView(r)
+      return { ...this.requestView(r), requestedBy: null }
     },
     listTeamIntegrationRequests: () => ({ items: [...this.integrationRequests].reverse().sort((a, b) => Number(this.requestState(b) === 'waiting') - Number(this.requestState(a) === 'waiting')).map((r) => this.requestView(r)) }),
     createIntegrationRequest: (c) => {
@@ -3705,7 +3728,8 @@ export class MockServer {
         const mine = this.integrations.find((x) => x.templateId === t.id && x.ownerId === c.user.id)
         // never the team's app (like templates.ts listMine)
         const { access: _a, createdAt: _c, updatedAt: _u, oauthClient: _app, ...rest } = t
-        return { ...rest, url: new URL(t.url).origin + new URL(t.url).pathname, connection: mine ? this.integrationView(mine, c.user) : null }
+        // never who made it (templates.ts listMine: admins are never named to members)
+        return { ...rest, createdBy: null, url: new URL(t.url).origin + new URL(t.url).pathname, connection: mine ? this.integrationView(mine, c.user) : null }
       }),
     }),
     connectIntegrationTemplate: (c) => {
@@ -4453,6 +4477,7 @@ export class MockServer {
     const body = (await req.json().catch(() => ({}))) as Json
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
+    else if (p === '/__test/file-list') this.fileList = { ...this.fileList, ...(body as Partial<FileListStatus>) }
     else if (p === '/__test/handover') {
       if (typeof body.flag === 'boolean') this.handover.flag = body.flag
       if (body.recovery !== undefined) this.handover.recovery = body.recovery as HandoverRecovery | null
@@ -5307,3 +5332,15 @@ function officeFixtures(): [string, Uint8Array][] {
   return (office = out)
 }
 
+/** The file list's status on a new mock team: on, 1,240 files listed, 18 waiting, last run last night, the team AI
+ * account "Team Claude" signed in by Dana. */
+function mockFileList(): FileListStatus {
+  const night = new Date(); night.setHours(3, 12, 0, 0); if (night.getTime() > Date.now()) night.setDate(night.getDate() - 1)
+  const next = new Date(night.getTime() + 24 * 3600_000 - 70 * 60_000)
+  return {
+    enabled: true, forcedOff: false, running: false, listed: 1240, waiting: 18,
+    lastRun: { startedAt: night.toISOString(), endedAt: new Date(night.getTime() + 9 * 60_000).toISOString(), trigger: 'nightly', read: 96, stoppedBy: 'done' },
+    nextRunAt: next.toISOString(), problem: null,
+    signIn: { engine: 'claude-code', model: 'haiku', kind: 'team', label: 'Team Claude', by: 'Dana' },
+  }
+}

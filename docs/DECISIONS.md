@@ -7433,6 +7433,28 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Not done**: the mobile app's address box (`mobile/src/address.ts`) still accepts only `/invite/<token>` links, not `/join#t=`; a list of who joined through which link beyond the audit log; single-use invites keep their token in the path (`/invite/<token>`, unchanged, already masked in logs).
 - Tests: `tests/unit/a-team-links.test.ts` (make, show again, replace, revoke; sealed and hashed at rest; members only with a role in the request; groups; taken username, weak password, unknown token; max uses with three joins at once for two uses; expiry; the per-link limit across addresses, and joins that work not counting; a maker disabled, enabled again or demoted; the use-time check; a restored copy; the owners' and the maker's inbox; seats: default, cap, full; the skill deep link and the folder rules; no path or query parameter and nothing logged with the token), `web/test/unit/team-link.test.tsx` (the fragment, the next page, the message in five languages, the panel's states, the join form without a second password, `/join` sending the token only in POST bodies, every "no longer works" message, InviteStep and its soft dialog), `web/test/e2e/team-link.spec.ts` (the whole flow in a real browser against the mock: make, copy the message, join, land on the skill, no request URL with the token, revoke).
 
+## A new member is told to the team (feat/member-joined-notice, 2026-11-11, QA)
+
+- **Problem.** On potenlab, a member who joined with a single-use invite (qa-d) was told to nobody: no line in the
+  everyone room, nothing in Activity. A join with the team link already told the owners and the link's maker
+  (`team.joined`), but not the rest of the team.
+- **Rule.**
+  - Both kinds of join (an invite: `auth/accounts.ts acceptInvite`; the team link: `auth/team-links.ts`) put one event
+    line in the everyone room, written as the new member: `{type: 'joined'}`, shown as "{name} joined the team". An
+    event line is never unread and does not move the room in the lists, so nobody gets a badge, a notice or a push;
+    the team sees it when they open the room and can say hello. The new member is put in the room first and sees it
+    too.
+  - An invite join now also sends `team.joined` to the owners and the invite's maker (Activity, no push), as the team
+    link does. Its text no longer names the team link ("{name} joined the team").
+  - Names only: no email, no role, no inviter in the room line.
+- **Not done.** An account an admin adds directly (Admin › Members › Add directly) writes no line: the admin made it,
+  and the person may not have signed in yet. No push for joins.
+- **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
+  `tests/unit/a-team-links.test.ts` (team link join: the line).
+||||||| 2be3f4b09
+||||||| 1565b39f1
+||||||| 626c5fbfd
+
 ## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
 
 Onboarding wave 2, stream W. Placement: Team AX core (skills, files and the first chat; nothing about plans, billing
@@ -20624,6 +20646,58 @@ that it is trying again, and the content back by itself.
   light and dark).
 - Version impact: **patch** (how existing failures look and behave, and a few words; no API or data change).
 
+## QA 11-11 polish — 다시 연결되면 저절로, 보기만 주면 "열 수 있게", 쉬운 말 카드 (fix/qa-1111-polish, 2026-11-11, QA TC-231..TC-235)
+
+- **After a dropped connection, a page part comes back by itself** (TC-231, `components/ChunkErrorBoundary.tsx`). A lazy
+  page part (a route such as Files) that could not load while the server was out of reach used to say "Reload to get
+  the current version" and wait for a click. Now, while out of reach, it says it loads by itself once the connection is
+  back ("연결이 끊겨서 이 부분을 불러오지 못했어요. 다시 연결되면 저절로 불러와요.") and, when the live connection is open
+  again, asks the same reload as before (`reloadForChunkError`): never while something would be lost (an upload, a
+  recording, a draft, a message not sent, an answer still streaming) and at most once per 5 minutes in a tab. Held back
+  by something that would be lost, it asks again every 3 seconds while connected, as the update watcher does (an answer
+  that was streaming when the connection dropped ends a moment after it is back); the line promises "by itself" only
+  when nothing has to be finished first and the 5-minute guard allows it, else the Reload button stays, as before. A
+  reload, not a second import: browsers may keep a failed module import, so trying the import again is not reliable.
+  A reply typed in a room's box now counts as a draft too, also when its box is no longer on screen (`RoomComposer`
+  marks it busy; `reloadWouldLose` counts every non-empty `roomDrafts` entry, which lives only in this tab's memory),
+  for this reload and the one after a server update.
+- **Home's goal card reads the goal again after a connection failure** (TC-231, `HomeGoal`): the same `useAutoRetry` as
+  `LoadError` (backoff, and at once when the live connection is back). A read that fails keeps the card on screen; a
+  refusal or a missing goal still shows nothing.
+- **Who gains later: "open" or "open or edit" by what they get** (TC-232). `FolderEditPreview.latent.edit` (optional)
+  says for whoever joins the team, people switched off and whoever joins the groups whether one of them would get edit
+  somewhere (at the folder or a rule folder inside), from the same before/after permission checks as `latentMore`. The
+  confirm says "열 수 있게 돼요" for view and keeps "열거나 고칠 수 있게 돼요" for edit, and for an answer without the field.
+  Korean lines of the panel no longer put "이(가)", "은(는)", "(으)로" or "을(를)" after a name, in one pattern: "열 수
+  있게 되는 사람: Dan", "더 이상 열 수 없게 되는 사람: Dan", "사용 중지가 풀리면 열 수 있게 되는 사람: Dan", "'영업' 폴더로
+  돌아가기". One line per kind: when one of its groups (or people switched off) gets edit, the line says "열거나 고칠 수"
+  for all of them (the safe side).
+- **A tool may give the room card its own words** (TC-233, `TurnTool.card`, `ChatToolSet.card`, `TurnExec.toolCard`).
+  Words only: whether the card is asked and what yes allows are unchanged. `api_request` after a room read: "{service}에서
+  읽어 오기" for GET and HEAD, "{service}에서 무언가 바꾸기" otherwise, the address it calls ("주소" for a read, "보내는
+  곳" for a change), a JSON body as lines, and the exact request (`GET https://…`) behind "보내는 내용 그대로 보기". The
+  address is the one the person may see (`shownUrl`): their own connection's in full, a team's or a template's without a
+  query its admin set, as the connections list and the AI's tool list show it; the connection's own card now does the
+  same (it showed the admin's query to members). With a query left out the request is not "exactly what is sent" and
+  stays open. The connection's key name (`team_x`) and the AI's
+  arguments are not on the card. The room card's lead line ("…바꾸기 전에 먼저 물어봐요") stays: some APIs change
+  something on a GET, which is why a read asks here at all.
+- **A switched-off AI, for the owner and admins** (TC-234, `engineOffAdmin`): "이 AI는 팀에서 꺼져 있어요. 관리자 › AI
+  계정에서 켜거나 다른 AI를 골라 주세요." Only when it is Admin's switch that is off (not an AI this installation lacks
+  or the API AI without its settings). Members keep "관리자가 이 AI를 꺼 두었어요."
+- **A broken connection's reason for someone who cannot fix it** (TC-235, `reasonText(code, locale, can)`): a member on
+  a team connection, or anyone but an admin on the address of a connection made from a team template, reads "서비스에
+  연결하지 못했어요. 관리자에게 알려 주세요." for an address problem and "이 서비스에 쓰는 팀의 키나 로그인이 안 돼요.
+  관리자에게 알려 주세요." for a key or sign-in problem on a team connection. No admin is named.
+- **"All websites" in the words of the line beside it**: "알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 묻지만, 눈에
+  띄는 것만 걸러요." (the card and the two Settings hints, five languages); no "토큰" or "긴 문자열". The risk sentence and
+  its version are unchanged.
+- Tests: web unit `chunk-reload` (offline line, one reload when the connection is back, none while something would be
+  lost or after leaving), `goal-card` (the card back after the connection), `folder-sharing` (latent lines, Korean
+  particles); unit `access-edit-everyone-above` (latent edit), `c-integrations-tools` and `b-chat-rooms` (api_request's
+  card), `engine-choice`, `c-integrations-api` (member reasons), `web-allow-all`.
+- Version impact: **patch** (words and recovery; one optional field in the edit preview).
+
 ## Project cards: one height, and who sees it instead of the folder — 프로젝트 카드는 같은 높이로, 폴더 대신 누가 보는지 (fix/projects-even-cards, 2026-11-11, product owner)
 
 The owner saw the Projects list with a project that had no instructions: its card was much shorter than its
@@ -20721,6 +20795,88 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   the limit, the next person is asked again, team removal still finishes). The first fails on the code before this
   change (times out). On the overloaded Mac, where `person.spec.ts` failed on dev, it passed with this change.
 - Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
+
+## QA follow-ups: no admin named to members, a schedule card's rooms are read only, no stale template row (fix/qa-final-followups, 2026-11-11, QA on dev 1565b39f1)
+
+- **Templates and requests never name the admin to a member.** "Admins are never named" (above, review of #273) now
+  covers connections an admin sets up for members too. A template's connect dialog read "최관리님이 팀을 위해 준비한
+  서비스예요"; it reads "A service your team set up for you" / "팀에서 준비한 서비스예요". A request to a member reads
+  "An admin asked you to connect …" in the live banner (`requestNotice`, server text), "Asked by an admin · until …" in
+  its line and "An admin asked you to connect this service with your own account." in its dialog (the inbox already said
+  "An admin"). The server does not send the name either: `MyIntegrationTemplate.createdBy` is always null
+  (`templates.ts listMine`), and a member's own request (`requests.ts view(…, forMember)`: list, one, decline) has
+  `requestedBy` null. Both fields stay in the contract so older clients still read the lists. Admin views keep the
+  name (Admin › Connectors' templates, "Requests to members", the activity log), and a project's creator stays named
+  where the projects decisions allow it. Key `integrations.template.yourTeam` is gone.
+- **A schedule card's rooms are what a run may read, not where it may send.** With no save folder the card listed rooms
+  as "읽고 보내도 되는 대화" (may read and send). A run never posts to a room (`post_to_room` refuses in a scheduled run,
+  "Scheduled tasks: saving and sending allowed on the card"), and no other tool posts there; a room on the card lets a
+  run read it, and after reading it send only to the person's own connections the card pinned, which the "Where it may
+  send" line already says. The line is now "읽을 수 있는 대화: …" / "Conversations it may read: …" in all five
+  languages. Words only: what a run may do is unchanged.
+- **A dropped template connection leaves no stale row.** When an admin changes a template's address, sign-in method,
+  header or app, deletes it, or its rule leaves a member out, the members' connections made from it are dropped
+  (`service.ts dropFromTemplate`). A member whose Connectors page was open still saw the old row, and its "다시 시도"
+  said "찾을 수 없거나 접근 권한이 없어요" until a reload. Now (1) `dropFromTemplate` sends each member whose connection
+  went one quiet notice, `integrations_changed` (no text, like `profile_changed`; the inbox notice says what to do), and
+  the Connectors page reads its lists again (`store/live.ts integrationsChanged`, as `reloadAsked`); (2) an action on a
+  row that comes back 404 (check again, sign in, a tool switch, delete; `IntegrationRow.tsx useIntegrationActions`,
+  `useSignIn(…, onGone)`) reads the lists again with "This connection is no longer here, so the list was updated."
+  instead of keeping a failed state on a row that is gone, as FromTeam's connect already reloads on 409.
+- Tests: `tests/unit/c-integration-templates.test.ts` ("QA follow-ups": no maker's name in a member's list; the notice
+  to the member whose connection went, once, nobody else), `tests/unit/c-integration-requests.test.ts` (banner and the
+  member's views without the admin's name; the admin's list keeps it), `tests/unit/schedule-card-rooms-line.test.ts`
+  (the rooms line in five languages, no word of sending), web unit `integration-gone` (404 on check again, sign in, a
+  tool switch: lists again, no failed state; the notice reaches the page without a toast).
+- Version impact: **patch** (words; two fields always null for members; one new notice code an older web shows as an
+  empty toast at most). Needed in the core too (potenlab/team-ax): everything here.
+
+## File list — 파일 목록; the AI greps a `_FILES.md` that says what each file is (feat/file-list, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`server/src/file-list/`, the AI's file tools in `files/service.ts` and `files/search.ts`,
+`chat/prompt.ts`, Admin › Team settings), 이유: files, the AI and its engines are core. Plan:
+`docs/AGENTS/plan/20261111-0630-file-list.md`. Replaces the knowledge graph's job of finding files by what they are.
+
+- **Why.** On a made-up 2,238-file folder, 184 find questions with Claude Code: 172 right with no list, 181 with an
+  English list (180 English + Korean); the line "grep the _FILES.md files first" raised list use from 48% to 92% and cut
+  mean tool calls from 6.0 to 4.3. Haiku read the 2,238 files for USD 0.33 (about 880 tokens per file).
+- **The lists are virtual** (independent review of the plan). Nothing is written into the team folder. The server keeps
+  one line per file in its sidecar (`<data>/file-list/state.db`); the AI's `list`, `glob`, `grep` and `read` (chat
+  engines through MCP and the remote connector, all `FileService.call`) show a `_FILES.md` per access folder rendered
+  for the person asking: a line only for a file that passes `visiblePath` for them now and still has the size, mtime and
+  inode that were read, under the rule chain it was read with, and only when every file of the model call that wrote it
+  passes too (a line may hold a call-mate's text). A rule change or a move that splits a call re-reads all its files. Access is checked at the question, as for search; stale, moved, deleted and hidden files simply do not
+  show. Rejected: real files on disk (they needed a reserved name in `authorize()`, hiding in Files, rewrites on every
+  access change, and could be forged, mirrored or left behind by connected folders and dev environments).
+- **Where.** One list per access unit: `shared`, every other top folder, `projects|groups|connected/<name>`, and every
+  folder with a rule of its own (the deepest), so a list's own path has the access of its files (`file-list/units.ts`).
+  Grep searches the lists first with the same ripgrep (a per-call copy in the data folder) and prints their lines like a
+  real file's. A real `_FILES.md` on disk stays a normal file; the AI's tools show the virtual one in its place where the
+  person has one, and the AI cannot write over it. Reading a list counts as reading its folder (read scope), never as an
+  answer's source.
+- **The line.** `path — type; names as written; date or period; what it is`, English. Validated in code: one line; no
+  control characters, `#`, `<>`, backticks, addresses, `@` or paths; `what` at most 120 characters; a text file's names
+  must be in its text word for word; a cleanup scrubber removes amounts, ID, account, phone and card numbers, emails,
+  passwords and 6+ digit runs outside the date field; personal records keep type, names and date only.
+- **The reader.** The team's engine through the launcher, the model proxy and the sandbox like a chat turn, with no tools
+  and one answer; Claude Code on `haiku` (a gateway's haiku model; none: no run), Codex on a nano or mini model (none: no
+  run), text only. **Team-wide AI accounts only**, never a person's own or assigned one, never the hosted trial; each
+  call is a turn of the owner (`turns.chat_id = 'file-list'`) so Admin › Usage counts it and block budgets stop it.
+  Calls hold files of one access unit only and are read back by their ids; the server's converters extract the text
+  (and reuse the search's fresh text cache); images only when the team sends images to the AI; camera photos without
+  OCR text get a metadata line.
+- **When.** Nightly 02:00–05:00 team time, at least every 30 h; a new server waits for its first night. Only new or
+  changed files (size, mtime, sha256); moves keep their line. A cap per run (1,500 files, 1,500,000 tokens; `server.json`
+  can change it), documents first and newest first; never while a person's chat turn waits or runs; a lease row keeps
+  one run at a time. Admins can start a run now (same cap).
+- **Owner's open questions, as constants** (`file-list/policy.ts`): personal folders are not read; Codex reads text
+  only; switching it off deletes the stored lines.
+- **Measured** on a local dev server (Claude Code, this Mac's sign-in): 323 made-up files uploaded, 231 read in one run
+  (23 calls, 170,669 input and 17,729 output tokens, USD 0.039, 3 min 35 s); 5 of 5 misplaced questions right (a scan
+  named `임시.pdf`, a bank-book photo `IMG_2031.jpg`, scans `스캔_0398.pdf` and `scan_0019.pdf`, `IMG_8812.jpg`) with 3
+  tool calls each, found by a team-wide grep that hit the list lines.
+- Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
+  to its own AI provider from the first night after the update (`changes/file-list.md` says so).
 
 ## Get the app: a phone without the app gets a store button on the join pages (feat/invite-get-the-app, 2026-11-11, product owner)
 
