@@ -21119,7 +21119,17 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   the route in the P4 matrix; web unit `home-no-ai`, `often-asked`, `team-prepared`; e2e `often-asked.spec.ts`.
 - Version impact: **minor** (a Home section, a team setting on by default, migration 285, two Home sections removed).
 
-## Follow-ups 11-12 — 한 가지 말로 "볼 수 있음 / 고칠 수 있음", Mac App Store 먼저, 읽기 카드는 읽는다고 (fix/followups-1112, 2026-11-12, QA TC-282..TC-285, TC-287)
+## Follow-ups 11-12 — 한 가지 말로 "볼 수 있음 / 고칠 수 있음", Mac App Store 먼저, 읽기 카드는 읽는다고 (fix/followups-1112, 2026-11-12, QA TC-281..TC-285, TC-287)
+
+- **Shared chats say "멤버"** (TC-281, after "Project contents only for members"). Sharing a chat, the shared chat's
+  lines, the copied link, a file saved into the project folder from a shared chat, the read and skill cards of a shared
+  chat and the server's refusals said "프로젝트 사람" ("people in the project") where the project's own screens say
+  "멤버": now "멤버 3명이 볼 수 있어요", "프로젝트 멤버와 공유", "Share with project members" in all five languages.
+  The count is the same number as before (who can see the chat); for a project made outside Projects that number also
+  holds the owner and admins, who see it there.
+- **`GET /api/questions/frequent` is removed** with `chat/frequent-questions.ts` and its schema: "My frequent
+  questions" left Home in "Home: what my group often asks" and nothing read it. The route coverage lists and the API
+  reference no longer name it; a request now gets 404 like any unknown address.
 
 - **Admin › Folder permissions speaks the panel's words** (TC-282). The access levels are "볼 수 있음 / 고칠 수 있음 /
   열 수 없음" ("Can view / Can edit / No access"), as in the Files page's "Who can open it" (#346), wherever Admin shows a

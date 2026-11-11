@@ -1,4 +1,4 @@
-// "프로젝트 사람들과 공유" (shared/src/api/chats.ts shareChat; docs/DECISIONS.md "Shared project chats", "An existing chat
+// "프로젝트 멤버와 공유" (shared/src/api/chats.ts shareChat; docs/DECISIONS.md "Shared project chats", "An existing chat
 // shared"): the creator of a private chat in a team project that shares its chats makes it a shared chat, after a
 // one-time check of what it contains. In a shared chat every read some of the project cannot see waits for the read
 // card first (chat/turn.ts confirmSharedRead); a private chat's earlier turns had no such card, so their visible answers

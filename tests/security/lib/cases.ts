@@ -194,7 +194,7 @@ export const SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's answer`)
       if (r.status < 300 && r.json?.status === 'confirm' && /erin|Erin/.test(r.text)) throw new Error(`the confirm answer names a member: ${r.text}`)
     } },
-  // "프로젝트 사람들과 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
+  // "프로젝트 멤버와 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
   // chat); it is in no project that shares chats, so even she is refused (409) and nothing is shared. A confirm, if one
   // came, names nobody
   shareChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/share`, {}), scope: 'own-alice-chat',

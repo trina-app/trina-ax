@@ -9,3 +9,5 @@
 - After the AI read a conversation, the card that asks before it reads from a connected service now says it wants to
   read something and asks to allow it, and shows "What it reads". It said "changes are asked first" and "What it sends".
 - The user guide's Mac install section starts with the Mac App Store; the installer file (.dmg) is the second way.
+- Shared project chats say **members**, as the project's own screens do: "3 members can see this chat", **Share with
+  project members**. They said "people in the project".

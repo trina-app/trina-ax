@@ -952,7 +952,7 @@ describe('a chat row\'s "…"', () => {
         expect(copied.at(-1)).toBe(`https://team.acme.example/c/${chat(n).id}`)
         expect(useUi.getState().toasts.at(-1)?.text).toBe(text)
       }
-      expect(ko('chat.linkCopiedShared', { n: 3 })).toBe('링크를 복사했어요 · 프로젝트 사람 3명이 열 수 있어요')
+      expect(ko('chat.linkCopiedShared', { n: 3 })).toBe('링크를 복사했어요 · 멤버 3명이 열 수 있어요')
       await m.settle(1600)
     } finally {
       if (nav) Object.defineProperty(globalThis, 'navigator', nav)

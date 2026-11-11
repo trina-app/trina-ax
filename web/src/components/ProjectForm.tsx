@@ -5,7 +5,7 @@
 // A new team project: its members (components/ProjectParticipants.tsx) and how many people will see it. An existing
 // one's members are changed in their own dialog (components/ProjectMembersDialog.tsx, docs/DECISIONS.md "Project
 // members in one panel"), not here; a project on another folder, made before, says on its page where. Editing a team
-// project: "이 프로젝트의 채팅을 프로젝트 사람들과 공유" (shared project chats) with what turning it on or off does. A
+// project: "이 프로젝트의 채팅을 프로젝트 멤버와 공유" (shared project chats) with what turning it on or off does. A
 // project whose folder is in the trash: admins may point it at an existing projects/<name>. One PATCH saves the edit.
 import { useEffect, useId, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
