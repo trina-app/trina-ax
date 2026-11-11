@@ -593,3 +593,8 @@ What differs from the plan, and why:
   it; a row made meanwhile is saved over with PUT; the folder row by its exact path; two clicks are one Save.
 - #339 (shared phone rows) was not merged: the panel uses the app's bottom sheet with 44 px controls; `CompactRow` when
   it lands.
+- Hands-on QA: Admin › Folder permissions' Save button said "1 person loses access" for read & write → read. Its Save
+  button and change summary now keep the outcomes apart ("can no longer open it / can no longer edit / can now open it
+  / can now edit"), and the panel's line says "…will no longer be able to edit it".
+- The confirm names who gains unseen (`latent` on the preview: people switched off, the groups, whoever joins the team),
+  and the check includes pairs of groups (second review rounds).
