@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 12:06
 - Branch: `fix/connection-refresh-race`
-- Status: in progress
+- Status: done
 - Where: `server/src/integrations/connections/service.ts`. Why: the token refresh of external connections lives there
   (see docs/REPOSITORY-RULES.md: AI connections are core)
 - Version impact: patch, a bug fix with no new behaviour or setting
@@ -48,3 +48,9 @@ and the other `c-integration*` tests.
 
 ## Result
 
+Built as planned. `oauthToken` calls `keepTokens` after every successful refresh: the tokens go onto the stored secret
+when its refresh token is still the one sent (only the token fields change), and nowhere else. The "connection changed"
+check moved after the await, so each caller that shared the refresh checks its own version. Two new tests in
+`tests/unit/c-integrations-oauth.test.ts`: a tool switched off during the refresh (the next call works with no new
+refresh, and the refresh after that too); the address moved during the refresh (nothing stored). The first test failed
+before the fix (the used refresh token stayed stored).
