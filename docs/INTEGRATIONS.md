@@ -17,6 +17,13 @@ can set the client up there. These connections are the other direction from the 
 `server/src/connectors/remote-mcp` (outside AI apps such as Claude using this server's files), which are Settings › AI
 apps and Admin › AI apps.
 
+Gmail, Google Calendar, Google Docs and Google Sheets are built-in connectors too
+([GOOGLE-APPS.md](GOOGLE-APPS.md)): a card each, one Google sign-in per app, the tools of the Google Workspace MCP
+server this server runs on 127.0.0.1. Each person's connection is a personal row here with `google_app` set: every rule
+below (sealed tokens, the write card, scheduled runs, per-tool switches, audit) applies, except that it is hidden from
+this list and its own page manages it, it may be set to Always allow by its owner, and its calls go only to that local
+server.
+
 ## App connectors (the other direction)
 
 A person can connect their own Claude (Claude Code, Claude Desktop, claude.ai) to this server as a remote MCP server

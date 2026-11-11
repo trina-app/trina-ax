@@ -28,7 +28,7 @@ test('only admins see or change the setup; a member gets 403 and nothing is writ
   expect((await bob.try('PUT', '/api/admin/google-drive/client', { clientId: 'x', clientSecret: SECRET })).status).toBe(403)
   expect(fs.existsSync(path.join(clientDir(h), 'client.json'))).toBe(false)
   const s = (await ada.try('GET', '/api/admin/google-drive')).body
-  expect(s).toEqual({ configured: false, source: 'none', canSetUp: true, blocked: null, redirectUri: REDIRECT, connectedMembers: 0, membersCanConnect: false, sharesOn: 0 })
+  expect(s).toEqual({ configured: false, source: 'none', canSetUp: true, blocked: null, redirectUri: REDIRECT, connectedMembers: 0, membersCanConnect: true, sharesOn: 0 })
 })
 
 test('an admin sets it up with the downloaded file: a private client.json, members can connect, the tools are offered, the secret never comes back', async () => {
@@ -45,7 +45,7 @@ test('an admin sets it up with the downloaded file: a private client.json, membe
 
   const r = await owner.try('PUT', '/api/admin/google-drive/client', { file: webClient([REDIRECT, 'https://other.example/cb']) })
   expect(r.status).toBe(200)
-  expect(r.body).toEqual({ configured: true, source: 'app', canSetUp: true, blocked: null, redirectUri: REDIRECT, connectedMembers: 0, membersCanConnect: false, sharesOn: 0 })
+  expect(r.body).toEqual({ configured: true, source: 'app', canSetUp: true, blocked: null, redirectUri: REDIRECT, connectedMembers: 0, membersCanConnect: true, sharesOn: 0 })
   const file = path.join(clientDir(h), 'client.json')
   const st = fs.statSync(file)
   expect(st.mode & 0o777).toBe(0o600)
@@ -54,7 +54,10 @@ test('an admin sets it up with the downloaded file: a private client.json, membe
 
   // members now see Drive is there, and the AI is offered its tools, without a restart; connecting their own waits
   // for the admin's switch (a client alone turns nothing on)
-  expect((await bob.try('GET', '/api/integrations/google-drive')).body).toMatchObject({ configured: true, status: 'disconnected', personalAllowed: false })
+  // (a new team lets members connect their own; an admin who turns it off stops that)
+  expect((await bob.try('GET', '/api/integrations/google-drive')).body).toMatchObject({ configured: true, status: 'disconnected', personalAllowed: true })
+  expect((await owner.try('PUT', '/api/admin/google-drive/members', { on: false })).body).toMatchObject({ membersCanConnect: false })
+  expect((await bob.try('GET', '/api/integrations/google-drive')).body).toMatchObject({ personalAllowed: false })
   expect((await bob.try('POST', '/api/integrations/google-drive/authorize', {})).status).toBe(403)
   expect((await bob.try('PUT', '/api/admin/google-drive/members', { on: true })).status).toBe(403)
   expect((await owner.try('PUT', '/api/admin/google-drive/members', { on: true })).body).toMatchObject({ membersCanConnect: true })
