@@ -399,12 +399,10 @@ export class ChatRuntime {
 
   /** A turn opened its first card (it waits for a person): its slot goes to the next answer. Its engine stays up, idle
    * on the tool call: the card's own time limit and the wall limit still end it. A turn that was waiting for a slot
-   * after an answer and opened another card (a tool running beside it) waits for the person again: it leaves the line,
-   * and what it was given stays held until it has a slot. */
+   * after an answer and opened another card (a tool running beside it) waits for the person again: it keeps its place
+   * in line (grantResumes passes it by while a card is open), and what it was given stays held until it has a slot. */
   turnWaiting(exec: TurnExec) {
     if (this.running.get(exec.id) !== exec || this.quarantined.has(exec.id) || exec.stopReason) return
-    const r = this.resuming.indexOf(exec.id)
-    if (r >= 0) { this.resuming.splice(r, 1); return }
     if (this.parked.has(exec.id)) return
     this.parked.add(exec.id)
     // after the card is shown (never inside the tool call that opens it)
@@ -436,10 +434,14 @@ export class ChatRuntime {
   /** Answered turns take free slots first, oldest answer first (no memory check: their engine is already up). */
   private grantResumes() {
     const limit = this.concurrency()
-    while (this.resuming.length && this.slotsInUse() < limit) {
-      const id = this.resuming.shift()!
+    for (let i = 0; i < this.resuming.length && this.slotsInUse() < limit;) {
+      const id = this.resuming[i]!
       const exec = this.running.get(id)
-      if (!exec || !this.parked.delete(id)) continue
+      if (!exec || !this.parked.has(id)) { this.resuming.splice(i, 1); continue }
+      // a card of it is open again: it waits for the person, in its place
+      if (exec.waitingForPerson) { i++; continue }
+      this.resuming.splice(i, 1)
+      this.parked.delete(id)
       try { exec.resumeAnswers() } catch (err) { this.log.error('resuming an answered turn failed', { err, turn: id }) }
     }
   }
@@ -485,7 +487,7 @@ export class ChatRuntime {
     this.memoryCheckedAt = Date.now()
     this.dispatchRetry = false
     // answered turns waiting for a slot (grantResumes above) go before every queued answer
-    while (!this.resuming.length && this.slotsInUse() < room && this.queued.length) {
+    while (!this.resuming.some((id) => !this.running.get(id)?.waitingForPerson) && this.slotsInUse() < room && this.queued.length) {
       const busy = new Set([...this.running.values()].map((e) => e.spec.chatId))
       const head = selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
       if (!head) break
