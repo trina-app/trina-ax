@@ -174,6 +174,115 @@ export async function activityLog(app: ElectronApplication) {
 /** The browser tab view (web contents of the pane's active tab) whose URL matches. */
 export const tabPage = (app: ElectronApplication, match: (url: string) => boolean) => view(app, match)
 
+type Box = { x: number; y: number; width: number; height: number }
+export interface PaneViews {
+  /** the window's content size */
+  content: { width: number; height: number }
+  /** the team page's view */
+  page: Box | null
+  /** the browser toolbar's view (it reaches the grab strip over the team page's edge) */
+  toolbar: Box | null
+  /** the active tab's view, and whether it is drawn */
+  tab: (Box & { visible: boolean; url: string }) | null
+}
+
+/** Where the window's views are now (main/app-window.ts layout, main/pane/pane.ts layout). */
+export function paneViews(app: ElectronApplication, origin = ACME): Promise<PaneViews> {
+  return app.evaluate(({ BaseWindow }, teamOrigin) => {
+    const win = BaseWindow.getAllWindows().find((w) => w.contentView.children.length > 0)!
+    const [width, height] = win.getContentSize()
+    const kids = win.contentView.children as (Electron.View & { webContents?: Electron.WebContents })[]
+    const url = (v: (typeof kids)[number]) => (v.webContents && !v.webContents.isDestroyed() ? v.webContents.getURL() : '')
+    const page = kids.find((v) => url(v).startsWith(teamOrigin))
+    const toolbar = kids.find((v) => url(v).endsWith('/pane.html'))
+    const tab = kids.find((v) => v !== page && v.webContents && !url(v).startsWith('mycel-ui:') && !url(v).startsWith(teamOrigin))
+    return {
+      content: { width, height },
+      page: page ? page.getBounds() : null,
+      toolbar: toolbar ? toolbar.getBounds() : null,
+      tab: tab ? { ...tab.getBounds(), visible: tab.getVisible(), url: url(tab) } : null,
+    }
+  }, origin)
+}
+
+/**
+ * The person drags the edge between the team page and the browser so that it ends at `edgeX` (window content
+ * coordinates), as the system does it: the toolbar's view gets the keyboard on the press, then the press, the moves
+ * (screen coordinates in globalX) and the release reach its page. `release: false` stops before the release.
+ */
+export async function dragEdge(app: ElectronApplication, edgeX: number, o: { release?: boolean; steps?: number } = {}) {
+  await app.evaluate(async ({ BaseWindow }, { target, release, steps }) => {
+    const win = BaseWindow.getAllWindows().find((w) => w.contentView.children.length > 0)!
+    const content = win.getContentBounds()
+    const toolbar = (win.contentView.children as (Electron.View & { webContents?: Electron.WebContents })[]).find((v) => v.webContents?.getURL().endsWith('/pane.html'))!
+    const b = toolbar.getBounds()
+    const wc = toolbar.webContents!
+    // the press 3 px into the 6 px grab strip, half way down: 3 px left of the edge
+    const x0 = 3
+    const y = Math.round(b.height / 2)
+    const gy = content.y + b.y + y
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    wc.focus()
+    wc.sendInputEvent({ type: 'mouseDown', x: x0, y, globalX: content.x + b.x + x0, globalY: gy, button: 'left', clickCount: 1 })
+    const from = b.x + x0
+    const to = target - 3
+    for (let i = 1; i <= steps; i++) {
+      const px = Math.round(from + ((to - from) * i) / steps)
+      const now = toolbar.getBounds()
+      wc.sendInputEvent({ type: 'mouseMove', x: px - now.x, y, globalX: content.x + px, globalY: gy, button: 'left', modifiers: ['leftbuttondown'] })
+      await wait(40)
+    }
+    if (release) {
+      const now = toolbar.getBounds()
+      wc.sendInputEvent({ type: 'mouseUp', x: to - now.x, y, globalX: content.x + to, globalY: gy, button: 'left', clickCount: 1 })
+      await wait(80)
+    }
+  }, { target: edgeX, release: o.release ?? true, steps: o.steps ?? 8 })
+}
+
+/**
+ * A picture of the whole app window as the person sees it, saved as PNG:the window is a BaseWindow of separate views
+ * (team page, browser toolbar, browser tab, ...), and Electron draws each on its own, so each view is captured and they
+ * are laid over each other in their order and place, on the window's background colour. For review screenshots only.
+ */
+export async function windowShot(app: ElectronApplication, file: string) {
+  const png = await app.evaluate(async ({ BaseWindow, BrowserWindow }) => {
+    const win = BaseWindow.getAllWindows().find((w) => w.getTitle() !== 'away' && w.contentView.children.length > 0)!
+    const [width, height] = win.getContentSize()
+    const layers: { x: number; y: number; w: number; h: number; url: string }[] = []
+    for (const v of win.contentView.children as (Electron.View & { webContents?: Electron.WebContents })[]) {
+      if (!v.webContents || v.webContents.isDestroyed() || !v.getVisible()) continue
+      const b = v.getBounds()
+      if (b.width <= 0 || b.height <= 0) continue
+      const img = await v.webContents.capturePage()
+      if (!img.isEmpty()) layers.push({ x: b.x, y: b.y, w: b.width, h: b.height, url: img.toDataURL() })
+    }
+    const canvas = new BrowserWindow({ show: false, width: 200, height: 200 })
+    try {
+      await canvas.loadURL('about:blank')
+      return (await canvas.webContents.executeJavaScript(`(async () => {
+        const width = ${width}, height = ${height}, scale = 2, layers = ${JSON.stringify(layers)}
+        const c = document.createElement('canvas')
+        c.width = width * scale
+        c.height = height * scale
+        const g = c.getContext('2d')
+        g.fillStyle = ${JSON.stringify(win.getBackgroundColor())}
+        g.fillRect(0, 0, c.width, c.height)
+        for (const l of layers) {
+          const img = new Image()
+          img.src = l.url
+          await img.decode()
+          g.drawImage(img, l.x * scale, l.y * scale, l.w * scale, l.h * scale)
+        }
+        return c.toDataURL('image/png')
+      })()`)) as string
+    } finally {
+      canvas.destroy()
+    }
+  })
+  writeFileSync(file, Buffer.from(png.split(',')[1]!, 'base64'))
+}
+
 /** Quit the app; kill it when quitting hangs (a stuck app must not keep talking to the fake servers). */
 export async function close(app: ElectronApplication | undefined) {
   if (!app) return

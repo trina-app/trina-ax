@@ -72,13 +72,30 @@ export const addNamed = (d: Draft, n: Omit<Named, 'access'>, access: Access = 'r
 export const setNamed = (d: Draft, i: number, access: Access): Draft => ({ ...d, named: d.named.map((x, j) => (j === i ? { ...x, access } : x)) })
 export const removeNamed = (d: Draft, i: number): Draft => ({ ...d, named: d.named.filter((_, j) => j !== i) })
 
-/** What the Save button says, from the answer for this draft: how many people lose and gain access. */
-export type SaveImpact = { kind: 'none' } | { kind: 'less'; n: number } | { kind: 'more'; n: number } | { kind: 'both'; less: number; more: number }
-export function saveImpact(p: Pick<FolderEditPreview, 'less' | 'more'>): SaveImpact {
-  if (p.less && p.more) return { kind: 'both', less: p.less, more: p.more }
-  if (p.less) return { kind: 'less', n: p.less }
-  if (p.more) return { kind: 'more', n: p.more }
-  return { kind: 'none' }
+/** What a change does to people, kept apart (an edit that becomes view only is not losing access): how many can no
+ * longer open it, can no longer edit it, can now open it, can now edit it. From the server's `changes` for this draft
+ * (the folder itself; the rule folders below are said apart). */
+export interface Outcomes { loseOpen: number; loseEdit: number; gainOpen: number; gainEdit: number }
+export function outcomesOf(changes: readonly Pick<FolderEditPreview['changes'][number], 'before' | 'after' | 'count'>[]): Outcomes {
+  const o: Outcomes = { loseOpen: 0, loseEdit: 0, gainOpen: 0, gainEdit: 0 }
+  for (const c of changes) {
+    if (c.after === 'none') o.loseOpen += c.count
+    else if (c.before === 'none') o.gainOpen += c.count
+    else if (c.before === 'write') o.loseEdit += c.count
+    else o.gainEdit += c.count
+  }
+  return o
+}
+
+type Say = (key: 'accessEdit.outLoseOpen' | 'accessEdit.outLoseEdit' | 'accessEdit.outGainOpen' | 'accessEdit.outGainEdit', params: { n: number }) => string
+/** The outcomes in words, losses first: "2 can no longer open it", "1 can no longer edit", "3 can now open it". */
+export function outcomeWords(say: Say, o: Outcomes): string[] {
+  const out: string[] = []
+  if (o.loseOpen) out.push(say('accessEdit.outLoseOpen', { n: o.loseOpen }))
+  if (o.loseEdit) out.push(say('accessEdit.outLoseEdit', { n: o.loseEdit }))
+  if (o.gainOpen) out.push(say('accessEdit.outGainOpen', { n: o.gainOpen }))
+  if (o.gainEdit) out.push(say('accessEdit.outGainEdit', { n: o.gainEdit }))
+  return out
 }
 
 /** The choices of the basic access a folder offers: no "follow" at the team root (nothing is above it); no "everyone

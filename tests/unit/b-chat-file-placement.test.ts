@@ -195,7 +195,7 @@ describe('the note in a chat turn', () => {
     const sent2 = await h.api('alice').call(API.sendMessage, { params: { id: c2 }, body: { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: fake(
       { tool: 'move_files', args: { paths: ['users/alice/견적/acme2/quote.html'], to_folder: 'shared/Sales/Quotes/acme2' }, sayResult: true }) } })
     const card2 = await socks.alice!.next('turn.request', (f) => f.data.turnId === sent2.turnId)
-    expect((card2.data.request as { question: string }).question).toMatch(/새로 만들 shared\/Sales\/Quotes\/acme2 폴더|shared\/Sales\/Quotes\/acme2, a new folder/)
+    expect((card2.data.request as { question: string }).question).toMatch(/새로 만들 전사 공유 › Sales › Quotes › acme2 폴더|Company-wide › Sales › Quotes › acme2, a new folder/)
     await h.api('alice').call(API.answerTurn, { params: { id: sent2.turnId }, body: { kind: 'ask_user', requestId: card2.data.request.requestId, answer: 'allow' } })
     const done2 = await socks.alice!.next('message.done', (f) => f.data.messageId === sent2.assistantMessage.id, 30_000)
     expect(done2.data.message.content).toContain('Made the new folder shared/Sales/Quotes/acme2.')

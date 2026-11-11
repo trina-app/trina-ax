@@ -69,8 +69,8 @@ describe('make_file: embedded images are sources of the new file', () => {
     const r = await turn(fake({ tool: 'make_file', args: { format: 'docx', content: '# Q update\n\n![chart](groups/finance/secret-chart.png)\n', output: 'shared/q-update.docx' }, sayResult: true }), 'skip')
     expect(r.cards.length).toBe(1)
     expect(r.cards[0]!.origin).toBe('server')
-    expect(r.cards[0]!.question).toContain('groups/finance/')
-    expect(r.cards[0]!.question).toContain('shared/q-update.docx')
+    expect(r.cards[0]!.question).toContain('부서 › finance')
+    expect(r.cards[0]!.question).toContain('전사 공유 › q-update.docx')
     expect(r.content).toContain('did not allow saving')
     expect(exists('shared/q-update.docx')).toBe(false)
     // the image joined the chat's read scope, so later saves in this chat take it into account
@@ -94,7 +94,7 @@ describe('make_file: embedded images are sources of the new file', () => {
     }
     expect(r.content).toContain('did not allow saving')
     expect(r.cards.length).toBe(1)
-    expect(r.cards[0]!.question).toContain('groups/finance/')
+    expect(r.cards[0]!.question).toContain('부서 › finance')
   })
 
   test('a missing converter: Homebrew advice on a Mac only; a Linux server gets it with its bundle', () => {
@@ -110,7 +110,7 @@ describe('make_file: embedded images are sources of the new file', () => {
     fs.writeFileSync(path.join(h.team, 'shared/outline.md'), '# Outline\n\n![c](../groups/finance/secret-chart.png)\n')
     const r = await turn(fake({ tool: 'make_file', args: { format: 'docx', source: 'shared/outline.md', output: 'shared/outline.docx' }, sayResult: true }), 'skip')
     expect(r.cards.length).toBe(1)
-    expect(r.cards[0]!.question).toContain('groups/finance/')
+    expect(r.cards[0]!.question).toContain('부서 › finance')
     expect(exists('shared/outline.docx')).toBe(false)
   })
 
@@ -136,7 +136,7 @@ describe('make_file: embedded images are sources of the new file', () => {
       { tool: 'make_file', args: { format: 'docx', content: '# Me\n\n![me](users/bob/private.png)\n', output: 'shared/me.docx' }, sayResult: true },
     ), 'save')
     expect(r.cards.length).toBe(2)
-    expect(r.cards[0]!.question).toContain('groups/finance/')
+    expect(r.cards[0]!.question).toContain('부서 › finance')
     expect(r.cards[0]!.question).not.toContain('내 개인 폴더')
     expect(r.cards[1]!.question).toContain('내 개인 폴더') // bob's locale is Korean: "my personal folder"
     expect(exists('shared/me.docx')).toBe(true)

@@ -110,8 +110,8 @@ export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 
 /** What a server check is about to let out, shown in full (docs/DECISIONS.md "Outbound web channels"): what a connected
  * service is sent, a scheduled task's instruction and the addresses it may open. `fields` (who receives it: to, channel,
- * repo, address …) come first; the whole `text` is shown, scrollable, with its size; `marks` are long random-looking
- * parts of it (they can carry data in an address) to highlight. */
+ * repo, address …) come first; the whole `text` is shown, scrollable, with its size (one click away with `exact`);
+ * `marks` are long random-looking parts of it (they can carry data in an address) to highlight. */
 export const ConfirmDetail = z.object({
   label: z.string(),
   text: z.string(),
@@ -119,6 +119,10 @@ export const ConfirmDetail = z.object({
   collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
+  /** `fields` show every value of `text` in full, each under a name in words (a connected service's call: "받는 사람",
+   * "제목"), and `text` is its exact form (the call's JSON): the card shows the fields and puts the text one click away
+   * ("보내는 내용 그대로 보기"), the marks highlighted in both. A client that does not know this shows the text as before. */
+  exact: z.literal(true).optional(),
   /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
    * (QA TC-091: "23 characters" counted the letters of a path) */
   noSize: z.boolean().optional(),
