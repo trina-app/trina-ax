@@ -16,6 +16,37 @@ const invalid = () => new OAuthError('invalid_grant')
 const string = (v: unknown, max = 2048): string => { if (typeof v !== 'string' || !v || v.length > max) throw new OAuthError('invalid_request'); return v }
 const iso = (v: number) => new Date(v).toISOString()
 
+/**
+ * Limits of the connector's own OAuth server (mutable for tests). perAddress: [window ms, requests] per client
+ * address (an IPv6 address counts by its /64) for each anonymous area. Registration comes from the apps' servers
+ * (Claude, ChatGPT), so one of their addresses carries many people's: 60 an hour is room for a team connecting at
+ * once. One authorize makes at most one pending request, so 60 per 10 minutes is also the pending requests per address.
+ */
+export const OAUTH_LIMITS: {
+  perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; mcpPerGrantPerMinute: number
+  clients: number; idleClientMs: number; pending: number; pendingPerClient: number
+} = {
+  perAddress: { register: [[60_000, 12], [3600_000, 60]], authorize: [[60_000, 180], [600_000, 60]], default: [[60_000, 180]] },
+  anonymousPerMinute: 2400, mcpPerGrantPerMinute: 300,
+  clients: 2000, idleClientMs: 60 * 60_000, pending: 2000, pendingPerClient: 10,
+}
+/** A registered app that has no connection and no sign-in in progress: removed after OAUTH_LIMITS.idleClientMs, or
+ * sooner, oldest first, when the table is full. An app that got a grant keeps its id while the grant lasts. */
+const IDLE_CLIENT = 'id NOT IN (SELECT client_id FROM remote_mcp_grants) AND id NOT IN (SELECT client_id FROM remote_mcp_requests)'
+/** The rate key of a client address: IPv4 as is (also when IPv4-mapped), IPv6 by its /64 (one host usually holds a
+ * whole /64, so counting single addresses would not limit it). The address comes from the socket, the relay or the
+ * office tunnel (http/middleware.ts), never from a header the client sent. */
+export function ipKey(ip: string | null): string {
+  if (!ip) return 'unknown'
+  const v = ip.split('%')[0]!.toLowerCase()
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v)
+  if (mapped) return mapped[1]!
+  if (!v.includes(':')) return v
+  const [head = '', tail] = v.split('::'), h = head ? head.split(':') : [], t = tail ? tail.split(':') : []
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t]
+  return groups.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64'
+}
+
 /** An active owner or admin right now (the users table, not the role when a grant was made). mcp:admin needs this. */
 export function isTeamAdmin(db: Database, userId: string): boolean {
   return !!db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL AND role IN ('owner','admin')").get(userId)
@@ -57,24 +88,40 @@ export class RemoteOAuth {
       authorization_response_iss_parameter_supported: true }
   }
   protectedMetadata() { return { resource: this.resource(), authorization_servers: [this.enabled()], scopes_supported: [...SCOPES], bearer_methods_supported: ['header'], resource_name: `${PRODUCT.displayName} files` } }
-  /** Durable hashed identities, bounded by both a global bucket and per-transport/client buckets. */
+  /** Durable hashed identities. `window`: a whole number of minutes; the row keeps the minute its window ends, so
+   * housekeep() can drop finished windows of any length. */
   rate(area: string, identity: string, limit: number, window = 60_000) {
-    const bucket = Math.floor(this.now() / window), key = hash(area + '\0' + identity)
+    const bucket = (Math.floor(this.now() / window) + 1) * (window / 60_000), key = hash(area + '\0' + identity)
     const count = this.db.query(`INSERT INTO remote_mcp_limits(key,bucket,count) VALUES(?,?,1)
       ON CONFLICT(key) DO UPDATE SET bucket=excluded.bucket,count=CASE WHEN bucket=excluded.bucket THEN count+1 ELSE 1 END RETURNING count`).get(key, bucket) as { count: number }
     if (count.count > limit) throw new OAuthError('slow_down', 429)
   }
-  ingress(area: string, ip: string | null) {
+  /**
+   * A request no credential vouches for yet: the address's own buckets first (an address over its limit does not
+   * spend the shared one), then one server-wide bucket. `shared: false`: only the address's buckets (upload links,
+   * whose one-time token is checked right after). An /mcp call with a live access token goes through granted() instead.
+   */
+  ingress(area: string, ip: string | null, o: { shared?: boolean } = {}) {
     this.enabled()
-    this.rate('global', 'all', 2400)
-    this.rate(area, ip ?? 'unknown', area === 'register' ? 12 : 180)
+    const who = ipKey(ip)
+    for (const [window, limit] of OAUTH_LIMITS.perAddress[area] ?? OAUTH_LIMITS.perAddress.default!) this.rate(window === 60_000 ? area : `${area}@${window}`, who, limit, window)
+    if (o.shared !== false) this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute)
+    this.housekeep()
+  }
+  /** An /mcp call with a live access token: its grant's own bucket, never the anonymous ones, so unauthenticated
+   * traffic cannot stop a connected person's tool calls. */
+  granted(g: Grant) {
+    this.rate('mcp-grant', g.id, OAUTH_LIMITS.mcpPerGrantPerMinute)
+    this.housekeep()
+  }
+  private housekeep() {
     // Fixed-size lifetime for attacker-controlled keys: this table never contains raw IPs or tokens.
-    this.db.query('DELETE FROM remote_mcp_limits WHERE bucket < ?').run(Math.floor(this.now() / 60_000) - 2)
+    this.db.query('DELETE FROM remote_mcp_limits WHERE bucket < ?').run(Math.floor(this.now() / 60_000) - 1)
     this.db.query('DELETE FROM remote_mcp_requests WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_upload_links WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_grants WHERE expires_at <= ?').run(this.now())
     pruneScopes(this.db, this.now())
-    this.db.query('DELETE FROM remote_mcp_clients WHERE last_used_at < ? AND id NOT IN (SELECT client_id FROM remote_mcp_grants) AND id NOT IN (SELECT client_id FROM remote_mcp_requests)').run(this.now() - GRANT_MS)
+    this.db.query(`DELETE FROM remote_mcp_clients WHERE last_used_at < ? AND ${IDLE_CLIENT}`).run(this.now() - OAUTH_LIMITS.idleClientMs)
   }
   register(body: Record<string, unknown>) {
     this.enabled()
@@ -83,7 +130,11 @@ export class RemoteOAuth {
     if (body.token_endpoint_auth_method !== undefined && body.token_endpoint_auth_method !== 'none') throw new OAuthError('invalid_client_metadata')
     if (body.grant_types !== undefined && (!Array.isArray(body.grant_types) || body.grant_types.some(v => !['authorization_code', 'refresh_token'].includes(v)))) throw new OAuthError('invalid_client_metadata')
     if (body.response_types !== undefined && (!Array.isArray(body.response_types) || body.response_types.some(v => v !== 'code'))) throw new OAuthError('invalid_client_metadata')
-    if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_clients').get() as { n: number }).n >= 2000) throw new OAuthError('temporarily_unavailable', 503)
+    // Full: the longest-idle clients that never got a grant and have no request in progress make room (oldest first),
+    // so registrations from many addresses cannot lock out the next real app.
+    const clients = (this.db.query('SELECT count(*) AS n FROM remote_mcp_clients').get() as { n: number }).n
+    if (clients >= OAUTH_LIMITS.clients) this.db.query(`DELETE FROM remote_mcp_clients WHERE id IN (SELECT id FROM remote_mcp_clients WHERE ${IDLE_CLIENT} ORDER BY last_used_at, created_at LIMIT ?)`).run(clients - OAUTH_LIMITS.clients + 1)
+    if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_clients').get() as { n: number }).n >= OAUTH_LIMITS.clients) throw new OAuthError('temporarily_unavailable', 503)
     const name = body.client_name === undefined ? 'MCP app' : string(body.client_name, 80)
     if (/[\x00-\x1f\x7f<>]/.test(name)) throw new OAuthError('invalid_client_metadata')
     const id = secret('tax_client_'), unique = [...new Set(redirects as string[])]
@@ -103,7 +154,12 @@ export class RemoteOAuth {
     if (!resourceMatches(origin, body.resource)) throw new OAuthError('invalid_target')
     if (body.state !== undefined && (typeof body.state !== 'string' || body.state.length > 1024)) throw new OAuthError('invalid_request')
     this.rate('authorize-client', c.id, 60)
-    if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_requests').get() as { n: number }).n >= 2000) throw new OAuthError('temporarily_unavailable', 503)
+    const mine = this.db.query('SELECT count(*) AS n FROM remote_mcp_requests WHERE client_id=? AND expires_at>?').get(c.id, this.now()) as { n: number }
+    if (mine.n >= OAUTH_LIMITS.pendingPerClient) throw new OAuthError('slow_down', 429)
+    // Full: the oldest requests nobody has opened yet make room (one a person opened is kept until it expires).
+    const pending = (this.db.query('SELECT count(*) AS n FROM remote_mcp_requests').get() as { n: number }).n
+    if (pending >= OAUTH_LIMITS.pending) this.db.query('DELETE FROM remote_mcp_requests WHERE id IN (SELECT id FROM remote_mcp_requests WHERE user_id IS NULL ORDER BY expires_at LIMIT ?)').run(pending - OAUTH_LIMITS.pending + 1)
+    if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_requests').get() as { n: number }).n >= OAUTH_LIMITS.pending) throw new OAuthError('temporarily_unavailable', 503)
     const id = secret()
     this.db.query('INSERT INTO remote_mcp_requests VALUES(?,?,?,?,?,?,?,?,?,?)').run(id, c.id, redirect, body.code_challenge, body.state as string ?? null, JSON.stringify(scopes(body.scope)), this.resource(), null, null, this.now() + REQUEST_MS)
     return origin + '/connectors/authorize?id=' + id

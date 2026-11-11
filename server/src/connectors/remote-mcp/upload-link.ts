@@ -97,7 +97,7 @@ const scopesOf = (g: Grant) => JSON.parse(g.scopes) as string[]
 export async function linkUpload(ctx: AppContext, request: Request, token: string, ip: string | null, oauth: RemoteOAuth = remoteOAuthOf(ctx)): Promise<Response> {
   let tmp: string | null = null
   try {
-    oauth.ingress('upload', ip)
+    oauth.ingress('upload', ip, { shared: false }) // the one-time token is the auth: an anonymous flood elsewhere must not stop it
     const origin = request.headers.get('origin')
     // curl sends no Origin. A browser page on another site must not use a link it saw.
     if (origin !== null && origin !== oauth.origin) return reply({ error: 'access_denied' }, 403)

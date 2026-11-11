@@ -3,11 +3,12 @@ import path from 'node:path'
 import { afterEach, expect, test } from 'bun:test'
 import { buildApp } from '../../server/src/app'
 import { remoteMcpRoutes } from '../../server/src/routes/remote-mcp'
-import { remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
+import { OAUTH_LIMITS, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
 import { challenge } from '../../server/src/connectors/remote-mcp/policy'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 const live: Harness[] = []
-afterEach(async () => { for (const h of live.splice(0)) await h.close() })
+const limits = structuredClone(OAUTH_LIMITS)
+afterEach(async () => { Object.assign(OAUTH_LIMITS, structuredClone(limits)); for (const h of live.splice(0)) await h.close() })
 const base = 'https://team.example', redirect = 'https://claude.ai/api/mcp/auth_callback', verifier = 'z'.repeat(43)
 async function fixture(name: string) {
   const h = await harness('remote-http-' + name); live.push(h)
@@ -15,7 +16,8 @@ async function fixture(name: string) {
   for (const [key, module] of h.ctx.implemented) if (module === 'remote-mcp') h.ctx.implemented.delete(key)
   const app = await buildApp(h.ctx, [remoteMcpRoutes]), oauth = remoteOAuthOf(h.ctx, { origin: base })
   // The synthetic login is a dev HTTP cookie; canonical public issuer remains independently configured HTTPS.
-  const fetch = (path: string, init: RequestInit = {}) => app.fetch(new Request('http://team.localhost' + path, init), { ip: '10.0.0.7', via: 'test' })
+  const from = (ip: string, path: string, init: RequestInit = {}) => app.fetch(new Request('http://team.localhost' + path, init), { ip, via: 'test' })
+  const fetch = (path: string, init: RequestInit = {}) => from('10.0.0.7', path, init)
   const api = (method: string, path: string, data?: unknown, cookie = owner.cookie!, csrf = true) => fetch(path, { method, headers: { cookie, 'content-type': 'application/json', ...(csrf ? { 'x-mycel-csrf': '1' } : {}) }, body: data === undefined ? undefined : JSON.stringify(data) })
   const post = (path: string, data: unknown) => fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) })
   const register = await post('/oauth/register', { redirect_uris: [redirect], client_name: 'Synthetic Claude' }), client = await register.json() as any
@@ -28,7 +30,7 @@ async function fixture(name: string) {
     return await response.json() as any
   }
   const rpc = (token: string, body: unknown, headers: Record<string, string> = {}) => fetch('/mcp', { method: 'POST', headers: { authorization: 'Bearer ' + token, accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })
-  return { h, owner, oauth, fetch, api, post, client, authorize, issue, rpc }
+  return { h, owner, oauth, from, fetch, api, post, client, authorize, issue, rpc }
 }
 
 test('discovery uses configured issuer, never hostile host; public responses and authorization redirects are no-store', async () => {
@@ -196,4 +198,52 @@ test('Codex CLI and ChatGPT as clients: iss support advertised, their registrati
   expect((await f.rpc(chatgpt.tokens.access_token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { origin: 'https://chatgpt.com.evil.invalid' })).status).toBe(403)
   // still nothing else: another ChatGPT path, a per-connection loopback path
   for (const uri of ['https://chatgpt.com/connector/oauth/abc', 'http://127.0.0.1:53123/callback/abc']) expect((await f.post('/oauth/register', { redirect_uris: [uri] })).status).toBe(400)
+})
+
+test('registration flood from one address: it is slowed down, an app from another address still registers', async () => {
+  const f = await fixture('register-flood'), start = Date.now()
+  const register = (ip: string, headers: Record<string, string> = {}) => f.from(ip, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ redirect_uris: [redirect] }) })
+  let ok = 0
+  // 12 a minute and 60 an hour per address; a client-sent X-Forwarded-For changes nothing
+  for (let minute = 0; minute < 8; minute++) {
+    f.oauth.now = () => start + minute * 60_000
+    for (let i = 0; i < 14; i++) if ((await register('203.0.113.9', { 'x-forwarded-for': `198.51.100.${i}` })).status === 201) ok++
+  }
+  expect(ok).toBe(60)
+  expect((await register('203.0.113.9')).status).toBe(429)
+  // another address in the same /64 is the same sender; a different one is not
+  for (let i = 0; i < 12; i++) expect((await register(`2001:db8:1:2::${i + 1}`)).status).toBe(201)
+  expect((await register('2001:db8:1:2:ffff::1')).status).toBe(429)
+  expect((await register('198.51.100.20')).status).toBe(201)
+})
+
+test('an anonymous flood fills the shared bucket; a connected person\'s tool calls still go through', async () => {
+  const f = await fixture('anonymous-flood'), { access_token: token } = await f.issue()
+  OAUTH_LIMITS.anonymousPerMinute = 30
+  const anonymous = (ip: string) => f.from(ip, '/mcp', { method: 'POST', headers: { authorization: 'Bearer tax_mcp_a_' + 'x'.repeat(43), accept: 'application/json, text/event-stream', 'content-type': 'application/json' }, body: '{}' })
+  const statuses: number[] = []
+  for (let i = 0; i < 40; i++) statuses.push((await anonymous(`192.0.2.${i}`)).status)
+  // the fixture's own sign-in used a few of the 30
+  expect(statuses[0]).toBe(401)
+  expect(statuses.slice(30).every(s => s === 429)).toBe(true)
+  // the shared bucket is full for everyone without a token, also on the OAuth endpoints
+  expect((await f.from('192.0.2.200', '/.well-known/oauth-authorization-server')).status).toBe(429)
+  // the connected person's calls have their grant's own bucket
+  for (let id = 1; id <= 5; id++) {
+    const res = await f.rpc(token, { jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'list', arguments: { path: '' } } })
+    expect(res.status).toBe(200)
+    expect((await res.json() as any).result.isError).toBeFalsy()
+  }
+  OAUTH_LIMITS.mcpPerGrantPerMinute = 6
+  expect((await f.rpc(token, { jsonrpc: '2.0', id: 9, method: 'ping' })).status).toBe(200)
+  expect((await f.rpc(token, { jsonrpc: '2.0', id: 10, method: 'ping' })).status).toBe(429)
+})
+
+test('an address over its own limit does not spend the shared bucket', async () => {
+  const f = await fixture('own-first')
+  OAUTH_LIMITS.anonymousPerMinute = 20
+  OAUTH_LIMITS.perAddress.default = [[60_000, 5]]
+  // 50 requests, 5 of them within the address's own limit: only those 5 count in the shared 20
+  for (let i = 0; i < 50; i++) await f.from('203.0.113.51', '/.well-known/oauth-authorization-server')
+  expect((await f.from('203.0.113.52', '/.well-known/oauth-authorization-server')).status).toBe(200)
 })
