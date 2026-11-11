@@ -115,3 +115,10 @@ export function anchorTop(layout: PageLayout, anchor: PageAnchor): number {
   if (!layout.tops.length) return 0
   return layout.tops[i] + anchor.offset * layout.heights[i]
 }
+
+/** The page column's top in the layout (client y), from its top as drawn under a pinch's live `scale(k)` around a point
+ * `originY` px below its layout top: the transform does not move the layout, and the place under the fingers is kept
+ * in the layout's coordinates (measured on the drawn box, it was k times too far down the page; QA TC-259). */
+export function layoutTop(drawnTop: number, originY: number, k: number): number {
+  return drawnTop - originY * (1 - k)
+}

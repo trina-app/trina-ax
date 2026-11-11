@@ -309,7 +309,7 @@ export function OneLine({ children, className, testId, twoOnPhone }: { children:
         {children}
       </p>
       {(cut || open) && (
-        <button type="button" aria-expanded={open} className="shrink-0 font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)}>
+        <button type="button" aria-expanded={open} className="touch-hit shrink-0 font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)}>
           {t(open ? 'common.less' : 'common.more')}
         </button>
       )}

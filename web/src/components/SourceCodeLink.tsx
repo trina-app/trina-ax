@@ -42,8 +42,8 @@ export function SourceCodeLinks({ info, className }: { info: SourceInfo; classNa
   const request = sourceCodeLink(version, { ...SOURCE_CODE, published: false, requestEmail: offer.requestEmail })
   return (
     <span className={className}>
-      {offer.download && <><a href={offer.download.url} target="_blank" rel="noopener noreferrer" data-testid="source-code-download">{t('about.sourceDownload', { version: offer.download.version })}</a><span aria-hidden> · </span></>}
-      <a href={request.href} rel="noopener noreferrer" data-testid="source-code-link">{t('about.sourceRequest')}</a>
+      {offer.download && <><a href={offer.download.url} target="_blank" rel="noopener noreferrer" className="touch-hit" data-testid="source-code-download">{t('about.sourceDownload', { version: offer.download.version })}</a><span aria-hidden> · </span></>}
+      <a href={request.href} rel="noopener noreferrer" className="touch-hit" data-testid="source-code-link">{t('about.sourceRequest')}</a>
     </span>
   )
 }

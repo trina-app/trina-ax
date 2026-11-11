@@ -228,17 +228,19 @@ test('registration flood from one address: it is slowed down, an app from anothe
   expect((await register('198.51.100.20')).status).toBe(201)
 })
 
-test('an anonymous flood fills the shared bucket; a connected person\'s tool calls still go through', async () => {
+test('a flood from ever new networks fills the last-resort cap; a connected person\'s tool calls still go through', async () => {
   const f = await fixture('anonymous-flood'), { access_token: token, refresh_token: refresh } = await f.issue()
   const minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000; f.oauth.now = () => minute + 1000 // one fixed minute
   OAUTH_LIMITS.anonymousPerMinute = 30
   const anonymous = (ip: string) => f.from(ip, '/mcp', { method: 'POST', headers: { authorization: 'Bearer tax_mcp_a_' + 'x'.repeat(43), accept: 'application/json, text/event-stream', 'content-type': 'application/json' }, body: '{}' })
   const statuses: number[] = []
-  for (let i = 0; i < 40; i++) statuses.push((await anonymous(`192.0.2.${i}`)).status)
+  for (let i = 0; i < 40; i++) statuses.push((await anonymous(`192.0.${i}.1`)).status)
   expect(statuses.slice(0, 30).every(s => s === 401)).toBe(true)
   expect(statuses.slice(30).every(s => s === 429)).toBe(true)
-  // the shared bucket is full for everyone without a token, also on the OAuth endpoints
-  expect((await f.from('192.0.2.200', '/.well-known/oauth-authorization-server')).status).toBe(429)
+  // the cap is full for everyone without a token, also on the OAuth endpoints, and writes nothing more
+  const rows = (f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n
+  expect((await f.from('192.0.200.1', '/.well-known/oauth-authorization-server')).status).toBe(429)
+  expect((f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n).toBe(rows)
   // the connected person's calls have their grant's own bucket
   for (let id = 1; id <= 5; id++) {
     const res = await f.rpc(token, { jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'list', arguments: { path: '' } } })
@@ -280,4 +282,57 @@ test('junk token requests naming a known app do not stop that app\'s live refres
   expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(true)
   expect((await token('192.0.2.12', refresh)).status).toBe(200)
   expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(false) // used
+})
+
+// QA TC-168 (11-12): 15 addresses x 170 metadata requests in a minute, each under its own 180, filled the old fixed
+// 2,400 and every new connection got 429 for the rest of the minute
+test('a few flooding addresses make the minute busy, but a new person still connects; the flooders are refused', async () => {
+  const f = await fixture('busy-minute'), minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000
+  f.oauth.now = () => minute + 1000
+  const statuses: number[] = []
+  for (let a = 1; a <= 15; a++) for (let i = 0; i < 170; i++) statuses.push((await f.from(`198.51.${a}.1`, '/.well-known/oauth-authorization-server')).status)
+  // the busy level (2,400) is reached 20 requests into the 15th network; it may send up to 30 (its share), every
+  // later request of these networks is refused
+  expect(statuses.filter(s => s === 200).length).toBe(OAUTH_LIMITS.busyPerMinute + 10)
+  expect(statuses.filter(s => s === 429).length).toBe(15 * 170 - OAUTH_LIMITS.busyPerMinute - 10)
+  expect((await f.from('198.51.1.1', '/.well-known/oauth-protected-resource')).status).toBe(429)
+  // a fresh address in a flooding network gets no fresh share (IPv4 /24)
+  expect((await f.from('198.51.1.77', '/.well-known/oauth-authorization-server')).status).toBe(429)
+  // a new person from fresh networks: Claude's server discovers and registers, the browser signs in, tools work
+  const claude = '160.79.104.20'
+  const mcp = await f.from(claude, '/mcp', { method: 'POST', headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json' }, body: '{}' })
+  expect(mcp.status).toBe(401); expect(mcp.headers.get('www-authenticate')).toContain('resource_metadata=')
+  expect((await f.from(claude, '/.well-known/oauth-protected-resource/mcp')).status).toBe(200)
+  expect((await f.from(claude, '/.well-known/oauth-authorization-server')).status).toBe(200)
+  expect((await f.from(claude, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: [redirect] }) })).status).toBe(201)
+  const tokens = await f.issue() // authorize from the browser's 10.0.0.7, consent, token
+  expect(tokens.access_token).toBeTruthy()
+  expect((await f.rpc(tokens.access_token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status).toBe(200)
+  // the next minute is not busy: the flooders' networks are let in again (up to their own limits)
+  f.oauth.now = () => minute + 61_000
+  expect((await f.from('198.51.1.1', '/.well-known/oauth-authorization-server')).status).toBe(200)
+})
+
+test('busy minute: an IPv6 flood gets one share per /48; refused requests do not count toward the last-resort cap', async () => {
+  const f = await fixture('busy-v6'), minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000
+  f.oauth.now = () => minute + 1000
+  OAUTH_LIMITS.busyPerMinute = 20; OAUTH_LIMITS.networkPerMinute = 3; OAUTH_LIMITS.anonymousPerMinute = 40
+  const meta = async (ip: string) => (await f.from(ip, '/.well-known/oauth-authorization-server')).status
+  // one /48, ever new /64s (each its own address limit): 20 get in, then the minute is busy and the /48 is over its 3
+  const v6: number[] = []
+  const rows = () => (f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n
+  for (let i = 1; i <= 20; i++) v6.push(await meta(`2001:db8:7:${i.toString(16)}::1`))
+  const before = rows()
+  for (let i = 21; i <= 100; i++) v6.push(await meta(`2001:db8:7:${i.toString(16)}::1`))
+  expect(v6.filter(s => s === 200).length).toBe(20)
+  // the refused ones wrote nothing, also a registration (an hour-long row per address) from fresh /64s
+  for (let i = 101; i <= 110; i++) expect((await f.from(`2001:db8:7:${i.toString(16)}::1`, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: [redirect] }) })).status).toBe(429)
+  expect(rows()).toBe(before)
+  // the 80 refused ones did not spend the cap: 20 fresh networks still get in (up to 3 each), then the cap (40) holds
+  const fresh: number[] = []
+  for (let n = 1; n <= 10; n++) for (let i = 0; i < 3; i++) fresh.push(await meta(`203.0.${n}.${i + 1}`))
+  expect(fresh.filter(s => s === 200).length).toBe(20)
+  expect(fresh.slice(20).every(s => s === 429)).toBe(true)
+  // another /48 is another network, but the last-resort cap is full now
+  expect(await meta('2001:db8:8::1')).toBe(429)
 })

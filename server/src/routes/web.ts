@@ -12,6 +12,10 @@
 //   /downloads/*    desktop app installers in <data>/downloads (index.json lists them: the owner's, the office updater's,
 //                   a Linux server's Windows app from the feed), for signed-in people only, with Range for resumed
 //                   downloads (./downloads.ts)
+//   /licenses/manifest.json, /licenses/README.txt  the notice index (exact release and package versions): signed-out
+//                   callers from the internet (through the relay or the office internet address) get 404, like
+//                   /api/health gives them no version; never stored by a cache. LICENSE, NOTICE and the package notices
+//                   stay public.
 //   a missing file with an extension: 404 (never the app page as an icon, image or script)
 //   everything else index.html with the app's Content-Security-Policy (no-cache, so a new build shows up)
 // In dev without a build, it points to the Vite dev server (bun run --cwd web dev, port 19140) instead.
@@ -20,9 +24,10 @@ import type { Context } from 'hono'
 import { PRODUCT } from '@mycel/shared'
 import { REPO_ROOT } from '../app-config'
 import type { AppEnv } from '../http/env'
+import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 import { downloadRoute } from './downloads'
-import { serveWeb, type WebOptions } from './web-static'
+import { isNoticeIndex, serveWeb, type WebOptions } from './web-static'
 import { readTeamIcon } from '../admin/team-icon'
 import { downloadsDirOf } from '../system/windows-app'
 
@@ -43,9 +48,27 @@ export const webRoutes: RouteModule = {
     const downloads = downloadsDirOf(ctx.config.dataDir)
     kit.raw('GET', '*', async (c, next) => {
       if (c.req.path.startsWith('/downloads/')) return downloadRoute(c as unknown as Context<AppEnv>, ctx, downloads)
+      if (isNoticeIndex(opts.dist, new URL(c.req.url).pathname)) {
+        const hc = c as unknown as Context<AppEnv>
+        const info = hc.get('info')
+        if ((info.tunnel || info.via === 'relay') && !(await signedIn(hc, ctx))) {
+          return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'private, no-store' } })
+        }
+        const res = serveWeb(c.req.raw, opts)
+        res?.headers.set('cache-control', 'private, no-store')
+        return res ?? next()
+      }
       const res = serveWeb(c.req.raw, opts)
       if (!res) return next()
       return res
     })
   },
+}
+
+/** A session (cookie or bearer), as /api/health counts one: the session middleware resolves it only under /api/. */
+async function signedIn(c: Context<AppEnv>, ctx: AppContext): Promise<boolean> {
+  try { return !!(await ctx.services.sessions.resolve(c.req.raw, c.get('info'))) } catch (e) {
+    c.get('log').error('session lookup failed', { err: e })
+    return false
+  }
 }

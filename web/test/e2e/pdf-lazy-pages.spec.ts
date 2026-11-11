@@ -73,10 +73,11 @@ const rail = (page: Page) => viewer(page).getByTestId('pdf-thumbnails')
 const thumb = (page: Page, n: number) => rail(page).locator(`[data-thumb="${n}"]`).getByTestId('pdf-thumb')
 const pageInfo = (page: Page) => viewer(page).getByTestId('pdf-page-info')
 
-/** How far page `n`'s top is from the toolbar's bottom, in px (0: right under it). */
+/** How far page `n`'s top is from the toolbar's bottom, in px (0: right under it); a phone has no toolbar (it pinches,
+ * QA TC-259): from the scroll box's top. */
 async function belowToolbar(where: Locator, n: number) {
-  const [p, bar] = await Promise.all([where.locator(`[data-page="${n}"]`).boundingBox(), where.getByTestId('pdf-toolbar').boundingBox()])
-  return p!.y - (bar!.y + bar!.height)
+  const [p, bar, box] = await Promise.all([where.locator(`[data-page="${n}"]`).boundingBox(), where.getByTestId('pdf-toolbar').boundingBox(), where.boundingBox()])
+  return p!.y - (bar ? bar.y + bar.height : box!.y)
 }
 
 /** Scrolls the viewer's document as a person would (not through a thumbnail): page `n`'s top `dy` px below the toolbar. */

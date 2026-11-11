@@ -561,8 +561,10 @@ export class OpsService {
       add('backups', 'backups', t(M.backups), h > 48 ? 'warn' : 'ok', h > 48 ? t(M.backupOld(h)) : t(M.backupOk(new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastB.createdAt)), lastB.scope)))
     }
     try {
-      const rr = JSON.parse(fs.readFileSync(path.join(L.dataDir, 'restore-result.json'), 'utf8')) as { ok: boolean; at: string; error?: string }
+      const rr = JSON.parse(fs.readFileSync(path.join(L.dataDir, 'restore-result.json'), 'utf8')) as { ok: boolean; at: string; error?: string; folderRules?: 'kept' | 'backup' }
       if (!rr.ok && this.now().getTime() - Date.parse(rr.at) < 7 * 86400_000) add('restore', 'backups', t(M.backups), 'fail', t(M.restoreFailed(rr.error ?? '')))
+      // the current folder permissions could not be kept (backup.ts keepFolderAccess): someone checks them
+      else if (rr.ok && rr.folderRules === 'backup' && this.now().getTime() - Date.parse(rr.at) < 7 * 86400_000) add('restore', 'backups', t(M.backups), 'warn', t(M.restoreFolderRules))
     } catch {}
 
     // updates
@@ -816,6 +818,8 @@ export class OpsService {
     const status = () => this.writeStatusFile().catch((e) => log.warn('status file not written', { err: e }))
     void status()
     this.timers.push(setInterval(status, 30_000))
+    // what a backup the last stop (or a power loss) interrupted left behind; the next backup's prune does the same
+    try { this.backups.removeUnfinished() } catch (e) { log.warn('unfinished backups not removed', { err: e }) }
     this.timers.push(setInterval(() => {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))

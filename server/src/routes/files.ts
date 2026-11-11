@@ -98,7 +98,7 @@ export const filesRoutes: RouteModule = {
       // consumers that request attachment bytes without the explicit preview flag.
       // Headerless API/native clients may still perform an authorized download.
       ctx.files.quarantine.assertDownload(f.abs, c.req.raw.headers)
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
     }))
 
     // HEIC / HEIF photos (QA R2-FMT-10): browsers cannot draw them, so the file panel shows a JPEG made on the server
@@ -172,7 +172,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const v = svc.versionFile(auth.user.id, params.versionId)
       ctx.files.quarantine.assertDownload(v.abs, c.req.raw.headers)
-      return streamFile({ abs: v.abs, name: v.name, req: c.req.raw, disposition: 'attachment' })
+      return streamFile({ abs: v.abs, name: v.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
     }))
     kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId)))
     kit.handle(API.trash, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.trash(auth.user.id, { mine: query.mine, cursor: query.cursor, limit: query.limit })))
@@ -194,7 +194,7 @@ export const filesRoutes: RouteModule = {
     }, 'name'))
     kit.handle(API.attachmentThumbnail, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const t = C.attachments.thumbnail(auth.user.id, params.id)
-      if ('abs' in t) return streamFile({ abs: t.abs, name: t.name, req: c.req.raw, disposition: 'inline' })
+      if ('abs' in t) return streamFile({ abs: t.abs, name: t.name, req: c.req.raw, disposition: 'inline', via: c.get('info')?.via })
       // a team-file reference: the bytes were read through the descriptor that was checked (no second open by path)
       const etag = `"${t.etag}"`
       const headers = new Headers({ 'Content-Type': t.mime, 'ETag': etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff',

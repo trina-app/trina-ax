@@ -1,0 +1,2 @@
+- When the AI asks a question, its card no longer has a second text box: type your own answer in the message box, as the card now says. The card keeps its choices and its Answer and Skip buttons.
+- In a room's Trina side chat on a phone, hold a message to copy, retry or edit it, as in the room. The icons under each message are gone there; "스레드에 보내기" / "대화방에 보내기" stays under the answer.

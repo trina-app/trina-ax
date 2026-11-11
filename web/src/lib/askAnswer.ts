@@ -8,6 +8,7 @@
 // the card, sealed, to /connect; nothing typed here finishes a connection). A typed "yes" must not pass for a
 // decision that only their buttons make; messages typed meanwhile wait like during any answer.
 import { ASK_ANSWER_ITEM_MAX, ASK_ANSWER_MAX, type TurnRequest } from '@mycel/shared/api'
+import { createContext } from 'react'
 import type { OpenRequest } from '../store/chats'
 
 export type AskUserRequest = Extract<TurnRequest, { kind: 'ask_user' }>
@@ -25,6 +26,11 @@ export function composerQuestion(requests: Readonly<Record<string, OpenRequest>>
   for (const r of Object.values(requests)) if (r.chatId === chatId && isQuestion(r) && (!first || byAge(r, first) < 0)) first = r
   return first
 }
+
+/** The request id the message box on screen answers now (composerQuestion), given by the views that show both the
+ * card and an answering box (the full chat, the side chat); null elsewhere (a room's AI status, Settings, a read-only
+ * chat). That card leaves typing to the box: one place to type an answer, one secrets line (TRINA-24). */
+export const BoxAnswers = createContext<string | null>(null)
 
 /** An open card in this chat that only its own buttons answer (a server safety check, a browser site, connecting a
  * service). */

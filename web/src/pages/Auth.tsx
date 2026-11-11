@@ -80,7 +80,7 @@ export function LanguageSwitcher() {
   return (
     <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
       {t('settings.language')}
-      <select className="rounded border border-field-border bg-surface px-1.5 py-1 text-xs text-ink" value={locale} data-testid="auth-locale" onChange={(e) => pick(e.target.value as Locale)}>
+      <select className="rounded border border-field-border bg-surface px-1.5 py-1 text-xs text-ink max-md:min-h-11" value={locale} data-testid="auth-locale" onChange={(e) => pick(e.target.value as Locale)}>
         {LOCALES.map((l) => (
           <option key={l.id} value={l.id} lang={l.id}>
             {l.label}
@@ -134,11 +134,17 @@ function useFieldAboveBar() {
       // the whole field (Field's box: its hint or error under it too), not only the input
       if (phone.matches && isTextField(f) && el.contains(f)) (f.closest('[data-field]') ?? f).scrollIntoView?.({ block: 'nearest' })
     }
-    // after the keyboard's own scrolling and the new --app-h have settled
-    const later = () => requestAnimationFrame(reveal)
+    // after the keyboard's own scrolling and the new --app-h have settled; a frame still waiting when the page goes is
+    // dropped (it would read a document that may be gone)
+    let frame = 0
+    const later = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(reveal)
+    }
     el.addEventListener('focusin', later)
     window.visualViewport?.addEventListener('resize', later)
     return () => {
+      cancelAnimationFrame(frame)
       el.removeEventListener('focusin', later)
       window.visualViewport?.removeEventListener('resize', later)
     }
@@ -191,7 +197,7 @@ function PasswordField({ label, hint, error, reveal, eyeTestId, eye = true, ...p
   const { show, caps, toggle } = reveal
   const name = show ? t('auth.hidePassword') : t('auth.showPassword')
   const button = eye ? (
-    <IconButton label={name} aria-pressed={show} onClick={toggle} className="mr-0.5 max-sm:mr-0" data-testid={eyeTestId}>
+    <IconButton label={name} aria-pressed={show} onClick={toggle} className="mr-0.5 max-md:mr-0" data-testid={eyeTestId}>
       {show ? <EyeOff size={16} /> : <Eye size={16} />}
     </IconButton>
   ) : undefined
@@ -493,7 +499,7 @@ function OpenInApp({ path }: { path: string }) {
   if (!openInAppShown(clientKind(), href)) return null
   return (
     <p className="mt-2 text-center text-sm">
-      <a href={href} className="text-accent-text underline" data-testid="open-in-app">
+      <a href={href} className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="open-in-app">
         {t('auth.openInApp')}
       </a>
     </p>
@@ -606,7 +612,7 @@ function HaveAccount() {
   return (
     <p className="mt-4 text-center text-sm text-muted" data-testid="join-have-account">
       {t('auth.haveAccount')}{' '}
-      <Link to="/login" className="text-accent-text underline" data-testid="join-signin">
+      <Link to="/login" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="join-signin">
         {t('auth.signIn')}
       </Link>
     </p>

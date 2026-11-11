@@ -197,11 +197,13 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
   }
 }
 
-/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields, or 1rem where the person's
-   text size makes that larger. The message boxes keep the reading size where it is larger (17px on phones). */
-@media (hover: none) and (pointer: coarse) {
+/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens and phone widths (where the phone layout
+   starts, as above) get 16px fields, or 1rem where the person's text size makes that larger. The message boxes keep the
+   reading size where it is larger (17px on phones), and so do larger fields (a search dialog's box). */
+@media (hover: none) and (pointer: coarse), (max-width: 767.98px) {
   input, textarea, select { font-size: max(16px, 1rem); }
   textarea.text-reading { font-size: max(16px, var(--text-reading)); }
+  input.text-lg, textarea.text-lg { font-size: max(16px, var(--text-lg)); }
 }
 
 /* one visible focus style everywhere (3:1 against both themes) */

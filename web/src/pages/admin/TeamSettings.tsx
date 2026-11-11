@@ -30,7 +30,7 @@ import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, confirmDialog, Field, inputCls, PhoneTargets, Switch, useMediaQuery } from '../../components/ui'
+import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
 import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
@@ -175,7 +175,7 @@ export default function TeamSettingsPage() {
   )
   if (list)
     return (
-      <PhoneTargets.Provider value>
+      <>
         <AdminPageHeader title={t('admin.settings')} />
         {/* the page's groups, each its own page; the list reaches the screen's edges like Admin's */}
         <div className="-mx-4 -mt-4" data-testid="team-settings-list">
@@ -186,109 +186,107 @@ export default function TeamSettingsPage() {
           </PhoneListGroup>
         </div>
         {saveBar}
-      </PhoneTargets.Provider>
+      </>
     )
   return (
-    <PhoneTargets.Provider value>
-      <FlatCardsProvider value>
-        <BarTitleProvider value={group ? t(group.label) : null}>
-          {/* a phone's group says its name in the bar; its first section keeps it for screen readers (BarTitle), or
-              the page does when no section has that name */}
-          {!group ? <AdminPageHeader title={t('admin.settings')} /> : group.heading && <h2 className="sr-only">{t(group.label)}</h2>}
-          <div ref={page} className="max-w-3xl" data-testid="team-settings" data-group={group?.id}>
-            {(!group || group.form) && (
-              <Loadable state={state}>
-                {() =>
-                  f && (
-                    <>
-                      {shows('general') && (
-                        <>
-                          <SettingsSection title={t('teamSettings.section.general')} id="ts-general" testId="team-settings-general">
-                            <SettingRow id="ts-name" title={t('setup.teamName')} desc={owner ? t('teamSettings.row.nameDesc') : t('teamSettings.nameOwnerOnly')}
-                              control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'md:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />} />
-                            <SettingRow id="ts-locale" title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')}
-                              control={
-                                <select id="ts-locale" aria-describedby="ts-locale-desc" className={clsx(inputCls, 'md:w-64')} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
-                                  {LOCALES.map((l) => (
-                                    <option key={l.id} value={l.id} lang={l.id}>
-                                      {l.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              } />
-                            <TeamIconRow />
-                          </SettingsSection>
-                          <SettingsSection title={t('teamSettings.section.time')} id="ts-time" testId="team-settings-time">
-                            <SettingRow id="ts-time-zone" title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')}
-                              control={
-                                <select id="ts-time-zone" aria-describedby="ts-time-zone-desc" className={clsx(inputCls, 'md:w-64')} value={f.timeZone} onChange={(e) => setF({ ...f, timeZone: e.target.value })} data-testid="team-time-zone">
-                                  {timeZoneOptions(f.timeZone).map((z) => (
-                                    <option key={z} value={z}>
-                                      {z}
-                                    </option>
-                                  ))}
-                                </select>
-                              } />
-                            {/* the update window drives every automatic update of this server: the app's own (Linux), the root
-                                update timer (mycel-ctl) and an office Mac's update agent, in the team time zone. A hosted server
-                                is updated by its control plane, so it has none. (No channel here: the channel is the
-                                installation's own, server.json on Linux and `teamax update channel` on an office Mac; update
-                                audit O1.) */}
-                            {me.server.features?.selfUpdate !== false && (
-                              <UpdateWindowField value={f.updateWindow} ok={windowOk} legacy={legacyWindow(office.data, state.data?.updateWindow)} onChange={(v) => setF({ ...f, updateWindow: v })} />
-                            )}
-                          </SettingsSection>
-                        </>
-                      )}
-                      {shows('data') && (
-                        <SettingsSection title={t('teamSettings.section.data')} id="ts-data" testId="team-settings-data">
-                          <DaysRow id="ts-audit" title={t('teamSettings.row.audit')} desc={t('teamSettings.row.auditDesc')} value={f.auditRetentionDays} min={7} max={3650} ownerOnly={!owner} onChange={num('auditRetentionDays', 7, 3650)} />
-                          <DaysRow id="ts-history" title={t('teamSettings.row.history')} desc={t('teamSettings.row.historyDesc')} value={f.fileHistoryRetentionDays} min={1} max={3650} ownerOnly={!owner} onChange={num('fileHistoryRetentionDays', 1, 3650)} />
-                          <DaysRow id="ts-trash" title={t('teamSettings.row.trash')} desc={t('teamSettings.row.trashDesc')} value={f.trashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('trashRetentionDays', 1, 365)} />
-                          <DaysRow id="ts-chat-trash" title={t('teamSettings.row.chatTrash')} desc={t('teamSettings.row.chatTrashDesc')} value={f.chatTrashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('chatTrashRetentionDays', 1, 365)} />
+    <FlatCardsProvider value>
+      <BarTitleProvider value={group ? t(group.label) : null}>
+        {/* a phone's group says its name in the bar; its first section keeps it for screen readers (BarTitle), or
+            the page does when no section has that name */}
+        {!group ? <AdminPageHeader title={t('admin.settings')} /> : group.heading && <h2 className="sr-only">{t(group.label)}</h2>}
+        <div ref={page} className="max-w-3xl" data-testid="team-settings" data-group={group?.id}>
+          {(!group || group.form) && (
+            <Loadable state={state}>
+              {() =>
+                f && (
+                  <>
+                    {shows('general') && (
+                      <>
+                        <SettingsSection title={t('teamSettings.section.general')} id="ts-general" testId="team-settings-general">
+                          <SettingRow id="ts-name" title={t('setup.teamName')} desc={owner ? t('teamSettings.row.nameDesc') : t('teamSettings.nameOwnerOnly')}
+                            control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'md:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />} />
+                          <SettingRow id="ts-locale" title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')}
+                            control={
+                              <select id="ts-locale" aria-describedby="ts-locale-desc" className={clsx(inputCls, 'md:w-64')} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
+                                {LOCALES.map((l) => (
+                                  <option key={l.id} value={l.id} lang={l.id}>
+                                    {l.label}
+                                  </option>
+                                ))}
+                              </select>
+                            } />
+                          <TeamIconRow />
                         </SettingsSection>
-                      )}
-                      {shows('members') && (
-                        <SettingsSection title={t('teamSettings.section.ai')} id="ts-ai" testId="team-settings-ai">
-                          <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
-                          <WebAllowAllSwitch value={f.webAllowAll} parentOn={f.browserAllowAll} onChange={(v) => setF({ ...f, webAllowAll: v })} />
-                          <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
-                          <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
-                          <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
-                          <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
-                          {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
-                          <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
-                          {/* Home's "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"): on by default */}
-                          <SwitchRow id="ts-often-asked" testId="team-often-asked" value={f.oftenAsked} onChange={(v) => setF({ ...f, oftenAsked: v })} title={t('teamSettings.oftenAsked')} desc={t('teamSettings.row.oftenAskedDesc')} />
-                          <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
-                          <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
+                        <SettingsSection title={t('teamSettings.section.time')} id="ts-time" testId="team-settings-time">
+                          <SettingRow id="ts-time-zone" title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')}
+                            control={
+                              <select id="ts-time-zone" aria-describedby="ts-time-zone-desc" className={clsx(inputCls, 'md:w-64')} value={f.timeZone} onChange={(e) => setF({ ...f, timeZone: e.target.value })} data-testid="team-time-zone">
+                                {timeZoneOptions(f.timeZone).map((z) => (
+                                  <option key={z} value={z}>
+                                    {z}
+                                  </option>
+                                ))}
+                              </select>
+                            } />
+                          {/* the update window drives every automatic update of this server: the app's own (Linux), the root
+                              update timer (mycel-ctl) and an office Mac's update agent, in the team time zone. A hosted server
+                              is updated by its control plane, so it has none. (No channel here: the channel is the
+                              installation's own, server.json on Linux and `teamax update channel` on an office Mac; update
+                              audit O1.) */}
+                          {me.server.features?.selfUpdate !== false && (
+                            <UpdateWindowField value={f.updateWindow} ok={windowOk} legacy={legacyWindow(office.data, state.data?.updateWindow)} onChange={(v) => setF({ ...f, updateWindow: v })} />
+                          )}
                         </SettingsSection>
-                      )}
-                      {shows('voice') && (
-                        <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
-                          onSaved={(r) => { state.setData(r); setF((x) => (x && x.speechProvider !== r.speechProvider ? { ...x, speechProvider: r.speechProvider, aiMediaTranscripts: r.aiMediaTranscripts } : x)) }} />
-                      )}
-                      {saveBar}
-                    </>
-                  )
-                }
-              </Loadable>
-            )}
-            {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second
-                tab). After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay; a phone
-                shows them as two groups of their own (no form above them) */}
-            {!phone && state.data && <TeamAiSettings />}
-            {group?.id === 'ai' && <TeamAiSettings part="engine" />}
-            {group?.id === 'limits' && <TeamAiSettings part="limits" />}
-            {/* the file list the AI greps first (server/src/file-list/): saves on its own, like the AI groups */}
-            {(phone ? group?.id === 'file-list' : !!state.data) && <FileListSettings />}
-            {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
-            {shows('company') && <CompanyProfileCard />}
-            {shows('dev-env') && <DevEnvTeamCard />}
-          </div>
-        </BarTitleProvider>
-      </FlatCardsProvider>
-    </PhoneTargets.Provider>
+                      </>
+                    )}
+                    {shows('data') && (
+                      <SettingsSection title={t('teamSettings.section.data')} id="ts-data" testId="team-settings-data">
+                        <DaysRow id="ts-audit" title={t('teamSettings.row.audit')} desc={t('teamSettings.row.auditDesc')} value={f.auditRetentionDays} min={7} max={3650} ownerOnly={!owner} onChange={num('auditRetentionDays', 7, 3650)} />
+                        <DaysRow id="ts-history" title={t('teamSettings.row.history')} desc={t('teamSettings.row.historyDesc')} value={f.fileHistoryRetentionDays} min={1} max={3650} ownerOnly={!owner} onChange={num('fileHistoryRetentionDays', 1, 3650)} />
+                        <DaysRow id="ts-trash" title={t('teamSettings.row.trash')} desc={t('teamSettings.row.trashDesc')} value={f.trashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('trashRetentionDays', 1, 365)} />
+                        <DaysRow id="ts-chat-trash" title={t('teamSettings.row.chatTrash')} desc={t('teamSettings.row.chatTrashDesc')} value={f.chatTrashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('chatTrashRetentionDays', 1, 365)} />
+                      </SettingsSection>
+                    )}
+                    {shows('members') && (
+                      <SettingsSection title={t('teamSettings.section.ai')} id="ts-ai" testId="team-settings-ai">
+                        <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
+                        <WebAllowAllSwitch value={f.webAllowAll} parentOn={f.browserAllowAll} onChange={(v) => setF({ ...f, webAllowAll: v })} />
+                        <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
+                        <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
+                        <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
+                        <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
+                        {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
+                        <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
+                        {/* Home's "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"): on by default */}
+                        <SwitchRow id="ts-often-asked" testId="team-often-asked" value={f.oftenAsked} onChange={(v) => setF({ ...f, oftenAsked: v })} title={t('teamSettings.oftenAsked')} desc={t('teamSettings.row.oftenAskedDesc')} />
+                        <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
+                        <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
+                      </SettingsSection>
+                    )}
+                    {shows('voice') && (
+                      <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
+                        onSaved={(r) => { state.setData(r); setF((x) => (x && x.speechProvider !== r.speechProvider ? { ...x, speechProvider: r.speechProvider, aiMediaTranscripts: r.aiMediaTranscripts } : x)) }} />
+                    )}
+                    {saveBar}
+                  </>
+                )
+              }
+            </Loadable>
+          )}
+          {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second
+              tab). After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay; a phone
+              shows them as two groups of their own (no form above them) */}
+          {!phone && state.data && <TeamAiSettings />}
+          {group?.id === 'ai' && <TeamAiSettings part="engine" />}
+          {group?.id === 'limits' && <TeamAiSettings part="limits" />}
+          {/* the file list the AI greps first (server/src/file-list/): saves on its own, like the AI groups */}
+          {(phone ? group?.id === 'file-list' : !!state.data) && <FileListSettings />}
+          {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
+          {shows('company') && <CompanyProfileCard />}
+          {shows('dev-env') && <DevEnvTeamCard />}
+        </div>
+      </BarTitleProvider>
+    </FlatCardsProvider>
   )
 }
 

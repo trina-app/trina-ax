@@ -5,6 +5,15 @@ import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { Button } from '../ui'
 
+/** What the server says about this file or this server, which asking again cannot change: no [다시 시도], only the
+ * download (QA TC-265 FILES-23: "이 서버에서는 한글 미리보기를 쓸 수 없어요" with a retry that could only fail again).
+ * A timeout, a busy queue, a cancelled or changed render, a preview an admin may turn on, and a request that never got
+ * the server's answer (the connection) keep it. */
+export const HWP_FINAL: ReadonlySet<HwpReason> = new Set<HwpReason>(['engine', 'isolation', 'unsupported', 'locked', 'distribution', 'damaged', 'limit', 'loss'])
+/** Whether the panel offers [다시 시도] for a failed preview; `fromServer`: the reason is the server's own words */
+export const hwpCanRetry = (reason: HwpReason | 'missing' | 'quarantined', fromServer: boolean) =>
+  reason !== 'quarantined' && !(fromServer && reason !== 'missing' && HWP_FINAL.has(reason))
+
 /** Where the pages come from: a team file by its path, or a file sent in a team chat room (read through the room: its
  * members only, the same checks as reading it inline). */
 export type HwpSource = { kind: 'team'; path: string } | { kind: 'room'; roomId: string; fileId: string }
@@ -20,6 +29,8 @@ export default function HwpView({ source, download, startPage }: { source: HwpSo
   // 'quarantined': the file is on the team's download-only list (the server's own words say so: `held`)
   const [reason, setReason] = useState<HwpReason | 'missing' | 'quarantined' | null>(null)
   const [held, setHeld] = useState('')
+  // the reason is the server's own (not a failure without its answer, which is shown as 'engine' and may pass)
+  const [fromServer, setFromServer] = useState(false)
   const where = source.kind === 'team' ? `team:${source.path}` : `room:${source.roomId}/${source.fileId}`
   // The document the pages on screen come from (each page carries its sourceHash). Pages are asked for by path, so
   // after someone replaced the file the next page came from the new one: "3 / 5쪽" right after page 2 of the old one
@@ -55,6 +66,7 @@ export default function HwpView({ source, download, startPage }: { source: HwpSo
       if (ctrl.signal.aborted) return
       if (isApiError(e, 'unavailable') && e.body.params?.reason === 'quarantined') { setHeld(e.message); setReason('quarantined'); return }
       const parsed = HwpReason.safeParse(isApiError(e) ? e.body.params?.reason : undefined)
+      setFromServer(parsed.success)
       setReason(isApiError(e, 'not_found') ? 'missing' : parsed.success ? parsed.data : 'engine')
     })
     return () => { ctrl.abort(); if (url) URL.revokeObjectURL(url) }
@@ -77,7 +89,7 @@ export default function HwpView({ source, download, startPage }: { source: HwpSo
     {/* the HWP Preview plugin is off or missing: admins learn where to add it (docs/PLUGINS.md) */}
     {reason === 'disabled' && admin && <a className="text-sm text-accent-text underline" href="/admin/plugins" data-testid="hwp-plugins-link">{t(installedOff ? 'hwp.disabledAdminOff' : 'hwp.disabledAdmin')}</a>}
     {reason !== 'missing' && <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">{t('common.download')}</Button>}
-    {reason !== 'quarantined' && <Button variant="secondary" onClick={() => retry(n => n + 1)}>{t('common.retry')}</Button>}
+    {hwpCanRetry(reason, fromServer) && <Button variant="secondary" onClick={() => retry(n => n + 1)} data-testid="preview-unsupported-retry">{t('common.retry')}</Button>}
   </div>
   return <section className="flex flex-col gap-3 p-3" data-testid="hwp-view" aria-label={t('hwp.viewer')}>
     <nav className="flex flex-wrap items-center justify-center gap-3" aria-label={t('hwp.pages')}>
