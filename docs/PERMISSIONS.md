@@ -1,7 +1,7 @@
 # 권한 구조 요약
 
 Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못하게 막는 방법을 정리한 문서입니다.
-자세한 근거는 [README의 Security model](../README.md#what-we-dont-promise), [DECISIONS.md](DECISIONS.md), 설계서 2·7번 탭에 있습니다.
+자세한 근거는 [README의 Data and limits](../README.md#data-and-limits), [DECISIONS.md](DECISIONS.md), 설계서 2·7번 탭에 있습니다.
 
 **한 줄 요약**: 누가 무엇을 볼 수 있는지는 우리 서버의 **권한 함수 하나**가 정합니다. **OS**는 AI가 그 함수를 건너뛰지 못하게 막습니다. **엔진 잠금**은 그 위에 한 겹 더 두는 장치입니다.
 
