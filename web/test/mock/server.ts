@@ -3659,8 +3659,9 @@ export class MockServer {
     },
     listTeamIntegrations: (c) => ({ items: this.integrations.filter((x) => x.scope === 'team').map((x) => this.integrationView(x, c.user)) }),
     // like server/src/integrations/connections/requests.ts: only the member asked sees or answers a request; no key in it
-    listIntegrationRequests: (c) => ({ items: this.integrationRequests.filter((r) => r.user.id === c.user.id && this.requestState(r) === 'waiting').map((r) => this.requestView(r)) }),
-    getIntegrationRequest: (c) => this.requestView(this.myRequest(c.user, c.params.id)),
+    // a member's own view never names the admin who asked (requests.ts view forMember)
+    listIntegrationRequests: (c) => ({ items: this.integrationRequests.filter((r) => r.user.id === c.user.id && this.requestState(r) === 'waiting').map((r) => ({ ...this.requestView(r), requestedBy: null })) }),
+    getIntegrationRequest: (c) => ({ ...this.requestView(this.myRequest(c.user, c.params.id)), requestedBy: null }),
     completeIntegrationRequest: (c) => {
       const r = this.waitingRequest(this.myRequest(c.user, c.params.id))
       if (r.auth !== 'oauth' && !c.body.secret) fail('validation', 400, '키가 아직 없어요. 키를 넣어 주세요.', { 'body.secret': 'required' })
@@ -3675,7 +3676,7 @@ export class MockServer {
     declineIntegrationRequest: (c) => {
       const r = this.waitingRequest(this.myRequest(c.user, c.params.id))
       Object.assign(r, { state: 'declined', endedAt: now() })
-      return this.requestView(r)
+      return { ...this.requestView(r), requestedBy: null }
     },
     listTeamIntegrationRequests: () => ({ items: [...this.integrationRequests].reverse().sort((a, b) => Number(this.requestState(b) === 'waiting') - Number(this.requestState(a) === 'waiting')).map((r) => this.requestView(r)) }),
     createIntegrationRequest: (c) => {
@@ -3703,7 +3704,8 @@ export class MockServer {
         const mine = this.integrations.find((x) => x.templateId === t.id && x.ownerId === c.user.id)
         // never the team's app (like templates.ts listMine)
         const { access: _a, createdAt: _c, updatedAt: _u, oauthClient: _app, ...rest } = t
-        return { ...rest, url: new URL(t.url).origin + new URL(t.url).pathname, connection: mine ? this.integrationView(mine, c.user) : null }
+        // never who made it (templates.ts listMine: admins are never named to members)
+        return { ...rest, createdBy: null, url: new URL(t.url).origin + new URL(t.url).pathname, connection: mine ? this.integrationView(mine, c.user) : null }
       }),
     }),
     connectIntegrationTemplate: (c) => {

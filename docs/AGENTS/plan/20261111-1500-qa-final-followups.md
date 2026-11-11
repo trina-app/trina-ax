@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 15:00
 - Branch: `fix/qa-final-followups`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`server/src/integrations/connections/templates.ts`, `requests.ts`, `service.ts`, `text.ts`;
   `server/src/tools/schedules.ts`; `web/src/components/integrations/TemplatesView.tsx`, `AnswerDialog.tsx`,
   `IntegrationRow.tsx`; `web/src/store/live.ts`; `web/src/pages/Connectors.tsx`; i18n; tests; DECISIONS)

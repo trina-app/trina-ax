@@ -114,7 +114,7 @@ export function MyRequests({ onConnected, version }: { onConnected: (i: Integrat
                     <span className="text-xs text-muted">{t(r.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')}</span>
                   </p>
                   <p className="mt-0.5 text-xs break-all text-faint">{r.url}</p>
-                  <p className="mt-1 text-xs text-muted">{t('integrations.asked.by', { name: r.requestedBy?.name ?? '?', date: formatDateTime(r.expiresAt, locale) })}</p>
+                  <p className="mt-1 text-xs text-muted">{t('integrations.asked.by', { date: formatDateTime(r.expiresAt, locale) })}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-1 max-sm:w-full max-sm:pl-7">
                   <Button size="sm" variant="primary" onClick={() => setOpen(r)} data-testid="integration-asked-connect">
@@ -133,7 +133,7 @@ export function MyRequests({ onConnected, version }: { onConnected: (i: Integrat
         <OwnKeyDialog
           src={open}
           title={t('integrations.asked.dialogTitle', { name: open.name })}
-          intro={t('integrations.asked.dialogIntro', { by: open.requestedBy?.name ?? '?' })}
+          intro={t('integrations.asked.dialogIntro')}
           submit={(body) => api.call(API.completeIntegrationRequest, { params: { id: open.id }, body })}
           onClose={() => { setOpen(null); void load() }}
           onDecline={async () => { if (await decline(open)) setOpen(null) }}

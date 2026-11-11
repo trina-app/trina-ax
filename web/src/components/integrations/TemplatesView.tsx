@@ -153,7 +153,7 @@ export function FromTeam({ teamName, team, offForMe = [], latest, manage, versio
         <OwnKeyDialog
           src={open}
           title={t('integrations.template.connectTitle', { name: open.name })}
-          intro={t('integrations.template.connectIntro', { by: open.createdBy?.name ?? t('integrations.template.yourTeam') })}
+          intro={t('integrations.template.connectIntro')}
           submit={(body) => connect(open, body)}
           onClose={() => setOpen(null)}
           onConnected={(i, signIn) => {

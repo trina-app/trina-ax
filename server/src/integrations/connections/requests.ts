@@ -50,10 +50,12 @@ export class ConnectionRequests {
   private person(id: string | null) {
     return id ? this.db.query('SELECT id, name FROM users WHERE id = ?').get(id) as { id: string; name: string } | null : null
   }
-  private view(r: RequestRow, base: string): IntegrationRequest {
+  /** `forMember`: the member's own view, which never names the admin who asked (docs/DECISIONS.md "Admins are never
+   * named": the people directory shows no roles, so a name here would tell the member who the admins are) */
+  private view(r: RequestRow, base: string, forMember = false): IntegrationRequest {
     return {
       id: r.id, kind: r.kind, name: r.name, url: r.url, auth: r.auth, authHeader: r.auth_header, notes: r.notes,
-      user: this.person(r.user_id) ?? { id: r.user_id, name: r.user_id }, requestedBy: this.person(r.created_by),
+      user: this.person(r.user_id) ?? { id: r.user_id, name: r.user_id }, requestedBy: forMember ? null : this.person(r.created_by),
       state: this.stateOf(r), createdAt: r.created_at, expiresAt: r.expires_at, endedAt: r.ended_at, link: new URL(requestPath(r.id), base).href,
     }
   }
@@ -114,7 +116,7 @@ export class ConnectionRequests {
     this.db.query(`INSERT INTO integration_requests (${REQUEST_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(r.id, r.user_id, r.created_by, r.kind, r.name, r.url, r.auth, r.auth_header, r.notes, r.state, r.integration_id, r.created_at, r.expires_at, r.ended_at)
     audit(this.db, { actor: viewer.id, action: 'integration_request.create', target: r.id, detail: requestAuditDetail(r) })
-    this.tell(r, viewer.id)
+    this.tell(r)
     return this.view(r, base)
   }
 
@@ -141,12 +143,11 @@ export class ConnectionRequests {
 
   /** The member is told: an inbox entry (shown whatever their notice settings say; no OS push) and, when the app is
    * open, a banner with the way to the request, in their language. */
-  private tell(r: RequestRow, adminId: string) {
+  private tell(r: RequestRow) {
     const L = this.localeOf(r.user_id)
-    const by = this.person(adminId)?.name ?? ''
     try {
-      // the address's host with the name: the member's key goes there, whatever the name says
-      this.ctx.services.realtime.publish(r.user_id, { type: 'notice', data: { level: 'info', code: 'integration_request', message: say('requestNotice', L, { by, name: r.name, host: new URL(r.url).host }), link: requestPath(r.id) } })
+      // the address's host with the name: the member's key goes there, whatever the name says. "An admin", never who
+      this.ctx.services.realtime.publish(r.user_id, { type: 'notice', data: { level: 'info', code: 'integration_request', message: say('requestNotice', L, { name: r.name, host: new URL(r.url).host }), link: requestPath(r.id) } })
     } catch (err) { this.ctx.log.warn('connection request notice failed', { err }) }
     notifyIntegrationRequest(this.ctx, r.user_id, r.id)
   }
@@ -160,9 +161,9 @@ export class ConnectionRequests {
   listMine(userId: string, base: string): IntegrationRequest[] {
     const rows = this.db.query(`SELECT ${REQUEST_COLUMNS} FROM integration_requests WHERE user_id = ? AND state = 'pending' AND expires_at > ? ORDER BY created_at DESC, id DESC`)
       .all(userId, iso(this.now())) as RequestRow[]
-    return rows.map((r) => this.view(r, base))
+    return rows.map((r) => this.view(r, base, true))
   }
-  getMine(userId: string, id: string, base: string): IntegrationRequest { return this.view(this.mine(userId, id), base) }
+  getMine(userId: string, id: string, base: string): IntegrationRequest { return this.view(this.mine(userId, id), base, true) }
 
   decline(viewer: Viewer, id: string, base: string, locale: Locale): IntegrationRequest {
     const r = this.mine(viewer.id, id)
@@ -171,7 +172,7 @@ export class ConnectionRequests {
     if (!this.db.query("UPDATE integration_requests SET state = 'declined', ended_at = ? WHERE id = ? AND state = 'pending'").run(iso(this.now()), id).changes) return this.conflictNow(id, locale)
     audit(this.db, { actor: viewer.id, action: 'integration_request.decline', target: id, detail: requestAuditDetail(r) })
     settleIntegrationRequestNotice(this.ctx, r.user_id)
-    return this.view(getRequest(this.db, id)!, base)
+    return this.view(getRequest(this.db, id)!, base, true)
   }
 
   /** The member connects it as their own connection, through service.ts create (as when they add one themselves). A key:

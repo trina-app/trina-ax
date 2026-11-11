@@ -63,7 +63,9 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await page.goto(new URL(link).pathname + new URL(link).search)
   const answer = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(answer.getByRole('heading', { name: 'Ledger 연결' })).toBeVisible()
-  await expect(answer).toContainText('Olga님이 이 서비스를 내 계정으로 연결해 달라고 요청했어요.')
+  await expect(answer).toContainText('관리자가 이 서비스를 내 계정으로 연결해 달라고 요청했어요.')
+  // admins are never named to members (docs/DECISIONS.md "Admins are never named")
+  await expect(answer).not.toContainText('Olga')
   await expect(answer).toContainText('https://api.ledger.example/v1')
   await expect(answer).toContainText('X-API-Key')
   // the admin chose the address: where the key goes is said plainly, the host in bold, before the key field
@@ -124,7 +126,8 @@ test('withdrawn and declined requests: the member\'s link says what became of it
   await wiki.getByTestId('integration-asked-connect').click()
   await expect(page.getByTestId('integration-answer-host-warning')).toContainText('로그인 토큰을 받는 곳: mcp.wiki.example.')
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
-  await expect(wiki).toContainText('Olga님이 요청')
+  await expect(wiki).toContainText('관리자가 요청')
+  await expect(wiki).not.toContainText('Olga')
   await expect(page.getByTestId('integration-asked')).toHaveCount(1)
   await wiki.getByTestId('integration-asked-decline').click()
   await page.getByRole('dialog').getByRole('button', { name: '거절' }).click()

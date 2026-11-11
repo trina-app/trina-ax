@@ -668,3 +668,34 @@ describe('security review 2', () => {
     await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
   })
 })
+
+describe('QA follow-ups (dev 1565b39f1)', () => {
+  test('a member is never told which admin made a template; the admin\'s list keeps the name', async () => {
+    const t = await make(tpl({ name: 'Unnamed Maker' }))
+    const seen = (await mine(bob)).find((x) => x.id === t.id)
+    expect(seen.createdBy).toBeNull()
+    expect(JSON.stringify(await mine(bob))).not.toContain('ADA')
+    expect((await ada.call('GET', '/api/admin/integration-templates')).items.find((x: any) => x.id === t.id).createdBy).toMatchObject({ id: ids.ada })
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+
+  test('a dropped connection tells its member\'s open pages to read their lists again, once, and nobody else', async () => {
+    const t = await make(tpl({ name: 'Stale Row', access: { ...nobody, users: [ids.bob, ids.cara] } }))
+    const row = (await connect(bob, t.id, { secret: MCP_KEY })).body.id
+    const told = (who: string) => h.hub.events.filter((e) => e.kind === 'publish' && e.target === who && (e.data as any).data?.code === 'integrations_changed').length
+    const bobBefore = told(ids.bob), caraBefore = told(ids.cara), adaBefore = told(ids.ada)
+    // a new address (as a new app does) drops bob's connection: his page is told, quietly (no text)
+    await ada.call('PATCH', `/api/admin/integration-templates/${t.id}`, { url: `${fake.base}/mcp-open` })
+    expect(told(ids.bob)).toBe(bobBefore + 1)
+    const ev = h.hub.events.filter((e) => e.kind === 'publish' && e.target === ids.bob && (e.data as any).data?.code === 'integrations_changed').at(-1) as any
+    expect(ev.data).toEqual({ type: 'notice', data: { level: 'info', code: 'integrations_changed', message: '' } })
+    // cara had not connected it; the admin has nothing of theirs dropped
+    expect(told(ids.cara)).toBe(caraBefore)
+    expect(told(ids.ada)).toBe(adaBefore)
+    // the old row's actions answer 404, which the page takes as "read the list again"
+    expect((await bob.try('POST', `/api/integrations/${row}/refresh`, {})).status).toBe(404)
+    // nothing left to drop: deleting the template tells nobody again
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+    expect(told(ids.bob)).toBe(bobBefore + 1)
+  })
+})

@@ -66,8 +66,16 @@ describe('asking', () => {
     expect(banner.data.data.message).toContain('Tasks')
     expect(banner.data.data.message).toContain(host)
     expect(h.hub.events.some((e) => e.kind === 'publish' && e.target !== ids.bob && (e.data as any).data?.code === 'integration_request')).toBe(false)
-    // the member sees it waiting
-    expect((await bob.call('GET', '/api/integration-requests')).items.map((x: any) => x.id)).toEqual([r.body.id])
+    // admins are never named to members (docs/DECISIONS.md "Admins are never named"): the banner says "an admin"
+    expect(banner.data.data.message).not.toContain('ADA')
+    expect(banner.data.data.message).toMatch(/admin|관리자/i)
+    // the member sees it waiting, without who asked (the admin's list keeps the name)
+    const waiting = (await bob.call('GET', '/api/integration-requests')).items
+    expect(waiting.map((x: any) => x.id)).toEqual([r.body.id])
+    expect(waiting[0].requestedBy).toBeNull()
+    expect((await bob.call('GET', `/api/integration-requests/${r.body.id}`)).requestedBy).toBeNull()
+    expect(JSON.stringify(waiting)).not.toContain('ADA')
+    expect((await ada.call('GET', '/api/admin/integration-requests')).items.find((x: any) => x.id === r.body.id).requestedBy).toEqual({ id: ids.ada, name: 'ADA' })
     expect((await cara.call('GET', '/api/integration-requests')).items).toEqual([])
     // activity log: who asked whom, for which service (the admin's own words; a request holds no key)
     const a = h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'integration_request.create' AND target = ?").get(r.body.id) as { actor_id: string; detail: string }
