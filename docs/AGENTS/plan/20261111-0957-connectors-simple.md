@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 09:57
 - Branch: `feat/connectors-simple`
-- Status: draft
+- Status: in progress
 - Where: `web/`. Why: the page and its labels are web UI only; no server or API change (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a simpler layout and a new name for an existing page, nothing new to set up
 
@@ -29,8 +29,9 @@ In:
   3. **Discover**: only what is not connected yet (no ✓ cards, so nothing shows twice), each row with one `+`. The
      first 10, the rest behind "Show all (n)". Members do not see cards they cannot use ("Not set up yet"). An owner or admin
      sees those cards with one "Set up" link that goes to the admin page.
-- Moved off the list onto the connector's own page: "Run without asking", "Off for you", the full error text, the
-  privacy note (Keys and sign-ins are stored encrypted…).
+- Moved off the list onto the connector's own page: "Run without asking", the full error text, the privacy note (Keys
+  and sign-ins are stored encrypted…). The team connections an admin may not use ("Off for you") are no longer listed
+  here at all: they are not the admin's own, and Admin › Connected apps lists them.
 - `/connectors/mcp/:id` also opens a team connection (today only one's own), so every row of Your connectors has a page.
 - Removed from the list page: the "Connected" row of big icon tiles, the orange "Manage" link on "From <team>" (admins
   reach Admin from the sidebar), the footer note.

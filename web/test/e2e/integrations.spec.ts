@@ -33,7 +33,7 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/connectors')
-  await expect(page.getByRole('heading', { name: '연결한 서비스', level: 1, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '커넥터', level: 1, exact: true })).toBeVisible()
   // nothing connected yet: Popular right under the title (no empty box, no heading for the empty list)
   await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
@@ -396,42 +396,40 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(row(page, 'Bob MCP').getByTestId('integration-access-line')).toHaveText(/^사용할 사람: Bob/)
   await expect(row(page, 'Bob MCP').getByText('내 대화에서는 못 씀')).toHaveCount(1)
 
-  // the admin's own Settings: what the team provides, read-only, with what the admin gets from each, and one Manage link
+  // the admin's own Connectors: the team's connections the admin may use, one line each with the Team label (the ones
+  // not for them are only in Admin); no Manage link
   await page.goto('/connectors')
-  const fromTeam = page.getByTestId('integrations-from-team')
-  await expect(fromTeam.getByRole('heading', { name: 'Acme에서 받은 것' })).toBeVisible()
-  await expect(fromTeam.getByTestId('from-team-manage')).toHaveAttribute('href', '/admin/connectors')
-  const stateOf = (name: string) => fromTeam.getByTestId('integration-row').filter({ has: page.getByText(name, { exact: true }) }).getByTestId('from-team-state')
-  await expect(stateOf('Company PM')).toHaveText('쓸 수 있음')
-  await expect(stateOf('Design MCP')).toHaveText('쓸 수 있음')
-  await expect(stateOf('Bob MCP')).toHaveText('나는 못 씀')
-  await expect(stateOf('Sales MCP')).toHaveText('나는 못 씀')
-  // read-only for the admin too, tools included (an MCP server's row, open with its tools)
-  const design = fromTeam.getByTestId('integration-row').filter({ has: page.getByText('Design MCP', { exact: true }) })
+  const teamRow = (name: string) => page.getByTestId('connected-apps').locator('[data-testid="connected-app"]').filter({ has: page.getByText(name, { exact: true }) })
+  for (const name of ['Company PM', 'Design MCP']) {
+    await expect(teamRow(name).getByTestId('connector-row-team')).toHaveText('팀')
+    await expect(teamRow(name).getByTestId('connector-row-status')).toHaveText('연결됨')
+  }
+  for (const name of ['Bob MCP', 'Sales MCP']) await expect(teamRow(name)).toHaveCount(0)
+  await expect(page.getByTestId('from-team-manage')).toHaveCount(0)
+  // read-only for the admin too on its page, tools included (an MCP server's row, open with its tools)
+  await teamRow('Design MCP').click()
+  await expect(page.getByTestId('connector-detail')).toBeVisible()
+  const design = row(page, 'Design MCP')
   await openRow(design)
   await design.getByTestId('integration-tools-toggle').click()
-  for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start', 'integration-tool-switch']) await expect(fromTeam.getByTestId(id)).toHaveCount(0)
-  // the orange Team chip is gone: the heading says it
-  await expect(fromTeam.getByText('팀 연결', { exact: true })).toHaveCount(0)
+  for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start', 'integration-tool-switch']) await expect(design.getByTestId(id)).toHaveCount(0)
+  await expect(page.getByTestId('connector-privacy')).toBeVisible()
 
   // Bob sees the team connections he was given read-only, and not the others
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/connectors')
-  const team = page.getByTestId('integrations-from-team')
-  await expect(team.getByRole('heading', { name: 'Acme에서 받은 것' })).toBeVisible()
-  // a member: no Manage link, and none of the team's connections he may not use
-  await expect(team.getByTestId('from-team-manage')).toHaveCount(0)
-  await expect(team.getByTestId('integration-row')).toHaveCount(2)
-  for (const name of ['Company PM', 'Bob MCP']) await expect(team.getByTestId('integration-row').filter({ has: page.getByText(name, { exact: true }) })).toHaveCount(1)
+  await expect(page.getByTestId('connected-apps').locator('[data-testid="connected-app"]')).toHaveCount(2)
+  for (const name of ['Company PM', 'Bob MCP']) await expect(teamRow(name).getByTestId('connector-row-team')).toHaveCount(1)
+  await expect(teamRow('Company PM').getByTestId('connector-row-status')).toHaveText('연결됨')
+  await teamRow('Company PM').click()
   const shared = row(page, 'Company PM')
-  await expect(shared.getByTestId('from-team-state')).toHaveText('쓸 수 있음')
   await openRow(shared)
   await expect(shared).toContainText('쓰기 막기')
   for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start']) await expect(shared.getByTestId(id)).toHaveCount(0)
-  // he has none of his own (no heading, no empty box) and may add one: Discover is under the team's. Not by its address:
-  // no Add, and "Not listed?" says to ask an admin (docs/DECISIONS.md "Plain words for members")
-  await expect(page.getByTestId('connected-apps')).toHaveCount(0)
+  // he may add his own: Discover is under the team's. Not by its address: no Add, and "Not listed?" says to ask an
+  // admin (docs/DECISIONS.md "Plain words for members")
+  await page.getByTestId('connector-back').click()
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await expect(page.getByTestId('integration-add')).toHaveCount(0)
   await expect(page.getByTestId('connector-custom')).toHaveCount(0)
@@ -587,6 +585,7 @@ test('single tools on and off: a switch each for whoever manages the connection;
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/connectors')
+  await openMine(page, 'Team wiki')
   const seen = row(page, 'Team wiki')
   await openRow(seen)
   await seen.getByTestId('integration-tools-toggle').click()
@@ -700,40 +699,47 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await expect((await adv(page, 'integration-kind-http'))).toBeVisible()
   await page.keyboard.press('Escape')
 
-  // a team connection the member may use is not their own account: they can still add that
+  // a team connection the member may use counts as connected: Discover no longer offers that service to him
   expect((await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'none', access: { everyone: true, groups: [], users: [] } } })).status()).toBe(201)
 
-  // a member adds their own the same way, with no question about who may use it, and then has both
+  // a member adds his own the same way, with no question about who may use it
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/connectors')
-  await page.getByRole('button', { name: 'Linear 추가' }).click()
-  await expect(dialog.getByRole('heading', { name: 'Linear 추가' })).toBeVisible()
-  await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.linear.app/mcp')
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Linear 추가' })).toHaveCount(0)
+  await page.getByTestId('connector-show-all').click()
+  await page.getByRole('button', { name: 'Figma 추가' }).click()
+  await expect(dialog.getByRole('heading', { name: 'Figma 추가' })).toBeVisible()
+  await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.figma.com/mcp')
   await expect(page.getByTestId('integration-access')).toHaveCount(0)
   const own = page.waitForRequest((r) => r.url().endsWith('/api/integrations') && r.method() === 'POST')
   const ownSignIn = page.waitForEvent('popup')
   await page.getByTestId('integration-save').click()
-  expect((await own).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', writePolicy: 'ask' })
+  expect((await own).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Figma', url: 'https://mcp.figma.com/mcp', auth: 'oauth', writePolicy: 'ask' })
   await ownSignIn
   // his new connection's page, with its row
   await expect(page).toHaveURL(/\/connectors\/mcp\//)
   const mine = page.getByTestId('integrations-mine').getByTestId('integration-row')
   await expect(mine).toHaveCount(1)
-  await expect(mine).toHaveAttribute('data-name', 'Linear')
+  await expect(mine).toHaveAttribute('data-name', 'Figma')
   await expect(mine).toHaveAttribute('data-scope', 'personal')
   // signed in at the service with his own account
   await expect(mine).toHaveAttribute('data-status', 'connected')
-  // the list: his own among the connected apps, the team's under "From Acme"
+  // the list: his own and the team's Linear (with the Team label) in Your connectors; neither is offered in Discover
   await page.getByTestId('connector-back').click()
-  await expect(page.locator('[data-testid="connected-app"]').filter({ hasText: 'Linear' })).toHaveCount(1)
-  const shared = page.getByTestId('integrations-from-team').getByTestId('integration-row')
+  const rows = page.getByTestId('connected-apps').locator('[data-testid="connected-app"]')
+  await expect(rows.filter({ hasText: 'Figma' })).toHaveCount(1)
+  await expect(rows.filter({ hasText: 'Figma' }).getByTestId('connector-row-team')).toHaveCount(0)
+  const linear = rows.filter({ hasText: 'Linear' })
+  await expect(linear.getByTestId('connector-row-team')).toHaveCount(1)
+  await page.getByTestId('connector-show-all').click()
+  for (const id of ['figma', 'linear']) await expect(page.locator(`[data-testid="connector-card"][data-id="${id}"]`)).toHaveCount(0)
+  await linear.click()
+  const shared = page.getByTestId('integration-row')
   await expect(shared).toHaveCount(1)
   await expect(shared).toHaveAttribute('data-name', 'Linear')
   await expect(shared).toHaveAttribute('data-scope', 'team')
-  // the server keeps the two, at the same address
-  const listed = (await (await page.request.get('/api/integrations')).json()).items as { scope: string; url: string }[]
-  expect(listed.filter((i) => i.url === 'https://mcp.linear.app/mcp').map((i) => i.scope).sort()).toEqual(['personal', 'team'])
   // (a 404: Bob's file tree asks for the folder Olga had open, which he cannot see)
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })

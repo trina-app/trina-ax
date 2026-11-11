@@ -65,7 +65,7 @@ test('도구 연결 with Drive: the step order (n/5); [연결] names both effect
   await expect(bar.locator('[aria-current="step"]')).toContainText('4/5 도구 연결')
   const tools = page.getByTestId('welcome-tools')
   await expect(tools.getByRole('heading', { name: '자주 쓰는 도구를 연결해 둘까요?' })).toBeVisible()
-  await expect(tools).toContainText('지금 안 해도 나중에 설정 › 연결한 서비스에서 할 수 있어요.')
+  await expect(tools).toContainText('지금 안 해도 나중에 커넥터에서 할 수 있어요.')
   await expect(page.getByTestId('welcome-tools-drive-line')).toHaveText('트리나가 내 드라이브를 읽어요(읽기만) · 연결하면 팀원도 각자 자기 드라이브를 연결할 수 있게 돼요')
   await expect(page.getByTestId('welcome-tools-mcp-add')).toHaveText('다른 도구 연결하기')
   // nothing connected: no primary, 나중에 하기 only; Higgsfield is not offered
@@ -125,7 +125,7 @@ test('도구 연결\'s exits: a refused or closed sign-in says "연결하지 않
   await page.reload()
   await expect(page.getByTestId('welcome-tools-drive-connect')).toBeVisible()
   await page.getByTestId('welcome-tools-drive-connect').click()
-  await expect(page.getByTestId('welcome-tools-drive-note')).toHaveText('지금은 Google 연결을 할 수 없어요 · 나중에 설정 › 연결한 서비스에서 해요')
+  await expect(page.getByTestId('welcome-tools-drive-note')).toHaveText('지금은 Google 연결을 할 수 없어요 · 나중에 커넥터에서 해요')
   // 나중에 하기: put off, on to the invite
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
@@ -197,7 +197,7 @@ test('준비 끝: "\'카드뉴스\' 만들어 보기" for the first kept skill i
   expect(realErrors(errors)).toEqual([])
 })
 
-test('after the setup, Settings › 연결한 서비스: an owner with the members\' switch off gets one button that names both effects; it confirms with membersOn; a member still reads "관리자가 먼저 켜야 해요"', async ({ page }) => {
+test('after the setup, Connectors (old Settings address): an owner with the members\' switch off gets one button that names both effects; it confirms with membersOn; a member still reads "관리자가 먼저 켜야 해요"', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   const drive = await fakeDrive(page)

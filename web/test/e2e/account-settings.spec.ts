@@ -97,9 +97,9 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
     expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
   }
   // the search narrows the list by name; a section opens on the right and the address follows
-  await dialog.getByTestId('settings-search').fill('mc')
-  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([/연결한 서비스|Connected apps/])
-  // (Connectors itself is a page of the sidebar now: its section here leads there, connectors-hub.spec.ts)
+  await dialog.getByTestId('settings-search').fill(t['aiApps.title'])
+  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([t['aiApps.title']])
+  // (Connectors is not in Settings: it is its own item of the sidebar)
   await dialog.getByTestId('settings-search').fill('zzz')
   await expect(dialog.getByTestId('settings-no-match')).toBeVisible()
   // Esc: back to the page under it, and the keyboard back on the account button
@@ -149,8 +149,10 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   // the connections show in their group (no "더 보기" row on a phone any more: docs/DECISIONS.md "Admin and Settings on
   // phones")
   const menu = dialog.getByTestId('settings-menu')
-  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toBeVisible()
+  await expect(menu.getByRole('link', { name: t['aiApps.title'] })).toBeVisible()
   await expect(dialog.getByTestId('settings-more')).toHaveCount(0)
+  // Connectors is not in Settings (it is its own item of the sidebar and the phone's drawer)
+  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toHaveCount(0)
   await audit(page, 'settings list at phone width')
   // the tab bar is the way out
   await dialog.getByTestId('tab-chats').click()

@@ -1,7 +1,7 @@
 // Connectors in the sidebar (pages/Connectors.tsx) and Gmail, Google Calendar, Google Docs and Google Sheets
 // (components/integrations/GoogleAppConnector.tsx, GoogleAppAdmin.tsx; the mock: test/mock/googleApps.ts): the sidebar
-// item opens the page; Popular lists Google Drive and the four apps first; Gmail's Connect opens Google, its page asks to
-// confirm the account, then offers Try in chat, Settings and ⋯; Settings › Connectors leads to the page; Admin sets up
+// item opens the page; Discover lists what can be added now first (Google Drive and the four apps once set up); Gmail's Connect opens Google, its page asks to
+// confirm the account, then offers Try in chat, Settings and ⋯; the old Settings › Connectors address leads to the page; Admin sets up
 // a card with the same Google app as Drive; and an app that cannot be connected says why.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
@@ -13,20 +13,25 @@ const control = (page: Page, path: string, body: object) => page.request.post(pa
 const googleApps = (page: Page, body: object) => control(page, '/__test/google-apps', body)
 const fakeGoogle = (page: Page) => page.context().route('https://accounts.google.com/**', (r) => r.fulfill({ contentType: 'text/html', body: '<p>Synthetic Google consent</p>' }))
 
-test('the sidebar opens Connectors: Google Drive and the four Google apps lead Popular, the search filters', async ({ page }) => {
+test('the sidebar opens Connectors: Discover lists what can be added first, the Google apps not set up last with Set up; the search filters', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
   await page.getByTestId('nav-connectors').click()
   await expect(page).toHaveURL(/\/connectors$/)
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '연결한 서비스', exact: true })).toBeVisible()
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
   const ids = await page.getByTestId('connector-list').getByTestId('connector-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))
-  expect(ids.slice(0, 6)).toEqual(['google-drive', 'gmail', 'calendar', 'docs', 'sheets', 'notion'])
+  // nothing set up on this server: what can be added now comes first, the Google ones after Show all
+  expect(ids[0]).toBe('notion')
   expect(ids).toHaveLength(10)
-  // nothing set up on this server: the cards say so instead of a +
-  await expect(card(page, 'gmail').getByTestId('connector-off')).toHaveText('아직 설정 안 됨')
+  expect(ids).not.toContain('gmail')
   await page.getByTestId('connector-show-all').click()
   await expect(page.getByTestId('connector-list').getByTestId('connector-card')).not.toHaveCount(10)
+  const all = await page.getByTestId('connector-list').getByTestId('connector-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))
+  expect(all.slice(-5)).toEqual(['google-drive', 'gmail', 'calendar', 'docs', 'sheets'])
+  // the owner gets the way to set them up instead of a +
+  await expect(card(page, 'gmail').getByTestId('connector-set-up')).toHaveAttribute('href', '/admin/connectors')
+  await expect(card(page, 'gmail').getByTestId('connector-add')).toHaveCount(0)
   await page.getByTestId('connector-search').fill('sheets')
   await expect(page.getByTestId('connector-list').getByTestId('connector-card')).toHaveCount(1)
   await expect(card(page, 'sheets')).toBeVisible()
@@ -45,7 +50,7 @@ test('Gmail: Connect opens Google, the account is confirmed, then Try in chat, S
   await card(page, 'gmail').getByTestId('connector-open').click()
   await expect(page).toHaveURL(/\/connectors\/gmail$/)
   const detail = page.getByTestId('gapp-detail')
-  await expect(page.getByTestId('app-breadcrumb')).toContainText('연결한 서비스')
+  await expect(page.getByTestId('app-breadcrumb')).toContainText('커넥터')
   await expect(page.getByTestId('app-breadcrumb')).toContainText('Gmail')
   await expect(detail.getByTestId('app-by')).toContainText('Google')
   await expect(detail.getByTestId('app-example')).toHaveCount(3)
@@ -71,10 +76,10 @@ test('Gmail: Connect opens Google, the account is confirmed, then Try in chat, S
   await page.getByTestId('gapp-settings-done').click()
   await expect(detail.getByTestId('app-abilities')).toContainText('항상 허용')
 
-  // the list: Gmail among the connected apps, its card ticked
+  // the list: Gmail in Your connectors, and no longer in Discover
   await page.getByTestId('app-breadcrumb-connectors').click()
-  await expect(page.locator('[data-testid="connected-app"][data-id="gmail"]')).toBeVisible()
-  await expect(card(page, 'gmail').getByTestId('connector-added')).toBeVisible()
+  await expect(page.locator('[data-testid="connected-app"][data-id="gmail"]').getByTestId('connector-row-status')).toHaveText('연결됨')
+  await expect(card(page, 'gmail')).toHaveCount(0)
   await page.locator('[data-testid="connected-app"][data-id="gmail"]').click()
 
   // ⋯ › Disconnect, confirmed
@@ -180,8 +185,10 @@ test('not available: the reason in plain words, Connect off; an admin gets the w
   await page.reload()
   await expect(detail.getByTestId('gapp-unavailable')).toHaveAttribute('data-reason', 'unsupported')
   await googleApps(page, { app: 'gmail', reason: 'service_limited' })
+  // a member does not see a card that cannot be connected now
   await page.goto('/connectors')
-  await expect(card(page, 'gmail').getByTestId('connector-off')).toHaveText('아직 사용할 수 없음')
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(card(page, 'gmail')).toHaveCount(0)
   // a connected app whose tools cannot be reached right now: a calm note
   await googleApps(page, { app: 'docs', client: 'app', connect: { userId: 'bob', serviceDown: true } })
   await page.goto('/connectors/docs')
@@ -204,7 +211,7 @@ test('phone width: the page and an app\'s page fit; the drawer has Connectors', 
   await page.getByTestId('menu-open').click()
   await page.getByTestId('nav-connectors').last().click()
   await expect(page).toHaveURL(/\/connectors$/)
-  await expect(page.getByTestId('topbar-title')).toHaveText('연결한 서비스')
+  await expect(page.getByTestId('topbar-title')).toHaveText('커넥터')
   await expect(card(page, 'gmail')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.goto('/connectors/gmail')
@@ -224,7 +231,8 @@ for (const scheme of ['light', 'dark'] as const) {
       return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
     }
     await page.goto('/connectors')
-    await expect(card(page, 'gmail')).toBeVisible()
+    await expect(page.locator('[data-testid="connected-app"][data-id="gmail"]')).toBeVisible()
+    await expect(card(page, 'calendar')).toBeVisible()
     expect(await audit()).toEqual([])
     await page.goto('/connectors/gmail')
     await page.getByTestId('app-tools-toggle').click()

@@ -1,6 +1,6 @@
 // Connection templates against the mock server (components/integrations/TemplatesView.tsx, IntegrationDialog.tsx): an
-// admin registers a service once as a template (no key) for some members; the member sees it under "From <team>",
-// connects it with their own key, and it works like their own connection (only the key and write rule are theirs to
+// admin registers a service once as a template (no key) for some members; the member sees it in Connectors' "Your
+// connectors" with a Team label and Connect, connects it with their own key, and it works like their own connection (only the key and write rule are theirs to
 // change); the admin sees "Template · 1 connected", never the key. A new address drops the members' keys; deleting the
 // template removes their connections. Phone width and accessibility in both themes.
 import AxeBuilder from '@axe-core/playwright'
@@ -10,6 +10,8 @@ import { reset, signIn, adv } from './helpers'
 const KEY = 'member-own-' + 'k'.repeat(24)
 const BOB = { username: 'bob', password: 'bob password 1' }
 const modal = (page: Page) => page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') })
+/** the member's connections made from a template: rows of Your connectors with the Team label (not the Connect rows) */
+const joined = (page: Page) => page.getByTestId('connected-apps').locator('[data-testid="connected-app"]').filter({ has: page.getByTestId('connector-row-team') })
 
 async function makeTemplate(page: Page, o: { name?: string; url?: string } = {}) {
   await page.goto('/admin/connectors')
@@ -51,17 +53,15 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await expect(row.getByTestId('integration-audience')).toHaveAttribute('title', /Bob/)
   await expect(row.getByTestId('template-admin-line')).toHaveText('Each member connects their own key')
 
-  // Bob: "From <team>" with the template and "Connect your account"
+  // Bob: the template in Your connectors, one line with the Team label and Connect
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/connectors')
-  const group = page.getByTestId('integrations-from-team')
-  await expect(group.getByRole('heading', { name: 'From Acme' })).toBeVisible()
-  // a member gets no Manage link (the team's connectors are managed in Admin)
-  await expect(group.getByTestId('from-team-manage')).toHaveCount(0)
+  const group = page.getByTestId('connected-apps')
+  await expect(page.getByRole('heading', { name: 'Your connectors' })).toBeVisible()
   const tpl = group.getByTestId('template-row').filter({ hasText: 'Tasks' })
-  await expect(tpl).toContainText('Use the key from your Tasks profile.')
-  await expect(tpl.getByTestId('template-connect')).toHaveText('Connect your account')
+  await expect(tpl.getByTestId('connector-row-team')).toHaveText('Team')
+  await expect(tpl.getByTestId('template-connect')).toHaveText('Connect')
   await tpl.getByTestId('template-connect').click()
   const d = modal(page)
   await expect(d.getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()
@@ -76,11 +76,13 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await page.getByTestId('integration-answer-connect').click()
   // the template's version as Bob saw it goes along: changed since, the server refuses (409)
   expect((await sent).postDataJSON()).toEqual({ secret: KEY, writePolicy: 'ask', version: 1 })
-  // it is Bob's own connection now, in the same group (not under his own list)
-  const conn = group.getByTestId('integration-row').filter({ hasText: 'Tasks' })
-  await expect(conn).toHaveAttribute('data-scope', 'personal')
+  // it is Bob's own connection now, still with the Team label, Connected; its page has its row
+  await expect(joined(page).filter({ hasText: 'Tasks' }).getByTestId('connector-row-status')).toHaveText('Connected')
   await expect(group.getByTestId('template-row')).toHaveCount(0)
-  await expect(page.getByTestId('integrations-mine').getByText('Tasks')).toHaveCount(0)
+  await joined(page).filter({ hasText: 'Tasks' }).click()
+  await expect(page).toHaveURL(/\/connectors\/mcp\//)
+  const conn = page.getByTestId('integration-row').filter({ hasText: 'Tasks' })
+  await expect(conn).toHaveAttribute('data-scope', 'personal')
   // editing it: only the key and the write rule are his
   await conn.getByTestId('integration-toggle').click()
   await conn.getByRole('button', { name: /Edit/ }).click()
@@ -111,7 +113,7 @@ test('a new address drops the members\' keys; deleting the template removes thei
   await page.getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
   await page.getByTestId('integration-answer-key').fill(KEY)
   await page.getByTestId('integration-answer-connect').click()
-  await expect(page.getByTestId('integrations-from-team').getByTestId('integration-row')).toHaveCount(1)
+  await expect(joined(page)).toHaveCount(1)
 
   // the owner moves it: the dialog warns that keys go
   await page.context().clearCookies()
@@ -134,7 +136,7 @@ test('a new address drops the members\' keys; deleting the template removes thei
   await expect(page.getByTestId('integration-answer-host-warning')).toContainText('mcp.tasks2.example')
   await page.getByTestId('integration-answer-key').fill(KEY)
   await page.getByTestId('integration-answer-connect').click()
-  await expect(page.getByTestId('integrations-from-team').getByTestId('integration-row')).toHaveCount(1)
+  await expect(joined(page)).toHaveCount(1)
 
   await page.context().clearCookies()
   await signIn(page)
@@ -147,7 +149,9 @@ test('a new address drops the members\' keys; deleting the template removes thei
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/connectors')
-  await expect(page.getByTestId('integrations-from-team')).toHaveCount(0)
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(joined(page)).toHaveCount(0)
+  await expect(page.getByTestId('template-row')).toHaveCount(0)
 })
 
 test('a member can disconnect; at phone width the group and Connect still work', async ({ page }) => {
@@ -164,12 +168,16 @@ test('a member can disconnect; at phone width the group and Connect still work',
   await tpl.getByTestId('template-connect').click()
   await page.getByTestId('integration-answer-key').fill(KEY)
   await page.getByTestId('integration-answer-connect').click()
-  const conn = page.getByTestId('integrations-from-team').getByTestId('integration-row')
+  await expect(joined(page)).toHaveCount(1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await joined(page).click()
+  const conn = page.getByTestId('integration-row')
   await expect(conn).toHaveCount(1)
   await conn.getByTestId('integration-toggle').click()
   await conn.getByRole('button', { name: /Delete|Disconnect/ }).first().click()
   await page.getByRole('button', { name: 'Delete' }).last().click()
-  // back to Connect
+  // back on the list, to Connect
+  await expect(page).toHaveURL(/\/connectors$/)
   await expect(page.getByTestId('template-row').filter({ hasText: 'Tasks' })).toBeVisible()
 })
 
@@ -211,7 +219,7 @@ test('a template that changed while the dialog was open is refused, then shown a
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/connectors')
-  await page.getByTestId('integrations-from-team').getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
+  await page.getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
   await expect(page.getByTestId('integration-answer-host-warning')).toContainText('mcp.tasks.example')
   const moved = await ap.request.patch(`/api/admin/integration-templates/${tid}`, { data: { url: 'https://mcp.other.example/mcp' }, headers: { 'x-mycel-csrf': '1' } })
   expect(moved.ok()).toBe(true)
@@ -220,11 +228,11 @@ test('a template that changed while the dialog was open is refused, then shown a
   // refused, and the dialog now says where the key would go
   await expect(modal(page)).toContainText('바뀌었어요')
   await expect(page.getByTestId('integration-answer-host-warning')).toContainText('mcp.other.example')
-  await expect(page.getByTestId('integrations-from-team').getByTestId('integration-row')).toHaveCount(0)
+  await expect(joined(page)).toHaveCount(0)
   // connecting again, to the address Bob has now seen, works
   await page.getByTestId('integration-answer-key').fill(KEY)
   await page.getByTestId('integration-answer-connect').click()
-  await expect(page.getByTestId('integrations-from-team').getByTestId('integration-row').filter({ hasText: 'Tasks' })).toHaveCount(1)
+  await expect(joined(page).filter({ hasText: 'Tasks' })).toHaveCount(1)
   await admin.close()
 })
 
@@ -252,7 +260,7 @@ test('a new template is for the whole team unless the admin picks people; the me
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/connectors')
-  await expect(page.getByTestId('integrations-from-team').getByTestId('template-row').filter({ hasText: 'Wiki' })).toBeVisible()
+  await expect(page.getByTestId('template-row').filter({ hasText: 'Wiki' })).toBeVisible()
 })
 
 // The brief's R2, R4 and R7 in the app: "N connected" opens who it is for (names and states, never a key); an inbox
@@ -267,7 +275,7 @@ test('R4: "N connected" opens who it is for, who connected and when, never a key
   await page.getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
   await page.getByTestId('integration-answer-key').fill(KEY)
   await page.getByTestId('integration-answer-connect').click()
-  await expect(page.getByTestId('integrations-from-team').getByTestId('integration-row')).toHaveCount(1)
+  await expect(joined(page)).toHaveCount(1)
 
   await page.context().clearCookies()
   await signIn(page)

@@ -1,35 +1,38 @@
 // Connectors (/connectors, an item of the main sidebar and of the phone's drawer): what the AI may use with the person's
-// own accounts, like an app store's page. On top the title, one line and a search box; first, what an admin asked the
-// person to connect (components/integrations/AnswerDialog.tsx) and "From <team>" (TemplatesView.tsx FromTeam: the team's
-// connections they may use); then **Connected**, a row of the apps they connected (Google Drive, Gmail, …, their own MCP
-// connections), each opening its page; then **Popular**: Trina's built-in cards first (Google Drive, Gmail, Google
-// Calendar, Google Docs, Google Sheets), then the listed MCP services (lib/connectors.ts), with a + that connects at once
-// (a Google card opens Google during the click), a ✓ once connected, or why not now. "Add custom connector" in the title
-// row takes any MCP server or API by its address: owners and admins only; a member reads "Not listed? Ask an admin to
-// add it." under Popular instead (docs/DECISIONS.md "Plain words for members"). A built-in the team has not set up gives
-// a member "Ask admin to add it" on its page, and its card then says "Asked" (components/integrations/AskAdmin.tsx). A
-// card opens its page, /connectors/<id>: a built-in's (AppDetail.tsx:
-// Connect, things to try, About, what the AI can do, Information, the tools), a listed service's (ConnectorDetail), or
-// /connectors/mcp/<connection id> for a connection of the person's own (its row, with everything it had before).
-// Settings › Connected apps leads here (SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1 (old Drive
-// links: Google Drive's page). The state (the lists, Drive's and the Google apps' sign-ins, the add dialog) lives in
-// ConnectorsLayout, so a + can open Google during the click and its page shows the same sign-in.
+// own accounts, kept simple like Claude's Connectors page. On top the title, one line, a search box and, for owners and
+// admins, "Add custom connector" (any MCP server or API by its address). Then what an admin asked the person to connect
+// (components/integrations/AnswerDialog.tsx, only while there is something), and two sections:
+// - **Your connectors**: one line each (ConnectorsView.tsx ConnectorRow) for every connection the person can use: the
+//   built-in ones they connected (Google Drive, Gmail, …), their own MCP connections, and what the team provides
+//   (TemplatesView.tsx useFromTeam, with a "Team" label). One status on the right (Connected, Reconnect, Needs
+//   attention, or Connect for a team template not connected yet); the row opens the connection's page, which keeps
+//   everything else (switches, errors, "Run without asking", tools, disconnect, the privacy note).
+// - **Discover**: only what is not connected yet: Trina's built-in cards first, then the listed MCP services
+//   (lib/connectors.ts), each with a + that connects at once (a Google card opens Google during the click). One that
+//   cannot be connected now comes last: one the team has not set up yet shows an owner or admin "Set up" (Admin) and a
+//   member "Not set up yet" (its page has "Ask admin to add it", and the card then says "Asked":
+//   components/integrations/AskAdmin.tsx); one turned off for members is left out for them. A member reads "Not listed?
+//   Ask an admin to add it." under it (docs/DECISIONS.md "Plain words for members").
+// A card opens its page, /connectors/<id>: a built-in's (AppDetail.tsx), a listed service's (ConnectorDetail), or
+// /connectors/mcp/<connection id> for one of the person's connections or a team connection they may use.
+// /settings/connectors (old links) leads here (SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1
+// (old Drive links: Google Drive's page). The state (the lists, Drive's and the Google apps' sign-ins, the add dialog)
+// lives in ConnectorsLayout, so a + can open Google during the click and its page shows the same sign-in.
 import clsx from 'clsx'
-import { Check, Plus, Search } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
-import { builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, exampleKeys, fits, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId, type CardState } from '../lib/googleApps'
+import { builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, exampleKeys, fits, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
 import { canonicalService, splitByScope } from '../lib/integrations'
 import { writeDraft } from '../lib/localData'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
-import { isAdmin, useMe, useMeStrict } from '../store/session'
+import { isAdmin, useMe } from '../store/session'
 import { Button, EmptyState, ErrorNote, IconButton, PageHeader, Skeleton, inputCls, pageColumn } from '../components/ui'
-import { Tooltip } from '../components/Tooltip'
-import { ConnectorDetail, LogoTile } from '../components/integrations/ConnectorsView'
+import { ConnectorDetail, ConnectorRow, LogoTile } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
 import { GoogleAppDetail, Note, useGoogleApps, type StartChat } from '../components/integrations/GoogleAppConnector'
@@ -39,10 +42,10 @@ import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
 import { AskAdminAction, useServiceAsks } from '../components/integrations/AskAdmin'
-import { FromTeam } from '../components/integrations/TemplatesView'
+import { useFromTeam } from '../components/integrations/TemplatesView'
 import { useLoad } from './admin/common'
 
-/** How many Popular cards show before "Show all": the five built-in ones and five well-known services. */
+/** How many Discover cards show before "Show all": the five built-in ones and five well-known services. */
 export const POPULAR_FIRST = 10
 
 function useConnectorsState() {
@@ -50,19 +53,14 @@ function useConnectorsState() {
   const admin = isAdmin(me)
   const navigate = useNavigate()
   const list = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
-  // an admin's "From <team>" also lists the team's connections not for them ("Off for you"): the team list, admins only
-  const teamAll = useLoad(async () => {
-    if (!admin) return [] as Integration[]
-    try { return (await api.call(API.listTeamIntegrations)).items } catch { return [] as Integration[] }
-  }, [admin])
   const drive = useDriveConnection()
   const google = useGoogleApps()
   // a member's asks to add an app the team has not set up (none for an owner or admin)
   const asks = useServiceAsks(admin)
   // the admin's requests load again with the list: a sign-in that finished may have connected one
   const [requests, setRequests] = useState(0)
-  const reloadList = list.reload, reloadTeam = teamAll.reload, reloadGoogle = google.load, reloadAsks = asks.reload
-  const reload = useCallback(() => { void reloadList(); void reloadTeam(); void reloadGoogle(); void reloadAsks(); setRequests((n) => n + 1) }, [reloadList, reloadTeam, reloadGoogle, reloadAsks])
+  const reloadList = list.reload, reloadGoogle = google.load, reloadAsks = asks.reload
+  const reload = useCallback(() => { void reloadList(); void reloadGoogle(); void reloadAsks(); setRequests((n) => n + 1) }, [reloadList, reloadGoogle, reloadAsks])
   useEffect(() => reloadAsked.on(reload), [reload])
   // a connection of mine went without me (its template changed or went): the lists again, so no stale row stays
   useEffect(() => integrationsChanged.on(reload), [reload])
@@ -85,7 +83,7 @@ function useConnectorsState() {
     writeDraft(me.user.id, 'new', text)
     navigate('/')
   }, [me, navigate])
-  return { list, teamAll, drive, google, asks, requests, reload, actions, dialog, setDialog, startChat, admin }
+  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, startChat, admin }
 }
 type ConnectorsState = ReturnType<typeof useConnectorsState>
 const Ctx = createContext<ConnectorsState | null>(null)
@@ -118,17 +116,17 @@ export function ConnectorsLayout() {
   )
 }
 
-interface Card { id: string; name: string; line: string; logo: string; state: CardState; off?: string; onOpen: () => void; onAdd: () => void }
+/** `setUp`: off because the team has not set it up yet, which an owner or admin does in Admin (a member asks an admin
+ * from its page); `asked`: a member who asked an admin to add it */
+interface Card { id: string; name: string; line: string; logo: string; state: CardState; setUp?: boolean; asked?: boolean; onOpen: () => void; onAdd: () => void }
 
 /** /connectors */
 export function ConnectorsHome() {
   const t = useT()
-  const me = useMeStrict()
   const navigate = useNavigate()
-  const { list, teamAll, drive, google, asks, requests, actions, setDialog, admin } = useConnectors()
+  const { list, drive, google, asks, requests, actions, setDialog, admin } = useConnectors()
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
-  const [fromTeamShown, setFromTeamShown] = useState<boolean | null>(null)
   const [params, setParams] = useSearchParams()
   const personalAllowed = list.data?.personalAllowed
   // ?add=1 (Search's "Connect an app") opens the add dialog once the list says members may add their own, for owners
@@ -138,12 +136,15 @@ export function ConnectorsHome() {
     if (personalAllowed && admin) setDialog({})
     setParams((p) => { p.delete('add'); return p }, { replace: true })
   }, [params, personalAllowed, admin, setParams, setDialog])
-  if (params.get('drive') === '1') return <Navigate to="/connectors/google-drive" replace />
 
   const mine = list.data ? splitByScope(list.data.items).mine : []
   const team = list.data ? splitByScope(list.data.items).team : null
-  // (null while an admin's team list is still on its way: the block waits for it, so nothing flashes)
-  const offForMe = !admin ? [] : team && teamAll.data ? teamAll.data.filter((x) => !team.some((y) => y.id === x.id)) : null
+  const fromTeam = useFromTeam({
+    team, latest: list.data?.items, version: requests, query,
+    onOpen: (i) => navigate(`/connectors/mcp/${i.id}`),
+    onConnected: (i, signIn) => actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)),
+  })
+  if (params.get('drive') === '1') return <Navigate to="/connectors/google-drive" replace />
   const q = query.trim()
 
   // the built-in cards: Google Drive (its own connection), then the Google apps this server knows (none on an older one)
@@ -154,40 +155,55 @@ export function ConnectorsHome() {
     // a member who asked an admin to add it: "Asked" in place of "Not set up yet"
     const asked = !admin && asks.stateOf(id) !== 'none'
     if (id === 'google-drive') {
-      const notSetUp = !!drive.connection && !drive.connection.configured
-      const off = dState === 'off' ? t(notSetUp && asked ? 'serviceRequest.asked' : notSetUp ? 'gapps.off.notSetUp' : 'gapps.off.membersOff') : undefined
-      return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: dState, off, onOpen: open,
+      const setUp = !!drive.connection && !drive.connection.configured
+      return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: dState, setUp, asked: setUp && asked, onOpen: open,
         onAdd: () => { open(); if (dState === 'available') drive.start() } }]
     }
     const v = google.apps?.find((x) => x.id === id)
     if (!v) return []
-    const state = googleAppCardState(v)
-    const why = unavailableKeys(v.reason, admin)
-    const off = v.reason === 'not_set_up' && asked ? t('serviceRequest.asked') : why ? t(why.short) : undefined
-    return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state, off, onOpen: open,
+    // one that needs a new sign-in stays in Your connectors even when it cannot be connected now: its page disconnects it
+    const setUp = v.reason === 'not_set_up'
+    return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: v.status === 'needs_reconnect' ? 'reconnect' : googleAppCardState(v), setUp, asked: setUp && asked, onOpen: open,
       onAdd: () => { open(); void google.flows[id].start() } }]
   })
   // the listed services: added from their page or with + (the add dialog, filled in); only while members may add their own
-  const urls = mine.map((i) => i.url)
+  // (every connection the person can use counts as connected: their own, the team's, the ones made from a template)
+  const urls = (list.data?.items ?? []).map((i) => i.url)
   const listed: Card[] = personalAllowed ? CONNECTORS.map((c) => ({
     id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c),
     state: isConnected(c, urls) ? 'added' as const : 'available' as const,
     onOpen: () => navigate(`/connectors/${c.id}`), onAdd: () => setDialog({ connector: c }),
   })) : []
-  const cards = [...builtIns, ...listed].filter((c) => fits(q, c.name, c.line))
+  // Discover: only what is not connected yet (connected ones are in Your connectors). One that cannot be connected now
+  // ("off") comes after the ones that can be added now, and only while the team has not set it up yet: an owner or
+  // admin sees "Set up", which goes to Admin, where it is set up; a member sees "Not set up yet" ("Asked" once they
+  // asked), and its page has "Ask admin to add it". One turned off for members is left out (nothing to do there).
+  const cards = [...builtIns, ...listed]
+    .filter((c) => c.state === 'available' || (c.state === 'off' && c.setUp))
+    .filter((c) => fits(q, c.name, c.line))
+    .sort((a, b) => Number(a.state === 'off') - Number(b.state === 'off'))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
 
-  // Connected: the built-in ones connected (or needing a new sign-in), then the person's own connections
-  const connected: { id: string; name: string; logo: string; warn: boolean; to: string }[] = [
-    ...builtIns.filter((c) => c.state === 'added' || c.state === 'reconnect').map((c) => ({ id: c.id, name: c.name, logo: c.logo, warn: c.state === 'reconnect', to: `/connectors/${c.id}` })),
-    ...mine.map((i) => {
+  // Your connectors: the built-in ones connected (or needing a new sign-in), the person's own connections, and what the
+  // team provides (useFromTeam), one line each, by name
+  const yours: { name: string; row: ReactNode }[] = [
+    ...builtIns.filter((c) => c.state === 'added' || c.state === 'reconnect').filter((c) => fits(q, c.name)).map((c) => ({ name: c.name, row: (
+      <ConnectorRow key={c.id} id={c.id} logo={c.logo} name={c.name} status={c.state === 'reconnect' ? 'reconnect' : 'connected'} onOpen={c.onOpen} />
+    ) })),
+    ...mine.filter((i) => fits(q, i.name, i.url)).map((i) => {
       const c = connectorFor(i.url)
-      return { id: i.id, name: i.name, logo: c ? connectorLogo(c) : '', warn: i.status !== 'connected', to: `/connectors/mcp/${i.id}` }
+      return { name: i.name, row: (
+        <ConnectorRow key={i.id} id={i.id} logo={c ? connectorLogo(c) : undefined} name={i.name}
+          status={i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'} onOpen={() => navigate(`/connectors/mcp/${i.id}`)} />
+      ) }
     }),
-  ].filter((x) => fits(q, x.name))
+    ...fromTeam.rows,
+  ].sort((a, b) => a.name.localeCompare(b.name))
 
   const loading = !list.data && !list.error
-  const nothing = !!q && !cards.length && !connected.length && !fromTeamShown
+  const nothing = !!q && fromTeam.ready && !cards.length && !yours.length
+  // nothing connected and nothing this person can add (the team has set nothing up for members): say so once
+  const empty = !q && !loading && fromTeam.ready && !cards.length && !yours.length
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="integrations">
       <PageHeader testId="connectors-header" title={t('integrations.title')} desc={t('connectorsPage.desc')}
@@ -203,49 +219,34 @@ export function ConnectorsHome() {
           )}
         </>} />
       <div className={clsx(pageColumn, 'space-y-8 p-4 pb-10 sm:p-6')}>
-        <div className="space-y-5 empty:hidden">
-          {/* answered: its own page, with its row (like a connection added here) */}
-          <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(`/connectors/mcp/${i.id}`) }} />
-          <FromTeam teamName={me.team.name} team={team} offForMe={offForMe} latest={list.data?.items} manage={admin} version={requests} query={query}
-            actions={actions} onEdit={(i) => setDialog({ existing: i })}
-            onConnected={(i, signIn) => actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id))}
-            onShown={setFromTeamShown} />
-        </div>
+        {/* what an admin asked this person to connect: answered, its own page, with its row */}
+        <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(`/connectors/mcp/${i.id}`) }} />
         {list.error && <ErrorNote onRetry={() => void list.reload()}>{list.error}</ErrorNote>}
         {/* a service a member looked for and did not find: where to go next (an owner or admin has Add above) */}
         {loading ? <Skeleton lines={4} /> : nothing ? (
           <EmptyState title={t('integrations.noMatch', { q })}>
             {personalAllowed && !admin && <p data-testid="connector-ask-admin">{t('integrations.discover.customHint')} {t('integrations.discover.askAdmin')}</p>}
           </EmptyState>
+        ) : empty ? (
+          <EmptyState title={t('connectors.none')}>
+            {!admin && <p data-testid="connector-ask-admin">{t('connectors.noneMember')}</p>}
+          </EmptyState>
         ) : (
           <>
             {personalAllowed === false && mine.length > 0 && (
               <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="integrations-personal-off">{t('integrations.personalOff')}</p>
             )}
-            {connected.length > 0 && (
-              <section aria-labelledby="connectors-connected">
-                <h2 id="connectors-connected" className="mb-3 text-sm font-semibold">{t('connectors.connected')}</h2>
-                <ul className="flex flex-wrap gap-x-2 gap-y-3" data-testid="connected-apps">
-                  {connected.map((x) => (
-                    <li key={x.id}>
-                      <button type="button" onClick={() => navigate(x.to)} className="group flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl p-1.5 text-center hover:bg-hover" data-testid="connected-app" data-id={x.id} data-warn={x.warn ? 'yes' : undefined}>
-                        <span className="relative">
-                          {x.logo ? <LogoTile src={x.logo} className="size-12 rounded-xl p-2" /> : <InitialTile name={x.name} />}
-                          {x.warn && <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-[var(--c-canvas)] bg-warn" aria-hidden />}
-                        </span>
-                        <span className="line-clamp-2 w-full text-xs leading-tight break-words">{x.name}</span>
-                        {x.warn && <span className="sr-only">{t('drive.status.needs_reconnect')}</span>}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+            {yours.length > 0 && (
+              <section aria-labelledby="connectors-yours">
+                <h2 id="connectors-yours" className="mb-1 text-sm font-semibold">{t('connectors.yours')}</h2>
+                <ul data-testid="connected-apps">{yours.map((x) => x.row)}</ul>
               </section>
             )}
             {!q && <SlackAccount />}
             {cards.length > 0 && (
-              <section aria-labelledby="connectors-popular" data-testid="connector-discover">
-                <div className="mb-3 flex items-center gap-2">
-                  <h2 id="connectors-popular" className="text-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectorsPage.popular')}</h2>
+              <section aria-labelledby="connectors-discover" data-testid="connector-discover">
+                <div className="mb-1 flex items-center gap-2">
+                  <h2 id="connectors-discover" className="text-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h2>
                   {!q && cards.length > POPULAR_FIRST && (
                     <button type="button" className="ml-auto text-sm text-muted hover:text-ink" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
                       {all ? t('connectors.showLess') : t('connectorsPage.showAll', { count: cards.length })}
@@ -253,7 +254,7 @@ export function ConnectorsHome() {
                   )}
                 </div>
                 <ul className="grid gap-x-6 sm:grid-cols-2" data-testid="connector-list">
-                  {shownCards.map((c) => <PopularCard key={c.id} c={c} />)}
+                  {shownCards.map((c) => <DiscoverCard key={c.id} c={c} admin={admin} />)}
                 </ul>
                 {/* members: the address form (kind, sign-in method, headers, scopes) is an admin's job */}
                 {personalAllowed && !admin && (
@@ -263,41 +264,31 @@ export function ConnectorsHome() {
                 )}
               </section>
             )}
-            <p className="text-xs text-faint">{t('integrations.privacy')}</p>
           </>
         )}
       </div>
+      {fromTeam.dialog}
     </div>
   )
 }
 
-/** A connection without a listed logo: its first letter. */
-function InitialTile({ name }: { name: string }) {
-  return <span className="flex size-12 items-center justify-center rounded-xl border border-line bg-subtle text-lg font-semibold text-muted" aria-hidden>{name.trim().charAt(0).toUpperCase() || '?'}</span>
-}
-
-/** One Popular card: logo, name, one line; on the right +, ✓, "Reconnect" or why not now. The card opens its page. */
-function PopularCard({ c }: { c: Card }) {
+/** One Discover card: logo, name, one line, and one + on the right (for one the team has not set up yet: an owner or
+ * admin "Set up", a member "Not set up yet" or "Asked"). The card opens its page. */
+function DiscoverCard({ c, admin }: { c: Card; admin: boolean }) {
   const t = useT()
   return (
     <li className="flex items-center gap-3 border-b border-line py-3" data-testid="connector-card" data-id={c.id} data-state={c.state}>
       <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2" onClick={c.onOpen} data-testid="connector-open">
-        <LogoTile src={c.logo} className="size-11 rounded-xl p-2" />
+        <LogoTile src={c.logo} className="size-10 rounded-xl p-2" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{c.name}</span>
-          <span className="mt-0.5 line-clamp-2 text-xs text-muted">{c.line}</span>
+          <span className="mt-0.5 line-clamp-1 text-xs text-muted">{c.line}</span>
         </span>
       </button>
-      {c.state === 'added' ? (
-        <Tooltip label={t('integrations.discover.added', { name: c.name })}>
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-subtle text-ok" role="img" aria-label={t('integrations.discover.added', { name: c.name })} data-testid="connector-added">
-            <Check size={16} aria-hidden />
-          </span>
-        </Tooltip>
-      ) : c.state === 'reconnect' ? (
-        <button type="button" className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={c.onOpen} data-testid="connector-reconnect">{t('drive.reconnect')}</button>
+      {c.state === 'off' && !admin ? (
+        <span className="max-w-28 shrink-0 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
       ) : c.state === 'off' ? (
-        <span className="max-w-28 shrink-0 text-right text-xs text-faint" data-testid="connector-off">{c.off ?? t('connectors.notOn')}</span>
+        <Link to="/admin/connectors" className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
       ) : (
         <IconButton label={t('integrations.discover.add', { name: c.name })} className="shrink-0 rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />
@@ -380,32 +371,43 @@ function ListedPage({ c }: { c: Connector }) {
   )
 }
 
-/** /connectors/mcp/:integrationId: one of the person's own connections (added by address or from the list). */
+/** /connectors/mcp/:integrationId: one of the person's own connections (added by address, from the list or from a
+ * team template), or a team connection they may use (read-only: its state, its tools, "Run without asking"). */
 export function CustomConnectorPage() {
   const t = useT()
   const navigate = useNavigate()
   const { integrationId = '' } = useParams()
   const { list } = useConnectors()
   if (!list.data) return <PageSkeleton />
-  const i = list.data.items.find((x) => x.id === integrationId && x.scope === 'personal')
+  const i = list.data.items.find((x) => x.id === integrationId)
   if (!i) return <Navigate to="/connectors" replace />
   const c = connectorFor(i.url)
   return (
     <McpShell>
       <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name} line={c ? t(`integrations.catalog.${c.id}`) : i.url} official={!!c} onBack={() => navigate('/connectors')}
         description={t('connectors.mcp.about', { name: i.name })} noTools>
-        <MineRows items={[i]} />
+        <MineRows items={[i]} readOnly={i.scope === 'team'} />
       </ConnectorDetail>
     </McpShell>
   )
 }
 
+/** A connection's page; the privacy note (moved off the list) at its end. */
 function McpShell({ children }: { children: ReactNode }) {
-  return <div className="flex h-full flex-col overflow-y-auto"><div className="mx-auto w-full max-w-4xl p-4 pb-10 sm:p-6">{children}</div></div>
+  const t = useT()
+  return (
+    <div className="flex h-full flex-col overflow-y-auto">
+      <div className="mx-auto w-full max-w-4xl p-4 pb-10 sm:p-6">
+        {children}
+        <p className="mt-8 text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>
+      </div>
+    </div>
+  )
 }
 
-/** The person's own connection(s) to a service, with what their row always offered: check, tools, edit, delete. */
-function MineRows({ items }: { items: Integration[] }) {
+/** The person's own connection(s) to a service, with what their row always offered: check, tools, edit, delete; a
+ * team connection read-only, as the team provides it. */
+function MineRows({ items, readOnly }: { items: Integration[]; readOnly?: boolean }) {
   const { actions, setDialog } = useConnectors()
   const navigate = useNavigate()
   // deleted: back to the list (the page has nothing left to show)
@@ -413,7 +415,7 @@ function MineRows({ items }: { items: Integration[] }) {
   useEffect(() => { if (!ids) navigate('/connectors', { replace: true }) }, [ids, navigate])
   return (
     <ul className="-mx-2 divide-y divide-line rounded-xl bg-surface" data-testid="integrations-mine">
-      {items.map((i) => <IntegrationRow key={i.id} i={i} actions={actions} onEdit={() => setDialog({ existing: i })} />)}
+      {items.map((i) => <IntegrationRow key={i.id} i={i} actions={actions} readOnly={readOnly} onEdit={() => setDialog({ existing: i })} />)}
     </ul>
   )
 }
