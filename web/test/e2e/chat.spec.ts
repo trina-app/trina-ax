@@ -270,8 +270,30 @@ test('an error answer offers retry', async ({ page }) => {
   await signIn(page)
   await ask(page, 'cause an error')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
-  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('지금은 AI 엔진을 쓸 수 없어요. 팀장에게 알려 주세요')
+  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('지금은 AI가 답할 수 없어요.')
 })
+
+// docs/DECISIONS.md "Plain words in errors, cards and steps": a member reads what happened and who to tell; the owner
+// reads where to fix it, in the admin menu's own words; nobody reads an engine, a proxy or an HTTP code
+const BOB = { username: 'bob', password: 'bob password 1' }
+for (const [who, as, expected, absent] of [
+  ['member', BOB, ['안전을 위해 답을 멈췄어요. 팀장에게 알려 주세요.', '지금은 AI가 답할 수 없어요. 팀장에게 알려 주세요.'], ['관리자 ›']],
+  ['owner', undefined, ['안전을 위해 답을 멈췄어요. 관리자 › AI 계정에서 원인을 볼 수 있어요.', '지금은 AI가 답할 수 없어요. 관리자 › 시스템 › 상태 점검에서 원인을 볼 수 있어요.'], ['팀장에게 알려 주세요']],
+] as const) {
+  test(`the error box speaks to the ${who}: what happened and who to tell, or where to fix it`, async ({ page }) => {
+    await reset(page)
+    await signIn(page, as)
+    for (const [i, reason] of (['lockdown', 'engine_missing'] as const).entries()) {
+      if (i) await page.getByTestId('new-chat').click()
+      await ask(page, `error:${reason}\n왜?`)
+      await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
+      const box = lastAnswer(page).getByTestId('answer-error')
+      await expect(box).toContainText(expected[i]!)
+      for (const word of absent) await expect(box).not.toContainText(word)
+      await expect(box).not.toContainText(/엔진|프록시|HTTP|API/)
+    }
+  })
+}
 
 test('attachments: an image is uploaded right away and shown as a thumbnail', async ({ page }) => {
   await reset(page)
@@ -303,7 +325,8 @@ for (const legacy of [false, true]) {
   for (const reason of ['auth', 'no_credential', 'proxy_down', 'wall_timeout'] as const) {
     test(`${legacy ? 'legacy' : 'reason-bearing'} ${reason} error follows KO → ID → EN through chat re-entry`, async ({ page }) => {
       await reset(page)
-      await signIn(page)
+      // a member's words (the owner and admins read where to fix it: the test above)
+      await signIn(page, BOB)
       const text = CHAT_ERROR_MESSAGES[reason]
       // The same official phrase in a user message must stay untouched.
       const question = `${legacy ? 'legacy ' : ''}error:${reason}\n${text.ko}`

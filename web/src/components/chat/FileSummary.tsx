@@ -5,6 +5,7 @@ import { useState } from 'react'
 import type { FileChangeSummary } from '@mycel/shared/api'
 import { openTeamFile } from '../../lib/sidePanel'
 import { useT } from '../../i18n'
+import { useFolderWords } from '../../lib/folderLabels'
 import { Button } from '../ui'
 
 export function summaryCounts(f: FileChangeSummary) {
@@ -14,6 +15,7 @@ export function summaryCounts(f: FileChangeSummary) {
 // defaultOpen: tests render the open list without a click
 export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOpen = false }: { files: FileChangeSummary; onAskOwnFolder: (path: string) => void; disabled?: boolean; defaultOpen?: boolean }) {
   const t = useT()
+  const words = useFolderWords()
   const [open, setOpen] = useState(defaultOpen)
   const c = summaryCounts(files)
   if (!c.saved && !c.conflicts && !c.rejected) return null
@@ -52,7 +54,7 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
             <li key={`${x.path}-${i}`} className="space-y-1 rounded-lg bg-danger-soft px-2 py-1.5 text-xs text-danger">
               <span className="flex items-start gap-1.5">
                 <Ban size={13} className="mt-0.5 shrink-0" aria-hidden />
-                <span>{x.path ? t('files.summary.rejectedLine', { path: x.path }) : t('files.summary.rejectedHidden')}</span>
+                <span title={x.path || undefined}>{x.path ? t('files.summary.rejectedLine', { path: words.path(x.path, ' › ') }) : t('files.summary.rejectedHidden')}</span>
               </span>
               <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onAskOwnFolder(x.path)}>
                 {t('files.summary.askOwnFolder')}

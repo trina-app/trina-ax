@@ -121,7 +121,7 @@ describe('gateUrl', () => {
     const asked: string[] = []
     expect(await gateUrl(h.ctx.db, chat, long, person(true, asked))).toBe('confirmed')
     expect(asked).toHaveLength(1)
-    expect(asked[0]).toContain('long query')
+    expect(asked[0]).toContain('a lot of text at the end')
   })
 
   test('outside a chat turn (nobody to ask) only ① URLs pass', async () => {
@@ -164,7 +164,7 @@ describe("the office's public exit address (design tab 7 \"내부망 공격\")",
     const asked: string[] = []
     expect(await gateUrl(h.ctx.db, chat, 'https://docs.example/known', person(true, asked), { egressKnown: false })).toBe('confirmed')
     expect(asked).toHaveLength(1)
-    expect(asked[0]).toContain('public address')
+    expect(asked[0]).toContain("doesn't lead to a device inside your network")
     expect(gateUrl(h.ctx.db, chat, 'https://docs.example/known', null, { egressKnown: false })).rejects.toThrow(/nobody can confirm/)
     expect(await gateUrl(h.ctx.db, chat, 'https://docs.example/known', person(false), { egressKnown: true })).toBe('seen')
   })

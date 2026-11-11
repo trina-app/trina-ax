@@ -12,6 +12,10 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { hwpPluginOn, setHwpPlugin } from '../lib/hwp-plugin'
 import { employmentForm } from '../lib/hwpx'
+import { labeledPath } from '@mycel/shared'
+
+// a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
+const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -183,7 +187,7 @@ describe('C attachments in B messages', () => {
     const req = card.data.request
     if (req.kind !== 'ask_user') throw new Error(`expected the server's ask_user card, got ${req.kind}`)
     expect(req.origin).toBe('server')
-    expect(req.question).toContain('shared/company')
+    expect(req.question).toContain(W('shared/company'))
     expect(req.question).toContain('seal.png')
     await h.api('alice').call(API.answerTurn, { params: { id: sent.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
     const done = await alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 20_000)
@@ -254,7 +258,7 @@ describe('external-service connections in a turn', () => {
       const req = card.data.request
       if (req.kind !== 'ask_user') throw new Error(`expected the server's ask_user card, got ${req.kind}`)
       expect(req.origin).toBe('server')
-      expect(req.question).toContain('The AI wants to do this at Tasks: create_task')
+      expect(req.question).toContain('The AI wants to send this to Tasks: Create a task')
       // everything that is sent travels with the card, in full (docs/DECISIONS.md "Outbound web channels")
       expect(req.details?.[0]?.text).toBe(JSON.stringify({ title: 'Quarterly plan' }, null, 2))
       await h.api('alice').call(API.answerTurn, { params: { id: sent.turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer: 'allow' } })
@@ -265,7 +269,8 @@ describe('external-service connections in a turn', () => {
       expect(result).toContain('created task "Quarterly plan"')
       expect(result).toContain('<external_data source="Tasks">')
       expect(services.calls.at(-1)).toMatchObject({ name: 'create_task', args: { title: 'Quarterly plan' } })
-      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · create_task (title: "Quarterly plan")')
+      // the step names the service and the tool's title, never the arguments
+      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · Create a task')
       const audit = h.ctx.db.query('SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = ?').get(sent.turnId, 'my_tasks__create_task') as { summary: string; ok: number }
       expect(audit).toEqual({ summary: 'my_tasks__create_task -> ok (29 chars) (confirmed by the user)', ok: 1 })
       expect(JSON.stringify(done.data.message)).not.toContain(MCP_KEY)

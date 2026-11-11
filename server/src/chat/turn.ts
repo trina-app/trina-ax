@@ -8,7 +8,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -43,6 +43,7 @@ import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedul
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
 import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
+import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf } from '../notifications/service'
@@ -1736,8 +1737,11 @@ export class TurnExec {
   /** ...that may go without the room card: a read by the service's own mark, not api_request's GET (ChatToolSet.readsFree) */
   readsFree(name: string, args: unknown): boolean { return this.toolSet?.readsFree(name, args) ?? false }
   /** what the room card shows of a call, in words (roomChangeDetails), with stored secrets hidden */
+  /** A team path as this person's cards say it ("전사 공유 › 영업 › 보고서.pptx", place-words.ts). */
+  place(path: string): string { return placeWords(this.rt.db, path, this.spec.locale, this.spec.userId) }
+
   roomCardDetails(tool: string, input: unknown): ConfirmDetailT[] {
-    return roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room)).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
+    return roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
@@ -1990,7 +1994,7 @@ export class TurnExec {
     const askedAt = new Date().toISOString()
     // the person's own chat: why it asks first (the room card's words after it for a new team file)
     const question = target
-      ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: target.segs.slice(0, -1).join('/'), file: target.segs.at(-1)! })
+      ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
       : own ? tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
       : tr('roomAiConfirm', L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({
@@ -2447,7 +2451,7 @@ export class TurnExec {
   private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
-    const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true })))]
+    const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
     const scheduled = this.spec.clientKind === 'schedule'
     const { value: answer, missing: none } = await this.askPerson({
@@ -2664,11 +2668,13 @@ export class TurnExec {
     // server's name only (any member of a group chat may set its own name)
     // a shared chat's read scope also holds what other people's turns read there (also once it stopped being shared: a
     // deleted project's chat, the rollback guard): a place this person cannot see themselves is not named to them
-    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true } : {}))
+    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
     const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
     const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
     const { value: answer, missing } = await this.askPerson({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: need.segs.join('/'), n: String(need.viewers) }) + (o.extra ?? '') + (o.binding ? '\nSHA-256: ' + JSON.parse(o.binding).hash : ''),
+      // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
+      // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers) }) + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
@@ -2785,7 +2791,8 @@ export class TurnExec {
     const { value: answer, missing } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
-      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: r.rel, what }) : st('confirmProjectNone', L, { folder: project.folder, path: r.rel, what })) : group ? st('confirmGroup', L, { group: group.name, path: r.rel, what }) : st('confirm', L, { path: r.rel, what }),
+      // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
+      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -3365,13 +3372,15 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
+function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = ''): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
   const full = (t: string) => (t.length > ROOM_CHANGE_FULL ? `${t.slice(0, ROOM_CHANGE_FULL - 1).trimEnd()}…\n${tr('roomAiChangeCut', L, { n: String(t.length) })}` : t)
-  const verb = FILE_STEP_VERB[tool]?.[L] ?? tool
+  const verb = FILE_STEP_VERB[tool]?.[L] ?? (readableToolName(tool) || STEP_WORDS_OTHER[L])
   const field = (name: Parameters<typeof tr>[0], value: string) => ({ name: tr(name, L), value })
+  // a team path in words (전사 공유 › 영업 › 보고서.md); '' stays '' (no field)
+  const at = (v: string) => (v ? place(v) : v)
   // targets: where it writes; an instruction file among them shows the text in full from the start
   // noSize: the text is a list of paths, not what is written (no "26 characters" for a path, QA TC-091)
   const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = [], noSize = false) => [{
@@ -3384,23 +3393,23 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       if (!Array.isArray(a.file_paths)) break
       const files = a.file_paths.map(String)
       return [
-        { label: tr('roomAiConfirmFiles', L), text: files.join('\n'), noSize: true },
+        { label: tr('roomAiConfirmFiles', L), text: files.map(at).join('\n'), noSize: true },
         { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }) },
       ]
     }
     case 'write':
       // an empty file: said as a field, so the card's size (of the text) is not that of the words "(빈 내용)"
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.content) ? [] : [field('roomAiChangeContent', tr('roomAiChangeEmpty', L))])], str(a.content), [str(a.file_path)])
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(str(a.content) ? [] : [field('roomAiChangeContent', tr('roomAiChangeEmpty', L))])], str(a.content), [str(a.file_path)])
     case 'edit':
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.new_string) ? [] : [field('roomAiChangeNewText', tr('roomAiChangeEmpty', L))])], `${str(a.old_string)}\n→\n${str(a.new_string)}`, [str(a.file_path)])
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(str(a.new_string) ? [] : [field('roomAiChangeNewText', tr('roomAiChangeEmpty', L))])], `${str(a.old_string)}\n→\n${str(a.new_string)}`, [str(a.file_path)])
     case 'make_file': {
       // made from a file (a source, a template, pictures): what those hold is not on the card, and the card says so
       const from = [str(a.source), str(a.template), ...(Array.isArray(a.images) ? a.images.filter((x): x is string => typeof x === 'string') : [])].filter(Boolean)
-      const notShown = from.length ? tr('roomAiChangeNotShown', L, { from: from.join(', ') }) : ''
+      const notShown = from.length ? tr('roomAiChangeNotShown', L, { from: from.map(at).join(', ') }) : ''
       return detail([
-        field('roomAiChangeFile', str(a.output)),
-        ...(str(a.source) ? [field('roomAiChangeSource', str(a.source))] : []),
-        ...(str(a.template) ? [field('roomAiChangeTemplate', str(a.template))] : []),
+        field('roomAiChangeFile', at(str(a.output))),
+        ...(str(a.source) ? [field('roomAiChangeSource', at(str(a.source)))] : []),
+        ...(str(a.template) ? [field('roomAiChangeTemplate', at(str(a.template)))] : []),
       ], [notShown, str(a.content)].filter(Boolean).join('\n\n'), [str(a.output)])
     }
     case 'edit_hwp': {
@@ -3409,21 +3418,22 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       // saved as a new file: the rest of the document it copies is not on the card
       // an output whenever one is given (an empty one too): where the tool puts it (hwpOutputPath, tools/edit-hwp.ts)
       const out = typeof a.output === 'string' ? hwpOutputPath(a.output, str(a.file_path)) : ''
-      const notShown = out ? tr('roomAiChangeNotShown', L, { from: str(a.file_path) }) : ''
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(out ? [field('roomAiChangeSaveAs', out)] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), out])
+      const notShown = out ? tr('roomAiChangeNotShown', L, { from: at(str(a.file_path)) }) : ''
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(out ? [field('roomAiChangeSaveAs', at(out))] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), out])
     }
     case 'move_files':
     case 'copy_files':
-      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'), [str(a.to_folder)], true)
+      return detail([field('roomAiChangeFolder', place(str(a.to_folder)))], paths(a.paths).map(at).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
-      return detail([field('roomAiChangeFile', str(a.path)), field('roomAiChangeNewName', str(a.new_name))], '')
+      return detail([field('roomAiChangeFile', at(str(a.path))), field('roomAiChangeNewName', str(a.new_name))], '')
     case 'save_url':
-      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
+      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', at(str(a.save_as)))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
     case 'save_room_file': {
       // the file by the name the person sees (only a file of this room, or in the person's own chat of the room the call
       // names, that they may see; an id alone says nothing)
       const name = roomFile(str(a.file), str(a.room) || undefined) ?? (isUuid7(str(a.file).trim().replace(/^file_id=/, '')) ? '' : str(a.file))
-      return detail([...(name ? [field('roomAiChangeFile', name)] : []), field('roomAiChangeSaveAs', str(a.save_as) || 'users/…/downloads/')], '', [str(a.save_as)])
+      // no save_as: the person's own downloads folder (room-tools.ts save_room_file)
+      return detail([...(name ? [field('roomAiChangeFile', name)] : []), field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], '', [str(a.save_as)])
     }
   }
   // any other change (a tool added later): its arguments one per line

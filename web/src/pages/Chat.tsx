@@ -56,6 +56,7 @@ import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, use
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
 import { AiMark } from '../components/rooms/AiFace'
+import { useFolderWords } from '../lib/folderLabels'
 
 export default function ChatPage() {
   const { chatId } = useParams()
@@ -66,6 +67,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
+  const folderWords = useFolderWords()
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
   // session markers: this chat is on screen in this window (store/sessionMarkers.ts marks it seen while the window is
@@ -320,9 +322,11 @@ function ChatView({ chatId }: { chatId: string }) {
     }
   }
 
+  // the person's own words: the place in words (전사 공유 › 영업 › 보고서.md) and "my folder", which the AI is told is
+  // users/<their id> (server/src/chat/prompt.ts); no raw path or id in their message
   const askOwnFolder = (path: string) => {
     if (busy) return
-    composer.current?.prepareDraft(t(path ? 'files.summary.askOwnFolderPrompt' : 'files.summary.askOwnFolderHiddenPrompt', { path, folder: `users/${me.user.id}` }))
+    composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPrompt', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPrompt'))
   }
 
   if (loadError && isApiError(loadError, 'not_found'))

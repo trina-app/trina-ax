@@ -192,7 +192,7 @@ describe('a turn on the trial credit runs on the API engine, never in Claude Cod
         expect(done.status).toBe('done')
         expect(done.content).toContain('codex answered')
         expect(done.engine).toBe('codex')
-        expect(done.steps.map((x: { label: string }) => x.label)).toContain('No AI connection for Claude Code; answering with Codex, which is connected')
+        expect(done.steps.map((x: { label: string }) => x.label)).toContain('The chosen AI has no account connected; answering with another AI')
         expect(seen.map((x) => x.key)).toEqual(['openai'])
         // a Claude model name means nothing to Codex: its default
         expect(turnRow(started.turnId)).toMatchObject({ engine: 'codex', model: null })
