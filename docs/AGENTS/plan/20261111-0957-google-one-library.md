@@ -208,8 +208,8 @@ Out:
   (HWP, scanned PDF, photo, Sheets all tabs), one sign-in with a box unticked, members' and per-app switches,
   revoke only for the last sign-in, tokens never in any answer/log/audit.
 - Step 4 and 7: the full web e2e (the card and admin page change).
-- Step 6: a Mac build and a Mac App Store build that run the library and read a Drive file.
 - Step 5: a registered self-installed server signs in through a fake broker; an unregistered one stays "Not available yet"; a server with its own client never calls the broker; the browser goes back only to the recorded address.
+- Step 6: a Mac build and a Mac App Store build that run the library and read a Drive file.
 - Step 8: real Google on the dev server, through the broker: own Drive read/edit/share, a team share (inside and outside a folder),
   Gmail send with the confirm card, Docs and Sheets edit.
 
