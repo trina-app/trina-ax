@@ -149,22 +149,22 @@ test('remoteOAuthOf takes the origin from server.json appConnectors + tunnel.hos
   } finally { if (saved !== undefined) process.env.MYCEL_REMOTE_MCP_ORIGIN = saved }
 })
 
-test('registered apps without a connection or a sign-in in progress are removed after an hour; connected ones stay', async () => {
+test('registered apps without a connection or a sign-in in progress are removed after a day; connected ones stay', async () => {
   const f = await fixture('idle-clients'), start = Date.now()
   const connected = f.client.client_id
   f.exchange(f.code())
   const idle = f.svc.register({ redirect_uris: [redirect] }).client_id
   const signingIn = f.svc.register({ redirect_uris: [redirect] }).client_id
-  f.svc.now = () => start + 55 * 60_000
+  f.svc.now = () => start + 24 * 3600_000 - 5 * 60_000
   f.svc.authorize({ client_id: signingIn, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })
-  f.svc.now = () => start + 61 * 60_000
+  f.svc.now = () => start + 24 * 3600_000 + 60_000
   f.svc.ingress('metadata', '192.0.2.1')
   const ids = () => (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
   expect(ids()).toContain(connected)
   expect(ids()).toContain(signingIn)
   expect(ids()).not.toContain(idle)
-  // the sign-in expired unused (10 minutes): an hour after its last use the app goes too
-  f.svc.now = () => start + 3 * 3600_000
+  // the sign-in expired unused (10 minutes): a day after its last use the app goes too
+  f.svc.now = () => start + 26 * 3600_000
   f.svc.ingress('metadata', '192.0.2.1')
   expect(ids()).not.toContain(signingIn)
   expect(ids()).toContain(connected)
@@ -176,6 +176,10 @@ test('a full client table makes room from the longest-idle unused apps instead o
   f.exchange(f.code()) // the fixture's app is connected: never evicted
   const junk: string[] = []
   for (let i = 0; i < 4; i++) { f.svc.now = () => start + i * 1000; junk.push(f.svc.register({ redirect_uris: [redirect] }).client_id) }
+  // a sign-in nobody opened does not keep an app (anyone can start one); one a person opened does
+  const ask = (client: string) => new URL(f.svc.authorize({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })).searchParams.get('id')!
+  ask(junk[0]!)
+  f.svc.consent(ask(junk[1]!), f.auth)
   f.svc.now = () => start + 10_000
   const fresh = f.svc.register({ redirect_uris: [redirect] }).client_id
   const ids = (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
@@ -183,17 +187,26 @@ test('a full client table makes room from the longest-idle unused apps instead o
   expect(ids).toContain(f.client.client_id)
   expect(ids).toContain(fresh)
   expect(ids).not.toContain(junk[0])
+  expect(ids).toContain(junk[1])
+  f.svc.now = () => start + 11_000
+  f.svc.register({ redirect_uris: [redirect] })
+  const after = (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
+  expect(after).toContain(junk[1])
+  expect(after).not.toContain(junk[2])
   // nothing left to evict: then, and only then, 503
   f.h.ctx.db.query('DELETE FROM remote_mcp_clients WHERE id<>?').run(f.client.client_id)
   OAUTH_LIMITS.clients = 1
   expect(() => f.svc.register({ redirect_uris: [redirect] })).toThrow('temporarily_unavailable')
 })
 
-test('pending sign-ins: at most 10 per app, and a full table makes room from the oldest unopened ones', async () => {
+test('pending sign-ins: at most 10 per app from one address, and a full table makes room from the oldest unopened ones', async () => {
   const f = await fixture('pending'), start = Date.now()
   const ask = (client = f.client.client_id) => new URL(f.svc.authorize({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })).searchParams.get('id')!
-  for (let i = 0; i < 10; i++) ask()
-  expect(() => ask()).toThrow('slow_down')
+  const from = (ip: string) => f.svc.authorize({ client_id: f.client.client_id, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' }, ip)
+  for (let i = 0; i < 10; i++) from('192.0.2.7')
+  expect(() => from('192.0.2.7')).toThrow('slow_down')
+  // the app's id is public: another address still signs in with it
+  expect(from('198.51.100.7')).toStartWith(origin + '/connectors/authorize?id=')
   f.h.ctx.db.query('DELETE FROM remote_mcp_requests').run()
   OAUTH_LIMITS.pending = 3
   const other = f.svc.register({ redirect_uris: [redirect] }).client_id

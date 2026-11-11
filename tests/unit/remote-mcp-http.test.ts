@@ -201,7 +201,7 @@ test('Codex CLI and ChatGPT as clients: iss support advertised, their registrati
 })
 
 test('registration flood from one address: it is slowed down, an app from another address still registers', async () => {
-  const f = await fixture('register-flood'), start = Date.now()
+  const f = await fixture('register-flood'), start = Math.floor(Date.now() / 3600_000) * 3600_000 + 3600_000 // a whole hour
   const register = (ip: string, headers: Record<string, string> = {}) => f.from(ip, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ redirect_uris: [redirect] }) })
   let ok = 0
   // 12 a minute and 60 an hour per address; a client-sent X-Forwarded-For changes nothing
@@ -218,13 +218,13 @@ test('registration flood from one address: it is slowed down, an app from anothe
 })
 
 test('an anonymous flood fills the shared bucket; a connected person\'s tool calls still go through', async () => {
-  const f = await fixture('anonymous-flood'), { access_token: token } = await f.issue()
+  const f = await fixture('anonymous-flood'), { access_token: token, refresh_token: refresh } = await f.issue()
+  const minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000; f.oauth.now = () => minute + 1000 // one fixed minute
   OAUTH_LIMITS.anonymousPerMinute = 30
   const anonymous = (ip: string) => f.from(ip, '/mcp', { method: 'POST', headers: { authorization: 'Bearer tax_mcp_a_' + 'x'.repeat(43), accept: 'application/json, text/event-stream', 'content-type': 'application/json' }, body: '{}' })
   const statuses: number[] = []
   for (let i = 0; i < 40; i++) statuses.push((await anonymous(`192.0.2.${i}`)).status)
-  // the fixture's own sign-in used a few of the 30
-  expect(statuses[0]).toBe(401)
+  expect(statuses.slice(0, 30).every(s => s === 401)).toBe(true)
   expect(statuses.slice(30).every(s => s === 429)).toBe(true)
   // the shared bucket is full for everyone without a token, also on the OAuth endpoints
   expect((await f.from('192.0.2.200', '/.well-known/oauth-authorization-server')).status).toBe(429)
@@ -234,13 +234,21 @@ test('an anonymous flood fills the shared bucket; a connected person\'s tool cal
     expect(res.status).toBe(200)
     expect((await res.json() as any).result.isError).toBeFalsy()
   }
-  OAUTH_LIMITS.mcpPerGrantPerMinute = 6
-  expect((await f.rpc(token, { jsonrpc: '2.0', id: 9, method: 'ping' })).status).toBe(200)
-  expect((await f.rpc(token, { jsonrpc: '2.0', id: 10, method: 'ping' })).status).toBe(429)
+  // the app's refresh still works (a live refresh token is not anonymous); a made-up one is
+  expect((await f.post('/oauth/token', { client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: 'tax_mcp_r_' + 'y'.repeat(43), resource: base + '/mcp' })).status).toBe(429)
+  const refreshed = await f.post('/oauth/token', { client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh, resource: base + '/mcp' })
+  expect(refreshed.status).toBe(200)
+  const next = (await refreshed.json() as any).access_token
+  expect((await f.rpc(next, { jsonrpc: '2.0', id: 8, method: 'ping' })).status).toBe(200)
+  // the grant's own bucket: 5 tool calls and a ping so far
+  OAUTH_LIMITS.mcpPerGrantPerMinute = 7
+  expect((await f.rpc(next, { jsonrpc: '2.0', id: 9, method: 'ping' })).status).toBe(200)
+  expect((await f.rpc(next, { jsonrpc: '2.0', id: 10, method: 'ping' })).status).toBe(429)
 })
 
 test('an address over its own limit does not spend the shared bucket', async () => {
-  const f = await fixture('own-first')
+  const f = await fixture('own-first'), minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000
+  f.oauth.now = () => minute + 1000
   OAUTH_LIMITS.anonymousPerMinute = 20
   OAUTH_LIMITS.perAddress.default = [[60_000, 5]]
   // 50 requests, 5 of them within the address's own limit: only those 5 count in the shared 20

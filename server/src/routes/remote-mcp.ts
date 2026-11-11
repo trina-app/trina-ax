@@ -38,12 +38,17 @@ export const remoteMcpRoutes: RouteModule = {
       try {
         oauth().ingress('authorize', ip(c))
         if (c.req.url.length > 8192) throw new OAuthError('invalid_request')
-        const target = oauth().authorize(uniqueParams(new URL(c.req.url).searchParams))
+        const target = oauth().authorize(uniqueParams(new URL(c.req.url).searchParams), ip(c))
         return new Response(null, { status: 302, headers: { ...noStore, location: target } })
       } catch (e) { return oauthError(e) }
     })
     kit.raw('POST', '/oauth/token', async c => {
-      try { oauth().ingress('token', ip(c)); return json(oauth().token(await oauthBody(c.req.raw))) } catch (e) { return oauthError(e) }
+      try {
+        // the body (16 KiB at most) first: a live code or refresh token is not counted with anonymous traffic
+        const body = await oauthBody(c.req.raw)
+        oauth().ingress('token', ip(c), { shared: !oauth().liveCredential(body) })
+        return json(oauth().token(body))
+      } catch (e) { return oauthError(e) }
     })
     kit.raw('POST', '/oauth/revoke', async c => {
       try { oauth().ingress('revoke', ip(c)); oauth().revoke(await oauthBody(c.req.raw)); return new Response(null, { status: 200, headers: noStore }) } catch (e) { return oauthError(e) }
