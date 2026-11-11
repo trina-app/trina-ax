@@ -121,7 +121,7 @@
 - **로그인 횟수 제한**(DB `login_attempts`, 재시작해도 유지): 15분 창에서 계정당 실패 10회, 실제 IP당 30회(여러 계정 합산), 로그인한 사람의 비밀번호 재확인·현재 비밀번호 확인 5회, 초대·재설정·첫 설정 토큰 추측은 IP당 30회. 넘으면 429 + `Retry-After`. 막힌 동안에는 비밀번호를 확인하지 않는다(맞는 비밀번호도 429). 계정 횟수는 4차에서 길별로 나뉘었다(아래 "보안 4차"). 시도는 비밀번호를 확인하기 *전에* 센다(성공하면 그 기록을 지운다): 확인이 느려서, 먼저 확인하고 나중에 세면 동시에 보낸 40개가 모두 한도 검사를 통과했다. argon2id는 동시에 4개까지만 돌리고 200개까지 기다리게 하며 그 이상은 429(메모리 64MiB씩). 막힌 시도의 `auth.rate_limited` 감사 기록은 IP(모르면 계정)당 1분에 한 번만 남긴다(디스크 채우기 방지). 초대·재설정 링크의 토큰은 로그의 요청 경로에서 `***`로 바꾼다. 로그인에 성공하면 그 계정의 실패만 지운다. IP는 `info.ip`(소켓 상대 또는 중계 OPEN 메타데이터)만 쓰고, 모르면 계정 제한만 건다. 감사 기록에는 IP와 경로(direct/relay)만, 시도한 비밀번호는 절대 남기지 않는다.
 - **없는 아이디와 틀린 비밀번호는 같은 문구·같은 시간**(없는 계정도 더미 argon2id 해시로 확인). 비활성 계정도 비밀번호가 맞든 틀리든 같은 401 "아이디 또는 비밀번호가 맞지 않습니다"이고 실패 횟수에 들어간다(보안 점검 1회차에서 바꿈: 전에는 맞는 비밀번호에만 403 "사용할 수 없는 계정"이라 로그인하지 않은 사람에게 계정이 있고 비활성이며 그 비밀번호가 맞다는 것을 알려 줬다). 대가로 비활성이 된 사람은 로그인 화면에서 "관리자에게 문의" 안내를 보지 못한다. 비활성화될 때 열려 있던 세션에는 계속 그 이유가 간다. 서버 감사 기록의 `auth.login_failed`에는 `disabled: true`가 붙는다.
 - **비밀번호 규칙**: ~~10~256자, 서로 다른 문자 4개 이상, 짧은 반복 금지, 아이디 포함 금지, 임시 비밀번호 `xxxx-xxxx-xxxx-xxxx`~~ → 2026-10-21 소유자 결정으로 8~128자·아이디와 같으면 안 됨·흔한 비밀번호 금지만 남기고, 임시 비밀번호는 외우기 쉬운 단어+숫자로 바꿨다(아래 "쉬운 비밀번호").
-- **비밀번호 재설정은 두 가지를 다 둔다.** 설계(1·4·5번 탭)는 1회용 재설정 링크(24시간, 메일 없이 관리자가 전달)이고, 기반 계약에는 임시 비밀번호(첫 로그인 때 변경 강제)가 있었다. 둘 다 구현했다: `POST /api/admin/users/:id/reset-link`, 공개 `GET/POST /api/password-resets/:token`. 새 링크를 만들면 이전 링크는 무효. 링크를 쓰면 그 사람의 다른 세션이 모두 끝나고 바로 로그인된다. owner 본인 복구는 서버 맥에서 `bun run admin reset-link`(메뉴바 앱이 이 CLI를 부르면 된다). "마지막 초기화: 누가·언제"는 `/api/me`의 `passwordReset`(누가 = null이면 서버 맥 복구). 화면 알림 테이블(notifications)은 아직 주인이 없어 만들지 않았다.
+- **비밀번호 재설정은 두 가지를 다 둔다.** 설계(1·4·5번 탭)는 1회용 재설정 링크(24시간, 메일 없이 관리자가 전달)이고, 기반 계약에는 임시 비밀번호(첫 로그인 때 변경 강제)가 있었다. 둘 다 구현했다: `POST /api/admin/users/:id/reset-link`, 공개 `GET/POST /api/password-resets/:token`. 새 링크를 만들면 이전 링크는 무효. 비밀번호가 다른 길로 바뀌면(본인 변경, 관리자의 임시 비밀번호, 링크 사용) 그리고 계정이 비활성되거나 역할이 바뀌면 열려 있던 링크도 모두 쓴 것으로 표시한다(`revokeResetLinksFor`, 같은 트랜잭션; 다시 활성화해도 살아나지 않음 — 잘못된 대화방에 붙인 링크가 하루 동안 계정을 넘겨주지 않게). 링크를 쓰면 그 사람의 다른 세션이 모두 끝나고 바로 로그인된다. owner 본인 복구는 서버 맥에서 `bun run admin reset-link`(메뉴바 앱이 이 CLI를 부르면 된다). "마지막 초기화: 누가·언제"는 `/api/me`의 `passwordReset`(누가 = null이면 서버 맥 복구). 화면 알림 테이블(notifications)은 아직 주인이 없어 만들지 않았다.
 - **관리자가 만든 재설정 링크는 만든 사람의 권한과 함께 죽는다**(보안 점검 1회차). 재설정 링크는 쓰는 사람을 그 계정으로 로그인시키므로 초대와 같은 종류의 열쇠다. 만든 admin이 비활성·member로 강등·삭제되면 그 사람이 만든 아직 안 쓴 링크를 모두 쓴 것으로 표시한다(`revokeResetLinksBy`, 다시 활성화해도 살아나지 않음). 링크를 쓸 때도 다시 본다: 만든 사람이 지금도 활성 owner·admin이고 대상이 그 사람 손이 닿는 범위(admin → member만, owner → owner 외 모두)일 때만 유효. 그래서 member일 때 만든 링크는 대상이 admin·owner가 되면 죽는다. 만든 사람이 없는 링크(서버 맥 복구 CLI)는 대상이 활성이면 그대로 쓴다.
 - **링크 주소**: 초대 `<origin>/invite/<token>`, 재설정 `<origin>/reset-password/<token>`(D가 이 경로를 쓴다). origin은 요청의 Origin이 이 서버·`publicOrigins`일 때 그것, 아니면 `publicOrigins[0]`, 아니면 요청 주소.
 - **초대 기본 유효 기간 7일**(1·5번 탭; 계약 기본값 72시간을 168시간으로). 1회용(동시 수락도 한 번만), 사용한 초대는 취소할 수 없다. 취소한 초대는 목록에서 뺀다. admin 역할 초대는 owner만.
@@ -278,7 +278,7 @@
 - **부트스트랩(Go, `native/cmd/mycel-bootstrap`)**: 서버 LaunchDaemon은 서버가 아니라 이것을 띄운다. `app/current`의 manifest(sha256)를 확인하고(릴리스 키가 생기면 Ed25519 서명도, 그전에는 `--allow-unsigned`로 무결성만), 대기 중 업데이트가 120초 안에 `/api/health`에 그 버전으로 답하지 않거나 3번 죽으면 이전 버전으로 되돌린다. 평소 5분 안에 5번 넘게 죽으면 1→2→…60초 간격.
 - **번들 형식은 tar.gz 대신 tar.zst**(우리 스트리밍 tar + node:zlib zstd, 설치·업데이트 모두 우리 코드로 푼다). 서버는 `bun build`로 한 파일(`server/src/main.js`)과 관리 CLI(`admin.js`), 버전은 빌드 때 넣는다.
 - **백업**: DB는 VACUUM INTO(자식 bun 프로세스에서, 서버 이벤트 루프를 막지 않게) → `data/backups/<id>.sqlite`, 팀 폴더는 `.system/backups/<id>/team.tar.zst` + manifest + deleted 목록 + 폴더 목록(`dirs.json`). 7일마다 전체, 그 사이는 크기·수정 시각이 바뀐 파일만(폴더 항목은 매번 모두 넣는다: 빈 새 폴더가 복원에서 빠지지 않게. 복원은 `dirs.json`에 없는 폴더를 지우고 있어야 할 폴더가 없으면 실패). 14일 보관, 남는 백업이 기대는 이전 백업은 지우지 않는다. 설계서의 "날짜별 cp -c 사본" 대신 이 방식을 쓴 이유: 작업 지시(목록 비교 tar+zstd)와 스파이크 B 결과, APFS가 아닌 볼륨에서도 같은 동작.
-- **API 복원은 DB만**(설계 6번 탭). 확인한 사본을 `data/restore-staged.db`에 두고 서버가 다음 시작 때 DB를 열기 전에 바꾼다(`main.ts`의 `applyPendingRestore`). 이전 DB는 `data/backups/before-restore-*`에 남긴다. 다른 맥으로 옮기기·외장 디스크 보관은 관리 CLI의 암호 걸린 archive(age) → `restore-archive`(임시 폴더에 풀고 전부 성공했을 때만 새 폴더로).
+- **API 복원은 DB만**(설계 6번 탭). 확인한 사본을 `data/restore-staged.db`에 두고 서버가 다음 시작 때 DB를 열기 전에 바꾼다(`main.ts`의 `applyPendingRestore`). 이전 DB는 `data/backups/before-restore-*`에 남긴다. (2026-11-11) 백업과 같은 보관 기간이 지나면 지운다. 가장 최근 것과 `restore-result.json`이 가리키는 것은 남기고, 복원이 대기 중(`restore-pending.json`)이면 하나도 지우지 않는다. 다른 맥으로 옮기기·외장 디스크 보관은 관리 CLI의 암호 걸린 archive(age) → `restore-archive`(임시 폴더에 풀고 전부 성공했을 때만 새 폴더로).
 - **내보내기**: 대화·메모리는 요청한 owner 본인 것만(관리자도 남의 대화를 볼 수 없다는 원칙), 파일은 팀 폴더에서 `.system/`·이전 내보내기·**다른 사람의 `users/<id>/`**를 뺀 것(6번 탭 '내보내기'; owner 본인 폴더는 넣는다). 항목은 쓰는 동안 하나씩 만들어 대화가 많아도 메모리에 한꺼번에 올리지 않는다. 결과 위치는 공유 계약(`shared/src/api/system.ts`)대로 `users/<owner>/exports/`이다(설계서는 `data/exports/<jobId>.zip` + 24시간 삭제 + `GET /api/jobs/:id/download`; C의 다운로드 엔드포인트가 생기면 옮긴다).
 - **진단 문구는 ko/en/id**(요청자 언어). 메뉴바용 `status/status.json`은 30초마다 쓰고 개인정보(이름·대화)를 넣지 않는다. 엔진 로그인 확인은 local-login이면 `claude auth status`·`codex login status`(이메일은 버림), 역할 계정 모드면 `secrets/claude-oauth-token` 유무.
 - **로그 폴더**: `/Library/Logs/<id>`와 `crash/`는 root:wheel 755(launchd·newsyslog가 root로 일하는 경로에 역할 계정 소유 폴더가 끼면 링크를 심어 root 쓰기를 돌릴 수 있다; 755인 이유는 실행기의 launchd 출력 파일을 엔진 계정 권한으로 열기 때문, 750이면 EX_CONFIG). 서버 로그와 update.log는 `server/`(server:admin 750). 메뉴바 앱은 로그 폴더를 status.json이 아니라 고정 경로로 Finder에 보여 준다(열지 않는다).
@@ -738,6 +738,13 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   `--port`를 안 준 경우)와 530(연결 없음)을 나눠 고칠 명령을 보여 주고, `set`은 답이 없으면 1로 끝난다. `off`는 지울 이름을
   넣어 `remove` 명령을 보여 준다. 가이드: 2-0(주인 맥 준비·cert.pem·API 토큰), 주소를 바꾼 뒤 데스크 할 일(옛 앱 제거·새
   앱·다시 로그인, 카드 재인쇄, 안 쓴 초대 링크), 502와 530/1033 구분, zip 크기 170 MB.
+- **The relay is the internet too (2026-11-11, audit).** Signed out, `/api/health` through the relay
+  (`<team>.<team domain>`, `via: 'relay'`) answers only `ok` and `time`, like the office internet address: before, anyone
+  could read the version, schema and uptime of a relayed team and pick a known-vulnerable release. This server itself,
+  the office LAN (direct and TLS port) and signed-in people keep the full answer. Nothing signed out reads the version
+  through the relay: the desktop and phone apps' address check only parse the shape, the bootstrap, installers,
+  `mycel-ctl` and the Docker health check ask `127.0.0.1`, and the sign-in page's source-code link then names no version
+  (as on the office internet address).
 
 ## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 
@@ -2137,7 +2144,8 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
   worked" are now separate.
 - Each scheduled turn stores `turns.run_outcome` (migration 210, additive): `failed` = the turn did not end `done` or
   gave no answer text; `problems` = the answer finished but a tool call was refused or failed (`tool_events.ok = 0` or
-  a step with status `error`); `succeeded` otherwise. The turn writes it before its terminal status, because the
+  a step with status `error`; since 2026-11-11 only a call that would change something, see "Scheduled run: only what
+  needs the person is a problem"); `succeeded` otherwise. The turn writes it before its terminal status, because the
   notification reconciler records any terminal scheduled turn and an inbox event cannot change after it is recorded.
   Rows without a value (older builds, interrupted recovery) fall back to the status. Rule: `server/src/chat/schedule-outcome.ts`.
 - Notifications keep the two event types and their preferences (the inbox and push tables have CHECK lists and must not
@@ -14748,9 +14756,10 @@ new button or card.
   sent yet never), of a message in the same room, not deleted, not an event line. Who sees the message is decided in the
   query (`SEE_MEMBER_SQL` on its room's member row: a later member of a group chat or a 1:1 from their join, a thread
   reply by whoever sees its thread's first message, a team room's whole history once opened, others' private previews
-  never, the old answers hidden from them and their threads never), then `canSee` on each row, then `messagesOut` once
-  per room: the message must come out not withheld (so never an answer shared from someone's own AI chat with its files
-  that is hidden from them) and the file must be among its files. Leaving or being taken out ends it at once.
+  never, the old answers hidden from them and their threads never), then `canSee` on each row, then what `messagesOut`
+  would withhold, per room (`hiddenAmong`: never an answer shared from someone's own AI chat with its files that is
+  hidden from them, nor its thread); the file is given as the room gives it (`fileOut`), still sent with that message.
+  (#349 ran the whole `messagesOut` for this; the follow-up below.) Leaving or being taken out ends it at once.
 - **How it finds a file.** Every word in the name (`LIKE … ESCAPE`, A–Z in any case, `%` and `_` as themselves; names
   are stored NFC). No index and no migration: `room_files` holds one row per file sent. The query reads it newest first
   by rowid (when the file was uploaded, moments before it was sent) with `CROSS JOIN` (room_files, then its message by
@@ -14760,9 +14769,11 @@ new button or card.
   1.5–4 s per query on a million messages and 200,000 files, and this order at 0.1–110 ms. Measured in the suite
   (`b-rooms-file-search.test.ts`, 20,000 files among 100,000 messages, half in a room of hers, median of 5, two runs on
   this Mac while other suites ran on it): a word in every name 19–87 ms, its second page 23–78 ms, a rare name (40 files)
-  31–198 ms, two words 54–75 ms, a word in no name 3–4 ms; with one message per file and a quiet machine 2–14 ms. Most
-  of a page with hits is `messagesOut`. A test reads the plan: `SCAN f` (a later page `SEARCH f USING INTEGER PRIMARY KEY (rowid<?)`), no
-  `TEMP B-TREE`. Known limit: as for messages, the walk passes files of rooms they are not in.
+  31–198 ms, two words 54–75 ms, a word in no name 3–4 ms; with one message per file and a quiet machine 2–14 ms; most
+  of a page with hits was `messagesOut`, and without it (the follow-up) 0.5 ms, 0.6 ms, 11 ms, 4 ms and 8 ms in the same
+  test under the same load. A test reads the plan: `SCAN f` (a later page `SEARCH f USING INTEGER PRIMARY KEY
+  (rowid<?)`), no `TEMP B-TREE`. A hand-made cursor at, above or below a file they do not see gives what they see
+  below it, never that file. Known limit: as for messages, the walk passes files of rooms they are not in.
 - **The file row.** On the 전체 and 파일 tabs, after the team's files by name: 4 file rows in all on 전체 (the team's first,
   then the rooms'), all of them on 파일. One line: the file's icon and name (the typed words marked), then dim "who ·
   where · when" with the room said as a message hit says it ("#디자인 리뷰", "1:1 대화 · Ben", a group chat's name).
@@ -14775,20 +14786,46 @@ new button or card.
   trigram `LIKE` with the longest word, as before for a short text; every word is matched again on the body. Visibility,
   pages and cursors as before. The snippet starts at the word found first in the text. Chat records (`listChats`): every
   word in the title or in one of the chat's messages (per chat, as `chat/room-project-chats.ts` does for the AI's
-  project_chats tool). The messages that hold any word are read in **one** pass over `messages_fts` per request (it is a
-  scan either way: `LIKE … ESCAPE` is never handed to FTS5), only for the chats that list may hold, each row with the
-  words it holds; that only narrows the query, and whether an answer counts is decided per chat in `found()`: a word
-  counts through the title, a person's message, or an answer not hidden from me, never through a hidden one. The palette
-  marks the first match of every word, and puts first the chats whose title has every word.
+  project_chats tool). The chats that hold the words are found once per request, before the pages: a pass per word (the
+  longest first) over the chats that list may hold, after the first word only over those that held the words before,
+  each chat's finished messages (`status <> 'streaming'`, what `messages_fts` holds) read by the chat's index until the
+  first with the word (`EXISTS`). That only narrows the query; whether an answer counts is decided per chat in `found()`
+  (a shared chat, or mine with several authors), from that chat's messages read once with each word's `LIKE` once a
+  message: a word counts through the title, a person's message, or an answer not hidden from me, never through a hidden
+  one. Team file names (`team-files/find.ts`, also the chat's team-file picker): every word in the name, any case (the
+  follow-up). The palette marks the first match of every word, and puts first the chats whose title has every word.
+- **Chat search with a common word (the follow-up, fix/search-followups).** #349 read the messages holding any word in
+  one pass over `messages_fts` (each word's `LIKE` twice a row, a join of `messages` and an object per row): on a word in
+  most messages (one letter: ⌘K asks from the first) it was slower than before, and bun:sqlite holds the server for
+  that long (the review: 2,000 chats × 100 messages, dev 0.5–1.1 s, #349 1.5–3.2 s). Timed before choosing (in-memory
+  SQLite, 2,000 of my chats × 100 messages, every message with the word, min of 5 on this Mac under heavy load from
+  other sessions): "요" before #349 0.5–4.7 s, a pass over `messages_fts` with each `LIKE` once (an inner select, the
+  filter outside) 1.3–2.3 s, a `GROUP BY` of it no faster (0.7–1.3 s on 1,000 chats), the pass per word by `EXISTS`
+  19–35 ms; with 3,000 other people's chats too: 4.7 s, 2.3 s, 33 ms; a word in no message 1.7–3.3 s, 2.2–5.4 s,
+  1.3–1.6 s (a pass over `messages_fts` reads the whole team's messages; this reads the chats the list may show). In the
+  suite (`b-api.test.ts`, 600 chats × 100 messages, the whole request, median of 5, two runs): a common word before #349
+  82–396 ms, #349 629–1361 ms, now 58–114 ms; a word in no message 211–454, 202–351, 41–77 ms. Known limit: a rare word
+  still reads every message of the chats the list may show (as before #349, which read every message of the team).
+  After the review of #353: the hits for `found()` are read for a page round's shared chats at once, and only the
+  messages that hold a word (it read every message of each such chat, on top of the chat's tree: a word only in hidden
+  answers was a third slower than dev on 200,000 messages); and the pass leaves out from the start the shared chats of
+  projects I do not see now (a project's page I do not see: all of them; my list and my trash: those projects'), which
+  `visible()` never shows anyway.
+- **Follow-up tests.** `b-shared-chat-audience.test.ts` (a word of the title with a word only in an answer hidden from
+  me, on the project page, in my list, in my trash and in my chat once it is no longer shared), `b-api.test.ts` (the
+  timing above, pages through every chat with a common word), `b-rooms-file-search.test.ts` (hand-made cursors at a file
+  they do not see), `attach-team-files.test.ts` (team file names by every word, still only what each may read),
+  `search-palette.test.tsx` (what counts as the same search).
 - **Known limits (word by word).** Two short Korean words ("회의 자료", "견적 요청") used to be one 5-character phrase
   `MATCH`; now they are the trigram `LIKE` with the longer word, a scan of the index's text: on the suite's 50,000-message
   room 23–26 ms and 53–73 ms (median of 5, two runs while other suites ran), against 12–36 ms for one word of 3 or more
   characters in the same run. Words apart are found anywhere in a
   message or a chat, also far apart, and an older result with the text as one run ranks no higher.
 - **A result of an older text is never shown nor opened.** Each answer from the server (chats, the team's file names,
-  room messages and their further pages, room files) is kept with the words it answered (lower case), and rows, the
-  loading state, the failure lines and Enter use it only while those are the words in the box; a space more or a letter
-  in another case asks nothing again. So a fast Enter opens the top row shown at that moment, never a chat of the text
+  room messages and their further pages, room files) is kept with the words it answered, and rows, the loading state,
+  the failure lines and Enter use it only while those are the words in the box; a space more or a letter in another
+  case asks nothing again where the server takes both alike: A–Z only for chats, room messages and room files (their
+  `LIKE`; "Été" and "été" are two searches), every letter for the team's file names (`team-files/find.ts` folds them). So a fast Enter opens the top row shown at that moment, never a chat of the text
   before (the audit: search "견적서", replace it with "회의록", Enter: a 견적서 chat opened).
 - **The highlight is kept by its row's key.** Arrows and the pointer choose a row by its key; results arriving above it
   (room messages after the chats, say) no longer move it to another row. When the row is gone, the row at its place.
@@ -18353,7 +18390,7 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
   none is refused too (the server cannot tell where it goes). **What it says is checked too** (third review): a link in
   a message's text is fetched for its preview, a picture in a page or a mail is loaded when someone opens it, so a pinned
   recipient still reaches an address in the content. Any web address, host name (a public suffix, also in running text
-  and file names such as "report.md"), address-like argument or long random-looking part (`carriesAddress`, as #274
+  and, until 2026-11-11, file names such as "report.md": see "Scheduled run: only what needs the person is a problem"), address-like argument or long random-looking part (`carriesAddress`, as #274
   hardened it) that is not a pinned recipient or one of the task's own addresses (`allowed_urls`, the card showed them)
   is refused. A task whose card did not pin the connection: "nobody could be asked", as before.
 - **Follow-up, not fixed here:** an "allow" team connection in a run without a room read sends what the AI writes with no
@@ -19873,6 +19910,100 @@ Replaces "K — Knowledge graph" (2026-11-06), "지식 그래프로 더 빠른 �
   until 0.5.0-beta.1), whose removal note was one of those lines, and its model, which that note said would stay.
 - Version impact: **minor** (0.x): a feature and an admin API are removed; nothing an installed team set up stops
   loading.
+
+## Gmail, Google Calendar, Google Docs and Google Sheets as built-in connectors — the server side (feat/google-workspace-connectors, 2026-11-11, product owner)
+
+Plan: `docs/AGENTS/plan/20261111-0346-google-workspace-connectors.md` (the owner's decisions 1–13). How it works:
+[GOOGLE-APPS.md](GOOGLE-APPS.md).
+
+- **A person's connection is a personal `integrations` row with a `google_app` column, not a new `kind`.** The plan
+  asked for a new connection kind; `integrations.kind` has a CHECK of `('mcp','http')` and a table is never rebuilt
+  (server/src/db.ts), so migration 341 adds `google_app` (CHECK of the four apps, unique per person and app) and the
+  row is `kind = 'mcp'`. Every rule of a member's own MCP connection then applies without a second code path: sealed
+  tokens and refresh, the write card, per-tool switches, scheduled-run rules, audit, secrets hidden in answers. It is
+  hidden from the generic list and the generic manage APIs; its `url` is a placeholder under the reserved `.invalid`
+  name, so an older build that lists it as an ordinary connection never sends its token anywhere. The safe-operations
+  policy trigger of `integrations` is made again with the column.
+- **Always allow is the person's own for a Google app** — an exception to "Run without asking is for team connections
+  only" (migration 322, "Connected-service writes" above), for `google_app` rows only (owner decision 3). The confirm
+  card for such a connection offers Send, **Always allow**, Don't send; Always allow sets the connection's write policy
+  to `allow` (audited `google_app.write_policy`, `via: card`), and the page's Settings turns it back. Kept from the rule
+  it bends: after the person's chat read their rooms, and in a room's session, every change asks again and the card does
+  not offer Always allow (other people's words could have asked for it); a scheduled run follows the personal rules
+  unchanged (only pinned recipients, else nothing is sent), never `allow`.
+- **The calls go only to the library on 127.0.0.1**, at exactly the address it was started on, over `node:http` (no
+  environment proxy sees the token). The connection's own address is never used, and the generic rules for connection
+  addresses (https, public addresses only, `net.ts`) are unchanged: nothing a person types can name the library.
+- **The refresh uses the card's client as set up now**, never a client stored with the tokens: the client secret stays
+  in its private file, and a new client (or "same as Drive" after Drive's changed) ends the old sign-in, as a new Drive
+  client does for Drive.
+- **Sign-in flows have a table of their own** (`google_app_flows`), not `drive_oauth_flows` (its `purpose` CHECK) nor
+  `integration_oauth_flows` (no `ready` state for the account to confirm, and its row must name an existing connection):
+  the connection is made only when the person confirms the account.
+- **Revoke only the last Google sign-in.** Google revokes a whole grant, so disconnecting one app (or Google Drive)
+  revokes at Google only when none of the person's other Google sign-ins here is left; otherwise `not_needed`. Google
+  Drive's Disconnect follows the same rule now.
+- **Google Drive's members switch is on for new teams.** No stored value means on; migration 341 writes "off" for every
+  team that existed then (it has people) and had no value, so a team made earlier keeps exactly what it had. Chosen over
+  "on when the team was made after a date" because nothing else has to remember a date, and over flipping every team,
+  which would let members connect where an admin had not chosen it.
+- **Rooms use the asker's own Google apps only.** The integrations provider gets `room: true` in a room's session and
+  offers only the caller's `google_app` rows; their reads need no room card, their changes ask on the connection's card
+  with the room line; their answers add the connection to the read scope as `integration` (besides the person), and
+  the tool is outside the team-file tools, so `rooms/ai.ts` decide() keeps the answer private to the asker. No new card.
+- **Gmail attachments by address are refused** before anything is sent (`url` or `path` in `send_gmail_message` /
+  `draft_gmail_message` attachments): the library would fetch the address or read a file on the server. The attachment
+  tool is called with `return_base64` and its bytes are read by the existing readers (files/extract.ts, the vision
+  converter); the model gets text or a picture, never base64. A PDF or picture is kept for the chat (connections/
+  media.ts) for `save_url`; other kinds are saved from their text with the file tools, only when the person asks.
+- **The hosting service's sign-in** is the Drive broker with the `app` field; an older control plane answers
+  `invalid_request`, which the card shows as "not available yet" (`service_limited`) for ten minutes.
+- **Merged with "Plain words for members" (2026-11-11).** The sidebar item, the page's title and Settings use that
+  entry's name, **Connected apps** (`integrations.title`), not "Connectors"; the AI's pointers say "Connected apps ›
+  Gmail (Reconnect)" for a Google app and "Settings › Connected apps" for the rest. Adding a service by its address
+  stays with owners and admins on the new page too: a member reads "Not listed? Ask an admin to add it."
+- Version impact: **minor** (new connectors, API and an add-only migration).
+- Tests: `tests/unit/c-google-apps-signin.test.ts`, `c-google-apps-tools.test.ts` (fake Google, a fake library on
+  127.0.0.1, the fake broker with the `app` field; token and client-secret canaries).
+
+## A Python program in the one list of packages (feat/google-workspace-connectors, 2026-11-11)
+
+Input: the Gmail, Calendar, Docs and Sheets connectors run the Google Workspace MCP library, a Python program with about
+90 dependencies, on every Linux server ([GOOGLE-APPS-RUNTIME.md](GOOGLE-APPS-RUNTIME.md)). "One list of system packages"
+above pins downloads by sha256 and lets no script keep a list of its own; a Python program had no place in it.
+
+- **A third kind in `scripts/system/packages.json`: `python`.** Per program: its version, the Python it needs (`>=3.N`),
+  the program in the venv's `bin/`, and every wheel as `name==version` with the sha256 of each file pip may take for it.
+  A group names its programs (`"python": [...]`) and must bring `python3` and `python3-venv` itself. The validator
+  (`packages.ts`) refuses a range, a missing hash, a version that moved without its wheels and a program no group
+  installs.
+- **The pins are in the list, not in a requirements file next to it.** `mycel-ctl update` copies only `packages.json`,
+  its flat copy and `packages.sh` from `root/` before a sync, and the bundle signs `root/` as a whole: inside the list,
+  the wheels are signed, shipped and compared (a changed wheel is a changed list, so a root update) with no new root
+  file and no change to `mycel-ctl`. `packages.sh` writes pip's requirements file from the list's flat lines (`W`).
+- **Generated from the project's own `uv.lock`** by `scripts/system/python-lock.ts`, for CPython 3.11 to 3.13 (the
+  Pythons of the list's systems), amd64 and arm64, glibc wheels or pure Python. It stops when a dependency has no wheel
+  for one of them (`--only-binary` would fail), or when the dependency set differs between them (it writes no
+  environment markers; workspace-mcp 2.4.1 has one set), or when a pin is below the release's own requirement. Checked
+  on 2026-11-11: `pip download --require-hashes --only-binary=:all: --no-deps` of the 90 lines for each of the six
+  systems finds every wheel.
+- **pip with nothing of the machine's:** `--require-hashes --only-binary=:all: --no-deps --isolated --no-cache-dir
+  --index-url=https://pypi.org/simple`, an empty environment but the proxy variables, bounded like a download
+  (`PK_FETCH_BUDGET`).
+- **A venv cannot be moved**, so it is built in its final folder, `/opt/trina/python/<name>/<version>-<sha12>` (sha12 of
+  the requirements text), and is finished only when its `.sha256` is written; a folder without it is built again.
+  `current` moves to it only when its program starts (`--help`); the one before stays until the next switch, like the
+  browser.
+- **Default group, also in Docker.** `google-apps` is `install: default` (every install without `--minimal`, the hosted
+  image through the installer) and the Docker image adds it by default (a kit whose list has the group), because the
+  connectors are core. A failure only warns: the server runs, the cards say the apps are not reachable.
+- **The server finds it at a fixed path** (`/opt/trina/python/workspace-mcp/current/bin/workspace-mcp`), not through
+  `/etc/default/<id>` as the browser: the Docker image installs it at build time, before any install id exists, and
+  nothing has to change when the venv does.
+- Version impact: part of the feature's **minor**; the changed list is a root update.
+- Tests: `tests/unit/system-packages.test.ts` (the validator cases, both readers, the requirements pip gets, a fake
+  `python3` and pip: the folder, the flags, the switch, failures that leave `current`), `c-google-apps-library.test.ts`.
+
 ## Plain words for members — 멤버 화면은 쉬운 말로 (fix/plain-words-member-screens, 2026-11-11, product owner)
 
 Trina AX is used by ordinary office workers, almost never developers (owner rule, 2026-11-11). A read-only audit of
@@ -19939,6 +20070,45 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   (settings, connectors, credentials, Drive, AI apps, search, engine choice, files, chat, onboarding, states, my usage).
   Server unit `refusal-texts` (the screen names).
 - Version impact: **patch** (words, one control fewer for members, the model id behind a button; no API or data change).
+
+## Scheduled run: only what needs the person is a problem — 예약 실행의 "문제"는 사람이 할 일이 있을 때만 (fix/run-problems-only-real, 2026-11-11, product owner)
+
+- Owner report: a weekday news briefing showed "Last run finished with problems / Some steps did not work", and its
+  answer was complete. Cause: `server/src/chat/turn.ts` counted every refused or failed call (`tool_events.ok = 0`,
+  every step with status `error`) into `scheduleRunOutcome`. A news run opens pages it found in a search; in an
+  unattended run an address the chat never showed is refused (its card cannot be shown), and pages time out or answer
+  4xx/5xx. The AI answers from the search results anyway, and the run said "problems".
+- Rule (`server/src/chat/schedule-outcome.ts`): `problems` only when the person has something to act on: a call that
+  would change something (a save, a send, a post, a delete, a memory, a move, a sub-task, an unknown tool) was refused or
+  failed, or the answer paused at a per-answer limit. A refused or failed **look-up** does not count: the tools of the
+  web app's quiet mark (shared `READ_ONLY_TOOLS`: read, grep, glob, list, skill, Drive reads, `web_fetch` …), the
+  engine's web search, room and project chat reads, the schedule list, the in-app browser's reading tools, and a
+  connection call that only reads (its own mark, from the call's arguments, noted by the turn when the call starts).
+  `failed`, `stopped`, `interrupted` and an empty answer are unchanged. The server log keeps the number of look-ups that
+  did not work (`scheduled run: look-ups that did not work`); the screen does not (no new box).
+- A change that failed and was then done by a later call still counts. The steps list shows such a step with the quiet
+  mark ("A failed step the AI got past is not red"), but a policy refusal (TC-019 "nobody to ask", a write outside the
+  approved folder) and an error look the same in the audit row, and the person must hear about a refusal.
+- Same day, QA: every run that saved a file and sent its summary to a pinned connection was `problems`, because the
+  summary named the file (`주간보고_2026-11-11_2.md`) and `.md` is Moldova's suffix, so `hostNamesIn`
+  (`integrations/connections/tools.ts`) refused the send as carrying a host name. A name is not a host when its
+  registrable label has a character no registrar issues (`_`), or when it is, exactly as written (NFC, same case, plain
+  dots), the name of a file this run created or changed (`file_events` of the turn, `savedNames`): never decided from
+  the text alone. Every other registrable name stays refused, also a one-label one with a file-type suffix
+  (`attacker.zip`, `evil.md`, `EVIL.MD`, `пример.md`, its punycode, full-width or ideographic-dot forms): chats and mail
+  link them and fetch a preview, a read beacon and a way to phish from the person's own account (security review of
+  #376; a first version that let any `name.md` through was withdrawn).
+- `api_request` calls a GET a look-up from the method the AI wrote (some APIs act on a GET), and a remote MCP tool's
+  look-up mark is its server's own `readOnlyHint`. Either can only hide a failed call to that service from the run's
+  result, never a refused change of the server's own tools. Counting URL-gate refusals as problems was proposed in
+  review and declined by the owner: refused reads do not mark a run.
+- Not changed here (`tools/url-gate.ts`, PR #351): `carriesAddress` still reads a value that is only a file name under
+  an argument not named for a file (`{"body": "report.md"}`, `wholeHost`) and a file name followed by `:<digit>` or `/`
+  (`bareAddress`, `AFTER_HOST`) as an address.
+- Tests: `tests/unit/schedule-outcome.test.ts` (a briefing with a refused `web_fetch`, a missing file and a bad search
+  pattern succeeds; a refused skill save after a refused read is `problems`; empty and cut-off answers fail; the
+  look-up set), `tests/unit/schedule-save-scope.test.ts` (the underscore name and a file the run saved go in a pinned send; registrable names in any spelling do not).
+- Version impact: **patch** (no API, data or screen change).
 
 ## Allow all websites covers the AI's web reads (feat/allow-all-sites-card, 2026-11-11, product owner)
 
@@ -20314,3 +20484,22 @@ users are office workers, not developers; the panel must make sense in a few sec
   browser during the drag; the address bar keeps it).
 - Version impact: **minor** (new desktop behaviour; no API, bridge or data change; `window.json` keeps its field). Ships
   with the next desktop release.
+
+## Moving a file out of a personal folder asks first (fix/move-widen-warning, 2026-11-11, QA TC-115)
+
+- **Problem.** On the Files screen, moving a file from users/<me>/ into a project or other shared folder showed no
+  question, so a private file (a salary file in QA) became visible to more people at once. Moving the other way
+  (into users/<me>/) already asked ("Make it private?", `audience_narrowed`), and Share (copy) asked too.
+- **Rule.** `POST /api/files/move` with `askWiden: true`: an item moved out of a personal folder users/<x>/ to a place
+  outside it where more active people (the mover left out) can read it answers 409 conflict
+  `{reason: 'audience_widened', viewersAdded}` unless `confirm: true`. People are counted, never named. Once moved,
+  the file event's detail has `audienceWidened`. A move inside the same personal folder never asks.
+- **Opt-in.** Only the Files screen sends `askWiden` (single move, rename, drag and drop and the bulk move, which asks
+  once for the whole batch with the most people any one item adds). An older client that does not send it, and the
+  AI's file tools (their own cards ask: tools/file-moves.ts, skills/), move as before. One `confirm` covers both
+  directions: a move cannot narrow and widen at once.
+- **Not covered (question for the product owner).** Shared → shared moves that widen (a group folder into
+  Company-wide) still do not ask. Only the personal-folder case was asked for.
+- **Tests.** `tests/security/r1-managed-folder-move.test.ts` (409 with the count, nothing moved; same-folder rename
+  without a question; confirm moves and records it; no askWiden moves as before) and `web/test/unit/bulk-files.test.ts`
+  (askWiden sent, one question for the batch, "no" leaves them, no askWiden without confirmWiden).

@@ -8,14 +8,16 @@
 //    (a shortcut is judged by its target). The rule, the share and its admin are checked again on every call.
 //  - When the admin whose Google account it is leaves, is disabled or is no longer an admin, the share stops: its
 //    tokens are deleted (Google revocation is attempted) and every admin gets an Inbox notice to sign in again.
-//  - Members may connect their own Drive only while the team allows it (DRIVE_MEMBERS, off for a new team).
+//  - Members may connect their own Drive only while the team allows it (DRIVE_MEMBERS: on for a team made since
+//    migration 341, which wrote the explicit value for every team that existed then, so theirs stayed as it was).
 import type { Database } from 'bun:sqlite'
 import type { DriveShare, DriveShareFolder, DriveTeamShare, IntegrationAccess } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { getSetting } from '../../admin/settings'
 
-/** settings key: members may connect their own Google Drive (absent: no; migration 337 keeps it on for teams whose
- * members had connected) */
+/** settings key: members may connect their own Google Drive (absent: yes, a team made since migration 341; that
+ * migration wrote "false" for every team that existed then and had no value, and 337 "true" for teams whose members had
+ * connected) */
 export const DRIVE_MEMBERS = 'integrations.driveMembers'
 /** the vault context of a share's tokens ("drive-share:<id>"), apart from people's own ("<user>:<id>") */
 export const SHARE_CONTEXT = 'drive-share'
@@ -26,7 +28,7 @@ export interface ShareRow {
   status: 'connected' | 'needs_reconnect'; reason: DriveShare['reason']; version: number; expires_at: string; created_at: string; updated_at: string
 }
 
-export const membersCanConnect = (db: Database) => getSetting<boolean>(db, DRIVE_MEMBERS) === true
+export const membersCanConnect = (db: Database) => getSetting<boolean>(db, DRIVE_MEMBERS) !== false
 export const shareRow = (db: Database, id: string) => db.query('SELECT * FROM drive_team_shares WHERE id=?').get(id) as ShareRow | null
 export const shareRows = (db: Database) => db.query('SELECT * FROM drive_team_shares ORDER BY lower(name), id').all() as ShareRow[]
 export const shareByName = (db: Database, name: string) => db.query('SELECT * FROM drive_team_shares WHERE lower(name)=lower(?)').get(name) as ShareRow | null

@@ -205,32 +205,73 @@ export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status
   )
 }
 
-/** Set up Google Drive: the Google OAuth web client (the file Google Cloud downloads, or its ID and secret). */
-export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAdminStatus; onClose: () => void; onSaved: (s: DriveAdminStatus) => void }) {
+/** The Google OAuth web client an admin gives: the file Google Cloud downloads, or its client ID and secret. */
+export interface ClientInput { file: { name: string; text: string } | null; clientId: string; clientSecret: string }
+export const emptyClient: ClientInput = { file: null, clientId: '', clientSecret: '' }
+export const clientReady = (c: ClientInput) => !!c.file || (c.clientId.trim() !== '' && c.clientSecret.trim() !== '')
+export const clientBody = (c: ClientInput) => (c.file ? { file: c.file.text } : { clientId: c.clientId.trim(), clientSecret: c.clientSecret.trim() })
+/** What the server said about a client that it refused, in words. */
+export const clientErrorKey = (e: unknown) => {
+  const m = e instanceof ApiError ? e.message : ''
+  return m.includes('client_redirect') ? 'driveSetup.error.redirect' as const : m.includes('client_invalid') ? 'driveSetup.error.invalid' as const : 'driveSetup.error.failed' as const
+}
+
+/** The redirect URI to add in Google Cloud (with Copy), then the client file or its ID and secret: Google Drive's setup
+ * and each Google app's (GoogleAppAdmin.tsx). */
+export function GoogleClientFields({ redirectUri, value, onChange, onError }: { redirectUri: string | null; value: ClientInput; onChange: (c: ClientInput) => void; onError: (text: string | null) => void }) {
   const t = useT()
-  const [file, setFile] = useState<{ name: string; text: string } | null>(null)
-  const [clientId, setClientId] = useState(''), [clientSecret, setClientSecret] = useState('')
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const { copied, copy } = useCopy()
-  const ready = !!file || (clientId.trim() !== '' && clientSecret.trim() !== '')
   const pick = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     e.target.value = ''
     if (!f) return
-    if (f.size > 16_384) { setError(t('driveSetup.error.invalid')); return }
-    setFile({ name: f.name, text: await f.text() }); setError(null)
+    if (f.size > 16_384) { onError(t('driveSetup.error.invalid')); return }
+    onChange({ ...value, file: { name: f.name, text: await f.text() } }); onError(null)
   }
+  return (
+    <>
+      {redirectUri && (
+        <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs text-muted">{t('driveSetup.redirect')}</span>
+            <code className="block text-xs break-all" data-testid="drive-setup-redirect">{redirectUri}</code>
+          </span>
+          <Tooltip label={t('common.copy')}>
+            <Button size="sm" variant="ghost" onClick={() => void copy(redirectUri)} aria-label={t('common.copy')} data-testid="drive-setup-copy">
+              {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+            </Button>
+          </Tooltip>
+        </div>
+      )}
+      <div>
+        <input ref={input} type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void pick(e)} data-testid="drive-setup-file" aria-label={t('driveSetup.file')} />
+        <Button onClick={() => input.current?.click()} data-testid="drive-setup-upload"><Upload size={14} aria-hidden />{value.file ? value.file.name : t('driveSetup.file')}</Button>
+        {value.file && <Button size="sm" variant="ghost" className="ml-2" onClick={() => onChange({ ...value, file: null })}>{t('driveSetup.clearFile')}</Button>}
+      </div>
+      {!value.file && (
+        <>
+          <p className="text-xs text-muted">{t('driveSetup.orPaste')}</p>
+          <Field label={t('driveSetup.clientId')}><input className={inputCls} value={value.clientId} onChange={(e) => onChange({ ...value, clientId: e.target.value })} autoComplete="off" spellCheck={false} data-testid="drive-setup-id" /></Field>
+          <Field label={t('driveSetup.clientSecret')}><input className={inputCls} type="password" value={value.clientSecret} onChange={(e) => onChange({ ...value, clientSecret: e.target.value })} autoComplete="off" spellCheck={false} data-testid="drive-setup-secret" /></Field>
+        </>
+      )}
+    </>
+  )
+}
+
+/** Set up Google Drive: the Google OAuth web client (the file Google Cloud downloads, or its ID and secret). */
+export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAdminStatus; onClose: () => void; onSaved: (s: DriveAdminStatus) => void }) {
+  const t = useT()
+  const [client, setClient] = useState<ClientInput>(emptyClient)
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
+  const ready = clientReady(client)
   const save = async () => {
     if (busy || !ready) return
     setBusy(true); setError(null)
-    try {
-      const body = file ? { file: file.text } : { clientId: clientId.trim(), clientSecret: clientSecret.trim() }
-      onSaved(await api.call(API.setDriveClient, { body }))
-    } catch (e) {
-      const m = e instanceof ApiError ? e.message : ''
-      setError(t(m.includes('client_redirect') ? 'driveSetup.error.redirect' : m.includes('client_invalid') ? 'driveSetup.error.invalid' : 'driveSetup.error.failed'))
-    } finally { setBusy(false) }
+    try { onSaved(await api.call(API.setDriveClient, { body: clientBody(client) })) }
+    catch (e) { setError(t(clientErrorKey(e))) }
+    finally { setBusy(false) }
   }
   return (
     <Modal open title={t(status.configured ? 'driveSetup.replaceTitle' : 'driveSetup.title')} onClose={onClose} width={480}
@@ -239,31 +280,7 @@ export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAd
         <Button variant="primary" busy={busy} disabled={!ready} onClick={() => void save()} data-testid="drive-setup-save">{t('common.save')}</Button>
       </>}>
       <div className="space-y-4" data-testid="drive-setup-dialog">
-        {status.redirectUri && (
-          <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
-            <span className="min-w-0 flex-1">
-              <span className="block text-xs text-muted">{t('driveSetup.redirect')}</span>
-              <code className="block text-xs break-all" data-testid="drive-setup-redirect">{status.redirectUri}</code>
-            </span>
-            <Tooltip label={t('common.copy')}>
-              <Button size="sm" variant="ghost" onClick={() => void copy(status.redirectUri!)} aria-label={t('common.copy')} data-testid="drive-setup-copy">
-                {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
-              </Button>
-            </Tooltip>
-          </div>
-        )}
-        <div>
-          <input ref={input} type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void pick(e)} data-testid="drive-setup-file" aria-label={t('driveSetup.file')} />
-          <Button onClick={() => input.current?.click()} data-testid="drive-setup-upload"><Upload size={14} aria-hidden />{file ? file.name : t('driveSetup.file')}</Button>
-          {file && <Button size="sm" variant="ghost" className="ml-2" onClick={() => setFile(null)}>{t('driveSetup.clearFile')}</Button>}
-        </div>
-        {!file && (
-          <>
-            <p className="text-xs text-muted">{t('driveSetup.orPaste')}</p>
-            <Field label={t('driveSetup.clientId')}><input className={inputCls} value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" spellCheck={false} data-testid="drive-setup-id" /></Field>
-            <Field label={t('driveSetup.clientSecret')}><input className={inputCls} type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} autoComplete="off" spellCheck={false} data-testid="drive-setup-secret" /></Field>
-          </>
-        )}
+        <GoogleClientFields redirectUri={status.redirectUri} value={client} onChange={setClient} onError={setError} />
         {status.configured && <p className="text-xs text-muted">{t('driveSetup.replaceNote')}</p>}
         {error && <p className="text-sm text-danger" role="alert" data-testid="drive-setup-error">{error}</p>}
       </div>

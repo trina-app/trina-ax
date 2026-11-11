@@ -270,13 +270,17 @@ async function seedIntegrations(page: Page) {
 }
 
 async function auditIntegrations(page: Page, where: string) {
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
+  await expect(page.getByTestId('connected-apps')).toBeVisible()
+  await audit(page, `connectors${where}`)
+  // a connection's own page, its row open with its tools
+  await page.locator('[data-testid="connected-app"]').filter({ hasText: 'Linear' }).click()
   await expect(page.getByTestId('integrations-mine')).toBeVisible()
-  await audit(page, `settings/integrations, rows closed${where}`)
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-toggle').click()
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-tools-toggle').click()
-  await audit(page, `settings/integrations${where}`)
-  // Discover is on the same page, under the connections
+  await audit(page, `connectors, a connection${where}`)
+  await page.getByTestId('connector-back').click()
+  // Popular is on the same page, under the connected apps
   await expect(page.getByTestId('connector-list')).toBeVisible()
   await audit(page, `settings/integrations discover${where}`)
   await page.getByRole('button', { name: 'Notion 추가' }).click()
@@ -290,6 +294,7 @@ async function auditIntegrations(page: Page, where: string) {
   await page.getByTestId('integration-header-custom').check()
   await audit(page, `integration add (API)${where}`)
   await page.keyboard.press('Escape')
+  await page.locator('[data-testid="connected-app"]').filter({ hasText: 'AI PM' }).click()
   await page.getByTestId('integration-row').filter({ hasText: 'AI PM' }).getByTestId('integration-toggle').click()
   await page.getByTestId('integration-row').filter({ hasText: 'AI PM' }).getByTestId('integration-edit').click()
   await expect(page.getByTestId('integration-key-saved')).toBeVisible()

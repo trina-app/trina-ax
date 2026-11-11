@@ -19,9 +19,10 @@
 #   packages.sh sync     --id ID --base BASE [--bun BUN]                 mycel-ctl update: bring this machine to the list
 #                        of <base>/root: the missing packages of the install's profile (apt, only when install.json says
 #                        skipApt false), then the browser at the pinned version and MYCEL_HTML_PDF_BROWSER in
-#                        /etc/default/<id>. Writes <base>/root/packages.synced (the list's sha256 and the result: ok,
-#                        incomplete = try again later, blocked = needs an administrator). Exit 0 unless the arguments are
-#                        wrong: the server works without these.
+#                        /etc/default/<id>, and the Python programs in /opt/trina/python/<name>. Writes
+#                        <base>/root/packages.synced (the list's sha256 and the result: ok, incomplete = try again later,
+#                        blocked = needs an administrator). Exit 0 unless the arguments are wrong: the server works
+#                        without these.
 
 PK_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PK_LIST=${PK_LIST:-}
@@ -44,6 +45,8 @@ pk_err() { echo "packages: $*" >&2; }
 #   P <group> <package> <floor> <on> <when>       R <group> <package to remove>
 #   F <artifact> <platform> <version> <url> <sha256> <size> <dir>
 #   X <artifact> <revoked version>                (a version that must not stay, even when newer than the pin)
+#   GY <group> <python program>                   Y <program> <version> <python floor> <file in bin/>
+#   W <program> <name==version> <sha256 sha256 ...>   (a wheel pip installs, with the sha256 of each file it may take)
 PK_JS='const j = JSON.parse(require("fs").readFileSync(process.env.PK_JSON, "utf8"))
 if (j.format !== 1) throw new Error("format " + j.format)
 const o = [], f = (x) => x === undefined || x === null || x === "" ? "-" : String(x), t = (...a) => o.push(a.map(f).join("\t"))
@@ -57,9 +60,12 @@ for (const [g, v] of Object.entries(j.groups)) {
   }
   for (const n of v.remove ?? []) t("R", g, n)
   for (const a of v.artifacts ?? []) t("GA", g, a)
+  for (const y of v.python ?? []) t("GY", g, y)
 }
 for (const [n, a] of Object.entries(j.artifacts)) for (const [p, x] of Object.entries(a.platforms)) t("F", n, p, a.version, x.url, x.sha256, x.size, x.dir)
 for (const [n, a] of Object.entries(j.artifacts)) for (const v of a.revoked ?? []) t("X", n, v)
+for (const [n, y] of Object.entries(j.python ?? {})) t("Y", n, y.version, y.python.replace(/^>=/, ""), y.program)
+for (const [n, y] of Object.entries(j.python ?? {})) for (const [r, h] of Object.entries(y.requirements)) t("W", n, r, h)
 console.log(o.join("\n"))'
 PK_JQ='def f: if . == null or . == "" then "-" else tostring end;
 if .format != 1 then error("format \(.format)") else . end
@@ -70,10 +76,13 @@ if .format != 1 then error("format \(.format)") else . end
         (($v.packages // {}) | to_entries[] | (.value | if type == "string" then {min: .} else . end) as $p
           | ["P", $g, .key, (($p.min // "") | sub("^>="; "")), (($p.on // []) | join(",")), $p.when]),
         (($v.remove // [])[] | ["R", $g, .]),
-        (($v.artifacts // [])[] | ["GA", $g, .])),
+        (($v.artifacts // [])[] | ["GA", $g, .]),
+        (($v.python // [])[] | ["GY", $g, .])),
     (.artifacts | to_entries[] | .key as $n | .value.version as $ver | .value.platforms | to_entries[]
       | ["F", $n, .key, $ver, .value.url, .value.sha256, .value.size, .value.dir]),
-    (.artifacts | to_entries[] | .key as $n | (.value.revoked // [])[] | ["X", $n, .]) )
+    (.artifacts | to_entries[] | .key as $n | (.value.revoked // [])[] | ["X", $n, .]),
+    ((.python // {}) | to_entries[] | ["Y", .key, .value.version, (.value.python | sub("^>="; "")), .value.program]),
+    ((.python // {}) | to_entries[] | .key as $n | .value.requirements | to_entries[] | ["W", $n, .key, .value]) )
 | map(f) | join("\t")'
 
 pk_sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
@@ -528,6 +537,108 @@ pk_browser_install() {
   pk_browser_switch "$1" "$2"
 }
 
+# ---- Python programs ----
+# DEST (/opt/trina/python/<name>) holds venvs named <version>-<sha12> (sha12: the start of the sha256 of the
+# requirements below, so a changed wheel is a new folder) and current -> one of them. A venv names its own path inside
+# (bin/ scripts), so it is built where it stays: a folder without its .sha256 is unfinished and is built again. current
+# changes only to a venv whose program starts (--help); the one before stays until the next switch, as a running server
+# may still use it. pip gets only the list's wheels: exact versions, --require-hashes, --only-binary :all:, --no-deps,
+# PyPI only, no configuration, cache or environment of the machine. Same lock as the browser's (pk__browser_dest).
+
+# pk_pythons PROFILE|GROUP...: the Python programs of the groups
+pk_pythons() {
+  local g; g=$(pk_groups "$@") || return 1
+  pk__lines | awk -F'\t' -v gs="$(pk__words "$g")" '$1 == "GY" && index(gs, " " $2 " ") && !seen[$3]++ { print $3 }'
+}
+# pk_py NAME FIELD: version | python (the floor, 3.N) | program
+pk_py() {
+  local col v
+  case "$2" in version) col=3 ;; python) col=4 ;; program) col=5 ;; *) pk_err "pk_py: field $2"; return 1 ;; esac
+  v=$(pk__lines | awk -F'\t' -v n="$1" -v c="$col" '$1 == "Y" && $2 == n { print $c; exit }')
+  [ -n "$v" ] && [ "$v" != - ] || return 1
+  echo "$v"
+}
+# pk_python_requirements NAME: pip's requirements file, one line per wheel with every sha256 the list allows
+pk_python_requirements() {
+  pk__lines | awk -F'\t' -v n="$1" '$1 == "W" && $2 == n {
+    if ($3 !~ /^[a-z0-9][a-z0-9-]*==[0-9][0-9A-Za-z.!+]*$/) { print "packages: not a pinned requirement: " $3 > "/dev/stderr"; bad = 1; exit 1 }
+    k = split($4, h, " "); line = $3
+    for (i = 1; i <= k; i++) { if (h[i] !~ /^[0-9a-f]{64}$/) { print "packages: " $3 ": not a sha256" > "/dev/stderr"; bad = 1; exit 1 } line = line " --hash=sha256:" h[i] }
+    print line; found = 1 }
+    END { exit bad || !found }'
+}
+# pk_python_check DIR PROGRAM: the venv's program starts (all its imports load) and says how to use it
+pk_python_check() {
+  local w rc=0
+  [ -x "$1/bin/$2" ] && [ -x "$1/bin/python" ] || return 1
+  w=$(mktemp -d) || return 1
+  (cd "$w" && pk__bounded 120 env -i PATH=/usr/bin:/bin HOME="$w" LANG=C.UTF-8 "$1/bin/$2" --help >/dev/null 2>&1) || rc=$?
+  rm -rf "$w"
+  return $rc
+}
+# the pin of NAME: PY_V PY_MIN PY_PROG PY_SHA PY_KEY, and the requirements in the file PY_REQ (the caller removes it)
+pk__python_pin() {
+  PY_V=$(pk_py "$1" version) && PY_MIN=$(pk_py "$1" python) && PY_PROG=$(pk_py "$1" program) \
+    || { pk_err "the list has no python program $1"; return 1; }
+  [[ "$PY_V" =~ ^[0-9][0-9A-Za-z.!+]*$ ]] && [[ "$PY_MIN" =~ ^3\.[0-9]+$ ]] && [[ "$PY_PROG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+    || { pk_err "python $1: bad version, python or program in the list"; return 1; }
+  PY_REQ=$(mktemp) || return 1
+  pk_python_requirements "$1" > "$PY_REQ" || { rm -f "$PY_REQ"; pk_err "python $1: no requirements in the list"; return 1; }
+  PY_SHA=$(pk_sha256 "$PY_REQ") PY_KEY="$PY_V-$(pk_sha256 "$PY_REQ" | cut -c1-12)"
+}
+# pk_python_install DEST NAME: the pinned venv in DEST/<version>-<sha12>, current -> it when its program starts. Prints
+# the program's path through current, or nothing and 1 (then a current that starts stays).
+pk_python_install() {
+  local dest=$1 name=$2 rc=0
+  pk__python_pin "$name" || return 1
+  if pk__browser_dest "$dest"; then
+    pk__python_install_locked "$dest" "$name" || rc=$?
+    pk__unlock
+  else rc=1; fi
+  rm -f "$PY_REQ"
+  return $rc
+}
+pk__python_install_locked() {
+  local dest=$1 name=$2 dir py cv prev keep v k env=()
+  dir="$dest/$PY_KEY"
+  if [ "$(cat "$dir/.sha256" 2>/dev/null || true)" != "$PY_SHA" ] || ! pk_python_check "$dir" "$PY_PROG"; then
+    py=$(command -v python3 2>/dev/null) || { pk_err "python $name: python3 is missing (apt-get install python3 python3-venv)"; return 1; }
+    "$py" -c "import sys; sys.exit(sys.version_info < ($(echo "$PY_MIN" | tr . ,),))" \
+      || { pk_err "python $name needs Python $PY_MIN or later; this system has $("$py" -c 'import sys; print(sys.version.split()[0])')"; return 1; }
+    # (a venv cannot be moved: it is built in its folder, finished when .sha256 is written)
+    [ ! -L "$dir" ] || { pk_err "$dir is a link"; return 1; }
+    rm -rf "$dir"
+    "$py" -m venv "$dir" >/dev/null 2>&1 || { rm -rf "$dir"; pk_err "python $name: python3 -m venv failed (apt-get install python3-venv)"; return 1; }
+    for k in http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY; do [ -z "${!k:-}" ] || env+=("$k=${!k}"); done
+    if ! pk__bounded "${PK_FETCH_BUDGET:-480}" env -i PATH=/usr/bin:/bin HOME="$dir" LANG=C.UTF-8 ${env[@]+"${env[@]}"} \
+      "$dir/bin/python" -I -m pip install --isolated --no-cache-dir --disable-pip-version-check --no-input --quiet \
+      --index-url=https://pypi.org/simple --require-hashes --only-binary=:all: --no-deps -r "$PY_REQ" >&2; then
+      rm -rf "$dir"; pk_err "python $name $PY_V: pip install failed (the list's wheels from pypi.org)"; return 1
+    fi
+    [ "$(id -u)" != 0 ] || chown -R 0:0 "$dir"
+    chmod -R a+rX,go-w "$dir"
+    if ! pk_python_check "$dir" "$PY_PROG"; then rm -rf "$dir"; pk_err "python $name $PY_V: $PY_PROG does not start here"; return 1; fi
+    printf '%s\n' "$PY_SHA" > "$dir/.sha256"
+  fi
+  # current -> it; the venv before stays (a running server may still use it), every other one goes
+  cv=$(readlink "$dest/current" 2>/dev/null || true)
+  prev=""
+  [ ! -f "$dest/.previous" ] || prev=$(tr -cd 'A-Za-z0-9._!+-' < "$dest/.previous")
+  if [ "$cv" != "$PY_KEY" ]; then
+    pk__swap_link "$PY_KEY" "$dest/current" || return 1
+    prev=$cv
+    if [ -n "$prev" ]; then printf '%s\n' "$prev" > "$dest/.previous"; else rm -f "$dest/.previous"; fi
+  fi
+  for keep in "$dest"/*; do
+    [ -d "$keep" ] && [ ! -L "$keep" ] || continue
+    v=${keep##*/}
+    case "$v" in "$PY_KEY"|"$prev") continue ;; esac
+    rm -rf "$keep"
+  done
+  [ -n "$prev" ] && [ -d "$dest/$prev" ] || rm -f "$dest/.previous"
+  echo "$dest/current/bin/$PY_PROG"
+}
+
 # ---- files of the install ----
 
 # pk_set_env FILE KEY [VALUE]: FILE (/etc/default/<id>, the server unit's EnvironmentFile) gets KEY=VALUE once; every
@@ -647,6 +758,11 @@ EOF
   else
     pk_set_env "/etc/default/$id" "$PK_ENV_KEY" "" || true
   fi
+  # the Python programs (the server finds each at $PK_OPT/python/<name>/current/bin/<program>)
+  for p in $(pk_pythons "$profile"); do
+    if path=$(pk_python_install "$PK_OPT/python/$p" "$p"); then note "$p $(pk_py "$p" version) ($path)"
+    else note "$p $(pk_py "$p" version || true) was not installed; what needs it stays off"; res=$(pk_worse "$res" incomplete); fi
+  done
   pk_write_synced "$base/root/packages.synced" "$sum" "$res" "$detail" "$v" || pk_err "cannot write $base/root/packages.synced"
   return 0
 }

@@ -19,7 +19,7 @@
 import crypto, { type KeyObject } from 'node:crypto'
 import {
   DRIVE_BROKER_MAX_BODY_BYTES, DRIVE_BROKER_PATHS, driveBrokerAuthorization, driveBrokerConnectUrl, driveBrokerSigningString,
-  type DriveBrokerOp, type DriveBrokerPurpose,
+  type DriveBrokerOp, type DriveBrokerPurpose, type GoogleBrokerApp,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
 import { isHosted } from '../../system/deployment'
@@ -58,6 +58,7 @@ export class DriveBroker {
 
   /** A signed call. Answers only JSON objects; maps the broker's error codes to Drive errors without its message. */
   private async call(op: DriveBrokerOp, body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, any>> {
+    const forApp = 'app' in body
     const path = DRIVE_BROKER_PATHS[op], text = JSON.stringify(body)
     if (Buffer.byteLength(text) > DRIVE_BROKER_MAX_BODY_BYTES) throw new DriveError('invalid_flow')
     let id: BrokerIdentity
@@ -83,6 +84,9 @@ export class DriveBroker {
     const code = typeof json?.error?.code === 'string' ? json.error.code : ''
     if (code === 'invalid_grant') throw new DriveError('needs_reconnect', 409)
     if (code === 'invalid_handoff') throw new DriveError('invalid_flow')
+    // a Google app other than Drive (gmail, calendar, docs, sheets): an older control plane refuses the `app` field, and
+    // a newer one may not offer that app yet; either way it is not available through the hosting service now
+    if (forApp && (code === 'invalid_request' || code === 'app_unavailable')) throw new DriveError('service_limited', 409)
     if (code === 'rate_limited' || r.status === 429) throw new DriveError('rate_limited', 503)
     if (code === 'provider_error') throw new DriveError('provider_unavailable', 503)
     throw new DriveError('broker_unavailable', 503)
@@ -94,8 +98,8 @@ export class DriveBroker {
   }
   /** Google's sign-in address for this flow, and the hosting service's own start page for it when it sent one
    * (connectUrl: kept only when it is exactly that page on the configured origin, else dropped). */
-  async start(purpose: DriveBrokerPurpose, returnState: string, codeChallenge: string): Promise<{ authorizationUrl: string; connectUrl?: string }> {
-    const j = await this.call('start', { v: 1, purpose, returnState, codeChallenge })
+  async start(purpose: DriveBrokerPurpose, returnState: string, codeChallenge: string, app?: GoogleBrokerApp): Promise<{ authorizationUrl: string; connectUrl?: string }> {
+    const j = await this.call('start', { v: 1, purpose, returnState, codeChallenge, ...(app ? { app } : {}) })
     const url = typeof j.authorizationUrl === 'string' ? j.authorizationUrl : ''
     // only ever send a person to Google's own sign-in page, or to the hosting service's page on the origin set here
     let u: URL
@@ -106,7 +110,8 @@ export class DriveBroker {
   }
   /** Google's token answer (access_token, expires_in, scope; refresh_token = the SEALED token). */
   redeem(handoff: string, codeVerifier: string, signal?: AbortSignal) { return this.call('redeem', { v: 1, handoff, codeVerifier }, signal) }
-  refresh(sealedRefreshToken: string, signal?: AbortSignal) { return this.call('refresh', { v: 1, refreshToken: sealedRefreshToken }, signal) }
+  /** `app`: the Google app the token was made for (google-apps/), left out for Drive */
+  refresh(sealedRefreshToken: string, signal?: AbortSignal, app?: GoogleBrokerApp) { return this.call('refresh', { v: 1, refreshToken: sealedRefreshToken, ...(app ? { app } : {}) }, signal) }
   async revoke(sealedRefreshToken: string): Promise<'revoked' | 'unavailable'> {
     try { return (await this.call('revoke', { v: 1, refreshToken: sealedRefreshToken })).revocation === 'revoked' ? 'revoked' : 'unavailable' } catch { return 'unavailable' }
   }

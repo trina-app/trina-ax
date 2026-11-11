@@ -31,6 +31,8 @@ export const TEXT = {
   sendsLabel: t('보낼 내용', 'What it sends', 'Yang dikirim', "送信内容", "Lo que envía"),
   yes: t('보내기', 'Send', 'Kirim', "送信", "Enviar"),
   no: t('보내지 않기', 'Don’t send', 'Jangan kirim', "送信しない", "No enviar"),
+  // a Google app's card (google-apps/): the person's own choice to stop asking for this app
+  alwaysAllow: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre"),
   // API refusals
   personalOff: t('팀 설정에서 개인 연결 추가가 꺼져 있어요.', 'Your team turned off adding personal connections.', 'Tim Anda mematikan penambahan koneksi pribadi.', "チームが個人接続の追加を無効にしました。", "Su equipo desactivó la posibilidad de añadir conexiones personales."),
   tooMany: t('연결은 {n}개까지 만들 수 있어요.', 'You can have at most {n} connections.', 'Paling banyak {n} koneksi.', "接続は最大{n}件です。", "Puede tener como máximo {n} conexiones."),

@@ -102,6 +102,8 @@ import { editPreview, rulesHash } from '../../../server/src/admin/access-edit'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
+import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
+import type { GoogleAppId } from '@mycel/shared/api'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
@@ -415,6 +417,8 @@ export class MockServer {
    * and never go back out (only `hasSecret`). */
   integrations: MockIntegration[] = []
   plugins = new MockPlugins()
+  /** Gmail, Google Calendar, Google Docs, Google Sheets (test/mock/googleApps.ts): nothing set up until a test does */
+  googleApps = new MockGoogleApps()
   /** after-update to-dos an admin dismissed (server/src/system/after-update.ts) */
   afterDismissed: string[] = []
   integrationSecrets = new Map<string, string>()
@@ -570,6 +574,7 @@ export class MockServer {
     this.credLogins.clear()
     this.integrations = []
     this.plugins.reset()
+    this.googleApps.reset()
     this.afterDismissed = []
     this.integrationSecrets.clear()
     this.integrationFlows.clear()
@@ -3556,6 +3561,46 @@ export class MockServer {
       return this.driveAdminStatus()
     },
 
+    // Gmail, Google Calendar, Google Docs, Google Sheets (shared/src/api/google-apps.ts; test/mock/googleApps.ts)
+    myGoogleApps: (c) => this.googleApps.list(c.user.id),
+    authorizeGoogleApp: (c) => {
+      const app = this.googleApps.app(c.params.app) ? c.params.app as GoogleAppId : fail('not_found', 404)
+      return this.googleApps.authorize(app, c.user.id, { name: c.user.name, email: `${c.user.username}@example.test` }) ?? fail('forbidden', 403, 'google_app_unavailable')
+    },
+    googleAppFlow: (c) => this.googleApps.poll(c.params.app as GoogleAppId, c.params.id!, c.user.id) ?? fail('not_found', 404, 'google_app_flow_not_found'),
+    completeGoogleAppFlow: (c) => this.googleApps.complete(c.params.app as GoogleAppId, c.params.id!, c.user.id) ?? fail('not_found', 404, 'google_app_flow_not_found'),
+    cancelGoogleAppFlow: (c) => { this.googleApps.cancel(c.params.id!); return undefined },
+    updateGoogleApp: (c) => {
+      const a = this.googleApps.app(c.params.app)
+      const conn = a?.conns.get(c.user.id) ?? fail('not_found', 404, 'google_app_not_connected')
+      conn.writePolicy = c.body.writePolicy
+      return this.googleApps.view(c.params.app as GoogleAppId, c.user.id)
+    },
+    disconnectGoogleApp: (c) => (this.googleApps.app(c.params.app) ? this.googleApps.disconnect(c.params.app as GoogleAppId, c.user.id) : fail('not_found', 404)),
+    googleAppsAdminStatus: () => ({ apps: GOOGLE_APP_LIST.map((id) => this.googleApps.adminStatus(id, this.driveClient !== 'none')) }),
+    setGoogleAppClient: (c) => {
+      const app = this.googleApps.app(c.params.app) ?? fail('not_found', 404)
+      if (app.blocked) fail('forbidden', 403, 'google_app_blocked')
+      if (c.body.sameAsDrive) {
+        if (this.driveClient === 'none') fail('bad_request', 400, 'google_app_no_drive_app')
+        app.client = 'drive'
+      } else {
+        if (c.body.file !== undefined) {
+          let j: { web?: { redirect_uris?: unknown } } | null = null
+          try { j = JSON.parse(c.body.file) } catch { fail('bad_request', 400, 'google_client_invalid') }
+          if (!j?.web) fail('bad_request', 400, 'google_client_invalid')
+          if (!Array.isArray(j!.web!.redirect_uris) || !j!.web!.redirect_uris.includes('https://team.example.test/api/integrations/google-apps/callback')) fail('bad_request', 400, 'google_client_redirect')
+        }
+        app.client = 'app'
+      }
+      return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
+    },
+    setGoogleAppMembers: (c) => {
+      const app = this.googleApps.app(c.params.app) ?? fail('not_found', 404)
+      app.members = c.body.on
+      return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
+    },
+
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
     listIntegrations: (c) => ({
       items: this.integrations.filter((x) => this.integrationAllows(x, c.user)).map((x) => this.integrationView(x, c.user)),
@@ -4442,6 +4487,8 @@ export class MockServer {
       this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
     }
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    else if (p === '/__test/google-apps') this.googleApps.control(body)
+    else if (p === '/__test/drive-client') this.driveClient = body.on === false ? 'none' : 'app'
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null

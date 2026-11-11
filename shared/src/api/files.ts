@@ -78,12 +78,15 @@ export const MkdirBody = z.object({ path: RelPath })
 /**
  * confirm: moving an ordinary item into the caller's own users/<me>/ that other people can read now answers 409
  * conflict {params: {reason:'audience_narrowed', lostViewers}} unless confirm is true (design tab 4 move).
+ * askWiden (the Files screen): moving an item out of a personal folder users/<x>/ to a place where more people can read
+ * it answers 409 conflict {params: {reason:'audience_widened', viewersAdded}} unless confirm is true (QA TC-115). A
+ * client that does not send it (an older app) moves as before.
  * Folders that are or contain group / project / rule folders (a folders row) move only for admins, never under users/.
  * skillsOk: a project's folder moved to projects/<name> from elsewhere turns on the skills in its skills/ folder (in that
  * project's chats): 409 conflict {params: {reason:'project_skills_on', skills (their names, one per line, at most 20),
  * count}} unless skillsOk is true (docs/DECISIONS.md "Project skills").
  */
-export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false), skillsOk: z.boolean().default(false) })
+export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false), skillsOk: z.boolean().default(false), askWiden: z.boolean().default(false) })
 export const MoveResult = z.object({ entry: FileEntry })
 /**
  * Share by copying (design tab 2 rule 3, tab 4): a file the caller can read -> `to` in a folder the caller can write.
@@ -302,7 +305,7 @@ export const FILES = {
   attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment (a team file: the image itself, up to 2 MB, while the caller can read it).' }),
   attachTeamFile: endpoint({ method: 'POST', path: '/api/attachments/team-file', auth: 'user', owner: 'C', status: 201, body: AttachTeamFileBody, response: Attachment, summary: 'Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn).' }),
   discardAttachment: endpoint({ method: 'DELETE', path: '/api/attachments/:id', auth: 'user', owner: 'C', response: DiscardAttachmentResult, summary: 'Take an unsent team-file attachment of the caller out of its chat. A file they uploaded from their computer into a shared project chat, never sent and unchanged in its place, goes to the team trash (trashed: true); anything else stays where it is.' }),
-  findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name contains q, among the files the caller can read (newest first).' }),
+  findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name holds every word of q (in any order and any case), among the files the caller can read (newest first).' }),
   searchFileContents: endpoint({ method: 'GET', path: '/api/files/search', auth: 'user', owner: 'C', query: SearchFileContentsQuery, response: FileContentHits, summary: 'Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person.' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
   createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires 24 h after the last chunk arrived, at most 7 days after the start.` }),

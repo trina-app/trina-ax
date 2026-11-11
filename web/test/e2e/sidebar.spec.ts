@@ -57,7 +57,7 @@ test('in order: the team, one labeled row each, the rooms, then the AI chats', a
   // is in the team menu now)
   const said = (words: string, hint = false) => new RegExp(`^\\s*${words}${hint ? '' : '$'}`)
   await expect(s.getByTestId('nav-rows').locator(':scope > *')).toHaveText([
-    said(t['sidebar.askAi'].replace('{name}', ai), true), said(t['sidebar.search'], true), said(t['sidebar.projects']), said(t['sidebar.scheduled']), said(t['inbox.title']), said(t['sidebar.files']), said(t['sidebar.skills']),
+    said(t['sidebar.askAi'].replace('{name}', ai), true), said(t['sidebar.search'], true), said(t['sidebar.projects']), said(t['sidebar.scheduled']), said(t['inbox.title']), said(t['sidebar.files']), said(t['sidebar.skills']), said(t['integrations.title']),
   ])
   await expect(s.getByTestId('nav-admin')).toHaveCount(0)
   for (const id of ROWS) expect(Math.round((await s.getByTestId(id).boundingBox())!.height)).toBe(36)
@@ -110,7 +110,7 @@ test('a member: no Admin row, and the team on top is its name and logo, not a me
   await reset(page)
   await signIn(page, BOB)
   const s = side(page)
-  await expect(s.getByTestId('nav-rows').locator(':scope > *')).toHaveCount(7)
+  await expect(s.getByTestId('nav-rows').locator(':scope > *')).toHaveCount(8)
   await expect(s.getByTestId('nav-admin')).toHaveCount(0)
   await expect(s.getByTestId('team-header')).toBeVisible()
   await expect(s.getByTestId('team-menu')).toHaveCount(0)

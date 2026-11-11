@@ -37,6 +37,17 @@ export const P4_SPECS: Record<string, Spec> = {
   setDriveClient: { build: c => c.put('/api/admin/google-drive/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
   // Drives shared with the team and the members' switch (admins only; c-drive-shares covers a configured server)
   setDriveMembers: { build: c => c.put('/api/admin/google-drive/members', { on: false }), scope: 'byLevel' },
+  // Gmail, Calendar, Docs and Sheets (routes/google-apps.ts): own connection only; flows belong to the session that started them
+  myGoogleApps: { build: c => c.get('/api/integrations/google-apps?userId=alice'), scope: 'self' },
+  authorizeGoogleApp: { build: c => c.post('/api/integrations/google-apps/gmail/authorize', {}), scope: 'self' },
+  googleAppFlow: { build: c => c.get('/api/integrations/google-apps/gmail/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  completeGoogleAppFlow: { build: c => c.post('/api/integrations/google-apps/gmail/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'nobody' },
+  cancelGoogleAppFlow: { build: c => c.del('/api/integrations/google-apps/gmail/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  updateGoogleApp: { build: c => c.patch('/api/integrations/google-apps/gmail', { writePolicy: 'ask' }), scope: 'self' },
+  disconnectGoogleApp: { build: c => c.del('/api/integrations/google-apps/gmail'), scope: 'self' },
+  googleAppsAdminStatus: { build: c => c.get('/api/admin/google-apps'), scope: 'byLevel' },
+  setGoogleAppClient: { build: c => c.put('/api/admin/google-apps/gmail/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
+  setGoogleAppMembers: { build: c => c.put('/api/admin/google-apps/gmail/members', { on: true }), scope: 'byLevel' },
   listDriveShares: { build: c => c.get('/api/admin/google-drive/shares'), scope: 'byLevel' },
   authorizeDriveShare: { build: c => c.post('/api/admin/google-drive/shares/authorize', {}), scope: 'byLevel' },
   completeDriveShareFlow: { build: c => c.post('/api/admin/google-drive/shares/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'byLevel' },
