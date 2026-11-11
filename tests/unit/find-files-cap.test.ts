@@ -1,20 +1,23 @@
 // File-name find on a big folder (team-files/find.ts findFiles): the permission check of every name that matches
 // (visiblePath) runs in chunks with the event loop free in between, at most HIT_CAP files are kept, and every path it
 // lists still passed visiblePath (QA TC-277: 5,000 checks in one go stalled every request for 60-400 ms).
-import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { componentC } from '../../server/src/team-files/component'
 import { CHECK_CHUNK, HIT_CAP, findFiles } from '../../server/src/team-files/find'
-import { visiblePath } from '../../server/src/policy/authorize'
+import * as authorize from '../../server/src/policy/authorize'
+const { visiblePath } = authorize
 
 setDefaultTimeout(60_000)
 let h: Harness
-const BULK = 2600
+// under the name cap (2 x HIT_CAP), so every matching name is checked whatever order ripgrep lists them in
+const BULK = 1800
 const write = (rel: string, s = 'x\n') => { const p = path.join(h.team, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s) }
 const userId = (name: string) => (h.ctx.db.query('SELECT id FROM users WHERE username = ?').get(name) as { id: string }).id
 const future = new Date(Date.now() + 86_400_000)
+const origVisible = authorize.visiblePath
 
 beforeAll(async () => {
   h = await startHarness({ name: 'find-files-cap' })
@@ -45,20 +48,26 @@ test('a broad name search on a big folder: newest readable first, truncated, not
   expect((await findFiles(files, userId('bob'), 'bulkname-bob', '', 10)).items.map((i) => i.path)).toEqual(['users/bob/bulkname-bob.md'])
 })
 
-test('the checks run in chunks: other work runs while one search goes through thousands of names', async () => {
+test('the checks run in chunks: at most CHECK_CHUNK permission checks between two turns of the event loop', async () => {
   expect(HIT_CAP).toBeLessThanOrEqual(1000)
   const files = componentC(h.ctx).files
-  let ticks = 0, done = false
-  const spin = () => { ticks++; if (!done) setImmediate(spin) }
+  let sinceTick = 0, most = 0, total = 0, done = false
+  const spy = spyOn(authorize, 'visiblePath').mockImplementation((...a: Parameters<typeof visiblePath>) => {
+    sinceTick++; total++; most = Math.max(most, sinceTick)
+    return origVisible(...a)
+  })
+  const spin = () => { sinceTick = 0; if (!done) setImmediate(spin) }
   setImmediate(spin)
-  const p = findFiles(files, userId('alice'), 'bulkname', '', 50).finally(() => { done = true })
-  await p
-  // HIT_CAP checks at most CHECK_CHUNK at a time: at least HIT_CAP / CHECK_CHUNK - 1 turns of the event loop
-  expect(ticks).toBeGreaterThanOrEqual(HIT_CAP / CHECK_CHUNK - 1)
+  try {
+    const r = await findFiles(files, userId('alice'), 'bulkname', '', 50)
+    expect(r.items).toHaveLength(50)
+  } finally { done = true; spy.mockRestore() }
+  expect(total).toBeGreaterThanOrEqual(HIT_CAP)
+  expect(most).toBeLessThanOrEqual(CHECK_CHUNK)
 })
 
 test('a narrow search is unchanged: exact matches, not truncated', async () => {
-  const r = await findFiles(componentC(h.ctx).files, userId('alice'), 'bulkname-2599', '', 50)
+  const r = await findFiles(componentC(h.ctx).files, userId('alice'), 'bulkname-1799', '', 50)
   expect(r).toMatchObject({ truncated: false })
-  expect(r.items.map((i) => i.path)).toEqual(['shared/bulk/d25/bulkname-2599.md'])
+  expect(r.items.map((i) => i.path)).toEqual(['shared/bulk/d5/bulkname-1799.md'])
 })

@@ -219,7 +219,7 @@ export class ChatRuntime {
   /** queued answers are waiting for memory (schedule() below); the watcher re-checks every MEMORY_RECHECK_MS */
   private memoryHeld = false
   private memoryCheckedAt = 0
-  /** when the last answers started (at most startBurst, oldest first): a burst past that waits for spreadTimer */
+  /** when the last answers started (performance.now(); at most startBurst, oldest first): a burst past that waits for spreadTimer */
   private recentStarts: number[] = []
   private spreadTimer: ReturnType<typeof setTimeout> | null = null
   private capacityWatcher: ReturnType<typeof setInterval>
@@ -465,7 +465,7 @@ export class ChatRuntime {
         continue
       }
       this.running.set(spec.turnId, exec)
-      this.recentStarts.push(Date.now())
+      this.recentStarts.push(performance.now())
       try { this.publishChat(spec.userId, spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after dispatch failed', { err, turn: spec.turnId }) }
       exec.run().catch((err) => this.log.error('turn run failed', { err, turn: spec.turnId }))
     }
@@ -488,7 +488,8 @@ export class ChatRuntime {
    * schedule() again once the oldest of them is that old. */
   private startSpread(): boolean {
     const burst = this.startBurst, spread = this.startSpreadMs
-    const now = Date.now()
+    // a monotonic clock: a wall clock set back must not hold the queue
+    const now = performance.now()
     while (this.recentStarts.length && now - this.recentStarts[0]! >= spread) this.recentStarts.shift()
     if (burst <= 0 || spread <= 0 || this.recentStarts.length < burst) return false
     if (!this.spreadTimer) {
