@@ -284,7 +284,12 @@ for (const [who, as, expected, absent] of [
     await reset(page)
     await signIn(page, as)
     for (const [i, reason] of (['lockdown', 'engine_missing'] as const).entries()) {
-      if (i) await page.getByTestId('new-chat').click()
+      if (i) {
+        await page.getByTestId('new-chat').click()
+        // the new chat's own message box: the last chat's ("답장하기") can still be on screen for a moment
+        await expect(page).toHaveURL(/\/$/)
+        await expect(page.getByTestId('assistant-message')).toHaveCount(0)
+      }
       await ask(page, `error:${reason}\n왜?`)
       await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
       const box = lastAnswer(page).getByTestId('answer-error')
