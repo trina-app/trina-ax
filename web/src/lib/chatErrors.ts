@@ -1,13 +1,13 @@
 // A failed answer's words, by who reads it (docs/DECISIONS.md "Plain words in errors, cards and steps"). Everyone reads
 // what happened and who to tell; the owner and admins, who can fix it, read where instead: the admin menu's own words
-// (Admin › Providers, Admin › System › Health), so the path follows the menu when it is renamed. No engine, proxy, API
+// (Admin › AI accounts, Admin › System › Health), so the path follows the menu when it is renamed. No engine, proxy, API
 // or HTTP code in any of them; the provider's status stays in the error's params for diagnostics.
 import type { ChatErrorReason } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 import { noAiErrorKey } from './aiAccess'
 
 type Role = 'owner' | 'admin' | 'member' | undefined
-/** where the owner or an admin fixes it: the AI accounts (Admin › Providers), or the server's health (Admin › System ›
+/** where the owner or an admin fixes it: the AI accounts (Admin › AI accounts, `admin.providers`), or the server's health (Admin › System ›
  * Health, the owner's page only) */
 type Where = 'providers' | 'health'
 
@@ -17,7 +17,7 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   credential_unusable: 'providers',
   model_not_found: 'providers',
   endpoint_unreachable: 'providers',
-  // the Providers page shows an engine version whose lockdown test failed (server/src/admin/engines.ts)
+  // the AI accounts page shows an engine version whose lockdown test failed (server/src/admin/engines.ts)
   lockdown: 'providers',
   trial_credit_used: 'providers',
   trial_ended: 'providers',
@@ -25,7 +25,7 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   proxy_down: 'health',
 }
 
-/** The admin menu's words for a place, in the language on screen: "관리자 › 제공자". */
+/** The admin menu's words for a place, in the language on screen: "관리자 › AI 계정". */
 export function adminPath(t: (key: MessageKey) => string, where: Where): string {
   return (where === 'providers' ? [t('admin.title'), t('admin.providers')] : [t('admin.title'), t('admin.system'), t('system.health')]).join(' › ')
 }

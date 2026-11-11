@@ -19953,7 +19953,7 @@ engine names, model ids and an English " (job)". The owner approved the audit's 
   (`chat/i18n.ts engineError`); the status stays in `params.status` for diagnostics.
 - **Where to fix it, for those who can** (`web/src/lib/chatErrors.ts`): the owner and admins read their own words with
   the admin menu path, built from the menu's labels (`admin.title` › `admin.providers`, or › `admin.system` ›
-  `system.health`), so the path follows the menu when it is renamed (the other plain-words PR renames 제공자). The health
+  `system.health`), so the path follows the menu when it is renamed (the other plain-words PR renamed 제공자 to AI 계정). The health
   page is the owner's only (admins see the storage there), so `engine_missing` and `proxy_down` name it to the owner and
   an admin reads the member's words. A member never sees a menu path. The "no AI" words with the connect button
   (`aiConnect.error.*`) keep winning while no AI answers the owner or an admin; `credential_unusable` there now names

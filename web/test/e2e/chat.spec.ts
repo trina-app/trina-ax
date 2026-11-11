@@ -278,7 +278,7 @@ test('an error answer offers retry', async ({ page }) => {
 const BOB = { username: 'bob', password: 'bob password 1' }
 for (const [who, as, expected, absent] of [
   ['member', BOB, ['안전을 위해 답을 멈췄어요. 팀장에게 알려 주세요.', '지금은 AI가 답할 수 없어요. 팀장에게 알려 주세요.'], ['관리자 ›']],
-  ['owner', undefined, ['안전을 위해 답을 멈췄어요. 관리자 › 제공자에서 원인을 볼 수 있어요.', '지금은 AI가 답할 수 없어요. 관리자 › 시스템 › 상태 점검에서 원인을 볼 수 있어요.'], ['팀장에게 알려 주세요']],
+  ['owner', undefined, ['안전을 위해 답을 멈췄어요. 관리자 › AI 계정에서 원인을 볼 수 있어요.', '지금은 AI가 답할 수 없어요. 관리자 › 시스템 › 상태 점검에서 원인을 볼 수 있어요.'], ['팀장에게 알려 주세요']],
 ] as const) {
   test(`the error box speaks to the ${who}: what happened and who to tell, or where to fix it`, async ({ page }) => {
     await reset(page)
