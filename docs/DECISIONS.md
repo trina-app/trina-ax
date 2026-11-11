@@ -2402,6 +2402,20 @@ R4 integration review also found the separate System diagnostics/menubar lookup 
 uses the same resolver in development and only the configured executable for every production install,
 including same-account installs. Extend the same synthetic selection tests to cover this fourth caller.
 
+## Google Drive setup: the Google Cloud steps in the dialog (fix/drive-setup-steps, 2026-11-12, QA TC-197)
+
+- **Problem.** Admin › 연결한 서비스 › Google Drive › 한 번 설정하기 showed only the redirect URI with Copy and the client
+  file (or ID and secret): an admin had to know the Google Cloud part already (about five pages and eight actions).
+- **Decision (the simplest option that meets the row).** The dialog lists the Google Cloud steps first, numbered, each
+  with a link that opens its Google Cloud page in a new tab: a project (`/projectcreate`), the Drive API
+  (`/apis/library/drive.googleapis.com`), the consent screen (`/apis/credentials/consent`: app name and support email,
+  "Internal" for a company's own Workspace accounts, else "External" with the people as test users), a web client
+  (`/apis/credentials/oauthclient`: type "Web application", the shown address under "Authorized redirect URIs"), and its
+  JSON file to upload below. Google's own labels are quoted as Google shows them in each language; our field labels say
+  what they are for ("the address to put under 'Authorized redirect URIs'", "Upload the JSON file you downloaded").
+  The Google apps' dialogs share the field labels, not the Drive steps.
+- **Not done.** Doing the Google Cloud part for the admin.
+
 ## Linux installer: public host, app connectors and the Google Drive client (feat/installer-public-host, 2026-10-29)
 
 - **Problem.** The first real self-hosted test server (Lightsail, Cloudflare Tunnel) needed three manual root steps

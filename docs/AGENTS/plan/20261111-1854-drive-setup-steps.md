@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 18:54
 - Branch: `fix/drive-setup-steps`
-- Status: in progress
+- Status: done
 - Where: `web/src/components/integrations/DriveConnector.tsx` (`DriveSetupDialog`, `GoogleClientFields`), the five
   locales, a short `docs/DECISIONS.md` section. Why: connectors are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: the setup could not be finished without outside help; now the dialog says how
@@ -53,4 +53,7 @@ plain 해요체. PR fix/drive-no-public-address edits other parts of `DriveConne
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the `docs/DECISIONS.md` section "Google Drive setup: the Google Cloud steps in the dialog". The
+e2e `admin-app-connectors` spec now checks the five steps and the first link and, with `SHOTS=1`, saves the dialog: the
+steps, then the address with Copy, the upload and the ID / secret fields fit the 480 px dialog; the phone-width and
+accessibility checks of the same spec still pass.

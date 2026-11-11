@@ -13,7 +13,7 @@
 //    is on yet) or On (members may connect their own, or a Drive is shared with the team), with the one-time setup (or
 //    Replace) in a small dialog (DriveSetupDialog) when this page may do it (integrations/google-drive/admin-setup.ts),
 //    and below it the members' switch and the shares (DriveShares.tsx). A client alone turns nothing on.
-import { Check, Copy, FolderOpen, Upload } from 'lucide-react'
+import { Check, Copy, ExternalLink, FolderOpen, Upload } from 'lucide-react'
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { API, type DriveAdminStatus, type DriveConnection, type DriveTeamShare } from '@mycel/shared/api'
 import { APP_CONNECTORS, appConnectorLogo } from '../../lib/connectors'
@@ -260,7 +260,40 @@ export function GoogleClientFields({ redirectUri, value, onChange, onError }: { 
   )
 }
 
-/** Set up Google Drive: the Google OAuth web client (the file Google Cloud downloads, or its ID and secret). */
+/** What an admin does in Google Cloud for Drive, in order, each with the page it happens on (QA TC-197): a project, the
+ * Drive API, the sign-in (consent) screen, a web client with this server's address, and its JSON file. Google's own
+ * labels are quoted in the words, as the person has to find them there. */
+export const DRIVE_CLOUD_STEPS = [
+  { key: 'driveSetup.step.project', link: 'driveSetup.link.project', href: 'https://console.cloud.google.com/projectcreate' },
+  { key: 'driveSetup.step.api', link: 'driveSetup.link.api', href: 'https://console.cloud.google.com/apis/library/drive.googleapis.com' },
+  { key: 'driveSetup.step.consent', link: 'driveSetup.link.consent', href: 'https://console.cloud.google.com/apis/credentials/consent' },
+  { key: 'driveSetup.step.client', link: 'driveSetup.link.client', href: 'https://console.cloud.google.com/apis/credentials/oauthclient' },
+  { key: 'driveSetup.step.json', link: null, href: null },
+] as const
+
+function DriveCloudSteps() {
+  const t = useT()
+  return (
+    <div data-testid="drive-setup-steps">
+      <p className="text-sm font-medium">{t('driveSetup.stepsTitle')}</p>
+      <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm">
+        {DRIVE_CLOUD_STEPS.map((x) => (
+          <li key={x.key} data-testid="drive-setup-step">
+            {t(x.key)}
+            {x.href && x.link && (
+              <> <a href={x.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 whitespace-nowrap text-accent-text underline-offset-2 hover:underline" data-testid="drive-setup-step-link">
+                {t(x.link)}<ExternalLink size={12} aria-hidden />
+              </a></>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+/** Set up Google Drive: the steps in Google Cloud, then the Google OAuth web client (the file Google Cloud downloads, or
+ * its ID and secret). */
 export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAdminStatus; onClose: () => void; onSaved: (s: DriveAdminStatus) => void }) {
   const t = useT()
   const [client, setClient] = useState<ClientInput>(emptyClient)
@@ -280,6 +313,7 @@ export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAd
         <Button variant="primary" busy={busy} disabled={!ready} onClick={() => void save()} data-testid="drive-setup-save">{t('common.save')}</Button>
       </>}>
       <div className="space-y-4" data-testid="drive-setup-dialog">
+        <DriveCloudSteps />
         <GoogleClientFields redirectUri={status.redirectUri} value={client} onChange={setClient} onError={setError} />
         {status.configured && <p className="text-xs text-muted">{t('driveSetup.replaceNote')}</p>}
         {error && <p className="text-sm text-danger" role="alert" data-testid="drive-setup-error">{error}</p>}
