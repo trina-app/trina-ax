@@ -96,7 +96,7 @@ describe('the warning above the message box', () => {
   }
   test('the English text is the one in the design', () => {
     expect(translate('en', 'composer.secretWarning')).toBe(
-      'This looks like a key or password. Anything in a message goes to the AI provider and stays in the chat. To connect a service, ask the AI to connect it and paste the key into the card it shows.',
+      'This looks like a key or password. Anything in a message goes to the AI company and stays in the chat. To connect a service, ask the AI to connect it and paste the key into the card it shows.',
     )
   })
 })

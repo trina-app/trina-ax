@@ -22,11 +22,11 @@ The connector is off until the server has a public HTTPS address for it. Use one
 ## Connect (each person)
 
 :::steps
-#### Copy the connector address
-Open **Settings › AI apps**. It shows the connector address, which ends in `/mcp`.
+#### Copy the connection address
+Open **Settings › Use from other AI apps**. It shows the connection address, which ends in `/mcp`.
 
 #### Add it to Claude
-Choose **Connect** next to Claude, Claude Code, Codex or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex (the CLI, the IDE extension and the Codex app use the same setup), run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`). Leave Codex's `oauth_resource` setting unset: the server takes one `resource` only.
+Choose **Connect** next to Claude, Claude Code, Codex or Other apps for the exact steps with Copy. In Claude, add a custom connector (Claude's own Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex (the CLI, the IDE extension and the Codex app use the same setup), run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`). Leave Codex's `oauth_resource` setting unset: the server takes one `resource` only.
 
 #### Sign in and allow
 Claude opens a Trina AX sign-in. Check the request, tick what else Claude may do, and choose **Allow**.
@@ -43,13 +43,13 @@ The sign-in page lets you choose, whatever the app asked for:
 | **Write in conversations** (only with reading) | `mcp:rooms.write` | unticked |
 | Managing the team's groups (owners and admins) | `mcp:admin` | always granted, no box |
 
-Claude and Claude Code ask for reading only, so tick **Write files** if Claude should create, edit or upload files. The app is told exactly what you allowed. To change it later, disconnect in **Settings › AI apps** and connect again.
+Claude and Claude Code ask for reading only, so tick **Write files** if Claude should create, edit or upload files. The app is told exactly what you allowed. To change it later, disconnect in **Settings › Use from other AI apps** and connect again.
 
 The sign-in accepts Claude's own callback (Claude on the web, desktop and phone), ChatGPT's connector callback (`https://chatgpt.com/connector_platform_oauth_redirect`) and a local `http://localhost/…/callback` or `http://127.0.0.1/…/callback` (Claude Code, Codex and other apps that sign in on the computer). ChatGPT has not been tried end to end yet.
 
-**Settings › AI apps** lists your connected apps, with when they connected and **Disconnect**. A connection also ends when the app session that authorized it ends.
+**Settings › Use from other AI apps** lists your connected apps, with when they connected and **Disconnect**. A connection also ends when the app session that authorized it ends.
 
-Admins see whether this server's connector is on in **Admin › AI apps**. The other direction, apps Trina's AI uses with
+Admins see whether this server's connector is on in **Admin › Use from other AI apps**. The other direction, apps Trina's AI uses with
 your own account such as **Google Drive**, is **Settings › App connectors** ([Google Drive setup](https://github.com/trina-app/trina-ax/blob/main/docs/GOOGLE-DRIVE.md)).
 
 ## Protocol
@@ -99,13 +99,13 @@ With **Read conversations** the app reads your conversations (team rooms, the ro
 - The message looks exactly like one you typed. Nothing marks it as sent by an app.
 - What the app read (files, and messages of rooms) is not sent where people who could not see it would read it. The connection keeps that until you disconnect it.
 - Neither reading nor sending writes an audit entry, and no message, name or room is logged.
-- A connection made before conversations came to AI apps never gains them. **Settings › AI apps** shows "Connect again to use conversations" under it: disconnect it and connect again.
+- A connection made before conversations came to AI apps never gains them. **Settings › Use from other AI apps** shows "Connect again to use conversations" under it: disconnect it and connect again.
 
 ## Group management (owners and admins)
 
 An owner's or admin's Claude can manage the team's groups, as in **Admin › Groups**. Their new connections get it automatically, whatever the app asked for; the sign-in page says so in one line. Members never get it.
 
-A connection made before this, or while the person was a member, keeps what was approved then: a connection never gains a permission after it was allowed. **Settings › AI apps** shows "Connect again once to use group management" under such a connection; disconnect it and connect again.
+A connection made before this, or while the person was a member, keeps what was approved then: a connection never gains a permission after it was allowed. **Settings › Use from other AI apps** shows "Connect again once to use group management" under such a connection; disconnect it and connect again.
 
 | Tool | What it does |
 |---|---|

@@ -94,11 +94,12 @@ const rejected = (turnId: string) => env.db.query("SELECT summary FROM tool_even
 const settle = () => Bun.sleep(60)
 
 describe('which calls run side by side', () => {
-  test('only calls of the read-only file tools and knowledge_explore; everything else, unknown tools included, runs alone', () => {
+  test('only calls of the read-only file tools; everything else, unknown tools included, runs alone', () => {
     const call = (name: unknown) => ({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: {} } })
-    for (const t of ['read', 'list', 'glob', 'grep', 'knowledge_explore']) expect(parallelCall(call(t))).toBe(true)
-    // search: the removed search by meaning tool; a call by that name now runs alone like any unknown tool
-    for (const t of ['search', 'write', 'edit', 'edit_files', 'make_file', 'share_file', 'remember', 'ask_user', 'artifact', 'web_fetch', 'room_file', 'room_thread',
+    for (const t of ['read', 'list', 'glob', 'grep']) expect(parallelCall(call(t))).toBe(true)
+    // search and knowledge_explore: removed tools (search by meaning, the knowledge graph); a call by such a name now runs
+    // alone like any unknown tool
+    for (const t of ['search', 'knowledge_explore', 'write', 'edit', 'edit_files', 'make_file', 'share_file', 'remember', 'ask_user', 'artifact', 'web_fetch', 'room_file', 'room_thread',
       'skill', 'hwp_render', 'mcp__other__read', 'Read', 'unknown_tool', '', undefined, 42])
       expect(parallelCall(call(t))).toBe(false)
     for (const m of [{ jsonrpc: '2.0', id: 1, method: 'initialize' }, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, { jsonrpc: '2.0', method: 'notifications/initialized' },
@@ -106,7 +107,7 @@ describe('which calls run side by side', () => {
       expect(parallelCall(m)).toBe(false)
   })
   test('the list is read-only tools only, and none of them patches its step (TurnExec.patchToolStep is FIFO per tool)', () => {
-    expect([...PARALLEL_READ_TOOLS].sort()).toEqual(['glob', 'grep', 'knowledge_explore', 'list', 'read'])
+    expect([...PARALLEL_READ_TOOLS].sort()).toEqual(['glob', 'grep', 'list', 'read'])
     for (const t of PARALLEL_READ_TOOLS) {
       expect(ROOM_READ_ONLY_TOOLS.has(t)).toBe(true)
       expect(EXPLORE_TOOLS.has(t)).toBe(true)
@@ -128,22 +129,22 @@ describe('one connection, several calls', () => {
   test('reads run at the same time; each answer keeps its id and goes out when its call finishes; one audit row each', async () => {
     const tools = new SlowTools()
     const { turn, c } = await open(tools)
-    c.call(1, 'read'); c.call(2, 'grep'); c.call(3, 'knowledge_explore')
+    c.call(1, 'read'); c.call(2, 'grep'); c.call(3, 'list')
     // all three started before any of them finished
     expect(await waitFor(() => tools.started.length === 3)).toBe(true)
-    expect(tools.names()).toEqual(['read 1', 'grep 2', 'knowledge_explore 3'])
+    expect(tools.names()).toEqual(['read 1', 'grep 2', 'list 3'])
     tools.get(3).finish(); await c.reply(3)
     tools.get(2).finish(); await c.reply(2)
     tools.get(1).finish(); await c.reply(1)
     expect(c.lines.slice(1).map((l) => l.id)).toEqual([3, 2, 1])
-    for (const [id, name] of [[1, 'read'], [2, 'grep'], [3, 'knowledge_explore']] as const) {
+    for (const [id, name] of [[1, 'read'], [2, 'grep'], [3, 'list']] as const) {
       const r = c.lines.find((l) => l.id === id)
       expect(r.jsonrpc).toBe('2.0')
       expect(r.result.content[0].text).toBe(`${name} ${id} done`)
       expect(r.result.isError).toBeUndefined()
     }
     expect(audit(turn.id)).toEqual([
-      { tool: 'knowledge_explore', summary: 'knowledge_explore 3 -> ok', ok: 1 },
+      { tool: 'list', summary: 'list 3 -> ok', ok: 1 },
       { tool: 'grep', summary: 'grep 2 -> ok', ok: 1 },
       { tool: 'read', summary: 'read 1 -> ok', ok: 1 },
     ])
@@ -236,7 +237,7 @@ describe('one connection, several calls', () => {
   test('an error in one call does not touch the others; errors map to the result or a JSON-RPC error as before', async () => {
     const tools = new SlowTools()
     const { turn, c } = await open(tools)
-    c.call(1, 'read'); c.call(2, 'glob'); c.call(3, 'read'); c.call(4, 'knowledge_explore')
+    c.call(1, 'read'); c.call(2, 'glob'); c.call(3, 'read'); c.call(4, 'list')
     // glob: the tool set itself fails before the call runs -> a JSON-RPC internal error with its own id
     const r2 = await c.reply(2)
     expect(r2.error).toEqual({ code: -32603, message: 'the tool set failed' })
@@ -250,7 +251,7 @@ describe('one connection, several calls', () => {
     expect(r4.result).toEqual({ content: [{ type: 'text', text: 'Nothing found' }], isError: true })
     const rows = audit(turn.id)
     expect(rows.find((r) => r.summary.startsWith('read -> internal'))).toEqual({ tool: 'read', summary: 'read -> internal: disk on fire', ok: 0 })
-    expect(rows.find((r) => r.tool === 'knowledge_explore')!.ok).toBe(0)
+    expect(rows.find((r) => r.tool === 'list')!.ok).toBe(0)
     expect(rows.find((r) => r.summary === 'read 3 -> ok')!.ok).toBe(1)
     expect(rows.length).toBe(3)
     expect(c.closed).toBe(false)
