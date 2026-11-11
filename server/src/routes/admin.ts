@@ -3,7 +3,7 @@
 // CREDENTIALS (AI connections, registered from ./credentials.ts, the same owner)
 // Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
-import { API, EngineId, type EngineId as EngineIdT } from '@mycel/shared/api'
+import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
@@ -373,6 +373,13 @@ export const adminRoutes: RouteModule = {
       assertConcurrencyAllowed(body.concurrency, c.get('locale')) // plan (system/limits.ts)
       const cur = getTeamSettings(ctx.db)
       if (body.teamName !== undefined && body.teamName !== cur.teamName && auth.user.role !== 'owner') fail('forbidden', msg('ownerTeamName', c.get('locale')))
+      // how long the audit log, file history and both trashes keep things, and the update channel, are the owner's: an
+      // admin who shortens them could have the nightly sweep erase the audit trail and old file versions
+      // (docs/DECISIONS.md "Retention and the update channel are owner-only"). Saving the same value again is fine.
+      if (auth.user.role !== 'owner') {
+        const owned = OWNER_ONLY_SETTINGS.filter((k) => body[k] !== undefined && body[k] !== cur[k])
+        if (owned.length) fail('forbidden', msg('ownerOnlySetting', c.get('locale')), { fields: Object.fromEntries(owned.map((k) => [`body.${k}`, 'owner only'])) })
+      }
       if (body.defaultEngine !== undefined && !engineOn(ctx, body.defaultEngine)) fail('conflict', msg('engineDisabled', c.get('locale')))
       if (body.defaultEngine === 'codex' && codexIsBeta(ctx)) fail('conflict', msg('codexBetaDefault', c.get('locale')))
       // the settings and, when "Allow all websites" for web reads stops being allowed, everyone's switch off with the

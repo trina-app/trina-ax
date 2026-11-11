@@ -469,6 +469,11 @@ export const BudgetBody = z.object({
   action: z.enum(['warn', 'block']),
 })
 export const UpdateSettingsBody = TeamSettings.partial()
+/** Team settings only the owner may change (an admin gets 403 with fields[body.<key>] = 'owner only'; the same value
+ * again is fine). The retention periods decide what the nightly sweep erases (the audit log, file history, both
+ * trashes), so an admin must not be able to shorten them; the update channel goes with them. The team name is the
+ * owner's too, with its own message (the relay address changes). */
+export const OWNER_ONLY_SETTINGS = ['updateChannel', 'auditRetentionDays', 'fileHistoryRetentionDays', 'trashRetentionDays', 'chatTrashRetentionDays'] as const satisfies readonly (keyof TeamSettings)[]
 /** PUT /api/admin/team-icon?type=image/png: the type the file is (PNG, JPEG or WebP; its first bytes must match). The
  * server refuses anything else in words (params.reason: type, mismatch, too_big, too_small, too_large). */
 export const TeamIconQuery = z.object({ type: z.string().min(1).max(100) })
@@ -595,7 +600,7 @@ export const ADMIN = {
   deleteBudget: endpoint({ method: 'DELETE', path: '/api/admin/budgets/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Delete a budget.' }),
 
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
-  updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings (team name change also renames the relay address: owner only).' }),
+  updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings. Owner only: the team name (also renames the relay address), the retention periods and the update channel (OWNER_ONLY_SETTINGS).' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (shown in the sidebar header; tab and app icons stay the product\'s): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: the sidebar shows the product\'s mark again; audited.' }),
   speechHost: endpoint({ method: 'GET', path: '/api/admin/speech-host', auth: 'admin', owner: 'A', response: SpeechHost, summary: 'How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here.' }),

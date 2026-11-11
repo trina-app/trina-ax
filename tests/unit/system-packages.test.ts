@@ -631,6 +631,7 @@ describe('every install path reads the list', () => {
     'tests/linux/Dockerfile.srt': { why: 'the srt attack test container', lines: ['apt-get install -y --no-install-recommends bubblewrap socat'] },
     'tests/linux/Dockerfile.safe-ops': { why: 'the safe operations test container', lines: ['apt-get install -y --no-install-recommends libheif-examples'] },
     'tests/linux/Dockerfile.html-pdf': { why: 'the HTML to PDF test container', lines: ['apt-get install -y --no-install-recommends bubblewrap chromium'] },
+    'docker/Dockerfile': { why: 'kits before 0.5.0-beta.1 have no packages.json: their own deps.txt plus the docker group (procps passwd python3)', lines: ['$deps procps passwd python3'] },
     'tests/install/linux/Dockerfile': { why: 'the install test\'s systemd container (what an installer fetches, cached)', lines: ['apt-get install -y --no-install-recommends systemd systemd-sysv'] },
   }
   // and these commands may carry a sha256 or a download address of their own, each for a reason
@@ -759,9 +760,33 @@ describe('every install path reads the list', () => {
     expect(d).toContain('if pk_groups google-apps >/dev/null 2>&1; then groups="$groups google-apps"; fi')
     expect(d).toContain('for p in $(pk_pythons $groups); do pk_python_install "/opt/trina/python/$p" "$p" >/dev/null; done')
     expect(pythonsFor(LIST, ['minimal', 'docker', 'google-apps'])).toEqual(['workspace-mcp'])
-    expect(read('docker/entrypoint.sh')).toContain('--skip-apt --no-auto-update --minimal')
+    // --minimal only for a kit that has the list: the installers of 0.3.0 and 0.4.0 stop at an unknown option
+    const e = read('docker/entrypoint.sh')
+    expect(e).toContain('ARGS=(--from "$KIT" --no-systemd --skip-apt --no-auto-update)\n')
+    expect(e).toContain('if compgen -G "$KIT/app/*/root/packages.json" >/dev/null; then ARGS+=(--minimal); fi')
     // by default no browser group: what the always and docker groups install has no browser library of its own
     expect(groupsFor(LIST, ['minimal', 'docker'])).not.toContain('browser')
+  })
+
+  test('the Docker image builds from a kit without the list (0.3.0, 0.4.0): the kit\'s deps.txt and the docker group', () => {
+    const d = read('docker/Dockerfile')
+    const legacy = d.indexOf('if [ ! -f "$root/packages.sh" ]; then'), source = d.indexOf('. "$root/packages.sh"')
+    expect(legacy).toBeGreaterThan(0)
+    expect(legacy).toBeLessThan(source)
+    expect(d).not.toContain('this Dockerfile needs a kit with root/packages.json')
+    expect(d).toContain('"$root/../deps.txt"')
+    // the three packages it names are the docker group's; each is one the image installs from the list today
+    const imageNames = groupsFor(LIST, ['minimal', 'docker']).flatMap((g) => Object.keys(LIST.groups[g]!.packages ?? {}))
+    for (const n of ['procps', 'passwd', 'python3']) expect(imageNames).toContain(n)
+    for (const n of Object.keys(LIST.groups.docker!.packages ?? {})) expect(['procps', 'passwd', 'python3']).toContain(n)
+    // the fallback reads deps.txt lines ("package" or "package>=version", comments) into bare names
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deps-')), f = path.join(dir, 'deps.txt')
+    fs.writeFileSync(f, '# floors\nbubblewrap>=0.8.0\n\nffmpeg>=7:5.1  # media\n  curl\n')
+    const sedLine = d.match(/deps=\$\((sed [^\n]*?) "\$root\/\.\.\/deps\.txt" \| grep -v '\^\$'\)/)
+    expect(sedLine).not.toBeNull()
+    const r = Bun.spawnSync(['bash', '-c', `${sedLine![1]} "$1" | grep -v '^$'`, 'x', f])
+    fs.rmSync(dir, { recursive: true, force: true })
+    expect(r.stdout.toString().split('\n').filter(Boolean)).toEqual(['bubblewrap', 'ffmpeg', 'curl'])
   })
 
   test('a test container that pins node pins the list\'s', () => {

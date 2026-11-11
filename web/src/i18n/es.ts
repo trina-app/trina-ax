@@ -2071,6 +2071,7 @@ export const es: Record<MessageKey, string> = {
   'budgets.block': "Bloquear",
   'budgets.tokensUsed': "Tokens {used} / {limit}",
   'teamSettings.nameOwnerOnly': "Solo el propietario puede cambiar el nombre del equipo.",
+  'teamSettings.ownerOnlyField': "Solo el propietario del equipo puede cambiar esto.",
   'teamSettings.defaultLocale': "Idioma predeterminado del equipo",
   'teamSettings.defaultLocaleHint': "Quienes no hayan elegido su propio idioma verán este.",
   'teamSettings.browserAllowAll': "Los miembros pueden activar \"Permitir todos los sitios web\"",

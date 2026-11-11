@@ -14,6 +14,7 @@ import { silentLogger } from '../../server/src/log'
 import { fileUrl, OFFICE_PRODUCT, publicKeyOf, signRelease, type OfficeRelease } from '../../server/src/office/release'
 import { readIndex, type StatfsLike } from '../../server/src/office/update'
 import { serveDownload } from '../../server/src/routes/downloads'
+import { verifyInstaller } from '../../desktop/src/common/update-verify'
 import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
 import {
@@ -149,7 +150,14 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     expect(fs.statSync(path.join(s.downloads, p.name)).mode & 0o777).toBe(0o600)
     // nothing left behind: the download folder, the lock, temporary names in the served folder
     expect(fs.readdirSync(path.join(s.data, 'updates'))).toEqual([])
-    expect(fs.readdirSync(s.downloads).sort()).toEqual(['index.json', 'latest.yml', p.name].sort())
+    expect(fs.readdirSync(s.downloads).sort()).toEqual(['index.json', 'latest.yml', 'stable.json', p.name].sort())
+    // the signed release that names the installer sits next to it (the Windows app checks it before installing)
+    const signed = p.files.get(`${FEED}/office/stable.json`) as string
+    expect(fs.readFileSync(path.join(s.downloads, 'stable.json'), 'utf8')).toBe(signed)
+    const m = serveDownload(new Request('http://x/downloads/stable.json'), '/stable.json', s.downloads)
+    expect(m.status).toBe(200)
+    expect(m.headers.get('content-type')).toContain('json')
+    expect(verifyInstaller({ manifest: await m.text(), installerSha256: sha(fs.readFileSync(path.join(s.downloads, p.name))), channel: 'stable', version: '0.3.0', current: '0.2.0', keys: KEYS, product: OFFICE_PRODUCT })).toMatchObject({ ok: true })
     expect(readWindowsState(s.data).last).toMatchObject({ kind: 'offered', version: '0.3.0' })
     // what a Windows app already in the field asks for (electron-updater, generic provider = <team>/downloads/)
     const y = serveDownload(new Request('http://x/downloads/latest.yml'), '/latest.yml', s.downloads)
@@ -162,6 +170,12 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     seen.length = 0
     expect((await refreshWindowsApp(opts(s, p.files, {}, seen))).kind).toBe('current')
     expect(seen).toEqual([`${FEED}/office/stable.json`])
+    // a folder filled before this change (no manifest yet) gets it on the next run, without a download
+    fs.rmSync(path.join(s.downloads, 'stable.json'))
+    seen.length = 0
+    expect((await refreshWindowsApp(opts(s, p.files, {}, seen))).kind).toBe('current')
+    expect(seen).toEqual([`${FEED}/office/stable.json`])
+    expect(fs.readFileSync(path.join(s.downloads, 'stable.json'), 'utf8')).toBe(signed)
     // a wrong latest.yml (changed by hand) is put right
     fs.writeFileSync(path.join(s.downloads, 'latest.yml'), 'version: 9.9.9\n')
     expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('offered')
@@ -195,6 +209,8 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     expect(await refreshWindowsApp(opts(s, files, { version: '0.3.0' }))).toMatchObject({ kind: 'offered', version: '0.3.0' })
     expect(readIndex(s.downloads).map((i) => `${i.version} ${i.sha256}`)).toEqual([`0.3.0 ${sha(own.exe!)}`])
     expect(fs.readFileSync(path.join(s.downloads, 'latest.yml'), 'utf8')).toBe(own.yml!)
+    // the manifest next to it is that release's own (it names this installer), not the channel's head
+    expect(fs.readFileSync(path.join(s.downloads, 'stable.json'), 'utf8')).toBe(own.files.get(`${FEED}/office/stable.json`) as string)
     // that manifest must be that version: another release's text in its place is refused, nothing changes
     const s2 = server('own-version-wrong')
     const wrong = new Map(files)

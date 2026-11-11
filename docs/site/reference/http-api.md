@@ -239,7 +239,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/admin/budgets/:id` | Admin | Change a budget. |
 | `DELETE` | `/api/admin/budgets/:id` | Admin | Delete a budget. |
 | `GET` | `/api/admin/settings` | Admin | Team settings. |
-| `PATCH` | `/api/admin/settings` | Admin | Change team settings (team name change also renames the relay address: owner only). |
+| `PATCH` | `/api/admin/settings` | Admin | Change team settings. Owner only: the team name (also renames the relay address), the retention periods and the update channel (OWNER_ONLY_SETTINGS). |
 | `PUT` | `/api/admin/team-icon` | Admin | Set the team logo (shown in the sidebar header; tab and app icons stay the product's): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited. |
 | `DELETE` | `/api/admin/team-icon` | Admin | Remove the team logo: the sidebar shows the product's mark again; audited. |
 | `GET` | `/api/admin/speech-host` | Admin | How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here. |

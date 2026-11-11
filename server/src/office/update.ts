@@ -442,10 +442,17 @@ export async function fetchManifest(feed: string, channel: Channel, d: Pick<Upda
   if (!res.ok) throw new UpdateFailure(`${url}: HTTP ${res.status}`)
   const buf = new Uint8Array(await res.arrayBuffer())
   if (buf.byteLength > MANIFEST_MAX) throw new UpdateFailure(`${url} is larger than a manifest`)
-  const r = verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel, feed })
+  const text = Buffer.from(buf).toString('utf8')
+  const r = verifyRelease(text, { keys, channel, feed })
   if (version !== undefined && r.version !== version) throw new ReleaseError(`${url} is the manifest of ${r.version}, not ${version}`)
+  SIGNED.set(r, { channel, text })
   return r
 }
+
+const SIGNED = new WeakMap<OfficeRelease, SignedText>()
+/** the signed manifest a release came from (fetchManifest): offerWindows puts it next to the installer */
+export interface SignedText { channel: Channel; text: string }
+export const signedTextOf = (r: OfficeRelease): SignedText | undefined => SIGNED.get(r)
 
 /** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. `o.sha512` gets the
  * file's SHA-512 (base64, electron-updater's latest.yml), computed on the way too. */
@@ -588,7 +595,7 @@ export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<Upd
   const w = r.windows
   if (!w) return null
   let res: Awaited<ReturnType<typeof offerWindows>>
-  try { res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, o) }
+  try { res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, { ...o, signed: signedTextOf(r) }) }
   finally {
     // update/download/ itself when nothing else waits there (O9: an empty folder was left after every update; a failed
     // download too). rmdir removes only an empty folder: a deferred release's zip stays
@@ -625,6 +632,26 @@ export function windowsOffered(dir: string, w: WindowsRelease, items = readIndex
   } catch { return false }
 }
 
+/** The signed manifest that names the offered installer, as <dir>/<channel>.json (routes/downloads.ts serves it): the
+ * Windows app installs an update only when that signed release names the installer it downloaded
+ * (desktop/src/common/update-verify.ts). The other channel's file goes (a server offers one channel). Written before
+ * latest.yml names a new installer, so a desk never sees an installer without its manifest. */
+export function placeSignedManifest(dir: string, s: SignedText | undefined) {
+  if (!s) return
+  ensureDir(dir)
+  const f = path.join(dir, `${s.channel}.json`)
+  let same = false
+  try { same = fs.readFileSync(f, 'utf8') === s.text } catch {}
+  if (!same) {
+    const t = path.join(dir, `.${s.channel}.json.tmp-${process.pid}`)
+    try {
+      fs.writeFileSync(t, s.text, { mode: 0o600 })
+      fs.renameSync(t, f)
+    } finally { fs.rmSync(t, { force: true }) }
+  }
+  for (const c of CHANNELS) if (c !== s.channel) fs.rmSync(path.join(dir, `${c}.json`), { force: true })
+}
+
 /** Room for `bytes` more next to `p`: what is left keeps the reserve below which the team folder refuses writes
  * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space. */
 export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => fs.statfsSync(x)): { ok: boolean; freeBytes: number; needBytes: number } {
@@ -643,9 +670,13 @@ export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => fs
  * every older Windows installer in the folder (moved in, not copied: the folder needs room for one copy), and latest.yml
  * comes last, so it never names a file that is not there. `tmp` is removed afterwards, whatever happened.
  */
-export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<WindowsOffer> {
+export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike; signed?: SignedText } = {}): Promise<WindowsOffer> {
   const items = readIndex(dir)
-  if (windowsOffered(dir, w, items)) return { kind: 'current', version: w.version }
+  if (windowsOffered(dir, w, items)) {
+    // a folder filled before the desks checked the signed release gets its manifest too
+    placeSignedManifest(dir, o.signed)
+    return { kind: 'current', version: w.version }
+  }
   const newer = items.find((i) => i.platform === 'windows' && compareVersions(i.version, w.version) > 0)
   if (newer) return { kind: 'newer', version: newer.version }
   // the installer is already listed and in place (its SHA-256 recorded when it was added), only latest.yml is not the
@@ -661,6 +692,7 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
       const text = fs.readFileSync(yml, 'utf8')
       const val = (k: string) => ymlValue(text, k)
       if (val('version') !== w.version || val('path') !== w.installer.file) throw new UpdateFailure(`latest.yml names ${val('path')} ${val('version')}, not ${w.installer.file} ${w.version}`)
+      placeSignedManifest(dir, o.signed)
       const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
       try {
         fs.copyFileSync(yml, t)
@@ -691,6 +723,7 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
       fs.chmodSync(t, 0o600)
       const added = addInstaller(dir, exe, { version: w.version, move: true, sha256: w.installer.sha256 })
       if (added.item.sha256 !== w.installer.sha256 || added.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
+      placeSignedManifest(dir, o.signed)
       fs.renameSync(t, path.join(dir, 'latest.yml'))
     } finally { fs.rmSync(t, { force: true }) }
   } catch (e) {
