@@ -7,7 +7,8 @@
 // The contract with the rest of the app (the phone's navigation, lib/screens.ts, leaves these entries alone):
 // - An overlay's entry is at the same address as the page under it, with the page's state copied (React Router's idx,
 //   key and usr) plus `mycelOverlay` (the overlay's number) and `mycelOverlayDepth` (1 right over the page, 2 over that,
-//   …). `isOverlayEntry` tells them apart. It is no page: don't count it, rewrite it or go to it.
+//   …). `isOverlayEntry` tells them apart. It is no page: don't count it, rewrite it or go to it. The page's own entry
+//   gets `mycelPage` (a token its overlays' entries share); keep it when rewriting that entry's state.
 // - Back (any popstate that lands under an overlay's entry) closes every overlay above where it landed, the top one
 //   first: nested ones unwind one per Back.
 // - Closed any other way (✕, the scrim, Esc, a choice), its entry is backed off once the moment's effects have run (a
@@ -27,6 +28,9 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 export const OVERLAY = 'mycelOverlay'
 /** The history-state field of an overlay's entry: how many overlays deep it is over its page (1: right over it). */
 export const OVERLAY_DEPTH = 'mycelOverlayDepth'
+/** The history-state field of a page's entry that had an overlay over it, and of the overlays' entries over it: the
+ * same token for all of them (a replace made while an overlay was open reaches the page's entry by it). */
+export const OVERLAY_PAGE = 'mycelPage'
 
 type State = Record<string, unknown> | null
 type Pos = readonly [idx: number, depth: number]
@@ -54,7 +58,7 @@ let seq = Math.floor(Math.random() * 2 ** 30)
 let held: Held[] = []
 /** entries a page was pushed on top of while their overlay was open under the top one: Forward goes on over them */
 const leftBehind = new Set<number>()
-/** a router key of a page's entry → the address and state a replace gave it while an overlay was open over it */
+/** a page's token (OVERLAY_PAGE) → the address and router state a replace gave it while an overlay was open over it */
 const fixes = new Map<string, { state: State; url: string }>()
 /** where the history is, as last seen: where the next popstate came from */
 let here: Pos = [-1, 0]
@@ -139,36 +143,35 @@ function routerReplace(n: Native, s: State, url?: string | URL | null) {
   }
   // while an overlay is open (a filter in its sheet, a dialog's own choice): on its entry, and the page's entry under
   // it gets it too once the history is back there (fixUp)
-  const old = typeof cur?.key === 'string' ? cur.key : null
-  n.replace({ ...(s ?? {}), [OVERLAY]: top.id, [OVERLAY_DEPTH]: top.depth }, url)
-  if (old && old !== s?.key) fixes.set(old, { state: s, url: window.location.href })
+  const page = cur?.[OVERLAY_PAGE]
+  n.replace({ ...(s ?? {}), [OVERLAY]: top.id, [OVERLAY_DEPTH]: top.depth, [OVERLAY_PAGE]: page }, url)
+  if (typeof page === 'string') fixes.set(page, { state: s, url: window.location.href })
 }
 
 /** The entry landed on is a page (or an overlay's) whose address a replace changed while an overlay was over it: that
  * address, before the router reads it. */
 function fixUp() {
   const s = state()
-  const start = typeof s?.key === 'string' ? s.key : null
-  let k = start
-  let f: { state: State; url: string } | undefined
-  for (let n = 0; k && fixes.has(k) && n < 50; n++) {
-    f = fixes.get(k)!
-    k = typeof f.state?.key === 'string' ? f.state.key : null
-    if (k === start) break
-  }
+  const page = s?.[OVERLAY_PAGE]
+  const f = typeof page === 'string' ? fixes.get(page) : undefined
   if (!f || (window.location.href === f.url && s?.key === f.state?.key)) return
   const keep = isOverlayEntry(s) ? { [OVERLAY]: s![OVERLAY], [OVERLAY_DEPTH]: s![OVERLAY_DEPTH] } : {}
-  native().replace({ ...(f.state ?? {}), ...keep }, f.url)
+  native().replace({ ...(f.state ?? {}), [OVERLAY_PAGE]: page, ...keep }, f.url)
 }
 
 // ---- open, close, Back ----
 
 function pushEntry(h: Held) {
-  const s = state()
+  let s = state()
   h.idx = idxOf(s)
   h.depth = depthOf(s) + 1
   try {
-    native().push({ ...(s ?? {}), [OVERLAY]: h.id, [OVERLAY_DEPTH]: h.depth })
+    // the page's entry gets its token first (the router's own state may have no key: the first entry's)
+    if (typeof s?.[OVERLAY_PAGE] !== 'string') {
+      s = { ...(s ?? {}), [OVERLAY_PAGE]: `p${++seq}` }
+      native().replace(s)
+    }
+    native().push({ ...s, [OVERLAY]: h.id, [OVERLAY_DEPTH]: h.depth })
     h.entry = 'on'
   } catch {
     // a history the page may not change (a sandbox): the overlay still opens, Back just leaves the page as before

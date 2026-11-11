@@ -197,6 +197,18 @@ test('closed with ✕ right after a change of address (the new-chat picker dropp
   expect(entries[0]).toMatchObject({ url: '/rooms', state: { key: 'k2' } })
 })
 
+test("the first entry (the router's state there has no key): a replace while an overlay is open still reaches it", async () => {
+  start('/rooms/r1')
+  entries[0] = { state: { idx: 0 }, url: '/rooms/r1' }
+  const release = holdOverlayEntry(() => {})
+  // the side chat's 보기: the room at the message, in place
+  globalThis.history.replaceState({ idx: 0, key: 'k2', usr: null }, '', '/rooms/r1?m=5')
+  release()
+  await tick()
+  expect(at).toBe(0)
+  expect(entries[0]).toMatchObject({ url: '/rooms/r1?m=5', state: { key: 'k2', idx: 0 } })
+})
+
 test('a replace, then a page opened from the overlay: Back from that page lands on the page with the replaced address', () => {
   start('/rooms?new=1')
   holdOverlayEntry(() => {})
