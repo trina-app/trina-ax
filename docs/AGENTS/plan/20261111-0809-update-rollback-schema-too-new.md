@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11
 - Branch: `fix/update-rollback-schema-too-new`
-- Status: in progress
+- Status: done
 - Where: `native/cmd/mycel-bootstrap` (Go), `native/cmd/mycel-ctl/status.go`, `shared/src/install.ts`. Why: the
   bootstrap is the only process that runs when no server version starts (macOS LaunchDaemon and Linux systemd unit both
   run it)
