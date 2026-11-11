@@ -145,12 +145,14 @@ export function FileContentResults({ q, path, folderLabel }: { q: string; path: 
 /** The files and folders whose name holds the words, newest first (folders first). Nothing is shown before the answer
  * or when no name matches: the line matches below say "nothing found". A file opens in the side panel; a folder opens
  * in the list (`onFolder`). */
-export function FileNameList({ items, truncated, query, onFolder }: { items: FileEntry[]; truncated: boolean; query: string; onFolder: (path: string) => void }) {
+export function FileNameList({ items, truncated, query, onFolder, stale = false }: { items: FileEntry[]; truncated: boolean; query: string; onFolder: (path: string) => void; stale?: boolean }) {
   const t = useT()
   const folderWords = useFolderWords()
   if (!items.length) return null
+  // stale: the answer of the previous words while the new one is on its way; dimmed, labelled with its own words, and
+  // not clickable (a click would open a file the new words did not find)
   return (
-    <section className="mb-3" data-testid="name-search">
+    <section className={'mb-3' + (stale ? ' opacity-60' : '')} data-testid="name-search" data-stale={stale || undefined} aria-busy={stale || undefined} inert={stale || undefined}>
       <p className="px-2 pb-2 text-xs text-faint">{t('files.search.names', { q: query })}</p>
       <ul className="divide-y divide-line rounded-lg border border-line" aria-label={t('files.search.names', { q: query })}>
         {items.map((f) => {
@@ -161,6 +163,7 @@ export function FileNameList({ items, truncated, query, onFolder }: { items: Fil
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover"
+                disabled={stale}
                 onClick={() => (f.type === 'folder' ? onFolder(f.path) : openTeamFile(f.path))}
                 data-testid="name-hit"
               >
@@ -182,7 +185,8 @@ export function FileNameList({ items, truncated, query, onFolder }: { items: Fil
 export function FileNameResults({ q, path, onFolder }: { q: string; path: string; onFolder: (path: string) => void }) {
   const t = useT()
   const locale = useLocale()
-  const [res, setRes] = useState<{ items: FileEntry[]; truncated: boolean } | null>(null)
+  // the words and folder an answer is for: the last answer stays while the next one is on its way
+  const [res, setRes] = useState<{ items: FileEntry[]; truncated: boolean; q: string; path: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   const query = q.trim()
@@ -194,7 +198,7 @@ export function FileNameResults({ q, path, onFolder }: { q: string; path: string
     setError(null)
     const timer = setTimeout(() => {
       api.call(API.findFiles, { query: { q: query, path, limit: NAME_LIMIT, folders: '1' }, signal: ctrl.signal }).then(
-        (r) => live && setRes(r),
+        (r) => live && setRes({ items: r.items, truncated: r.truncated, q: query, path }),
         (e) => live && !ctrl.signal.aborted && setError(errorText(e, locale, t('error.network'))),
       )
     }, CONTENT_SEARCH_DEBOUNCE_MS)
@@ -208,5 +212,6 @@ export function FileNameResults({ q, path, onFolder }: { q: string; path: string
 
   if (error) return <div className="px-2 pt-2"><ErrorNote onRetry={() => setTick((n) => n + 1)}>{error}</ErrorNote></div>
   if (!res) return null
-  return <div className="px-2 pt-2"><FileNameList items={res.items} truncated={res.truncated} query={query} onFolder={onFolder} /></div>
+  const stale = res.q !== query || res.path !== path
+  return <div className="px-2 pt-2"><FileNameList items={res.items} truncated={res.truncated} query={res.q} onFolder={onFolder} stale={stale} /></div>
 }

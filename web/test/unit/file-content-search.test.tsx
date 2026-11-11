@@ -6,7 +6,8 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { FileContentHits, FileEntry, Locale } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { FileContentList, FileNameList } from '../../src/components/FileContentSearch'
+import { useState } from 'react'
+import { FileContentList, FileNameList, FileNameResults } from '../../src/components/FileContentSearch'
 import { closeSidePanel, getSidePanel } from '../../src/lib/sidePanel'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -115,6 +116,52 @@ describe('names first', () => {
       expect(getSidePanel()).toBeNull()
       await f.unmount()
     } finally {
+      closeSidePanel()
+      removeDom()
+    }
+  })
+
+  test('while the answer for new words is on its way, the last names are dimmed, labelled with their own words and not clickable (rev12)', async () => {
+    setLocale('en')
+    installDom()
+    closeSidePanel()
+    const realFetch = globalThis.fetch
+    const asked: string[] = []
+    let release: (() => void) | null = null
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const q = new URL(String(input), 'http://x').searchParams.get('q') ?? ''
+      asked.push(q)
+      // the second search ("견적") waits until the test lets it go
+      if (q === '견적') await new Promise<void>((r) => { release = r })
+      const items = q === '로고' ? [entry('shared/brand/로고.png')] : [entry('shared/견적서.pdf')]
+      return new Response(JSON.stringify({ items, truncated: false }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    function Box() {
+      const [q, setQ] = useState('로고')
+      return (<><input data-testid="q" value={q} onChange={(e) => setQ(e.target.value)} /><FileNameResults q={q} path="" onFolder={() => {}} /></>)
+    }
+    try {
+      const m = await mount(<Box />)
+      await m.until(() => m.find('name-hit'), 'the 로고 names')
+      expect(m.get('name-search').getAttribute('data-stale')).toBeNull()
+      await m.type('q', '견적')
+      await m.until(() => asked.includes('견적'), 'the 견적 search')
+      const old = m.get('name-search')
+      expect(old.getAttribute('data-stale')).toBe('true')
+      expect(old.getAttribute('class')).toContain('opacity-60')
+      // the heading still names the words that found these names, not the new ones
+      expect(m.html()).toContain(esc(translate('en', 'files.search.names', { q: '로고' })))
+      expect(m.html()).not.toContain(esc(translate('en', 'files.search.names', { q: '견적' })))
+      await m.click('name-hit')
+      expect(getSidePanel()).toBeNull()
+      release!()
+      await m.until(() => m.find('name-search')?.getAttribute('data-stale') === null && m.html().includes('견적서.pdf'), 'the 견적 names')
+      expect(m.html()).toContain(esc(translate('en', 'files.search.names', { q: '견적' })))
+      await m.click('name-hit')
+      expect(getSidePanel()).toMatchObject({ kind: 'file', file: { source: 'team', path: 'shared/견적서.pdf' } })
+      await m.unmount()
+    } finally {
+      globalThis.fetch = realFetch
       closeSidePanel()
       removeDom()
     }

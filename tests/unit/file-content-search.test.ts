@@ -362,6 +362,9 @@ describe('names first (TC-260)', () => {
       { path: 'shared/tc260-html/견적 안내.html', name: '견적 안내.html', line: 3, snippet: '<b> 태그가 아닌 글 qahtml-7731' },
     ])
     expect(JSON.stringify(r)).not.toContain('doctype')
+    // the <title> line is found by its text (rev12)
+    const t = await search('alice', '견적', '&path=shared%2Ftc260-html')
+    expect(t.items.map((i) => [i.line, i.snippet])).toEqual([[1, '견적'], [2, '견적 & 일정 QAHTML-7731 납품은 3주 뒤 자세히']])
   })
 })
 
@@ -378,13 +381,49 @@ describe('htmlLineText', () => {
     // an unfinished tag (the line goes on below): the text before it is the line
     expect(htmlLineText('회사 로고 <img src="a.png"', '로고')).toBe('회사 로고')
   })
+
+  test('text a page hides or keeps out of its body is still a line; only markup, comments, scripts and styles are not (rev12)', () => {
+    expect(htmlLineText('<title>견적 안내 로고</title>', '로고')).toBe('견적 안내 로고')
+    expect(htmlLineText('<span aria-hidden="true">로고</span>', '로고')).toBe('로고')
+    expect(htmlLineText('<p class="note hidden">로고</p>', '로고')).toBe('로고')
+    expect(htmlLineText('<div hidden>로고</div>', '로고')).toBe('로고')
+    expect(htmlLineText('<p style="display:none">로고</p>', '로고')).toBe('로고')
+    expect(htmlLineText('<textarea>로고</textarea>', '로고')).toBe('로고')
+    expect(htmlLineText('<noscript>로고</noscript>', '로고')).toBe('로고')
+    expect(htmlLineText('<svg><text>로고</text></svg>', '로고')).toBe('로고')
+    expect(htmlLineText('<select><option>로고</option></select>', '로고')).toBe('로고')
+    // an unquoted value with a quote in it does not start a quoted value
+    expect(htmlLineText("<img alt=it's>로고", '로고')).toBe('로고')
+    expect(htmlLineText('<!doctype html><html><head><title>견적</title><style>.a { color: red }</style></head>', '견적')).toBe('견적')
+    // still only markup: an attribute, a tag name, a comment, a script, a style, an unfinished tag
+    expect(htmlLineText('<img alt=\'로고\' src=x>', '로고')).toBeNull()
+    expect(htmlLineText('<div class="logo">회사</div>', 'logo')).toBeNull()
+    expect(htmlLineText('<p>회사</p><!-- 로고 -->', '로고')).toBeNull()
+    expect(htmlLineText('<p>회사</p><script>var 로고 = 1</script>', '로고')).toBeNull()
+    expect(htmlLineText('<style>.로고 { color: red }</style><p>회사</p>', '로고')).toBeNull()
+    expect(htmlLineText('<script>var a = "</scripts>"; var 로고 = 1</script><title>회사</title>', '로고')).toBeNull()
+    expect(htmlLineText('<span hidden data-x="로고">회사</span>', '로고')).toBeNull()
+    expect(htmlLineText('<p>회사</p><img alt="로고', '로고')).toBeNull()
+  })
+
+  test('a query with runs of white space matches the line as its text (one space)', () => {
+    expect(htmlLineText('<p>a  b</p>', 'a  b')).toBe('a b')
+    expect(htmlLineText('<title>a \t b</title>', 'a  b')).toBe('a b')
+  })
 })
 
 test('a 64K line of brackets or tags is turned into text in linear time', () => {
-  for (const line of ['['.repeat(64 * 1024) + '로고', '<b>['.repeat(16 * 1024) + '로고', '<a href="https://e.com/">'.repeat(2600) + '로고']) {
+  // [line, its text holds the query]: an unfinished tag or script ends the line's text
+  const lines: [string, boolean][] = [['['.repeat(64 * 1024) + '로고', true], ['<b>['.repeat(16 * 1024) + '로고', true],
+    ['<a href="https://e.com/">'.repeat(2600) + '로고', true], ['<a x=1 '.repeat(9000) + '>로고', true], ['<p hidden>'.repeat(6000) + '로고', true],
+    ['<title>'.repeat(9000) + '로고', true], ['<a "'.repeat(16 * 1024) + '로고', false], ['<script>'.repeat(8 * 1024) + '로고', false],
+    ['<a b=\''.repeat(9000) + '로고', false], ['</script   '.repeat(5000) + '로고', false]]
+  for (const [line, found] of lines) {
     const t0 = performance.now()
-    expect(htmlLineText(line, '로고')).toContain('로고')
-    expect(performance.now() - t0).toBeLessThan(200)
+    const got = htmlLineText(line, '로고')
+    expect(performance.now() - t0, line.slice(0, 12)).toBeLessThan(200)
+    if (found) expect(got).toContain('로고')
+    else expect(got).toBeNull()
   }
 })
 
