@@ -4,9 +4,9 @@
 // the name is a 44px button.
 import clsx from 'clsx'
 import { ChevronDown } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { MenuButton } from './rooms/MenuButton'
 import { useMediaQuery } from './ui'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 export interface TitleMenuItem {
   label: string
@@ -18,12 +18,12 @@ export interface TitleMenuItem {
 
 /** heading: the name is the page's heading (the chat screen), with this test id; the menu itself stays outside it */
 export function TitleMenu({ name, items, testId, heading }: { name: string; items: TitleMenuItem[]; testId: string; heading?: string }) {
-  const box = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
   const phone = useMediaQuery('(max-width: 767.98px)')
   // a phone's sheet: opened as a click would, the keyboard back on the name when it closes
   const [sheet, setSheet] = useState(0)
   const nameButton = useRef<HTMLButtonElement>(null)
+  const box = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
   useEffect(() => {
     if (!open) return
