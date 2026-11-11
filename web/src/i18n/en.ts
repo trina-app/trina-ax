@@ -4541,6 +4541,7 @@ export const en: Record<MessageKey, string> = {
   "gapps.disconnected": "{name} is disconnected.",
   "gapps.disconnectedNoRevoke": "{name} is disconnected here. To be sure, you can also remove access in your Google account.",
   "gapps.needsReconnect": "Google asked you to sign in again. Until you do, the AI can't use your {name}.",
+  "gapps.scopeDenied": "Some permissions were not ticked. Connect again and keep every box ticked.",
   "gapps.serviceDown": "{name} can't be reached right now. It comes back by itself; your connection is fine.",
   "gapps.setUpLink": "Set up {name}",
   "gapps.settingsTitle": "{name} settings",

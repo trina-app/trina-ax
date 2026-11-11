@@ -14,7 +14,7 @@ import { WORK } from '../lib/env'
 import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow, ALL_SCOPES } from '../lib/fake-google-apps'
 import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
 import { FakeDriveBroker } from '../lib/fake-drive-broker'
-import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
+import { googleAppsOf, scopesCover, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { appsSecretsDir } from '../../server/src/integrations/google-apps/config'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { membersCanConnect } from '../../server/src/integrations/google-drive/shares'
@@ -151,6 +151,28 @@ test('a sign-in without every scope the app needs is refused', async () => {
   await expect(apps.complete('alice', 'alice-session', 'gmail', f.flowId)).rejects.toThrow()
 })
 
+test('a broader scope Google granted in place of a narrower one counts; short identity names count', async () => {
+  const G = 'https://www.googleapis.com/auth/'
+  // the pure check: the small explicit table only
+  expect(scopesCover([`${G}calendar`, 'email', 'profile'], [`${G}userinfo.email`, `${G}userinfo.profile`, `${G}calendar`, `${G}calendar.readonly`, `${G}calendar.events`])).toBe(true)
+  expect(scopesCover([`${G}documents`, `${G}drive`], [`${G}documents.readonly`, `${G}drive.readonly`, `${G}drive.file`])).toBe(true)
+  expect(scopesCover([`${G}spreadsheets`, `${G}gmail.modify`], [`${G}spreadsheets.readonly`, `${G}gmail.readonly`])).toBe(true)
+  expect(scopesCover([`${G}calendar.readonly`], [`${G}calendar`])).toBe(false)
+  expect(scopesCover([`${G}drive.readonly`], [`${G}drive.file`])).toBe(false)
+  expect(scopesCover([`${G}gmail.readonly`], [`${G}gmail.send`])).toBe(false)
+  // a sign-in where Google folded calendar.readonly and calendar.events into calendar, with short identity names
+  await setUp('calendar')
+  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('calendar.readonly') && !s.endsWith('calendar.events'))
+    .map((s) => s.replace(`${G}userinfo.email`, 'email').replace(`${G}userinfo.profile`, 'profile')).join(' ')
+  const { view } = await connect('alice', 'calendar')
+  expect(view.status).toBe('connected')
+  // a box really unticked (calendar itself): refused with the reason the page words
+  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('/calendar')).join(' ')
+  const f = await apps.authorize('bob', 'bob-session', 'calendar')
+  expect(await apps.callback(google.authorize(f.authorizationUrl, 'bob'), browser('bob'))).toBe(false)
+  expect(apps.flow('bob', 'bob-session', 'calendar', f.flowId)).toMatchObject({ state: 'failed', reason: 'scope_denied' })
+})
+
 test('the team switch: on by default; off stops sign-ins and the AI\'s tools; Always allow from the page', async () => {
   await setUp('gmail')
   await connect('alice')
@@ -193,6 +215,23 @@ test('disconnect: the tokens go at once; Google is asked to revoke only for the 
   await connect('alice', 'gmail')
   A.ctx.db.query("INSERT INTO drive_connections(id,user_id,config_key,account,scopes,secret_enc,key_version,status,expires_at,created_at,updated_at) VALUES('d2','alice','k','{}','[]','x',1,'connected',?,?,?)").run(now, now, now)
   expect((await googleDriveOf(A.ctx, { config: DRIVE_CONFIG, fetch: new FakeGoogleDrive().fetch }).disconnect('alice')).revocation).toBe('not_needed')
+})
+
+test('disconnect does not revoke a grant that backs a live team Drive share of the person', async () => {
+  await setUp('gmail')
+  await connect('alice', 'gmail')
+  const now = new Date().toISOString()
+  A.ctx.db.query("INSERT INTO drive_team_shares (id, name, owner_user_id, config_key, account, scopes, secret_enc, key_version, folders, status, version, expires_at, created_at, updated_at) VALUES ('share-1', 'Sales', 'alice', 'k', '{}', 'drive.readonly', 'sealed', 1, '[]', 'connected', 1, '2099-01-01', ?, ?)").run(now, now)
+  expect((await apps.disconnect('alice', 'gmail')).revocation).toBe('not_needed')
+  expect(google.revoked).toEqual([])
+  // someone else's share does not count; a share that stopped (tokens gone) neither
+  A.ctx.db.query("UPDATE drive_team_shares SET owner_user_id='carol' WHERE id='share-1'").run()
+  await connect('alice', 'gmail')
+  expect((await apps.disconnect('alice', 'gmail')).revocation).toBe('revoked')
+  A.ctx.db.query("UPDATE drive_team_shares SET owner_user_id='alice', secret_enc=NULL, status='needs_reconnect' WHERE id='share-1'").run()
+  await connect('alice', 'gmail')
+  expect((await apps.disconnect('alice', 'gmail')).revocation).toBe('revoked')
+  expect(google.revoked).toHaveLength(2)
 })
 
 test('hosted: signs in through the hosting service with the app; an older one that refuses the app says "not available yet"', async () => {

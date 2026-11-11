@@ -4541,6 +4541,7 @@ export const id: Record<MessageKey, string> = {
   "gapps.disconnected": "{name} sudah diputuskan.",
   "gapps.disconnectedNoRevoke": "{name} sudah diputuskan di sini. Agar lebih aman, Anda juga bisa menghapus akses di akun Google Anda.",
   "gapps.needsReconnect": "Google meminta Anda masuk lagi. Sebelum itu, AI tidak bisa menggunakan {name} Anda.",
+  "gapps.scopeDenied": "Beberapa izin tidak dicentang. Hubungkan lagi dan biarkan semua kotak tetap dicentang.",
   "gapps.serviceDown": "{name} sedang tidak bisa dijangkau. Layanan akan pulih sendiri; koneksi Anda baik-baik saja.",
   "gapps.setUpLink": "Siapkan {name}",
   "gapps.settingsTitle": "Pengaturan {name}",

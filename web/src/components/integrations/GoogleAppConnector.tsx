@@ -180,7 +180,7 @@ export function GoogleAppDetail({ v, g, onChat }: { v: GoogleAppView; g: GoogleA
               {admin && v.reason === 'not_set_up' && <> <Link to={`/admin/connectors?app=${v.id}`} className="font-medium text-accent-text underline underline-offset-2" data-testid="gapp-admin-link">{t('gapps.setUpLink', { name })}</Link></>}
             </Note>
           )}
-          <SignInSteps d={d} testId="gapp" failed={t('drive.failed')} />
+          <SignInSteps d={d} testId="gapp" failed={t(d.reason === 'scope_denied' ? 'gapps.scopeDenied' : 'drive.failed')} />
         </>}
         examples={examples} onExample={onChat}
         about={t(aboutKey(v.id))}

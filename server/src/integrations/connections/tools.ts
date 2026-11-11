@@ -37,8 +37,8 @@ import { KINDS } from '../../tools/sniff'
 import { imageSize } from '../../uploads/image'
 import { normalizeForModel, visionBlock, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES } from '../../files/vision'
 import { audit } from '../../admin/audit'
-import { ATTACHMENT_NAME_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
-import { addressedAttachments, readAttachment } from '../google-apps/attachments'
+import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
+import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 
 export const MAX_RESULT_CHARS = 40_000
 /** connection tools offered as tools of their own in one answer: at most this many, with at most MAX_TURN_TOOL_CHARS of
@@ -537,8 +537,10 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // is Trina's own argument, never sent
         let fileName: string | null = null
         if (current.google_app && t.name === ATTACHMENT_TOOL && args && typeof args === 'object') {
-          const { [ATTACHMENT_NAME_ARG]: n, return_base64: _b, ...rest } = args as Record<string, unknown>
+          const { [ATTACHMENT_NAME_ARG]: n, [ATTACHMENT_SIZE_ARG]: size, return_base64: _b, ...rest } = args as Record<string, unknown>
           fileName = typeof n === 'string' ? n : null
+          // larger than one answer can carry (its base64 would come back cut off): not fetched at all
+          if (typeof size === 'number' && size > ATTACHMENT_MAX_BYTES) throw new CallError(tooLargeMessage(fileName), 'attachment too large')
           args = { ...rest, return_base64: true }
         }
         // after a room read, a tool that was a write when the turn began raised no room card: it asks even if the
@@ -557,7 +559,11 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
             current = h.use(svc.forCall(tc.userId, row.id))
           }
         }
-        const r = await svc.callTool(current, t.name, args, tc.signal)
+        const r = await svc.callTool(current, t.name, args, tc.signal).catch((e) => {
+          // an attachment whose answer was cut off at the size limit: said plainly (the connection is fine)
+          if (current!.google_app && t.name === ATTACHMENT_TOOL && e instanceof CallError && e.kind === 'too_large') throw new CallError(tooLargeMessage(fileName), 'attachment too large')
+          throw e
+        })
         // the person's access is checked again before the answer is delivered
         svc.forCall(tc.userId, row.id)
         noteAnswer(ctx, chat, current)

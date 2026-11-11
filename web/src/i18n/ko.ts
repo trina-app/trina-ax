@@ -4541,6 +4541,7 @@ export const ko = {
   "gapps.disconnected": "{name} 연결이 해제됐어요.",
   "gapps.disconnectedNoRevoke": "여기서는 {name} 연결이 해제됐어요. 더 확실하게 하려면 Google 계정에서도 접근 권한을 삭제할 수 있어요.",
   "gapps.needsReconnect": "Google에서 다시 로그인하라고 해요. 로그인하기 전에는 AI가 내 {name}을(를) 쓸 수 없어요.",
+  "gapps.scopeDenied": "일부 권한에 체크하지 않았어요. 다시 연결하고 모든 항목에 체크한 채로 두세요.",
   "gapps.serviceDown": "지금은 {name}에 접속할 수 없어요. 저절로 복구되니 연결은 문제없어요.",
   "gapps.setUpLink": "{name} 설정하기",
   "gapps.settingsTitle": "{name} 설정",

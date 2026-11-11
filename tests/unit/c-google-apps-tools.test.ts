@@ -171,6 +171,29 @@ describe('calls', () => {
     expect(odd.text).not.toContain(lib.attachment.toString('base64').slice(0, 40))
   })
 
+  test('an attachment over about 18 MB is said plainly, never a cut-off answer; the connection stays connected', async () => {
+    const p = person('no')
+    // the size the message listed: not fetched at all
+    lib.calls = []
+    const listed = await turn('alice', { person: p }).call('my_gmail__get_gmail_attachment_content', { message_id: 'm1', attachment_id: 'a1', file_name: 'film.mov', file_size: 40 * 1024 * 1024 })
+    expect(listed.isError).toBe(true)
+    expect(listed.text).toContain('"film.mov" is larger than about 18 MB, so it was not read')
+    expect(lib.calls).toEqual([])
+    const small = lib.attachment
+    try {
+      // no size given: an answer that fits but holds more than 18 MB, and one cut off at the 25 MB limit
+      for (const mb of [18.5, 20]) {
+        lib.attachment = Buffer.alloc(Math.round(mb * 1024 * 1024), 7)
+        const r = await turn('alice', { person: p }).call('my_gmail__get_gmail_attachment_content', { message_id: 'm1', attachment_id: 'a1', file_name: 'scan.pdf' })
+        expect(r.text).toContain('"scan.pdf" is larger than about 18 MB, so it was not read')
+        expect(r.text).not.toContain('too large (over 25 MB')
+        expect(r.text.length).toBeLessThan(5000)
+        expect((A.ctx.db.query('SELECT status FROM integrations WHERE id=?').get(aliceGmail) as { status: string }).status).toBe('connected')
+      }
+    } finally { lib.attachment = small }
+    expect(p.asked).toEqual([])
+  })
+
   test('a token the library refuses is refreshed once with the card\'s client, then the call goes through', async () => {
     const before = google.tokenCalls.filter((b) => b.get('grant_type') === 'refresh_token').length
     lib.tokens.clear()
@@ -192,6 +215,30 @@ describe('calls', () => {
     expect(await apps.callback(google.authorize(f.authorizationUrl, 'bob'), { userId: 'bob', sessionId: 'bob-session' })).toBe(true)
     expect(await apps.complete('bob', 'bob-session', 'gmail', f.flowId)).toMatchObject({ status: 'connected' })
     expect((A.ctx.db.query("SELECT id FROM integrations WHERE owner_user_id='bob' AND google_app='gmail'").get() as { id: string }).id).toBe(bobGmail)
+  })
+
+  test('a 401 again after a refresh that worked is for now: the app is not reachable, the connection stays connected', async () => {
+    const refreshes = () => google.tokenCalls.filter((b) => b.get('grant_type') === 'refresh_token').length
+    const before = refreshes()
+    lib.refuseAll = true
+    try {
+      const r = await turn('alice').call('my_gmail__search_gmail_messages', { query: 'x' })
+      expect(r.isError).toBe(true)
+      expect(r.text).toContain('Gmail is not reachable right now, try again in a minute')
+      expect(r.text).not.toContain('Connectors > Gmail')
+      expect(refreshes()).toBe(before + 1)
+      expect(apps.view('alice', 'gmail').status).toBe('connected')
+      expect((A.ctx.db.query('SELECT status FROM integrations WHERE id=?').get(aliceGmail) as { status: string }).status).toBe('connected')
+      // a refused refresh still asks for a new sign-in
+      google.invalidRefresh = true
+      const bad = await turn('alice').call('my_gmail__search_gmail_messages', { query: 'x' })
+      expect(bad.isError).toBe(true)
+      expect(bad.text).toContain('Connectors > Gmail')
+      expect(apps.view('alice', 'gmail').status).toBe('needs_reconnect')
+    } finally { lib.refuseAll = false; google.invalidRefresh = false }
+    const f = await apps.authorize('alice', 'alice-session', 'gmail')
+    expect(await apps.callback(google.authorize(f.authorizationUrl, 'alice'), { userId: 'alice', sessionId: 'alice-session' })).toBe(true)
+    expect(await apps.complete('alice', 'alice-session', 'gmail', f.flowId)).toMatchObject({ status: 'connected' })
   })
 })
 

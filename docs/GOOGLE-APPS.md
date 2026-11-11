@@ -42,8 +42,13 @@ Admin › Connectors has one card per app. Each needs a Google OAuth web client 
    - Docs: `documents`, `documents.readonly`, `drive.readonly`, `drive.file`
    - Sheets: `spreadsheets`, `spreadsheets.readonly`, `drive.readonly`, `drive.file`
 
-   A sign-in where the person unticks one of them is refused ("not every permission was given"), because the tools
-   that need it would fail later.
+   A sign-in where the person unticks one of them is refused (`reason: "scope_denied"`; the page says "Some
+   permissions were not ticked. Connect again and keep every box ticked."), because the tools that need it would fail
+   later. A narrower scope counts as given when Google granted its broader one instead (`calendar` for
+   `calendar.readonly` and `calendar.events`, `documents` for `documents.readonly`, `spreadsheets` for
+   `spreadsheets.readonly`, `gmail.modify` for `gmail.readonly`, `drive` for `drive.readonly` and `drive.file`), and
+   `email` / `profile` count for `userinfo.email` / `userinfo.profile` (`scopesCover` in service.ts; the hosting
+   service's broker has the same list).
 5. **Clients › Create client › Web application**, with this **Authorized redirect URI** (the card shows it):
    `https://<your team address>/api/integrations/google-apps/callback` (one address for all four apps).
 
@@ -92,7 +97,9 @@ is refused, and connections made before are kept but not used (`PUT /api/admin/g
 - Gmail attachments are read like a Drive file (PDF text, Hangul, Word, Excel, PowerPoint, pictures through the
   existing readers), never handed to the AI as base64. A copy goes into the team files only when the person asks: a
   PDF or a picture with `save_url` (kept for the chat like a connection's file), anything else from its text with the
-  file tools, into the person's own folder unless they name another one.
+  file tools, into the person's own folder unless they name another one. An attachment over about 18 MB is not read
+  (its base64 would not fit in one 25 MB answer): the AI is told so in plain words, from the size the message listed
+  (`file_size`, then not fetched at all) or from the answer itself.
 
 ## Hosted servers
 
@@ -106,7 +113,8 @@ card say "Not available yet" (`reason: "service_limited"`) for ten minutes befor
 ## Disconnecting
 
 Disconnect removes that app's sign-in in Trina at once. Trina asks Google (or the hosting service) to revoke only when
-it was the person's last Google sign-in here: these four and their Google Drive. Google revokes a whole grant, so
+it was the person's last Google sign-in here: these four, their Google Drive and a team Drive share they signed in for
+that still works (`drive_team_shares.owner_user_id`, tokens kept). Google revokes a whole grant, so
 revoking one app's token could end the others made with the same Google app; Google Drive's own Disconnect follows the
 same rule. The answer says `revoked`, `unavailable` or `not_needed`.
 
@@ -122,7 +130,10 @@ same rule. The answer says `revoked`, `unavailable` or `not_needed`.
   (`http://127.0.0.1:<port>/mcp`, exactly that), with `Authorization: Bearer <the person's access token>`, over
   `node:http` (no proxy from the environment). Nothing a person types can reach it; the generic rules for connection
   addresses (https, public addresses only) are unchanged. A refused token (401) is refreshed once and the call sent
-  again. The library down: the AI is told "Gmail is not reachable right now, try again in a minute".
+  again. The library down: the AI is told "Gmail is not reachable right now, try again in a minute". So is a 401 again
+  after a refresh that worked: the library answers 401 whenever its own userinfo check with Google fails (a timeout,
+  Google busy, its checks all in use), so it is for now and the connection stays connected; only a refresh Google
+  refuses asks the person to reconnect.
 - **The refresh** (`tokens.ts`) uses the card's client as set up now, never one stored with the tokens: a new client (or
   "same as Drive" after Drive's changed) ends the old sign-in.
 - **The tools** (`catalog.ts`): the library serves all four apps from one process; a connection keeps only its own

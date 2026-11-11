@@ -4501,6 +4501,7 @@ export const ja: Record<MessageKey, string> = {
   "gapps.disconnected": "{name} の接続を解除しました。",
   "gapps.disconnectedNoRevoke": "ここでは {name} の接続を解除しました。念のため、Googleアカウント側でもアクセスを削除できます。",
   "gapps.needsReconnect": "Googleから再ログインを求められています。ログインするまで、AIはあなたの {name} を使えません。",
+  "gapps.scopeDenied": "一部の権限にチェックが入っていませんでした。もう一度接続し、すべての項目にチェックを入れたままにしてください。",
   "gapps.serviceDown": "いま {name} に接続できません。自動的に復旧するので、接続は問題ありません。",
   "gapps.setUpLink": "{name} を設定する",
   "gapps.settingsTitle": "{name} の設定",

@@ -26,7 +26,7 @@ import { audit } from '../../admin/audit'
 import { setSetting } from '../../admin/settings'
 import { isHosted } from '../../system/deployment'
 import { GOOGLE_AUTH, GOOGLE_REVOKE, GOOGLE_TOKEN, GOOGLE_USERINFO, type DriveFetch } from '../google-drive/client'
-import { googleDriveOf } from '../google-drive/oauth'
+import { googleDriveOf, ownsLiveDriveShare } from '../google-drive/oauth'
 import { DriveError } from '../google-drive/store'
 import { integrationsOf } from '../connections/service'
 import { connectionAad, getRow, savedTools, selectRows, type Row } from '../connections/store'
@@ -58,6 +58,22 @@ const clean = (s: unknown, max: number) => (typeof s === 'string' ? s.replace(/[
 const flowAad = (f: Pick<FlowRow, 'id' | 'user_id'>) => `google-app-flow:${f.user_id}:${f.id}`
 /** the scopes Google must have granted: the app's own and the email address (the library checks the token with it) */
 const required = (app: GoogleAppId) => GOOGLE_APP_BROKER_SCOPES[app].filter((s) => s !== 'openid')
+const G = 'https://www.googleapis.com/auth/'
+/** A broader scope Google may grant in place of a narrower one we ask for (it can fold them together): the narrower
+ * counts as granted. Kept to this small explicit list; trina-cloud's broker has the same one. */
+const BROADER: Record<string, string[]> = {
+  [`${G}calendar.readonly`]: [`${G}calendar`], [`${G}calendar.events`]: [`${G}calendar`],
+  [`${G}documents.readonly`]: [`${G}documents`], [`${G}spreadsheets.readonly`]: [`${G}spreadsheets`],
+  [`${G}gmail.readonly`]: [`${G}gmail.modify`],
+  [`${G}drive.readonly`]: [`${G}drive`], [`${G}drive.file`]: [`${G}drive`],
+}
+/** Google's short names for the identity scopes */
+const SHORT: Record<string, string> = { email: `${G}userinfo.email`, profile: `${G}userinfo.profile` }
+/** Every scope of `wanted` was granted, itself or through a broader one (BROADER, SHORT). */
+export function scopesCover(granted: readonly string[], wanted: readonly string[]): boolean {
+  const have = new Set(granted.map((s) => SHORT[s] ?? s))
+  return wanted.every((w) => have.has(SHORT[w] ?? w) || (BROADER[w] ?? []).some((b) => have.has(b)))
+}
 
 export interface GoogleAppsDeps { fetch?: DriveFetch; now?: () => number }
 
@@ -236,7 +252,7 @@ export class GoogleApps {
         : await t.json(GOOGLE_TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code: input.code!, redirect_uri: setup.client!.redirectUri, code_verifier: s.verifier, client_id: setup.client!.clientId, client_secret: setup.client!.clientSecret }) }, 32_768)
       const granted = typeof json.scope === 'string' ? json.scope.split(/\s+/) : []
       // every scope the app needs: a person who unticks one on Google's page would get tools that fail
-      if (!required(f.app).every((x) => granted.includes(x))) return failed('scope_denied')
+      if (!scopesCover(granted, required(f.app))) return failed('scope_denied')
       let tokens
       try { tokens = tokensOf(json, this.now()) } catch { return failed('exchange') }
       const me = await t.json(GOOGLE_USERINFO, { headers: { Authorization: `Bearer ${tokens.accessToken}` } }, 32_768)
@@ -336,6 +352,7 @@ export class GoogleApps {
     if (!token) return { disconnected: true, revocation: 'not_needed' }
     const others = !!this.db.query('SELECT 1 FROM integrations WHERE owner_user_id=? AND google_app IS NOT NULL AND secret_enc IS NOT NULL LIMIT 1').get(user)
       || !!this.db.query('SELECT 1 FROM drive_connections WHERE user_id=? LIMIT 1').get(user)
+      || ownsLiveDriveShare(this.db, user)
     if (others) return { disconnected: true, revocation: 'not_needed' }
     return { disconnected: true, revocation: await this.revoke(secret!, token) }
   }

@@ -125,7 +125,8 @@ describe("the library child", () => {
     for (const k of Object.keys(s!.env)) if (k.startsWith('OTEL_') || k === 'WORKSPACE_MCP_TOKEN_VALIDATION_CACHE_TTL' || k === 'GOOGLE_OAUTH_CLIENT_SECRET') throw new Error(`${k} reached the library`)
     // its HOME and attachment folder: private, inside a folder of this start, which is its working folder
     for (const d of [s!.env.HOME!, s!.env.WORKSPACE_ATTACHMENT_DIR!, s!.cwd]) expect((fs.statSync(d).mode & 0o777).toString(8)).toBe('700')
-    expect(path.dirname(s!.env.HOME!)).toBe(fs.realpathSync(s!.cwd))
+    // both after realpath: a temp folder on macOS sits under /private (/var -> /private/var)
+    expect(fs.realpathSync(path.dirname(s!.env.HOME!))).toBe(fs.realpathSync(s!.cwd))
     expect(fs.readdirSync(s!.env.WORKSPACE_ATTACHMENT_DIR!)).toEqual([])
     // want(null) stops it and removes its folder
     l.want(null)
@@ -179,11 +180,12 @@ describe("the library child", () => {
     expect(l.state()).toBe('off')
   }, 30_000)
 
+  // every try starts a bun child (slow on a loaded machine): the waits are long, the pauses and limits checked stay short
   test('a start that crashes or never answers: down, tried again with a growing pause, until want(null)', async () => {
     const c = ctl('crash')
     const l = lib(c, { firstBackoffMs: 50, maxBackoffMs: 400 })
     l.want(CLIENT)
-    await until(() => c.seen().length >= 3)
+    await until(() => c.seen().length >= 3, 40_000)
     expect(l.state()).toBe('down')
     expect(l.endpoint()).toBeNull()
     expect(await l.whenReady(100)).toBe(false)
@@ -193,7 +195,7 @@ describe("the library child", () => {
     expect(pauses.slice(0, 4)).toEqual([50, 100, 200, 400].slice(0, Math.min(4, pauses.length)))
     // it comes back once it starts
     c.mode('ok')
-    expect(await l.whenReady(5_000)).toBe(true)
+    expect(await l.whenReady(20_000)).toBe(true)
     for (const s of c.seen()) pids.add(s.pid)
     l.want(null)
     expect(l.state()).toBe('off')
@@ -201,16 +203,16 @@ describe("the library child", () => {
     const slow = ctl('slow')
     const l2 = lib(slow, { readyMs: 300 })
     l2.want(CLIENT)
-    await until(() => slow.seen().length >= 2)
+    await until(() => slow.seen().length >= 2, 40_000)
     for (const s of slow.seen()) pids.add(s.pid)
     expect(l2.logs.some((x) => x.includes('no answer in'))).toBe(true)
     await l2.close()
-    for (const s of slow.seen()) await until(() => !alive(s.pid))
+    for (const s of slow.seen()) await until(() => !alive(s.pid), 20_000)
     // after close nothing starts again
     l2.want(CLIENT)
     expect(l2.state()).not.toBe('starting')
     expect(await l2.whenReady(100)).toBe(false)
-  }, 30_000)
+  }, 120_000)
 })
 
 describe('pieces', () => {

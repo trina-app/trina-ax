@@ -729,6 +729,10 @@ export class Integrations {
           const s = this.secretOf(row)
           if (s.type === 'oauth') { await this.oauthToken(row, s.tokens.accessToken); this.dropClient(row.id); continue }
         }
+        // a Google app refused again with a token Google just refreshed: the library answers 401 whenever its own check
+        // with Google fails (a timeout, Google busy), so it is for now, not a sign-in to redo (a refused refresh is a
+        // GrantError in oauthToken and asks for one)
+        if (row.google_app && refreshed && e instanceof McpError && e.code === 'unauthorized') throw new CallError(downMessage(APP_NAMES[row.google_app]), 'service down')
         throw e
       }
     }
@@ -749,7 +753,8 @@ export class Integrations {
       this.used(row)
       return r
     } catch (e) {
-      if (!signal?.aborted) this.noteFailure(row, e)
+      // a Google app's answer too large (a big Gmail attachment) says nothing about the connection
+      if (!signal?.aborted && !(row.google_app && e instanceof NetError && e.reason === 'too_large')) this.noteFailure(row, e)
       throw e instanceof CallError ? e : new CallError(callMessage(e, row), kindOf(e), e instanceof McpError && e.code === 'rpc')
     }
   }

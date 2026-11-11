@@ -124,12 +124,15 @@ const DRIVE_READ_LINE = 'For a plain "what does this file say" question, use dri
 /** the attachment tool's own argument: the file's name as the message listed it, so it is read with the right reader;
  * never sent to the library */
 export const ATTACHMENT_NAME_ARG = 'file_name'
+/** the attachment tool's other own argument: its size in bytes as the message listed it, so one too large to come back
+ * in one answer is not fetched (google-apps/attachments.ts ATTACHMENT_MAX_BYTES); never sent to the library */
+export const ATTACHMENT_SIZE_ARG = 'file_size'
 
 /**
  * The library's tools for one app: only the ones listed for it, read or change by the library's own mark
  * (readOnlyHint), the attachment tool counted as a read, Docs' and Sheets' read tools pointing plain questions to
  * drive_read. The attachment tool's schema loses `return_base64` (always on: Trina turns the bytes into text or a
- * picture, tools.ts) and gains `file_name`.
+ * picture, tools.ts) and gains `file_name` and `file_size`.
  */
 export function appTools(app: GoogleAppId, tools: readonly RemoteTool[]): RemoteTool[] {
   const listed = new Map(TOOLS[app].map((e) => [e[0], e]))
@@ -144,6 +147,7 @@ export function appTools(app: GoogleAppId, tools: readonly RemoteTool[]): Remote
       const props = { ...(schema.properties ?? {}) }
       delete props.return_base64
       props[ATTACHMENT_NAME_ARG] = { type: 'string', maxLength: 300, description: 'the attachment\'s file name as the message listed it (e.g. "invoice.pdf"), so it is read as the right kind of file' }
+      props[ATTACHMENT_SIZE_ARG] = { type: 'integer', minimum: 0, description: 'the attachment\'s size in bytes as the message listed it, when it gave one' }
       tool = { ...tool, inputSchema: { ...schema, properties: props }, description: `${t.description} The attachment is read for you as text (PDF, Hangul, Word, Excel, PowerPoint) or shown as a picture; to keep a copy in the team files when the user asks, save it with save_url into the user's own folder unless they name another one.`.slice(0, 1000) }
     }
     if (STRUCTURE_READS.has(t.name)) tool = { ...tool, description: `${DRIVE_READ_LINE} ${t.description}`.slice(0, 1000) }

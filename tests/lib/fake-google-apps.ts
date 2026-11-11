@@ -70,6 +70,8 @@ export class FakeLibrary {
   server: ReturnType<typeof Bun.serve> | null = null
   /** an attachment's bytes (get_gmail_attachment_content) */
   attachment = Buffer.from('Quarterly numbers for acme: revenue 42, costs 17.\n')
+  /** answer 401 to every token, valid or not (the library's own userinfo check with Google failed: a timeout, Google busy) */
+  refuseAll = false
   get url() { return `http://127.0.0.1:${this.server!.port}/mcp` }
   start() {
     this.server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (req) => this.handle(req) })
@@ -95,7 +97,7 @@ export class FakeLibrary {
     const auth = req.headers.get('authorization')?.replace(/^Bearer /, '') ?? ''
     const msg = await req.json() as { id?: string; method: string; params?: any }
     this.requests.push({ auth, method: msg.method })
-    if (!this.tokens.has(auth)) return new Response('unauthorized', { status: 401 })
+    if (this.refuseAll || !this.tokens.has(auth)) return new Response('unauthorized', { status: 401 })
     if (!msg.id) return new Response(null, { status: 202 })
     const reply = (result: unknown) => Response.json({ jsonrpc: '2.0', id: msg.id, result }, { headers: { 'mcp-session-id': 'fake-session' } })
     if (msg.method === 'initialize') return reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake-workspace', version: '1' } })

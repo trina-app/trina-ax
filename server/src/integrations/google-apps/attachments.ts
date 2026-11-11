@@ -19,7 +19,11 @@ const PREVIEW = /\n*Base64-encoded content \(first 100 characters shown\):\n[^\n
 const READABLE = new Set(['pdf', 'docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'hwp', 'hwpx', 'txt', 'csv', 'md', 'json', 'xml', 'html', 'htm', 'eml', 'ics', 'vcf'])
 const IMAGES = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'tiff', 'bmp'])
 const MAX_TEXT = 30_000
-const MAX_BYTES = 25 * 1024 * 1024
+/** the largest attachment one answer can carry: its base64 (4/3 of it) and the rest of the answer must fit in
+ * MCP_CALL_MAX_BYTES (25 MB), or the answer comes back cut off */
+export const ATTACHMENT_MAX_BYTES = 18 * 1024 * 1024
+/** what the AI is told about an attachment too large to read */
+export const tooLargeMessage = (name: string | null) => `The attachment${name ? ` "${name.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200)}"` : ''} is larger than about 18 MB, so it was not read. Tell the user to open it in Gmail.`
 
 /** the reader for these bytes: the file's own first bytes for PDFs and pictures, else the name the message listed */
 export function readerExt(bytes: Uint8Array, fileName: string | null): string | null {
@@ -40,6 +44,9 @@ export interface ReadAttachment { text: string; images: { type: 'image'; data: s
  * MCP client gave it (secrets hidden already). Unchanged when it holds no attachment bytes.
  */
 export async function readAttachment(ctx: AppContext, tc: TurnToolContext, o: { chatId: string; integrationId: string }, text: string, fileName: string | null): Promise<ReadAttachment> {
+  // the size the answer declares (its base64 length) before the bytes are decoded
+  const declared = /📦 Base64 content \((\d+) chars/u.exec(text)
+  if (declared && Number(declared[1]) > Math.ceil(ATTACHMENT_MAX_BYTES / 3) * 4) return { text: tooLargeMessage(fileName), images: [] }
   const m = BLOCK.exec(text)
   if (!m) return { text: text.replace(PREVIEW, ''), images: [] }
   const rest = text.replace(BLOCK, '').replace(PREVIEW, '')
@@ -47,8 +54,9 @@ export async function readAttachment(ctx: AppContext, tc: TurnToolContext, o: { 
   const name = fileName ? fileName.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200) : null
   const lines: string[] = [rest.trim(), '', `--- ATTACHMENT${name ? ` "${name}"` : ''} (${bytes.length} bytes) ---`]
   const images: ReadAttachment['images'] = []
-  if (!bytes.length || bytes.length > MAX_BYTES) {
-    lines.push(bytes.length ? 'It is larger than 25 MB, so it was not read.' : 'It is empty.')
+  if (bytes.length > ATTACHMENT_MAX_BYTES) return { text: tooLargeMessage(name), images: [] }
+  if (!bytes.length) {
+    lines.push('It is empty.')
     return { text: lines.join('\n'), images }
   }
   const ext = readerExt(bytes, name)
