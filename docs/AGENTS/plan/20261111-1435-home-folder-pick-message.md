@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:35
 - Branch: `fix/home-folder-pick-message`
-- Status: in progress
+- Status: done
 - Where: `desktop/src` (core desktop app). Why: the refusal happens in the desktop app's folder rules (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: the desktop app explains a refusal it already makes; no rule changes
 
@@ -50,4 +50,8 @@ tests/unit/e-desktop-common.test.ts`.
 
 ## Result
 
-(filled in at the end)
+As planned. `refusedFolderReason` (pure) in desktop/src/common/folder-access.ts; `hardenAppSession(ses, origins,
+refused)` asks the team window on a refusal of the page's own pick; `AppWindow.folderRefused` shows the box (five
+languages in desktop/src/common/i18n.ts) and answers `tryAgain` or `deny`. Unit tests for the reasons and the wiring;
+the real-Electron folder spec now records what would be said: home → "home", app data → "blocked", another origin's
+refusal → nothing. The macOS folder panel and the box itself were not clicked (no person in the headless run).

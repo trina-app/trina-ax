@@ -648,12 +648,32 @@ export class AppWindow {
   private configureAppSession(ses: Session) {
     if (this.configuredSessions.has(ses)) return
     this.configuredSessions.add(ses)
-    this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins()))
+    this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins(), (why) => this.folderRefused(why)))
     pinCertificates(
       ses,
       () => (this.team ? this.team.direct : null),
       (host) => this.onFingerprintMismatch(host),
     )
+  }
+
+  /**
+   * A folder the team page asked for was refused (common/folder-access.ts refusedFolderReason): say why, in the app's
+   * language, and offer to pick another folder (the folder window opens again) or to stop (the page hears Cancel).
+   * Before, the refusal read as Cancel and nothing was shown (QA TC-219).
+   */
+  private async folderRefused(why: 'home' | 'blocked'): Promise<'tryAgain' | 'deny'> {
+    if (this.win.isDestroyed()) return 'deny'
+    const L = this.o.locale()
+    const r = await dialog.showMessageBox(this.win, {
+      type: 'info',
+      message: t(L, why === 'home' ? 'folderPick.homeTitle' : 'folderPick.blockedTitle'),
+      detail: t(L, why === 'home' ? 'folderPick.homeDetail' : 'folderPick.blockedDetail'),
+      buttons: [t(L, 'folderPick.again'), t(L, 'folderPick.cancel')],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+    return r.response === 0 && !this.win.isDestroyed() ? 'tryAgain' : 'deny'
   }
 
   /** Origins the bridge and navigation accept: the team address and, when in use, its pinned LAN address. */

@@ -15183,6 +15183,15 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
   ~/Library and app data under it), and the app cannot narrow what is readable inside a pick: every read through a
   handle is checked against the picked folder itself. Folders inside home (a .claude or .codex folder) are no blocked
   root and stay pickable.
+- **A refused folder is said (2026-11-11, QA TC-219).** The page cannot tell a refusal from Cancel (both `AbortError`), so
+  picking the home folder did nothing, without a word. Now, when the team page's own pick (top frame, allowed origin, a
+  folder) is refused, the team window says why in the app's language (`refusedFolderReason`: "the whole home folder
+  can't be picked; pick a folder inside it, such as Documents or Downloads" for home or a folder holding it, "this
+  folder holds system files" for the rest of Chromium's blocklist) with **Pick another folder** (Electron's `tryAgain`:
+  the folder window opens again) and **Cancel** (`deny`: the page's `AbortError`, as before). Any other refusal stays
+  silent, so no other page can raise the app's dialogs. Nothing about what may be picked changed. The page's drops use
+  `webkitGetAsEntry` and never reach this; a drop through `getAsFileSystemHandle` would get the same box, its
+  `tryAgain` ending as a refusal. Tests: tests/unit/e-desktop-folder-window.test.ts, desktop/e2e/folder-window.spec.ts.
 - **Home under another name (security review must-fix).** A root can be home, or above it: Windows lets people move
   Documents, Desktop or Downloads to `C:\Users\<name>` or `C:\`, and on macOS ~/Desktop can be a link to ~. So both
   the restricted folder and the request refuse a path that is home or holds it (`opensHome`): as written and with its
