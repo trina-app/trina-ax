@@ -7,8 +7,10 @@
 // Used everywhere a PDF is previewed: the side panel, 크게 보기 and the room file viewer.
 // `startPage` (an answer's source, a link with &page=N): the panel opens at that page and keeps it at the top while the
 // pages' sizes come in, until the person scrolls themselves. A link inside the file to one of its pages goes there.
-// A toolbar above the pages zooms in and out (small text on a phone) and goes back to the panel width; the place being
-// read stays at the top when the pages change size (zoom, a wider panel).
+// A toolbar above the pages zooms in and out and goes back to the panel width (computers; a phone has no room for it).
+// A pinch zooms the pages (live as a transform, then drawn at the new width) and a double tap goes between the width
+// and 200 %, the point under the fingers staying put (lib/usePinch.ts: the app itself does not zoom, QA TC-259). The
+// place being read stays at the top when the pages change size otherwise (the buttons, a wider panel).
 // `thumbnails` (the room file viewer, components/ViewerDocument.tsx): an element beside the scroll box for a rail of
 // small page pictures, for more than one page; the viewer gives it only where its stage has room for the rail and a
 // readable document (lib/imageViewer.ts pdfRailFits), never on a phone. They are drawn as they come into the rail's
@@ -28,6 +30,7 @@ import { Download, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { useT } from '../../i18n'
 import { Button, IconButton } from '../ui'
 import { pdfjsDataOptions } from '../../lib/pdfjs-assets'
+import { clamp, usePinch, type Pt } from '../../lib/usePinch'
 import { anchorAt, anchorTop, currentPage, pageHeight, pageLayout, pageStart, pageWindow, type PageAnchor, type PageSize, type PageView } from '../../lib/pdfPages'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
@@ -35,8 +38,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 // are blank and Korean text in fonts the file does not embed is missing. One object for good: react-pdf reloads the
 // document when `options` changes.
 const OPTIONS = pdfjsDataOptions(location.origin, pdfjs.version)
-// zoom steps, as a part of the panel width (1 = the page fits the panel)
+// zoom steps of the buttons, as a part of the panel width (1 = the page fits the panel); a pinch goes anywhere between
+// the first and the last
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3]
+/** a double tap's zoom, from the width */
+const TAP_ZOOM = 2
 /** the widest canvas drawn, in device pixels: zoomed in beyond it, the page is scaled */
 const MAX_CANVAS = 4096
 /** the largest canvas, in device pixels: Safari on iPhone and iPad draws nothing on a larger one (a long receipt) */
@@ -135,10 +141,9 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     console.warn('PDF preview failed:', message)
     setError(true)
   }
-  // the index in ZOOMS; a new file opens at the panel width again
-  const [zoom, setZoom] = useState(ZOOMS.indexOf(1))
-  useEffect(() => setZoom(ZOOMS.indexOf(1)), [blob])
-  const scale = ZOOMS[zoom]
+  // a part of the panel width; a new file opens at the panel width again
+  const [scale, setScale] = useState(1)
+  useEffect(() => setScale(1), [blob])
   const pageWidth = Math.round(Math.max(240, width - 32) * scale)
   const { sizes, note } = usePageSizes(pdf, fail)
   const layout = useMemo(() => pageLayout(sizes, pageWidth), [sizes, pageWidth])
@@ -152,6 +157,9 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
   const laidOut = useRef({ layout, pageWidth })
   // the place being read, kept when the pages change size
   const anchor = useRef<PageAnchor | null>(null)
+  // a pinch or double tap that changed the zoom: the point under the fingers (client coordinates), kept in place when
+  // the pages are laid out at the new width
+  const focus = useRef<Pt | null>(null)
   // a page gone to (the start page, a thumbnail, a link in the file) is the current one and stays at the top until the
   // person scrolls: the box is no longer where it was put
   const pinned = useRef<{ page: number; top: number } | null>(null)
@@ -194,11 +202,17 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     const before = laidOut.current
     laidOut.current = { layout, pageWidth }
     if (!box) return
+    // a pinch's point: from the box's top and left; otherwise the top and the middle
+    const at = focus.current
+    focus.current = null
+    const r = box.getBoundingClientRect()
+    const dy = at ? at.y - (r.top + box.clientTop + (bar.current?.offsetHeight ?? 0)) : 0
+    const dx = at ? at.x - (r.left + box.clientLeft) : box.clientWidth / 2
     if (before.layout !== layout && anchor.current) {
-      scrollTo(anchorTop(layout, anchor.current))
+      scrollTo(anchorTop(layout, anchor.current) - dy)
       if (pinned.current) pinned.current.top = box.scrollTop
     }
-    if (before.pageWidth !== pageWidth && box.scrollWidth > box.clientWidth) box.scrollLeft = (box.scrollLeft + box.clientWidth / 2) * (pageWidth / before.pageWidth) - box.clientWidth / 2
+    if (before.pageWidth !== pageWidth && box.scrollWidth > box.clientWidth) box.scrollLeft = (box.scrollLeft + dx) * (pageWidth / before.pageWidth) - dx
     update()
   }, [layout, pageWidth, box, scrollTo, update])
   // the start page, once the pages are laid out; again for another start page of the same file
@@ -226,6 +240,40 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
       cancelAnimationFrame(frame)
     }
   }, [box, update])
+
+  /** zooms to `to` (within the steps' ends), keeping `at` (client coordinates) where it is */
+  const zoomTo = (to: number, at: Pt) => {
+    const next = clamp(to, ZOOMS[0]!, ZOOMS.at(-1)!)
+    const v = viewOf()
+    if (Math.abs(next - scale) < 0.01 || !v || !box) return
+    const r = box.getBoundingClientRect()
+    // the place under the fingers, kept by the layout effect above
+    pinned.current = null
+    anchor.current = anchorAt(laidOut.current.layout, v.top + at.y - (r.top + box.clientTop + (bar.current?.offsetHeight ?? 0)))
+    focus.current = at
+    setScale(next)
+  }
+  // the pinch: the pages follow the fingers as a transform (cheap), and are drawn at the new width when they lift
+  usePinch(pages ? box : null, {
+    onPinch: ({ scale: k, center, phase }) => {
+      const h = holder.current
+      if (!h) return
+      const live = clamp(scale * k, ZOOMS[0]!, ZOOMS.at(-1)!) / scale
+      if (phase === 'end') {
+        h.style.transform = ''
+        h.style.transformOrigin = ''
+        zoomTo(scale * live, center)
+        return
+      }
+      const r = h.getBoundingClientRect()
+      h.style.transformOrigin = `${center.x - r.left}px ${center.y - r.top}px`
+      h.style.transform = `scale(${live})`
+    },
+    onDoubleTap: (at) => zoomTo(scale < (1 + TAP_ZOOM) / 2 ? TAP_ZOOM : 1, at),
+  })
+  /** the buttons: the next step out or in from where a pinch left it */
+  const stepOut = [...ZOOMS].reverse().find((z) => z < scale - 0.001)
+  const stepIn = ZOOMS.find((z) => z > scale + 0.001)
 
   const rail = thumbnails && pages > 1 ? thumbnails : null
   // a page's canvas, in device pixels per CSS pixel: the screen's (2 at most), within the width and area limits
@@ -258,24 +306,24 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
       >
         {pages > 0 && (
           // sticky in the panel's scroll box and as wide as the panel: it stays in view when the pages scroll down or
-          // (zoomed in) to the side
-          <div ref={bar} role="toolbar" aria-label={t('pdfView.toolbar')} style={{ width }} className="sticky top-0 left-0 z-10 flex items-center justify-center gap-1 border-b border-line bg-surface px-2 py-1" data-testid="pdf-toolbar">
+          // (zoomed in) to the side. Phones (no thumbnails there) pinch instead: no toolbar
+          <div ref={bar} role="toolbar" aria-label={t('pdfView.toolbar')} style={{ width }} className="sticky top-0 left-0 z-10 flex max-md:hidden items-center justify-center gap-1 border-b border-line bg-surface px-2 py-1" data-testid="pdf-toolbar">
             {rail && (
               <span className="mr-2 min-w-14 shrink-0 border-r border-line pr-3 text-center text-xs whitespace-nowrap text-muted tabular-nums" data-testid="pdf-page-info">
                 {t('pdfView.pageOf', { n: shown.current + 1, total: pages })}
               </span>
             )}
-            <IconButton label={t('pdfView.zoomOut')} onClick={() => setZoom((z) => Math.max(0, z - 1))} disabled={zoom === 0} data-testid="pdf-zoom-out">
+            <IconButton label={t('pdfView.zoomOut')} onClick={() => stepOut !== undefined && setScale(stepOut)} disabled={stepOut === undefined} data-testid="pdf-zoom-out">
               <ZoomOut size={16} />
             </IconButton>
             <span className="min-w-12 text-center text-xs text-muted tabular-nums" aria-live="polite" data-testid="pdf-zoom-level">
               {t('pdfView.zoomLevel', { n: Math.round(scale * 100) })}
             </span>
-            <IconButton label={t('pdfView.zoomIn')} onClick={() => setZoom((z) => Math.min(ZOOMS.length - 1, z + 1))} disabled={zoom === ZOOMS.length - 1} data-testid="pdf-zoom-in">
+            <IconButton label={t('pdfView.zoomIn')} onClick={() => stepIn !== undefined && setScale(stepIn)} disabled={stepIn === undefined} data-testid="pdf-zoom-in">
               <ZoomIn size={16} />
             </IconButton>
             {/* ↔, not the panel header's ⤢ 크게 보기 (SidePanelFrame PanelExpandButton) right above it */}
-            <IconButton label={t('pdfView.fitWidth')} onClick={() => setZoom(ZOOMS.indexOf(1))} disabled={scale === 1} data-testid="pdf-fit-width">
+            <IconButton label={t('pdfView.fitWidth')} onClick={() => setScale(1)} disabled={scale === 1} data-testid="pdf-fit-width">
               <MoveHorizontal size={16} />
             </IconButton>
           </div>

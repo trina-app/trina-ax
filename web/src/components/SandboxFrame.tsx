@@ -12,23 +12,30 @@
 // QA TC-218). A further load — or the "leaving" signal of the written document — means it tried to navigate away: the
 // frame is reset to about:blank and a notice is shown (a signal only; the app's frame-src CSP is what blocks the
 // navigation, and Chromium puts its error page where the artifact was, so the artifact cannot stay there).
-import { AlertTriangle, ShieldCheck } from 'lucide-react'
-import { useLayoutEffect, useRef, useState } from 'react'
+//
+// `fit` (an HTML file's preview): the page fits itself to the frame's width (lib/pageFit.ts, in the document) and says
+// so; a page wider than the frame gets a bar above it to show it at its own size or fitted again (PageFitBar).
+import { AlertTriangle, Maximize2, Minimize2, ShieldCheck } from 'lucide-react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { cleanStatic, SANDBOX, SANDBOX_FRAME_URL, staticShell } from '../lib/artifacts'
 import { pageKey } from '../lib/frame-files'
+import { installPageFit, pageFitState, type PageFitControl, type PageFitState } from '../lib/pageFit'
 import { useT } from '../i18n'
 
 /** Loads of a frame that stayed put: the receiver, then the document written over it. */
 export const EXPECTED_LOADS = 2
 
-export default function SandboxFrame(props: { html: string; title: string; onError?: (message: string) => void; className?: string }) {
+type FrameProps = { html: string; title: string; onError?: (message: string) => void; className?: string; fit?: boolean }
+
+export default function SandboxFrame(props: FrameProps) {
   // a new document = a new frame (the receiver takes exactly one document); keyed by a hash, not the page itself (with
   // its images inlined a page can be tens of MB)
   return <Frame key={pageKey(props.html)} {...props} />
 }
 
-function Frame({ html, title, onError, className }: { html: string; title: string; onError?: (message: string) => void; className?: string }) {
+function Frame({ html, title, onError, className, fit }: FrameProps) {
   const t = useT()
+  const [page, setPage] = useState<PageFitState | null>(null)
   const ref = useRef<HTMLIFrameElement>(null)
   const loads = useRef(0)
   const sent = useRef(false)
@@ -57,6 +64,7 @@ function Frame({ html, title, onError, className }: { html: string; title: strin
         win.postMessage({ source: 'mycel-host', type: 'render', html }, '*')
       } else if (d.type === 'error') errRef.current?.(String(d.message ?? '').slice(0, 2000))
       else if (d.type === 'leaving' && sent.current) stopRef.current()
+      else if (d.type === 'fit' && sent.current) setPage(pageFitState(d))
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
@@ -70,7 +78,7 @@ function Frame({ html, title, onError, className }: { html: string; title: strin
       </div>
     )
 
-  return (
+  const frame = (
     <iframe
       ref={ref}
       title={title}
@@ -88,6 +96,33 @@ function Frame({ html, title, onError, className }: { html: string; title: strin
       }}
     />
   )
+  if (!fit) return frame
+  // the same children always (the bar or nothing, then the frame): the frame is never put in again, which would lose
+  // its document
+  return (
+    <FitColumn>
+      {page?.wide ? <PageFitBar zoom={page.zoom} show={(to) => ref.current?.contentWindow?.postMessage({ source: 'mycel-host', type: 'zoom', to }, '*')} /> : null}
+      {frame}
+    </FitColumn>
+  )
+}
+
+const FitColumn = ({ children }: { children: ReactNode }) => <div className="flex h-full min-h-0 flex-col">{children}</div>
+
+/** Above a page wider than its frame: it is fitted to the width (by default) or at its own size; the button shows the
+ * other. After a pinch it offers both ways back as one: "fit" (the page's own size is a double tap away). */
+export function PageFitBar({ zoom, show }: { zoom: PageFitState['zoom']; show: (to: 'fit' | 'actual') => void }) {
+  const t = useT()
+  const fitted = zoom === 'fit'
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line bg-subtle px-3 py-1 text-xs text-muted" data-testid="page-fit-bar" data-zoom={zoom}>
+      <span className="min-w-0 truncate" role="status">{fitted ? t('pageFit.fitted') : zoom === 'actual' ? t('pageFit.actualNote') : t('pageFit.zoomedNote')}</span>
+      <button type="button" onClick={() => show(fitted ? 'actual' : 'fit')} className="touch-hit inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 font-medium text-accent-text hover:bg-accent-soft" data-testid="page-fit-toggle">
+        {fitted ? <Maximize2 size={13} aria-hidden /> : <Minimize2 size={13} aria-hidden />}
+        {fitted ? t('pageFit.actual') : t('pageFit.fit')}
+      </button>
+    </div>
+  )
 }
 
 /**
@@ -97,20 +132,28 @@ function Frame({ html, title, onError, className }: { html: string; title: strin
  * and its nodes are copied into an empty document with its own CSP; it is never turned back into markup and parsed
  * again, so what is shown is exactly the cleaned tree. allow-same-origin only lets this component write into the frame.
  */
-export function StaticFrame({ html, title, gutter, className }: { html: string; title: string; gutter?: boolean; className?: string }) {
+export function StaticFrame({ html, title, gutter, className, fit }: { html: string; title: string; gutter?: boolean; className?: string; fit?: boolean }) {
   const t = useT()
+  // `fit`: the host fits the page (it runs no scripts of its own; lib/pageFit.ts on its same-origin window)
+  const [page, setPage] = useState<PageFitState | null>(null)
+  const control = useRef<PageFitControl | null>(null)
   return (
     <div className="flex h-full min-h-0 flex-col">
       <p className="flex shrink-0 items-start gap-2 border-b border-line bg-subtle px-3 py-2 text-xs text-muted" data-testid="static-notice">
         <ShieldCheck size={14} className="mt-px shrink-0" aria-hidden />
         {t('artifact.staticNotice')}
       </p>
-      <StaticDocument key={pageKey(html)} html={html} title={title} gutter={gutter} className={className} />
+      {page?.wide ? <PageFitBar zoom={page.zoom} show={(to) => control.current?.show(to)} /> : null}
+      <StaticDocument key={pageKey(html)} html={html} title={title} gutter={gutter} className={className}
+        onFilled={fit ? (win) => {
+          setPage(null)
+          control.current = installPageFit(win, setPage)
+        } : undefined} />
     </div>
   )
 }
 
-function StaticDocument({ html, title, gutter, className }: { html: string; title: string; gutter?: boolean; className?: string }) {
+function StaticDocument({ html, title, gutter, className, onFilled }: { html: string; title: string; gutter?: boolean; className?: string; onFilled?: (win: Window) => void }) {
   const ref = useRef<HTMLIFrameElement>(null)
   // per document: a frame that reloads (moved in the page) starts as the empty shell again
   const filled = useRef(new WeakSet<Document>())
@@ -126,6 +169,8 @@ function StaticDocument({ html, title, gutter, className }: { html: string; titl
     for (const n of Array.from(page.head.childNodes)) doc.head.appendChild(doc.importNode(n, true))
     // a <frameset> page has no body left after cleaning: it shows empty
     if (page.body) doc.body.replaceWith(doc.importNode(page.body, true))
+    const win = ref.current?.contentWindow
+    if (win && onFilled) onFilled(win)
   }
   return (
     <iframe

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 18:58
 - Branch: `fix/phone-previews-fit`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax `web/` (file previews: FileBody, SandboxFrame, PdfView, FilePanel). Why: file previews are Team AX
   core (docs/REPOSITORY-RULES.md: files, phones).
 - Version impact: patch: previews show the same files better on phones; no API, data or migration change.
@@ -58,4 +58,7 @@ from Files and a room, a PDF pinch, a .md / .html header).
 
 ## Result
 
-(at the end)
+Done as planned. Checked in Chromium with iPhone emulation (390×844, touch; Playwright WebKit cannot start on the test
+host: missing system libraries) and at 1440: `web/test/e2e/phone-previews-fit.spec.ts`. Headless Chromium does not zoom
+a page on a synthetic pinch even when nothing holds it back, so "the app does not zoom" is for a real iPhone to confirm.
+pdf-lazy-pages' toolbar helper and files.spec's phone ⋯ list follow the change (no toolbar on phones; 고치기 for .md).

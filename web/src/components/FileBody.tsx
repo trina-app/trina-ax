@@ -322,10 +322,12 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
         <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}
       </p>
     )
+  // an HTML page wider than the preview (a quotation drawn as a 794 px page on a phone) is fitted to its width, with
+  // "실제 크기" above it, and a pinch inside it zooms the page (lib/pageFit.ts; QA TC-259)
   if (framed && files) {
     const frame = scripts
-      ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true } : {})} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
-      : <StaticFrame html={files.html} title={name} gutter={kind === 'html'} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
+      ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true, fit: true } : {})} fit={kind === 'html'} title={name} className="h-full min-h-[70vh] w-full flex-1 border-0 bg-white" />
+      : <StaticFrame html={files.html} title={name} gutter={kind === 'html'} fit={kind === 'html'} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
     if (!files.external) return frame
     return (
       <div className="flex h-full min-h-0 flex-col">
