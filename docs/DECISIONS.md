@@ -20673,3 +20673,28 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   replaced in this browser (that one stays valid until it expires).
 - Tests: web unit `person-switch` (A's stores and socket, reset completed as B: nothing of A, a new socket, a reload).
 - Version impact: **patch** (no API or data change).
+
+
+## Turn slots always come back (fix/turn-slot-leaks, 2026-11-11)
+
+- **A quarantined slot is probed, not kept forever.** A turn whose engine end is unconfirmed (the launcher connection
+  broke: `launcher: …` transport error, or a kill that failed) still holds its execution slot and its chat, so nothing
+  new runs beside an engine that may still write. Before, nothing ever released it: the chat said running until the
+  server restarted, sends got 409, and three such turns (the default concurrency) stopped the whole team.
+  `ChatRuntime.probeQuarantined` (every `QUARANTINE_PROBE_MS`, 2 s, from the capacity watcher; Stop on such a chat
+  probes at once) looks at each quarantined turn that already ended: the slot comes back when the engine's process
+  group (the launcher's `started` pgid) no longer exists (`kill(-pgid, 0)` = ESRCH; EPERM, the engine account's normal
+  answer, counts as alive), or, with no group known, when the launcher reports no live engine at all (`liveTurns: 0`,
+  the same trust as startup recovery). Without that proof it comes back at the turn's wall deadline plus
+  `QUARANTINE_RELEASE_GRACE_MS` (5 min): the launcher was told to end the engine by the wall deadline
+  (`LaunchRequest.timeoutMs`) and ends its groups when the connection closes, so this is a bounded wait. The answer is
+  already saved as failed (`error`) by then; the release is logged at error level.
+- **A dispatch failure fails one turn.** A throw while dispatching one queued turn (`QueueStore.claim`, the `TurnExec`
+  constructor) ends that turn with the crash error (turn and answer `error`, its queue ticket settled, `message.done`),
+  never re-claims it, and the loop goes on. A throw elsewhere in `schedule()` is logged and the capacity watcher tries
+  again; it no longer latches `closing` (every later send was 503 `draining` until a restart).
+- **`finish()` always ends.** Each part of a turn's end (text, cards, relay, proxy, sub-agent audit, file summary,
+  `message.done`) is guarded on its own; if the end state itself fails, the turn and answer still get `error`; the slot
+  is given back (or quarantined) and `done` resolves whatever failed.
+- Tests: `tests/unit/turn-slot-leaks.test.ts` (a broken launcher connection with the group gone, still alive until the
+  deadline, no group known with the launcher busy or idle; an injected claim failure; injected failures in the end).

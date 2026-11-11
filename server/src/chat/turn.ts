@@ -286,6 +286,9 @@ export class TurnExec {
   private activeCore: Running | null = null
   private terminationUnconfirmed = false
   private quarantined = false
+  /** the process group of the latest engine launch (the launcher's started event); null: none reported */
+  private enginePgid: number | null = null
+  private quarantinedAt = 0
   private timeoutSource: 'active' | 'wall' | null = null
   private activeMs = 0
   private humanWaits = 0
@@ -413,8 +416,17 @@ export class TurnExec {
   private quarantine() {
     if (this.quarantined) return
     this.quarantined = true
+    this.quarantinedAt = performance.now()
     this.rt.log.error('turn termination unconfirmed; execution slot retained', { turn: this.id })
     this.rt.turnQuarantined(this)
+  }
+
+  /** A turn that ended while its engine's end is unconfirmed (its slot is quarantined): the engine's process group to
+   * look for, and when the runtime may give the slot back without that proof (performance.now() time). null: not
+   * ended, or not quarantined. */
+  quarantineState(): { pgid: number | null; releaseAt: number } | null {
+    if (!this.quarantined || this.status !== 'finished') return null
+    return { pgid: this.enginePgid, releaseAt: Math.max(this.wallEndsAt, this.quarantinedAt) + this.rt.quarantineReleaseGraceMs }
   }
 
   private tick() {
@@ -1109,6 +1121,7 @@ export class TurnExec {
     lr = { ...lr, timeoutMs: Math.min(lr.timeoutMs ?? LAUNCHER_BACKSTOP_MS, this.remainingWallMs()) }
     const h = core.launcher.launch(lr)
     this.handle = h
+    this.enginePgid = null
     this.terminationUnconfirmed = true
     if (this.stopReason) h.kill()
     // stdout chunks are cut wherever the pipe read stopped: decode as one stream so split characters stay whole
@@ -1118,7 +1131,7 @@ export class TurnExec {
     let exit: any = null
     try {
     for await (const e of h.events) {
-      if (e.ev === 'started') core.turns.bind(this.id, e.pgid)
+      if (e.ev === 'started') { this.enginePgid = e.pgid; core.turns.bind(this.id, e.pgid) }
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') {
@@ -3084,29 +3097,63 @@ export class TurnExec {
     } catch (e) { this.rt.log.error('saving the answer failed', { err: e, turn: this.id }); this.dirty = true }
   }
 
+  /** The end of every turn. Whatever fails in here, the slot is given back (or quarantined), the turn and its answer
+   * get an end state and `done` resolves: a throw must never hold a slot or a chat for good. */
   private async finish() {
     // the cards it closes below change nothing on their own: the end of the turn sends the chat once
     this.finishing = true
     if (this.saver) clearInterval(this.saver)
-    this.flushText()
+    if (this.clock) clearInterval(this.clock)
+    if (this.wallClock) clearTimeout(this.wallClock)
+    if (this.stopGrace) clearTimeout(this.stopGrace)
+    let status: MessageStatus = 'error'
+    try { status = this.finishState() } catch (e) {
+      this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
+      this.endAfterFailure()
+    }
+    this.status = 'finished'
+    try {
+      if (this.terminationUnconfirmed) this.quarantine()
+      else this.rt.turnFinished(this)
+    } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
+    try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
+    finally { this.resolveDone() }
+  }
+
+  /** finish() could not record the end: the rows still get one (never left running or streaming) */
+  private endAfterFailure() {
+    this.error ??= engineError('crash', this.spec.locale)
+    const now = new Date().toISOString()
+    try { if (this.registered) this.activeCore?.turns.revoke(this.id, 'error', this.error.message) } catch {}
+    try {
+      this.rt.db.query("UPDATE turns SET status = 'error', ended_at = ?, error = ? WHERE id = ? AND status IN ('queued','running')").run(now, this.error.message, this.id)
+      this.rt.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(this.error), now, this.spec.assistantId)
+    } catch (e) { this.rt.log.error('recording the failed turn end failed', { err: e, turn: this.id }) }
+  }
+
+  /** Each step of the end on its own: one failing (a card, the relay, a step's audit) does not skip the others. */
+  private finishStep(what: string, f: () => void) {
+    try { f() } catch (e) { this.rt.log.error('a turn end step failed', { err: e, turn: this.id, step: what }) }
+  }
+
+  /** The end state in the DB; returns the answer's status. */
+  private finishState(): MessageStatus {
+    this.finishStep('text', () => this.flushText())
     // a room session: every read of this turn is in the read scope before the room decides where the answer goes
     if (this.room) { try { this.noteReads() } catch (e) { this.rt.log.warn('room read scope failed', { err: e, turn: this.id }) } }
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
     // carries the saved answer, which the apps show in place of the streamed one)
     this.redactorNow = null
     this.content = this.redact(this.content)
-    if (this.clock) clearInterval(this.clock)
-    if (this.wallClock) clearTimeout(this.wallClock)
-    if (this.stopGrace) clearTimeout(this.stopGrace)
-    for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
-    this.rt.relay.cancelTurn(this.id)
-    this.proxyUnsubscribe?.()
+    for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
+    this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
     const cut = new Set(this.runningAtStop)
     for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
-    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false) }
+    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.finishStep('subtask', () => this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false)) }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
     // stands and the person may continue; it is not an error. With nothing to continue from (the engine never started
     // or said nothing in all that time) it stays the error it was before 2026-10-30, with "retry".
@@ -3124,7 +3171,8 @@ export class TurnExec {
     if (stopReason) for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.paused = true
     // the same for a step the person's Stop cut off: stopped, like Claude Code's "Interrupted" (Step.stopped)
     if (status === 'stopped') for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.stopped = true
-    const files = this.fileSummary()
+    let files: ReturnType<TurnExec['fileSummary']> = null
+    try { files = this.fileSummary() } catch (e) { this.rt.log.warn('the answer\'s file summary failed', { err: e, turn: this.id }) }
     const db = this.rt.db
     try {
       this.afterTool()
@@ -3172,22 +3220,26 @@ export class TurnExec {
       this.rt.store.touchChat(this.spec.chatId)
     } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
+      this.endAfterFailure()
     }
-    if (this.spec.clientKind === 'schedule') notificationsOf(this.rt.ctx).afterTurn(this.id)
+    if (this.spec.clientKind === 'schedule') this.finishStep('notifications', () => notificationsOf(this.rt.ctx).afterTurn(this.id))
     // the 7-day team goal: a member's first successful run of a team skill tells the owners (never throws)
     if (turnStatus === 'done') noteGoalRun(this.rt.ctx, this.id)
     // budget notices (80% / 100%) once the turn's usage is in (admin/budget-watch.ts)
     try { if (this.registered) afterUsage(db, this.spec.userId, credentialsOf(this.rt.ctx).notify) } catch (e) { this.rt.log.warn('budget notices failed', { err: e }) }
-    this.status = 'finished'
-    if (this.terminationUnconfirmed) this.quarantine()
-    else this.rt.turnFinished(this)
-    const row = this.rt.store.messageRow(this.spec.assistantId)
+    return status
+  }
+
+  /** message.done (or the room's end) and the chat's update, after the slot is given back */
+  private announceEnd(status: MessageStatus) {
     if (this.room) this.rt.roomEnded(this.id)
-    else if (row) {
+    else this.finishStep('message.done', () => {
+      const row = this.rt.store.messageRow(this.spec.assistantId)
+      if (!row) return
       const chatRow = this.rt.store.chatRow(this.spec.chatId)
       const message = chatRow ? messageFor(this.rt, chatRow, row, this.spec.userId, this.spec.locale) : this.rt.store.toMessage(row)
       this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message } })
-    }
+    })
     // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
     // run or a question from Slack (this.tells)
@@ -3196,7 +3248,6 @@ export class TurnExec {
     // every Slack thread); a card it raised still shows its "?" (Chat.waiting) until it is answered in the app
     if (this.spec.clientKind === 'slack') { try { this.rt.store.markSeen(this.spec.chatId) } catch (e) { this.rt.log.warn('marking a Slack chat seen failed', { err: e, turn: this.id }) } }
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
-    this.resolveDone()
   }
 }
 
