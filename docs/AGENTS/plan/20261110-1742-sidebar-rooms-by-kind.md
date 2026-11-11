@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 17:42
 - Branch: `feat/sidebar-rooms-by-kind`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/components/rooms/SidebarRooms.tsx`, the five `web/src/i18n/*.ts`). Why: the rooms
   and their lists are core (see docs/REPOSITORY-RULES.md).
 - Version impact: patch, the sidebar's expanded list is ordered differently; three new words, no API or data change
@@ -54,4 +54,11 @@ e2e `sidebar.spec.ts` and `room-pins.spec.ts`.
 
 ## Result
 
-Filled in at the end.
+Built as planned in `SidebarRooms.tsx` (`roomSections`, the top rows as `sidebarRows(rooms, null)` while opened, "접기"
+while anything is below them), three words in five languages, DECISIONS "Conversations by kind under Show more" (with
+notes in "Desktop sidebar: rooms first" and "Pinned conversations"), a paragraph in the user docs' pins section and
+`changes/sidebar-rooms-by-kind.md`. The headings use the 트리나 기록 date headings' look and spacing (`text-micro`, 500,
+`text-faint`, 16 px above, 4 px below) on the left edge of the title and "더 보기", after the first screenshots showed
+`pt-3` binding them too loosely to their rows; AA in both looks. The names are compared with `Intl.Collator` in the
+app's language (the order of `localeCompare`, one collator per sort). Not changed: an open pin past ten still sits among
+the pins while the list is closed (as before), so in that rare case the five latest move up one row when it opens.
