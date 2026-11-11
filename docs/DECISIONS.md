@@ -18194,6 +18194,11 @@ some of them into cards.
   a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
   anything).
 - The README instruction is gone; the tools' descriptions say a missing folder is made.
+- **The answer's file summary** (QA TC-018, 2026-11-11, `fix/qa-11-11-followups`): two files moved into a new folder
+  read "파일 3개 저장" with every row "새로 만듦". It counts files only now (a folder made or moved is not one), and a
+  file the answer moved is `moved` ("옮김"; an optional field next to `action: 'create'`, so an older app still shows
+  "새로 만듦"). A file the answer made and then moved is new where it is now; its old place leaves the list
+  (`chat/turn.ts fileSummaryOf`).
 
 ## Scheduled tasks: saving and sending allowed on the card (feat/schedule-save-scope, 2026-11-10, product owner)
 

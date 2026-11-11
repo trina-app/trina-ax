@@ -331,9 +331,11 @@ export const Step = z.object({
 })
 export type Step = z.infer<typeof Step>
 
-/** "파일 3개 저장 · 1개 충돌 사본 · 1개 권한 없음" under an answer (from file_events of the turn). */
+/** "파일 3개 저장 · 1개 충돌 사본 · 1개 권한 없음" under an answer (from file_events of the turn). Files only: a folder the
+ * answer made or moved is not one. `moved`: a file the answer moved here (`action` 'create', so an older app still shows
+ * it as new). */
 export const FileChangeSummary = z.object({
-  saved: z.array(z.object({ path: RelPath, action: z.enum(['create', 'update']) })),
+  saved: z.array(z.object({ path: RelPath, action: z.enum(['create', 'update']), moved: z.literal(true).optional() })),
   conflicts: z.array(z.object({ path: RelPath, copyPath: RelPath })),
   rejected: z.array(z.object({ path: z.string(), reason: z.string() })),
 })

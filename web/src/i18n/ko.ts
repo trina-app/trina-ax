@@ -842,6 +842,7 @@ export const ko = {
   'files.summary.rejected': '{n}개 권한 없음',
   'files.summary.created': '새로 만듦',
   'files.summary.updated': '수정',
+  'files.summary.moved': '옮김',
   'files.summary.conflictLine': '다른 사람이 먼저 바꿔서 충돌 사본으로 저장:',
   'files.summary.original': '원본',
   'files.summary.rejectedLine': '{path}에 쓰기 권한이 없어 저장하지 못했어요.',

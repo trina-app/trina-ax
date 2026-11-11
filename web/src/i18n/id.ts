@@ -843,6 +843,7 @@ export const id: Record<MessageKey, string> = {
   'files.summary.rejected': '{n} tanpa izin',
   'files.summary.created': 'Dibuat',
   'files.summary.updated': 'Diubah',
+  'files.summary.moved': 'Dipindah',
   'files.summary.conflictLine': 'Sudah diubah orang lain duluan, disimpan sebagai salinan konflik:',
   'files.summary.original': 'asli',
   'files.summary.rejectedLine': 'Tidak bisa menyimpan ke {path}: tidak ada izin tulis.',

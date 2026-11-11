@@ -823,6 +823,7 @@ export const ja: Record<MessageKey, string> = {
   'files.summary.rejected': "{n}個は許可されませんでした",
   'files.summary.created': "作成",
   'files.summary.updated': "更新",
+  'files.summary.moved': "移動",
   'files.summary.conflictLine': "別の人が先に変更したため、競合コピーとして保存しました：",
   'files.summary.original': "元のファイル",
   'files.summary.rejectedLine': "{path}に保存できませんでした。書き込み権限がありません。",

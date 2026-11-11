@@ -823,6 +823,7 @@ export const es: Record<MessageKey, string> = {
   'files.summary.rejected': "{n} no permitidos",
   'files.summary.created': "Creado",
   'files.summary.updated': "Actualizado",
+  'files.summary.moved': "Movido",
   'files.summary.conflictLine': "Otra persona lo modificó antes; se guardó como copia en conflicto:",
   'files.summary.original': "original",
   'files.summary.rejectedLine': "No se pudo guardar en {path}: no tiene permiso de escritura.",

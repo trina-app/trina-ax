@@ -843,6 +843,7 @@ export const en: Record<MessageKey, string> = {
   'files.summary.rejected': '{n} not allowed',
   'files.summary.created': 'Created',
   'files.summary.updated': 'Updated',
+  'files.summary.moved': 'Moved',
   'files.summary.conflictLine': 'Someone changed it first, saved as a conflict copy:',
   'files.summary.original': 'original',
   'files.summary.rejectedLine': "Couldn't save to {path}: no write access.",
