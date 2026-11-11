@@ -451,6 +451,10 @@ if [ "$CMD" = check ]; then
   say "check: system $OSID $OSVER $ARCH, cgroup v2$([ "$SYSTEMD" = 1 ] && echo ", systemd")"
   say "check: kit $VERSION ($ARCH) from $FROM verifies$([ "$ALLOW_UNSIGNED" = 1 ] && echo " (unsigned allowed)")"
   if command -v bwrap >/dev/null 2>&1; then say "check: bubblewrap $(bwrap --version 2>/dev/null | awk '{print $2}')"; else say "check: bubblewrap not installed yet (install adds it)"; fi
+  if ! command -v sysctl >/dev/null 2>&1; then
+    if [ "$SKIP_APT" = 1 ]; then warn "sysctl is missing (package procps) and --skip-apt installs nothing: install would stop; install procps first"
+    else say "check: sysctl not installed yet (install adds procps)"; fi
+  fi
   if [ "$LIST_OK" = 1 ]; then
     say "check: system packages ($PROFILE profile, $DISTRO): $(pk_packages "$DISTRO" "$ARCH" "$PROFILE" | tr '\n' ' ')"
     if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
@@ -614,6 +618,7 @@ if [ "$RESTRICT_USERNS" = 1 ] && { [ -f "/etc/apparmor.d/$ID-bwrap" ] || ! usern
   [ -z "$OTHER" ] || warn "another AppArmor profile names /usr/bin/bwrap ($OTHER); checking that bwrap still works"
   T=$(mktemp)
   sed "s/@ID@/$ID/g" "$KROOT/apparmor-bwrap.in" > "$T"
+  mkdir -p /etc/apparmor.d
   if ! cmp -s "$T" "/etc/apparmor.d/$ID-bwrap" 2>/dev/null; then install -o root -g root -m 644 "$T" "/etc/apparmor.d/$ID-bwrap"; fi
   rm -f "$T"
   if ! mountpoint -q /sys/kernel/security 2>/dev/null; then mount -t securityfs securityfs /sys/kernel/security 2>/dev/null || true; fi
@@ -633,10 +638,18 @@ else
 fi
 
 # ---- 5) sysctl: ptrace only by parents (Debian's default is 0) ----
+# A minimal Debian 13 has no procps (an always package now): no /etc/sysctl.d and no sysctl. The folder is made here,
+# and without sysctl the value goes straight to /proc; the file sets it again at every boot (systemd-sysctl).
 SYSCTL_F="/etc/sysctl.d/60-$ID.conf"
+mkdir -p /etc/sysctl.d
 printf '# %s (%s): processes of one account may not attach to each other (linux-runtime spec 3.1.1)\nkernel.yama.ptrace_scope = 1\n' "$PRODUCT_NAME" "$ID" > "$SYSCTL_F.tmp"
 install -o root -g root -m 644 "$SYSCTL_F.tmp" "$SYSCTL_F"; rm -f "$SYSCTL_F.tmp"
-if ! sysctl -q -p "$SYSCTL_F" >/dev/null 2>&1 || [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then
+set_ptrace_scope() {  # never lowers a scope the host set higher (2, 3)
+  [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ] || return 0
+  if command -v sysctl >/dev/null 2>&1; then sysctl -q -p "$SYSCTL_F" >/dev/null 2>&1
+  else { printf '1\n' > /proc/sys/kernel/yama/ptrace_scope; } 2>/dev/null; fi
+}
+if ! set_ptrace_scope || [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then
   if [ "$HOSTED" = 1 ] && [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then imgwarn "kernel.yama.ptrace_scope is below 1 and cannot be set here (a container: the host must set it, spec 6.3)"; fi
   [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -ge 1 ] || warn "could not set kernel.yama.ptrace_scope = 1 (a container? the host must set it); diagnostics report it"
 fi
@@ -1142,6 +1155,7 @@ if [ "$SYSTEMD" = 1 ]; then
   if command -v systemd-analyze >/dev/null 2>&1; then
     VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ${SLICE:+"./$SLICE"} 2>&1) || imgwarn "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
   fi
+  mkdir -p "$UNIT_DIR"
   for f in "$ITMP/units"/*; do install -o root -g root -m 644 "$f" "$UNIT_DIR/$(basename "$f")"; done
   # (image mode: no running systemd; the booted VM reads the units)
   if have_systemd; then systemctl daemon-reload; fi

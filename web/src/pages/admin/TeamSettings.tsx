@@ -12,9 +12,8 @@
 // (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"), whether members make team projects (projectCreators,
 // docs/DECISIONS.md "Projects live only in projects/"). The owner hands the role over from Admin › Members'
 // "…" (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
-// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the knowledge graph (KnowledgeGraph.tsx,
-// #knowledge-graph), which save on their own. The OpenRouter key is sealed in the
-// browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
+// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits), which save on their own. The OpenRouter key is
+// sealed in the browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
@@ -33,7 +32,6 @@ import { checkIconFile } from '../../lib/team-icon'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
 import TeamAiSettings from './TeamAiSettings'
-import KnowledgeGraphSettings from './KnowledgeGraph'
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -167,8 +165,6 @@ export default function TeamSettingsPage() {
         {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second tab).
             After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay */}
         {state.data && <TeamAiSettings />}
-        {/* the code map the AI uses (knowledge_explore; server/src/knowledge-graph/): saves on its own, like the AI groups */}
-        {state.data && <KnowledgeGraphSettings />}
         {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
         <CompanyProfileCard />
         <DevEnvTeamCard />

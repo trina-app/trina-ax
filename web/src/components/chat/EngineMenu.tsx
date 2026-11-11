@@ -3,7 +3,9 @@
 import type { EngineId } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 
-export const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude', codex: 'Codex', api: 'API' }
+// the AI's own name, the one people know (Claude, ChatGPT), not the engine's (Claude Code, Codex): Settings › AI
+// accounts groups one's own accounts the same way (docs/DECISIONS.md "Plain words for members")
+export const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude', codex: 'ChatGPT', api: 'API' }
 
 export interface EnginePick { engine: EngineId; model: string | null }
 

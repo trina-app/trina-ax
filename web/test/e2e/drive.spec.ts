@@ -42,7 +42,7 @@ test('Discover lists Google Drive first; its + goes straight to Google, one line
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/connectors')
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '연결한 서비스', exact: true })).toBeVisible()
   await discover(page)
   await expect(page.getByTestId('connector-card').first()).toHaveAttribute('data-id', 'google-drive')
   await expect(driveCard(page)).toContainText('내 Drive 파일을 찾고 읽어요')
@@ -116,7 +116,7 @@ test('the old addresses lead to Connectors: /settings/drive opens Drive\'s page,
   await expect(settings.getByRole('link', { name: 'MCP', exact: true })).toHaveCount(0)
   await expect(settings.getByRole('link', { name: '앱 커넥터', exact: true })).toHaveCount(0)
   await page.getByTestId('settings-search').fill('drive')
-  await expect(settings.getByRole('link', { name: '커넥터', exact: true })).toBeVisible()
+  await expect(settings.getByRole('link', { name: '연결한 서비스', exact: true })).toBeVisible()
 
   await page.goto('/settings/integrations')
   await expect(page).toHaveURL(/\/settings\/connectors$/)

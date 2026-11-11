@@ -1,13 +1,14 @@
-// Benchmark: document questions against a Trina server, on one engine (docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md,
-// steps 1 and 8). Uploads the made-up Acme documents (scripts/bench/docs/), waits for the knowledge graph to index
-// them, sends every question of scripts/bench/questions.json in its own new chat, and measures time, tokens, tool calls
-// and correctness. Test data only; real AI calls are made by the server.
+// Benchmark: document questions against a Trina server, on one engine (first written for
+// docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md, steps 1 and 8). Uploads the made-up Acme documents
+// (scripts/bench/docs/), sends every question of scripts/bench/questions.json in its own new chat, and measures time,
+// tokens, tool calls and correctness. The AI finds the documents with its file tools (list, glob, grep, read); there is
+// no index to wait for. Test data only; real AI calls are made by the server.
 //
 //   bun scripts/bench/run.ts --server http://127.0.0.1:19251 --engine claude-code --password-file /path/pw \
 //        [--username bench-owner] [--label baseline-local] [--out baseline-2026-11-07-claude-code] \
 //        [--db /path/to/data/<db file>] [--only en-01,ko-02] [--skip-upload] [--keep-docs] [--timeout 300]
 //
-// The user must be an owner or admin (the indexing wait reads GET /api/admin/knowledge-graph) and may pick the engine.
+// The user must be an owner or admin who may pick the engine.
 // Time: wall clock from "send" to the finished answer (polled every 300 ms). With --db (a local server's SQLite file,
 // opened read-only) the turn's own started/ended times and token counts from `turns` are used instead; without it the
 // token counts are Message.usage from the API.
@@ -77,22 +78,8 @@ async function upload() {
   }
 }
 
-async function waitIndexed(): Promise<number> {
-  const t0 = Date.now()
-  while (Date.now() - t0 < 15 * 60_000) {
-    const s = await api('GET', '/api/admin/knowledge-graph')
-    const d = s.documents
-    const inBench = (d.folders as { path: string; documents: number; status: string }[]).filter((x) => x.path === folder.split('/')[0] || x.path === folder)
-    const n = inBench.reduce((a, x) => a + x.documents, 0)
-    if (d.busy === 0 && n >= docNames.length - (d.failedCount ?? 0) && n > 0) return Date.now() - t0
-    await sleep(1000)
-  }
-  throw new Error('knowledge graph did not finish indexing in 15 minutes')
-}
-
-let indexMs = 0
-if (!flag('skip-upload')) { await upload(); indexMs = await waitIndexed() } else indexMs = await waitIndexed()
-console.error(`documents ready (${docNames.length} files, ${(indexMs / 1000).toFixed(1)} s to index)`)
+if (!flag('skip-upload')) await upload()
+console.error(`documents ready (${docNames.length} files)`)
 
 // ---------- questions ----------
 const db = opt('db') ? new Database(opt('db')!, { readonly: true }) : null
@@ -196,7 +183,7 @@ const summary = Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, st
 
 const meta = {
   label, engine, date: new Date().toISOString().slice(0, 10), documents: docNames.length, questions: results.length,
-  indexSec: Math.round(indexMs / 100) / 10, timeSource: results[0]?.timeSource ?? 'wall', tokenSource: results[0]?.tokenSource ?? 'api',
+  timeSource: results[0]?.timeSource ?? 'wall', tokenSource: results[0]?.tokenSource ?? 'api',
   commit: Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD'], { cwd: HERE }).stdout.toString().trim(),
 }
 const f1 = (x: number) => (Number.isFinite(x) ? x.toFixed(1) : '-')
@@ -204,7 +191,7 @@ const f0 = (x: number) => (Number.isFinite(x) ? Math.round(x).toLocaleString('en
 let md = `# Benchmark: ${label} on ${engine}\n\n`
 md += `- Date ${meta.date}, source commit ${meta.commit}, ${meta.documents} made-up documents, ${meta.questions} questions, one pass.\n`
 md += `- Time is ${meta.timeSource === 'turn' ? "the turn's own start to end (turns table)" : 'wall clock from send to finished answer'}; tokens come from ${meta.tokenSource === 'turns' ? 'the turns table (cache reads and writes included)' : 'Message.usage of the API'}.\n`
-md += `- Indexing the documents took ${meta.indexSec} s. Correct = the answer finished and contains every expected fact. Target: median time <= 7 s, median input <= 25,000 tokens.\n\n`
+md += `- Correct = the answer finished and contains every expected fact. Target: median time <= 7 s, median input <= 25,000 tokens.\n\n`
 md += '| Group | n | answered | median s | p90 s | median input tok | p90 input tok | median output tok | median tool calls | correct % | expected file cited % |\n|---|---|---|---|---|---|---|---|---|---|---|\n'
 for (const [k, s] of Object.entries(summary)) md += `| ${k} | ${s.n} | ${s.answered} | ${f1(s.medianSec)} | ${f1(s.p90Sec)} | ${f0(s.medianInputTokens)} | ${f0(s.p90InputTokens)} | ${f0(s.medianOutputTokens)} | ${f1(s.medianToolCalls)} | ${s.correctPct} | ${s.filePct} |\n`
 md += '\n## Per question\n\n| id | kind | status | s | input tok | tools | facts | file |\n|---|---|---|---|---|---|---|---|\n'

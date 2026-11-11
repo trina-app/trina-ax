@@ -36,7 +36,6 @@ export function visibleChanges(rules: RuleSet, user: Principal, changes: FileCha
 export function publishChanges(ctx: AppContext, changes: FileChange[], before?: RuleSet) {
   if (!changes.length) return
   ctx.files.events.emit('hwp-invalidate')
-  // the knowledge graph (knowledge-graph/service.ts) updates the folders these paths are in, after a quiet time
   // `by`: who made them (skills/examples.ts drops that person's reused team folder count)
   ctx.files.events.emit('tree-changed', { paths: changes.flatMap((c) => (c.from !== undefined ? [c.path, c.from] : [c.path])), by: [...new Set(changes.flatMap((c) => (c.by ? [c.by.id] : [])))] })
   const rules = RuleSet.load(ctx.db)

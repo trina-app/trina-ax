@@ -8,17 +8,10 @@
 // needs, and one person's files do not delay the files of other people. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
 // bad regular expression. Limits: results (FileContentHits.items), lines per file, time (office extraction included),
 // file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person.
-// The same search also asks the knowledge graph (KnowledgeGraph.lookup, docs/KNOWLEDGE-GRAPH.md) for documents, in
-// parallel with grep and within CONTENT_SEARCH_DOCS_DEADLINE_MS: one row per document with its best passage
-// (FileContentHits.documents). The lookup runs as the person (every file passes authorize(read) for them now), under
-// the folder searched; each document is then checked again with grep's own check (visiblePath), so a document row never
-// names a file that the line search could not show. It only adds rows: the line matches stay as they were.
-import { SourceLoc, type FileContentDocument, type FileContentHits } from '@mycel/shared/api'
+import type { FileContentHits } from '@mycel/shared/api'
 import { grepFiles } from '../files/search'
 import { HttpError } from '../http/errors'
-import { knowledgeGraphOf } from '../knowledge-graph/service'
-import { authorize, visiblePath } from '../policy/authorize'
-import type { Principal, RuleSet } from '../policy/access'
+import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import type { TeamFiles } from './service'
 
@@ -72,12 +65,6 @@ export function admitContentSearch(userId: string): { signal: AbortSignal; done:
 /** for tests: forget all rate-limit state */
 export function resetContentSearchLimits() { started.clear(); running.clear() }
 
-/** passages asked of the knowledge graph for one search; the rows are one per document, so there can be fewer */
-export const CONTENT_SEARCH_DOCS = 20
-/** the knowledge graph answers within this time with what it has; a lookup that is still not back after twice this time
- * is left out of the answer (the line matches never wait longer than that for it) */
-export const CONTENT_SEARCH_DOCS_DEADLINE_MS = 500
-
 /** A short part of `line` around the first match of `q` (any case). "…" marks text that was cut. */
 export function snippetOf(line: string, q: string): string {
   const text = line.normalize('NFC')
@@ -95,61 +82,6 @@ export function snippetOf(line: string, q: string): string {
   return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
 }
 
-/** The words of a query a passage is cut around: 2 characters or more, or 1 that is not ASCII (a Korean word). */
-export function queryWords(q: string): string[] {
-  return [...new Set(q.normalize('NFC').split(/\s+/).filter((w) => w.length >= 2 || (w.length === 1 && w.charCodeAt(0) > 0x7f)))]
-}
-
-/** A short part of a passage (one line, spaces squeezed) around the first query word in it, or its start. */
-export function passageSnippet(text: string, words: readonly string[]): string {
-  const flat = text.normalize('NFC').replace(/\s+/g, ' ').trim()
-  const low = flat.toLowerCase()
-  let first: string | undefined
-  let at = Infinity
-  for (const w of words) {
-    const i = low.indexOf(w.toLowerCase())
-    if (i >= 0 && i < at) { at = i; first = w }
-  }
-  return snippetOf(flat, first ?? '')
-}
-
-const under = (p: string, root: string) => !root || p === root || p.startsWith(root + '/')
-
-/**
- * The knowledge graph's documents for one search: undefined when its documents part is off, else one row per document
- * (best passage first). Only files under `base` that pass grep's own check for this person now. A lookup that fails,
- * or is not back in time, gives no rows: the line search answers as it always did.
- */
-async function documentMatches(files: TeamFiles, user: Principal, rules: RuleSet, query: string, base: string, signal: AbortSignal): Promise<FileContentDocument[] | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    // inside the try: nothing of the knowledge graph may fail the line search
-    const kg = knowledgeGraphOf(files.ctx)
-    if (!kg.docsOn()) return undefined
-    const late = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), CONTENT_SEARCH_DOCS_DEADLINE_MS * 2)
-      signal.addEventListener('abort', () => resolve(null), { once: true })
-    })
-    // every word typed counts in a search box (a chat message's filter would drop "검토", "자료", "review")
-    const r = await Promise.race([kg.lookup(user, [query], { base: base || undefined, long: 0, short: CONTENT_SEARCH_DOCS, deadlineMs: CONTENT_SEARCH_DOCS_DEADLINE_MS, words: 'search' }), late])
-    if (!r) return []
-    const words = queryWords(query)
-    const out: FileContentDocument[] = []
-    const seen = new Set<string>()
-    for (const x of r.passages) {
-      if (seen.has(x.path)) continue
-      seen.add(x.path)
-      if (!under(x.path, base) || !visiblePath(files.fx, rules, user, x.path)) continue
-      const loc = x.loc ? (SourceLoc.safeParse(x.loc).data ?? null) : null
-      out.push({ path: x.path, name: x.path.slice(x.path.lastIndexOf('/') + 1), loc, snippet: passageSnippet(x.text, words) })
-    }
-    return out
-  } catch (e) {
-    files.ctx.log.warn('file search: the knowledge graph lookup failed', { err: String(e).slice(0, 200) })
-    return []
-  } finally { clearTimeout(timer) }
-}
-
 export async function searchFileContents(files: TeamFiles, userId: string, q: string, base: string, limit: number, clientSignal?: AbortSignal): Promise<FileContentHits> {
   const user = files.principal(userId)
   const rules = files.rules()
@@ -161,8 +93,6 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
   // the search stops when a newer search of the same person starts, or when the client goes away
   const signal = clientSignal ? AbortSignal.any([mine, clientSignal]) : mine
   try {
-    // the knowledge graph's part runs while ripgrep does (it never throws)
-    const docs = documentMatches(files, user, rules, query, b.rel, signal)
     const cfg = files.ctx.files.cfg
     const res = await grepFiles(
       { fx: files.fx, rules, user, rg: cfg.rg, timeoutMs: Math.min(cfg.grepTimeoutMs, CONTENT_SEARCH_TIMEOUT_MS), office: files.ctx.files.office },
@@ -176,8 +106,6 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
     const items = res.hits
       .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
       .sort((x, y) => x.path.localeCompare(y.path) || x.line - y.line)
-    const documents = await docs
-    if (mine.aborted) throw new HttpError('rate_limited', undefined, { retryAfter: 1 })
-    return { items, ...(documents ? { documents } : {}), truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, notQueued: res.stats.officeNotQueued, retryLater: res.stats.officeRetryLater, longSkipped: res.stats.longSkipped }
+    return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, notQueued: res.stats.officeNotQueued, retryLater: res.stats.officeRetryLater, longSkipped: res.stats.longSkipped }
   } finally { done() }
 }

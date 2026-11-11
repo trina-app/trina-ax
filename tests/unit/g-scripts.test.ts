@@ -213,6 +213,30 @@ describe('Linux root scripts: syntax and rules', () => {
     expect(s).toMatch(/sha256sum "\$out"/)
   })
 
+  test('a minimal system (no procps): the /etc folders are made before writing, sysctl may be missing, check says so', () => {
+    // 2026-11-11: the 0.4.0 kit on a fresh debian:trixie stopped with "/etc/sysctl.d/60-mycel.conf.tmp: No such file or
+    // directory": a minimal Debian 13 has no procps, so neither /etc/sysctl.d nor sysctl
+    const s = read('scripts/install-linux.sh')
+    const before = (a: string, b: string) => {
+      expect(s.indexOf(a)).toBeGreaterThan(0)
+      expect(s.indexOf(a)).toBeLessThan(s.indexOf(b))
+    }
+    before('mkdir -p /etc/sysctl.d\n', '> "$SYSCTL_F.tmp"')
+    before('mkdir -p /etc/apparmor.d\n', 'install -o root -g root -m 644 "$T" "/etc/apparmor.d/$ID-bwrap"')
+    before('mkdir -p "$UNIT_DIR"\n', 'install -o root -g root -m 644 "$f" "$UNIT_DIR/')
+    before('mkdir -p /etc/systemd/journald.conf.d\n', 'install -o root -g root -m 644 "$ITMP/journald.conf" "$JD"')
+    // no sysctl: the value goes to /proc; the reload is not called unguarded
+    expect(s).toMatch(/if command -v sysctl >\/dev\/null 2>&1; then sysctl -q -p "\$SYSCTL_F"[^\n]*\n\s+else \{ printf '1\\n' > \/proc\/sys\/kernel\/yama\/ptrace_scope; \} 2>\/dev\/null; fi/)
+    expect(s.match(/sysctl -q -p/g)!.length).toBe(1)
+    // the check names it (and warns with --skip-apt, which installs nothing)
+    const check = s.slice(s.indexOf('if [ "$CMD" = check ]; then'), s.indexOf('if PF=$("$CTL_KIT" preflight'))
+    expect(check).toContain('sysctl not installed yet (install adds procps)')
+    expect(check).toContain('sysctl is missing (package procps) and --skip-apt installs nothing: install would stop')
+    // procps is in an always group, so every install, --minimal included, the image and docker/Dockerfile get it
+    const list = JSON.parse(read('scripts/system/packages.json')) as { groups: Record<string, { install: string; packages?: Record<string, unknown> }> }
+    expect(Object.values(list.groups).some((g) => g.install === 'always' && g.packages && 'procps' in g.packages)).toBe(true)
+  })
+
   test('--image-mode (template build, scripts/image/customize.sh): accepted, install only, enables and starts nothing', () => {
     const run = (...a: string[]) => Bun.spawnSync(['/bin/bash', path.join(REPO, 'scripts', 'install-linux.sh'), ...a], { stdout: 'pipe', stderr: 'pipe' })
     // the pilot of 2026-10-30: customize.sh passes it, and the installer stopped with "unknown option --image-mode"

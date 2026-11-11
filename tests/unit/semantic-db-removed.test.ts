@@ -1,7 +1,7 @@
 // The removed search by meaning tool (`search`, docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md wave 3
-// step 17): the first start of this version deletes its index, <data>/semantic.db with SQLite's WAL files, and says so
-// in one info line; later starts find nothing. The model folder stays: the knowledge graph's search by meaning uses the
-// same pinned files.
+// step 17): the first start of a version without it deletes its index, <data>/semantic.db with SQLite's WAL files, and
+// says so in one info line; later starts find nothing. The model folder it downloaded goes with the knowledge graph's
+// data at the same start (tests/unit/knowledge-graph-removed.test.ts).
 import { afterAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -39,7 +39,7 @@ function oldData(data: string) {
 }
 
 describe('the old semantic.db', () => {
-  test('deleted with its WAL files, one info line; the model stays; nothing the second time', () => {
+  test('deleted with its WAL files, one info line; the model is not this step\'s; nothing the second time', () => {
     const data = tmp()
     const model = oldData(data)
     const l = lines()
@@ -70,7 +70,7 @@ describe('the old semantic.db', () => {
     expect(l.about().map((x) => x.level)).toEqual(['info'])
   })
 
-  test('the server start deletes it', async () => {
+  test('the server start deletes it, and the model with the knowledge graph\'s data', async () => {
     const base = tmp()
     const data = path.join(base, 'data'), team = path.join(base, 'team')
     fs.mkdirSync(data, { recursive: true, mode: 0o700 })
@@ -83,7 +83,7 @@ describe('the old semantic.db', () => {
     try {
       expect(fs.existsSync(path.join(data, 'semantic.db'))).toBe(false)
       expect(fs.existsSync(path.join(data, 'semantic.db-wal'))).toBe(false)
-      expect(fs.existsSync(model)).toBe(true)
+      expect(fs.existsSync(model)).toBe(false)
       expect(l.about().map((x) => x.level)).toEqual(['info'])
     } finally { await s.stop() }
   })
