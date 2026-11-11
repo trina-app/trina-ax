@@ -127,6 +127,16 @@ test('screenshots for review (SHOTS_DIR)', async ({ browser }) => {
       await expect(page.locator('[data-testid="load-error"][data-what="rooms"]')).toBeVisible()
       await page.waitForTimeout(300)
       await page.screenshot({ path: `${dir}/after-rooms-${name}-${scheme}.png` })
+      // the sidebar's 트리나 기록 alone could not be read (a computer: its column; it says it, as nothing else does)
+      if (!mobile) {
+        await page.unroute(/\/api\/rooms$/)
+        await page.unroute('**/api/skills/examples')
+        await down(page, /\/api\/chats(\?.*)?$/)
+        await page.goto('/')
+        await expect(page.locator('[data-testid="load-error"][data-what="chats"]')).toHaveAttribute('data-state', 'connection')
+        await page.waitForTimeout(300)
+        await page.screenshot({ path: `${dir}/after-sidebar-${name}-${scheme}.png` })
+      }
       await ctx.close()
     }
   }
