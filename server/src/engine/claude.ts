@@ -187,3 +187,54 @@ export function buildClaudeLaunch(i: {
     sessionCollect: { dir: loc.collectDir, name: `${i.sessionId}.jsonl`, removeDir: true },
   }
 }
+
+/**
+ * The file list's reader (server/src/file-list/engine-reader.ts): one model answer with NO tools at all, from the
+ * server's own instructions (they replace Claude Code's: --system-prompt-file) and one stream-json user message of text
+ * and image blocks the server made from team files. Same binary, lock environment, launcher and model proxy as a chat
+ * turn; no MCP server (--strict-mcp-config without a config), no built-in tool (--tools '' and every built-in denied),
+ * no web search, no sub-agents, one round (--max-turns 1), no session kept, prompt caching off (one-shot calls).
+ */
+export function buildClaudeReaderLaunch(i: {
+  turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; model: string; timeoutMs: number
+  proxyToken?: string; tokenKind?: 'oauth' | 'api-key'; tunnel?: { port: number; token: string }
+}, conf: ClaudeConf): LaunchRequest {
+  const gw = conf.authMode !== 'local-login' ? conf.gatewayModels : undefined
+  const args = [
+    '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+    '--tools', '',
+    '--disallowedTools', [...CLAUDE_BUILTIN_DENIED, 'WebSearch', CLAUDE_AGENT_TOOL].join(','),
+    '--strict-mcp-config',
+    '--setting-sources', '',
+    '--settings', JSON.stringify(CLAUDE_LOCK_SETTINGS),
+    '--restricted',
+    '--disable-slash-commands',
+    '--permission-mode', 'dontAsk',
+    '--system-prompt-file', '{SYSTEM_PROMPT_FILE}',
+    '--max-turns', '1',
+    '--no-session-persistence',
+    // with a gateway its own small model (the proxy forwards only the gateway's ids)
+    '--model', gw ? (gw.haiku ?? gw.default) : i.model,
+  ]
+  const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
+  const env: Record<string, string> = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', TMPDIR: tmp, CLAUDE_CODE_TMPDIR: tmp, ...CLAUDE_LOCK_ENV, DISABLE_PROMPT_CACHING: '1' }
+  const tz = engineTimeZone()
+  if (tz) env.TZ = tz
+  if (conf.authMode === 'local-login') {
+    env.HOME = os.homedir()
+    for (const k of ['USER', 'LOGNAME']) if (process.env[k]) env[k] = process.env[k]!
+    if (i.tunnel) env.HTTPS_PROXY = turnProxyUrl(i.tunnel.port, i.tunnel.token)
+  } else {
+    env.HOME = path.join(i.chatDir, '.home')
+    env.CLAUDE_CONFIG_DIR = path.join(i.chatDir, '.claude')
+    env.ANTHROPIC_BASE_URL = conf.modelProxy!.baseUrl
+    if (gw) {
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL = gw.opus ?? gw.default
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL = gw.sonnet ?? gw.default
+      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = gw.haiku ?? gw.default
+      env.ANTHROPIC_SMALL_FAST_MODEL = gw.haiku ?? gw.default
+    }
+  }
+  const modelToken = conf.authMode !== 'local-login' && i.proxyToken ? { kind: i.tokenKind ?? 'oauth', value: i.proxyToken } : undefined
+  return { op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args, env, token: i.token, systemPrompt: i.systemPrompt, stdin: i.message, timeoutMs: i.timeoutMs, ...(modelToken ? { modelToken } : {}) }
+}

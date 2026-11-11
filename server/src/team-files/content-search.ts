@@ -8,7 +8,7 @@
 // needs, and one person's files do not delay the files of other people. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
 // bad regular expression. Limits: results (FileContentHits.items), lines per file, time (office extraction included),
 // file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person.
-import type { FileContentHits } from '@mycel/shared/api'
+import { isFileListName, type FileContentHits } from '@mycel/shared/api'
 import { grepFiles } from '../files/search'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
@@ -105,6 +105,8 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
     if (mine.aborted) throw new HttpError('rate_limited', undefined, { retryAfter: 1 })
     const items = res.hits
       .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
+      // the server's file lists name every file: their lines are for the AI's grep, not the Files search (file-list/)
+      .filter((h) => !isFileListName(h.name))
       .sort((x, y) => x.path.localeCompare(y.path) || x.line - y.line)
     return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, notQueued: res.stats.officeNotQueued, retryLater: res.stats.officeRetryLater, longSkipped: res.stats.longSkipped }
   } finally { done() }

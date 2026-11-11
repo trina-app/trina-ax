@@ -341,6 +341,9 @@ export function chatsWithEngineSession(db: Database, userId: string): number {
  * two states (the connector's group tools say what changed from them instead of taking them again).
  */
 export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[]; via?: string; seen?: SeenStates }): { userId: string; paths: string[]; chatsReset: number }[] {
+  // the file list (file-list/service.ts) rewrites its lists at once, before anything else here: a line never stays in a
+  // list whose readers lost the file. A listener never throws (it logs).
+  ctx.files.events.emit('access-changed')
   const after = captureState(ctx.db)
   if (by.seen) { by.seen.before = before; by.seen.after = after }
   const losses = readLosses(before, after)

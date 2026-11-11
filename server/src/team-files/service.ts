@@ -4,6 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FolderAudience, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
+import { isFileListName } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { resetEngineSessions } from '../chat/runtime'
@@ -165,6 +166,8 @@ export class TeamFiles {
     const out: FileEntry[] = []
     for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
       if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+      // the server's file list is for the AI's tools; the Files screen and the pickers do not show it (lean UI)
+      if (e.isFile() && isFileListName(e.name)) continue
       const c = [...r.segs, e.name]
       let st: fs.Stats
       try { st = fs.lstatSync(path.join(r.abs, e.name)) } catch { continue }
@@ -1067,7 +1070,8 @@ export class TeamFiles {
           if (!atLeast(rules.access(user, [...fr.segs, ...rel]), 'read')) continue
           dirs.push(rel)
           walk(rel)
-        } else if (st.isFile() && st.nlink === 1 && atLeast(rules.access(user, [...fr.segs, ...rel]), 'read')) {
+        } else if (st.isFile() && st.nlink === 1 && !isFileListName(e.name) && atLeast(rules.access(user, [...fr.segs, ...rel]), 'read')) {
+          // a file list stays with its folder (the server writes the copy's own at night)
           files.push({ segs: rel, size: st.size })
           bytes += st.size
           if (files.length > maxFiles || bytes > maxBytes) fileError('payload_too_large', 'tooLarge')

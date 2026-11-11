@@ -16,6 +16,7 @@ import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser, hitList } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
+import { fileListPromptOn } from '../file-list/service'
 import { CodexEventParser } from '../engine/codex-parse'
 import { SEARCH_ASKS_MAX, takeSearchAsk, unnamedSearchKind, type SearchAsk } from './codex-search-step'
 import { audit } from '../admin/audit'
@@ -636,6 +637,8 @@ export class TurnExec {
       room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
+      // the team's file lists (file-list/service.ts): only while they run and exist
+      fileList: fileListPromptOn(rt.ctx),
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]

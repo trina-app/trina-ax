@@ -249,3 +249,50 @@ export function lockedCatalogModels(file: string | null): string[] {
     return models
   } catch { return [] }
 }
+
+/**
+ * The file list's reader on Codex (server/src/file-list/engine-reader.ts): one answer with no tools. The locked
+ * profile of a chat turn without the team's MCP server (no mcp_servers at all), web search off, the same lock-down of
+ * features and the locked catalog (no shell). Instructions and the material travel on stdin, as for a chat turn. Codex
+ * gets text only here: the launcher writes text files only, so images are not sent (the list says so for them).
+ */
+export function buildCodexReaderLaunch(i: {
+  turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; model?: string
+  proxy?: { port: number; token: string }
+  managed?: CodexManaged & { authJson: string }
+}, conf: CodexConf): LaunchRequest {
+  const p = codexTurnPaths(conf, i.chatDir)
+  if (conf.auth === 'agent-own' && !i.proxy) throw new Error('a Codex turn of the engine account needs the model proxy')
+  if (conf.auth === 'managed' && !i.managed) throw new Error('a managed Codex turn needs its AI connection')
+  const c = { ...conf, catalog: p.catalog }
+  const args = ['exec', '--json', '--skip-git-repo-check', '--ephemeral', '--ignore-rules', '--ignore-user-config',
+    '-s', 'read-only',
+    '-c', 'approval_policy="never"',
+    '-c', 'project_doc_max_bytes=0',
+    '-c', 'check_for_update_on_startup=false',
+    '-c', 'analytics.enabled=false',
+    ...(c.auth === 'agent-own' || c.auth === 'managed' ? ['-c', 'cli_auth_credentials_store="file"'] : []),
+    ...(i.managed ? codexManagedArgs({ port: i.managed.port, mode: i.managed.mode, codexVersion: i.managed.codexVersion }) : []),
+    '-c', 'web_search="disabled"',
+    '-c', `model_catalog_json=${JSON.stringify(c.catalog)}`,
+    '-c', `model=${JSON.stringify(i.model ?? c.model)}`,
+    ...CODEX_DISABLED_FEATURES.flatMap((f) => ['-c', `features.${f}=false`]),
+  ]
+  const tmp = path.join(i.chatDir, '.tmp')
+  return {
+    op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args,
+    env: {
+      PATH: '/usr/bin:/bin', HOME: p.agentHome, CODEX_HOME: p.codexHome, TMPDIR: tmp, LANG: 'en_US.UTF-8',
+      ...(engineTimeZone() ? { TZ: engineTimeZone()! } : {}),
+      ...(i.proxy && !i.managed ? { HTTPS_PROXY: codexProxyUrl(i.proxy.port, i.proxy.token), SSL_CERT_FILE: '/etc/ssl/cert.pem' } : {}),
+    },
+    token: i.token, systemPrompt: '', stdin: `<instructions>\n${i.systemPrompt}\n</instructions>\n\n${i.message}`, timeoutMs: i.timeoutMs,
+    ...(conf.auth === 'agent-own' ? { codexAuth: true } : {}),
+    ...(i.managed ? { codexHome: { authJson: i.managed.authJson } } : {}),
+  }
+}
+
+/** The cheapest model of a locked Codex catalog, when its names tell (a nano or mini model); else null (the default). */
+export function cheapestCodexModel(models: readonly string[]): string | null {
+  return models.find((m) => /(^|[-_.])nano([-_.]|$)/i.test(m)) ?? models.find((m) => /(^|[-_.])mini([-_.]|$)/i.test(m)) ?? null
+}

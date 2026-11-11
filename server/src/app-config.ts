@@ -202,6 +202,10 @@ export const AppConfigFile = z.object({
    * "Trina side chat", option A): people ask the AI beside a room and share an answer on purpose. On: the old way, for
    * an operator who still wants it while people move over. Earlier answers in rooms stay as they are either way. */
   roomAiMentions: z.boolean().optional(),
+  /** The file list (server/src/file-list/; docs/CONFIGURATION.md): `{ "enabled": false }` turns it off on this server
+   * whatever the team's admin chooses (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's
+   * instructions). Absent: the team's switch in Admin › Team settings decides (on by default). */
+  fileList: z.object({ enabled: z.boolean().optional() }).strict().optional(),
   /** obsolete: the knowledge graph was removed (docs/DECISIONS.md, 2026-11-11). Accepted with any value and ignored,
    * so a file written for an older version still loads; the start logs it once (OBSOLETE_KEYS). */
   knowledgeGraph: z.unknown().optional(),
@@ -254,6 +258,8 @@ export interface AppConfig {
   handoverSafe?: boolean
   /** see AppConfigFile.roomAiMentions; absent = off */
   roomAiMentions?: boolean
+  /** see AppConfigFile.fileList; absent = the team's switch decides */
+  fileList?: { enabled?: boolean }
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
@@ -363,6 +369,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     ...(deployment ? { deployment } : {}),
     ...(f.handoverSafe ? { handoverSafe: true } : {}),
     ...(f.roomAiMentions ? { roomAiMentions: true } : {}),
+    ...(f.fileList ? { fileList: f.fileList } : {}),
     ...(demo ? { demo } : {}),
     ...(obsolete.length ? { obsoleteKeys: obsolete } : {}),
   }
