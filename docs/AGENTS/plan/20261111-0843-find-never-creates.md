@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 01:43
 - Branch: `fix/find-never-creates`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/prompt.ts`, its unit tests). Why: the in-app AI's instructions are core (see
   docs/REPOSITORY-RULES.md).
 - Version impact: patch, a few sentences more in the AI's instructions; no API, data or screen change
@@ -58,4 +58,27 @@ before/after runs with the real AI above. No web change, so no web tests.
 
 ## Result
 
-Filled in at the end.
+Built as planned: `FIND_FILE_RULE` in `server/src/chat/prompt.ts`, one line after "To create a new file, call write
+directly" in the tool rules, so every chat with those rules gets it (Claude Code, Codex, the API engine, rooms, shared
+and confidential chats). It is 123 tokens on Claude's tokenizer (a one-message call with and without it). Tests:
+`tests/unit/b-prompt-find-file.test.ts` (its words, every kind of chat, once and after the create line) and a Claude and
+Codex case in `tests/unit/b-chat.test.ts` "instructions". Not in the sub-agents' instructions (they cannot ask the
+person and save only what their task says), and a Claude session started before the update keeps its first
+instructions until a new session starts, like every other line of the tool rules.
+
+The wording changed twice during the runs. The first said "in its place": the AI found the draft and still wrote
+another next to it, and for a bare name ("트리나 일본어 소개서") it made a deck. The final one says a file asked for,
+even by name only, is the existing one, and applies other words, both languages and folder names to names and
+contents.
+
+Measured with the real AI (Claude Code, knowledge graph off in Admin on both servers, the 2,238-file test folder, one
+new chat per question, files the AI wrote deleted after every question), before = origin/dev c11f0c89d, after = this
+branch. The ten ids that failed, three times each (mp02 six times): right 15/33 before, 27/33 after; a new file,
+draft, deck or copy made 16 times before, 2 after (both cr12: it named the existing English draft first, then wrote a
+Korean one in the person's own folder); asked back without the file 7 before, 5 after; web search 2 before, 0 after.
+Median time 56 s before, 39 s after; median input tokens 270k before, 192k after. Fifteen other ids once each: 15/15
+right on both, no file made. Left: cr06 still asked back in 2 of 3 (its glob matched file names only, so the folder
+외주 was not seen, and it searched contents in Korean only for an English PDF); mp02 (a bank-book photo named
+IMG_2031.jpg) was found 3 of 6 times after against 5 of 6 before: after about 25 opened images the AI listed what it
+had seen and asked whether to open the remaining 80 photos, where before it kept opening them (once 81 calls and 1.5M
+tokens, then not found).
