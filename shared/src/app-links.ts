@@ -45,3 +45,31 @@ export function assetLinks(ids = APP_LINKS) {
   if (!prints.length) return null
   return [{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: ids.androidPackage, sha256_cert_fingerprints: prints } }]
 }
+
+/**
+ * The App Store id of an `apps.apple.com` listing (`…/app/<name>/id6829192435?platform=iphone` → `6829192435`), or
+ * null for '' or anything else. Used for Apple's Smart App Banner on the join pages (docs/DECISIONS.md "Get the app").
+ */
+export function appStoreId(listing: string): string | null {
+  try {
+    const u = new URL(listing)
+    if (u.protocol !== 'https:' || u.hostname !== 'apps.apple.com') return null
+    return /\/id(\d{5,15})$/.exec(u.pathname)?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Apple's Smart App Banner for the invite and team-link pages (`/invite/<token>`, `/join`), or null when the edition
+ * names no App Store listing. Never an `app-argument`: an invite's token is in its path, and the team link's token is
+ * in the fragment, which the server never sees (the address without it tells the app nothing). The id is digits only,
+ * so the tag needs no escaping.
+ */
+export function smartAppBanner(iphoneListing: string): string | null {
+  const id = appStoreId(iphoneListing)
+  return id ? `<meta name="apple-itunes-app" content="app-id=${id}" />` : null
+}
+
+/** The pages the Smart App Banner goes on: an invite (`/invite/<token>`) and the team link (`/join`). */
+export const joinPagePath = (p: string) => p === '/join' || /^\/invite\/[^/]+$/.test(p)

@@ -20877,3 +20877,46 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   tool calls each, found by a team-wide grep that hit the list lines.
 - Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
   to its own AI provider from the first night after the update (`changes/file-list.md` says so).
+
+## Get the app: a phone without the app gets a store button on the join pages (feat/invite-get-the-app, 2026-11-11, product owner)
+
+Builds on "First run, phase 2". Plan: `docs/AGENTS/plan/20261111-1058-invite-get-the-app.md`. Owner: "If it isn't
+installed, shouldn't it open the App Store?" A tapped invite or team link opens the app when it is installed (verified
+universal links / app links); without it, the phone's browser lands on the join page.
+
+- **Who sees it**: a web browser on an iPhone or Android (`getAppHref`, `web/src/lib/team-link.ts`); never on a
+  computer, never inside our desktop or phone app (`clientKind()`), never in a build whose `APP_DOWNLOADS` names no
+  listing and no page. Computers keep the form and "앱에서 열기" as before.
+- **One button, then the form behind a link**: "Copy invite & get the app" / "초대 링크 복사하고 앱 받기", one line
+  "After installing, paste the link in the app's first screen.", and "Continue in the browser" shows the join form;
+  "Already joined? Sign in" stays. iPhone: the App Store listing (`APP_DOWNLOADS.iphone`, id 6829192435). Android: the
+  Google Play listing (`APP_DOWNLOADS.android`, live 2026-11-11, set in `editions/trina/branding/apps.json` with
+  `bun scripts/edition-apps.ts … --apply`); a build without one falls back to its download page (`APP_DOWNLOADS.page`;
+  never an .apk itself). Android's "앱에서 열기" intent gains `S.browser_fallback_url=<that address>`.
+- **The token crosses the install only by the person's own copy** (owner's call, 2026-11-11): the button copies this
+  page's link (the team link's token from memory) on the tap, never on load, shows "Link copied", then opens the store.
+  The app's first-run box already takes a pasted invite or team link as it is (`parseTeamInput`, both copies; tested).
+  The app never reads the clipboard by itself (no paste on launch: iOS 16+ "Allow Paste" prompts, and it would read
+  whatever else is there); no fingerprinting, no deferred deep link service. The clipboard copy is the person's own,
+  for their own paste.
+- **The copy runs inside the tap, and a failed copy never reaches the store** (review, 2026-11-11): the button is a real
+  `<a href={store}>`, so the store opens as the tap's own navigation (no scripted navigation after an await, which
+  Safari and iOS web views treat differently). In the tap the Clipboard API write starts (not awaited) and a hidden
+  read-only textarea + `execCommand('copy')` answers at once (`copyInTap`, `web/src/lib/copy-in-tap.ts`). Copied: the
+  link goes ahead. Not known to be copied (in-app browsers such as KakaoTalk, Instagram or Line often have no
+  `navigator.clipboard` or refuse it): the page stays; when the Clipboard API then says yes, "Link copied" and a plain
+  "Go to the App Store" link; otherwise the warning, the link in a read-only field with a "Copy" button, and the same
+  separate store link (Android: "Go to Google Play", or "Go to the download page" in a build without a Play listing). The banner page is kept in memory until index.html
+  changes.
+- **Apple's Smart App Banner** (`<meta name="apple-itunes-app" content="app-id=…">`) is added by the server
+  (`serveWeb`, `server/src/routes/web-static.ts`; `smartAppBanner`, `shared/src/app-links.ts`) to the HTML of
+  `/invite/<token>` and `/join` only, and only for an iPhone/iPad/iPod user agent (`Vary: User-Agent`); Safari reads it
+  at load, so it is not added by script. **No `app-argument`**: an invite's token is in its path, and the team link's
+  token is in the fragment, which the server never sees (the address without it tells the app nothing). WKWebView (our
+  iPhone app) never shows the banner.
+- **The token never reaches a store**: the store addresses are fixed edition values with nothing of the page added;
+  the intent's fallback is the same fixed page; `Referrer-Policy: same-origin` (the header from `securityHeaders` and
+  index.html's `<meta name="referrer">`) sends no Referer cross-origin, and the button adds `rel="noreferrer"`; these
+  pages make no analytics call. The e2e test checks the store request has no Referer and no token.
+- Tests: `web/test/unit/get-the-app.test.ts`, `tests/unit/app-links.test.ts` (the banner), `web/test/e2e/get-the-app.spec.ts`
+  (390, iPhone and Android user agents, light and dark), `web/test/e2e/first-run.spec.ts`.
