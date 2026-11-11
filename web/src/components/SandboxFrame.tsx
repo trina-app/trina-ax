@@ -143,11 +143,19 @@ export function StaticFrame({ html, title, gutter, className, fit }: { html: str
         <ShieldCheck size={14} className="mt-px shrink-0" aria-hidden />
         {t('artifact.staticNotice')}
       </p>
-      {page?.wide ? <PageFitBar zoom={page.zoom} show={(to) => control.current?.show(to)} /> : null}
-      <StaticDocument key={pageKey(html)} html={html} title={title} gutter={gutter} className={className}
+      {fit && page?.wide ? <PageFitBar zoom={page.zoom} show={(to) => control.current?.show(to)} /> : null}
+      {/* fit on or off (a phone turned into a wide window): filled again, fitted or at its own size */}
+      <StaticDocument key={`${pageKey(html)}${fit ? ':fit' : ''}`} html={html} title={title} gutter={gutter} className={className}
         onFilled={fit ? (win) => {
           setPage(null)
-          control.current = installPageFit(win, setPage)
+          control.current = null
+          // the page's own names can shadow the document's methods (<img name="addEventListener">): then that page is
+          // just not fitted, and the fill goes on
+          try {
+            control.current = installPageFit(win, setPage)
+          } catch (e) {
+            console.warn('page fit failed:', e)
+          }
         } : undefined} />
     </div>
   )

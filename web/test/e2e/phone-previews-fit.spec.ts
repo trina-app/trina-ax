@@ -2,7 +2,8 @@
 // fitted to the preview's width (in Files: the script frame; in a room: the static frame), with "실제 크기" to see it at
 // its own size; a pinch inside the page or on a PDF zooms the document (the touches reach the viewer's own handlers);
 // the PDF's zoom buttons are not there on a phone; and on a phone only .md / .txt offer 고치기, from the ⋯
-// sheet. At 1440 the page fits the panel as it is wider, and the PDF keeps its buttons.
+// sheet. Computers are as before: at 1440 the page is at its own size (no fit, no bar) and the PDF keeps its buttons;
+// a narrow window with a mouse is not fitted either and keeps the pencil for every editable kind.
 // SHOTS_DIR=<folder>: screenshots of each step.
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
@@ -182,11 +183,45 @@ test.describe('computer', () => {
     const panel = page.getByTestId('file-panel')
     await expect(page.frameLocator('[data-testid="file-panel"] [data-testid="sandbox-frame"]').locator('h1')).toHaveText('견적서')
     await expect(panel.getByTestId('file-edit')).toBeVisible()
+    // not fitted on a computer: no bar, the page at its own 794 px (wider than the ~660 px panel: it scrolls sideways)
+    const f = page.frameLocator('[data-testid="file-panel"] [data-testid="sandbox-frame"]')
+    await expect(f.locator('.page')).toHaveCount(1)
+    await page.waitForTimeout(500)
+    await expect(panel.getByTestId('page-fit-bar')).toHaveCount(0)
+    expect(await f.locator('.page').evaluate((el) => ({ zoom: document.documentElement.style.zoom, width: Math.round(el.getBoundingClientRect().width) }))).toEqual({ zoom: '', width: 794 })
     await shot(page, 'files-html-1440')
     await openInFiles(page, 'docs', 'handbook.pdf')
     await expect(panel.getByTestId('pdf-toolbar')).toBeVisible()
     await panel.getByTestId('pdf-zoom-in').click()
     await expect(panel.getByTestId('pdf-zoom-level')).toHaveText('125%')
     await shot(page, 'files-pdf-1440')
+  })
+
+  test.describe('narrow window with a mouse', () => {
+    test.use({ viewport: { width: 600, height: 900 } })
+    test('the page is not fitted and the pencil stays, for .html too', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      await putFiles(page)
+      await openInFiles(page, 'sales', 'quote.html')
+      const panel = page.getByTestId('file-panel')
+      const f = page.frameLocator('[data-testid="file-panel"] [data-testid="sandbox-frame"]')
+      await expect(f.locator('h1')).toHaveText('견적서')
+      await page.waitForTimeout(500)
+      await expect(panel.getByTestId('page-fit-bar')).toHaveCount(0)
+      expect(await f.locator('html').evaluate((el) => (el as HTMLElement).style.zoom)).toBe('')
+      await expect(panel.getByTestId('file-edit')).toBeVisible()
+      // and no second edit in the ⋯ menu (that is a touch screen's)
+      await panel.getByTestId('file-panel-more').click()
+      await expect(page.getByTestId('file-more-download')).toBeVisible()
+      await expect(page.getByTestId('file-more-edit')).toHaveCount(0)
+      await page.keyboard.press('Escape')
+      await openInFiles(page, 'sales', 'memo.md')
+      await expect(panel.getByTestId('file-edit')).toBeVisible()
+      await panel.getByTestId('file-panel-more').click()
+      await expect(page.getByTestId('file-more-download')).toBeVisible()
+      await expect(page.getByTestId('file-more-edit')).toHaveCount(0)
+      await shot(page, 'files-narrow-mouse-600')
+    })
   })
 })

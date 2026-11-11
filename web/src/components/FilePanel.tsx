@@ -21,7 +21,7 @@ import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
-import { Button, confirmDialog, IconButton } from './ui'
+import { Button, confirmDialog, IconButton, useMediaQuery } from './ui'
 import { askTrinaInRoom, fileSeed } from '../lib/sideChatAsk'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
 import { Tooltip } from './Tooltip'
@@ -58,6 +58,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const [saving, setSaving] = useState(false)
   const [loadingEdit, setLoadingEdit] = useState(false)
   const canEdit = file.source === 'team' && !!kind && EDITABLE.includes(kind)
+  // a touch screen edits from the ⋯ sheet (prose only); a mouse keeps the pencil, in a narrow window too
+  const touch = useMediaQuery('(pointer: coarse)')
   const me = useMe()
   const [pdfBusy, setPdfBusy] = useState(false)
 
@@ -189,7 +191,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const canPdf = file.source === 'team' && kind === 'html' && !!me?.server.htmlPdf && !error && !editing
   // the app's "…" menu (rooms/MenuButton.tsx): arrow keys, Home / End, Esc back to the button; a bottom sheet on phones
   const more: MenuItem[] = [
-    ...(canEdit && phoneCanEdit(kind) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
+    ...(canEdit && touch && phoneCanEdit(kind) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
     ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
     ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
     ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
@@ -243,8 +245,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </button>
           )}
           {canEdit && !editing && !error && (
-            // computers; phones edit from the ⋯ sheet, and only prose (PHONE_EDITABLE)
-            <IconButton label={t('preview.edit')} className="max-md:hidden" onClick={() => void startEdit()} disabled={loadingEdit} data-testid="file-edit">
+            // computers (a narrow mouse window too); phones (narrow and touch) edit from the ⋯ sheet, and only prose
+            // (PHONE_EDITABLE)
+            <IconButton label={t('preview.edit')} className="max-md:pointer-coarse:hidden" onClick={() => void startEdit()} disabled={loadingEdit} data-testid="file-edit">
               {loadingEdit ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
             </IconButton>
           )}

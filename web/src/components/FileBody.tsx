@@ -21,6 +21,7 @@ import { useFrameScripts } from '../lib/confidential'
 import { formatSize } from '../lib/format'
 import { splitFrontMatter } from '../lib/markdown'
 import { parentPath } from '../lib/paths'
+import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, roomHwpPreview, serverPreview, type PreviewKind } from '../lib/preview'
 import type { PreviewFile } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
@@ -30,7 +31,7 @@ import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import { useMe } from '../store/session'
-import { Button } from './ui'
+import { Button, useMediaQuery } from './ui'
 import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
 
@@ -290,6 +291,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   const page = text === null || !framed ? null : kind === 'svg' ? `<div style="display:grid;place-items:center;min-height:100vh">${text}</div>` : text
   // the page's team images and clips as data: URLs (lib/frame-files.ts), each only if everyone who can read this page
   // can read it too (embedIn); null while they are fetched
+  const phoneFit = useMediaQuery(PAGE_FIT_QUERY)
   const files = useFrameFiles(page, { folder: path === null ? null : parentPath(path), embedIn: path ?? undefined })
   if (text === null) return null
   const cut = blob.size > MAX_TEXT && <p className="px-4 pb-4 text-xs text-faint">{t('preview.truncated')}</p>
@@ -322,12 +324,13 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
         <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}
       </p>
     )
-  // an HTML page wider than the preview (a quotation drawn as a 794 px page on a phone) is fitted to its width, with
-  // "실제 크기" above it, and a pinch inside it zooms the page (lib/pageFit.ts; QA TC-259)
+  // on a phone, an HTML page wider than the preview (a quotation drawn as a 794 px page) is fitted to its width, with
+  // "실제 크기" above it, and a pinch inside it zooms the page (lib/pageFit.ts; QA TC-259). Computers: as before
   if (framed && files) {
+    const fit = kind === 'html' && phoneFit
     const frame = scripts
-      ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true, fit: true } : {})} fit={kind === 'html'} title={name} className="h-full min-h-[70vh] w-full flex-1 border-0 bg-white" />
-      : <StaticFrame html={files.html} title={name} gutter={kind === 'html'} fit={kind === 'html'} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
+      ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true, fit } : {})} fit={fit} title={name} className="h-full min-h-[70vh] w-full flex-1 border-0 bg-white" />
+      : <StaticFrame html={files.html} title={name} gutter={kind === 'html'} fit={fit} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
     if (!files.external) return frame
     return (
       <div className="flex h-full min-h-0 flex-col">
