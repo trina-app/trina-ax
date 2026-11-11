@@ -162,7 +162,7 @@ test('refresh: ahead of expiry and once for many calls; after a 401; a refused r
   expect(everything()).not.toContain('CANARY-')
 })
 
-test('a token refresh and a call that fails are not a policy change; deleting the connection is (audit 11-11 row 18)', async () => {
+test('a token refresh and a call that fails are not a policy change; signing out is (audit 11-11 row 18)', async () => {
   const { id } = await connect()
   const row = () => getRow(h.ctx.db, id)!
   const g = policyGeneration(h.ctx.db)
@@ -178,7 +178,9 @@ test('a token refresh and a call that fails are not a policy change; deleting th
   await expect(svc.callTool(row(), 'search_tasks', {})).rejects.toThrow(/sign-in/)
   expect(row().status).toBe('needs_auth')
   expect(policyGeneration(h.ctx.db)).toBe(g)
-  await olga.call('DELETE', `/api/integrations/${id}`)
+  // signing out (the sealed tokens go, the version moves on) is still a policy change
+  await olga.call('PATCH', `/api/integrations/${id}`, { clearSecret: true })
+  expect(row().secret_enc).toBeNull()
   expect(policyGeneration(h.ctx.db)).toBeGreaterThan(g)
 })
 
