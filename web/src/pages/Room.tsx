@@ -243,14 +243,15 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // window is still there and the list may not stick to it (onListScroll's canStick), so `stick` alone was lost and the
   // reply stayed below the list with "최근 메시지로" gone (QA TC-155)
   const toBottom = useRef(false)
-  const landing = !!timeline && !detached && !timeline.loading
+  // (not after a failed read: the old window stays on screen, and a retry lands)
+  const landing = !!timeline && !detached && !timeline.loading && !timeline.error
   useLayoutEffect(() => {
     if (!landing || !toBottom.current) return
     toBottom.current = false
     stick.current = true
     list.follow()
     // the message the address pointed at is behind: a reload opens at the newest too
-    if (target) navigate({ pathname: location.pathname, search: '' }, { replace: true, state: location.state })
+    if (target) navigate({ pathname: location.pathname, search: '', hash: location.hash }, { replace: true, state: location.state })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landing, timeline?.messages])
   const toNewest = () => {
@@ -277,10 +278,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     })
     if (seq > r.lastReadSeq) void s.markRead(roomId, seq)
   }, [roomId])
-  // (a page that arrived, the older pages reaching the first unread, a message in sight: after the list has drawn it)
+  // (a page that arrived, the older pages reaching the first unread, a message in sight, the thread or side chat over it
+  // on a phone closing: after the list has drawn it)
   useEffect(() => {
     tryRead()
-  }, [tryRead, last?.seq, messages[0]?.seq, timeline?.loading, timeline?.error, detached, room?.lastReadSeq, room?.unreadCount])
+  }, [tryRead, last?.seq, messages[0]?.seq, timeline?.loading, timeline?.error, detached, room?.lastReadSeq, room?.unreadCount, threadId, sideOpen])
   useEffect(() => {
     window.addEventListener('focus', tryRead)
     document.addEventListener('visibilitychange', tryRead)

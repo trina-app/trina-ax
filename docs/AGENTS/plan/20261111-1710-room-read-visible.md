@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 17:10
 - Branch: `fix/room-read-visible`
-- Status: in progress
+- Status: done
 - Where: web (pages/Room.tsx, lib/rooms.ts). Why: two room bugs from QA TC-155 (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — a bug fix in the web app, no API or data change
 
@@ -34,3 +34,10 @@ as read" (unchanged: it calls the read directly, QA TC-053).
 
 A room whose unread run starts exactly at a page edge behind a thread-only reply's seq waits to be read until the reader
 scrolls up (conservative). Phones and desktop share the code. No migration, no i18n change.
+
+## Result
+
+Done on `fix/room-read-visible`. Web unit (rooms-lib, rooms-store) and `web/test/e2e/room-read-visible.spec.ts` (1440 and
+390; all 6 fail on dev before the fix). On a local server with the QA TC-155 scripts: 62 unread → nothing read until
+the older page is loaded and seen; 30 unread with a 2.5 s first page → nothing read before the page; a reply from a
+search result → in view at the bottom, ?m= gone. Known limit: the seq-gap-at-a-page-edge wait in Risks.

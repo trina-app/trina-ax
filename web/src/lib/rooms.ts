@@ -219,6 +219,8 @@ export function newestSeq(messages: RoomMessage[]): number {
  *   from a notice, its first page still loading), with the unread ones before them not shown yet;
  * - nothing while unread messages are older than the pages loaded (more unread than one page): marking the newest
  *   would read the ones never loaded too. Scrolling up to them loads them, and then it reads;
+ *   (a seq the timeline never lists, a reply kept in its thread, right after the read position at a page's edge waits
+ *   the same way: the safe side);
  * - else the newest message whose top has come into sight (`inSight`), so a reader scrolled up reads up to there.
  * A window around an older message (a search result) reads nothing: its newest is not the room's. */
 export function readUpTo(th: { messages: RoomMessage[]; nextCursor: string | null; newerCursor?: string | null; loading: boolean; error: unknown }, lastReadSeq: number, inSight: (m: RoomMessage) => boolean): number {
