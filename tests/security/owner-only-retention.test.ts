@@ -10,7 +10,7 @@ let A: CApp
 beforeAll(async () => { A = await makeCApp('sec-owner-retention') })
 afterAll(async () => { await A.close() })
 
-const patch = (as: string, body: Record<string, unknown>) => A.json('/api/admin/settings', { as, ...jsonBody(body, 'PATCH') })
+const patch = (as: 'alice' | 'carol' | 'dana', body: Record<string, unknown>) => A.json('/api/admin/settings', { as, ...jsonBody(body, 'PATCH') })
 const CHANGE: Record<(typeof OWNER_ONLY_SETTINGS)[number], unknown> = { updateChannel: 'beta', auditRetentionDays: 7, fileHistoryRetentionDays: 1, trashRetentionDays: 1, chatTrashRetentionDays: 1 }
 
 describe('retention periods and the update channel: owner only', () => {
