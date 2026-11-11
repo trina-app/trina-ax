@@ -14743,9 +14743,10 @@ new button or card.
   sent yet never), of a message in the same room, not deleted, not an event line. Who sees the message is decided in the
   query (`SEE_MEMBER_SQL` on its room's member row: a later member of a group chat or a 1:1 from their join, a thread
   reply by whoever sees its thread's first message, a team room's whole history once opened, others' private previews
-  never, the old answers hidden from them and their threads never), then `canSee` on each row, then `messagesOut` once
-  per room: the message must come out not withheld (so never an answer shared from someone's own AI chat with its files
-  that is hidden from them) and the file must be among its files. Leaving or being taken out ends it at once.
+  never, the old answers hidden from them and their threads never), then `canSee` on each row, then what `messagesOut`
+  would withhold, per room (`hiddenAmong`: never an answer shared from someone's own AI chat with its files that is
+  hidden from them, nor its thread); the file is given as the room gives it (`fileOut`), still sent with that message.
+  (#349 ran the whole `messagesOut` for this; the follow-up below.) Leaving or being taken out ends it at once.
 - **How it finds a file.** Every word in the name (`LIKE … ESCAPE`, A–Z in any case, `%` and `_` as themselves; names
   are stored NFC). No index and no migration: `room_files` holds one row per file sent. The query reads it newest first
   by rowid (when the file was uploaded, moments before it was sent) with `CROSS JOIN` (room_files, then its message by
@@ -14755,9 +14756,11 @@ new button or card.
   1.5–4 s per query on a million messages and 200,000 files, and this order at 0.1–110 ms. Measured in the suite
   (`b-rooms-file-search.test.ts`, 20,000 files among 100,000 messages, half in a room of hers, median of 5, two runs on
   this Mac while other suites ran on it): a word in every name 19–87 ms, its second page 23–78 ms, a rare name (40 files)
-  31–198 ms, two words 54–75 ms, a word in no name 3–4 ms; with one message per file and a quiet machine 2–14 ms. Most
-  of a page with hits is `messagesOut`. A test reads the plan: `SCAN f` (a later page `SEARCH f USING INTEGER PRIMARY KEY (rowid<?)`), no
-  `TEMP B-TREE`. Known limit: as for messages, the walk passes files of rooms they are not in.
+  31–198 ms, two words 54–75 ms, a word in no name 3–4 ms; with one message per file and a quiet machine 2–14 ms; most
+  of a page with hits was `messagesOut`, and without it (the follow-up) 0.5 ms, 0.6 ms, 11 ms, 4 ms and 8 ms in the same
+  test under the same load. A test reads the plan: `SCAN f` (a later page `SEARCH f USING INTEGER PRIMARY KEY
+  (rowid<?)`), no `TEMP B-TREE`. A hand-made cursor at, above or below a file they do not see gives what they see
+  below it, never that file. Known limit: as for messages, the walk passes files of rooms they are not in.
 - **The file row.** On the 전체 and 파일 tabs, after the team's files by name: 4 file rows in all on 전체 (the team's first,
   then the rooms'), all of them on 파일. One line: the file's icon and name (the typed words marked), then dim "who ·
   where · when" with the room said as a message hit says it ("#디자인 리뷰", "1:1 대화 · Ben", a group chat's name).
@@ -14770,20 +14773,41 @@ new button or card.
   trigram `LIKE` with the longest word, as before for a short text; every word is matched again on the body. Visibility,
   pages and cursors as before. The snippet starts at the word found first in the text. Chat records (`listChats`): every
   word in the title or in one of the chat's messages (per chat, as `chat/room-project-chats.ts` does for the AI's
-  project_chats tool). The messages that hold any word are read in **one** pass over `messages_fts` per request (it is a
-  scan either way: `LIKE … ESCAPE` is never handed to FTS5), only for the chats that list may hold, each row with the
-  words it holds; that only narrows the query, and whether an answer counts is decided per chat in `found()`: a word
-  counts through the title, a person's message, or an answer not hidden from me, never through a hidden one. The palette
-  marks the first match of every word, and puts first the chats whose title has every word.
+  project_chats tool). The chats that hold the words are found once per request, before the pages: a pass per word (the
+  longest first) over the chats that list may hold, after the first word only over those that held the words before,
+  each chat's finished messages (`status <> 'streaming'`, what `messages_fts` holds) read by the chat's index until the
+  first with the word (`EXISTS`). That only narrows the query; whether an answer counts is decided per chat in `found()`
+  (a shared chat, or mine with several authors), from that chat's messages read once with each word's `LIKE` once a
+  message: a word counts through the title, a person's message, or an answer not hidden from me, never through a hidden
+  one. Team file names (`team-files/find.ts`, also the chat's team-file picker): every word in the name, any case (the
+  follow-up). The palette marks the first match of every word, and puts first the chats whose title has every word.
+- **Chat search with a common word (the follow-up, fix/search-followups).** #349 read the messages holding any word in
+  one pass over `messages_fts` (each word's `LIKE` twice a row, a join of `messages` and an object per row): on a word in
+  most messages (one letter: ⌘K asks from the first) it was slower than before, and bun:sqlite holds the server for
+  that long (the review: 2,000 chats × 100 messages, dev 0.5–1.1 s, #349 1.5–3.2 s). Timed before choosing (in-memory
+  SQLite, 2,000 of my chats × 100 messages, every message with the word, min of 5 on this Mac under heavy load from
+  other sessions): "요" before #349 0.5–4.7 s, a pass over `messages_fts` with each `LIKE` once (an inner select, the
+  filter outside) 1.3–2.3 s, a `GROUP BY` of it no faster (0.7–1.3 s on 1,000 chats), the pass per word by `EXISTS`
+  19–35 ms; with 3,000 other people's chats too: 4.7 s, 2.3 s, 33 ms; a word in no message 1.7–3.3 s, 2.2–5.4 s,
+  1.3–1.6 s (a pass over `messages_fts` reads the whole team's messages; this reads the chats the list may show). In the
+  suite (`b-api.test.ts`, 600 chats × 100 messages, the whole request, median of 5, two runs): a common word before #349
+  82–396 ms, #349 629–1361 ms, now 58–114 ms; a word in no message 211–454, 202–351, 41–77 ms. Known limit: a rare word
+  still reads every message of the chats the list may show (as before #349, which read every message of the team).
+- **Follow-up tests.** `b-shared-chat-audience.test.ts` (a word of the title with a word only in an answer hidden from
+  me, on the project page, in my list, in my trash and in my chat once it is no longer shared), `b-api.test.ts` (the
+  timing above, pages through every chat with a common word), `b-rooms-file-search.test.ts` (hand-made cursors at a file
+  they do not see), `attach-team-files.test.ts` (team file names by every word, still only what each may read),
+  `search-palette.test.tsx` (what counts as the same search).
 - **Known limits (word by word).** Two short Korean words ("회의 자료", "견적 요청") used to be one 5-character phrase
   `MATCH`; now they are the trigram `LIKE` with the longer word, a scan of the index's text: on the suite's 50,000-message
   room 23–26 ms and 53–73 ms (median of 5, two runs while other suites ran), against 12–36 ms for one word of 3 or more
   characters in the same run. Words apart are found anywhere in a
   message or a chat, also far apart, and an older result with the text as one run ranks no higher.
 - **A result of an older text is never shown nor opened.** Each answer from the server (chats, the team's file names,
-  room messages and their further pages, room files) is kept with the words it answered (lower case), and rows, the
-  loading state, the failure lines and Enter use it only while those are the words in the box; a space more or a letter
-  in another case asks nothing again. So a fast Enter opens the top row shown at that moment, never a chat of the text
+  room messages and their further pages, room files) is kept with the words it answered, and rows, the loading state,
+  the failure lines and Enter use it only while those are the words in the box; a space more or a letter in another
+  case asks nothing again where the server takes both alike: A–Z only for chats, room messages and room files (their
+  `LIKE`; "Été" and "été" are two searches), every letter for the team's file names (`team-files/find.ts` folds them). So a fast Enter opens the top row shown at that moment, never a chat of the text
   before (the audit: search "견적서", replace it with "회의록", Enter: a 견적서 chat opened).
 - **The highlight is kept by its row's key.** Arrows and the pointer choose a row by its key; results arriving above it
   (room messages after the chats, say) no longer move it to another row. When the row is gone, the row at its place.

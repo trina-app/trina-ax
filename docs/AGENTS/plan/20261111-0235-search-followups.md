@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 02:35
 - Branch: `fix/search-followups`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/routes/chats.ts`, `server/src/team-files/find.ts`, `server/src/rooms/search.ts`,
   `web/src/components/SearchDialog.tsx`). Why: the follow-ups of the independent review of #349 (⌘K rooms and people,
   room files, every word); search is core.
@@ -22,8 +22,8 @@ In:
    (an inner select giving w0…wN, the filter outside), only the chat id and the flags read (arrays, not objects), no
    join. The messages and roles (which answers hold a word) are read only for the chats that reach `found()` (shared
    chats, chats with several authors), from `messages` by its chat index. Variants (GROUP BY, MATERIALIZED, a pass per
-   word) are timed before choosing; the numbers go in DECISIONS. A timing test with a common word, as the room searches
-   have.
+   word, EXISTS per chat) are timed before choosing; the numbers go in DECISIONS (Result: the EXISTS pass per word won).
+   A timing test with a common word, as the room searches have.
 2. **Tests of the hidden-answer check through words** (`tests/unit/b-shared-chat-audience.test.ts`): my own chat with
    several authors that is no longer shared (visible() → found()); one word only in the title and the other only in a
    hidden answer; the plain chat list (no projectId) and the trash.
@@ -63,4 +63,20 @@ specs.
 
 ## Result
 
-(filled in at the end)
+1. **Chat search.** Timed first (DECISIONS: "Chat search with a common word"). The suggested pass over `messages_fts`
+   with each `LIKE` once (an inner select) was faster than #349 but still 1.3–2.3 s on a common word, and a `GROUP BY` of
+   it no faster: a pass over `messages_fts` reads the whole team's messages and hands every matching row to JS. Built
+   instead: a pass per word (longest first, each over the chats that held the words before) over the chats the list may
+   show, `EXISTS` on `messages` by the chat's index, stopping at a chat's first message with the word: 19–35 ms for a
+   common word on 2,000 chats × 100 messages, a word in no message 1.3–1.6 s (before #349 0.5–4.7 s and 1.7–3.3 s). The
+   messages and roles are read only for a chat that reaches `found()`, from that chat's messages, each word's `LIKE`
+   once. Timing test in `b-api.test.ts`.
+2. Tests added in `b-shared-chat-audience.test.ts` (one test: title word + hidden word on the project page and in the
+   plain list, the trash, and the chat once no longer shared, through `found()`).
+3. The palette's keys: A–Z only for the server's `LIKE` sources; the team file names by their words with every letter
+   folded, since `findFiles` now matches every word (4), so "q4  budget" and "q4 budget" are one search there too.
+4. `findFiles` matches every word; its access checks are unchanged. The #349 changes/ line now names team files and the
+   picker (it is unreleased, so it was corrected rather than repeated).
+5. Done: `hiddenAmong` (exported) per room, `fileOut` and `refsOf` (exported) instead of `messagesOut`; every access
+   test stays green, and a page is 0.5–11 ms where it was 19–198 ms.
+6. Done: hand-made cursors at, above and below an unseen file.

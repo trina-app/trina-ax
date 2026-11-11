@@ -1,0 +1,1 @@
+- ⌘K's chat search is faster when a word is in most messages (one letter such as "a" or "요", which ⌘K searches as soon as it is typed): it reads only the chats the list can show, each until its first message with the word. It read every message of the team and could hold the server up for a second or more.
