@@ -36,8 +36,8 @@ import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
 import { PhonePageBar } from '../phone/PhonePageBar'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
-/** sections a phone's list shows on top instead of in their group: the profile (the photo row) and 알림 (알림함) */
-const PHONE_TOP = new Set(['profile', 'notifications'])
+/** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
+const PHONE_TOP = new Set(['profile'])
 
 let openedFrom: HTMLElement | null = null
 /** What gets the keyboard back when the dialog closes, said by whatever opens it when that is not what has focus by
@@ -107,10 +107,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   const current = tab ?? 'profile'
-  // phones: the open section's name in the bar (not for a page under a section: that page has its own title); 알림 is
-  // reached from the 알림함 row there, so it keeps that name
+  // phones: the open section's name in the bar (not for a page under a section: that page has its own title)
   const section = tab && !page ? tabs.find((x) => x.id === tab) : undefined
-  const sectionName = section ? t(section.id === 'notifications' ? 'inbox.title' : section.label) : ''
+  const sectionName = section ? t(section.label) : ''
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={onClose}>
@@ -208,9 +207,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   )
 }
 
-/** The 나 list on a phone: who is signed in (it opens the profile), what needs me (알림함 with its count, the phone app's
- * notifications when they are off, 관리자 for owners and admins), the sections in their groups, and 로그아웃. Every row
- * pushes its page, so Back comes back here. */
+/** The 나 list on a phone: who is signed in (it opens the profile), what needs me (the Activity page with its count, the
+ * phone app's notifications when they are off, 관리자 for owners and admins), the sections in their groups (알림, the
+ * notification settings, in its own), and 로그아웃. Every row pushes its page, so Back comes back here. */
 function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: React.Ref<HTMLElement> }) {
   const t = useT()
   const me = useMeStrict()
@@ -237,7 +236,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
         <PhoneListRow
           icon={<Bell size={16} />}
           title={t('inbox.title')}
-          to="/settings/notifications"
+          to="/activity"
           badge={inbox > 0 ? (
             <span className="shrink-0 rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="settings-inbox-unread">
               <span aria-hidden>{inbox > 99 ? '99+' : inbox}</span>

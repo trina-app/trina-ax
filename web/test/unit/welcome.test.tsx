@@ -1158,10 +1158,10 @@ describe('the later steps and the end', () => {
       await m.until(() => stepOf(m) === 'tools', '도구 연결')
       expect(m.get('welcome-progress').querySelector('[aria-current="step"]')!.textContent).toContain('4/5 도구 연결')
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('자주 쓰는 도구를 연결해 둘까요?')
-      expect(m.get('welcome-tools').textContent).toContain('설정 › 커넥터')
+      expect(m.get('welcome-tools').textContent).toContain('설정 › 연결한 서비스')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
       expect(m.find('welcome-tools-drive')).toBeNull()
-      expect(m.get('welcome-tools-mcp-add').textContent).toContain('다른 도구 연결하기 (MCP)')
+      expect(m.get('welcome-tools-mcp-add').textContent?.trim()).toBe('다른 도구 연결하기')
       // no primary until something is connected: 나중에 하기 alone
       expect(m.find('welcome-tools-next')).toBeNull()
       expect(primaries(m)).toBe(0)

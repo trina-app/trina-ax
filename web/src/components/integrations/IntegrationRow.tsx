@@ -240,7 +240,10 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
   const phone = !!mobileApp()
   const KindIcon = i.kind === 'mcp' ? Waypoints : Globe
   const listed = connectorFor(i.url)
-  const kindLabel = t(i.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')
+  // the line under the name: what a known service does ("Search, read and update your pages…"), the kind ("MCP server",
+  // "API") only for one added by its address, which only owners and admins add (docs/DECISIONS.md "Plain words for
+  // members")
+  const kindLabel = listed ? t(`integrations.catalog.${listed.id}`) : t(i.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')
   const off = i.tools.filter((x) => x.enabled === false).length
   const short = toolsShortfall(i)
   const note = lastCheckNote(i)

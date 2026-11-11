@@ -105,13 +105,13 @@ export default function MyUsage() {
             ))}
           </div>
 
-          {/* the totals of the chosen period as the Console's stat cards */}
+          {/* the totals of the chosen period as the Console's stat cards: answers and an estimate, no tokens (a billing
+              unit for developers; Admin › Usage keeps them) */}
           <div className="mt-4">
             <StatCards
               testId="my-usage-totals"
               items={[
                 { label: t('usage.turns'), value: formatNumber(d.totals.turns, locale) },
-                { label: t('usage.tokens'), value: formatNumber(d.totals.inputTokens + d.totals.outputTokens, locale) },
                 { label: t('usage.cost'), value: `${formatUsd(d.totals.costUsd, locale)}${d.totals.unpricedTurns ? ' +?' : ''}` },
               ]}
             />

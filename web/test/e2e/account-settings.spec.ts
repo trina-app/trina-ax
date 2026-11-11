@@ -98,10 +98,10 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
   }
   // the search narrows the list by name; a section opens on the right and the address follows
   await dialog.getByTestId('settings-search').fill('mc')
-  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([/커넥터|Connectors/])
-  await dialog.getByTestId('settings-menu').getByRole('link', { name: /커넥터|Connectors/ }).click()
+  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([/연결한 서비스|Connected apps/])
+  await dialog.getByTestId('settings-menu').getByRole('link', { name: /연결한 서비스|Connected apps/ }).click()
   await expect(page).toHaveURL(/\/settings\/connectors$/)
-  await expect(dialog.getByTestId('connectors-header').getByRole('heading', { name: /커넥터|Connectors/ })).toBeVisible()
+  await expect(dialog.getByTestId('connectors-header').getByRole('heading', { name: /연결한 서비스|Connected apps/ })).toBeVisible()
   await dialog.getByTestId('settings-search').fill('zzz')
   await expect(dialog.getByTestId('settings-no-match')).toBeVisible()
   // Esc: back to the page under it, and the keyboard back on the account button

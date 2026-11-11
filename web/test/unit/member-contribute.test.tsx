@@ -18,7 +18,8 @@ import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { ResultSuggestion } from '../../src/components/onboarding/ResultSuggestion'
 import { skillHead } from '../../src/components/skills/ContributeSheet'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
-import { Notifications, skillsLink } from '../../src/components/settings/Notifications'
+import { skillsLink } from '../../src/components/settings/Notifications'
+import Activity from '../../src/pages/Activity'
 import Skills, { byPerson } from '../../src/pages/Skills'
 import { useSession } from '../../src/store/session'
 import type { ViewMessage } from '../../src/store/thread'
@@ -455,7 +456,7 @@ describe('the Inbox line and the saved skill', () => {
     expect(skillsLink(item)).toBe(`/skills?batch=${BATCH}`)
     expect(skillsLink({ code: 'skill.suggested', sourceId: 'x' })).toBe('/skills?review=x')
     inbox = [item, { ...item, id: 'n2', sourceId: 'b2', contribution: { name: null, n: 3 } }, { ...item, id: 'n3', sourceId: 'one', contribution: undefined }]
-    const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+    const m = await mount(<MemoryRouter><Activity /></MemoryRouter>)
     try {
       await m.until(() => m.find('notifications-inbox'), 'the inbox')
       const text = m.get('notifications-inbox').textContent

@@ -43,7 +43,7 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
       // the same noun in Admin and in Settings; Discover is on the page under the connections
-      await expect(header.getByRole('heading', { name: /^(커넥터|Connectors)$/ })).toBeVisible()
+      await expect(header.getByRole('heading', { name: /^(연결한 서비스|Connected apps)$/ })).toBeVisible()
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
       await staysPut(header)
       await expect(header.getByTestId('connector-search')).toBeInViewport()

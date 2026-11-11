@@ -242,15 +242,16 @@ test.describe('each page', () => {
     expect(await card.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
   })
 
-  test('Settings › Usage: the period under the line, Refresh 44 px, the three numbers on one row', async ({ page }) => {
+  test('Settings › Usage: the period under the line, Refresh 44 px, the numbers on one row', async ({ page }) => {
     await page.goto('/settings/usage')
     const desc = await box(page.getByTestId('my-usage-desc'))
     expect((await box(page.getByTestId('my-usage-period-pill'))).y).toBeGreaterThanOrEqual(desc.y + desc.height)
     await tall(page.getByTestId('my-usage-refresh'))
     const totals = page.getByTestId('my-usage-totals').locator('dd')
-    await expect(totals).toHaveCount(3)
-    await sameRow(totals.nth(0), totals.nth(2))
-    // a nine-digit total still fits its third of the row on one line
+    // answers and the estimate (#347 took the tokens off a member's screen)
+    await expect(totals).toHaveCount(2)
+    await sameRow(totals.nth(0), totals.nth(1))
+    // a nine-digit total still fits its part of the row on one line
     const one = (await box(totals.nth(0))).height
     await totals.nth(1).evaluate((el) => { el.textContent = '123,456,789' })
     expect((await box(totals.nth(1))).height).toBeLessThanOrEqual(one + 1)

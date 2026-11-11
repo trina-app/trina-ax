@@ -41,7 +41,7 @@ test('Admin: four groups, Providers first in Connections, no AI group and no AI 
   await expect(menu.getByRole('link', { name: 'AI providers' })).toHaveCount(0)
   await expect(menu.getByRole('group')).toHaveCount(ADMIN.length)
   // the shell says whose it is: the menu's title is the team's, and one line above every page says it applies to everyone
-  // in the team; the page titles are the same nouns as Settings' (Connectors is "Connectors" in both)
+  // in the team; the page titles are the same nouns as Settings' (Connected apps is "Connected apps" in both)
   const team = 'Acme'
   await expect(page.getByTestId('admin-title')).toHaveText(t['admin.teamTitle'].replace('{team}', team))
   await expect(page.getByTestId('admin-team-logo')).toBeAttached()

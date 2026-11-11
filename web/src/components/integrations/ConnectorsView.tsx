@@ -1,4 +1,4 @@
-// What Admin › Connectors and Settings › Connectors share, like Claude's Connectors: the title row (the page's title,
+// What Admin › Connected apps and Settings › Connected apps share, like Claude's Connectors: the title row (the page's title,
 // the search and Add with its ⌄ menu), which stays at the top while the page scrolls; Discover, the section under the
 // connections on the same page ("Top connectors" with Trina's own Google Drive first, then the MCP services of
 // lib/connectors.ts, the rest behind Show all); and a connector's page (ConnectorDetail: a big logo, the main action,
@@ -15,8 +15,9 @@ import { SplitAction, type AddMenuItem } from '../PageActions'
 // the split button (Add ⌄, a connector's Connect ⌄) is every page's now (components/PageActions.tsx)
 export { SplitAction, type AddMenuItem } from '../PageActions'
 
-/** `onAdd`: this person may add connections (without it, no adding and no Discover). `moreAdd`: other ways to add
- * (Admin: ask a member to connect), in a small menu next to Add connection. */
+/** `onAdd`: this person may add a connection by its address (owners and admins; without it no Add button, and a
+ * member adds from Discover). `moreAdd`: other ways to add (Admin: ask a member to connect), in a small menu next to
+ * Add connection. */
 export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
   title: string
   query: string
@@ -48,7 +49,7 @@ export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
 
 /** The ids of the headings of a page's two sections (the connections, Discover), for goToSection and aria-labelledby.
  * Each page makes its own: Settings opens over the page it came from, which stays mounted under it (App.tsx), so
- * Settings › Connectors can be on screen over Admin › Connectors. */
+ * Settings › Connected apps can be on screen over Admin › Connected apps. */
 export function useSectionIds() {
   return { connected: useId(), discover: useId() }
 }
@@ -104,8 +105,8 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
   connected: Pick<Integration, 'url'>[]
   query: string
   onAdd: (c: Connector) => void
-  /** add one that is not listed, by its address */
-  onCustom: () => void
+  /** add one that is not listed, by its address (owners and admins); without it the line says to ask an admin */
+  onCustom?: () => void
   builtIns?: BuiltInCard[]
   onAddBuiltIn?: (id: string) => void
   /** open a service's page */
@@ -154,11 +155,17 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
           <ul className={listCls} data-testid="connector-list-more">{more}</ul>
         </div>
       )}
-      <p className="mt-5 text-sm text-muted">
+      <p className="mt-5 text-sm text-muted" data-testid="connector-not-listed">
         {t('integrations.discover.customHint')}{' '}
-        <button type="button" className="font-medium text-accent-text underline underline-offset-2" onClick={onCustom} data-testid="connector-custom">
-          {t('integrations.discover.custom')}
-        </button>
+        {onCustom ? (
+          <button type="button" className="font-medium text-accent-text underline underline-offset-2" onClick={onCustom} data-testid="connector-custom">
+            {t('integrations.discover.custom')}
+          </button>
+        ) : (
+          // members: the address form (kind, sign-in method, headers, scopes) is an admin's job, like a custom app in
+          // Slack or Notion; the admin adds it for the team or asks the member to connect it (Ask a member to connect…)
+          <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
+        )}
       </p>
     </section>
   )

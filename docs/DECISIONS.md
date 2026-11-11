@@ -19870,6 +19870,73 @@ Replaces "K — Knowledge graph" (2026-11-06), "지식 그래프로 더 빠른 �
 - Version impact: **minor** (0.x): a feature and an admin API are removed; nothing an installed team set up stops
   loading.
 
+## Plain words for members — 멤버 화면은 쉬운 말로 (fix/plain-words-member-screens, 2026-11-11, product owner)
+
+Trina AX is used by ordinary office workers, almost never developers (owner rule, 2026-11-11). A read-only audit of
+`dev` listed where the app talks like a developer tool; the owner approved its top 15 and two decisions. This is the
+first of two PRs: the words on the screens members see. Chat errors, the AI's confirmation cards and step labels are
+server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0051-plain-words-member-screens.md`.
+
+- **One plain name per page, in Settings and in Admin.** #289 kept the same noun in both and let the container say
+  whose ("Just for you" / "Applies to everyone in `<team>`"). The audit proposed "My AI accounts" for Settings; "My" is
+  the scope word #289 dropped ("My connectors" was its rejected first version), so both say the same: **AI accounts**
+  (was Providers; ko AI 계정), **Connected apps** (was Connectors; ko 연결한 서비스), **Use from other AI apps** (was AI
+  apps; ko 다른 AI 앱에서 쓰기). The Settings section "Codex" is **ChatGPT** (people know the product, not the engine),
+  and so is the web's name for that AI everywhere else (`ENGINE_LABEL`: the composer's list, the switch line, the
+  answer's button, My usage), as Claude Code was already "Claude"; Admin › AI accounts keeps the engine rows' own names.
+  The page line says "Your questions use your own account first, then the team's." Every pointer follows: the stale
+  "Settings › MCP" (schedule reasons and notice, template note, team settings, the AI's own screen names in
+  `policy/refusal.ts` SCREEN, the connection tools' and connect tool's "can fix it in …"), "Settings › App connectors"
+  (the Slack link message), "Admin › AI connections" (the owners' AI-account notices), "Admin › Providers or
+  Connectors" (handover), "in Providers" (Members), "the AI engines page" (owner onboarding). The schedule texts keep
+  "your own key": the template notices and the connect card say "key" too. The trial and AI-connection errors
+  that point at a missing "Admin › AI connections" are chat errors: the second PR points them at "Admin › AI accounts".
+- **No "MCP" on member screens.** The empty line ("No apps connected yet"), Search's tab ("Apps" / 서비스) and action
+  ("Connect an app" / 서비스 연결하기; "MCP" still finds it), the onboarding tools step ("Connect another tool"), the
+  notice ("An admin asked you to connect an app."), "Other apps" in Use from other AI apps, and the connectors page's
+  "Popular apps", "More apps", "Search apps". A connection's line under its name says what a known service does (the
+  Discover card's line) instead of "MCP server"; one added by its address keeps "MCP server" / "API". "AI provider"
+  in the Drive privacy line and the key warning is "AI company". Admin's form keeps "MCP server / API", sign-in method,
+  headers and scopes: an expert task. The setup steps in Use from other AI apps keep Claude Code's `/mcp` and the
+  "Other apps" dialog's MCP and OAuth words (another app's own terms; folding them under "For developers" is later).
+- **Members do not add a service by its address** (owner decision). Settings › Connected apps shows a member no Add
+  button and, under Discover, "Not listed? Ask an admin to add it." in place of the address link (also under "Nothing
+  matches" when their search finds nothing); `?add=1` (Search, old links) no longer opens the form for them, and
+  Search's action takes them to the page. Owners and admins keep both
+  (the link reads "Add one by its address"). A member's existing connections, Discover's cards and the AI's connect card
+  in chat are unchanged. There is no member → admin request in the app: the existing request goes the other way (an
+  admin asks a member to connect), so the line tells the member to ask; the admin then adds it for the team or sends
+  that request. A button that notifies the admins is an open question for the owner.
+- **No model id under an answer.** It read like an error code ("claude-sonnet", on a server a dated id). People who may
+  choose the AI (owner, admins, people the admin allowed: `canChooseEngine`) get a small info button at the end of the
+  answer's actions whose tooltip, and toast on touch, says "Answered by Claude Sonnet": the label from the model list
+  they pick from, the AI's name ("Claude") when the model is not in it, the raw id only when nothing else is known
+  (`answeredByName`; a gateway's model, whose label is its id, is said once). Everyone else sees nothing. Like ChatGPT
+  and Claude, which stamp no model on a reply. The engine list it reads loads once: answers that ask while it is on its
+  way share the one request (`store/engines.ts`).
+- **"Engine" becomes "AI"** (owner decision; DESIGN-SYSTEM's copy rule listed "AI engine" as a user word and now lists
+  "AI or the AI's name"). Composer picker "Default AI", its list "Choose an AI", Settings › Profile "AI for new chats"
+  with the field "AI", the switch line "Switched to Claude. It carries on from the conversation so far.", the dev-mode
+  banner, the owner's AI-settings notice, Settings' search words, Admin's AI accounts line.
+- **The rest of the top 15 that is words only.** Use from other AI apps: "Connection address", "Signing out where you
+  allowed the app, or disconnecting it, ends the app's access." (the login it was allowed in, not every login),
+  "Connected AI apps". Files: a folder you can only go through reads "Only some folders" (its line "Only some folders
+  inside are open to you"), not "Pass-through only"; a conflict
+  copy is a **separate copy** ("Saved as a separate copy", "1 saved as a copy", "yours was saved next to it as …"); the
+  file name the server gives the copy still says "conflict copy" (`lib/paths.ts` recognizes it), a follow-up. The skill
+  suggestion and the skills-folder note name "team skill" and "the Projects folder", not `skills/` and `projects/`.
+  The project members dialog says "Access an admin set separately", "set by an admin", "After saving, only the members
+  here can see this project…", "The project's creator is added back as a member." instead of rules and floors. Settings
+  › Usage: no token tile (Admin › Usage keeps tokens), "A rough estimate, not a bill.", "Your answers by AI".
+- **Left for later** (structural, not words): Claude Code and other apps folded under "For developers", plain model
+  names in the usage rows, the onboarding skills block folded, the draft prompt that names `users/<id>`, raw error codes
+  and validator text (item 15).
+- Tests: web unit `answered-by` (the name, who sees it), the changed strings in `i18n`, `handover`, `welcome`; e2e
+  `integrations` (a member: no Add, the ask line, `?add=1` opens nothing), and the specs that read the old words
+  (settings, connectors, credentials, Drive, AI apps, search, engine choice, files, chat, onboarding, states, my usage).
+  Server unit `refusal-texts` (the screen names).
+- Version impact: **patch** (words, one control fewer for members, the model id behind a button; no API or data change).
+
 ## Admin and Settings on phones: a list you tap into (feat/phone-admin-list, 2026-11-10, product owner)
 
 넣을 곳: Team AX core (`web/src/pages/admin/`, `web/src/components/settings/SettingsDialog.tsx`, `web/src/components/phone/`,
@@ -19913,7 +19980,8 @@ the references, the review). This is the first part (navigation); the page patte
 - **Settings on phones:** the same list (the Inbox count as a badge on its row; the Connections group shows Providers,
   Connectors and AI apps instead of a lone "More" row), rows that push (computers keep replacing, so closing the dialog
   still steps back once), the phone bar ("‹ Settings" and the section's name), the list under a section opened from a
-  link, both kept in place for Back.
+  link, both kept in place for Back. Since #364 (the Inbox as its own Activity page) the Inbox row opens `/activity`
+  and 알림 (the notification settings) is a row in its group like the others (batch PR "phone settings").
 - **Folder permissions:** on a phone, By folder ↔ By person replaces its entry (a view of one page adds no history).
 - **From 768 px** (the owner's decision): Admin is the menu column and a page, so tablets (768 to 1023 px) no longer
   show the cut-off strip. Between 768 and 1023 px the column is a narrow rail, each page's name small under its icon
@@ -19995,7 +20063,8 @@ aside).
   there, so Spanish no longer needs 550 px. Activity log's own phone filters are gone.
 - **Settings › Providers:** the bar says "Providers" (it said "Settings"), and the card has no frame and no second title.
 - **Settings › Usage:** the title is for screen readers; the period and Refresh (44 px) go under the line, which was
-  squeezed to four lines; the three numbers share one row; the limits and the by-model list have no frames.
+  squeezed to four lines; the numbers share one row (answers and the estimate since #347 left out the tokens; three
+  before); the limits and the by-model list have no frames.
 - `Card flat` has no hairline after the page's last card. `SplitAction`'s main button is 44 px on a phone like its ⌄ (a
   height: its max-md min-height lost to the Button's own max-sm one, so Usage limits stood 40 px beside a 44 px ⌄).
 - New strings: `common.moreActions` ("More actions", Usage's ⌄) and `usage.breakdownTitle` ("Breakdown").
