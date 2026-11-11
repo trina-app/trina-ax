@@ -349,7 +349,9 @@ export class PluginManager {
   private lstatIn(rel: string): fs.Stats | null {
     try { return fs.lstatSync(path.join(this.ctx.files.fx.root, ...rel.split('/'))) } catch { return null }
   }
-  /** Each existing part of a file path below the team folder is a real folder, and the file (if there) a regular one. */
+  /** Each existing part of a file path below the team folder is a real folder, and the file (if there) a regular one.
+   * `singleLink` (placing): the file also has no other hard link. Removal passes false: unlinking only drops this name.
+   * Placing stays strict on purpose; turning the pack off and on clears such a file. */
   private linkFree(rel: string, singleLink = true): boolean {
     const segs = rel.split('/')
     for (let i = 1; i <= segs.length; i++) {
@@ -376,7 +378,7 @@ export class PluginManager {
     }
     let fd: number
     try { fd = fs.openSync(path.join(root, ...segs), fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0), 0o600) } catch (e) {
-      if (['ELOOP', 'EISDIR', 'EMLINK', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) conflict()
+      if (['ELOOP', 'EISDIR', 'EMLINK', 'ENOTDIR', 'ENXIO'].includes((e as NodeJS.ErrnoException).code ?? '')) conflict()
       throw e
     }
     try {
