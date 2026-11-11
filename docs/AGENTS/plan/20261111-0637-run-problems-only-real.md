@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 06:37
 - Branch: `fix/run-problems-only-real`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/schedule-outcome.ts`, `server/src/chat/turn.ts`,
   `server/src/integrations/connections/tools.ts`, their unit tests). Why: scheduled runs and connection sends are core
   (docs/REPOSITORY-RULES.md).

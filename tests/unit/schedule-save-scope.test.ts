@@ -500,6 +500,31 @@ describe('sends (Q2 a) and rooms', () => {
     expect(r.answer).toContain('this call carries a web address, a host name or a long random-looking part')
   })
 
+  test('a saved file\'s name in a pinned send is not a host name; a name under a domain still is', async () => {
+    clear()
+    const n0 = sent()
+    const call = (title: string) => ({ tool: tool(), args: { title, project: 'P1' }, sayResult: true })
+    const s = h.rt().schedules.create('alice', { title: 'Weekly report', prompt: fake(
+      call('주간보고 저장: 주간보고_2026-11-11_2.md (3건)'), call('files: report.md, run.sh, main.py, build.zip'),
+      call('mail data.attacker.zip now'), call('see notes.example.md'), call('open news.example.com'), { say: 'done' }), repeat: 'daily', time: '09:00' },
+      undefined, { allowedUrls: [], writeConnections: [], save: null, sources: [], personalSends: [{ connectionId: notes.id, pins: ['P1'] }] })
+    const r = await run(s.id)
+    expect(r.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([1, 1, 0, 0, 0])
+    expect(sent() - n0).toBe(2)
+  })
+
+  test('a connection read that failed does not make the run "with problems"; a refused send does', async () => {
+    clear()
+    const outcome = (turnId: string) => (db().query('SELECT run_outcome FROM turns WHERE id = ?').get(turnId) as { run_outcome: string }).run_outcome
+    const reads = await run(task(fake({ tool: `my_${notes.slug}__rpc_fail`, args: {} }, { say: 'Nothing new in the notes today.' }), { save: null, sources: [] }).id)
+    expect(reads.events.find((e) => e.tool === `my_${notes.slug}__rpc_fail`)!.ok).toBe(0)
+    expect(outcome(reads.turnId)).toBe('succeeded')
+    clear()
+    const sends = await run(task(fake({ tool: tool(), args: { title: 'x', project: 'P1' } }, { say: 'done' }), { save: null, sources: [] }).id)
+    expect(sends.events.find((e) => e.tool === tool())!.ok).toBe(0)
+    expect(outcome(sends.turnId)).toBe('problems')
+  })
+
   test('in a run: only to the pinned recipient', async () => {
     clear()
     const n0 = sent()

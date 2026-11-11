@@ -2137,7 +2137,8 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
   worked" are now separate.
 - Each scheduled turn stores `turns.run_outcome` (migration 210, additive): `failed` = the turn did not end `done` or
   gave no answer text; `problems` = the answer finished but a tool call was refused or failed (`tool_events.ok = 0` or
-  a step with status `error`); `succeeded` otherwise. The turn writes it before its terminal status, because the
+  a step with status `error`; since 2026-11-11 only a call that would change something, see "Scheduled run: only what
+  needs the person is a problem"); `succeeded` otherwise. The turn writes it before its terminal status, because the
   notification reconciler records any terminal scheduled turn and an inbox event cannot change after it is recorded.
   Rows without a value (older builds, interrupted recovery) fall back to the status. Rule: `server/src/chat/schedule-outcome.ts`.
 - Notifications keep the two event types and their preferences (the inbox and push tables have CHECK lists and must not
@@ -18349,7 +18350,7 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
   none is refused too (the server cannot tell where it goes). **What it says is checked too** (third review): a link in
   a message's text is fetched for its preview, a picture in a page or a mail is loaded when someone opens it, so a pinned
   recipient still reaches an address in the content. Any web address, host name (a public suffix, also in running text
-  and file names such as "report.md"), address-like argument or long random-looking part (`carriesAddress`, as #274
+  and, until 2026-11-11, file names such as "report.md": see "Scheduled run: only what needs the person is a problem"), address-like argument or long random-looking part (`carriesAddress`, as #274
   hardened it) that is not a pinned recipient or one of the task's own addresses (`allowed_urls`, the card showed them)
   is refused. A task whose card did not pin the connection: "nobody could be asked", as before.
 - **Follow-up, not fixed here:** an "allow" team connection in a run without a room read sends what the AI writes with no
@@ -19935,3 +19936,36 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   (settings, connectors, credentials, Drive, AI apps, search, engine choice, files, chat, onboarding, states, my usage).
   Server unit `refusal-texts` (the screen names).
 - Version impact: **patch** (words, one control fewer for members, the model id behind a button; no API or data change).
+
+## Scheduled run: only what needs the person is a problem — 예약 실행의 "문제"는 사람이 할 일이 있을 때만 (fix/run-problems-only-real, 2026-11-11, product owner)
+
+- Owner report: a weekday news briefing showed "Last run finished with problems / Some steps did not work", and its
+  answer was complete. Cause: `server/src/chat/turn.ts` counted every refused or failed call (`tool_events.ok = 0`,
+  every step with status `error`) into `scheduleRunOutcome`. A news run opens pages it found in a search; in an
+  unattended run an address the chat never showed is refused (its card cannot be shown), and pages time out or answer
+  4xx/5xx. The AI answers from the search results anyway, and the run said "problems".
+- Rule (`server/src/chat/schedule-outcome.ts`): `problems` only when the person has something to act on: a call that
+  would change something (a save, a send, a post, a delete, a memory, a move, a sub-task, an unknown tool) was refused or
+  failed, or the answer paused at a per-answer limit. A refused or failed **look-up** does not count: the tools of the
+  web app's quiet mark (shared `READ_ONLY_TOOLS`: read, grep, glob, list, skill, Drive reads, `web_fetch` …), the
+  engine's web search, room and project chat reads, the schedule list, the in-app browser's reading tools, and a
+  connection call that only reads (its own mark, from the call's arguments, noted by the turn when the call starts).
+  `failed`, `stopped`, `interrupted` and an empty answer are unchanged. The server log keeps the number of look-ups that
+  did not work (`scheduled run: look-ups that did not work`); the screen does not (no new box).
+- A change that failed and was then done by a later call still counts. The steps list shows such a step with the quiet
+  mark ("A failed step the AI got past is not red"), but a policy refusal (TC-019 "nobody to ask", a write outside the
+  approved folder) and an error look the same in the audit row, and the person must hear about a refusal.
+- Same day, QA: every run that saved a file and sent its summary to a pinned connection was `problems`, because the
+  summary named the file (`주간보고_2026-11-11_2.md`) and `.md` is Moldova's suffix, so `hostNamesIn`
+  (`integrations/connections/tools.ts`) refused the send as carrying a host name. A name now reads as a file, not a host,
+  when it is one name and a file extension that is also a suffix (`md py sh zip mov pl rs ps ai cc so`: nothing can ride
+  in front of a registered name, and a pre-registered `report.md` learns only that a preview was fetched) or its
+  registrable label has a character no registrar issues (`_`). `x.attacker.zip`, `data.attacker.net` and any address
+  with a path, query or port stay refused.
+- Not changed here (`tools/url-gate.ts`, PR #351): `carriesAddress` still reads a value that is only a file name under
+  an argument not named for a file (`{"body": "report.md"}`, `wholeHost`) and a file name followed by `:<digit>` or `/`
+  (`bareAddress`, `AFTER_HOST`) as an address.
+- Tests: `tests/unit/schedule-outcome.test.ts` (a briefing with a refused `web_fetch`, a missing file and a bad search
+  pattern succeeds; a refused skill save after a refused read is `problems`; empty and cut-off answers fail; the
+  look-up set), `tests/unit/schedule-save-scope.test.ts` (file names in a pinned send go; names under a domain do not).
+- Version impact: **patch** (no API, data or screen change).
