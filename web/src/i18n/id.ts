@@ -992,6 +992,7 @@ export const id: Record<MessageKey, string> = {
   'projects.instructions': 'Instruksi',
   'projects.instructionsHint': 'Yang selalu diikuti AI di chat proyek ini.',
   'projects.noInstructions': 'Belum ada instruksi.',
+  'projects.cardMembersOnly': 'Hanya anggota yang bisa melihat isinya.',
   'projects.newChat': 'Chat baru di proyek ini',
   'projects.noChats': 'Kamu belum pernah chat di proyek ini.',
   'projects.openFolder': 'Buka di File',

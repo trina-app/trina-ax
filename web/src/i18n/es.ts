@@ -967,6 +967,7 @@ export const es: Record<MessageKey, string> = {
   'projects.instructions': "Instrucciones",
   'projects.instructionsHint': "Lo que la IA siempre sigue en los chats de este proyecto.",
   'projects.noInstructions': "Sin instrucciones.",
+  'projects.cardMembersOnly': "Solo los miembros pueden ver lo que hay dentro.",
   'projects.newChat': "Nuevo chat en este proyecto",
   'projects.noChats': "Aún no ha conversado en este proyecto.",
   'projects.openFolder': "Abrir en Archivos",

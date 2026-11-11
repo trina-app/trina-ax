@@ -21461,3 +21461,21 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   a phone, no AI: tell the owner once, connect my own, the row back when AI answers; first names; the join title; the ✦
   line once).
 - Version impact: **minor** (a new endpoint, migration 286 and a visible change on an invited person's first screen).
+
+## A project card I am not in says only members see inside — 멤버만 내용을 볼 수 있어요 (fix/project-card-members-only, 2026-11-12, QA TC-303)
+
+- Since "Project contents only for members", the owner or an admin who is not a member gets a team project without its
+  instructions (`Project.member: false`, `instructions: ''`). The Projects list card (#374) read that empty field as
+  "지침이 없어요." ("No instructions."), which was untrue for a project that has instructions. Now such a card shows a
+  small lock (as "나만 봐요" under a chat's box) and "멤버만 내용을 볼 수 있어요." ("Only members can see what's inside.")
+  in the same faint two lines' room, so the card stays as tall as the others. The line comes from `member: false`
+  alone: nothing more is sent.
+- In the trash (`inTrash`, also `member: false` for everyone): that line stays empty. Nobody sees its contents then,
+  members included, and the card's line above already says it is in the trash.
+- Unchanged: members' cards, "지침이 없어요." on a project I see that has no instructions, and the project page (its one
+  quiet block for a non-member).
+- i18n: `projects.cardMembersOnly` in the five languages.
+- Tests: web unit `project-list-menu.test.tsx` (the lock and the line on a card I am not in, empty in the trash, "지침이
+  없어요." on mine), e2e `project-list-menu.spec.ts` (an admin who is not in a project with instructions: the line and
+  the lock, not its instructions, as tall as her own card, axe; `SHOTS_DIR` takes the pictures at 1440 and 390).
+- Version impact: **patch** (words on a card; no API, data or permission change).
