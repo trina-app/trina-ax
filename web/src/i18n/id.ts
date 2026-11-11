@@ -662,6 +662,7 @@ export const id: Record<MessageKey, string> = {
   'hwp.engine': "Pratinjau Hangul tidak tersedia di server ini. Unduh dokumen asli.",
   'hwp.isolation': "Perenderan dokumen yang aman tidak tersedia di server ini. Unduh dokumen asli.",
   'hwp.changed': "Dokumen berubah. Buka kembali pratinjaunya.",
+  'hwp.replaced': 'Dokumen ini diubah, jadi pratinjau dimulai lagi dari halaman 1.',
   'hwp.loss': "Perender mendeteksi kemungkinan konten hilang. Unduh dokumen asli untuk memeriksanya.",
   'preview.unsupported': 'Format ini tidak bisa dipratinjau. Unduh untuk membukanya.',
   'preview.truncated': 'Hanya bagian awal file yang ditampilkan.',

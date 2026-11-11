@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:28
 - Branch: `fix/hwp-preview-replaced`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/components/viewers/HwpView.tsx`, the five locales, a web unit test). Why: the file
   preview is core (see docs/REPOSITORY-RULES.md).
 - Version impact: patch, the preview no longer mixes two versions of a document; no API, data or migration change
@@ -45,4 +45,15 @@ No migration, no permission change. Five locales. A room file (its own address) 
 
 ## Result
 
-(filled in at the end)
+Built as planned. `HwpView` keeps the `sourceHash` of the document its pages came from (per file). A page whose
+hash differs is not shown: the preview asks for page 1 again (that page is of the new version) and shows "문서가 바뀌어서
+첫 쪽부터 다시 보여 드려요." (role status) until the person turns a page. Five locales (`hwp.replaced`).
+
+Test: `web/test/unit/hwp-replaced.test.tsx` (a fake server replaces a 3-page document with a 5-page one between page 2
+and 다음: pages asked 1, 2, 3, 1, the panel shows "1 / 5쪽" with the notice, the next 다음 shows "2 / 5쪽" without it;
+it fails on the old viewer; the same document page after page shows no notice).
+
+On a local server with the HWP Preview plugin installed from the catalog (1.0.0, darwin-arm64) and two .hwpx files
+made with the server's own writer (3 and 5 pages): A on page 2 of 3, B uploads the 5-page version with
+`onExists: replace`, A presses 다음: "1 / 5쪽", the new first page and the notice; 다음 again: "2 / 5쪽", no notice.
+`bun run --cwd web typecheck`, `check:i18n`, `check:docs` pass.

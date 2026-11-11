@@ -662,6 +662,7 @@ export const en: Record<MessageKey, string> = {
   'hwp.engine': "Hangul preview is unavailable on this server. Download the original.",
   'hwp.isolation': "Safe document rendering is unavailable on this server. Download the original.",
   'hwp.changed': "The document changed. Reopen its preview.",
+  'hwp.replaced': 'The document was changed, so the preview starts again from page 1.',
   'hwp.loss': "The renderer detected possible missing content. Download the original to inspect it.",
   'preview.unsupported': "This format can't be previewed. Download it to open it.",
   'preview.truncated': 'Only the beginning of the file is shown.',
