@@ -3,7 +3,8 @@
 // one row per app whose Connect opens numbered steps with the real address (components/integrations/AiAppConnect.tsx),
 // then each connected app with when it connected and Disconnect. Off on this server: members get one line, owners and
 // admins the setup to turn it on. It was part of Settings › App connectors, a page that is gone.
-// A phone (the phone app, or below 768 px): these apps are set up on a computer (a terminal command, a desktop app's
+// A phone (the phone app, or a browser on an iPhone or Android phone; a narrow window on a computer keeps the steps):
+// these apps are set up on a computer (a terminal command, a desktop app's
 // settings), so it shows only the apps already connected, with Disconnect (which asks first there), and one line that
 // says to set them up on a computer; with the connector off, one line for everyone (the server setup is a computer's).
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -13,11 +14,12 @@ import { api, errorText } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, reloadAsked } from '../store/live'
-import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useMediaQuery } from '../components/ui'
+import { Button, ErrorNote, IconButton, Skeleton, confirmDialog } from '../components/ui'
 import { AiAppDialog, AiAppRows, ConnectorOff } from '../components/integrations/AiAppConnect'
 import { useMeStrict } from '../store/session'
 import type { AiApp } from '../lib/connectors'
 import { mobileApp } from '../lib/mobile'
+import { platform } from '../lib/pwa'
 
 export default function AiApps() {
   const t = useT(), locale = useLocale()
@@ -53,7 +55,7 @@ export default function AiApps() {
   const on = configured && !!resource
   const isAdmin = me.user.role === 'owner' || me.user.role === 'admin'
   const [openApp, setOpenApp] = useState<AiApp | null>(null)
-  const phone = useMediaQuery('(max-width: 767.98px)') || !!mobileApp()
+  const phone = !!mobileApp() || platform() === 'ios' || platform() === 'android'
   // a phone: a tap is easily made by mistake, so Disconnect asks first
   const askDisconnect = async (item: RemoteConnectionInfo) => {
     if (await confirmDialog({ title: t('aiApps.disconnectTitle', { name: item.clientName }), confirm: t('connectors.disconnect'), danger: true })) void disconnect(item.id)

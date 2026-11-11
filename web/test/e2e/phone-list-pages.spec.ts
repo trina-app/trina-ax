@@ -40,7 +40,7 @@ const PAGES: { path: string; ready: string; primary?: string; filters?: string }
   { path: '/admin/audit', ready: 'audit-list', filters: 'activity-more' },
   { path: '/settings/providers', ready: 'my-providers' },
   // Settings › Connectors leads to the Connectors page (/connectors) since #366: its own design, not a Settings list
-  { path: '/settings/ai-apps', ready: 'ai-apps' },
+  { path: '/settings/ai-apps', ready: 'ai-app-list' },
   { path: '/settings/usage', ready: 'my-usage-totals' },
 ]
 
@@ -147,15 +147,12 @@ test.describe('each page', () => {
     }
   })
 
-  test('AI apps: Copy and Connect are 44 px tall in Admin; Settings on a phone has no setup, only the line to set apps up on a computer', async ({ page }) => {
-    await page.goto('/admin/ai-apps')
-    await tall(page.getByTestId('connector-address-copy'))
-    await tall(page.getByTestId('ai-app-connect-claude'))
-    // QA TC-262: setting up an AI app is a computer's work (phone-settings-rows.spec.ts)
-    await page.goto('/settings/ai-apps')
-    await expect(page.getByTestId('ai-apps-on-computer')).toBeVisible()
-    await expect(page.getByTestId('ai-app-connect-claude')).toHaveCount(0)
-    await expect(page.getByTestId('connector-address-copy')).toHaveCount(0)
+  test('AI apps: Copy and Connect are 44 px tall, in Admin and in Settings', async ({ page }) => {
+    for (const path of ['/admin/ai-apps', '/settings/ai-apps']) {
+      await page.goto(path)
+      await tall(page.getByTestId('connector-address-copy'))
+      await tall(page.getByTestId('ai-app-connect-claude'))
+    }
   })
 
   // Plugins: #388 made Admin › Plugins cards and a page per plugin, like Connectors; its own tests are plugins.spec.ts

@@ -185,14 +185,15 @@ test.describe('a Windows PC in Edge', () => {
 
 test.describe('an iPhone in Safari', () => {
   test.use({ userAgent: UA.iphoneSafari, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
-  test("only the iPhone's App Store, no QR code; the computers' apps follow", async ({ page }) => {
+  test("only the iPhone's App Store, no QR code; the computers' apps are a link to send to a computer (QA TC-262)", async ({ page }) => {
     test.skip(!APP_DOWNLOADS.iphone && !APP_DOWNLOADS.page, 'an edition without phone links')
     const dialog = await open(page)
     await expect(dialog.getByTestId('app-link-iphone')).toHaveAttribute('href', phoneHref('iphone'))
     await expect(dialog.getByTestId('app-row-android')).toHaveCount(0)
     await expect(dialog.getByTestId('apps-phone-qr')).toHaveCount(0)
     await expect(dialog.getByTestId('apps-phone').getByRole('img')).toHaveCount(0)
-    await expect(windowsLink(page)).toBeVisible()
+    await expect(dialog.getByTestId('apps-send-to-computer')).toBeVisible()
+    await expect(windowsLink(page)).toHaveCount(0)
     expect(await noOverflow(page)).toBe(true)
   })
 })
@@ -219,13 +220,14 @@ test.describe('the Mac App Store build', () => {
 
 test.describe('the iPhone app', () => {
   test.use({ userAgent: UA.iphoneSafari, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
-  test('the phones collapse to "This app"; the computers stay', async ({ page }) => {
+  test('the phones collapse to "This app"; the computers are a link to send to a computer (QA TC-262)', async ({ page }) => {
     const dialog = await open(page, { phoneApp: 'ios' })
     const phones = dialog.getByTestId('apps-phone')
     await expect(phones.getByRole('listitem')).toHaveCount(1)
     await expect(phones.getByTestId('app-row-iphone')).toContainText('이 앱')
     await expect(phones.getByRole('link')).toHaveCount(0)
-    await expect(windowsLink(page)).toBeVisible()
+    await expect(dialog.getByTestId('apps-send-to-computer')).toBeVisible()
+    await expect(windowsLink(page)).toHaveCount(0)
     await expect(dialog.getByTestId('install-guide')).toHaveCount(0)
     // App Review 2.3.10: an Apple app names no other mobile platform or app store
     await expect(dialog).not.toContainText(/Android|Google Play|Microsoft Store/)

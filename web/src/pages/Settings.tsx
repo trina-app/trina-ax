@@ -10,7 +10,8 @@
 // Settings, not a web page's buttons. Language and theme are checkmark lists; Security & devices is two rows that open
 // pages under it (the password form, every signed-in device); Memory has its "+" in the bar, a row opens its edit sheet
 // (forgetting one asks first) and "Forget all" is a red row; 트리나에게 허용한 것 also holds Browser and Dev environment
-// sites (`fold`); Apps in the phone app sends the Apps page to a computer instead of offering Mac and Windows files.
+// sites (`fold`). On a phone itself (the phone app, or a phone's browser) Apps sends the Apps page to a computer instead
+// of offering Mac and Windows files.
 import clsx from 'clsx'
 import { Brain, KeyRound, Laptop, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -244,12 +245,13 @@ function Profile() {
               </span>
             )}
           </Row>
-          {/* the team owner and the admins delete accounts: this asks them (App Store review 5.1.1(v)) */}
-          <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
+          {/* the team owner and the admins delete accounts: this asks them (App Store review 5.1.1(v)); a phone has it as
+              the page's last row */}
+          {!phone && <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
             <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
               {t('accountDeletion.title')}
             </Link>
-          </Row>
+          </Row>}
         </div>
       </Section>
       {phone ? (
@@ -304,6 +306,13 @@ function Profile() {
       </Section>
       )}
       <TextSizeSetting />
+      {phone && (
+        <PhoneSection className="-mt-6">
+          <PhoneListGroup title={t('accountDeletion.row')} footer={t('accountDeletion.rowHint')}>
+            <PhoneListRow title={t('accountDeletion.title')} to="/settings/account/delete" testId="account-deletion-link" />
+          </PhoneListGroup>
+        </PhoneSection>
+      )}
     </>
   )
 }
@@ -818,9 +827,10 @@ function Apps() {
   const os = desktop()?.platform
   const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : 'other') : platform()
   const client: AppClient = { kind, here, store }
-  // a phone (the phone app, or a phone's browser): the Mac and Windows apps are for a computer, so the way to send the
-  // Apps page there, not their files and not the owner's hint about the server's installers
-  const phone = useMediaQuery('(max-width: 767.98px)') || kind === 'mobile'
+  // a phone (the phone app, or a browser on an iPhone or Android phone; not a narrow window on a computer): the Mac and
+  // Windows apps are for a computer, so the way to send the Apps page there, not their files and not the owner's hint
+  // about the server's installers
+  const phone = here === 'ios' || here === 'android'
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
     let live = true

@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { CreateScheduleFromTemplate, Schedule } from '@mycel/shared/api'
 import { api, API, ApiError, errorText } from '../../lib/api'
@@ -50,6 +51,8 @@ export function ScheduleTemplates({ onCreated, inDialog, onCancel }: { onCreated
   const errorMessage = error instanceof ApiError && error.code === 'conflict' && error.body.params?.reason === 'schedule_limit' && typeof error.body.params.limit === 'number'
     ? t('scheduleTemplates.limit', { n: error.body.params.limit })
     : errorText(error, locale, t('error.network'))
+  const pickerRow = 'max-w-full max-md:min-h-11 max-md:w-full max-md:justify-between max-md:border-transparent max-md:bg-subtle'
+  const chevron = <ChevronRight size={16} className="shrink-0 text-faint md:hidden" aria-hidden />
   const dayName = (day: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + day)))
   return <section className={inDialog ? 'space-y-3' : 'mb-5 space-y-3 rounded-xl border border-line p-4'} data-testid="schedule-templates" aria-labelledby={inDialog ? undefined : 'schedule-templates-title'}>
     {!inDialog && <h3 id="schedule-templates-title" className="text-sm font-semibold">{t('scheduleTemplates.title')}</h3>}
@@ -58,8 +61,9 @@ export function ScheduleTemplates({ onCreated, inDialog, onCancel }: { onCreated
       <Field label={t('scheduleTemplates.template')}><select className={inputCls} value={templateId} onChange={e => { setTemplateId(e.target.value as typeof templateId); setCreated(false) }} data-testid="template-kind">
         {(['daily-file-index', 'weekly-summary'] as const).map(id => <option key={id} value={id}>{t(`scheduleTemplates.${id}`)}</option>)}
       </select></Field>
-      <div><p className="mb-1 text-sm">{t('scheduleTemplates.source')}</p><Button onClick={() => setPicker('source')} data-testid="template-source">{source || t('scheduleTemplates.chooseSource')}</Button></div>
-      <div><p className="mb-1 text-sm">{t('scheduleTemplates.output')}</p><Button onClick={() => setPicker('output')} data-testid="template-output">{output}</Button></div>
+      {/* a phone: the folders are value rows with a chevron (each opens the folder picker), not outline buttons */}
+      <div><p className="mb-1 text-sm">{t('scheduleTemplates.source')}</p><Button onClick={() => setPicker('source')} className={pickerRow} data-testid="template-source"><span className="truncate">{source || t('scheduleTemplates.chooseSource')}</span>{chevron}</Button></div>
+      <div><p className="mb-1 text-sm">{t('scheduleTemplates.output')}</p><Button onClick={() => setPicker('output')} className={pickerRow} data-testid="template-output"><span className="truncate">{output}</span>{chevron}</Button></div>
       <div className="flex flex-wrap gap-3">
         <Field label={t('scheduleTemplates.time')}><input type="time" required className={inputCls} value={time} onChange={e => { setTime(e.target.value); setCreated(false) }} data-testid="template-time" /></Field>
         {templateId === 'weekly-summary' && <Field label={t('scheduleTemplates.weekday')}><select className={inputCls} value={weekday} onChange={e => { setWeekday(Number(e.target.value)); setCreated(false) }} data-testid="template-weekday">{Array.from({ length: 7 }, (_, i) => <option key={i} value={i}>{dayName(i)}</option>)}</select></Field>}
