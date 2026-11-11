@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:27
 - Branch: `fix/phone-back-parent` (stacked on #344, `batch/phone-settings`)
-- Status: in progress
+- Status: done
 - Where: Team AX core, `web/` (`lib/screens.ts`, `lib/screenHistory.ts`, the tab bar and the phone bars). Why: the
   phone app is the web app in a WebView, so its Back is the web app's history (see docs/REPOSITORY-RULES.md).
 - Version impact: minor (phone navigation behaves differently; no API change)
@@ -50,14 +50,14 @@ a tab), Files layout, Admin in-page views getting addresses.
 ## Contract with overlay entries (lib/backCloses.ts, lib/imageViewer.ts)
 
 - An overlay entry is a browser entry pushed while something is open, at the same address, with React Router's state
-  copied (`idx`, `key`, `usr`, and `scr`) plus a field whose name starts with `__` (`__backCloses`, `__imageViewer`,
-  `__viewerSheet`). The screen history never makes, rewrites or counts them; a pop onto or off one reaches the router
-  as the same screen, as before.
-- On a phone, a router push made while an overlay entry is on top takes that entry's place (replaceState) instead of
-  pushing above it, so no overlay entry is left under a page. The overlay then finds its entry gone and has nothing to
-  go back over.
-- Rewrites (tab switch, back to an ancestor, back to a tab's root) go back past overlay entries on top; each overlay's
-  own popstate listener closes it, as for a Back.
+  copied (`idx`, `key`, `usr`, and `scr`) plus its mark: `mycelOverlay` and `mycelOverlayDepth` (#452), or before that
+  a field whose name starts with `__` (`__backCloses`, `__imageViewer`, `__viewerSheet`). The screen history never
+  makes, rewrites or counts them; a pop onto or off one reaches the router as the same screen, as before.
+- A push or replace made while an overlay entry is on top is the overlays' to place: #452 wraps `pushState` and
+  `replaceState` (a page opened from inside an overlay takes its entry). The screen history writes through them.
+- Rewrites (tab switch, back to an ancestor, back to a tab's root) go back past the overlay entries on top (their
+  depth), and on past any left under a page once backCloses' own skip has had its moment; each overlay closes on its
+  own popstate, as for a Back. Entries written here are new entries and don't carry a page's `mycelPage` token.
 
 ## Steps
 
@@ -84,4 +84,11 @@ spec plus `phone-nav`, `phone-admin`, `phone-list-pages` on port 19351.
 
 ## Result
 
-(filled in at the end)
+Built as planned, PR #457. Differences:
+- No call-site change was needed in Files, ChatProject or Connectors: the history's rules (the same screen = replace,
+  a screen already in the stack = back to it, Files as a tree) cover `go()`, the breadcrumbs, the Trash switch, the
+  project link and Connectors' `navigate('/connectors')`. `Files.tsx` is untouched.
+- The tab bar calls `settleOpened` (not Layout), so the overlays' file stays untouched.
+- #344's `useListUnderPage` reads what is under an entry from the stack (a filter's replace no longer rebuilds the
+  list); Folder permissions opened from a folder or a project gets no list under it (FILES-15).
+- The overlay take-over of a push is #452's (it wraps `pushState`), not done twice here.
