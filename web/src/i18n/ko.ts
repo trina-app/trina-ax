@@ -153,6 +153,14 @@ export const ko = {
   'setup.create': '팀 만들고 시작하기',
 
   'invite.title': '초대',
+
+  'invite.signedInTitle': '이미 로그인되어 있어요',
+
+  'invite.signedInBody': '지금 {name}(으)로 로그인되어 있어요. 이 초대는 팀에 새로 들어올 사람을 위한 거예요. 초대를 받으려면 먼저 로그아웃해 주세요.',
+
+  'invite.signOutAccept': '로그아웃하고 초대 받기',
+
+  'invite.keepAccount': '이 계정으로 계속 쓰기',
   'invite.invalid': '이 초대 링크는 만료됐거나 이미 사용됐어요. 초대한 사람에게 새 링크를 요청해 주세요.',
   'invite.joinTeam': '{team} 팀에 참여하기',
   'invite.sub': '{role} 역할로 초대받았어요. 링크는 {date}까지 쓸 수 있어요.',

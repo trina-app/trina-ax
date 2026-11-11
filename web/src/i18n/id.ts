@@ -154,6 +154,14 @@ export const id: Record<MessageKey, string> = {
   'setup.create': 'Buat tim dan mulai',
 
   'invite.title': 'Undangan',
+
+  'invite.signedInTitle': 'Anda sudah masuk',
+
+  'invite.signedInBody': 'Anda masuk sebagai {name}. Undangan ini untuk orang yang akan bergabung ke tim. Untuk menerimanya, keluar dulu.',
+
+  'invite.signOutAccept': 'Keluar dan terima undangan',
+
+  'invite.keepAccount': 'Tetap pakai akun ini',
   'invite.invalid': 'Link undangan ini sudah kedaluwarsa atau sudah dipakai. Minta link baru ke orang yang mengundang kamu.',
   'invite.joinTeam': 'Gabung ke {team}',
   'invite.sub': 'Kamu diundang sebagai {role}. Link berlaku sampai {date}.',
