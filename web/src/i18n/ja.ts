@@ -691,7 +691,6 @@ export const ja: Record<MessageKey, string> = {
   'files.actionsFor': "{name}の操作",
   'files.readOnly': "読み取り専用",
   'files.readOnlyTip': "読み取り専用: 見るだけで、変更はできません",
-  'files.noAccess': "アクセス不可",
   'files.readOnlyFolder': "読み取り専用フォルダー",
   'files.navigationOnly': "中の一部のフォルダーだけ開けます",
   'files.emptyDrop': "ここにファイルをドロップ",

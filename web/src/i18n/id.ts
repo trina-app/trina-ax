@@ -711,7 +711,6 @@ export const id: Record<MessageKey, string> = {
   'files.actionsFor': 'Aksi untuk {name}',
   'files.readOnly': 'Hanya baca',
   'files.readOnlyTip': 'Hanya baca: Anda bisa melihat, tapi tidak bisa mengubahnya',
-  'files.noAccess': 'Tanpa akses',
   'files.readOnlyFolder': 'Folder hanya baca',
   'files.navigationOnly': "Hanya sebagian folder di dalamnya yang bisa Anda buka",
   'files.emptyDrop': 'Tarik file ke sini',
