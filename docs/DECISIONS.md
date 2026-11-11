@@ -20390,14 +20390,19 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
 
 - **A change of the signed-in person in one window is a sign-out and a sign-in.** A password reset link completed while
   someone else is signed in (a shared computer) used to keep the first person's stores and live connection: only
-  "signed in" → "signed out" emptied them. `useSessionLifecycle` (web/src/App.tsx) now remembers the last person: when
-  the user id changes it closes the live connection, forgets what the tab kept (`forgetPersonInTab`, the same as
-  `signedOut`), empties every per-person store (also the AI picker's list and room side chats, now emptied at sign-out
-  too), opens the new person's connection, and loads the page again. The screens are keyed by the person, so they start
-  afresh even when the reload is held back (a "leave this page?" prompt).
-- Why both and not only a reload: the reload drops every module's own cache, which no list of stores can promise; the
-  in-place reset makes the window right at once and stays right when the reload is cancelled.
+  "signed in" → "signed out" emptied them. Now `useSession.signedIn()` (web/src/store/session.ts), when the person
+  changes, first does what a sign-out does in this window, before the new status is shown: it forgets what the tab kept
+  (`forgetPersonInTab`, as `signedOut`) and runs the hook App.tsx sets (`setBeforePersonSwitch`): close the live
+  connection, empty every per-person store (also the AI picker's list), and remove this browser's drafts, send queue and
+  uploads as the account menu's sign-out does (`clearLocalData`). Done there and not in an effect so that no screen of
+  the new person mounts on the last person's data (child effects run before Gate's). `useSessionLifecycle` then opens
+  the new person's connection and loads the page again; the screens are also keyed by the person.
+- Why the reload too: it drops every module's own cache and any answer to a request the last person had on its way,
+  which no list of stores can promise; the in-place sign-out makes the window right at once and stays right when the
+  reload is held back (a "leave this page?" prompt).
 - The AI picker's list (`store/engines.ts`) has `reset()`; a failed read is asked again by the next `load()` (it was
   kept as "loaded, empty" until a reload). An answer to a request made before a reset is dropped.
+- Left for the server: the reset ends the new person's other sessions, not the session of the person whose cookie it
+  replaced in this browser (that one stays valid until it expires).
 - Tests: web unit `person-switch` (A's stores and socket, reset completed as B: nothing of A, a new socket, a reload).
 - Version impact: **patch** (no API or data change).

@@ -15,6 +15,8 @@ import { useRooms } from '../../src/store/rooms'
 import { useSideChats } from '../../src/store/sideChats'
 import { useSession } from '../../src/store/session'
 import { stopLive } from '../../src/store/live'
+import { readDraft, writeDraft } from '../../src/lib/localData'
+import { useEffect } from 'react'
 import { installDom, mount, removeDom } from './dom-host'
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -107,19 +109,27 @@ describe('another person signs in over a signed-in one', () => {
       'GET /api/password-resets/tok-ben': () => json(200, { valid: true, username: 'ben', name: 'Ben', expiresAt: '2026-11-12T00:00:00.000Z' }),
       'POST /api/password-resets/tok-ben': () => { completed++; return json(200, { me: BEN }) },
     }
-    function Session() { useSessionLifecycle(); return null }
+    // as in Gate: the hook in the parent, so the new person's screens run their effects before it does
+    function Session({ children }: { children: React.ReactNode }) { useSessionLifecycle(); return <>{children}</> }
+    let seenOnMount: string[] | null = null
+    function Home() {
+      useEffect(() => { seenOnMount = useChats.getState().chats.map((c) => c.title) }, [])
+      return <p data-testid="home">home</p>
+    }
     const m = await mount(
       <MemoryRouter initialEntries={['/reset-password/tok-ben']}>
-        <Session />
-        <Routes>
-          <Route path="/reset-password/:token" element={<ResetPassword />} />
-          <Route path="/" element={<p data-testid="home">home</p>} />
-        </Routes>
+        <Session>
+          <Routes>
+            <Route path="/reset-password/:token" element={<ResetPassword />} />
+            <Route path="/" element={<Home />} />
+          </Routes>
+        </Session>
       </MemoryRouter>,
     )
     await m.until(() => FakeSocket.made.length === 1, 'Ana\'s live connection', 2000)
     const anaSocket = FakeSocket.made[0]!
     anaWorked()
+    writeDraft(ANA.user.id, ANA_CHAT.id, 'Ana: draft about the salary review')
     await m.until(() => m.find('reset-password'), 'the reset form', 2000)
     await m.type('reset-password', 'acme-new-pass-1')
     await m.type('reset-password2', 'acme-new-pass-1')
@@ -127,6 +137,9 @@ describe('another person signs in over a signed-in one', () => {
     await m.until(() => m.find('home'), 'Home after the reset', 2000)
     await m.until(() => reloads === 1, 'the page to load again', 2000)
     expect(completed).toBe(1)
+    // emptied before Ben's first screen mounted, and this browser's drafts went as at a sign-out
+    expect(seenOnMount).toEqual([])
+    expect(readDraft(ANA.user.id, ANA_CHAT.id)).toBe('')
     expect(useSession.getState().status).toMatchObject({ kind: 'signed-in', me: { user: { id: BEN.user.id } } })
     nothingOfAna()
     expect(anaSocket.closed).toBe(true)

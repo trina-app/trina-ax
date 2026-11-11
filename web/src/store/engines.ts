@@ -22,8 +22,8 @@ interface EnginesState {
 
 // the request on its way: everything that asks while it is (each answer's "answered by" button) waits for that one
 let loading: Promise<void> | null = null
-/** the list in hand is the server's answer: a failed read shows no picker but is asked again by the next load() */
-let answered = false
+/** the last read failed: no picker is shown, and the next load() asks again (instead of keeping that until a reload) */
+let failed = false
 /** bumped by reset: an answer to a request made before it (the last person's) is dropped */
 let generation = 0
 
@@ -32,18 +32,18 @@ const EMPTY = { loaded: false, canChoose: false, engines: [] as EngineId[], mode
 export const useEngines = create<EnginesState>((set, get) => ({
   ...EMPTY,
   load(force) {
-    if (get().loaded && answered && !force) return Promise.resolve()
+    if (get().loaded && !failed && !force) return Promise.resolve()
     if (loading && !force) return loading
     const gen = generation
     const run: Promise<void> = api.call(API.chatEngines).then((r) => {
       if (gen !== generation) return
       const models: EnginesState['models'] = {}
       for (const e of r.engines) models[e.id] = e.models
-      answered = true
+      failed = false
       set({ loaded: true, canChoose: r.canChoose, engines: r.engines.map((e) => e.id), models, defaultEngine: r.defaultEngine, defaultModel: r.defaultModel })
     }, () => {
       if (gen !== generation) return
-      answered = false
+      failed = true
       set({ loaded: true, canChoose: false, engines: [], models: {} })
     }).finally(() => {
       if (loading === run) loading = null
@@ -54,7 +54,7 @@ export const useEngines = create<EnginesState>((set, get) => ({
   reset() {
     generation++
     loading = null
-    answered = false
+    failed = false
     set({ ...EMPTY })
   },
 }))
