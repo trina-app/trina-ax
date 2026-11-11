@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 18:40
 - Branch: `fix/drive-no-public-address`
-- Status: in progress
+- Status: done
 - Where: `web/src/components/integrations/DriveConnector.tsx`, the five locales, a short `docs/DECISIONS.md` section.
   Why: connectors are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: words and a link where a dead end was; nothing changes on the server
@@ -54,4 +54,9 @@ a local dev server look as owner and admin (a dev server has no public address, 
 
 ## Result
 
-(filled in at the end)
+Built as planned (web only), with the `docs/DECISIONS.md` section "Google Drive without a public address: who does what
+next". Checked on a local dev server (no public address): the owner and an admin read "Google Drive를 아직 설정하지
+않았어요…" with 설정하러 가기 in 연결한 서비스; it opens Admin › 연결한 서비스 › Google Drive, where the owner reads what
+the address is for, who turns it on and gets "시스템 › 연결 방식 보기" (opens System with 연결 방식), and the admin is
+told to ask the owner, with no link. Members are unchanged (e2e `admin-app-connectors`, `drive`, `welcome-tools` still
+read "관리자가 먼저 켜야 해요" for them).

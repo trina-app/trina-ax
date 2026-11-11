@@ -11195,6 +11195,23 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   every folder after the start and each night. The 2026-11-01 semantic-index lesson (1.9 GB, most cores) is why CodeGraph
   runs with two parse workers (~0.7 GB on 673 files) and pauses as long as each run between folders.
 
+## Google Drive without a public address: who does what next (fix/drive-no-public-address, 2026-11-12, QA TC-196)
+
+- **Problem.** On a self-installed server without a public https address (`tunnel.host`), Google Drive was a dead end:
+  Admin › 연결한 서비스 › Google Drive said only "먼저 이 서버의 공개 주소가 필요해요." with no button, link or who; and in
+  연결한 서비스 the owner read "관리자가 먼저 켜야 해요", although the owner is the one who has to act.
+- **Decision (the simplest option that meets the row).** No new setting: the public address stays where it is set
+  today, on the server computer by whoever installed it (`--public-host` of the Linux installer, `teamax public-address
+  set` on the office Mac); the app only says so, by role.
+  - Admin › 연결한 서비스 › Google Drive with `blocked: 'public_host'`: what the address is for, then for the owner who
+    turns it on (the person who installed the server, the owner if they did) and where it shows (a link to Admin ›
+    시스템, 연결 방식); for an admin, to ask the owner (System's connection settings are the owner's).
+  - 연결한 서비스, Drive not set up: an owner or admin reads "Google Drive를 아직 설정하지 않았어요…" with
+    **설정하러 가기** to Admin › 연결한 서비스 › Google Drive (`/admin/connectors?drive=1`); a member still reads that an
+    admin must turn it on.
+- **Not done.** Setting the public address from the app. Sign-in through the hosting service for registered
+  self-installed servers (feat/google-one-library) takes away the need on those servers.
+
 ## Google Drive on hosted teams: sign-in through the hosting service (feat/drive-broker, 2026-11-06)
 
 넣을 곳: Trina AX core (`server/src/integrations/google-drive/broker.ts`, contract `shared/src/cloud-protocol/drive-broker.ts`)
