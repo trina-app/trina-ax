@@ -134,11 +134,17 @@ function useFieldAboveBar() {
       // the whole field (Field's box: its hint or error under it too), not only the input
       if (phone.matches && isTextField(f) && el.contains(f)) (f.closest('[data-field]') ?? f).scrollIntoView?.({ block: 'nearest' })
     }
-    // after the keyboard's own scrolling and the new --app-h have settled
-    const later = () => requestAnimationFrame(reveal)
+    // after the keyboard's own scrolling and the new --app-h have settled; a frame still waiting when the page goes is
+    // dropped (it would read a document that may be gone)
+    let frame = 0
+    const later = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(reveal)
+    }
     el.addEventListener('focusin', later)
     window.visualViewport?.addEventListener('resize', later)
     return () => {
+      cancelAnimationFrame(frame)
       el.removeEventListener('focusin', later)
       window.visualViewport?.removeEventListener('resize', later)
     }
