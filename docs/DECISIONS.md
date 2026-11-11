@@ -18119,6 +18119,10 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   changed. Who does it, in general words: "the user" when they may (the owner and admins; a project's creator for the
   project), else "an admin" or "its creator or an admin" (the top-level reason too), never a person's name ("Admins are
   never named"): an admin is not told that an admin does it, a member is not sent to a delete that fails.
+  A folder that holds a group's, a project's or a rule folder the asker cannot read gets the generic words "a group,
+  project or rule folder, or a folder that holds one" (`unreadableManagedBelow`, review of #354): which kind it is
+  would say what is in a place they cannot see. Another letter case or Unicode form of a protected folder gets the
+  same reason and stays (tests).
 - **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
   folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
   card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
