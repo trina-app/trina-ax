@@ -201,6 +201,12 @@ func TestNoVersionCanRunStops(t *testing.T) {
 	f.version("1.0.0", "exit 75")
 	f.version("1.1.0", "exit 1")
 	f.updating("1.0.0", "1.1.0")
+	// the database copies the server made before migrating (<base>/data/backups, server/src/db.ts)
+	bk := filepath.Join(filepath.Dir(f.app), "data", "backups")
+	os.MkdirAll(bk, 0o700)
+	for _, n := range []string{"pre-migrate-2026-11-10T09-00-00-000Z-1-a.db", "pre-migrate-2026-11-11T09-00-00-000Z-2-b.db", "pre-update-x.db"} {
+		os.WriteFile(filepath.Join(bk, n), nil, 0o600)
+	}
 	stop := f.start()
 	st := f.waitFor("blocked", func(st appState) bool { return st.Blocked != nil })
 	want := "1.1.0 1.1.0 1.1.0 1.0.0 1.1.0 1.1.0 1.1.0"
@@ -218,12 +224,22 @@ func TestNoVersionCanRunStops(t *testing.T) {
 		!strings.Contains(st.Blocked.Detail, "pre-migrate") || !strings.HasPrefix(str(st.History[1].Detail), "stopped: ") {
 		t.Fatalf("blocked %+v / %q", st.Blocked, str(st.History[1].Detail))
 	}
-	if st.Forward != nil || st.Pending != nil || st.Previous != nil {
+	// the restore names the newest copy and says plainly what is lost
+	if newest := filepath.Join(bk, "pre-migrate-2026-11-11T09-00-00-000Z-2-b.db"); !strings.Contains(st.Blocked.Detail, newest+" ") ||
+		!strings.Contains(st.Blocked.Detail, "since the update") || !strings.Contains(st.Blocked.Detail, "will be lost") ||
+		!strings.Contains(st.Blocked.Detail, "files in the team folder stay") {
+		t.Fatalf("detail does not name %s or the loss: %q", newest, st.Blocked.Detail)
+	}
+	// current stays the version before the update until 1.1.0 is healthy (blocked names 1.1.0)
+	if str(st.Current) != "1.0.0" || st.Forward != nil || st.Pending != nil || st.Previous != nil {
 		t.Fatalf("state %+v", st)
 	}
 	// SIGHUP: one more watched try, which stops again after --max-attempts
 	hup <- syscall.SIGHUP
-	f.waitFor("blocked again", func(st appState) bool { return st.Blocked != nil && len(st.History) == 3 })
+	again := f.waitFor("blocked again", func(st appState) bool { return st.Blocked != nil && len(st.History) == 3 })
+	if !strings.Contains(again.Blocked.Detail, "and 1.0.0 cannot read the database") {
+		t.Fatalf("second stop names the wrong version: %q", again.Blocked.Detail)
+	}
 	if got := strings.Join(f.startList(), " "); got != want+" 1.1.0 1.1.0 1.1.0" {
 		t.Fatalf("starts after SIGHUP %s", got)
 	}
@@ -262,7 +278,9 @@ func TestExit75WithoutRollBackStops(t *testing.T) {
 	if err := switchTo("1.1.0"); err != nil {
 		t.Fatal(err)
 	}
-	f.waitFor("unblocked", func(st appState) bool { return st.Blocked == nil })
+	if st := f.waitFor("unblocked", func(st appState) bool { return st.Blocked == nil }); str(st.Current) != "1.1.0" {
+		t.Fatalf("current %q after the switch, app/current is 1.1.0", str(st.Current))
+	}
 	until := time.Now().Add(30 * time.Second)
 	for len(f.startList()) < 2 && time.Now().Before(until) {
 		time.Sleep(20 * time.Millisecond)
@@ -336,7 +354,8 @@ func TestStopsWhenStateCannotBeWritten(t *testing.T) {
 	for len(f.startList()) < 1 && time.Now().Before(until) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	time.Sleep(20 * blockedPoll)
+	// longer than the 1 s restart after a normal crash: without the exit-75 stop it would have started again by now
+	time.Sleep(time.Second + 20*blockedPoll + 500*time.Millisecond)
 	if code := stop(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

@@ -53,6 +53,9 @@ export const InstalledPlugin = z.object({
   source: z.enum(['file', 'catalog', 'import']),
   /** the version a rollback returns to */
   previousVersion: z.string().nullable(),
+  /** a rollback to previousVersion would pass the trust check now (false: that build is withdrawn or this server no
+   * longer trusts it, so a rollback is refused; the ⋯ menu leaves it out) */
+  previousTrusted: z.boolean(),
   /** company skills this pack put in the team folder (paths), while enabled */
   skills: z.array(z.string()),
   installedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
