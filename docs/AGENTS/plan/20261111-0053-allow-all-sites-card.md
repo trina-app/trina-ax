@@ -292,4 +292,4 @@ Differences from the plan:
 - `teamPolicyOff` also audits rows with an older risk sentence (`via: 'warning'`).
 - Scheduled runs, Slack questions and drafts never use the switch. Their refusal says so.
 
-PR: PR_LINK
+PR: https://github.com/trina-app/trina-ax/pull/351
