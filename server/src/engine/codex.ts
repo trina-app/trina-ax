@@ -74,8 +74,11 @@ export function writeLockedCatalog(src: string, dst: string): string[] {
   return j.models.map((m: any) => m.slug)
 }
 
-/** CODEX_HOME files and folders that change what Codex may do (scripts/macos/engine.sb, sandbox_linux.go codexLockFiles) */
-export const CODEX_LOCK_FILES = ['config.toml', 'models_cache.json', 'catalog.json', 'AGENTS.md', 'hooks.json', 'skills', 'plugins'] as const
+/** CODEX_HOME files and folders that change what Codex may do (scripts/macos/engine.sb; the Linux launcher binds the
+ * first seven read-only, sandbox_linux.go codexLockFiles): .env sets the CLI's environment, AGENTS.override.md wins over
+ * AGENTS.md, rules/ holds command rules and prompts/ custom prompts */
+export const CODEX_LOCK_FILES = ['config.toml', 'models_cache.json', 'catalog.json', 'AGENTS.md', 'hooks.json', 'skills', 'plugins',
+  '.env', 'AGENTS.override.md', 'rules', 'prompts'] as const
 
 /** Stage 1 local-login: engine CODEX_HOME holds only a symlink to the real auth.json. If codex replaced the
  * symlink with a refreshed file, move it back so the user's main login keeps the newest refresh token. */

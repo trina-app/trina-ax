@@ -226,4 +226,9 @@
   (subpath (string-append (param "CHAT_DIR") "/.codex/skills"))
   (subpath (string-append (param "CHAT_DIR") "/.codex/plugins"))
   (literal (string-append (param "CHAT_DIR") "/.codex/AGENTS.md"))
-  (literal (string-append (param "CHAT_DIR") "/.codex/hooks.json")))
+  (literal (string-append (param "CHAT_DIR") "/.codex/hooks.json"))
+  ;; the CLI's environment, an AGENTS.md that wins over AGENTS.md, command rules, custom prompts
+  (literal (string-append (param "CHAT_DIR") "/.codex/.env"))
+  (literal (string-append (param "CHAT_DIR") "/.codex/AGENTS.override.md"))
+  (subpath (string-append (param "CHAT_DIR") "/.codex/rules"))
+  (subpath (string-append (param "CHAT_DIR") "/.codex/prompts")))

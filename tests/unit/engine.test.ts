@@ -235,12 +235,12 @@ describe('codex per-chat state (dev-owner-symlink)', () => {
   test('every lockdown file a turn left in CODEX_HOME is removed before the next turn', () => {
     const cx = path.join(chat, '.codex')
     prepareCodexTurn(conf, chat, realAuth)
-    for (const f of ['config.toml', 'models_cache.json', 'AGENTS.md', 'hooks.json']) fs.writeFileSync(path.join(cx, f), 'planted')
-    for (const d of ['skills/x', 'plugins/p']) { fs.mkdirSync(path.join(cx, d), { recursive: true }); fs.writeFileSync(path.join(cx, d, 'f'), 'planted') }
+    for (const f of ['config.toml', 'models_cache.json', 'AGENTS.md', 'hooks.json', '.env', 'AGENTS.override.md']) fs.writeFileSync(path.join(cx, f), 'planted')
+    for (const d of ['skills/x', 'plugins/p', 'rules/r', 'prompts/p']) { fs.mkdirSync(path.join(cx, d), { recursive: true }); fs.writeFileSync(path.join(cx, d, 'f'), 'planted') }
     fs.mkdirSync(path.join(cx, 'sessions'), { recursive: true }); fs.writeFileSync(path.join(cx, 'sessions', 'rollout.jsonl'), 'state')
     fs.rmSync(path.join(cx, 'catalog.json')); fs.writeFileSync(path.join(cx, 'catalog.json'), '{"models":[{"slug":"planted"}]}')
     prepareCodexTurn(conf, chat, realAuth)
-    for (const f of ['config.toml', 'models_cache.json', 'AGENTS.md', 'hooks.json', 'skills', 'plugins']) expect(fs.existsSync(path.join(cx, f)), f).toBe(false)
+    for (const f of ['config.toml', 'models_cache.json', 'AGENTS.md', 'hooks.json', 'skills', 'plugins', '.env', 'AGENTS.override.md', 'rules', 'prompts']) expect(fs.existsSync(path.join(cx, f)), f).toBe(false)
     expect(fs.readFileSync(path.join(cx, 'catalog.json'), 'utf8')).toBe('{"models":[]}')
     expect(fs.readFileSync(path.join(cx, 'sessions', 'rollout.jsonl'), 'utf8')).toBe('state')
     expect(fs.readlinkSync(path.join(cx, 'auth.json'))).toBe(realAuth)
