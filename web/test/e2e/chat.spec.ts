@@ -231,8 +231,12 @@ test('ask_user card: pick an option, the answer continues', async ({ page }) => 
   await ask(page, 'please ask me something')
   const card = page.getByTestId('ask-card')
   await expect(card).toContainText('어느 분기를 볼까요?')
-  // a free-text answer goes to the AI: the card always says not to type secrets there
-  await expect(card.getByTestId('ask-no-secrets')).toHaveText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
+  // one place to type an answer (TRINA-24): the message box, which says not to type secrets; the card says to type below
+  await expect(card.getByTestId('ask-text')).toHaveCount(0)
+  await expect(card.getByTestId('ask-no-secrets')).toHaveCount(0)
+  await expect(card.getByTestId('ask-in-box')).toHaveText('직접 답하려면 아래 메시지 칸에 입력하세요.')
+  await expect(page.getByTestId('composer-no-secrets')).toHaveText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
+  await expect(page.getByText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')).toHaveCount(1)
   await card.getByLabel('4분기').check()
   await card.getByRole('button', { name: '답하기' }).click()
   await expect(card).toHaveCount(0)

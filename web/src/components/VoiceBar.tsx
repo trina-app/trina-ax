@@ -31,7 +31,7 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
   return (
     // nothing in it is selected or opens a callout under a finger held where the mic was
     <div className={clsx('flex min-w-0 items-center gap-3 select-none [-webkit-touch-callout:none]', className ?? 'px-3 py-3')} role="group" aria-label={t('voice.recording')} data-testid="voice-bar" data-mode={voice.mode ?? undefined}>
-      <IconButton label={t('voice.cancel')} onClick={voice.cancel} className="touch-hit shrink-0" data-testid="voice-cancel">
+      <IconButton label={t('voice.cancel')} onClick={voice.cancel} compact className="shrink-0" data-testid="voice-cancel">
         <X size={18} />
       </IconButton>
       <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
@@ -52,7 +52,7 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
         {voice.left !== null ? t('voice.left', { time: fmtDuration(voice.left) }) : fmtDuration(voice.seconds)}
       </span>
       <Tooltip label={t('voice.done')}>
-        <button ref={done} type="button" onClick={voice.finish} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
+        <button ref={done} type="button" onClick={voice.finish} className="touch-hit flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
           <Check size={18} />
         </button>
       </Tooltip>
@@ -66,6 +66,9 @@ export function VoiceMic({ voice, mic, disabled = false, tip = false, className 
   return (
     <IconButton
       tip={tip}
+      // in a message box: its size beside the text, taps from a 44 px box (a phone: 4 px more before send, so the two
+      // boxes do not overlap)
+      compact
       // computers: how to talk without the mouse
       label={t(voice.holdCapable ? 'voice.startHold' : 'voice.start')}
       onClick={voice.mic.onClick}
@@ -75,7 +78,7 @@ export function VoiceMic({ voice, mic, disabled = false, tip = false, className 
       disabled={disabled || voice.transcribing || voice.busyElsewhere}
       aria-disabled={voice.recording || undefined}
       aria-busy={voice.transcribing || undefined}
-      className={clsx('touch-hit touch-none select-none [-webkit-touch-callout:none] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent', className)}
+      className={clsx('touch-none select-none max-md:mr-1 [-webkit-touch-callout:none] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent', className)}
       data-testid="voice-button"
     >
       {voice.transcribing ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Mic size={18} aria-hidden />}

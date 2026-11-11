@@ -302,15 +302,16 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         )}
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
-          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:px-3" />
+          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:pr-3 max-md:pl-2" />
         ) : (
           <>
             <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
             {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
-                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last */}
-            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
+                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last. A phone: 8 px on the
+                left, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
+            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:pr-3 max-md:pl-2">
               <div className="flex h-composer-line shrink-0 items-center">
-                <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="room-attach">
+                <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
                   <Paperclip size={18} />
                 </IconButton>
               </div>
@@ -386,6 +387,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       {voiceError && (
         <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">
           {voiceError}
+          {voice.settingsFor === voiceError && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
         </p>
       )}
       {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}

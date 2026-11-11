@@ -16,7 +16,15 @@ import type { TeamFiles } from './service'
 
 /** ripgrep options for listing names only (no size limit: big files are attachable too) */
 const RG_LIST = ['--files', '--null', '--no-config', '--no-ignore', '--hidden', '--no-follow', '--one-file-system', '--no-messages']
-const HIT_CAP = 5000
+/** a name search keeps at most this many visible file hits (newest first of them); more is "truncated" (QA TC-277:
+ * 5,000 permission checks in one go on 23k files stalled every request for 60-400 ms) */
+export const HIT_CAP = 1000
+/** names that match are checked (visiblePath: lstat + access) this many at a time, other requests run in between */
+export const CHECK_CHUNK = 100
+/** at most this many matching names are kept for the check: a few files the caller cannot read may be among them */
+const CANDIDATE_CAP = HIT_CAP * 2
+/** folder hits kept, at most (⌘K folders; few in practice, and the walk awaits each folder's listing already) */
+const FOLDER_HIT_CAP = 5000
 /** folders looked at for folder names, at most (a walk of folders only; files are not opened) */
 const FOLDER_SCAN = 20_000
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
@@ -29,17 +37,27 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
   const { roots, excludes } = allowedRoots(files.fx, rules, user, b.segs)
   if (!roots.length) return { items: [], truncated: false }
   const words = searchWords(q).map(fold)
-  const hits: { rel: string; st: fs.Stats }[] = []
+  const names: string[] = []
   const cfg = files.ctx.files.cfg
   const r = await runRg(cfg.rg, [...RG_LIST, ...excludeArgs(excludes), '--', ...roots], files.root, '\0', (rec) => {
     const rel = rec.replace(/^\.\//, '')
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     const folded = fold(name)
     if (!words.every((w) => folded.includes(w))) return
-    const st = visiblePath(files.fx, rules, user, rel)
-    if (st) hits.push({ rel, st })
-    if (hits.length >= HIT_CAP) return false
+    names.push(rel)
+    if (names.length >= CANDIDATE_CAP) return false
   }, cfg.grepTimeoutMs)
+  // every listed file passes visiblePath (same rules and principal); the checks run in chunks so one broad search
+  // never holds the server
+  const hits: { rel: string; st: fs.Stats }[] = []
+  for (let i = 0; i < names.length && hits.length < HIT_CAP; i += CHECK_CHUNK) {
+    if (i) await new Promise((res) => setImmediate(res))
+    for (const rel of names.slice(i, i + CHECK_CHUNK)) {
+      const st = visiblePath(files.fx, rules, user, rel)
+      if (st) hits.push({ rel, st })
+      if (hits.length >= HIT_CAP) break
+    }
+  }
   const byTime = (x: { rel: string; st: fs.Stats }, y: { rel: string; st: fs.Stats }) => y.st.mtimeMs - x.st.mtimeMs || x.rel.localeCompare(y.rel)
   hits.sort(byTime)
   // folders first: there are few, and the one asked for must not fall behind thirty files
@@ -68,7 +86,7 @@ async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['princip
       const folded = fold(e.name)
       if (!words.every((w) => folded.includes(w))) continue
       try { out.push({ rel: segs.join('/'), st: fs.lstatSync(path.join(files.root, ...segs)) }) } catch {}
-      if (out.length >= HIT_CAP) return out
+      if (out.length >= FOLDER_HIT_CAP) return out
     }
   }
   return out

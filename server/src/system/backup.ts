@@ -11,13 +11,15 @@
 //              on is kept, and so is the newest one. The DB a restore replaced (before-restore-<time>/) and the migration
 //              runner's copies go by the same retention, the newest of each kept.
 // Restore:     POST /api/admin/restore only puts an older DB back (same Mac; tab 6). The copy is integrity-checked and
-//              staged; the swap happens at the next start, before the DB is opened (applyPendingRestore). Team-folder
+//              staged; the swap happens at the next start, before the DB is opened (applyPendingRestore), with the
+//              folder permissions of the current DB (keepFolderAccess: the team folder stays as it is now). Team-folder
 //              restores and moving to another Mac go through scripts/ (admin password) using restoreTeamTo().
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
+import { PRODUCT } from '@mycel/shared'
 import { z } from 'zod'
 import type { BackupInfo, LastRestore } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
@@ -27,7 +29,7 @@ import { SCHEMA_READER_LEVEL, checkReadable } from '../db'
 import type { Logger } from '../log'
 import { diskSpace, type InstallLayout } from './layout'
 import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
-import { readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
+import { fsyncPath, fsyncTree, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { backupRetentionDays } from './limits'
 import { HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING } from '../admin/settings'
@@ -73,6 +75,11 @@ export class BackupError extends Error {
 export interface BackupProgress { (fraction: number | null, message: string): void }
 
 const ID_RE = /^[0-9]{8}T[0-9]{6}Z-(daily|manual|pre-update)(-[0-9]+)?$/
+/** a DB copy in data/backups/: `<id>.sqlite`, `<id>.sqlite.partial` (vacuumInto), either one's -journal; [2] set = partial */
+const UNFINISHED_DB_RE = /^(.+)\.sqlite(\.partial)?(-journal)?$/
+/** an unfinished backup's files must be this long unchanged before removeUnfinished takes them (a copy being written
+ * changes every few seconds; reading it back for the checksum does not, and takes minutes on a slow disk) */
+export const UNFINISHED_GRACE_MS = 6 * 3600_000
 const PRE_MIGRATE_RE = /^pre-migrate-[A-Za-z0-9._-]+$/
 /** data/backups/before-restore-<stamp>/ (applyPendingRestore) */
 const BEFORE_RESTORE_RE = /^before-restore-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/
@@ -81,21 +88,68 @@ function stamp(d: Date): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
 }
 
+/** A DB copy is written as `<dst>.partial` and renamed to `<dst>` once complete and on disk, so a crash (power loss,
+ * kill) leaves a name that says so (BackupManager.removeUnfinished cleans it up), never a `<dst>` that looks finished. */
+export const PARTIAL_SUFFIX = '.partial'
+
 /** Copy a live SQLite DB with VACUUM INTO in a child bun process (never blocks the server's event loop). */
 export async function vacuumInto(src: string, dst: string): Promise<void> {
-  await fsp.rm(dst, { force: true })
+  const tmp = dst + PARTIAL_SUFFIX
+  const clear = () => Promise.all([tmp, `${tmp}-journal`].map((f) => fsp.rm(f, { force: true })))
+  await Promise.all([fsp.rm(dst, { force: true }), clear()])
   const code = `const { Database } = require('bun:sqlite')
 const d = new Database(process.env.MYCEL_VACUUM_SRC)
 d.exec('PRAGMA busy_timeout = 15000')
 d.query('VACUUM INTO ?').run(process.env.MYCEL_VACUUM_DST)
 d.close()`
   const p = Bun.spawn([process.execPath, '-e', code], {
-    env: { MYCEL_VACUUM_SRC: src, MYCEL_VACUUM_DST: dst, PATH: process.env.PATH ?? '/usr/bin:/bin' },
+    env: { MYCEL_VACUUM_SRC: src, MYCEL_VACUUM_DST: tmp, PATH: process.env.PATH ?? '/usr/bin:/bin' },
     stdout: 'ignore', stderr: 'pipe',
   })
   const [err, exit] = await Promise.all([new Response(p.stderr).text(), p.exited])
-  if (exit !== 0) throw new BackupError(`database copy failed: ${err.trim().split('\n').slice(-1)[0] ?? exit}`)
-  await fsp.chmod(dst, 0o600)
+  if (exit !== 0) {
+    await clear()
+    throw new BackupError(`database copy failed: ${err.trim().split('\n').slice(-1)[0] ?? exit}`)
+  }
+  try {
+    await fsp.chmod(tmp, 0o600)
+    // VACUUM INTO does not sync its output: a copy taken just before an update must survive a power loss
+    await fsyncPath(tmp)
+    await fsp.rename(tmp, dst)
+  } catch (e) {
+    await clear()
+    throw e
+  }
+  await fsyncPath(path.dirname(dst))
+}
+
+/** PRAGMA quick_check of a DB file in a child bun process: it reads the whole file, which takes seconds per GB (minutes
+ * on a slow disk), and bun:sqlite is synchronous, so in the server's own process it would stop every request. */
+async function quickCheckInChild(file: string): Promise<string | null> {
+  const code = `const { Database } = require('bun:sqlite')
+const d = new Database(process.env.MYCEL_CHECK_FILE, { readonly: true })
+const r = d.query('PRAGMA quick_check').get()
+d.close()
+process.stdout.write(JSON.stringify(r ? Object.values(r)[0] : null))`
+  const p = Bun.spawn([process.execPath, '-e', code], {
+    env: { MYCEL_CHECK_FILE: file, PATH: process.env.PATH ?? '/usr/bin:/bin' },
+    stdout: 'pipe', stderr: 'pipe',
+  })
+  const [out, err, exit] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited])
+  if (exit !== 0) throw new BackupError(`database copy is damaged (${err.trim().split('\n').slice(-1)[0] || `check exited ${exit}`})`)
+  try { return JSON.parse(out) as string | null } catch { return null }
+}
+
+/** schema facts of a DB copy whose integrity was checked; throws when this server cannot read it */
+function dbCopyFacts(file: string): { schemaVersion: number } {
+  const d = new Database(file)
+  try {
+    checkReadable(d, SCHEMA_READER_LEVEL)
+    const s = d.query('SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations').get() as { v: number }
+    return { schemaVersion: s.v }
+  } finally {
+    d.close()
+  }
 }
 
 /** integrity check + schema facts of a DB copy; throws when it is not usable */
@@ -105,12 +159,17 @@ export function inspectDbCopy(file: string): { schemaVersion: number } {
     const r = d.query('PRAGMA quick_check').get() as Record<string, string> | null
     const v = r ? Object.values(r)[0] : null
     if (v !== 'ok') throw new BackupError(`database copy is damaged (${v ?? 'no answer'})`)
-    checkReadable(d, SCHEMA_READER_LEVEL)
-    const s = d.query('SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations').get() as { v: number }
-    return { schemaVersion: s.v }
   } finally {
     d.close()
   }
+  return dbCopyFacts(file)
+}
+
+/** inspectDbCopy with the integrity check in a child process (the server's backups: the event loop keeps running) */
+export async function inspectDbCopyAsync(file: string): Promise<{ schemaVersion: number }> {
+  const v = await quickCheckInChild(file)
+  if (v !== 'ok') throw new BackupError(`database copy is damaged (${v ?? 'no answer'})`)
+  return dbCopyFacts(file)
 }
 
 export interface BackupManagerOptions {
@@ -200,15 +259,22 @@ export class BackupManager {
     await fsp.mkdir(L.dbBackupsDir, { recursive: true, mode: 0o700 })
     const now = this.now()
     let id = `${stamp(now)}-${o.kind}`
-    for (let i = 2; fs.existsSync(this.metaFile(id)); i++) id = `${stamp(now)}-${o.kind}-${i}`
+    // a team archive without a marker (data/ restored from an older copy) is kept by removeUnfinished: never write into it
+    for (let i = 2; fs.existsSync(this.metaFile(id)) || fs.existsSync(this.teamDir(id)); i++) id = `${stamp(now)}-${o.kind}-${i}`
 
     progress(0.02, 'database')
     const dbFile = this.dbCopy(id)
-    await vacuumInto(this.o.dbFile, dbFile)
-    const { schemaVersion } = inspectDbCopy(dbFile)
-    const dbStat = await fsp.stat(dbFile)
+    let schemaVersion: number, dbStat: fs.Stats
     const dbSha = crypto.createHash('sha256')
-    for await (const c of readFileChunks(dbFile)) dbSha.update(c)
+    try {
+      await vacuumInto(this.o.dbFile, dbFile)
+      schemaVersion = (await inspectDbCopyAsync(dbFile)).schemaVersion
+      dbStat = await fsp.stat(dbFile)
+      for await (const c of readFileChunks(dbFile)) dbSha.update(c)
+    } catch (e) {
+      await fsp.rm(dbFile, { force: true })
+      throw e
+    }
     const meta: BackupMeta = {
       format: 1, id, kind: o.kind, scope: 'db', createdAt: now.toISOString(), serverVersion: this.o.version, schemaVersion,
       db: { file: path.basename(dbFile), size: dbStat.size, sha256: dbSha.digest('hex') }, team: null,
@@ -219,6 +285,9 @@ export class BackupManager {
         meta.team = await this.archiveTeam(id, now, newChain, (f) => progress(0.1 + 0.85 * f, 'team folder'))
         meta.scope = meta.team.base ? 'incremental' : 'full'
         await fsp.writeFile(path.join(this.teamDir(id), 'meta.json'), JSON.stringify(meta, null, 1), { mode: 0o600 })
+        // its lists on disk before the marker below says the backup is complete
+        await fsyncTree(this.teamDir(id))
+        await fsyncPath(this.o.layout.teamBackupsDir)
       }
       await writeAtomic([Buffer.from(JSON.stringify(meta, null, 1))], this.metaFile(id))
     } catch (e) {
@@ -226,6 +295,9 @@ export class BackupManager {
       await fsp.rm(this.teamDir(id), { recursive: true, force: true })
       throw e
     }
+    // the marker's name on disk too: a copy whose <id>.json a power loss took would be removed as unfinished. Outside
+    // the try above: the backup is complete and listed now, so a failed sync must not remove its files
+    try { await fsyncPath(this.o.layout.dbBackupsDir) } catch (err) { this.o.log.warn('could not sync the backups folder after a backup', { id, err }) }
     progress(0.97, 'cleaning up')
     const removed = this.prune()
     this.o.log.info('backup done', { id, scope: meta.scope, dbBytes: meta.db.size, teamBytes: meta.team?.archiveSize ?? 0, removed })
@@ -363,6 +435,71 @@ export class BackupManager {
       for (const p of pre.slice(0, -1)) if (p.t < cutoff) { fs.rmSync(path.join(this.o.layout.dbBackupsDir, p.n), { force: true }); removed.push(p.n.slice(0, -3)) }
     } catch {}
     removed.push(...this.pruneBeforeRestore(cutoff))
+    removed.push(...this.removeUnfinished())
+    return removed
+  }
+
+  /**
+   * What a backup that never finished left behind (the server or the host stopped during the copy): a backup is
+   * complete once its data/backups/<id>.json exists (written last, atomically), so the DB copy (`<id>.sqlite`, its
+   * `.partial` and their -journal), the team-folder archive (team/.system/backups/<id>/) and the metadata's temporary
+   * file of an id without that file are removed, never anything of an id that has it. Only what has not changed for
+   * UNFINISHED_GRACE_MS: another process (mycel-ctl backup) may be writing one right now. Runs after every backup
+   * (prune) and when the server starts.
+   * The team archives fail closed, because their marker is in another tree (data/ and the team folder are set apart):
+   * one with its own meta.json (written once the archive is complete) always stays, and none goes when data/backups
+   * is missing or cannot be listed (a fresh or restored data folder, a volume not mounted yet, the wrong data dir).
+   */
+  removeUnfinished(): string[] {
+    const L = this.o.layout
+    const cutoff = this.now().getTime() - UNFINISHED_GRACE_MS
+    const done = (id: string) => fs.existsSync(this.metaFile(id))
+    const mtime = (p: string) => { try { return fs.lstatSync(p).mtimeMs } catch { return 0 } }
+    // id -> paths of the unfinished backup, and the last time any of them changed
+    const found = new Map<string, { paths: string[]; t: number }>()
+    const add = (id: string, p: string, t: number) => {
+      const e = found.get(id) ?? { paths: [], t: 0 }
+      e.paths.push(p); e.t = Math.max(e.t, t)
+      found.set(id, e)
+    }
+    let names: string[] | null = null
+    try { names = fs.readdirSync(L.dbBackupsDir) } catch {}
+    if (!names) return []
+    for (const n of names) {
+      const db = UNFINISHED_DB_RE.exec(n)
+      if (db && ID_RE.test(db[1]!) && (db[2] || !done(db[1]!))) { add(db[1]!, path.join(L.dbBackupsDir, n), mtime(path.join(L.dbBackupsDir, n))); continue }
+      // writeAtomic's temporary file of the metadata (streams.ts): the backup it belongs to finished or not, it is not one
+      if (n.startsWith(PRODUCT.tmpPrefix) && n.endsWith('.json.partial') && ID_RE.test(n.slice(PRODUCT.tmpPrefix.length, -'.json.partial'.length))) {
+        const id = n.slice(PRODUCT.tmpPrefix.length, -'.json.partial'.length)
+        add(id, path.join(L.dbBackupsDir, n), mtime(path.join(L.dbBackupsDir, n)))
+      }
+    }
+    let dirs: fs.Dirent[] = []
+    try { dirs = fs.readdirSync(L.teamBackupsDir, { withFileTypes: true }) } catch {}
+    for (const d of dirs) {
+      if (!d.isDirectory() || !ID_RE.test(d.name) || done(d.name)) continue
+      const dir = path.join(L.teamBackupsDir, d.name)
+      // a complete archive whose marker data/backups lacks (data/ from an older copy): still the team's file history
+      if (fs.existsSync(path.join(dir, 'meta.json'))) continue
+      let t = mtime(dir)
+      try { for (const n of fs.readdirSync(dir)) t = Math.max(t, mtime(path.join(dir, n))) } catch {}
+      add(d.name, dir, t)
+    }
+    const removed: string[] = []
+    for (const [id, e] of found) {
+      // the copy of an id may finish between the listing and now: check the marker again right before removing
+      if (e.t >= cutoff) continue
+      const own = e.paths.filter((p) => !p.endsWith(`${id}.sqlite`) && !p.endsWith(`${id}.sqlite-journal`) && path.dirname(p) !== L.teamBackupsDir)
+      const all = done(id) ? own : e.paths
+      if (!all.length) continue
+      try {
+        for (const p of all) fs.rmSync(p, { recursive: true, force: true })
+        removed.push(`unfinished:${id}`)
+      } catch (err) {
+        this.o.log.error('could not remove an unfinished backup', { id, err })
+      }
+    }
+    if (removed.length) this.o.log.warn('removed what unfinished backups left behind', { removed })
     return removed
   }
 
@@ -542,6 +679,67 @@ export function keepServerSettings(live: string, staged: string): void {
   } finally { d.close() }
 }
 
+interface FolderRowCopy { id: string; path: string; created_at: string }
+interface FolderRuleCopy { id: string; folder_id: string; subject_type: string; subject_id: string | null; access: string; updated_by: string | null; updated_at: string }
+
+/**
+ * A database-only restore leaves the team folder as it is now, so the folder permissions stay as they are now too
+ * (docs/DECISIONS.md "A database-only restore keeps the folder permissions"): the staged copy gets the current
+ * `folders` rows and every rule of the current database, and so the same rules at every path as just before the
+ * restore. With the backup's rules a folder made and closed after the backup had no rules and inherited the folder
+ * above it (shared/: everyone), and a folder closed after the backup opened again: every member read files that were
+ * never theirs (QA TC-195).
+ * The backup's folders rows that today's database does not have (by id or by path) stay, without rules, so trash items,
+ * versions and groups that point at them keep pointing at something; a row parked with a trashed folder
+ * (.system/trash/…) keeps its backup rules, which only decide who sees that trash item and its versions, as at the
+ * backup. A group whose folder row goes gets no folder. Call before the swap; throws on any failure (the restore stops).
+ * Returns false, changing nothing, when the current database is missing or cannot be read (the restore is the way back
+ * from a broken database): then the backup's rules apply and the restore result says so.
+ */
+export function keepFolderAccess(live: string, staged: string, log?: Pick<Logger, 'error'>): boolean {
+  let rows: FolderRowCopy[]
+  let rules: FolderRuleCopy[]
+  if (!fs.existsSync(live)) return false
+  try {
+    const d = new Database(live, { readonly: true })
+    try {
+      rows = d.query('SELECT id, path, created_at FROM folders').all() as FolderRowCopy[]
+      rules = d.query('SELECT id, folder_id, subject_type, subject_id, access, updated_by, updated_at FROM folder_rules').all() as FolderRuleCopy[]
+    } finally { d.close() }
+  } catch (e) {
+    log?.error('could not read the folder permissions of the current database; the restored database keeps the backup\'s', { err: e })
+    return false
+  }
+  const d = new Database(staged)
+  try {
+    d.transaction(() => {
+      const ids = new Set(rows.map((r) => r.id))
+      const paths = new Set(rows.map((r) => r.path))
+      const isParked = (p: string) => p === PRODUCT.systemDir || p.startsWith(`${PRODUCT.systemDir}/`)
+      const old = d.query('SELECT id, path FROM folders').all() as { id: string; path: string }[]
+      // the backup's rows today's database has no row for (by id or by path) stay; of their rules only a parked row's
+      const stays = old.filter((r) => !ids.has(r.id) && !paths.has(r.path))
+      const keepRules = new Set(stays.filter((r) => isParked(r.path)).map((r) => r.id))
+      for (const r of d.query('SELECT id, folder_id FROM folder_rules').all() as { id: string; folder_id: string }[]) {
+        if (!keepRules.has(r.folder_id)) d.query('DELETE FROM folder_rules WHERE id = ?').run(r.id)
+      }
+      for (const r of old) {
+        if (!ids.has(r.id) && !paths.has(r.path)) continue
+        // today's row of this id comes back below; a row of another id at one of today's paths goes, and a group that
+        // had it as its folder has none (another folder took the path since)
+        if (!ids.has(r.id)) d.query('UPDATE groups SET folder_id = NULL WHERE folder_id = ?').run(r.id)
+        d.query('DELETE FROM folders WHERE id = ?').run(r.id)
+      }
+      const insRow = d.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)')
+      for (const r of rows) insRow.run(r.id, r.path, r.created_at)
+      const insRule = d.query('INSERT OR REPLACE INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      for (const r of rules) insRule.run(r.id, r.folder_id, r.subject_type, r.subject_id, r.access, r.updated_by, r.updated_at)
+    })()
+    d.run('PRAGMA wal_checkpoint(TRUNCATE)') // the copy is moved without side files
+  } finally { d.close() }
+  return true
+}
+
 /** A copy of the database that leaves the server for the team (archive, archiveUpload: the export) holds no key of the
  * hosting service's: its row goes and its bytes are overwritten (secure_delete). The team's own keys stay (encrypted). */
 export function withoutHostingKey(file: string): void {
@@ -567,6 +765,9 @@ export interface RestoreOutcome {
   requestedBy?: string | null
   requestedAt?: string
   backupCreatedAt?: string | null
+  /** an applied restore: the folder permissions kept as they were ('kept', keepFolderAccess) or the backup's ('backup':
+   * the current database could not be read) */
+  folderRules?: 'kept' | 'backup'
 }
 
 export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 'error'>, o: { rename?: (a: string, b: string) => void } = {}): RestoreOutcome {
@@ -589,6 +790,9 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
     const live = path.join(dataDir, 'app.db')
     // the hosting service's key and this month's free hours stay as they are now (SERVER_OWN_SETTINGS)
     try { keepServerSettings(live, p.file) } catch (e) { log.error('could not keep this server\'s own settings in the restored database', { err: e }) }
+    // the team folder stays as it is now, so who may open its folders does too (QA TC-195). A failure here stops the
+    // restore; only a current database that is missing or cannot be read leaves the backup's rules (said in the result)
+    const folderRules: 'kept' | 'backup' = keepFolderAccess(live, p.file, log) ? 'kept' : 'backup'
     const keep = path.join(dataDir, 'backups', `before-restore-${stamp(new Date())}`)
     fs.mkdirSync(keep, { recursive: true, mode: 0o700 })
     const moved: string[] = []
@@ -614,9 +818,9 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
         fs.rmSync(sessions, { recursive: true, force: true })
       }
     }
-    fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep }), { mode: 0o600 })
-    log.info('database restored from backup', { backupId: p.backupId, previousDb: keep })
-    return { applied: true, backupId: p.backupId, requestedBy: p.requestedBy, requestedAt: p.requestedAt, backupCreatedAt: p.backupCreatedAt ?? null }
+    fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep, folderRules }), { mode: 0o600 })
+    log.info('database restored from backup', { backupId: p.backupId, previousDb: keep, folderRules })
+    return { applied: true, backupId: p.backupId, requestedBy: p.requestedBy, requestedAt: p.requestedAt, backupCreatedAt: p.backupCreatedAt ?? null, folderRules }
   } catch (e) {
     fs.writeFileSync(result, JSON.stringify({ ok: false, backupId: p.backupId, at: new Date().toISOString(), error: (e as Error).message }), { mode: 0o600 })
     log.error('restore failed; the current database was kept', { backupId: p.backupId, err: e })
