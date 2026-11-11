@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, publicKeyOf, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
 import {
-  checkLatestYml, deliverWindows, download, feedOf, nextRunAt, officeSchedule, patchUpdateState, readIndex, readUpdateState, runUpdate, scheduledRun, updatePlist, updateView,
+  checkLatestYml, deliverWindows, download, feedOf, fetchManifest, signedTextOf, nextRunAt, officeSchedule, patchUpdateState, readIndex, readUpdateState, runUpdate, scheduledRun, updatePlist, updateView,
   windowEnd, writeUpdateSettings, sha256File, type UpdateDeps,
 } from '../../server/src/office/update'
 import { viewText } from '../../server/src/office/update-cli'
@@ -550,6 +550,28 @@ describe('the Windows installer for the desks (data/downloads, latest.yml, index
     expect(serveDownload(new Request('http://x/downloads/' + name), '/' + name, dir).status).toBe(200)
   })
 
+  test('the signed manifest the release came from goes next to the installer (<channel>.json, served), also when the installer is already there', async () => {
+    const home = makeHome('win-signed', '0.3.0')
+    const dir = path.join(home, 'data', 'downloads')
+    const exe = fakeExe()
+    const name = 'Team-AX-Setup-0.3.0-win-x64.exe'
+    const yml = latestYml('0.3.0', name, exe)
+    const signed = signRelease(release({ windows: { version: '0.3.0', installer: { file: name, url: fileUrl(FEED, '0.3.0', name), sha256: sha(exe), size: exe.byteLength }, latestYml: { file: 'latest.yml', url: fileUrl(FEED, '0.3.0', 'latest.yml'), sha256: sha(yml), size: Buffer.byteLength(yml) } } }), keyPem)
+    const files = new Map<string, Uint8Array | string>([[manifestUrl(FEED, 'beta'), signed], [fileUrl(FEED, '0.3.0', name), exe], [fileUrl(FEED, '0.3.0', 'latest.yml'), yml]])
+    const r = await fetchManifest(FEED, 'beta', { fetch: fakeFetch(files) }, KEYS)
+    expect(signedTextOf(r)).toEqual({ channel: 'beta', text: signed })
+    expect(await deliverWindows(home, r, { fetch: fakeFetch(files), log: () => {} })).toBe('0.3.0')
+    expect(fs.readFileSync(path.join(dir, 'beta.json'), 'utf8')).toBe(signed)
+    const { serveDownload } = await import('../../server/src/routes/downloads')
+    expect(await serveDownload(new Request('http://x/downloads/beta.json'), '/beta.json', dir).text()).toBe(signed)
+    // an office that offered the installer before this change: the next run adds the manifest, nothing is downloaded
+    fs.rmSync(path.join(dir, 'beta.json'))
+    const seen: string[] = []
+    expect(await deliverWindows(home, r, { fetch: fakeFetch(files, seen), log: () => {} })).toBeNull()
+    expect(seen).toEqual([])
+    expect(fs.readFileSync(path.join(dir, 'beta.json'), 'utf8')).toBe(signed)
+  })
+
   test('latest.yml must name exactly that installer with its sha512 and size', () => {
     const exe = crypto.randomBytes(1000)
     const s512 = crypto.createHash('sha512').update(exe).digest('base64')
@@ -829,7 +851,10 @@ describe('desktop updater configuration', () => {
     expect(pkg.devDependencies['electron-updater']).toMatch(/^\d+\.\d+\.\d+$/)
     expect(pkg.dependencies?.['electron-updater']).toBeUndefined()
     const main = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'updater.ts'), 'utf8')
-    expect(main).toContain('autoInstallOnAppQuit = true')
+    // nothing installs before the signed release names the download (update-verify.ts): no install-on-quit of its own
+    expect(main).toContain('autoInstallOnAppQuit = false')
+    expect(main).not.toContain('autoInstallOnAppQuit = true')
+    expect(main).toContain("on('update-downloaded', (info) => void this.verifyDownload(")
     expect(main).toContain('disableDifferentialDownload = true')
     expect(main).toContain('allowDowngrade = false')
   })

@@ -8,7 +8,8 @@
 //   file (measured: Bun 1.3.12 ends that body correctly, direct and when the body is read; only slices that stop
 //   before the end lose their end), any other range from the bounded pull stream of team-files/download.ts.
 // - Only index.json, latest.yml (electron-updater's feed file the office updater puts next to the Windows installer,
-//   docs/OFFICE.md "자동 업데이트") and the files index.json lists are served (one name, no folders), each opened like a team file
+//   docs/OFFICE.md "자동 업데이트"), <channel>.json (the signed release that names that installer, which the Windows app
+//   checks before it installs) and the files index.json lists are served (one name, no folders), each opened like a team file
 //   (O_NOFOLLOW, a regular file with one link): a symlink, hard link or stray file in the folder stays private.
 // - Cache-Control: private, so Cloudflare (which caches .exe / .dmg by extension) never keeps a copy it could hand to
 //   someone without a session (a zone "Cache Everything" rule would override that: docs/OFFICE.md says to keep
@@ -30,8 +31,9 @@ export const INSTALLER_TYPES: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
   '.yml': 'text/yaml; charset=utf-8',
 }
-/** served without being listed in index.json: the list itself and the desktop app's update feed file */
-export const META_FILES = ['index.json', 'latest.yml']
+/** served without being listed in index.json: the list itself, the desktop app's update feed file and the signed release
+ * manifest that names its installer (office/update.ts placeSignedManifest; the Windows app checks it before installing) */
+export const META_FILES = ['index.json', 'latest.yml', 'stable.json', 'beta.json']
 
 const text = (status: number, body: string, extra: Record<string, string> = {}) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...extra } })

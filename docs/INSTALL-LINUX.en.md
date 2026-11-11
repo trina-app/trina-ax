@@ -154,7 +154,9 @@ you updated it.
 
 - Source: `office/<channel>.json` (signed) on the same feed as the server's. The signature, both files' size and
   SHA-256, and that `latest.yml` names exactly that installer are checked. An app newer than the server waits until
-  the server has that release.
+  the server has that release. The signed manifest goes next to the installer as `/downloads/<channel>.json`: the
+  Windows app installs an update only when that signed release names the file it downloaded (else it asks the
+  release feed, and installs nothing when neither matches).
 - One Windows installer is kept (about 110 MB; older ones are removed). Nothing is downloaded when the free space left
   afterwards would be under the team folder's write reserve (512 MB or 2% of the disk, whichever is larger). A newer
   installer put there by hand stays.
