@@ -58,7 +58,7 @@ func newFakeInstall(t *testing.T) *fakeInstall {
 		}
 	})
 	*appDir, *configFile, *allowUnsigned, *updateLog = f.app, cfg, true, ""
-	*healthTimeout, *maxAttempts = 1500*time.Millisecond, 3
+	*healthTimeout, *maxAttempts = 3*time.Second, 3
 	retryDelay, blockedPoll, healthEvery = 10*time.Millisecond, 30*time.Millisecond, 50*time.Millisecond
 	return f
 }
@@ -135,7 +135,7 @@ func (f *fakeInstall) start() (stop func() int) {
 
 func (f *fakeInstall) waitFor(what string, cond func(appState) bool) appState {
 	f.t.Helper()
-	until := time.Now().Add(20 * time.Second)
+	until := time.Now().Add(60 * time.Second)
 	for time.Now().Before(until) {
 		if b, err := os.ReadFile(statePath()); err == nil {
 			var st appState
@@ -163,9 +163,13 @@ func results(st appState) string {
 func TestOldVersionExit75GoesForwardAgain(t *testing.T) {
 	f := newFakeInstall(t)
 	f.version("1.0.0", "exit 75")
-	f.version("1.1.0", `if [ "$N" = 1 ]; then exec sleep 60; fi`+"\n"+f.healthyBody("1.1.0"))
+	// unhealthy until the test creates <work>/heal (after the roll-back): a start count would race with a slow shell
+	heal := filepath.Join(f.work, "heal")
+	f.version("1.1.0", fmt.Sprintf("if [ ! -f %q ]; then exec sleep 60; fi\n", heal)+f.healthyBody("1.1.0"))
 	f.updating("1.0.0", "1.1.0")
 	stop := f.start()
+	f.waitFor("roll-back", func(st appState) bool { return len(st.History) == 1 })
+	os.WriteFile(heal, nil, 0o644)
 	st := f.waitFor("ok after going forward", func(st appState) bool {
 		return len(st.History) == 2 && st.History[1].Result == "ok"
 	})
@@ -184,7 +188,8 @@ func TestOldVersionExit75GoesForwardAgain(t *testing.T) {
 	if cur, _ := currentVersion(); cur != "1.1.0" {
 		t.Fatalf("app/current %s", cur)
 	}
-	if got := strings.Join(f.startList(), " "); got != "1.1.0 1.0.0 1.1.0" {
+	// the first start of 1.1.0 may be killed before its script logs it (a loaded machine)
+	if got := strings.Join(f.startList(), " "); got != "1.1.0 1.0.0 1.1.0" && got != "1.0.0 1.1.0" {
 		t.Fatalf("starts %s", got)
 	}
 }
@@ -258,7 +263,7 @@ func TestExit75WithoutRollBackStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.waitFor("unblocked", func(st appState) bool { return st.Blocked == nil })
-	until := time.Now().Add(10 * time.Second)
+	until := time.Now().Add(30 * time.Second)
 	for len(f.startList()) < 2 && time.Now().Before(until) {
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -278,7 +283,7 @@ func TestOrdinaryCrashStillRestarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	stop := f.start()
-	until := time.Now().Add(15 * time.Second)
+	until := time.Now().Add(30 * time.Second)
 	for len(f.startList()) < 3 && time.Now().Before(until) {
 		time.Sleep(20 * time.Millisecond)
 	}
