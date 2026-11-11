@@ -65,11 +65,12 @@ test('the setup walk: the skills step offers only the skills Trina prepared; one
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
   await page.getByTestId('invite-step-done').click()
-  // 준비 끝났어요, once: the owner's own run of a team skill first
+  // 준비 끝났어요, once: a first result with the kept skill that went in (자연스러운 글: "써 보기")
   await expect(page.getByTestId('welcome-done')).toContainText('준비 끝났어요')
-  await expect(page.getByTestId('welcome-done-try')).toBeVisible()
-  await page.getByTestId('welcome-done-try').click()
-  await expect.poll(() => new URL(page.url()).pathname).toBe('/skills')
+  const make = page.getByTestId('welcome-done-make')
+  await expect(make).toHaveAttribute('data-skill', 'skills/work/humanizer/SKILL.md')
+  await make.click()
+  await expect.poll(() => { const u = new URL(page.url()); return `${u.pathname} ${u.searchParams.get('run')}` }).toBe('/skills skills/work/humanizer/SKILL.md')
   await expect(page.getByTestId('skill-form')).toBeVisible()
   // finished: no setup row any more
   await expect(page.getByTestId('setup-row')).toHaveCount(0)
