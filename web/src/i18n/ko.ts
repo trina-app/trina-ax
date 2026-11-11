@@ -995,6 +995,7 @@ export const ko = {
   'projects.instructions': '지침',
   'projects.instructionsHint': '이 프로젝트의 채팅에서 AI가 항상 따를 내용이에요.',
   'projects.noInstructions': '지침이 없어요.',
+  'projects.cardMembersOnly': '멤버만 내용을 볼 수 있어요.',
   'projects.newChat': '이 프로젝트에서 채팅',
   'projects.noChats': '아직 이 프로젝트의 기록이 없어요.',
   'projects.openFolder': '파일 화면에서 열기',

@@ -971,6 +971,7 @@ export const ja: Record<MessageKey, string> = {
   'projects.instructions': "指示",
   'projects.instructionsHint': "このプロジェクトのチャットでAIが常に従う指示です。",
   'projects.noInstructions': "指示はありません。",
+  'projects.cardMembersOnly': "中身を見られるのはメンバーだけです。",
   'projects.newChat': "このプロジェクトで新しいチャット",
   'projects.noChats': "このプロジェクトではまだチャットしていません。",
   'projects.openFolder': "「ファイル」で開く",

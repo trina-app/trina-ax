@@ -16,8 +16,9 @@
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 멤버 for people who may change
 // its members (the members dialog, without leaving the list), 링크 복사 for everyone. Under its name a card says who
 // sees the project in the words of its page's 멤버 line ("멤버 3명", "나만 봐요": whoSeesProject; no folder path), then
-// keeps two lines for the first paragraph of its instructions ("지침이 없어요." when it has none): the cards of a row
-// are one height, and one without instructions does not leave a hole under it.
+// keeps two lines for the first paragraph of its instructions ("지침이 없어요." when it has none; a lock and "멤버만 내용을
+// 볼 수 있어요." on a project whose contents I may not see): the cards of a row are one height, and one without
+// instructions does not leave a hole under it.
 // Members (docs/DECISIONS.md "Project members in one panel"): a team project's page has a 멤버 line after 파일 with
 // who sees it, in the words of the line under the box ("나만 봐요", "나와 관리자만 봐요" or "N명이 봐요"); 관리 opens the members dialog (components/ProjectMembersDialog.tsx) for whoever may change
 // them, and for anyone else the line opens to say who does. /projects/:id?members=1 opens the dialog.
@@ -30,7 +31,7 @@
 // members dialog) loads the page again. Deleting a team project in projects/ moves it to the trash with its folder; a
 // project in the trash says so on its page with 되돌리기 (the owner and admins; gone once the server says its folder
 // was deleted for good) and 완전히 삭제, and has no name menu there.
-import { ArchiveRestore, FileText, FolderKanban, Folder, Link2, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
+import { ArchiveRestore, FileText, FolderKanban, Folder, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
@@ -227,11 +228,24 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { proj
 
 /** A card's lines under the name: who sees the project, in its 멤버 line's words (and "in the trash" while it is), and
  * its instructions' first paragraph as plain text in two lines' room, also when it is shorter or there is none
- * ("지침이 없어요.", faint). */
+ * ("지침이 없어요.", faint). A project whose contents I may not see (Project.member false: the owner or an admin who is
+ * not a member) comes without its instructions, so in their place a lock and "멤버만 내용을 볼 수 있어요." (faint); one
+ * in the trash says nothing there (nobody sees its contents then, and its line above says it is in the trash). */
 function ProjectCardLines({ project: p }: { project: Project }) {
   const t = useT()
   const who = whoSeesProject(t, p, 'projects.whoMembers')
-  const about = p.instructions ? firstParagraph(p.instructions) : ''
+  const hidden = p.member === false
+  const about = !hidden && p.instructions ? firstParagraph(p.instructions) : ''
+  const none = hidden ? (
+    p.inTrash ? null : (
+      <>
+        <Lock size={12} className="mr-1 inline-block align-[-1px]" aria-hidden />
+        {t('projects.cardMembersOnly')}
+      </>
+    )
+  ) : (
+    t('projects.noInstructions')
+  )
   return (
     <>
       {(who || p.inTrash) && (
@@ -241,7 +255,7 @@ function ProjectCardLines({ project: p }: { project: Project }) {
         </span>
       )}
       {/* 'block' would cancel line-clamp's display */}
-      <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || t('projects.noInstructions')}</span>
+      <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || none}</span>
     </>
   )
 }
