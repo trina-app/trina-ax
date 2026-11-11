@@ -9,6 +9,7 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf, type Integrations } from '../../server/src/integrations/connections/service'
 import { getRow } from '../../server/src/integrations/connections/store'
 import { createLogger } from '../../server/src/log'
+import { policyGeneration } from '../../server/src/safe-ops/publication'
 
 setDefaultTimeout(30_000)
 
@@ -159,6 +160,26 @@ test('refresh: ahead of expiry and once for many calls; after a 401; a refused r
   await expect(svc.callTool(row(), 'search_tasks', {})).rejects.toThrow(/sign-in/)
   expect(row()).toMatchObject({ status: 'needs_auth', last_error: 'sign_in' })
   expect(everything()).not.toContain('CANARY-')
+})
+
+test('a token refresh and a call that fails are not a policy change; deleting the connection is (audit 11-11 row 18)', async () => {
+  const { id } = await connect()
+  const row = () => getRow(h.ctx.db, id)!
+  const g = policyGeneration(h.ctx.db)
+  const before = row().secret_enc
+  // the access token runs out: one refresh rewrites the sealed tokens, nothing else
+  fake.now += 3_600_000 + 1
+  await svc.callTool(row(), 'search_tasks', { q: 1 })
+  expect(fake.refreshCount).toBe(1)
+  expect(row().secret_enc).not.toBe(before)
+  expect(policyGeneration(h.ctx.db)).toBe(g)
+  // the service refuses the next refresh: the connection asks to sign in again (its status), still no policy change
+  fake.access.clear(); fake.refresh.clear()
+  await expect(svc.callTool(row(), 'search_tasks', {})).rejects.toThrow(/sign-in/)
+  expect(row().status).toBe('needs_auth')
+  expect(policyGeneration(h.ctx.db)).toBe(g)
+  await olga.call('DELETE', `/api/integrations/${id}`)
+  expect(policyGeneration(h.ctx.db)).toBeGreaterThan(g)
 })
 
 test('deleting: the local tokens go first, then the service is asked to revoke them', async () => {
