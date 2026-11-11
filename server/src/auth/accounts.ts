@@ -1,5 +1,6 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
 import fs from 'node:fs'
+import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
@@ -15,7 +16,7 @@ import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
-import { createDefaultFolders } from '../admin/folders'
+import { captureState, createDefaultFolders } from '../admin/folders'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
@@ -28,6 +29,7 @@ import { isHosted } from '../system/deployment'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
+import { recordJoin } from '../onboarding/member-welcome'
 import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
 
 export const RESET_TTL_MS = 24 * 3600_000
@@ -320,7 +322,10 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const guard = tokenGuard(ctx, c.get('info').ip)
   const r = inviteByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid: inviteValid(ctx.db, r!, authOf(ctx).now()) }
+  const valid = inviteValid(ctx.db, r!, authOf(ctx).now())
+  // who made it, only while it works ("{inviter} invited you to {team}")
+  const inviterName = valid && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
@@ -359,6 +364,11 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   }
   if (ok! === 'gone') fail('gone', msg('linkInvalid', locale))
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // who invited them, for their welcome card on Home; first, so the template notice below waits for Connected apps
+  // (onboarding/member-welcome.ts)
+  recordJoin(ctx, { userId: id, via: 'invite', invitedBy: r!.created_by })
+  // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
+  if (groups.length) projectJoinsOfNewAccount(ctx, id, id, captureState(ctx.db))
   notifyTemplateOffers(ctx, { userId: id })
   // a lead invite: the owner who flagged it gets the card's notice (only a hint: the role stays member)
   afterLeadJoin(ctx, r!.id)

@@ -75,7 +75,8 @@ export default function SettingsPane({ tab, fold }: { tab: string; fold?: Settin
       {tab === 'security-password' && <PasswordPage />}
       {tab === 'security-devices' && <Security all />}
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
-      {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll) && <BrowserSettings bridge={browser} />}
+      {/* the dialog decides whether the section is there (it stays after its switch is turned off) */}
+      {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll, true) && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
       {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} folded={!!fold} />}
       {/* a phone: the sites the AI may open are parts of this page (Settings' list has no rows of their own for them) */}

@@ -55,7 +55,7 @@ describe('the line under the chips', () => {
 
   test('a file from the computer: where it is saved (the folder it went to) and how many people see it there', async () => {
     expect(await lineOf([chip({ attachment: att({ source: 'team' }) })])).toBe(LINE('채팅 첨부', 3))
-    expect(LINE('채팅 첨부', 3)).toBe('프로젝트 폴더(채팅 첨부)에 저장돼요 · 프로젝트 사람 3명이 볼 수 있어요')
+    expect(LINE('채팅 첨부', 3)).toBe('프로젝트 폴더(채팅 첨부)에 저장돼요 · 멤버 3명이 볼 수 있어요')
     // a folder already there under another language's name is the one named
     expect(await lineOf([chip({ attachment: att({ source: 'team', path: 'projects/quotation/Chat attachments/견적.pdf' }) })], 5)).toBe(LINE('Chat attachments', 5))
     // still uploading: the folder the team's language names

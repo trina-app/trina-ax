@@ -39,16 +39,34 @@ export function mayEditProject(files: FileService, p: Principal, r: { folder_pat
 export interface ProjectSight { folder_path: string; trashed_with: string | null }
 
 /**
- * Who sees a project (its name, instructions, chats in it, its instructions in their AI, its dev environment): whoever
- * can read its folder, while the folder is in place. While the folder (or a folder above it) is in the trash, or was
- * purged from there (`projects.trashed_with`, set by TeamFiles.remove()), only admins and the owner, who alone can
- * restore it (docs/DECISIONS.md "휴지통에 간 그룹·프로젝트·규칙 폴더"): the folder's rules went to the trash with it, so
- * its path falls back to the rules above, and may be another folder's by now. Decided by the project's own state,
- * never by looking up paths in the trash.
+ * Who sees a project's contents (its instructions, chats in it, its instructions in their AI, its dev environment):
+ * whoever can read its folder, while the folder is in place. For a team project in projects/<name> that means its
+ * members only: the owner and admins too only when they are members (policy/access.ts, the members-only zone). While
+ * the folder (or a folder above it) is in the trash, or was purged from there (`projects.trashed_with`, set by
+ * TeamFiles.remove()), nobody: the folder's rules went to the trash with it, so its path falls back to the rules above,
+ * and may be another folder's by now. Decided by the project's own state, never by looking up paths in the trash. The
+ * owner and admins still manage such a project (mayManageProject) and restore its folder.
  */
 export function canSeeProject(files: FileService, user: Principal, p: ProjectSight): boolean {
-  if (p.trashed_with !== null && !isAdminRole(user)) return false
+  // its contents (instructions, chats, files) while its folder is in the trash or purged: nobody, admins included
+  // (docs/DECISIONS.md "Project contents only for members"); the project itself stays the owner's and admins' to
+  // manage (mayManageProject)
+  if (p.trashed_with !== null) return false
   return canRead(files, user, p.folder_path)
+}
+
+/** A team project (not a personal one under users/<id>/). */
+export const isTeamProject = (p: Pick<ProjectSight, 'folder_path'>): boolean => !isPersonalFolder(p.folder_path)
+
+/**
+ * Who may manage a project without reading it (docs/DECISIONS.md "Project contents only for members"): see that it
+ * exists (name, creator, member count), its members (read, change, add themselves), rename it, delete it, restore its
+ * folder from the trash. The owner and admins for every team project, whatever its state; its creator while they may
+ * edit it (mayEditProject). Never its contents: those are canSeeProject's.
+ */
+export function mayManageProject(files: FileService, user: Principal, p: ProjectSight & { created_by: string | null }): boolean {
+  if (isTeamProject(p) && isAdminRole(user)) return true
+  return p.trashed_with === null && mayEditProject(files, user, p)
 }
 
 /**
@@ -77,6 +95,19 @@ export function assertFolderFree(db: Database, caseInsensitive: boolean, folder:
 
 /** Every folder a project uses: a new project folder's automatic name steps around them, as around folders rows. */
 export const projectPaths = (db: Database) => (db.query('SELECT folder_path FROM projects').all() as { folder_path: string }[]).map((r) => r.folder_path)
+
+/**
+ * The paths a new team project's folder in projects/ never takes: a folders row, another project's folder, and a folder
+ * in projects/ that saved file versions still name. A project deleted for good (or a folder gone some other way) leaves
+ * its files' versions under its old path; a new project there would let its members read them (docs/DECISIONS.md
+ * "Project contents only for members"), so the new one gets the next free name instead ("Name-2").
+ */
+export function takenProjectPaths(db: Database): string[] {
+  const kept = (db.query(`SELECT DISTINCT substr(p, 10, CASE WHEN instr(substr(p, 10), '/') > 0 THEN instr(substr(p, 10), '/') - 1 ELSE length(p) END) AS top
+    FROM (SELECT path AS p FROM file_versions UNION SELECT path_at_save AS p FROM file_versions WHERE path_at_save IS NOT NULL)
+    WHERE p LIKE 'projects/%'`).all() as { top: string }[]).filter((r) => r.top).map((r) => `projects/${r.top}`)
+  return [...(db.query('SELECT path FROM folders').all() as { path: string }[]).map((r) => r.path), ...projectPaths(db), ...kept]
+}
 
 /** Make sure the project folder exists (creating missing folders) and the person may write it. Returns the actual path. */
 export function ensureProjectFolder(files: FileService, user: Principal, folderPath: string, locale: Locale): string {

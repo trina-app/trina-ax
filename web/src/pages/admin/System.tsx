@@ -16,6 +16,7 @@ import { Badge, Button, ErrorNote, Field, Modal, PhoneTargets, confirmDialog, in
 import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
 import { forgetKeptChecks } from './overview'
 import OfficeUpdate from './OfficeUpdate'
+import { engineVersionChecks } from './plain'
 import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
@@ -160,8 +161,13 @@ function SystemSections() {
 function Health({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
-  // the phone's Admin list keeps the checks for a minute (overview.tsx): this read makes those old
-  const state = useLoad(async () => { const r = await api.call(API.diagnostics); forgetKeptChecks(); return r }, [rev])
+  // with the engines whose version or lockdown test only shows here (Home and Providers leave it out, plain.ts); the
+  // phone's Admin list keeps the checks for a minute (overview.tsx): this read makes those old
+  const state = useLoad(async () => {
+    const [d, e] = await Promise.all([api.call(API.diagnostics), api.call(API.engines).catch(() => null)])
+    forgetKeptChecks()
+    return e ? { ...d, checks: [...d.checks, ...engineVersionChecks(e.engines, t)] } : d
+  }, [rev])
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
   return (

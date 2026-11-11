@@ -32,8 +32,8 @@ type Scope =
   | 'users-alice'     // a path under users/alice/: only alice, NOT owner/admin
   | 'finance'         // finance folder resource: bob + owner + admin (read or write as noted)
   | 'finance-write'   // finance folder write: bob + owner + admin
-  | 'falcon-read'     // projects/falcon: alice(write) + bob(finance read) + owner + admin
-  | 'alice-project'   // who sees and changes the participants of alice's team project: alice (its creator) + owner + admin
+  | 'falcon-read'     // projects/falcon: alice(write) + bob(finance read); the owner and admins only as members (none here)
+  | 'alice-project'   // who manages the participants of alice's team project: alice (its creator) + owner + admin (they manage it without being members)
   | 'shared'          // shared/: every signed-in person
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
@@ -81,7 +81,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'self': case 'shared': case 'byLevel': return true
     case 'own-alice': case 'own-alice-chat': case 'users-alice': return who === 'memberIn'
     case 'finance': case 'finance-write': return who === 'memberOut' || who === 'owner' || who === 'admin'
-    case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
+    case 'falcon-read': return who === 'memberIn' || who === 'memberOut'
     case 'suggestion-alice': case 'alice-project': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': case 'admins': return who === 'owner' || who === 'admin'
     case 'own-owner': return who === 'owner'
@@ -136,6 +136,10 @@ export const SPECS: Record<string, Spec> = {
   mySessions: { build: (c) => c.get('/api/me/sessions'), scope: 'byLevel' },
   // own usage only: nothing in the request names another person (tests/unit/a-my-usage.test.ts)
   myUsage: { build: (c) => c.get('/api/me/usage'), scope: 'self' },
+  // the welcome card for invited people (docs/DECISIONS.md "A welcome for invited people"): the caller's own only; no
+  // id in the address, a body that names anyone is refused (strict)
+  getMemberWelcome: { build: (c) => c.get('/api/me/welcome?userId=alice'), scope: 'self' },
+  updateMemberWelcome: { build: (c) => c.patch('/api/me/welcome', { hide: true }), scope: 'self' },
   revokeMySession: { skipPositive: true, build: (c, w) => c.del(`/api/me/sessions/${w.ids.aliceSession}`), scope: 'byLevel',
     // alice's session id: no one else may revoke it (cross-user). bob etc must 404, not kill her session.
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} revoked alice's session`) } },
@@ -194,7 +198,7 @@ export const SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's answer`)
       if (r.status < 300 && r.json?.status === 'confirm' && /erin|Erin/.test(r.text)) throw new Error(`the confirm answer names a member: ${r.text}`)
     } },
-  // "프로젝트 사람들과 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
+  // "프로젝트 멤버와 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
   // chat); it is in no project that shares chats, so even she is refused (409) and nothing is shared. A confirm, if one
   // came, names nobody
   shareChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/share`, {}), scope: 'own-alice-chat',
@@ -231,6 +235,17 @@ export const SPECS: Record<string, Spec> = {
   // who sees alice's team project: alice (its creator), the owner and admins see and change it; erin is a participant
   // but did not make it (403), bob does not see it (404)
   previewProjectAccess: { build: (c, w) => c.post('/api/projects/access-preview', { projectId: w.ids.projTeam, participants: [] }), scope: 'alice-project' },
+  // a team project alice put in the trash (its folder with it) comes back only by the owner or an admin, who manage it
+  // without reading it (docs/DECISIONS.md "Project contents only for members"); alice herself, its creator, may not
+  restoreProject: { build: async (c, w) => {
+    const made = await w.as.memberIn.post('/api/projects', { name: `Back ${Math.random().toString(36).slice(2, 8)}`, participants: [], instructions: '' })
+    await w.as.memberIn.del(`/api/projects/${made.json.id}`)
+    return c.post(`/api/projects/${made.json.id}/restore`)
+  }, scope: 'admins',
+    check: async (r, w, who) => {
+      if (who !== 'owner' && who !== 'admin') return
+      if (r.json?.member !== false || r.json?.instructions !== '') throw new Error(`${who}: a restored project answered with its contents`)
+    } },
   getProjectAccess: { build: (c, w) => c.get(`/api/projects/${w.ids.projTeam}/access`), scope: 'alice-project' },
   putProjectParticipants: { build: (c, w) => c.put(`/api/projects/${w.ids.projTeam}/participants`, { participants: [{ subjectType: 'user', subjectId: 'bob' }], expectedHash: 'not-the-hash' }), scope: 'alice-project',
     check: (r, w, who) => {
@@ -451,7 +466,9 @@ export const SPECS: Record<string, Spec> = {
     } },
   // the team's default folders and a group's folder row stay (409), for the owner and admins too. The group is made here:
   // the world's groups may already be gone (deleteGroup runs before this case), and nothing here may depend on order
-  deleteFolder: { build: (c, w) => c.del(`/api/admin/folders/${w.folders['projects/falcon/public']}`), scope: 'byLevel',
+  // (a folder of its own: one inside a team project is refused to admins now, docs/DECISIONS.md "Project contents only for
+  // members"; the member's call gets the role refusal on the shared/ row)
+  deleteFolder: { build: async (c, w) => { const made = await c.post('/api/admin/folders', { path: `shared/del-${Math.random().toString(36).slice(2, 8)}`, create: true, rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }); return c.del(`/api/admin/folders/${made.json?.id ?? w.folders.shared}`) }, scope: 'byLevel',
     check: async (r, w, who) => {
       if (who !== 'owner' && who !== 'admin') return
       const c = w.as[who]

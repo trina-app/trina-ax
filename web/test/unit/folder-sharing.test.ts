@@ -181,9 +181,19 @@ describe('who gains later, in the confirm (QA TC-232)', () => {
     expect(latentLines(en, 'en', edit, 'Acme')).toEqual(['People added to Design later will be able to open or edit it.'])
     const view = latentOf([{ subjectType: 'group', subjectId: 'design', access: 'read' }])
     expect(latentLines(en, 'en', view, 'Acme')).toEqual(['People added to Design later will be able to open it.'])
+    // an older server: no `edit` at all, and no group's own
     const { edit: _, ...older } = view!
-    expect(latentLines(en, 'en', older, 'Acme')).toEqual(['People added to Design later will be able to open or edit it.'])
+    expect(latentLines(en, 'en', { ...older, groups: older.groups.map(({ id, name }) => ({ id, name })) }, 'Acme')).toEqual(['People added to Design later will be able to open or edit it.'])
     expect(latentLines(en, 'en', null, 'Acme')).toEqual([])
+  })
+  test('one group gets edit, another only view: each said as it is (QA TC-284)', () => {
+    const both = latentOf([{ subjectType: 'group', subjectId: 'design', access: 'write' }, { subjectType: 'group', subjectId: 'ops', access: 'read' }])
+    expect(latentLines(en, 'en', both, 'Acme')).toEqual([
+      'People added to Design later will be able to open or edit it.',
+      'People added to Ops later will be able to open it.',
+    ])
+    // an older server's answer without a group's own edit: one line, "open or edit", as before
+    expect(latentLines(en, 'en', { ...both!, groups: both!.groups.map(({ id, name }) => ({ id, name })) }, 'Acme')).toEqual(['People added to Design and Ops later will be able to open or edit it.'])
   })
   test('Korean: no particle that depends on the name (no "이(가)", "은(는)", "(으)로" or "을(를)" after a name)', () => {
     const lines = [

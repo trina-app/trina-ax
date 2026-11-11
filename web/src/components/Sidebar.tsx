@@ -134,7 +134,7 @@ export default function Sidebar() {
   const chats = useChats((s) => s.chats)
   // the move dialog of a row's "…" (ChatItem): kept here, not in the row, so that it stays open when the moved chat's row
   // goes to another group (a date, a project) and is made again, as the share right after the move needs
-  // (components/chat/ChatProject.tsx, the switch "프로젝트 사람들과 공유")
+  // (components/chat/ChatProject.tsx, the switch "프로젝트 멤버와 공유")
   const [moving, setMoving] = useState<Chat | null>(null)
   const loaded = useChats((s) => s.chatsLoaded)
   const cursor = useChats((s) => s.chatsCursor)
