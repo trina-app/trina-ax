@@ -44,4 +44,3 @@ export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean
   if (where && fixes) return { key: `chat.error.admin.${reason}` as MessageKey, where }
   return { key: `chat.error.${reason}`, where: null }
 }
-
