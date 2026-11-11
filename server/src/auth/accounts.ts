@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
 import { TEMP_PASSWORD_MAX_FAILURES, TEMP_PASSWORD_TTL_DAYS } from '@mycel/shared'
+import { SETUP_TOKEN_HEADER } from '@mycel/shared/api'
 import {
   type AcceptInviteBody, type ChangePasswordBody, type CompletePasswordResetBody, type CreateInviteBody, type Invite,
   type InviteInfo, type Locale, type LoginBody, type LoginResponse, type PasswordResetInfo, type Role, type SetupBody,
@@ -98,6 +99,32 @@ export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null;
   return { needed, teamName: null, defaultLocale: getTeamSettings(ctx.db).defaultLocale }
 }
 
+/**
+ * GET /api/setup as the caller may see it. From the internet, signed out, the answer does not tell whether the team is
+ * set up yet: the office internet address always says `needed: false` (setup is refused there anyway, setup below);
+ * through the relay (<team>.<team domain>) it says `needed: true` only to a visitor who sends the setup token
+ * (SETUP_TOKEN_HEADER, from the setup link), so the owner's link still opens the setup page. A wrong token counts
+ * against the caller's IP like a wrong token on POST /api/setup (tokenGuard), so GET is no faster way to guess it.
+ * This server itself and the office network see the real answer, as before (installers, demo scripts, the CLI).
+ * Known and accepted ("보안 4차"): defaultLocale still changes when the owner picked another language at setup.
+ */
+export function setupStatusFor(c: Context<AppEnv>, ctx: AppContext): ReturnType<typeof setupStatus> {
+  const s = setupStatus(ctx)
+  const info = c.get('info')
+  if (info.tunnel) return { ...s, needed: false }
+  return info.via === 'relay' ? withToken(c, ctx, s) : s
+}
+
+function withToken(c: Context<AppEnv>, ctx: AppContext, s: ReturnType<typeof setupStatus>): ReturnType<typeof setupStatus> {
+  const sent = c.req.header(SETUP_TOKEN_HEADER)?.trim()
+  if (!sent) return { ...s, needed: false }
+  const guard = tokenGuard(ctx, c.get('info').ip)
+  const expected = ctx.config.setupToken
+  if (s.needed && expected && safeEqual(sent, expected)) return s
+  guard.fail()
+  return { ...s, needed: false }
+}
+
 export interface OwnerInput { username: string; name: string; password: string; email?: string | null; teamName: string; locale: Locale
   /** IANA zone (the setup page sends the browser's); unknown or absent = the server's default (system/time-zone.ts) */
   timeZone?: string | null }
@@ -134,11 +161,17 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   // the office public address (internet): the owner account is made on the Mac itself or from an office desk, never
   // from the internet, whatever token is sent (http/tunnel.ts). Checked first, so the answer (403) is the same before
   // and after setup: a 409 "already set up" told the internet whether the team exists yet.
-  if (c.get('info').tunnel) fail('forbidden', msg('setupNotRemote', locale))
-  if (userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
-  const guard = tokenGuard(ctx, c.get('info').ip)
+  const info = c.get('info')
+  if (info.tunnel) fail('forbidden', msg('setupNotRemote', locale))
+  // through the relay the token comes first: without it the answer is the same counted 403 before and after setup
+  // (the token is spent at setup), so a POST with a made-up token does not tell the internet whether the team exists.
+  // This server and the office network keep the 409 "already set up" first (installers and scripts read it).
+  const relay = info.via === 'relay'
+  if (!relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
+  const guard = tokenGuard(ctx, info.ip)
   const expected = ctx.config.setupToken
   if (!expected || !safeEqual(b.setupToken, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }
+  if (relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   checkNewPassword(b.owner.password, b.owner.username, locale, 'body.owner.password')
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
   return authOf(ctx).signIn(c, id, 'web', 'cookie')
