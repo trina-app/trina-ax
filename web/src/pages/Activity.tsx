@@ -6,7 +6,7 @@
 // it; a notice with nowhere to open keeps its "Mark as read". The preferences stay in Settings › Notifications (the gear).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { AtSign, Bell, BellRing, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
+import { AtSign, Bell, BellRing, Check, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { InboxNotification } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -21,6 +21,7 @@ import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '.
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
+import { builtInName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
 
 type T = ReturnType<typeof useT>
@@ -292,6 +293,12 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   const link = noticeLink(item)
   const d = item.devEnv
   const project = item.link === 'project' && d?.projectName && !(item.code === 'dev_env.box' && (d.stopCode === 'disk' || d.stopCode === 'busy_max')) ? d.projectName : null
+  // a member's ask to add an app (an owner or admin): what the row does while it waits, as a button inside the row's link
+  // (the row opens the app's setup), and "Added" once members can connect it
+  const sr = item.code === 'service.request' ? item.serviceRequest : undefined
+  const ask = sr?.open
+    ? <span className="mt-1 inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink" data-testid="notification-service-setup">{t('gapps.setUpLink', { name: builtInName(sr.service) })}</span>
+    : sr?.added ? <span className="flex items-center gap-1 text-ok" data-testid="notification-service-added"><Check size={13} aria-hidden />{t('notifications.serviceRequest.added')}</span> : null
   const below = item.handover || d?.job?.tail ? <>
     {item.handover && <HandoverNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {d?.job?.tail && <pre className="mt-1 max-h-40 overflow-auto font-mono text-xs break-words whitespace-pre-wrap text-faint" data-testid="notification-job-tail">{d.job.tail}</pre>}
@@ -302,12 +309,12 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
     iso={item.createdAt}
     unread={unread && !!link}
     line={<span data-testid="notification-text">{noticeText(item, t, locale)}</span>}
-    context={project || (d?.job?.exitCode === null && d.job.note)
+    context={ask ?? (project || (d?.job?.exitCode === null && d.job.note)
       ? <span className="min-w-0">
           {project && <span className="block truncate" data-testid="notification-project"><bdi>{project}</bdi></span>}
           {d?.job?.exitCode === null && d.job.note && <span className="block" data-testid="notification-job-note">{d.job.note}</span>}
         </span>
-      : null}
+      : null)}
     count={unread && link ? <span className="block size-2 rounded-full bg-accent" data-testid="notification-unread"><span className="sr-only">{t('notifications.unreadMark')}</span></span> : undefined}
   />
   if (!link) return (

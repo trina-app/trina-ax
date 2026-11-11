@@ -85,5 +85,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'credential.change': return true
     // 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (also pushed), a transfer, a locked password check
     case 'owner.lead_joined': case 'owner.transferred': case 'owner.reauth_locked': return true
+    // a member asks to add an app (shown always, Notifications.serviceRequested), and its answer to them
+    case 'service.request': case 'service.ready': return true
   }
 }

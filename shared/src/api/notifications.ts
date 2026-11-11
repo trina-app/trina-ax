@@ -4,6 +4,7 @@ import { ScheduleRunOutcome } from './schedules'
 import { QuietHours, RoomNotifyDefault } from './room-alerts'
 import { RoomKind } from './rooms'
 import { UserId } from '../ids'
+import { RequestableService } from './service-requests'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
 /** Rooms (docs/DECISIONS.md "대화방 알림 설정", room-alerts.ts): roomLevel is my default for rooms without a level of
  * their own (direct: every message of 1:1 and group chats and what mentions me elsewhere; all: every message; none:
@@ -54,8 +55,10 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (told to the owners) or to a member's own connection (told to that member; credential_change_notices), and the
  * handover's (docs/DECISIONS.md "W6"; handover_notices): owner.lead_joined to the owner when someone joins with their
  * lead link, owner.transferred to the new owner, the old owner and the other admins, owner.reauth_locked to the owner
- * when a password re-check of theirs locked after too many wrong tries. */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined'])
+ * when a password re-check of theirs locked after too many wrong tries, and a member's ask to add an app the team has
+ * not set up (service_request_notices; shared/src/api/service-requests.ts): service.request to the owners and the
+ * admins (one per app), service.ready to the member once they can connect it. */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -93,6 +96,17 @@ export const InboxNotification = z.object({
   /** 'integration.template' and 'integration.template_reconnect' only, while the template is there and still for this
    * person: its id and name (Settings › MCP opens it with ?template=<id>); older servers omit it */
   template: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** 'service.request' (the owners and the admins) and 'service.ready' (the member who asked): the app (Google Drive or a
+   * Google app, shared/src/api/service-requests.ts). service.request: the newest member who asks, by display name
+   * (null when none is left), how many others ask with them, and `open` while any request waits (the app opens its setup
+   * in Admin › Connected apps); once none waits, who asked in the round that ended last, and `added` when it ended
+   * because members can connect the app now. A viewer who is no longer an owner or admin gets the app only.
+   * service.ready: the app, which they can connect now (its page, /connectors/<id>). Never an admin's name. Older
+   * servers omit it */
+  serviceRequest: z.object({
+    service: RequestableService, name: z.string().nullable().optional(), others: z.number().int().nonnegative().optional(),
+    open: z.boolean().optional(), added: z.literal(true).optional(),
+  }).optional(),
   /** 'drive.share_reconnect' only (admins), while the share is there: its name (link 'admin_connectors' opens Google
    * Drive's page in Admin › Connectors); older servers omit it */
   driveShare: z.object({ id: z.string(), name: z.string() }).optional(),

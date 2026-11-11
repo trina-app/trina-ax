@@ -2,7 +2,8 @@
 // shared/src/api/google-apps.ts): one Google sign-in per app, the same steps as Google Drive's (useSignInFlow): Connect
 // opens Google at once, back from it one line asks to confirm the account, then the app is connected. Its page
 // (GoogleAppDetail, AppDetail.tsx) then offers Try in chat, Settings (ask before each change, or Always allow) and ⋯
-// (Reconnect, Disconnect). An app that cannot be connected says why in plain words, an admin gets the way to set it up.
+// (Reconnect, Disconnect). An app that cannot be connected says why in plain words, an admin gets the way to set it up,
+// and a member whose team has not set it up asks an admin to add it (AskAdmin.tsx).
 import { Settings2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -17,6 +18,7 @@ import { Button, Modal, confirmDialog } from '../ui'
 import { useSignInFlow, type SignInOps } from '../settings/DriveConnection'
 import { CardMenu } from './AppConnectorCard'
 import { AppDetail } from './AppDetail'
+import { AskAdminAction, type AskState } from './AskAdmin'
 
 const opsFor = (app: GoogleAppId, current: () => Promise<GoogleAppView>): SignInOps<GoogleAppView> => ({
   authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: {} }),
@@ -128,8 +130,12 @@ export function SignInSteps({ d, testId, failed }: { d: GoogleAppFlowState; test
 /** "Try in chat" and the example prompts: a new chat with the text in its box (pages/Connectors.tsx). */
 export type StartChat = (text: string) => void
 
-/** A Google app's page. */
-export function GoogleAppDetail({ v, g, onChat }: { v: GoogleAppView; g: GoogleAppsState; onChat: StartChat }) {
+/** What a member's page offers for an app the team has not set up: ask an admin to add it (AskAdmin.tsx). */
+export interface AskProps { state: AskState; busy: boolean; onAsk: () => void; error?: string | null }
+
+/** A Google app's page. `ask`: a member, and the team has not set it up: "Ask admin to add it" takes the place of the
+ * Connect button and of the line that says it is not set up. */
+export function GoogleAppDetail({ v, g, onChat, ask }: { v: GoogleAppView; g: GoogleAppsState; onChat: StartChat; ask?: AskProps }) {
   const t = useT()
   const admin = isAdmin(useMe())
   const [settings, setSettings] = useState(false)
@@ -147,6 +153,7 @@ export function GoogleAppDetail({ v, g, onChat }: { v: GoogleAppView; g: GoogleA
     ]} />
   )
   const actions = flow ? null
+    : ask ? <AskAdminAction state={ask.state} busy={ask.busy} onAsk={ask.onAsk} />
     : v.status === 'connected' ? (
       <>
         <Button variant="primary" onClick={() => onChat(examples[0]!)} data-testid="gapp-try">{t('gapps.tryInChat')}</Button>
@@ -174,7 +181,9 @@ export function GoogleAppDetail({ v, g, onChat }: { v: GoogleAppView; g: GoogleA
           )}
           {v.status === 'needs_reconnect' && !flow && <Note tone="warn" testId="gapp-needs-reconnect">{t('gapps.needsReconnect', { name })}</Note>}
           {v.status === 'connected' && v.serviceDown && <Note testId="gapp-service-down">{t('gapps.serviceDown', { name })}</Note>}
-          {why && (
+          {ask && ask.state !== 'none' && <Note testId="service-asked-note">{t('serviceRequest.waiting', { name })}</Note>}
+          {ask?.error && <Note tone="warn" testId="service-ask-error">{ask.error}</Note>}
+          {why && !ask && (
             <Note testId="gapp-unavailable" reason={v.reason ?? undefined}>
               {t(why.long, { name })}
               {admin && v.reason === 'not_set_up' && <> <Link to={`/admin/connectors?app=${v.id}`} className="font-medium text-accent-text underline underline-offset-2" data-testid="gapp-admin-link">{t('gapps.setUpLink', { name })}</Link></>}
