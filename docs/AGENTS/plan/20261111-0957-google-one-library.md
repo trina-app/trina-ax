@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 09:57
 - Branch: `feat/google-one-library`
-- Status: draft
+- Status: in progress (step 5 merged first, see Result)
 - Where: `server/src/integrations/google-apps/`, `server/src/integrations/google-drive/`, `shared/src/`, `web/src/components/integrations/`, `desktop/`, `scripts/system/packages.json`. Why: Google connections are core server features (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. New tools (Drive create/edit/share for a person's own Drive) and one Google card replace three
   ways of reaching Google; nothing a team uses is removed (team shares stay), and old apps keep working against the
