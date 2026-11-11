@@ -10,8 +10,8 @@
 //   …). `isOverlayEntry` tells them apart. It is no page: don't count it, rewrite it or go to it.
 // - Back (any popstate that lands under an overlay's entry) closes every overlay above where it landed, the top one
 //   first: nested ones unwind one per Back.
-// - Closed any other way (✕, the scrim, Esc, a choice), its entry is backed off once the moment's effects have run, all
-//   closed ones with one history.go(-n). One that opens in that moment (a menu's item that opens a dialog) takes over
+// - Closed any other way (✕, the scrim, Esc, a choice), its entry is backed off once the moment's effects have run (a
+//   microtask), all closed ones with one history.go(-n). One that opens in that moment (a menu's item that opens a dialog) takes over
 //   the closing entry instead (replaceState): nothing goes back, nothing is pushed, nothing races.
 // - history.pushState and replaceState are wrapped once. A push while an overlay's entry is the current one (a page
 //   opened from inside it) replaces that entry, so none is left under the new page. A replace then (a filter written to
@@ -57,7 +57,10 @@ const leftBehind = new Set<number>()
 const fixes = new Map<string, { state: State; url: string }>()
 /** where the history is, as last seen: where the next popstate came from */
 let here: Pos = [-1, 0]
-let flushTimer: ReturnType<typeof setTimeout> | null = null
+/** a flush is queued (a microtask: after the effects of the moment that closed something have run) */
+let flushQueued = false
+/** bumped by a reset (tests): a queued flush of before then does nothing */
+let generation = 0
 /** a history.go(-n) of ours is on its way */
 let inFlight = false
 /** what the router did while it was: done again on the entry it lands on */
@@ -223,12 +226,17 @@ function landed() {
 }
 
 function schedule() {
-  if (flushTimer === null) flushTimer = setTimeout(flush, 0)
+  if (flushQueued) return
+  flushQueued = true
+  const g = generation
+  queueMicrotask(() => {
+    if (g === generation) flush()
+  })
 }
 
 /** Back off the entries of the overlays closed on top, with one step for all of them. */
 function flush() {
-  flushTimer = null
+  flushQueued = false
   if (inFlight || typeof window === 'undefined') return
   // closed ones without an entry go at once
   held = held.filter((h) => !(h.closing && h.entry !== 'on'))
@@ -250,7 +258,7 @@ function flush() {
 }
 
 function settle() {
-  if (flushTimer !== null || inFlight) return
+  if (flushQueued || inFlight) return
   const w = waiting
   waiting = []
   for (const f of w) f()
@@ -258,7 +266,7 @@ function settle() {
 
 /** Runs `fn` once the history is where the open overlays say (the entries of those just closed are gone). */
 export function whenOverlaysSettled(fn: () => void) {
-  if (flushTimer === null && !inFlight) fn()
+  if (!flushQueued && !inFlight) fn()
   else waiting.push(fn)
 }
 
@@ -340,8 +348,8 @@ export function useOverlayEntry(open: boolean, close: () => void, o: { at?: stri
 
 /** For tests: forget every overlay and entry (the history object itself is the test's). */
 export function resetOverlaysForTest() {
-  if (flushTimer !== null) clearTimeout(flushTimer)
-  flushTimer = null
+  generation += 1
+  flushQueued = false
   held = []
   leftBehind.clear()
   fixes.clear()
