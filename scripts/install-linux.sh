@@ -992,7 +992,9 @@ for name in claude codex; do
     mk "$SRV_USER" "$AGT_GRP" 750 "$dir"
     put "$stage" "$SRV_USER" "$AGT_GRP" 750 "$dir/$name"
     rm -f "$stage"
-    sync "$dir/$name" "$dir" "$BASE/app/engines/$name" || die "engine $name: writing it to the disk failed"
+    sync "$dir/$name" || die "engine $name: writing it to the disk failed"
+    # a folder: some file systems refuse fsync on one (EINVAL), as fsyncPath in the server tolerates; warn, go on
+    sync "$dir" "$BASE/app/engines/$name" || warn "engine $name: syncing its folders failed (the file system may not sync folders)"
     got=$(engine_version "$dir/$name")
     if [ -n "$pin" ] && [ "$got" != "$pin" ]; then
       # image mode: the version check runs the engine in bwrap, and the build has no user namespaces. A download (or
@@ -1008,7 +1010,7 @@ for name in claude codex; do
     ln -s "$sha" "$BASE/app/engines/$name/.current-install"
     chown -h "$SRV_USER:$AGT_GRP" "$BASE/app/engines/$name/.current-install"
     mv -f -T "$BASE/app/engines/$name/.current-install" "$BASE/app/engines/$name/current"
-    sync "$BASE/app/engines/$name" || die "engine $name: writing app/engines/$name/current to the disk failed"
+    sync "$BASE/app/engines/$name" || warn "engine $name: syncing app/engines/$name after the switch failed (the file system may not sync folders)"
     say "engine $name: ${got:-version unknown} ($sha)"
   else
     t=$(readlink "$BASE/app/engines/$name/current" 2>/dev/null || true)
@@ -1057,7 +1059,8 @@ chmod -R go-w "$DEST.partial"
 # sync -f: one syncfs of the file system with the new version (and the engines in app/), not an fsync per file.
 sync -f "$DEST.partial" || die "writing $DEST to the disk failed"
 rm -rf "$DEST"; mv -T "$DEST.partial" "$DEST"
-sync "$BASE/app/versions" || die "writing $BASE/app/versions to the disk failed"
+# folders from here on warn instead of stopping: the rename is done, and some file systems refuse fsync on a folder
+sync "$BASE/app/versions" || warn "syncing $BASE/app/versions failed (the file system may not sync folders)"
 CUR_T=$(readlink "$BASE/app/current" 2>/dev/null || true)
 CUR=""
 if [[ "$CUR_T" =~ ^versions/([0-9A-Za-z][0-9A-Za-z.+_-]{0,49})$ ]] && [ -L "$BASE/app/current" ] && [ -f "$BASE/app/$CUR_T/manifest.json" ]; then
@@ -1090,7 +1093,9 @@ case "$ACTION" in
 esac
 put "$ITMP/state.json" "$SRV_USER" "$SRV_GRP" 640 "$BASE/app/state.json"
 # app/current and state.json on disk before the server starts on them
-sync "$BASE/app/state.json" "$BASE/app" || die "writing $BASE/app/state.json to the disk failed"
+# warnings, not a stop: app/current has switched already, and stopping here would leave the server down
+sync "$BASE/app/state.json" || warn "writing $BASE/app/state.json to the disk failed"
+sync "$BASE/app" || warn "syncing $BASE/app failed (the file system may not sync folders)"
 
 # ---- office-network TLS certificate (only with --tls-port) ----
 if [ "$TLS_PORT" != 0 ]; then

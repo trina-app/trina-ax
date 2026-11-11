@@ -259,7 +259,8 @@ export class BackupManager {
     await fsp.mkdir(L.dbBackupsDir, { recursive: true, mode: 0o700 })
     const now = this.now()
     let id = `${stamp(now)}-${o.kind}`
-    for (let i = 2; fs.existsSync(this.metaFile(id)); i++) id = `${stamp(now)}-${o.kind}-${i}`
+    // a team archive without a marker (data/ restored from an older copy) is kept by removeUnfinished: never write into it
+    for (let i = 2; fs.existsSync(this.metaFile(id)) || fs.existsSync(this.teamDir(id)); i++) id = `${stamp(now)}-${o.kind}-${i}`
 
     progress(0.02, 'database')
     const dbFile = this.dbCopy(id)
@@ -289,13 +290,14 @@ export class BackupManager {
         await fsyncPath(this.o.layout.teamBackupsDir)
       }
       await writeAtomic([Buffer.from(JSON.stringify(meta, null, 1))], this.metaFile(id))
-      // the marker's name on disk too: a copy whose <id>.json a power loss took would be removed as unfinished
-      await fsyncPath(this.o.layout.dbBackupsDir)
     } catch (e) {
       await fsp.rm(dbFile, { force: true })
       await fsp.rm(this.teamDir(id), { recursive: true, force: true })
       throw e
     }
+    // the marker's name on disk too: a copy whose <id>.json a power loss took would be removed as unfinished. Outside
+    // the try above: the backup is complete and listed now, so a failed sync must not remove its files
+    try { await fsyncPath(this.o.layout.dbBackupsDir) } catch (err) { this.o.log.warn('could not sync the backups folder after a backup', { id, err }) }
     progress(0.97, 'cleaning up')
     const removed = this.prune()
     this.o.log.info('backup done', { id, scope: meta.scope, dbBytes: meta.db.size, teamBytes: meta.team?.archiveSize ?? 0, removed })
@@ -444,6 +446,9 @@ export class BackupManager {
    * file of an id without that file are removed, never anything of an id that has it. Only what has not changed for
    * UNFINISHED_GRACE_MS: another process (mycel-ctl backup) may be writing one right now. Runs after every backup
    * (prune) and when the server starts.
+   * The team archives fail closed, because their marker is in another tree (data/ and the team folder are set apart):
+   * one with its own meta.json (written once the archive is complete) always stays, and none goes when data/backups
+   * is missing or cannot be listed (a fresh or restored data folder, a volume not mounted yet, the wrong data dir).
    */
   removeUnfinished(): string[] {
     const L = this.o.layout
@@ -457,8 +462,9 @@ export class BackupManager {
       e.paths.push(p); e.t = Math.max(e.t, t)
       found.set(id, e)
     }
-    let names: string[] = []
+    let names: string[] | null = null
     try { names = fs.readdirSync(L.dbBackupsDir) } catch {}
+    if (!names) return []
     for (const n of names) {
       const db = UNFINISHED_DB_RE.exec(n)
       if (db && ID_RE.test(db[1]!) && (db[2] || !done(db[1]!))) { add(db[1]!, path.join(L.dbBackupsDir, n), mtime(path.join(L.dbBackupsDir, n))); continue }
@@ -473,6 +479,8 @@ export class BackupManager {
     for (const d of dirs) {
       if (!d.isDirectory() || !ID_RE.test(d.name) || done(d.name)) continue
       const dir = path.join(L.teamBackupsDir, d.name)
+      // a complete archive whose marker data/backups lacks (data/ from an older copy): still the team's file history
+      if (fs.existsSync(path.join(dir, 'meta.json'))) continue
       let t = mtime(dir)
       try { for (const n of fs.readdirSync(dir)) t = Math.max(t, mtime(path.join(dir, n))) } catch {}
       add(d.name, dir, t)
