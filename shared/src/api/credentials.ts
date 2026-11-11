@@ -146,6 +146,11 @@ export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: tru
 export const AiAccessResponse = z.object({ usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean(), trial: z.enum(['used', 'ended']).optional() })
 export type AiAccessResponse = z.infer<typeof AiAccessResponse>
 export const AiAccessRequestResponse = z.object({ requested: z.literal(true), already: z.boolean() })
+/** "Trina isn't ready yet" (the AI cannot start, chat error engine_missing): a member told the owner(s) and admins.
+ * `already`: they were told within the last hour (AI_NOT_READY_WINDOW_MS), so nothing was sent now. */
+export const AiNotReadyTellResponse = z.object({ told: z.literal(true), already: z.boolean() })
+/** one "tried to use Trina but it isn't set up yet" notice per member in this time (the server's limit) */
+export const AI_NOT_READY_WINDOW_MS = 3600_000
 /** The hosting service's trial AI credit (docs/DECISIONS.md "B — Hosted trial AI credit", "Z — trial credit on the API
  * engine"): a key of the hosting service's that answers the team's chats on the app's own API engine only when no AI
  * connection of the team or the person can. `state`: active (answers now), used (the dollar cap is reached), ended
@@ -168,6 +173,7 @@ export type TrialCreditResponse = z.infer<typeof TrialCreditResponse>
 export const CREDENTIALS = {
   getAiAccess: endpoint({ method: 'GET', path: '/api/me/ai-access', auth: 'user', owner: 'A', response: AiAccessResponse, summary: 'Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), and did I already ask.' }),
   requestAiAccess: endpoint({ method: 'POST', path: '/api/me/ai-access/request', auth: 'user', owner: 'A', response: AiAccessRequestResponse, summary: 'Tell the owner(s) and admins I have no AI connection: one inbox notice per owner or admin, a second ask changes nothing. Not for the owner or an admin, nor for someone who can use AI.' }),
+  tellAiNotReady: endpoint({ method: 'POST', path: '/api/me/ai-not-ready/tell', auth: 'user', owner: 'A', response: AiNotReadyTellResponse, summary: 'Trina is not ready yet (the AI cannot start): tell the owner(s) and admins with one inbox notice each, at most once an hour per member. Not for the owner or an admin.' }),
   listCredentials: endpoint({ method: 'GET', path: '/api/admin/credentials', auth: 'admin', owner: 'A', response: CredentialsResponse, summary: 'AI connections of the team (and that members have their own), with state and this month\'s use. Never a secret.' }),
   createCredential: endpoint({ method: 'POST', path: '/api/admin/credentials', auth: 'admin', owner: 'A', status: 201, body: CreateCredentialBody, response: Credential, summary: 'Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member\'s personal copy moves to the team.' }),
   updateCredential: endpoint({ method: 'PATCH', path: '/api/admin/credentials/:id', auth: 'admin', owner: 'A', body: UpdateCredentialBody, response: Credential, summary: 'Rename, order, switch off, assign to groups / people, monthly limit.' }),

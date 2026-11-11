@@ -218,6 +218,10 @@ export const MISC_SPECS: Record<string, Spec> = {
       if (usable && r.status !== 403) throw new Error(`${who} can use AI and still asked the owner: ${r.status}`)
       if (!usable && r.status !== 200) throw new Error(`${who} cannot use AI and could not ask: ${r.status}`)
     } },
+  // "Trina isn't ready yet": a member tells the owner(s) and admins (one notice an hour, server-side); never the owner or
+  // an admin (403: they connect the AI themselves)
+  tellAiNotReady: { build: (c) => c.post('/api/me/ai-not-ready/tell'), scope: 'members',
+    check: (r, _w, who) => { if (admin(who) && r.status !== 403) throw new Error(`${who}: telling an admin answered ${r.status}, not 403`) } },
   // the hosting service's trial credit (owners and admins; none on a self-hosted server), never its key
   trialCredit: { build: (c) => c.get('/api/admin/trial-credit'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the trial credit shows a key') } },
 
