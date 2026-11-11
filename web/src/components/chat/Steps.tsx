@@ -19,12 +19,12 @@
 // A post the AI made to a room (post_to_room, Step.posted) has 보기, like the button's sent line: the room at the message
 // or the thread at the reply. A side chat gives its own way there (StepPostView: its column, a phone's panel).
 import clsx from 'clsx'
-import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { createContext, useContext, useState } from 'react'
 import { api, API, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
 import { toast } from '../../store/ui'
-import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, stepPlace } from '@mycel/shared'
+import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, stepPlace, unansweredStep } from '@mycel/shared'
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
@@ -93,14 +93,15 @@ export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: Re
  * stayed undone, a step the failing answer ended on), and a dev environment command that did not run because the
  * environment was full (the line under it says so, and the AI was told not to try again). A command the person
  * cancelled is theirs, no failure. A step the time limit or Stop cut off says so (paused, stopped); an attached
- * file's note is neither. */
-export type StepMark = 'running' | 'note' | 'paused' | 'stopped' | 'cancelled' | 'failed' | 'retried' | 'done'
+ * file's note is neither. A card that ran out without an answer (a question, remember's "may I keep this?") is no
+ * success either: a quiet mark with "답하지 않음" beside the line (unanswered). */
+export type StepMark = 'running' | 'note' | 'paused' | 'stopped' | 'cancelled' | 'failed' | 'retried' | 'unanswered' | 'done'
 export function stepMark(step: Step, o: MarkContext): StepMark {
   if (step.status === 'running' && o.live) return 'running'
   if (step.tool === 'attachment') return 'note'
   if (step.paused) return 'paused'
   if (step.stopped) return 'stopped'
-  if (step.status !== 'error') return 'done'
+  if (step.status !== 'error') return unansweredStep(step) ? 'unanswered' : 'done'
   if (step.devEnvRun?.state === 'expired') return 'failed'
   if (step.devEnvRun?.state === 'cancelled') return 'cancelled'
   if (o.gotPast.has(step.id) || o.live || (!o.answerFailed && lookedUp(step))) return 'retried'
@@ -156,8 +157,11 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const media = step.kind === 'tool' ? mediaStepKind(step) : null
   const Icon = subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
   const hidden = step.subtask?.hidden ?? 0
-  const expandable = !!(step.detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const mark = stepMark(step, { live, ...marks })
+  // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again
+  const unanswered = mark === 'unanswered'
+  const detail = unanswered ? undefined : words.detail
+  const expandable = !!(detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = mark === 'running'
   // a failure the AI went on past: "안 됐지만 트리나가 다른 방법으로 이어 갔어요" ("…찾고 있어요" while it answers and
   // nothing after it worked yet)
@@ -166,7 +170,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const markWords = mark === 'retried' ? retried : mark === 'failed' ? t('steps.failed') : ''
   const stats = subtask ? subtaskStats(step.subtask, t) : ''
   // cut off by the time limit or by Stop: said in words, not only by the icon
-  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : ''
+  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : unanswered ? words.detail ?? '' : ''
   // while a sub-agent works, its latest step shows under its row (like Claude Code)
   const latest = subtask && running && !open ? kids[kids.length - 1] : undefined
   // a row that opens is a button; one with nothing to open is not a control (a disabled button would also swallow the
@@ -181,6 +185,9 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
         <CirclePause size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-paused" />
       ) : mark === 'stopped' ? (
         <CircleStop size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-stopped" />
+      ) : unanswered ? (
+        // a card nobody answered: neither a success nor a failure (the words beside the line say it)
+        <CircleDashed size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-unanswered" />
       ) : mark === 'cancelled' ? (
         // a waiting command the person cancelled: the line under the row says so
         <CircleStop size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-cancelled" />
@@ -226,7 +233,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
       )}
       {open && !subtask && (
         <div className="mt-1 mb-2 ml-6 space-y-1.5 border-l border-line pl-3">
-          {words.detail && <p className="text-xs whitespace-pre-wrap text-muted">{words.detail}</p>}
+          {detail && <p className="text-xs whitespace-pre-wrap text-muted">{detail}</p>}
           {step.sources && (
             <ul className="space-y-1" data-testid="search-sources">
               {step.sources.map((s, i) => (

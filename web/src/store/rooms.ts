@@ -423,6 +423,35 @@ export function roomFileGone(s: RoomsData, roomId: string, messageId: string, fi
   return !!m && (!!m.deletedAt || !m.files.some((f) => f.id === fileId))
 }
 
+/** The sends still on their way (or failed) without the ones whose message is on screen (the room's timeline, a thread
+ * on screen), matched by the id my app sent it with (RoomMessage.clientMessageId, only ever on my own messages). Such a
+ * send is done whichever way its message came: its own answer, the live event, a replay or a page read again after a
+ * reconnect. Otherwise a send whose answer was lost shows twice: delivered, and failed with 다시 시도 / 지우기. The same
+ * object when nothing is done. */
+export function settledPending(s: Pick<RoomsData, 'timeline' | 'threadViews'> & { pending: Record<string, PendingSend[]> }): Record<string, PendingSend[]> {
+  if (!Object.keys(s.pending).length) return s.pending
+  // by room: the ids of my messages on screen
+  const sent = new Map<string, Set<string>>()
+  const note = (roomId: string, list: readonly (RoomMessage | null)[]) => {
+    if (!s.pending[roomId]) return
+    for (const m of list) {
+      if (!m?.clientMessageId) continue
+      const ids = sent.get(roomId) ?? new Set<string>()
+      ids.add(m.clientMessageId)
+      sent.set(roomId, ids)
+    }
+  }
+  if (s.timeline) note(s.timeline.roomId, s.timeline.messages)
+  for (const tv of Object.values(s.threadViews)) note(tv.roomId, [tv.root, ...tv.replies])
+  let pending = s.pending
+  for (const [roomId, ids] of sent) {
+    const list = pending[roomId]!
+    const left = list.filter((p) => !ids.has(p.clientMessageId))
+    if (left.length < list.length) pending = left.length ? { ...pending, [roomId]: left } : omit(pending, roomId)
+  }
+  return pending
+}
+
 export const useRooms = create<RoomsState>((set, get) => {
   const setPending = (roomId: string, f: (list: PendingSend[]) => PendingSend[]) =>
     set((s) => {
@@ -442,6 +471,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       patchMessages((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
     } catch (e) {
+      // its message came another way while the answer was lost (settledPending), or it was let go: nothing to show
+      if (!get().pending[roomId]?.some((x) => x.clientMessageId === p.clientMessageId)) return
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
       // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
@@ -972,4 +1003,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       set({ ...EMPTY })
     },
   }
+})
+
+// A send whose message is on screen is done (settledPending), checked whenever what is on screen or the sends change:
+// one place for every way the message can come, so a send whose answer was lost never stays failed beside it
+useRooms.subscribe((s, prev) => {
+  if (s.timeline === prev.timeline && s.threadViews === prev.threadViews && s.pending === prev.pending) return
+  const pending = settledPending(s)
+  if (pending !== s.pending) useRooms.setState({ pending })
 })

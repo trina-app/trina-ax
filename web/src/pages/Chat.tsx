@@ -30,7 +30,7 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { useStickToBottom } from '../lib/stickToBottom'
+import { CHAT_ROW, holdPlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
@@ -210,11 +210,10 @@ function ChatView({ chatId }: { chatId: string }) {
     list.onScroll()
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
-      const before = el.scrollHeight
+      // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
+      const keep = holdPlace(el, CHAT_ROW)
       await loadOlder(chatId).catch(() => {})
-      requestAnimationFrame(() => {
-        if (scroller.current) scroller.current.scrollTop += scroller.current.scrollHeight - before
-      })
+      requestAnimationFrame(keep)
       setOlderBusy(false)
     }
   }

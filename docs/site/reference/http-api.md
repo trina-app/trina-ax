@@ -383,7 +383,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/admin/update` | Owner + password | Back up the DB, switch app/current, restart; roll back if the health check fails. |
 | `GET` | `/api/admin/after-update` | Admin | What a release left for an admin to do and that still applies to this team (not dismissed). |
 | `POST` | `/api/admin/after-update/:id/dismiss` | Admin | Remember for the team that one after-update to-do is not needed. |
-| `GET` | `/api/admin/backups` | Owner | Backups in .system/backups/. |
+| `GET` | `/api/admin/backups` | Owner | Backups in .system/backups/, and the last restore (which backup, when, by whom, ok). |
 | `POST` | `/api/admin/backup` | Owner | Back up now (VACUUM INTO + team folder manifest diff). |
 | `POST` | `/api/admin/restore` | Owner + password | Restore a backup (everything after it is lost; the UI shows how much). |
 | `POST` | `/api/admin/export` | Owner | Export chats / memories / files (optionally password-encrypted with age). |

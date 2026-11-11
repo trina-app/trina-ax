@@ -29,7 +29,7 @@ import { lookingAt, onWindowFocus } from '../lib/attention'
 import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { useBackCloses } from '../lib/backCloses'
-import { useStickToBottom } from '../lib/stickToBottom'
+import { holdPlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
 import { useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
 import { useRooms, type PendingSend } from '../store/rooms'
@@ -291,15 +291,12 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     // a window around an older message: newer pages as its bottom comes into sight
     if (fromBottom < 200 && th?.roomId === roomId && th.newerCursor && !th.loading) void useRooms.getState().loadNewer(roomId)
     if (el.scrollTop < 200 && th?.roomId === roomId && th.nextCursor && !th.loading) {
-      const before = el.scrollHeight
+      // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
+      const keep = holdPlace(el, ROOM_ROW)
       void useRooms
         .getState()
         .loadOlder(roomId)
-        .then(() =>
-          requestAnimationFrame(() => {
-            if (scroller.current) scroller.current.scrollTop += scroller.current.scrollHeight - before
-          }),
-        )
+        .finally(() => requestAnimationFrame(keep))
     }
     tryRead()
   }

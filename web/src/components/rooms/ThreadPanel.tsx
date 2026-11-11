@@ -17,7 +17,7 @@ import type { RoomMessage, UserRef } from '@mycel/shared/api'
 import { ApiError, errorText, isApiError } from '../../lib/api'
 import { lookingAt, onWindowFocus } from '../../lib/attention'
 import { newestSeq, TARGET_PAGES } from '../../lib/rooms'
-import { useStickToBottom } from '../../lib/stickToBottom'
+import { holdPlace, ROOM_ROW, useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { findMessage, placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { ErrorNote, IconButton, Skeleton } from '../ui'
@@ -97,15 +97,12 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
     list.onScroll()
     const tv = useRooms.getState().threadViews[key]
     if (el.scrollTop < 200 && tv?.nextCursor && !tv.loading) {
-      const before = el.scrollHeight
+      // the reply in sight stays where it is (lib/stickToBottom.ts holdPlace)
+      const keep = holdPlace(el, ROOM_ROW)
       void useRooms
         .getState()
         .loadOlderReplies(roomId, rootId)
-        .then(() =>
-          requestAnimationFrame(() => {
-            if (scroller.current) scroller.current.scrollTop += scroller.current.scrollHeight - before
-          }),
-        )
+        .finally(() => requestAnimationFrame(keep))
     }
     tryRead()
   }

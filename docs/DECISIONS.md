@@ -21,6 +21,7 @@
 
 - **경로 단계 맞추기: 정확히 같은 이름 → 같은 이름의 다른 유니코드 정규화(NFC/NFD) → (대소문자 무시 파일 시스템에서만) 대소문자만 다른 이름.** 후보가 둘 이상이면 "애매한 이름"으로 거부. 권한은 이렇게 찾은 실제 이름으로 비교하고 절대 접어서 비교하지 않는다. 리눅스에서 `Marketing/`은 `marketing/`과 다른 폴더로 취급된다(옛 버그 재현 케이스가 퍼저에 들어 있음).
 - **새로 만드는 이름의 충돌 검사는 NFKC + 소문자 키로 한다.** 대소문자·NFC/NFD·전각만 다른 형제가 있으면 쓰기·폴더 만들기를 거부한다(`ｔｏｄｏ.md` 같은 전각 흉내도 막음).
+- **사람이 친 이름으로 서버가 만드는 이름은 NFC로 저장한다**(QA TC-225, 2026-11-11): 새 폴더, 이름 바꾸기·옮기기의 대상, 새 글 파일, `ensureFolder`. 맥은 한글을 풀어 쓴 NFD로 보내고, 그대로 두면 윈도에서 자모가 흩어져 보였다(업로드는 이미 NFC). 가는 길의 기존 폴더는 어느 형태로 쳐도 찾으므로(위 단계 맞추기) 전에 NFD로 저장된 이름은 그대로 쓰이고, 같은 이름으로 바꾸면 NFC가 된다. 디스크의 이름을 저절로 바꾸지는 않는다(규칙·버전·프로젝트가 경로로 저장됨). 다운로드 파일 이름(Content-Disposition)은 늘 NFC.
 - **충돌한 형제가 나에게 안 보이는 것이면 이름을 말하지 않고 "없음/권한 없음"과 똑같이 거부한다**(보안 r1, 2026-10-21). 전에는 `ⓢalaries`(U+24E2는 NFKC에서 s)나 리눅스의 `SALARIES`로 폴더 만들기·저장·업로드·이동을 하면 409와 함께 `error.fields.path`와 도구 결과(AI)에 숨긴 폴더의 실제 이름 `'salaries' already exists…`가 나갔다. 이제 보이는 형제(트리·list 도구와 같은 기준, `siblingVisible`)와 충돌할 때만 그 이름을 알려 주고, 숨은 형제와만 충돌하면 `not found or no access: '<내가 친 경로>'`(HTTP 404, fields 없음)로 만들지 않는다. 그 이름 옆에 흉내 이름이 생기지도 않는다. HTTP의 near-duplicate 응답은 정책 문구를 fields에 복사하지 않고 고정 문구만 넣는다. 사람이 고른 이름의 자동 이름 짓기(업로드·이동의 rename, 휴지통 복원의 " (복원됨)")도 보이는 형제만 피한다: 숨은 항목이 다음 이름을 쥐고 있으면 "(3)"으로 건너뛰어 존재를 드러내지 않고 같은 404가 된다(드문 경우의 불편보다 안전 쪽). 남는 것: 숨은 항목이 그 이름(또는 접으면 같은 이름)을 쓰고 있다는 사실 자체는 정확한 이름으로 만들어 볼 때와 똑같이 "만들 수 없음"으로 알 수 있다(한 폴더 안의 이름 공간을 나눠 쓰는 한 피할 수 없음). 철자는 나가지 않는다. 서버가 짓는 이름(충돌 사본, 첨부)은 저장이 실패하지 않도록 지금처럼 모든 형제를 피한다. NFKC≠NFC인 이름을 전부 막는 안은 `㈜`, `①` 같은 정상 이름까지 막아서 하지 않았다.
 - **이름 규칙은 모든 OS에서, 읽기에도 적용한다.** 윈도우 예약 이름(CON/NUL/COM1…), `:`(대체 데이터 스트림), 8.3 짧은 이름(`ABC~1`), 끝 점·공백, 제어·방향·폭 없는 문자, 흉내 슬래시(`／ ∕ ⁄`), `< > " | ? * \`를 거부한다. 규칙에 걸리는 기존 파일은 도구에서 보이지 않는다(실패하면 닫히는 쪽). 팀 폴더를 다른 OS 서버로 옮겨도 안전하게.
 - **"권한 없음"과 "없는 파일"은 같은 문구를 쓴다**(`not found or no access`). 숨긴 폴더의 존재가 드러나지 않게.
@@ -33,6 +34,7 @@
 - **기존 파일을 `write`로 덮어쓸 때도 그 턴에 먼저 `read`해야 한다**(Claude Code와 같음). 새 파일은 바로 만들 수 있고, 없는 상위 폴더도 이름 규칙·충돌 검사를 거쳐 만든다.
 - **`edit` 충돌 사본**: 읽은 뒤 누가 바꿨으면, `old_string`이 지금 파일에 그대로 적용될 때만 "지금 파일 + 이 수정"을 충돌 사본으로 저장한다. 적용이 안 되면 사본 없이 "다시 읽어라" 오류를 주고 `file_events`에 `conflict`를 남긴다(읽을 때의 내용 전체를 턴마다 들고 있지 않으려고).
 - **충돌 사본 이름은 설계서의 한국어 형식 그대로**: `이름 (충돌 사본 - 사람 날짜 HH.mm).확장자`. 이름 규칙상 `:`를 쓸 수 없어 시각은 `HH.mm`.
+- **충돌 사본 알림은 한 사람에게 한 번**(QA TC-230, 2026-11-11): 저장한 사람은 1인칭("내 내용은 사본으로 따로 저장했어요"), 다른 사람은 저장한 사람 이름으로, 자리는 파일 화면의 말(전사 공유 › Notes)로 알린다. 디스크 경로는 쓰지 않는다. 파일 패널에서 저장한 창은 자기 알림을 보이고 같은 저장의 실시간 `files.conflict`는 그 창에서 다시 보이지 않는다(`web/src/lib/conflictNotice.ts`). 전에는 저장한 사람에게 경로가 든 알림 두 개가 갔고 하나는 자기를 3인칭으로 불렀다.
 - **충돌 알림**: 서버 안 이벤트(`FileService.events`의 `'conflict'`)와 `file_events`에 더해, 실시간 `files.conflict {path, copyPath, by}`를 저장한 사람과 먼저 바꾼 사람 두 명에게 보낸다(4번 탭 PUT content "두 사람에게 알린다"). 보내기 직전에 그 사람이 원본과 사본을 둘 다 읽을 수 있는지 다시 확인하고(사본 이름에 저장한 사람 이름이 들어 있다), 내용은 싣지 않는다. 웹은 '사본 열기'가 달린 알림을 띄운다. PUT /api/files/content는 설계의 409 + conflictCopyPath 대신 지금처럼 200 `{conflict:true, path:<사본>}`을 돌려준다(편집기가 저장 결과로 다루기 쉬워서, 보안 검토 r1에서 기록).
 - **턴당 쓰기 한도 50MB·200파일**(디스크 채우기 방지, 7번 탭).
 - **오피스 파일은 `write`로 쓸 수 없다**(`make_file`은 나중). 사람의 파일 화면 저장(`humanSave`)은 같은 규칙(해시 기준 충돌)을 쓴다.
@@ -154,10 +156,12 @@
 - **Bun 1.3.12 함정 두 개와 대응**: ① Hono의 `c.header()`는 끝난 응답을 `new Response(res.body, res)`로 다시 감싼다 → 파일 응답이 JS 스트림이 되어 배압 없이 메모리에 쌓인다. 기반 미들웨어를 헤더 직접 설정으로 고쳤다. ② `Bun.file().slice()` 본문을 스트림으로 읽으면 끝을 무시하고 파일 끝까지 나오고, `slice().stream()`은 끝나지 않는다. 그래서 전체 파일은 `Bun.file`(sendfile), Range는 우리 pull 스트림으로 한 응답에 최대 8MB(Content-Range로 알림, 미디어·PDF 뷰어는 다음 부분을 다시 요청). 중계(F)가 `res.body`를 읽어도 정확하고 메모리는 요청당 8MB 이하.
 - **휴지통 목록은 원래 경로에 쓰기 권한이 있는 항목만**(4번 탭; 계약 요약도 그렇게 고침). 영구 삭제 `DELETE /api/files/trash/:id`(admin 이상)를 계약에 더했다. 폴더 삭제는 폴더째 `.system/trash/`로 rename(읽지 않음), 되돌리기도 폴더째.
 - **버전·휴지통의 folder_id·path_at_save는 트리거로 채운다**(stage 1 도구 쓰기도 같이). `file_versions.path`는 *지금* 경로(이동 API가 고침), `path_at_save`는 그대로. 열람은 folder_id 폴더의 지금 경로와 파일의 지금 경로 둘 다 읽기 권한(폴더 행이 없으면 path_at_save) — 비밀 폴더에서 공용으로 옮긴 파일의 옛 버전은 계속 숨는다(시험 있음).
+- **휴지통에 간 폴더 안 파일의 버전은 폴더가 돌아온 뒤에 되돌린다**(QA TC-229, 2026-11-11): 규칙 폴더는 `folder_id`로 알고(보안 4회차), 규칙 없는 폴더는 `folders` 행이 없어 "파일의 폴더가 지금 없고 그 위의 폴더가 휴지통(`trash_items`, 되돌리지 않음)에 있음"으로 안다. 전에는 되돌리기가 그 폴더를 휴지통 밖에 다시 만들어, 휴지통의 되돌리기가 "(복원됨)" 이름이 됐다. 같은 이름의 폴더를 새로 만들었으면 거기로 되돌릴 수 있다. 기록 응답은 `restoreBlocked: 'folderInTrash'`로 이유를 알리고(그 자리에 쓸 수 있는 사람에게만) 버전 기록 창이 그 문구를 보인다.
 - **폴더 이동·삭제는 그 안의 규칙 폴더 전부에 쓰기 권한이 있어야 한다.** 아니면 users/<나>/ 아래로 옮겨(규칙 무시 구역) 숨은 하위 폴더를 손에 넣을 수 있다. 루트·users/·users/<id>/·.system/은 옮기거나 지울 수 없다. 대소문자만 바꾸는 이름 변경은 대소문자 무시 볼륨에서 그대로 된다.
 - **그 자리나 아래에 관리되는 폴더(규칙 폴더, 그룹 폴더, shared/, skills/, 프로젝트가 쓰는 폴더; 보안 r2부터 프로젝트가 더 쓰지 않는 규칙 없는 행은 빠짐)가 있는 폴더는 admin·owner만 옮기고 이름을 바꾸고 휴지통에 넣는다(아니면 403 forbidden). 그런 폴더를 users/ 아래로 옮기는 것은 owner도 못 한다(400 validation, `fields.to`에 `invalid_path`).** 4번 탭 move 그대로. (보안 검토 r1: 전에는 그 폴더에 쓰기 권한만 있으면 팀원이 그룹·프로젝트 폴더를 users/<나>/로 옮겨 자기만 보는 폴더로 만들 수 있었고, owner·admin은 남의 users/를 볼 수 없어 되돌리지도 못했다. 팀원이 그룹 폴더나 shared/를 통째로 휴지통에 넣을 수도 있었다.) ErrorCode에 `invalid_path`가 없어 다른 API(관리자 폴더 규칙의 users/ 거부)처럼 validation + fields로 표시한다.
 - **일반 항목을 users/<나>/로 옮길 때 지금 읽을 수 있는 다른 사람이 있으면 confirm:true 없이 409 conflict, `error.params = {reason:'audience_narrowed', lostViewers}`.** lostViewers는 사람 수만(이름은 주지 않음). 오류 본문에 기계가 읽는 `params`를 더했다(`ApiErrorBody.params`). 확인 뒤 옮기면 file_events create의 detail에 `audienceNarrowed`를 남긴다. 파일 화면은 '개인 폴더로 옮기면 n명이 더 이상 볼 수 없어요' 확인 뒤 다시 보낸다.
 - **조각 업로드**: 조각은 희소 파일 `<data>/uploads/<id>.part`의 제자리(offset)에 바로 쓴다(조립 단계 없음). 조각이 순서대로 오면 sha256을 오는 길에 계산(Hash.copy로 실패한 조각은 버림)해 complete가 즉시 끝난다. complete 재시도는 같은 답(`upload_sessions.result`). sha 불일치면 받은 조각 목록을 비운다. 열린 세션은 사람당 10개, 디스크 여유(크기+1GB) 확인. 대상 폴더는 미리 있어야 한다.
+- **끝난 업로드는 끝낸 한도를 말한다**(QA TC-230): 24시간 동안 조각이 안 오면 `expired`, 시작하고 7일이 지나면 `expiredMax`, 조각 파일이 없어졌으면(복원한 DB가 세션을 되살림 등) `uploadLost`. 전에는 모두 "만료됐어요(24시간)"라서 7일 한도에 걸린 업로드가 방금 조각을 보냈는데도 24시간이라고 들었다.
 - **첨부**: `attachments` 테이블(id로 찾음, B는 `componentC(ctx).attachments.byIds()`), 썸네일은 격리된 ffmpeg(sips는 사용자 임시 폴더에 써야 해서 샌드박스 안에서 실패), ffmpeg가 없으면 2MB 이하 png/jpg/gif/webp 원본.
 - **작업은 본인 것만 본다**(4번 탭 "본인 작업만"): 받아쓰기 결과는 그 사람의 말이라 owner도 남의 작업은 404. 사람이 없는 작업(user_id NULL: 시스템 백업·업데이트)만 owner가 본다. 영구 삭제도 휴지통 열람과 같은 조건(원래 경로 쓰기 권한)을 더 요구한다: admin이라도 남의 users/<id>/ 휴지통 항목은 못 지운다.
 - **조각 업로드 complete가 겹치면**(큰 파일 해시 중 클라이언트가 시간 초과로 다시 부름) 두 번째는 첫 번째 결과를 기다려 같은 답을 받는다. 그동안 조각·취소는 409. 디스크 여유 확인은 끝나지 않은 세션들이 앞으로 쓸 크기까지 더한다(희소 파일).
@@ -279,6 +283,7 @@
 - **번들 형식은 tar.gz 대신 tar.zst**(우리 스트리밍 tar + node:zlib zstd, 설치·업데이트 모두 우리 코드로 푼다). 서버는 `bun build`로 한 파일(`server/src/main.js`)과 관리 CLI(`admin.js`), 버전은 빌드 때 넣는다.
 - **백업**: DB는 VACUUM INTO(자식 bun 프로세스에서, 서버 이벤트 루프를 막지 않게) → `data/backups/<id>.sqlite`, 팀 폴더는 `.system/backups/<id>/team.tar.zst` + manifest + deleted 목록 + 폴더 목록(`dirs.json`). 7일마다 전체, 그 사이는 크기·수정 시각이 바뀐 파일만(폴더 항목은 매번 모두 넣는다: 빈 새 폴더가 복원에서 빠지지 않게. 복원은 `dirs.json`에 없는 폴더를 지우고 있어야 할 폴더가 없으면 실패). 14일 보관, 남는 백업이 기대는 이전 백업은 지우지 않는다. 설계서의 "날짜별 cp -c 사본" 대신 이 방식을 쓴 이유: 작업 지시(목록 비교 tar+zstd)와 스파이크 B 결과, APFS가 아닌 볼륨에서도 같은 동작.
 - **API 복원은 DB만**(설계 6번 탭). 확인한 사본을 `data/restore-staged.db`에 두고 서버가 다음 시작 때 DB를 열기 전에 바꾼다(`main.ts`의 `applyPendingRestore`). 이전 DB는 `data/backups/before-restore-*`에 남긴다. (2026-11-11) 백업과 같은 보관 기간이 지나면 지운다. 가장 최근 것과 `restore-result.json`이 가리키는 것은 남기고, 복원이 대기 중(`restore-pending.json`)이면 하나도 지우지 않는다. 다른 맥으로 옮기기·외장 디스크 보관은 관리 CLI의 암호 걸린 archive(age) → `restore-archive`(임시 폴더에 풀고 전부 성공했을 때만 새 폴더로).
+- **복원 결과를 남긴다**(2026-11-11, QA TC-208). 복원을 적용(또는 실패)한 시작이 DB를 연 뒤 활동 기록에 `backup.restore`(요청한 사람, 대상 = 백업 id, detail: `ok`, `backupCreatedAt`, `requestedAt`, 실패면 `error`)를 쓴다(`recordRestore`, 복원된 DB에 들어가 다시 시작한 뒤에 보인다). 백업 시각은 복원을 요청할 때 `restore-pending.json`의 `backupCreatedAt`(선택 필드)에 적어 둔다. `GET /api/admin/backups`의 선택 필드 `lastRestore`가 그 행을 읽고, 관리자 › 시스템 › 백업이 한 줄로 말한다("{시각}에 {이름}님이 {백업 시각}에 만든 백업으로 되돌렸어요", 실패면 데이터를 그대로 두었다고). 전에는 다시 시작한 뒤 아무 데도 남지 않았다(`restore-result.json`은 실패일 때 점검만 읽었음).
 - **내보내기**: 대화·메모리는 요청한 owner 본인 것만(관리자도 남의 대화를 볼 수 없다는 원칙), 파일은 팀 폴더에서 `.system/`·이전 내보내기·**다른 사람의 `users/<id>/`**를 뺀 것(6번 탭 '내보내기'; owner 본인 폴더는 넣는다). 항목은 쓰는 동안 하나씩 만들어 대화가 많아도 메모리에 한꺼번에 올리지 않는다. 결과 위치는 공유 계약(`shared/src/api/system.ts`)대로 `users/<owner>/exports/`이다(설계서는 `data/exports/<jobId>.zip` + 24시간 삭제 + `GET /api/jobs/:id/download`; C의 다운로드 엔드포인트가 생기면 옮긴다).
 - **진단 문구는 ko/en/id**(요청자 언어). 메뉴바용 `status/status.json`은 30초마다 쓰고 개인정보(이름·대화)를 넣지 않는다. 엔진 로그인 확인은 local-login이면 `claude auth status`·`codex login status`(이메일은 버림), 역할 계정 모드면 `secrets/claude-oauth-token` 유무.
 - **로그 폴더**: `/Library/Logs/<id>`와 `crash/`는 root:wheel 755(launchd·newsyslog가 root로 일하는 경로에 역할 계정 소유 폴더가 끼면 링크를 심어 root 쓰기를 돌릴 수 있다; 755인 이유는 실행기의 launchd 출력 파일을 엔진 계정 권한으로 열기 때문, 750이면 EX_CONFIG). 서버 로그와 update.log는 `server/`(server:admin 750). 메뉴바 앱은 로그 폴더를 status.json이 아니라 고정 경로로 Finder에 보여 준다(열지 않는다).
@@ -745,6 +750,14 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   through the relay: the desktop and phone apps' address check only parse the shape, the bootstrap, installers,
   `mycel-ctl` and the Docker health check ask `127.0.0.1`, and the sign-in page's source-code link then names no version
   (as on the office internet address).
+- **A full disk is said as one (2026-11-11, QA TC-209).** Where the Mac's absolute floor (max(10 GB, 5%), not a Linux
+  production install) decides the disk check, the storage card's level is `full` under it too, so the card and the
+  check never disagree on a small disk. A backup refused for room (`disk_space`, `plan_space`) is told in the person's
+  language. Any request that fails on a full disk (ENOSPC / EDQUOT, SQLite "database or disk is full", also as a cause)
+  answers 507 `storage_full` with `SERVER_DISK_FULL` ("서버 저장 공간이 가득 차서 지금은 할 수 없어요. 관리자가 공간을 비워야 해요.",
+  `params.reason: server_disk_full`) instead of 500, and a chat turn that failed on one (the error, the engine's or the
+  launcher's "no space left on device", or under 64 MiB left on the data or team disk when it stopped) ends with the
+  chat reason `storage_full`; the owner and admins read where to look (Admin › System).
 
 ## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 
@@ -5775,7 +5788,7 @@ A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with 
 - **A folder of the same name is used, not renamed.** A person who uploads a folder a second time expects one folder. Files keep the single-file rule (`rename`), so that upload makes copies.
 - **The stop has two codes.** 507 comes from the storage rule. 413 comes from the real-disk check of session create, which keeps 1 GiB and runs after the storage rule, so a server with no plan file sees 413 first for large files. The client checks the file size first, so a 413 there is not about the file.
 - **507 no longer retries.** `retryable` took every status of 500 and more, so a large file waited about 15 seconds for an answer that does not change.
-- **Names go up in NFC.** macOS gives NFD, and the server keeps a new folder's name as sent. Only the file name is normalized in `placeUpload`.
+- **Names go up in NFC.** macOS gives NFD. The server stores every new name in NFC too since QA TC-225 (2026-11-11: `mkdir`, move/rename, save), and the file name in `placeUpload`.
 - **Links.** No browser API marks a link. From what we know of Chromium (not tested in a browser here), it leaves links out of a dropped folder, and the picker gives the content of the target. The client skips entries that are not a file or a folder and stops at 64 levels, the server's limit. The server writes file content only, so no link reaches the team folder.
 - **The runs live outside the page,** so an upload goes on when the person opens another page and the row is there when they come back. A closed tab ends the upload. The same folder picked again goes on from the remembered sessions and sends the finished files again as copies.
 
@@ -14820,7 +14833,9 @@ new button or card.
   (a shared chat, or mine with several authors), from that chat's messages read once with each word's `LIKE` once a
   message: a word counts through the title, a person's message, or an answer not hidden from me, never through a hidden
   one. Team file names (`team-files/find.ts`, also the chat's team-file picker): every word in the name, any case (the
-  follow-up). The palette marks the first match of every word, and puts first the chats whose title has every word.
+  follow-up). The palette also asks for folders (`folders=1`, QA TC-230): the folders the file screen shows the person
+  (`siblingVisible`), found by a walk of folders only (at most 20,000), listed before the files; the picker attaches
+  files only and does not ask. The palette marks the first match of every word, and puts first the chats whose title has every word.
 - **Chat search with a common word (the follow-up, fix/search-followups).** #349 read the messages holding any word in
   one pass over `messages_fts` (each word's `LIKE` twice a row, a join of `messages` and an object per row): on a word in
   most messages (one letter: ⌘K asks from the first) it was slower than before, and bun:sqlite holds the server for
@@ -15186,6 +15201,15 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
   ~/Library and app data under it), and the app cannot narrow what is readable inside a pick: every read through a
   handle is checked against the picked folder itself. Folders inside home (a .claude or .codex folder) are no blocked
   root and stay pickable.
+- **A refused folder is said (2026-11-11, QA TC-219).** The page cannot tell a refusal from Cancel (both `AbortError`), so
+  picking the home folder did nothing, without a word. Now, when the team page's own pick (top frame, allowed origin, a
+  folder) is refused, the team window says why in the app's language (`refusedFolderReason`: "the whole home folder
+  can't be picked; pick a folder inside it, such as Documents or Downloads" for home or a folder holding it, "this
+  folder holds system files" for the rest of Chromium's blocklist) with **Pick another folder** (Electron's `tryAgain`:
+  the folder window opens again) and **Cancel** (`deny`: the page's `AbortError`, as before). Any other refusal stays
+  silent, so no other page can raise the app's dialogs. Nothing about what may be picked changed. The page's drops use
+  `webkitGetAsEntry` and never reach this; a drop through `getAsFileSystemHandle` would get the same box, its
+  `tryAgain` ending as a refusal. Tests: tests/unit/e-desktop-folder-window.test.ts, desktop/e2e/folder-window.spec.ts.
 - **Home under another name (security review must-fix).** A root can be home, or above it: Windows lets people move
   Documents, Desktop or Downloads to `C:\Users\<name>` or `C:\`, and on macOS ~/Desktop can be a link to ~. So both
   the restricted folder and the request refuse a path that is home or holds it (`opensHome`): as written and with its
@@ -20923,6 +20947,20 @@ universal links / app links); without it, the phone's browser lands on the join 
   pages make no analytics call. The e2e test checks the store request has no Referer and no token.
 - Tests: `web/test/unit/get-the-app.test.ts`, `tests/unit/app-links.test.ts` (the banner), `web/test/e2e/get-the-app.spec.ts`
   (390, iPhone and Android user agents, light and dark), `web/test/e2e/first-run.spec.ts`.
+
+## Usage limits: a true USD hint, no empty chat after a refused send, midnight in 24-hour time (fix/usage-limit-words, 2026-11-11, QA TC-215)
+
+- **The USD hint says what really adds up.** Admin › 팀 설정 › 사용 한도's hint under 금액 한도 (USD) said amounts
+  build up only with API key connections. Answers through a login count too: the engine reports an estimated amount,
+  which the turn keeps (`usage.costNote` says so already), and a USD block limit refuses on it. The hint now says the
+  amount is an estimate of the same use through the API and that answers through a login can add up too.
+- **No new chat while a block limit is used up.** `POST /api/chats` answers the same `budget_exceeded` (429, the
+  person's words) as sending, editing and regenerating. A first question from Home made the chat before the send was
+  refused, and the empty chat stayed in the list. Now Home's composer keeps the text and shows the refusal, and no
+  chat is made. Attaching a file on Home (which makes the chat first) is refused the same way.
+- **When a limit is free again, in 24-hour time.** A day's or a month's limit ends at the team's midnight, and
+  "오전 12:00" / "12:00 AM" can read as noon. `limitResetText` (shared) says "11월 12일 0시", "Nov 12 at 00:00",
+  "11月12日 00:00", in the team's time zone, for the refusal (`budgetBlock`) and for Settings › 사용량.
 
 
 ## Project contents only for members — 프로젝트 내용은 멤버만 (feat/project-members-only, 2026-11-11, product owner)
