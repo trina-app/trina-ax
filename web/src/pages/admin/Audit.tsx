@@ -1,10 +1,14 @@
 // Activity log: admin actions, file changes, AI tool use and sign-ins. The title and the filters stay at the top while the
 // list scrolls; the list reads as sentences grouped by day, with repeats folded into one row ("Dion signed in · 5 times").
 // The filters live in the address (lib/activity.ts), so a filtered view can be reloaded or shared. Paged by the API.
+// A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): the bar says the page's name (the title is
+// for screen readers), and only the search with one Filters button stays at the top; the kind, the person, the time and
+// Clear open under it (components/PhoneFilters.tsx), so the kinds never run off the screen (in Spanish they need about
+// 550 px).
 import clsx from 'clsx'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronDown, FileText, LogIn, Search, ShieldCheck, SlidersHorizontal, Wrench, type LucideIcon } from 'lucide-react'
+import { ChevronDown, FileText, LogIn, Search, ShieldCheck, Wrench, type LucideIcon } from 'lucide-react'
 import { BROWSER_STEP_VERB, FILE_STEP_VERB } from '@mycel/shared'
 import type { AuditEntry } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -14,11 +18,12 @@ import {
   rangeBounds, readFilters, writeFilters, type ActivityFilters, type ActivityKind, type ActivityRun,
 } from '../../lib/activity'
 import { currentLocale, DICTS, useLocale, useT, type MessageKey } from '../../i18n'
-import { Badge, Button, ErrorNote, Skeleton, StickyHeader } from '../../components/ui'
+import { Badge, Button, ErrorNote, Skeleton, StickyHeader, useMediaQuery } from '../../components/ui'
+import { PhoneFilters } from '../../components/PhoneFilters'
 import { useLoad } from './common'
 
 const KIND_ICON: Record<ActivityKind, LucideIcon> = { auth: LogIn, admin: ShieldCheck, file: FileText, tool: Wrench }
-const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-label text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-sm:min-h-10'
+const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-label text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10'
 
 export default function Audit() {
   const t = useT()
@@ -31,8 +36,7 @@ export default function Audit() {
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // phones: the kind stays in view, the rest behind "Filters"
-  const [more, setMore] = useState(false)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   // the search box answers at once; the address (and a path search on the server) follows a moment later
   const [q, setQ] = useState(f.q)
   useEffect(() => setQ(f.q), [f.q])
@@ -74,81 +78,108 @@ export default function Audit() {
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit)
     ro?.observe(head)
     return () => ro?.disconnect()
-  }, [])
+  }, [phone])
 
   const shown = items && (path ? items : items.filter((e) => matchesQuery(e, f.q, actionLabel(t, e))))
   const days = shown ? groupActivity(shown) : []
   const active = filtersActive(f)
-  const extra = (f.who ? 1 : 0) + (f.range !== 'any' ? 1 : 0) + (f.q ? 1 : 0)
   const clear = () => {
     setQ('')
     setParams(writeFilters(NO_FILTERS), { replace: true })
   }
   const words = { today: t('sidebar.today'), yesterday: t('sidebar.yesterday') }
+  const clearButton = (
+    <button type="button" className="ml-auto text-sm font-medium text-accent-text hover:underline max-md:ml-0 max-md:min-h-10" onClick={clear} data-testid="activity-clear">
+      {t('activity.clear')}
+    </button>
+  )
+  // the kind: a computer's row of segments; a phone's wrap inside Filters
+  const kinds = (
+    <div role="group" aria-label={t('audit.kind')} className="flex max-w-full gap-0.5 rounded-lg bg-subtle p-0.5 md:overflow-x-auto max-md:flex-wrap" data-testid="activity-kinds">
+      {(['', ...ACTIVITY_KINDS] as const).map((k) => (
+        <button
+          key={k || 'all'}
+          type="button"
+          aria-pressed={f.kind === k}
+          onClick={() => set({ kind: k })}
+          className={clsx(
+            'rounded-md px-3 py-1 text-label font-medium whitespace-nowrap focus-visible:-outline-offset-2 max-md:min-h-10',
+            f.kind === k ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink',
+          )}
+        >
+          {k ? t(`activity.chip.${k}`) : t('audit.all')}
+        </button>
+      ))}
+    </div>
+  )
+  const who = (
+    <select className={clsx(ctl, 'pr-8')} aria-label={t('audit.actor')} value={f.who} onChange={(e) => set({ who: e.target.value })} data-testid="activity-who">
+      <option value="">{t('audit.everyone')}</option>
+      {users.data?.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.name}
+        </option>
+      ))}
+    </select>
+  )
+  const when = (
+    <>
+      <select className={clsx(ctl, 'pr-8')} aria-label={t('activity.when')} value={f.range} onChange={(e) => set({ range: e.target.value as ActivityFilters['range'] })} data-testid="activity-range">
+        {ACTIVITY_RANGES.map((r) => (
+          <option key={r} value={r}>
+            {t(`activity.range.${r}`)}
+          </option>
+        ))}
+      </select>
+      {f.range === 'custom' && (
+        <span className="flex items-center gap-1">
+          <input className={ctl} type="date" aria-label={t('audit.from')} value={f.from} max={f.to || undefined} onChange={(e) => set({ from: e.target.value })} data-testid="audit-from" />
+          <span className="text-faint" aria-hidden>–</span>
+          <input className={ctl} type="date" aria-label={t('audit.to')} value={f.to} min={f.from || undefined} onChange={(e) => set({ to: e.target.value })} data-testid="audit-to" />
+        </span>
+      )}
+    </>
+  )
+  const search = (
+    <label className={clsx(ctl, 'flex min-w-0 flex-1 items-center gap-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent sm:min-w-48')}>
+      <Search size={14} className="shrink-0 text-faint" aria-hidden />
+      <input type="search" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
+    </label>
+  )
 
   return (
     <div ref={box} data-testid="activity">
-      <StickyHeader className="-mt-3 mb-1 py-3" testId="activity-header">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 className="text-lg font-semibold tracking-tight">{t('admin.audit')}</h2>
-          <p className="text-xs text-faint max-md:hidden">{t('audit.desc')}</p>
-          {active && (
-            <button type="button" className="ml-auto text-sm font-medium text-accent-text hover:underline" onClick={clear} data-testid="activity-clear">
-              {t('activity.clear')}
-            </button>
-          )}
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="activity-filters">
-          <div role="group" aria-label={t('audit.kind')} className="flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-subtle p-0.5" data-testid="activity-kinds">
-            {(['', ...ACTIVITY_KINDS] as const).map((k) => (
-              <button
-                key={k || 'all'}
-                type="button"
-                aria-pressed={f.kind === k}
-                onClick={() => set({ kind: k })}
-                className={clsx(
-                  'rounded-md px-3 py-1 text-label font-medium whitespace-nowrap focus-visible:-outline-offset-2',
-                  f.kind === k ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink',
-                )}
-              >
-                {k ? t(`activity.chip.${k}`) : t('audit.all')}
-              </button>
-            ))}
+      {phone ? (
+        // a phone: the bar above says the name; the search and Filters on one row, the only part that stays at the top
+        <StickyHeader className="-mt-3 mb-1 flex flex-wrap items-center gap-2 py-2" testId="activity-header">
+          <h2 className="sr-only">{t('admin.audit')}</h2>
+          <div className="flex w-full flex-wrap items-center gap-2" data-testid="activity-filters">
+            {search}
+            <PhoneFilters active={(f.kind ? 1 : 0) + (f.who ? 1 : 0) + (f.range !== 'any' ? 1 : 0)} testId="activity-more">
+              {kinds}
+              {who}
+              {when}
+              {active && clearButton}
+            </PhoneFilters>
           </div>
-          <button type="button" className={clsx(ctl, 'inline-flex items-center gap-1.5 sm:hidden')} aria-expanded={more} onClick={() => setMore(!more)} data-testid="activity-more">
-            <SlidersHorizontal size={14} aria-hidden /> {t('activity.filters')}
-            {extra > 0 && <span className="rounded-full bg-accent px-1.5 text-micro text-accent-ink tabular-nums">{extra}</span>}
-          </button>
-          <div className={clsx('flex min-w-0 flex-wrap items-center gap-2 max-sm:w-full sm:flex-1', !more && 'max-sm:hidden')}>
-            <select className={clsx(ctl, 'pr-8')} aria-label={t('audit.actor')} value={f.who} onChange={(e) => set({ who: e.target.value })} data-testid="activity-who">
-              <option value="">{t('audit.everyone')}</option>
-              {users.data?.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
-            <select className={clsx(ctl, 'pr-8')} aria-label={t('activity.when')} value={f.range} onChange={(e) => set({ range: e.target.value as ActivityFilters['range'] })} data-testid="activity-range">
-              {ACTIVITY_RANGES.map((r) => (
-                <option key={r} value={r}>
-                  {t(`activity.range.${r}`)}
-                </option>
-              ))}
-            </select>
-            {f.range === 'custom' && (
-              <span className="flex items-center gap-1">
-                <input className={ctl} type="date" aria-label={t('audit.from')} value={f.from} max={f.to || undefined} onChange={(e) => set({ from: e.target.value })} data-testid="audit-from" />
-                <span className="text-faint" aria-hidden>–</span>
-                <input className={ctl} type="date" aria-label={t('audit.to')} value={f.to} min={f.from || undefined} onChange={(e) => set({ to: e.target.value })} data-testid="audit-to" />
-              </span>
-            )}
-            <label className={clsx(ctl, 'flex min-w-0 flex-1 items-center gap-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-sm:basis-full sm:min-w-48')}>
-              <Search size={14} className="shrink-0 text-faint" aria-hidden />
-              <input type="search" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
-            </label>
+        </StickyHeader>
+      ) : (
+        <StickyHeader className="-mt-3 mb-1 py-3" testId="activity-header">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 className="text-lg font-semibold tracking-tight">{t('admin.audit')}</h2>
+            <p className="text-xs text-faint">{t('audit.desc')}</p>
+            {active && clearButton}
           </div>
-        </div>
-      </StickyHeader>
+          <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="activity-filters">
+            {kinds}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              {who}
+              {when}
+              {search}
+            </div>
+          </div>
+        </StickyHeader>
+      )}
 
       {error && <ErrorNote onRetry={() => void load(false)}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={8} />}

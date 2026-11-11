@@ -50,11 +50,12 @@ export function AiAllowances() {
         </p>
       )}
       {items && items.length > 0 && (
-        <ul className="divide-y divide-line rounded-xl border border-line" data-testid="allowance-list">
+        // phones: plain rows under the section, like Security's devices (no frame around them)
+        <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="allowance-list">
           {items.map((a) => {
             const place = `${roomName(a)} → ${a.folder}`
             return (
-              <li key={a.id} className={clsx('flex items-center gap-3 px-4 py-3', busy === a.id && 'opacity-60')} data-testid="allowance-row">
+              <li key={a.id} className={clsx('flex items-center gap-3 py-3 md:px-4', busy === a.id && 'opacity-60')} data-testid="allowance-row">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm [overflow-wrap:anywhere]">
                     <span className="font-medium">{roomName(a)}</span>

@@ -116,13 +116,14 @@ export function BrowserSettingsView({ settings: s, web, serverPolicyOff = false,
           <p className="mb-3 text-sm text-muted">{t('settings.browser.sitesHint')}</p>
           {rows.length ? (
             <>
-              <ul className="divide-y divide-line rounded-xl border border-line" data-testid="browser-sites">
+              {/* phones: plain rows under the section, like Security's devices (no frame around them) */}
+              <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="browser-sites">
                 {rows.map((r) => (
-                  <li key={r.host} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="browser-site">
+                  <li key={r.host} className="flex items-center gap-3 py-2.5 text-sm md:px-4" data-testid="browser-site">
                     <span className="min-w-0 flex-1 break-all">{r.host}</span>
                     {r.office && <Badge>{t('settings.browser.office')}</Badge>}
                     <Tooltip label={`${t('settings.browser.remove')} ${r.host}`}>
-                      <button type="button" aria-label={`${t('settings.browser.remove')} ${r.host}`} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => onRemove(r.host)} data-testid="browser-site-remove">
+                      <button type="button" aria-label={`${t('settings.browser.remove')} ${r.host}`} className="touch-hit rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => onRemove(r.host)} data-testid="browser-site-remove">
                         <Trash2 size={15} aria-hidden />
                       </button>
                     </Tooltip>

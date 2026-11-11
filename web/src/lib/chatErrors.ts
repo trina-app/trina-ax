@@ -21,7 +21,6 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   lockdown: 'providers',
   trial_credit_used: 'providers',
   trial_ended: 'providers',
-  engine_missing: 'health',
   proxy_down: 'health',
 }
 
@@ -39,6 +38,9 @@ export function adminPath(t: (key: MessageKey) => string, where: Where): string 
 export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean): { key: MessageKey; where: Where | null } {
   const noAiKey = noAiErrorKey(reason, role, noAi)
   if (noAiKey) return { key: noAiKey, where: reason === 'credential_unusable' ? 'providers' : null }
+  // the AI cannot start (owner decision 2026-11-11): "Trina isn't ready yet" for a member with [Tell an admin], the
+  // owner and admins' own words with [Connect AI] (components/chat/NotReadyButton.tsx); no menu path in either
+  if (reason === 'engine_missing') return { key: role === 'owner' || role === 'admin' ? 'chat.error.admin.engine_missing' : 'chat.error.engine_missing', where: null }
   const where = ADMIN_FIX[reason]
   const fixes = where === 'health' ? role === 'owner' : role === 'owner' || role === 'admin'
   if (where && fixes) return { key: `chat.error.admin.${reason}` as MessageKey, where }

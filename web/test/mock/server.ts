@@ -2993,6 +2993,8 @@ export class MockServer {
     // (the composer's "no AI" line, Admin › AI connections and the skill forms ask for these on their own)
     getAiAccess: (c) => ({ usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false }),
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
+    // "Trina isn't ready yet": a member tells the owner and admins (the server sends one notice an hour; here nothing)
+    tellAiNotReady: (c) => c.user.role === 'owner' || c.user.role === 'admin' ? fail('forbidden', 403, '지금은 알릴 필요가 없어요.') : { told: true as const, already: false },
     trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: this.companyProfile }),
     // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in

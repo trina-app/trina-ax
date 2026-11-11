@@ -127,7 +127,7 @@ test('a Settings address opened directly shows the dialog over Home; ✕ closes 
   await expect(page.getByRole('dialog').getByRole('heading', { name: t['settings.profile'] })).toBeVisible()
 })
 
-test('on a phone Settings is the 나 tab: the list first with my photo row on top, the profile one step down, the tab bar stays, no search or ✕, the rarer sections behind 더 보기, and sign-out at the end', async ({ page }) => {
+test('on a phone Settings is the 나 tab: the list first with my photo row on top, the profile one step down, the tab bar stays, no search or ✕, every section in its group, and sign-out at the end', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 760 })
   await start(page)
   await page.goto('/rooms')
@@ -146,10 +146,11 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   await expect(page).toHaveURL(/\/settings$/)
   await expect(dialog.getByTestId('settings-menu')).toBeVisible()
   await expect(dialog.getByTestId('settings-search')).toBeHidden()
+  // the connections show in their group (no "더 보기" row on a phone any more: docs/DECISIONS.md "Admin and Settings on
+  // phones")
   const menu = dialog.getByTestId('settings-menu')
-  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toBeHidden()
-  await dialog.getByTestId('settings-more').click()
   await expect(menu.getByRole('link', { name: t['integrations.title'] })).toBeVisible()
+  await expect(dialog.getByTestId('settings-more')).toHaveCount(0)
   await audit(page, 'settings list at phone width')
   // the tab bar is the way out
   await dialog.getByTestId('tab-chats').click()

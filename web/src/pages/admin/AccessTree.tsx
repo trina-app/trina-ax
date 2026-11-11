@@ -37,6 +37,7 @@ import AccessEdit from './AccessEdit'
 import { useFolderPeople } from './SkillManagers'
 import { useFocusAfterRemove, useLoad } from './common'
 import { InFolderHeader } from './folder-slots'
+import { PhoneFilters } from '../../components/PhoneFilters'
 import { Tooltip } from '../../components/Tooltip'
 
 /** One level as loaded so far: its children's paths in the server's order. */
@@ -768,21 +769,24 @@ export default function AccessTree() {
       <div className="@container">
         <div className="flex flex-col gap-4 @2xl:flex-row @2xl:items-start @2xl:gap-0">
           <div ref={treeBox} className={clsx('min-w-0 flex-1 @2xl:pr-4', treeHidden && '@max-2xl:hidden')}>
-            {/* the switch sits in the page header's filter row, next to By folder / By person */}
+            {/* the switch sits in the page header's filter row, next to By folder / By person; a phone: under its
+                Filters button (components/PhoneFilters.tsx), so the two views and the button share one row */}
             <InFolderHeader slot="filter">
-              <span className="inline-flex h-9 items-center rounded-lg border border-line px-3 max-sm:min-h-10">
-                <Switch
-                  checked={ruledOnly}
-                  onChange={(on) => {
-                    setRuledOnly(on)
-                    if (on && !tree.data?.ruled) void tree.ruledPage(false)
-                    // back to the whole tree: the chosen folder is opened to again
-                    if (!on && selected !== null && selected !== '' && node) void reveal(selected)
-                  }}
-                  label={t('accessTree.ruledOnly')}
-                  testId="tree-ruled-only"
-                />
-              </span>
+              <PhoneFilters active={ruledOnly ? 1 : 0} testId="tree-filters">
+                <span className="inline-flex h-9 items-center rounded-lg border border-line px-3 max-md:min-h-11">
+                  <Switch
+                    checked={ruledOnly}
+                    onChange={(on) => {
+                      setRuledOnly(on)
+                      if (on && !tree.data?.ruled) void tree.ruledPage(false)
+                      // back to the whole tree: the chosen folder is opened to again
+                      if (!on && selected !== null && selected !== '' && node) void reveal(selected)
+                    }}
+                    label={t('accessTree.ruledOnly')}
+                    testId="tree-ruled-only"
+                  />
+                </span>
+              </PhoneFilters>
             </InFolderHeader>
             {/* how to read the tree: one small fold instead of a paragraph */}
             <details className="group mb-2 px-1.5 text-xs text-muted" data-testid="tree-how">
