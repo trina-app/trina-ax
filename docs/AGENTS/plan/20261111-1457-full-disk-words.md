@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:57
 - Branch: `fix/full-disk-words`
-- Status: in progress
+- Status: done
 - Where: `server/` (system storage and backups, the API error handler, chat turns), `shared/src/api/errors.ts`, `web/`
   (the storage card and the chat error words). Why: storage, backups and errors are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — clearer words and status codes for an existing state; no new feature or setting
@@ -62,4 +62,13 @@ Out:
 
 ## Result
 
-(filled in at the end)
+Built as planned. The owner's and admins' chat words point at Admin › System (admins see the storage card too), not
+the owner-only health section. Tests: `tests/unit/full-disk-words.test.ts` (what counts as a full disk, the card's
+level with and without the absolute rule, the backup line in ko/en, 507 for ENOSPC and SQLite full and 500 for other
+errors), `tests/unit/b-full-disk.test.ts` (an engine that stops with "no space left on device" ends with
+`storage_full`; fails without the change), `web/test/unit/chat-error-words.test.ts` (the admin path). On a local dev
+server with its data on a 400 MB disk image: the card said `full` with the disk check failing; "지금 백업" left
+"마지막 백업이 실패했어요: 디스크 공간이 부족해요(2GB 필요)…"; with the disk filled two questions ended with "서버 저장 공간이 가득 차서
+답하지 못했어요. 관리자가 공간을 비워야 해요." (one from a thrown ENOSPC, one from the launcher's "no space left on device") and
+saving a file answered 507 with "서버 저장 공간이 가득 차서 지금은 할 수 없어요…". Sign-in still worked on that disk (SQLite had
+room in its pages), so its 507 is covered by the unit test only.

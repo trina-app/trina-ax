@@ -345,6 +345,7 @@ export const id: Record<MessageKey, string> = {
   "chat.error.admin.trial_ended": "Kredit AI uji coba tidak bisa dipakai lagi (masa uji coba berakhir atau dimatikan). Hubungkan AI milik tim di {path} untuk melanjutkan.",
   "chat.error.admin.engine_missing": "AI tidak bisa menjawab sekarang. Penyebabnya terlihat di {path}.",
   "chat.error.admin.proxy_down": "AI masih bersiap. Coba lagi sebentar lagi; jika terus terjadi, penyebabnya terlihat di {path}.",
+  "chat.error.admin.storage_full": "Penyimpanan server penuh, jadi AI tidak bisa menjawab. Lihat apa yang memakai ruang di {path}, lalu kosongkan sebagian.",
 
   'chat.untitled': "Tanpa judul",
   'chat.title': 'Judul',
@@ -2297,6 +2298,7 @@ export const id: Record<MessageKey, string> = {
   'chat.error.trial_ended': CHAT_ERROR_MESSAGES.trial_ended.id,
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.id,
+  'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.id,
   'audit.act.ai.hosted_trial_key': "Mengubah kunci AI uji coba hosting",
   'trialCredit.active': "Kredit uji coba: {used} dari {cap} terpakai · sampai {date} · AI yang Anda hubungkan dipakai lebih dulu",
   'trialCredit.used': "Kredit uji coba sudah habis ({used} dari {cap}) · Hubungkan AI Anda sendiri untuk melanjutkan",

@@ -104,7 +104,21 @@ export const CHAT_ERROR_MESSAGES = {
   // key) is used up. trial_ended: past its end, paused, taken away or the key refused.
   trial_credit_used: { code: 'engine_unavailable', ko: "체험 AI 크레딧을 다 썼어요. 팀장이 팀의 AI를 연결하면 이어서 쓸 수 있어요.", en: "The trial AI credit is used up. The team owner can connect the team's own AI to go on.", id: "Kredit AI uji coba sudah habis. Pemilik tim dapat menghubungkan AI milik tim untuk melanjutkan.", ja: "トライアルのAIクレジットを使い切りました。チームオーナーがチームのAIを接続すると、続けて使えます。", es: "Se agotó el crédito de IA de prueba. El propietario del equipo puede conectar la IA propia del equipo para continuar." },
   trial_ended: { code: 'engine_unavailable', ko: "체험 AI 크레딧을 더 쓸 수 없어요(체험 기간이 끝났거나 꺼졌어요). 팀장이 팀의 AI를 연결하면 이어서 쓸 수 있어요.", en: "The trial AI credit can't be used any more (the trial ended or was switched off). The team owner can connect the team's own AI to go on.", id: "Kredit AI uji coba tidak bisa dipakai lagi (masa uji coba berakhir atau dimatikan). Pemilik tim dapat menghubungkan AI milik tim untuk melanjutkan.", ja: "トライアルのAIクレジットはもう使えません（トライアル期間が終了したか、オフになりました）。チームオーナーがチームのAIを接続すると、続けて使えます。", es: "El crédito de IA de prueba ya no se puede usar (la prueba terminó o se desactivó). El propietario del equipo puede conectar la IA propia del equipo para continuar." },
+  // the server's disk is full (ENOSPC, SQLite full; server/src/chat/turn.ts): not the engine's fault, and only an admin
+  // can free the space (QA TC-209: it read as an engine crash)
+  storage_full: { code: 'storage_full', ko: "서버 저장 공간이 가득 차서 답하지 못했어요. 관리자가 공간을 비워야 해요.", en: "The server's storage is full, so the AI couldn't answer. An admin has to free up space.", id: "Penyimpanan server penuh, jadi AI tidak bisa menjawab. Admin perlu mengosongkan ruang.", ja: "サーバーの保存容量がいっぱいのため、回答できませんでした。管理者が空き容量を確保する必要があります。", es: "El almacenamiento del servidor está lleno, así que la IA no pudo responder. Un administrador tiene que liberar espacio." },
 } as const satisfies Record<string, { code: ErrorCode } & Record<Locale, string>>
+
+/** Any request that failed because the server's disk is full (ENOSPC, SQLite full: server/src/app.ts), sign-in and
+ * sending included: 507 storage_full with these words, not "서버 오류" (QA TC-209). The team folder's own guard (writes
+ * refused near full) keeps ERROR_MESSAGES.storage_full, which says what the person can clean up. */
+export const SERVER_DISK_FULL: Record<Locale, string> = {
+  ko: '서버 저장 공간이 가득 차서 지금은 할 수 없어요. 관리자가 공간을 비워야 해요.',
+  en: "The server's storage is full, so this can't be done right now. An admin has to free up space.",
+  id: 'Penyimpanan server penuh, jadi ini tidak bisa dilakukan sekarang. Admin perlu mengosongkan ruang.',
+  ja: 'サーバーの保存容量がいっぱいのため、今は実行できません。管理者が空き容量を確保する必要があります。',
+  es: 'El almacenamiento del servidor está lleno, así que ahora no se puede hacer. Un administrador tiene que liberar espacio.',
+}
 
 export type ChatErrorReason = keyof typeof CHAT_ERROR_MESSAGES
 

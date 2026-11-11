@@ -16,6 +16,7 @@
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
 //   @fake {"claudeFail": "usage limit"}     the same, as Claude only (Codex goes on: the limit fallback)
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
+//   @fake {"diskFull": true}                 exit 1 with Node's "ENOSPC: no space left on device" on stderr (every time)
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
 //   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
 //   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
@@ -491,6 +492,7 @@ for (const d of directives) {
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
   else if (d.fail) finish({ error: String(d.fail) })
   else if (d.claudeFail) { if (!codex) finish({ error: String(d.claudeFail) }) }
+  else if (d.diskFull) { process.stderr.write("Error: ENOSPC: no space left on device, write\n"); process.exit(1) }
   else if (d.crashOnce) {
     const marker = path.join(process.cwd(), '.crashed-once')
     if (!fs.existsSync(marker)) { fs.writeFileSync(marker, '1'); process.exit(3) }

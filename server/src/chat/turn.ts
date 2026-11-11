@@ -51,6 +51,7 @@ import { notificationsOf } from '../notifications/service'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
+import { DISK_FULL_TEXT, diskAlmostFull, isDiskFullError } from '../system/storage'
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
@@ -383,7 +384,7 @@ export class TurnExec {
     } catch (e) {
       if (!this.error) {
         if (e instanceof CoreUnavailableError) this.error = { ...engineError('engine_missing', this.spec.locale) }
-        else { this.rt.log.error('turn failed', { err: e, turn: this.id }); this.error = engineError('crash', this.spec.locale) }
+        else { this.rt.log.error('turn failed', { err: e, turn: this.id }); this.error = this.crashOrFullDisk(e) }
       }
     } finally {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
@@ -881,8 +882,8 @@ export class TurnExec {
         const crashed = !err && (exit?.ev === 'error' || (exit?.code && !parser.result))
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-        if (err) this.error = engineError(err.code, spec.locale)
-        else if (crashed) this.error = engineError('crash', spec.locale)
+        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
+        else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
         if (!this.writtenText && !this.error && parser.text) this.appendText(parser.text)
         break
@@ -1016,8 +1017,8 @@ export class TurnExec {
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-        if (err) this.error = engineError(err.code, spec.locale)
-        else if (crashed) this.error = engineError('crash', spec.locale)
+        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
+        else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         break
       }
     } finally {
@@ -3154,6 +3155,15 @@ export class TurnExec {
     } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
     try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
     finally { this.resolveDone() }
+  }
+
+  /** An engine that stopped, or a turn that threw: on a full disk say so (the error is ENOSPC / SQLite full, the engine's
+   * output says "no space left on device", or the server's disk has almost nothing left now), else the crash words.
+   * QA TC-209: a full disk read as "the AI stopped unexpectedly", and only an admin can fix it. */
+  private crashOrFullDisk(e?: unknown, output = ''): ApiErrorBody {
+    const cfg = this.rt.ctx.config
+    const full = isDiskFullError(e) || DISK_FULL_TEXT.test(output) || diskAlmostFull([cfg.dataDir, cfg.teamRoot])
+    return engineError(full ? 'storage_full' : 'crash', this.spec.locale)
   }
 
   /** finish() could not record the end: the rows still get one (never left running or streaming) */

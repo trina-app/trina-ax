@@ -50,6 +50,9 @@ test('the owner and admins read where to fix it, in the menu\'s own words; the h
     const t = (k: MessageKey) => translate(l, k)
     expect(say(l, 'no_credential', 'admin')).toContain(adminPath(t, 'providers'))
     expect(say(l, 'engine_missing', 'owner')).toContain(adminPath(t, 'health'))
+    // a full server disk (QA TC-209): the owner and admins are pointed at Admin › System, where the storage card is
+    expect(say(l, 'storage_full', 'owner')).toContain(adminPath(t, 'system'))
+    expect(say(l, 'storage_full', 'admin')).toContain(adminPath(t, 'system'))
     for (const r of REASONS) expect([l, r, JARGON.test(say(l, r, 'owner'))]).toEqual([l, r, false])
   }
 })
