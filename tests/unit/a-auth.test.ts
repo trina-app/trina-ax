@@ -65,6 +65,77 @@ describe('first-run setup', () => {
   })
 })
 
+// GET /api/setup from the internet does not say whether the team is set up yet (owner, 2026-11-11, TC-194): through the
+// relay only a visitor with the setup token (the setup link) learns that setup is needed; this server and the office
+// network see the real answer (installers, demo scripts). The office internet address: office-tunnel.test.ts.
+describe('setup status through the relay', () => {
+  let h: Harness
+  const relay = (ip = '203.0.113.7') => h.client({ via: 'relay', ip })
+  const TOKEN = 'x-mycel-setup-token'
+  beforeAll(async () => { h = await harness('setup-relay') })
+  afterAll(() => h.close())
+
+  test('signed out without the token: needed is false, as for a team that is set up', async () => {
+    expect(await relay().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en' })
+    // a relay that reports a loopback client (a relay on this machine) is still the relay
+    expect((await relay('127.0.0.1').call('GET', '/api/setup')).needed).toBe(false)
+    // a wrong token: false too
+    expect((await relay().call('GET', '/api/setup', undefined, { [TOKEN]: 'x'.repeat(32) })).needed).toBe(false)
+  })
+  test('this server and the office network see that setup is needed, without a token', async () => {
+    expect((await h.client({ via: 'direct', ip: '127.0.0.1' }).call('GET', '/api/setup')).needed).toBe(true)
+    expect((await h.client({ via: 'direct', ip: '192.168.1.50' }).call('GET', '/api/setup')).needed).toBe(true)
+    expect((await h.client({ via: 'test', ip: '127.0.0.1' }).call('GET', '/api/setup')).needed).toBe(true)
+  })
+  test('POST with a made-up token: the same 403 before and after setup through the relay (not a 409)', async () => {
+    const owner = { username: 'olga', name: 'Olga', password: OWNER_PW }
+    before = await relay('198.51.100.40').try('POST', '/api/setup', { setupToken: 'y'.repeat(32), teamName: 'Acme', owner })
+    expect(before.status).toBe(403)
+    expect(before.body.error.code).toBe('forbidden')
+  })
+  let before: { status: number; body: any }
+  test('with the setup token the setup page still opens through the relay, and setup works there', async () => {
+    const c = relay('198.51.100.9')
+    expect(await c.call('GET', '/api/setup', undefined, { [TOKEN]: SETUP_TOKEN })).toEqual({ needed: true, teamName: null, defaultLocale: 'en' })
+    const r = await c.raw('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', locale: 'en', owner: { username: 'olga', name: 'Olga', password: OWNER_PW } })
+    expect(r.status).toBe(201)
+    // set up: the spent token says false like any other, and so does every other way in
+    expect((await relay('198.51.100.9').call('GET', '/api/setup', undefined, { [TOKEN]: SETUP_TOKEN })).needed).toBe(false)
+    expect((await relay().call('GET', '/api/setup')).needed).toBe(false)
+    expect((await h.client({ via: 'direct', ip: '127.0.0.1' }).call('GET', '/api/setup')).needed).toBe(false)
+  })
+  test('after setup: the relay still answers a made-up token with the same counted 403; this server keeps the 409', async () => {
+    const owner = { username: 'mallory', name: 'M', password: OWNER_PW }
+    const after = await relay('198.51.100.40').try('POST', '/api/setup', { setupToken: 'y'.repeat(32), teamName: 'Acme', owner })
+    // the same answer but for the request id
+    const same = (r: { status: number; body: any }) => [r.status, { ...r.body.error, requestId: undefined }]
+    expect(same(after)).toEqual(same(before))
+    // the spent token is no different
+    expect(same(await relay('198.51.100.41').try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', owner }))).toEqual(same(before))
+    expect((await h.client({ via: 'direct', ip: '127.0.0.1' }).try('POST', '/api/setup', { setupToken: 'y'.repeat(32), teamName: 'Acme', owner })).status).toBe(409)
+  })
+})
+
+describe('setup status through the relay: wrong tokens are limited like on POST /api/setup', () => {
+  let h: Harness
+  beforeAll(async () => { h = await harness('setup-relay-limit') })
+  afterAll(() => h.close())
+
+  test('after the limit even the right token gets a 429 from that address; another address is not affected', async () => {
+    const c = h.client({ via: 'relay', ip: '203.0.113.20' })
+    for (let i = 0; i < DEFAULT_LIMITS.perTokenIp; i++) expect((await c.call('GET', '/api/setup', undefined, { 'x-mycel-setup-token': `guess-${i}`.padEnd(32, 'x') })).needed).toBe(false)
+    const r = await c.try('GET', '/api/setup', undefined, { 'x-mycel-setup-token': SETUP_TOKEN })
+    expect(r.status).toBe(429)
+    // no token, no count and no refusal: a plain visit still gets the sign-in page's answer
+    expect((await c.call('GET', '/api/setup')).needed).toBe(false)
+    expect((await h.client({ via: 'relay', ip: '198.51.100.30' }).call('GET', '/api/setup', undefined, { 'x-mycel-setup-token': SETUP_TOKEN })).needed).toBe(true)
+  })
+  test('POST /api/setup through the relay shares the limit: over it, a 429 before any setup state is looked at', async () => {
+    const r = await h.client({ via: 'relay', ip: '203.0.113.20' }).try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', owner: { username: 'olga', name: 'Olga', password: OWNER_PW } })
+    expect(r.status).toBe(429)
+  })
+})
+
 describe('sign-in and sessions', () => {
   let h: Harness
   let owner: Client

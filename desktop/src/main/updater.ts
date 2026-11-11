@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { app, dialog, session, type BaseWindow } from 'electron'
 import { DEV_SESSION_COOKIE, SESSION_COOKIE } from '@mycel/shared/api'
+import { APP_DOWNLOADS } from '@mycel/shared'
 import { t, type UiLocale } from '../common/i18n'
 import { partitionFor } from '../common/teams'
 import { CHECK_EVERY_MS, FIRST_CHECK_MS, feedUrlFor, genericFeed, macNotice, storeBuild, updateMode, type UpdateMode } from '../common/update'
@@ -260,7 +261,8 @@ export class DesktopUpdater {
       type: 'info' as const,
       title: t(L, 'update.mac.title'),
       message: t(L, 'update.mac.message', { version: n.version, current: app.getVersion() }),
-      detail: t(L, 'update.mac.detail'),
+      // with a Mac App Store listing the team server's .dmg is no longer offered: Settings > Apps shows the App Store
+      detail: t(L, APP_DOWNLOADS.mac ? 'update.mac.detailStore' : 'update.mac.detail'),
       buttons: [t(L, 'update.mac.download'), t(L, 'update.mac.later')],
       defaultId: 0,
       cancelId: 1,
