@@ -12,12 +12,14 @@ import { ACME, addTeam, answer, call, chrome, close, launch, newTurn, newUserDat
 const SECURE_SHOP = [`--unsafely-treat-insecure-origin-as-secure=${SHOP}`]
 const teams = (userData: string) => (JSON.parse(readFileSync(join(userData, 'teams.json'), 'utf8')) as { teams: { id: string }[] }).teams
 
-/** Lines the app writes (console.warn of a clear that did not finish). */
-function appLog(app: ElectronApplication): string[] {
-  const lines: string[] = []
-  for (const s of [app.process().stdout, app.process().stderr]) s?.on('data', (d) => lines.push(...String(d).split('\n')))
-  return lines
+/** What the app writes (console.warn of a clear that did not finish), whole lines however the output is chunked. */
+function appLog(app: ElectronApplication): () => string[] {
+  const out = { stdout: '', stderr: '' }
+  app.process().stdout?.on('data', (d) => (out.stdout += String(d)))
+  app.process().stderr?.on('data', (d) => (out.stderr += String(d)))
+  return () => [...out.stdout.split('\n'), ...out.stderr.split('\n')]
 }
+const unfinished = (log: () => string[]) => log().filter((l) => l.includes('did not finish'))
 
 type Stuck = 'no-list' | 'all'
 /** Make the browser's clears hang in the main process: 'no-list' as seen on a busy Mac (a clear with no list of
@@ -102,16 +104,16 @@ test('a clear with no list that never settles (a busy Mac): the next person\'s A
     expect(after).toContain('caches=[]')
     expect(after).toContain('sw=[0]')
     // the explicit list settled: nothing waited for the time limit
-    expect(log.filter((l) => l.includes('did not finish'))).toEqual([])
+    expect(unfinished(log)).toEqual([])
 
-    // removing the team finishes (both of its partitions are cleared with the list)
+    // removing the team finishes: off the list at once, its files gone once both partitions are cleared (the list)
     const id = teams(userData)[0].id
     const t2 = Date.now()
     await removeOnlyTeam(app, page)
     await expect.poll(() => teams(userData).length, { timeout: 8_000 }).toBe(0)
+    await expect.poll(() => existsSync(join(userData, 'teams', id)), { timeout: 8_000 }).toBe(false)
     expect(Date.now() - t2).toBeLessThan(8_000)
-    expect(existsSync(join(userData, 'teams', id))).toBe(false)
-    expect(log.filter((l) => l.includes('did not finish'))).toEqual([])
+    expect(unfinished(log)).toEqual([])
   } finally {
     await close(app)
   }
@@ -140,19 +142,21 @@ test('every clear stuck: the time limit lets the AI browser call through after a
     await answer(app, '이번만 허용', 'site')
     expect((await result(ACME, callId)).result.ok).toBe(true)
     expect(Date.now() - t0).toBeLessThan(40_000)
-    await expect.poll(() => log.filter((l) => l.includes('did not finish')).join('\n')).toContain('in-app browser')
-    expect(log.find((l) => l.includes('did not finish'))).toContain('storage timeout, cache timeout, logins timeout')
+    await expect.poll(() => unfinished(log).join('\n')).toContain('in-app browser')
+    expect(unfinished(log)[0]).toContain('storage timeout, cache timeout, logins timeout')
     // later calls do not wait again
     const t1 = Date.now()
     expect((await run(ACME, 'get_page_text')).result.ok).toBe(true)
     expect(Date.now() - t1).toBeLessThan(8_000)
 
-    // removing the team: both partitions time out side by side, and the team is gone
+    // removing the team: off the list at once; both partitions time out side by side, then its files go
+    const id = teams(userData)[0].id
     const t2 = Date.now()
     await removeOnlyTeam(app, page)
-    await expect.poll(() => teams(userData).length, { timeout: 30_000 }).toBe(0)
+    await expect.poll(() => teams(userData).length, { timeout: 8_000 }).toBe(0)
+    await expect.poll(() => existsSync(join(userData, 'teams', id)), { timeout: 30_000 }).toBe(false)
     expect(Date.now() - t2).toBeLessThan(30_000)
-    await expect.poll(() => log.filter((l) => l.includes('did not finish') && l.includes('team ')).length).toBe(2)
+    await expect.poll(() => unfinished(log).filter((l) => l.includes(`team ${id} `)).length).toBe(2)
     // the team list is usable again
     await expect((await view(app, (u) => u.endsWith('/welcome.html'))).getByRole('textbox', { name: '초대 링크 또는 팀 주소' })).toBeVisible()
   } finally {

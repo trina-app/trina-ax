@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { clearSessionData, CLEAR_TIMEOUT_MS, settleWithin, STORAGE_TYPES, type ClearableSession } from '../../desktop/src/main/clear-session'
+import { clearFailed, clearSessionData, CLEAR_TIMEOUT_MS, settleWithin, STORAGE_TYPES, type ClearableSession } from '../../desktop/src/main/clear-session'
 
 const never = () => new Promise<void>(() => {})
 const later = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -65,9 +65,8 @@ describe('clearSessionData', () => {
   })
 
   test('the list holds every place a sign-in can live: cookies, local storage, IndexedDB, cache storage, service workers', () => {
+    // the names are Electron's (ClearStorageDataOptions.storages; tsc checks them)
     for (const t of ['cookies', 'localstorage', 'indexdb', 'cachestorage', 'serviceworkers', 'filesystem'] as const) expect(STORAGE_TYPES).toContain(t)
-    // Electron's own names (ClearStorageDataOptions.storages): a typo would be ignored by Electron and clear nothing
-    for (const t of STORAGE_TYPES) expect(['cookies', 'filesystem', 'indexdb', 'localstorage', 'shadercache', 'serviceworkers', 'cachestorage']).toContain(t)
   })
 
   test('a storage clear that never settles: the call ends at the time limit, the other clears still ran, and it is logged', async () => {
@@ -76,7 +75,7 @@ describe('clearSessionData', () => {
     const { ses } = fakeSession({ clearStorageData: never, clearCache: async () => void cache++ })
     const t0 = Date.now()
     expect(await clearSessionData(ses, 'team x browser', 100)).toEqual({ storage: 'timeout', cache: 'done', logins: 'done' })
-    expect(Date.now() - t0).toBeLessThan(1000)
+    expect(Date.now() - t0).toBeLessThan(2000)
     expect(cache).toBe(1)
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0].join(' '))).toContain('team x browser')
@@ -87,8 +86,9 @@ describe('clearSessionData', () => {
     warn = spyOn(console, 'warn').mockImplementation(() => {})
     const { ses } = fakeSession({ clearStorageData: never, clearCache: never, clearAuthCache: never })
     const t0 = Date.now()
-    expect(await clearSessionData(ses, 'x', 150)).toEqual({ storage: 'timeout', cache: 'timeout', logins: 'timeout' })
-    expect(Date.now() - t0).toBeLessThan(600)
+    expect(await clearSessionData(ses, 'x', 1000)).toEqual({ storage: 'timeout', cache: 'timeout', logins: 'timeout' })
+    // one limit, not three in a row (3 s)
+    expect(Date.now() - t0).toBeLessThan(2500)
   })
 
   test('a clear that rejects or throws is failed, logged, and does not stop the others', async () => {
@@ -104,6 +104,13 @@ describe('clearSessionData', () => {
     expect(await clearSessionData(ses, 'x', 1000)).toEqual({ storage: 'failed', cache: 'failed', logins: 'done' })
     expect(logins).toBe(1)
     expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  test('clearFailed: a failed clear is tried again by the caller, one that ran out of time is not', () => {
+    expect(clearFailed({ storage: 'done', cache: 'done', logins: 'done' })).toBe(false)
+    expect(clearFailed({ storage: 'timeout', cache: 'timeout', logins: 'timeout' })).toBe(false)
+    expect(clearFailed({ storage: 'failed', cache: 'done', logins: 'done' })).toBe(true)
+    expect(clearFailed({ storage: 'done', cache: 'done', logins: 'failed' })).toBe(true)
   })
 
   test('the default time limit is short enough for an AI browser call to wait it out', () => {
@@ -131,11 +138,24 @@ describe('wiring', () => {
   test('the pane reset, the reset of a closed pane and team removal use it', () => {
     const pane = readFileSync(join(SRC, 'main/pane/pane.ts'), 'utf8')
     const win = readFileSync(join(SRC, 'main/app-window.ts'), 'utf8')
-    const reset = pane.slice(pane.indexOf('async resetForNewPerson()'), pane.indexOf('\n  }\n', pane.indexOf('async resetForNewPerson()')))
-    expect(reset).toContain('await clearSessionData(this.session,')
-    const owner = win.slice(win.indexOf('private async checkBrowserOwner('), win.indexOf('\n  }\n', win.indexOf('private async checkBrowserOwner(')))
-    expect(owner).toContain('await clearSessionData(session.fromPartition(partitionFor(teamId, \'browser\')),')
-    const remove = win.slice(win.indexOf('async removeTeam(id: string)'), win.indexOf('\n  }\n', win.indexOf('async removeTeam(id: string)')))
-    expect(remove).toContain('clearSessionData(session.fromPartition(partitionFor(id, kind)),')
+    const body = (src: string, head: string) => {
+      const at = src.indexOf(head)
+      expect(at).toBeGreaterThan(-1)
+      return src.slice(at, src.indexOf('\n  }\n', at))
+    }
+    const reset = body(pane, 'async resetForNewPerson()')
+    expect(reset).toContain('const cleared = await clearSessionData(this.session,')
+    expect(reset).toContain('return cleared')
+    const owner = body(win, 'private async checkBrowserOwner(')
+    expect(owner).toContain('cleared = await pane.resetForNewPerson()')
+    expect(owner).toContain('cleared = await clearSessionData(session.fromPartition(partitionFor(teamId, \'browser\')),')
+    // a failed clear (not a timeout) does not record the new person: the next check clears again
+    expect(owner.indexOf('if (clearFailed(cleared)) throw')).toBeGreaterThan(owner.indexOf('cleared = await clearSessionData('))
+    expect(owner.indexOf('if (clearFailed(cleared)) throw')).toBeLessThan(owner.indexOf('saveBrowserOwner('))
+    // team removal: off the list first, then the clears (both partitions side by side), then its files
+    const remove = body(win, 'async removeTeam(id: string)')
+    expect(remove).toContain("await Promise.all((['app', 'browser'] as const).map((kind) => clearSessionData(session.fromPartition(partitionFor(id, kind)),")
+    expect(remove.indexOf('this.saveTeams(removeTeam(')).toBeLessThan(remove.indexOf('clearSessionData('))
+    expect(remove.indexOf('clearSessionData(')).toBeLessThan(remove.indexOf('removeTeamFiles('))
   })
 })

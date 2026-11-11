@@ -4,14 +4,15 @@
 // first of these, so a clear that never finished stopped the in-app browser for good.
 //
 // Seen on a Mac (macOS 26.6, Electron 44.7.2) under heavy load: `clearStorageData()` with no list, and `clearData()`,
-// never settled, in this app and in a bare Electron app alike. With no list Electron asks Chromium for every data type
-// (REMOVE_DATA_MASK_ALL), and some of the extra subtasks run on Chromium's background-priority threads; macOS runs
-// those only when the efficiency cores are free, so on a busy Mac they can wait without end (a process started at
-// background priority did not run at all for minutes; one at default priority ran at once). The promise settles only
-// when the last subtask reports back, and a pending one also kept the app from quitting. Each type in the list below,
-// and the list together, settled in 1-2 s at the same time. So: always the list, and every clear has a time limit.
+// never settled, in this app and in a bare Electron app alike, while each type in the list below, and the list
+// together, settled in 1-2 s at the same time. The likely reason (docs/DECISIONS.md): with no list Electron asks
+// Chromium for every data type (REMOVE_DATA_MASK_ALL), some of the extra subtasks run on Chromium's background-priority
+// threads, and macOS runs those only when the efficiency cores are free (a process started at background priority did
+// not run for minutes; one at default priority ran at once). The promise settles only when the last subtask reports
+// back, and a pending one also kept the app from quitting. So: always the list, and every clear has a time limit.
 // Chromium starts all subtasks at once, so a clear that runs out of time has still removed what its other subtasks
-// cover; the limit only frees the caller, which logs it and goes on.
+// cover; the limit only frees the caller, which logs it and goes on. (A clear that runs out of time and finishes
+// later also removes what the next person stored meanwhile: harmless, they sign in again.)
 import type { Session } from 'electron'
 import { debug } from './debug'
 
@@ -31,7 +32,7 @@ export function settleWithin(p: Promise<unknown>, ms: number): Promise<ClearOutc
   const late = new Promise<ClearOutcome>((resolve) => {
     timer = setTimeout(() => resolve('timeout'), ms)
   })
-  const settled = p.then(
+  const settled = Promise.resolve(p).then(
     (): ClearOutcome => 'done',
     (): ClearOutcome => 'failed',
   )
@@ -40,6 +41,10 @@ export function settleWithin(p: Promise<unknown>, ms: number): Promise<ClearOutc
 
 export type ClearableSession = Pick<Session, 'clearStorageData' | 'clearCache' | 'clearAuthCache'>
 export type ClearResult = { storage: ClearOutcome; cache: ClearOutcome; logins: ClearOutcome }
+
+/** A clear that failed (rejected or threw: the session is gone, say), not one that ran out of time. The caller tries
+ * again at its next chance, as before this file existed; a clear that ran out of time is not tried again. */
+export const clearFailed = (r: ClearResult) => Object.values(r).includes('failed')
 
 /**
  * Clear a session's stored data (the list above), its HTTP cache and its HTTP logins, side by side, each for at most

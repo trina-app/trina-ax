@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 06:32
 - Branch: `fix/desktop-clear-storage-hang`
-- Status: in progress
+- Status: done
 - Where: `desktop/`. Why: the hang is in the desktop app's main process (Electron session clears).
 - Version impact: patch, desktop app only; no API, bridge or data change
 
@@ -39,10 +39,11 @@ Out: Electron upgrade; a bug report upstream (noted in the PR).
 
 ## Risks
 
-- A clear that times out leaves that type's data in place. The time limit is logged; the identity check still moves
-  the pane to the new person (tabs closed, allowed sites forgotten), as the task asks.
+- A clear that times out may leave that type's data in place. The time limit is logged; the identity check still
+  moves the pane to the new person (tabs closed, allowed sites forgotten), as the task asks.
 - The explicit list leaves out data types the "all" mask also removed (media licences, interest groups, shared storage,
-  attribution data and the like). None of them holds a sign-in.
+  attribution data, device-bound sessions and the like). Sites keep sign-ins in cookies and site storage, which the
+  list covers; device-bound sessions need a key service Electron 44 does not have (docs/DECISIONS.md).
 
 ## Tests
 
@@ -51,4 +52,8 @@ Out: Electron upgrade; a bug report upstream (noted in the PR).
 
 ## Result
 
-Filled in at the end.
+Built as planned, PR #384. Reproduced on the Mac: while it was overloaded (load average ~230), a no-list clear and
+`clearData()` never settled in this app and in a bare Electron app, and a pending one kept the app from quitting; each
+named type and the list together settled in 1-2 s. Likely cause: background-priority subtasks starved (see
+docs/DECISIONS.md). Added after review: a failed (not timed-out) clear does not record the new person, as before; a
+removed team leaves the list before its data is cleared.
