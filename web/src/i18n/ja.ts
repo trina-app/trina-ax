@@ -3391,6 +3391,7 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.next": "次へ",
   "onboarding.profile.back": "戻る",
   "onboarding.profile.reviewTitle": "このように理解しました",
+  "onboarding.profile.reviewTitleTyped": "入力した内容を確認してください",
   "onboarding.profile.reviewDesc": "間違っている内容は消すか直してください。保存すると、チームのすべての会話でAIが参考にします。",
   "onboarding.profile.f.website": "ホームページ",
   "onboarding.profile.f.name": "会社名",
