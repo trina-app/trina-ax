@@ -4,7 +4,7 @@
 // browser, the account confirmed), the connection hidden from the generic list with only its own app's tools, the team
 // switch (on by default), Always allow from the page, disconnect and when Google is asked to revoke, the hosting
 // service's sign-in with the `app` field (and an older one that refuses it), Google Drive's members switch on for new
-// teams only (migration 340), and canaries: no token or client secret in an answer, the database outside sealed
+// teams only (migration 341), and canaries: no token or client secret in an answer, the database outside sealed
 // columns, the audit log or the server's log. Fake Google and a fake library on 127.0.0.1 only.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -275,13 +275,13 @@ test('hosted: signs in through the hosting service with the app; an older one th
   expect(apps.view('bob', 'gmail')).toMatchObject({ available: true })
 })
 
-test('Google Drive\'s members switch: on for a new team; a team that existed keeps what it had (migration 340)', () => {
+test('Google Drive\'s members switch: on for a new team; a team that existed keeps what it had (migration 341)', () => {
   // makeCApp's people are added after the migrations ran: a new team
   expect(membersCanConnect(A.ctx.db)).toBe(true)
   const dir = path.join(WORK, `c-google-apps-mig-${process.pid}-${i}`)
   fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(path.join(dir, 'm'), { recursive: true })
-  for (const f of fs.readdirSync(MIGRATIONS_DIR)) if (f.endsWith('.sql') && Number(f.slice(0, 3)) < 340) fs.copyFileSync(path.join(MIGRATIONS_DIR, f), path.join(dir, 'm', f))
+  for (const f of fs.readdirSync(MIGRATIONS_DIR)) if (f.endsWith('.sql') && Number(f.slice(0, 3)) < 341) fs.copyFileSync(path.join(MIGRATIONS_DIR, f), path.join(dir, 'm', f))
   const old = openDb(path.join(dir, 'app.db'), { migrationsDir: path.join(dir, 'm') })
   old.query("INSERT INTO users (id, username, name, role) VALUES ('olga', 'olga', 'Olga', 'owner')").run()
   migrate(old)

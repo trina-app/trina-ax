@@ -35,7 +35,7 @@ export interface Row {
   oauth_client?: string | null
   oauth_client_enc?: string | null
   oauth_client_key_version?: number
-  /** a person's own Gmail, Calendar, Docs or Sheets (migration 340, google-apps/): its calls go only to the library on
+  /** a person's own Gmail, Calendar, Docs or Sheets (migration 341, google-apps/): its calls go only to the library on
    * this machine, it is hidden from the generic list, and the app's team switch decides whether it may be used */
   google_app?: GoogleAppId | null
 }

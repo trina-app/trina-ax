@@ -11,7 +11,7 @@ sign-in (sealed) and hands the library that person's access token on each call. 
 the Mac app the cards say "Not available on this computer yet".
 
 Code: `server/src/integrations/google-apps/` (service, config, catalog, tokens, transport, attachments), routes
-`server/src/routes/google-apps.ts`, contract `shared/src/api/google-apps.ts`, migration `340_c_google_apps.sql`.
+`server/src/routes/google-apps.ts`, contract `shared/src/api/google-apps.ts`, migration `341_c_google_apps.sql`.
 
 ## Setting it up (admins)
 

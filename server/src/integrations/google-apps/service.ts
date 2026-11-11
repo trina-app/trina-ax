@@ -1,7 +1,7 @@
 // Gmail, Google Calendar, Google Docs and Google Sheets (docs/GOOGLE-APPS.md): a person's own connection to each app,
 // with one Google sign-in per app, and the admin's setup per card.
 //
-// A connection is a personal row of `integrations` with `google_app` set (migration 340): the sealed OAuth tokens, the
+// A connection is a personal row of `integrations` with `google_app` set (migration 341): the sealed OAuth tokens, the
 // refresh (tokens.ts), the write card and Always allow (connections/tools.ts gate), the per-tool switches, scheduled-run
 // rules and the audit all work as for any member's own MCP connection. Its MCP calls go to the Google Workspace MCP
 // server this server runs on 127.0.0.1 (library.ts, transport.ts) with the person's access token, never anywhere else.
