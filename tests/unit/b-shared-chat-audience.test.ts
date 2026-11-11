@@ -262,7 +262,7 @@ describe('search by words never counts a word of an answer hidden from me', () =
     try { await ask('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true })) }
     finally { db().query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
     await h.api('bob').call(API.updateChat, { params: { id: chatId }, body: { title: 'TITLEWORD notes' } })
-    const list = async (user: string, q: string, extra: { projectId?: string; trash?: boolean } = {}) =>
+    const list = async (user: string, q: string, extra: { projectId?: string; trash?: 'true' } = {}) =>
       (await h.api(user).call(API.listChats, { query: { q, ...extra } })).items.map((c) => c.id)
     // shared: on the project's page and in his own list. Every word through what he sees, never through the answer
     for (const extra of [{ projectId }, {}]) {
@@ -278,9 +278,9 @@ describe('search by words never counts a word of an answer hidden from me', () =
     // the project is deleted (routes/chats.ts deleteProject): the chat goes to its creator's trash, no longer shared;
     // others wrote in it, so it is still found only through what he sees (the rollback guard: severalAuthors)
     db().query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = ?, deleted_by = ? WHERE id = ?').run(new Date().toISOString(), 'bob', chatId)
-    expect(await list('bob', 'TITLEWORD WORDS-START', { trash: true })).toContain(chatId)
-    expect(await list('bob', 'TITLEWORD Autumn', { trash: true })).not.toContain(chatId)
-    expect(await list('bob', 'Autumn', { trash: true })).not.toContain(chatId)
+    expect(await list('bob', 'TITLEWORD WORDS-START', { trash: 'true' })).toContain(chatId)
+    expect(await list('bob', 'TITLEWORD Autumn', { trash: 'true' })).not.toContain(chatId)
+    expect(await list('bob', 'Autumn', { trash: 'true' })).not.toContain(chatId)
     // restored: his own chat with several authors, not shared
     db().query('UPDATE chats SET deleted_at = NULL, deleted_by = NULL WHERE id = ?').run(chatId)
     expect(await list('bob', 'TITLEWORD WORDS-START')).toContain(chatId)
