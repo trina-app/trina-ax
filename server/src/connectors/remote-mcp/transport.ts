@@ -2,7 +2,7 @@ import type { AppContext } from '../../context'
 import { readBoundedText } from '../../http/route'
 import { HttpError } from '../../http/errors'
 import { HOSTED_ORIGINS, OAuthError, secret } from './policy'
-import { remoteOAuthOf } from './oauth'
+import { remoteOAuthOf, type Grant } from './oauth'
 import { remoteToolsOf } from './tools'
 import { UPLOAD_MAX_BASE64_RAW } from './upload'
 import { connectorInstructions } from './guide'
@@ -45,16 +45,19 @@ export function uniqueParams(params: URLSearchParams): Record<string, string> {
 export async function mcpRequest(ctx: AppContext, request: Request, ip: string | null): Promise<Response> {
   const oauth = remoteOAuthOf(ctx)
   try {
-    oauth.ingress('mcp', ip)
+    oauth.enabled()
+    const match = /^Bearer (tax_mcp_a_[A-Za-z0-9_-]{43})$/.exec(request.headers.get('authorization') ?? '')
+    let live: Grant | null = null
+    if (match) try { live = oauth.authenticate(match[1]!) } catch { /* counted as anonymous below, then 401 */ }
+    // A live token has its grant's own limit; everything else shares the anonymous ones (per address, then server-wide).
+    if (live) oauth.granted(live); else oauth.ingress('mcp', ip)
     const origin = request.headers.get('origin')
     // Claude and ChatGPT requests originate server-side (no Origin) or their exact hosted origin. Native clients omit
     // it. A token is needed either way.
     if (origin !== null && origin !== oauth.origin && !HOSTED_ORIGINS.includes(origin)) throw new OAuthError('access_denied', 403)
     if (new URL(request.url).searchParams.has('access_token')) throw new OAuthError('invalid_request')
-    const match = /^Bearer (tax_mcp_a_[A-Za-z0-9_-]{43})$/.exec(request.headers.get('authorization') ?? '')
-    if (!match) throw new OAuthError('invalid_token', 401)
+    if (!match || !live) throw new OAuthError('invalid_token', 401)
     const token = match[1]!
-    oauth.authenticate(token)
     if (request.method !== 'POST') return new Response(null, { status: 405, headers: { ...noStore, allow: 'POST' } })
     const version = request.headers.get('mcp-protocol-version')
     if (version && !PROTOCOLS.includes(version)) throw new OAuthError('invalid_request')
