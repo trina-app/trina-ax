@@ -470,6 +470,9 @@ panel; editing project folders in the panel; any change to Admin › Folder perm
 - **Deepest wins.** "Only people added here" shuts out what folders above give, and adding a group can lower someone.
   The greyed rows disappear after the answer and "What will happen" names who loses, before Save.
 - **Load**: one preview on opening, one per settled change (250 ms, as Admin's editor), one more on Save.
+- **More access no one can count yet** (`latentMore`) is checked with made-up members: one per group, one per pair of
+  the groups named on the way to the folder and below it, one in all of them. With more than 30 such groups pairs are
+  not tried, and a pair that gains can be missed when being in all of them already gave more before the change.
 - Five languages; 1440 and 390, light and dark; no migration (highest on dev: 701).
 
 ## Tests

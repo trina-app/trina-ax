@@ -246,7 +246,9 @@ function latentOf(src: EditSource, before: RuleSet, after: RuleSet, path: string
   const off = (src.uncounted ?? []).filter(gains)
   const named = new Set([...groups].filter((g) => gains(member(`group:${g}`, [g]))))
   const list = [...near]
-  // pairs while they stay few (30 groups: 435); and always everyone in all of them
+  // pairs while they stay few (30 groups: 435); and always everyone in all of them. Known limit: with more than 30
+  // groups named on the way, pairs are not tried, and the one member in all of them can miss a pair that gains when
+  // being in all of them already gave more before the change
   if (list.length <= 30) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
     if (gains(member(`pair:${list[i]}:${list[j]}`, [list[i]!, list[j]!]))) for (const g of [list[i]!, list[j]!]) named.add(g)
   }
