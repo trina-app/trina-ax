@@ -972,7 +972,7 @@ export const id: Record<MessageKey, string> = {
   'chat.sharedNoMove': "Chat bersama tidak bisa dipindahkan ke proyek lain.",
   'chat.shareChat.menu': "Bagikan dengan orang proyek…",
   'chat.shareChat.switch': "Bagikan dengan orang proyek",
-  'chat.shareChat.title': "Bagikan chat ini dengan {n} orang di proyek?",
+  'chat.shareChat.title': "Bagikan chat ini agar {n} orang di proyek bisa melihatnya?",
   'chat.shareChat.titleNobody': "Bagikan chat ini dengan orang-orang proyek?",
   'chat.shareChat.note': "Setelah dibagikan, seluruh percakapan sejauh ini juga terlihat. Berbagi tidak bisa dibatalkan.",
   'chat.shareChat.provenance': "Chat ini memuat isi dari bahan yang tidak bisa dilihat {m} orang di proyek: {places}",

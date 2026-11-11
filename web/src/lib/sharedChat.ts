@@ -43,6 +43,12 @@ export function whoSees(shared: { audience?: number; alone?: boolean } | null | 
   return shared.alone ? { kind: 'admins' } : { kind: 'people', n }
 }
 
+/** How many people in the project see a chat once it is shared, counted as the line under its box and the copy-link
+ * toast count them (Chat.shared.audience: everyone who sees the project, me included). The share check's `audience`
+ * (ShareChatResult) is the others, so the share dialog adds me (QA TC-070: the dialog said 2 where the line and the
+ * toast said 3). */
+export const seenOnceShared = (others: number): number => others + 1
+
 /** The refusals about shared chats and the words the screens use for them (the server sends the same, localized; these
  * keep one wording where the screen already says it). */
 const REASONS: Record<string, MessageKey> = {

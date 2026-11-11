@@ -971,7 +971,7 @@ export const ko = {
   'chat.sharedNoMove': "공유 채팅은 다른 프로젝트로 옮길 수 없어요.",
   'chat.shareChat.menu': "프로젝트 사람들과 공유…",
   'chat.shareChat.switch': "프로젝트 사람들과 공유",
-  'chat.shareChat.title': "이 채팅을 프로젝트 사람 {n}명과 공유할까요?",
+  'chat.shareChat.title': "이 채팅을 공유해서 프로젝트 사람 {n}명이 볼 수 있게 할까요?",
   'chat.shareChat.titleNobody': "이 채팅을 프로젝트 사람들과 공유할까요?",
   'chat.shareChat.note': "공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.",
   'chat.shareChat.provenance': "이 채팅에는 프로젝트 사람 {m}명이 볼 수 없는 자료의 내용이 들어 있어요: {places}",

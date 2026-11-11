@@ -14227,7 +14227,9 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   "공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요." under it. Saved with it on: the move, then the share
   (`ShareChat.tsx ShareChatFlow`); the move's own toast only when the chat ends up not shared (on a phone it covered
   the confirm's lines; shared, the one toast is the share's). The title menu (`ChatTitleMenu.tsx`) has "프로젝트 사람들과 공유…" for such a chat
-  already in that project. The confirm: title "이 채팅을 프로젝트 사람 {n}명과 공유할까요?", first that sentence, then #163's
+  already in that project. The confirm: title "이 채팅을 공유해서 프로젝트 사람 {n}명이 볼 수 있게 할까요?" ({n}: everyone who
+  will see it, me included, as the line under the box and the copy-link toast count them: `seenOnceShared`, the check's
+  `audience` + 1; it said "{n}명과 공유할까요?" with the others only, QA TC-070, 2026-11-11), first that sentence, then #163's
   provenance line style ("이 채팅에는 프로젝트 사람 {m}명이 볼 수 없는 자료의 내용이 들어 있어요: {places}", or the unknown
   line), "개인 메모리를 참고한 답이 있을 수 있어요" when it applies, "그 사이 바뀐 것이 있어요. 다시 확인해 주세요" when asked
   again; [취소] [공유하기], 공유하기 focused. Cancel keeps the chat moved and private. Shared: "프로젝트 사람들과 공유했어요",
