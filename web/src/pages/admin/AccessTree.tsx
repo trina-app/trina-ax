@@ -44,6 +44,7 @@ import { folderName } from '../../lib/access-view'
 import { hasAppHistory } from '../../lib/back'
 import { FOLDER_Q } from './adminScreens'
 import { useAdminBar, useUpTo } from './phoneBar'
+import { setPeopleRefocus } from './folder-slots'
 
 /** One level as loaded so far: its children's paths in the server's order. */
 interface Level { children: string[]; total: number; nextCursor: string | null }
@@ -464,7 +465,7 @@ export default function AccessTree() {
    * or, opened from the Files page (FROM_FILES), back to that folder there with its "Who can see it" panel */
   const toPerson = (back: string, path: string) =>
     // a phone: the editor took the place of the entry that opened it, so Back is the way there
-    phone && hasAppHistory() ? navigate(-1)
+    phone && hasAppHistory() ? (setPeopleRefocus(back === FROM_FILES ? null : path), navigate(-1))
       : back === FROM_FILES ? navigate(`/files?path=${encodeURIComponent(path)}&access=1`, { replace: phone }) : setParams(new URLSearchParams(back), { state: { refocus: path }, replace: phone })
   /** the words of the way back: to By person, or to Files */
   const backLabel = (back: string) => t(back === FROM_FILES ? 'accessEdit.backToFiles' : 'accessEdit.backToPeople')
@@ -531,7 +532,8 @@ export default function AccessTree() {
   useEffect(() => {
     if (!ready) return
     if (wanted === null) {
-      if (selected !== null || lookup) clear()
+      // a phone's Back from a folder: its row takes the focus again, as the way back did
+      if (selected !== null || lookup) { if (phone) toRow.current = true; clear() }
       return
     }
     if (wanted === selected && !lookup) return

@@ -14,3 +14,13 @@ export function InFolderHeader({ slot, children }: { slot: 'actions' | 'filter';
   if (slots.off) return null
   return el ? createPortal(children, el) : <>{children}</>
 }
+
+/** A phone's way back from the rule editor to By person is Back (the editor took the place of the entry that opened it),
+ * which carries no state: the folder whose row takes the focus there waits here until By person shows. */
+let peopleRefocus: string | null = null
+export const setPeopleRefocus = (path: string | null) => { peopleRefocus = path }
+export function takePeopleRefocus(): string | null {
+  const p = peopleRefocus
+  peopleRefocus = null
+  return p
+}

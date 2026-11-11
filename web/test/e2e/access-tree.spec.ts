@@ -353,7 +353,9 @@ test('375px: the folder replaces the tree and Back returns to its row; deep and 
   await expect(detail(page).getByRole('heading', { name: 'partners/apollo' })).toBeFocused()
   await expect(person(page, 'dan')).toBeVisible()
   expect(await fits()).toBe(true)
-  await page.getByTestId('folder-detail-back').click()
+  // a phone (TC-267): the folder is a page of its own; the bar's ‹ (the phone's Back) returns to its row
+  await expect(page.getByTestId('folder-detail-back')).toBeHidden()
+  await page.getByTestId('admin-back').click()
   await expect(tree(page)).toBeVisible()
   await expect(item(page, 'partners/apollo')).toBeFocused()
   expect(realErrors(errors)).toEqual([])

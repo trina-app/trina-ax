@@ -16,7 +16,7 @@ import { Badge, EmptyState, ErrorNote, Field, Skeleton, inputCls, useMediaQuery 
 import { AccessResults, PrefixForm } from './AccessResults'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { useLoad } from './common'
-import { InFolderHeader } from './folder-slots'
+import { InFolderHeader, takePeopleRefocus } from './folder-slots'
 import { useAdminBar } from './phoneBar'
 
 /** the "someone new" option of the list (not a person id: those are [a-z0-9_-]) */
@@ -98,7 +98,7 @@ export default function AccessPeople() {
   const onEdit = (f: PersonFolderAccess) => setParams(new URLSearchParams({ edit: f.path, back: params.toString() }))
   /** the folder whose rules were just changed in By folder (the panel comes back here with it): its row may have moved
    * (to the folded folders, or out of them), and the focus goes to it, not to the page */
-  const refocus = useRef<string | null>(typeof (location.state as { refocus?: unknown } | null)?.refocus === 'string' ? (location.state as { refocus: string }).refocus : null)
+  const refocus = useRef<string | null>(typeof (location.state as { refocus?: unknown } | null)?.refocus === 'string' ? (location.state as { refocus: string }).refocus : takePeopleRefocus())
   const onShown = () => {
     const path = refocus.current
     if (path === null) return
