@@ -282,7 +282,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
 // ---------------- the basic access ----------------
 
 /** "Follow the folder above" in words: what the folder gets with no rules of its own, now, from the server. One folder
- * for everyone: "지금은 shared 규칙: 모두 · 읽기·쓰기"; no rule: "지금은 팀장과 관리자만"; several: with where from. */
+ * for everyone: "지금은 shared 규칙: 모두 · 고칠 수 있음"; no rule: "지금은 팀장과 관리자만"; several: with where from. */
 function followText(t: ReturnType<typeof useT>, above: FolderEditPreview['above'] & {}, members: number): string {
   const who = whoSeesText(t, { who: above }, members)
   const rules = above.filter((w) => w.reason === 'rule')

@@ -13,6 +13,8 @@
 //             SHA-256 the list names), then goes through the same inspect -> permission prompt -> install
 //   revoked   a build the official list of this release withdrew is turned off at start (audit plugin.revoke) and is
 //             never usable, installable, enabled or rolled back to
+//   untrusted a package the trust settings in effect no longer vouch for (a test setting removed, a key dropped from the
+//             trust list) is turned off at start (audit plugin.untrust) and is never usable, enabled or rolled back to
 //   HWP       the plugin's renderer drives previews and hwp_render while usable(); writing and filling Hangul documents
 //             (core code) follow only "installed and on" (hwpWriting)
 //
@@ -44,7 +46,7 @@ import { defaultCatalogDir, loadCatalog, releasePins, revokedKey, revokedKeys, t
 import { driverMismatch, HWP_PLUGIN_ID } from './drivers'
 import { PackageError, verifyPackage, type VerifiedPackage } from './package'
 import { hostInfo, platformMismatch, productMismatch, type HostInfo } from './platform'
-import { trustRoot, type TrustRoot } from './trust'
+import { keyIdOf, trustRoot, type TrustRoot } from './trust'
 
 const PLAN_TTL_MS = 15 * 60_000
 const sha256 = (b: Uint8Array | string) => crypto.createHash('sha256').update(b).digest('hex')
@@ -108,7 +110,7 @@ export class PluginManager {
     this.storeRefused = (path.resolve(this.base) + path.sep).startsWith(team)
     if (this.storeRefused) ctx.log.error('the plugin store would be inside the team folder: plugin installs are off', { dataDir: ctx.config.dataDir })
     try { this.sweep() } catch (e) { ctx.log.warn('plugin incoming sweep failed', { err: e }) }
-    try { this.turnOffRevoked() } catch (e) { ctx.log.error('could not turn off a revoked plugin build (it stays unusable)', { err: e }) }
+    try { this.turnOffUnusable() } catch (e) { ctx.log.error('could not turn off a revoked or untrusted plugin build (it stays unusable)', { err: e }) }
   }
 
   /** Test hook: new trust / catalog / host / download (the trust settings in `env` only count when the trust root is
@@ -121,7 +123,7 @@ export class PluginManager {
     if (o.catalogDir) this.catalogDir = o.catalogDir
     this.catalogCache = null
     this.changed()
-    this.turnOffRevoked()
+    this.turnOffUnusable()
   }
 
   private dir(...p: string[]) { return path.join(this.base, ...p) }
@@ -173,6 +175,7 @@ export class PluginManager {
   private unsupported(x: Installed, full = false): PluginUnsupported | null {
     const m = x.manifest
     if (this.isRevoked(x.pkg.plugin_id, x.pkg.manifest_sha256)) return 'revoked'
+    if (!this.trusted(x.pkg, m)) return 'untrusted'
     const shas = new Map(m.files.map((f) => [f.path, f.sha256]))
     const why = platformMismatch(m.platforms, this.host) ?? productMismatch(m.product, this.version) ?? driverMismatch(m, (p) => shas.get(p))
     if (why) return why
@@ -185,23 +188,47 @@ export class PluginManager {
     try { return revokedKeys(this.catalog()).has(revokedKey(id, manifestSha256)) } catch { return false }
   }
 
-  /** Turn off every installed plugin whose active build the official list withdrew (at start, after a core update):
-   * not on for anyone, its skills taken out, one audit line each. It also stays unusable without this (unsupported). */
-  private turnOffRevoked() {
-    const revoked = revokedKeys(this.catalog())
-    if (!revoked.size) return
+  /** The trust recorded at install still holds under this server's trust settings now. Test keys and unsigned packages
+   * count only while their settings are on (trust.ts), and a plugin key only while the trust list still has it for this
+   * publisher and id, so a package taken in under a setting that was later removed, or signed with a key that was later
+   * dropped, stops being usable. A release pin (official, no key) is vouched for by the signed release itself; a build
+   * a later release withdrew is 'revoked'. */
+  private trusted(pkg: PackageRow, m: PluginManifest): boolean {
+    if (pkg.trust === 'unverified') return this.trust.allowUnsigned
+    if (pkg.key_id === null) return pkg.trust === 'official'
+    const key = this.trust.keys.find((k) => keyIdOf(k.publicKey) === pkg.key_id)
+    if (!key || (pkg.trust === 'official' && key.kind !== 'official')) return false
+    return (key.publishers.includes('*') || key.publishers.includes(m.publisher.id)) && key.idPrefixes.some((p) => m.id.startsWith(p))
+  }
+
+  /** Turn off every installed plugin whose active build the official list withdrew (after a core update) or that this
+   * server no longer trusts (a test setting removed, a key dropped from the trust list), at start: not on for anyone,
+   * its skills taken out of the team folder, one audit line each. It also stays unusable without this (unsupported). */
+  private turnOffUnusable() {
     for (const x of this.allInstalled()) {
-      if (!revoked.has(revokedKey(x.pkg.plugin_id, x.pkg.manifest_sha256))) continue
-      if (!this.ctx.db.query('SELECT 1 FROM plugin_access WHERE plugin_id = ?').get(x.pkg.plugin_id)) continue
-      const id = x.pkg.plugin_id
-      this.ctx.db.transaction(() => {
-        this.ctx.db.query('DELETE FROM plugin_access WHERE plugin_id = ?').run(id)
-        this.ctx.db.query('UPDATE plugin_installs SET updated_at = ? WHERE plugin_id = ?').run(now(), id)
-      })()
-      this.changed()
-      this.removeSkills(id, null)
+      // one plugin that cannot be cleaned up never keeps the others' skills in place
+      try { this.turnOffOne(x) } catch (e) { this.ctx.log.error('could not turn off a revoked or untrusted plugin build', { plugin: x.pkg.plugin_id, err: e }) }
+    }
+  }
+  private turnOffOne(x: Installed) {
+    const id = x.pkg.plugin_id
+    const revoked = this.isRevoked(id, x.pkg.manifest_sha256)
+    if (!revoked && this.trusted(x.pkg, x.manifest)) return
+    const on = !!this.ctx.db.query('SELECT 1 FROM plugin_access WHERE plugin_id = ?').get(id)
+    const placed = !!this.ctx.db.query('SELECT 1 FROM plugin_managed_files WHERE plugin_id = ?').get(id)
+    if (!on && !placed) return
+    this.ctx.db.transaction(() => {
+      this.ctx.db.query('DELETE FROM plugin_access WHERE plugin_id = ?').run(id)
+      this.ctx.db.query('UPDATE plugin_installs SET updated_at = ? WHERE plugin_id = ?').run(now(), id)
+    })()
+    this.changed()
+    this.removeSkills(id, null)
+    if (revoked) {
       audit(this.ctx.db, { actor: null, action: 'plugin.revoke', target: id, detail: { version: x.manifest.version, manifestSha256: x.pkg.manifest_sha256, reason: 'withdrawn in the official list of this release' } })
       this.ctx.log.warn('a withdrawn plugin build was turned off', { plugin: id, version: x.manifest.version })
+    } else {
+      audit(this.ctx.db, { actor: null, action: 'plugin.untrust', target: id, detail: { version: x.manifest.version, manifestSha256: x.pkg.manifest_sha256, trust: x.pkg.trust, keyId: x.pkg.key_id, reason: 'not trusted by the trust settings of this server' } })
+      this.ctx.log.warn('a plugin this server no longer trusts was turned off', { plugin: id, version: x.manifest.version, trust: x.pkg.trust })
     }
   }
 
@@ -309,10 +336,57 @@ export class PluginManager {
       if (!r.ok) refuse('manifest', 'validation', `skill ${s.name} does not load (${r.problem})`)
     }
   }
-  private skillsFolderFree(id: string) {
-    const rel = this.skillRoot(id)
+  /** The pack's folder is free (or already this plugin's), and no part of any path its skills go to is a link or
+   * something other than a folder (a file: a regular one), so placing them can never write outside the team folder.
+   * lstat, never exists(): a link planted at skills/, skills/<id> or below while the pack is off is refused, dangling or
+   * not. */
+  private skillsFolderFree(m: PluginManifest) {
+    const rel = this.skillRoot(m.id)
     const ours = this.ctx.db.query('SELECT 1 FROM plugin_managed_roots WHERE rel = ?').get(rel)
-    if (!ours && fs.existsSync(path.join(this.ctx.files.fx.root, ...rel.split('/')))) refuse('skills_conflict', 'conflict', `${rel} already exists`)
+    if (!ours && this.lstatIn(rel)) refuse('skills_conflict', 'conflict', `${rel} already exists`)
+    for (const t of this.skillTargets(m)) if (!this.linkFree(t.rel)) refuse('skills_conflict', 'conflict', `${t.rel} is a link or not a plain file`)
+  }
+  private lstatIn(rel: string): fs.Stats | null {
+    try { return fs.lstatSync(path.join(this.ctx.files.fx.root, ...rel.split('/'))) } catch { return null }
+  }
+  /** Each existing part of a file path below the team folder is a real folder, and the file (if there) a regular one.
+   * `singleLink` (placing): the file also has no other hard link. Removal passes false: unlinking only drops this name.
+   * Placing stays strict on purpose; turning the pack off and on clears such a file. */
+  private linkFree(rel: string, singleLink = true): boolean {
+    const segs = rel.split('/')
+    for (let i = 1; i <= segs.length; i++) {
+      const st = this.lstatIn(segs.slice(0, i).join('/'))
+      if (!st) return true
+      if (st.isSymbolicLink() || (i < segs.length ? !st.isDirectory() : !st.isFile() || (singleLink && st.nlink > 1))) return false
+    }
+    return true
+  }
+  /** Write one placed skill file without following links: each folder is made one level at a time and checked with
+   * lstat, and the file is opened with O_NOFOLLOW and must be a regular file with no other hard link (a link planted
+   * between the check above and this write is refused, not written through). */
+  private writeSkillFile(rel: string, bytes: Uint8Array) {
+    const root = this.ctx.files.fx.root, segs = rel.split('/')
+    const conflict = () => refuse('skills_conflict', 'conflict', `${rel} is a link or not a plain file`)
+    for (let i = 1; i < segs.length; i++) {
+      const p = path.join(root, ...segs.slice(0, i))
+      let st = this.lstatIn(segs.slice(0, i).join('/'))
+      if (!st) {
+        try { fs.mkdirSync(p, { mode: 0o700 }) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e }
+        st = this.lstatIn(segs.slice(0, i).join('/'))
+      }
+      if (!st || st.isSymbolicLink() || !st.isDirectory()) conflict()
+    }
+    let fd: number
+    try { fd = fs.openSync(path.join(root, ...segs), fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0), 0o600) } catch (e) {
+      if (['ELOOP', 'EISDIR', 'EMLINK', 'ENOTDIR', 'ENXIO'].includes((e as NodeJS.ErrnoException).code ?? '')) conflict()
+      throw e
+    }
+    try {
+      const st = fs.fstatSync(fd)
+      if (!st.isFile() || st.nlink > 1) conflict()
+      fs.ftruncateSync(fd, 0)
+      fs.writeSync(fd, bytes, 0, bytes.length, 0)
+    } finally { fs.closeSync(fd) }
   }
 
   /** Take the placed skill files out of the team folder. Only files that still hold exactly the bytes this plugin wrote
@@ -327,6 +401,8 @@ export class PluginManager {
     for (const r of rows) {
       const abs = path.join(root, ...r.rel.split('/'))
       try {
+        // never through a link planted above the file (it could point outside the team folder)
+        if (!this.linkFree(r.rel, false)) continue
         const st = fs.lstatSync(abs)
         if (!st.isFile() || st.isSymbolicLink()) continue
         if (sha256(fs.readFileSync(abs)) !== r.sha256) { this.ctx.log.warn('a plugin skill file was changed outside the app; it stays in place', { plugin: id, path: r.rel }); continue }
@@ -358,8 +434,8 @@ export class PluginManager {
   private placeSkills(x: Installed, actor: string) {
     const m = x.manifest
     if (!m.contributes.skills?.length) return
-    this.skillsFolderFree(m.id)
-    const dir = this.storePath(x.pkg), root = this.ctx.files.fx.root, by = this.person(actor)
+    this.skillsFolderFree(m)
+    const dir = this.storePath(x.pkg), by = this.person(actor)
     const targets = this.skillTargets(m)
     const data = new Map(targets.map((t) => [t.from, fs.readFileSync(path.join(dir, ...t.from.split('/')))]))
     this.checkSkills(m, (p) => data.get(p))
@@ -368,10 +444,8 @@ export class PluginManager {
     this.roots = null
     const changes: { path: string; action: 'create'; by: { id: string; name: string }; turnId: null }[] = []
     for (const t of targets) {
-      const abs = path.join(root, ...t.rel.split('/'))
-      fs.mkdirSync(path.dirname(abs), { recursive: true, mode: 0o700 })
       const bytes = data.get(t.from)!
-      fs.writeFileSync(abs, bytes, { mode: 0o600 })
+      this.writeSkillFile(t.rel, bytes)
       const sum = sha256(bytes)
       this.ctx.db.query('INSERT OR REPLACE INTO plugin_managed_files (rel, plugin_id, sha256) VALUES (?, ?, ?)').run(t.rel, m.id, sum)
       // the same record as any skills/ change: audit line and the owner/admin notice (skills/changes.ts)
@@ -507,7 +581,7 @@ export class PluginManager {
       if (c === 0) refuse('same_version', 'conflict')
       if (c < 0) refuse('downgrade', 'conflict', `installed ${cur.manifest.version}; use roll back for an earlier version this server installed`)
     }
-    if (!cur && m.contributes.skills?.length) this.skillsFolderFree(m.id)
+    if (!cur && m.contributes.skills?.length) this.skillsFolderFree(m)
     const token = crypto.randomUUID()
     fs.mkdirSync(this.dir('incoming'), { recursive: true, mode: 0o700 })
     const file = this.dir('incoming', `${token}.trinaplugin`)
@@ -678,7 +752,7 @@ export class PluginManager {
     }
     // before anything is saved: the pack's folder must be free (or already this plugin's), also for an update that
     // turns it on, so a refusal never leaves a half-applied install behind
-    if (m.contributes.skills?.length && (!cur || input.enable)) this.skillsFolderFree(m.id)
+    if (m.contributes.skills?.length && (!cur || input.enable)) this.skillsFolderFree(m)
     const storeDir = this.stage(v)
     const at = now()
     const wasOn = cur ? this.access(m.id).everyone : false
@@ -725,6 +799,7 @@ export class PluginManager {
     const why = this.unsupported(x, true)
     if (why === 'damaged') return refuse('tampered', 'conflict')
     if (why === 'revoked') return refuse('revoked', 'conflict')
+    if (why === 'untrusted') return refuse(x.pkg.trust === 'unverified' ? 'signature' : 'untrusted', 'conflict')
     if (why) return refuse('unsupported', 'validation', why)
     let permissions: PluginPermission[] | null = null
     if (input.permissions) {
@@ -732,7 +807,7 @@ export class PluginManager {
       permissions = this.checkPermissions(x.manifest, input.permissions)
     } else if (!x.manifest.permissions.required.every((p) => this.approved(x).has(p))) return refuse('permissions')
     // before anything is saved: someone may have made skills/<id>/ while the pack was off
-    if (x.manifest.contributes.skills?.length) this.skillsFolderFree(id)
+    if (x.manifest.contributes.skills?.length) this.skillsFolderFree(x.manifest)
     const at = now()
     this.ctx.db.transaction(() => {
       if (permissions) this.ctx.db.query('UPDATE plugin_installs SET permissions = ?, approved_manifest_sha256 = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE plugin_id = ?').run(JSON.stringify(permissions), x.pkg.manifest_sha256, actor, at, at, id)
@@ -771,11 +846,12 @@ export class PluginManager {
     const why = this.unsupported(back, true)
     if (why === 'damaged') return refuse('tampered', 'conflict')
     if (why === 'revoked') return refuse('revoked', 'conflict')
+    if (why === 'untrusted') return refuse(prev.trust === 'unverified' ? 'signature' : 'untrusted', 'conflict')
     if (why) return refuse('unsupported', 'validation', why)
     const approved = this.approved(x)
     const permissions = [...new Set([...pm.permissions.required, ...pm.permissions.optional.filter((p) => approved.has(p))])].sort()
     const on = this.access(id).everyone
-    if (on && pm.contributes.skills?.length) this.skillsFolderFree(id)
+    if (on && pm.contributes.skills?.length) this.skillsFolderFree(pm)
     const at = now()
     this.ctx.db.query('UPDATE plugin_installs SET active_version = ?, previous_version = ?, permissions = ?, approved_manifest_sha256 = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE plugin_id = ?')
       .run(pm.version, x.manifest.version, JSON.stringify(permissions), prev.manifest_sha256, actor, at, at, id)

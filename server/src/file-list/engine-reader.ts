@@ -10,6 +10,8 @@
 // Which engine: Claude Code when the team can use it (on in Admin, installed, and in managed mode a team account), on
 // Haiku (Claude Code's alias; with a gateway its haiku model, and without one nothing runs). Else Codex on its catalog's
 // nano or mini model (nothing runs without one), text only (policy.ts CODEX_IMAGES).
+// Home's "what my group often asks" (chat/often-asked-run.ts) uses the same reader once a day with its own instructions
+// and turns.chat_id (reader.ts ReadOptions), and logs no engine output when a call fails.
 import path from 'node:path'
 import type { CredentialKind, FileListSignIn } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -26,7 +28,7 @@ import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { LocalEngines, type EngineConfs } from '../chat/engines'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
 import { CODEX_IMAGES } from './policy'
-import { blocksAsText, ReaderLimit, ReaderUnavailable, SYSTEM_PROMPT, type Block, type Reader, type ReaderAnswer } from './reader'
+import { blocksAsText, ReaderLimit, ReaderUnavailable, SYSTEM_PROMPT, type Block, type ReadOptions, type Reader, type ReaderAnswer } from './reader'
 
 /** turns.chat_id of the reader's calls (no chat has this id) */
 export const READER_CHAT = 'file-list'
@@ -123,12 +125,13 @@ export class EngineReader implements Reader {
     return { ...base, kind: 'team', label: row.label || null, by }
   }
 
-  async read(blocks: Block[], signal: AbortSignal): Promise<ReaderAnswer> {
+  async read(blocks: Block[], signal: AbortSignal, o?: ReadOptions): Promise<ReaderAnswer> {
+    const systemPrompt = o?.system ?? SYSTEM_PROMPT
     const core = await this.ctx.core()
     if (!core.launcher) throw new ReaderUnavailable('engine launcher not running')
     const owner = ownerId(this.ctx)
     if (!owner) throw new ReaderUnavailable('no owner')
-    const { turn, token } = core.turns.create(owner, READER_CHAT, this.engine, this.model)
+    const { turn, token } = core.turns.create(owner, o?.chat ?? READER_CHAT, this.engine, this.model)
     const slot = takeSlot(this.ctx)
     const chatDir = path.join(core.cfg.agentRoot, `${READER_DIR}-${slot}`)
     let limited: string | null = null
@@ -163,7 +166,7 @@ export class EngineReader implements Reader {
           unsubscribe = core.proxy!.subscribe(turn.id, onProxy)
         } else if (tunnelPort !== null) proxyToken = issueProxyToken(this.ctx.db, turn.id, owner, { ttlMs: READER_TIMEOUT_MS + 60_000, tools })
         const message = JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n'
-        lr = buildClaudeReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt: SYSTEM_PROMPT, message, model: this.model!, timeoutMs: READER_TIMEOUT_MS, proxyToken, tokenKind,
+        lr = buildClaudeReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt, message, model: this.model!, timeoutMs: READER_TIMEOUT_MS, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}) }, conf)
       } else {
         const conf = this.pick.conf
@@ -186,7 +189,7 @@ export class EngineReader implements Reader {
           unsubscribe = core.proxy.subscribe(turn.id, onProxy)
         }
         prepareCodexTurn(conf, chatDir)
-        lr = buildCodexReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt: SYSTEM_PROMPT, message: blocksAsText(blocks), timeoutMs: READER_TIMEOUT_MS, model: this.pick.model, ...(proxy ? { proxy } : {}), ...(managed ? { managed } : {}) }, conf)
+        lr = buildCodexReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt, message: blocksAsText(blocks), timeoutMs: READER_TIMEOUT_MS, model: this.pick.model, ...(proxy ? { proxy } : {}), ...(managed ? { managed } : {}) }, conf)
       }
       const parser = this.engine === 'claude-code' ? new ClaudeStreamParser() : new CodexEventParser()
       const errors: { code: string; message: string }[] = []
@@ -230,7 +233,7 @@ export class EngineReader implements Reader {
       if (e?.code === 'auth') throw new ReaderUnavailable(e.message.slice(0, 200))
       const text = parser.text
       if (e || !text) {
-        this.ctx.log.warn('file list: reader call failed', { engine: this.engine, exit, code: e?.code ?? 'no_answer', stderr: err.text.slice(-500) })
+        this.ctx.log.warn(o ? `${o.chat}: reader call failed` : 'file list: reader call failed', { engine: this.engine, exit, code: e?.code ?? 'no_answer', ...(o?.quiet ? {} : { stderr: err.text.slice(-500) }) })
         throw new Error(e ? `reader error (${e.code})` : 'reader gave no answer')
       }
       status = 'done'

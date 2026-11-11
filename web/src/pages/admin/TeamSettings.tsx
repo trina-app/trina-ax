@@ -258,6 +258,8 @@ export default function TeamSettingsPage() {
                           <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
                           {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
                           <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
+                          {/* Home's "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"): on by default */}
+                          <SwitchRow id="ts-often-asked" testId="team-often-asked" value={f.oftenAsked} onChange={(v) => setF({ ...f, oftenAsked: v })} title={t('teamSettings.oftenAsked')} desc={t('teamSettings.row.oftenAskedDesc')} />
                           <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
                           <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
                         </SettingsSection>

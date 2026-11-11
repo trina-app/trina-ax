@@ -69,8 +69,10 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'integration.request': return true
     // a member without AI asks the owner (shown always: the member cannot work until it is answered)
     case 'onboarding.ai_request': return true
-    // someone joined through the team invite link (shown always, Notifications.teamJoined)
+    // someone joined the team, whichever way (shown always, Notifications.teamJoined)
     case 'team.joined': return true
+    // someone started to see a project the person is in (shown always, Notifications.projectJoined)
+    case 'project.joined': return true
     // a message, an @mention or a followed thread's reply in a room: each room's level decides, per message and person,
     // whether there is a notice at all (rooms/service.ts notify, shared room-alerts.ts), and the push checks it again
     // (rooms/alerts.ts noticeWanted); a person's default 'none' is 'off' for every room without a level of its own

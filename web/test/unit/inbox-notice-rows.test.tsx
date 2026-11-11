@@ -52,6 +52,25 @@ test('where a row goes: the result chat of a run, the page of the rest; none whe
   expect(noticeLink(notice({ eventType: 'team.joined', code: 'team.joined', link: null, chatId: null }))).toEqual({ to: '/admin/members', testId: 'notification-joined-link' })
 })
 
+test('someone joined a project I am in (docs/DECISIONS.md "Project contents only for members"): who and where, while there; the project\'s page', () => {
+  const joined = (projectJoined: InboxNotification['projectJoined'], link: InboxNotification['link'] = projectJoined?.project ? 'project' : null) =>
+    notice({ eventType: 'project.joined', code: 'project.joined', link, chatId: null, outcome: null, projectJoined })
+  const acme = { id: 'p1', name: 'Acme launch' }
+  expect(text(joined({ name: 'Dana', project: acme }))).toBe("Dana님이 &#x27;Acme launch&#x27; 프로젝트에 들어왔어요.")
+  expect(text(joined({ name: 'Dana', project: acme }), 'en')).toBe('Dana joined &#x27;Acme launch&#x27;.')
+  // the project no longer mine to see: no name of it, no link
+  expect(text(joined({ name: 'Dana', project: null }))).toBe('Dana님이 프로젝트에 들어왔어요.')
+  expect(text(joined({ name: 'Dana', project: null }), 'en')).toBe('Dana joined a project.')
+  // the account gone: nobody named
+  expect(text(joined({ name: null, project: acme }))).toBe("누군가 &#x27;Acme launch&#x27; 프로젝트에 들어왔어요.")
+  expect(text(joined({ name: null, project: acme }), 'en')).toBe('Someone joined &#x27;Acme launch&#x27;.')
+  expect(text(joined({ name: null, project: null }), 'en')).toBe(en('notifications.event.project.joined'))
+  // an older server without the details: the line of its kind
+  expect(text(notice({ eventType: 'project.joined', code: 'project.joined', link: null, chatId: null, outcome: null }), 'en')).toBe('Someone joined a project.')
+  expect(noticeLink(joined({ name: 'Dana', project: acme }))).toEqual({ to: '/projects/p1', testId: 'notification-project-link' })
+  expect(noticeLink(joined({ name: 'Dana', project: null }))).toBeNull()
+})
+
 // ---------------- in the Inbox ----------------
 const me = { user: { id: ME.id, username: ME.id, name: ME.name, email: null, role: 'member', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} }, groups: [],
   team: { name: 'Acme', defaultLocale: 'ko' }, session: { id: uuidv7(), client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: false, timeZone: 'Asia/Seoul' } } as unknown as Me
@@ -124,4 +143,13 @@ test('the Inbox: a run is one link with its task, time and dot that reads it; no
     await m.until(() => reads.length > 0, 'the read')
     expect(reads).toEqual([run.id])
   } finally { await m.unmount() }
+})
+
+test('"tried to use Trina but it isn\'t set up yet": the name while the account is there, else a team member; the AI accounts page', () => {
+  const ask = (o: Partial<InboxNotification> = {}) => notice({ eventType: 'onboarding.ai_request', code: 'onboarding.ai_request', sourceId: 'not-ready:u1', chatId: null, link: 'admin_credentials', outcome: null, ...o })
+  expect(text(ask({ notReady: true, requester: { name: 'Mia' } }), 'en')).toBe("Mia tried to use Trina but it isn&#x27;t set up yet.")
+  expect(text(ask({ notReady: true }), 'en')).toBe("A team member tried to use Trina but it isn&#x27;t set up yet.")
+  // the ask for an AI connection keeps its words
+  expect(text(ask({ sourceId: 'u1', requester: { name: 'Mia' } }), 'en')).toBe(en('notifications.event.onboarding.ai_requestNamed', { name: 'Mia' }))
+  expect(noticeLink(ask({ notReady: true }))?.to).toBe('/admin/providers')
 })

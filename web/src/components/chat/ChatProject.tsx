@@ -1,7 +1,7 @@
 // A chat's project in the chat header: the project's own name, linked to its page, before the chat's title (like
 // Claude; on a phone a short chip with a folder icon, so the person still sees that the chat is in a project), and the dialog that the title menu's "Move to project…" opens:
 // it moves the chat into a project or out of it (PATCH /api/chats/:id {projectId}; the server checks that the person
-// can see the project). When the chosen project shares its new chats, one switch, off by default, "프로젝트 사람들과
+// can see the project). When the chosen project shares its new chats, one switch, off by default, "프로젝트 멤버와
 // 공유": with it on, the chat is shared right after the move (components/chat/ShareChat.tsx: the server's check, and a
 // confirm when one comes back; cancelling it leaves the chat moved and private). The name comes from
 // store/projects.ts, so a rename saved anywhere in this window shows at once;

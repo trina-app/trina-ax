@@ -24,6 +24,7 @@ import { AdminPageHeader, Loadable, OneLine, useAction, useLoad } from './common
 import { ENGINE_FAMILY, ProviderAccounts, accountsNeedLook, useTeamCredentials } from './Credentials'
 import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { useEngines } from '../../store/engines'
+import { technicalEngineState } from './plain'
 import { useAdminBar } from './phoneBar'
 
 export default function Engines() {
@@ -116,7 +117,9 @@ export default function Engines() {
 /** The state word of an engine's row and page: an API engine without its settings is "Not set up". */
 function engineState(t: ReturnType<typeof useT>, e: EngineStatus): { ok: boolean; text: string } {
   if (e.id === 'api' && e.status === 'not_installed') return { ok: false, text: t('adminux.engines.apiNotSet') }
-  return { ok: e.status === 'ok', text: t(`engines.status.${e.status}`) }
+  // an untested version or a failed lockdown test answers: Connected, as on the row (plain.ts)
+  const technical = technicalEngineState(e.status)
+  return { ok: e.status === 'ok' || technical, text: t(`engines.status.${technical ? 'ok' : e.status}`) }
 }
 
 /** A phone's row of the list: the name, the state (or Off), a chevron; it opens the engine's page. `look`: one of its
@@ -146,7 +149,10 @@ function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOp
   const [open, setOpen] = useState(initiallyOpen || !!page)
   const details = useId()
   const accountsId = useId()
-  const ok = e.status === 'ok'
+  // an untested version or a failed lockdown test: it answers, so the row says Connected; the version detail is in
+  // Admin › System › Diagnostics (plain.ts)
+  const technical = technicalEngineState(e.status)
+  const ok = e.status === 'ok' || technical
   const mode = e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })
   const checked = e.checkedAt && t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })
   const models = e.models.map((m) => m.label).join(', ')
@@ -175,7 +181,7 @@ function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOp
                 <span className="break-words">{e.label}</span>
               </button>
             </h3>
-            <Badge tone={ok ? 'ok' : 'warn'}>{apiNotSet ? t('adminux.engines.apiNotSet') : t(`engines.status.${e.status}`)}</Badge>
+            <Badge tone={ok ? 'ok' : 'warn'}>{apiNotSet ? t('adminux.engines.apiNotSet') : t(`engines.status.${technical ? 'ok' : e.status}`)}</Badge>
             {e.beta && <Badge tone="warn">{t('engines.beta')}</Badge>}
             {e.id === 'api' && <span data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
           </div>
@@ -193,7 +199,7 @@ function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOp
                 </button>
               )}
             </p>
-          ) : e.detail && (
+          ) : e.detail && !technical && (
             <div className="mt-1 flex min-w-0 items-baseline gap-2 pl-5">
               {/* a problem's line is the fix (a command to run): shown whole, never cut behind "More" */}
               {ok ? (

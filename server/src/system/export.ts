@@ -11,6 +11,7 @@ import type { Database } from 'bun:sqlite'
 import { PRODUCT, UserId } from '@mycel/shared'
 import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import { walkTree } from './manifest'
+import { inZone } from '../policy/zone'
 import { ageEncrypt, writeAtomic, zstdCompress } from './streams'
 import { tarStream, type TarEntryInput } from './tar'
 
@@ -23,6 +24,10 @@ export interface ExportRequest {
   /** hides the person's stored connection secrets (integrations/connections/redact.ts) in the chat titles: the file
    * names and the headings (QA SEC-16, B-W5-1). A title made before the fix can still hold one in the database. */
   hide?: (text: string) => string
+  /** a path inside a team project (projects/<name>/…) goes in only while the person reads it, as the Files tree judges
+   * it (docs/DECISIONS.md "Project contents only for members": the owner reads a project only as a member); without
+   * this, none does */
+  readable?: (rel: string) => boolean
   /** a shared project chat the person made goes in only while they still see its project (chat/shared.ts); without
    * this, none does */
   sharedVisible?: (chatId: string) => boolean
@@ -98,7 +103,10 @@ export async function runExport(db: Database, teamRoot: string, req: ExportReque
   const relDir = `users/${req.ownerId}/exports`
   const name = `${PRODUCT.id}-export-${stamp}.tar.zst${req.password ? '.age' : ''}`
   const root = `export-${stamp}`
-  const tree = req.what.includes('files') ? await walkTree(teamRoot, { exclude: await exportExcludes(teamRoot, req.ownerId) }) : null
+  const walked = req.what.includes('files') ? await walkTree(teamRoot, { exclude: await exportExcludes(teamRoot, req.ownerId) }) : null
+  // every path inside a team project judged on its own (a folder inside one the person cannot read stays out too)
+  const keep = (rel: string) => !inZone(rel) || !!req.readable?.(rel)
+  const tree = walked ? { files: walked.files.filter((f) => keep(f.rel)), dirs: walked.dirs.filter((d) => keep(d.rel)) } : null
   const total = tree ? tree.files.reduce((a, f) => a + f.size, 0) || 1 : 1
 
   // entries are produced one at a time while the archive is written: a long chat history is never all in memory

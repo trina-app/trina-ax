@@ -1,19 +1,18 @@
 // "이 사람이 팀장이에요" on an invite (docs/DECISIONS.md "W6"; shared/src/api/admin.ts CreateInviteBody.leadFor): the
 // owner says who the link is for, and the server makes one single-use link that only ever makes a member in the team
 // group, for 3 days; the one before it stops working. The message then is the one-person message (who set the team up,
-// that they hand it over once the person joins). Used by the welcome steps' invite step (LeadInvite around the team
-// link panel) and by Admin › Members' invite dialog (LeadFlag, LeadMessage). Only for the owner, and only where the
-// server offers it (HandoverState.flag: not on a hosted team without its safety switch).
-import { Check, Copy, Plus } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { cleanLeadFor, LEAD_FOR_MAX, LEAD_INVITE_HOURS, type Invite } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
+// that they hand it over once the person joins). Used by Admin › Members' invite dialog (LeadFlag, LeadMessage); never
+// the welcome steps' invite step (owner 2026-11-11: one team link invites many people, so "this person will be the
+// owner" does not belong on it). Only for the owner, and only where the server offers it (HandoverState.flag: not on a
+// hosted team without its safety switch).
+import { Check, Copy } from 'lucide-react'
+import { useEffect } from 'react'
+import { LEAD_FOR_MAX, LEAD_INVITE_HOURS } from '@mycel/shared/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMe } from '../../store/session'
 import { useHandover } from '../../store/handover'
 import { Button, Field, inputCls, useCopy } from '../ui'
-import { useAction, useActionOk } from '../../pages/admin/common'
 
 type T = ReturnType<typeof useT>
 
@@ -94,70 +93,6 @@ export function LeadMessage({ url, leadFor, expiresAt, replaced, onCopied }: { u
         </Button>
       </div>
       <p className="text-label text-muted" data-testid="lead-facts">{t('handover.facts', { leadFor, date: formatDateTime(expiresAt, locale) })}</p>
-    </div>
-  )
-}
-
-type Made = { id: string; url: string; leadFor: string; expiresAt: string; replaced: boolean }
-const madeOf = (r: { invite: Invite; url: string; replacedLead?: boolean }): Made => ({ id: r.invite.id, url: absoluteUrl(r.url), leadFor: r.invite.leadFor ?? '', expiresAt: r.invite.expiresAt, replaced: !!r.replacedLead })
-
-/**
- * The welcome steps' invite step with the flag on top (`enabled`; the owner, where the server offers it): unticked, the
- * team link panel as it is (`children`); ticked, "누구에게 보내나요?" and [팀장 링크 만들기], then the one-person message
- * in place of the team link's. Unticking revokes the lead link unless it was copied in this visit (a copied one stays,
- * Admin › Members lists it); ticking again in the same visit shows the kept one. A lead link made earlier (its address
- * is not known now) is one quiet line; ticking makes a new one.
- */
-export function LeadInvite({ enabled = true, children }: { enabled?: boolean; children: ReactNode }) {
-  const t = useT()
-  const locale = useLocale()
-  const offered = useLeadOffered(enabled)
-  const act = useAction()
-  const actOk = useActionOk()
-  const openLead = useHandover((s) => s.state?.openLead ?? null)
-  const [ticked, setTicked] = useState(false)
-  const [label, setLabel] = useState('')
-  const [made, setMade] = useState<Made | null>(null)
-  const [busy, setBusy] = useState(false)
-  const copied = useRef(false)
-  if (!offered) return <>{children}</>
-  const clean = cleanLeadFor(label)
-  const create = async () => {
-    if (!clean || busy) return
-    setBusy(true)
-    const r = await act(() => api.call(API.createInvite, { body: { leadFor: clean } }))
-    setBusy(false)
-    if (!r) return
-    copied.current = false
-    setMade(madeOf(r))
-    void useHandover.getState().load(true).catch(() => {})
-  }
-  const tick = async (on: boolean) => {
-    setTicked(on)
-    if (on || !made || copied.current) return
-    // never sent: it stops working; the label stays for a tick again
-    const m = made
-    setMade(null)
-    if (await actOk(() => api.call(API.revokeInvite, { params: { id: m.id } }))) void useHandover.getState().load(true).catch(() => {})
-  }
-  return (
-    <div className="space-y-4" data-testid="lead-invite">
-      <LeadFlag checked={ticked} onChecked={(v) => void tick(v)} label={label} onLabel={setLabel} locked={!!made} />
-      {openLead && !(ticked && made) && (
-        <p className="text-label text-muted" data-testid="lead-open">{t('handover.openLead', { leadFor: openLead.leadFor, date: formatDateTime(openLead.expiresAt, locale) })}</p>
-      )}
-      {!ticked ? (
-        children
-      ) : made ? (
-        <LeadMessage url={made.url} leadFor={made.leadFor} expiresAt={made.expiresAt} replaced={made.replaced} onCopied={() => { copied.current = true }} />
-      ) : (
-        <div className="space-y-3 pl-6.5">
-          <p className="text-xs text-muted" data-testid="lead-note">{t('handover.leadNote', { days: LEAD_DAYS })}</p>
-          <Button variant="primary" className="max-sm:w-full" busy={busy} disabled={!clean} onClick={() => void create()} data-testid="lead-create">
-            <Plus size={14} aria-hidden /> {t('handover.makeLink')}
-          </Button>
-        </div>
-      )}
     </div>
   )
 }

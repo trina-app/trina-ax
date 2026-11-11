@@ -12,6 +12,7 @@ import { brokerOf, startCredentialMaintenance } from './credentials/maintenance'
 import { codexCatalogFor, lockedCatalogModels } from './engine/codex'
 import { FileService } from './files/service'
 import { trackSkillChanges } from './skills/changes'
+import { membersOnlyOnce } from './chat/members-only-once'
 import type { Logger } from './log'
 import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
@@ -184,6 +185,9 @@ export function createContext(o: ContextOptions): AppContext {
   }
   // every change under skills/ is audited and announced to the owner and admins (skills/changes.ts)
   trackSkillChanges(ctx)
+  // team projects are members only: once, what the owner and admins kept from reading every project by role goes
+  // (chat/members-only-once.ts)
+  void membersOnlyOnce(ctx)
   if (config.engine.authModeAlias) log.info(`authMode "${config.engine.authModeAlias}" is read as "managed"`)
   const gateway = anthropicGateway(config)
   if (gateway) log.info('engine.anthropicGateway: Claude requests go to the gateway, on its models only; Claude subscription connections are off', { gateway: gatewayHost(gateway), models: gatewayModelIds(gateway) })

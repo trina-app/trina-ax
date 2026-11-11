@@ -156,9 +156,19 @@ describe('project skills by folder rules (docs/DECISIONS.md "Project skills")', 
   const writes = (id: string) => e.files.rules().access(who(id), ['projects', 'falcon', 'skills']) === 'write'
 
   test('who reads the project folder gets them in its chats; who writes it edits them (as group skills)', () => {
-    // alice writes projects/falcon, finance (bob) reads it, erin has no access; admins and the owner read every team folder
-    expect(['alice', 'bob', 'carol', 'dana', 'erin'].map(has)).toEqual([true, true, true, true, false])
-    expect(['alice', 'bob', 'erin'].map(writes)).toEqual([true, false, false])
+    // alice writes projects/falcon, finance (bob) reads it, erin has no access; the owner (dana) and an admin (carol)
+    // read a team project only as its members (docs/DECISIONS.md "Project contents only for members")
+    expect(['alice', 'bob', 'carol', 'dana', 'erin'].map(has)).toEqual([true, true, false, false, false])
+    expect(['alice', 'bob', 'carol', 'dana', 'erin'].map(writes)).toEqual([true, false, false, false, false])
+    // carol added as a member who reads it: she gets them, and edits them only with write; dana still does not
+    const rule = newId()
+    e.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, (SELECT id FROM folders WHERE path = 'projects/falcon'), 'user', 'carol', 'read')").run(rule)
+    try {
+      expect(['carol', 'dana'].map(has)).toEqual([true, false])
+      expect(writes('carol')).toBe(false)
+    } finally {
+      e.db.query('DELETE FROM folder_rules WHERE id = ?').run(rule)
+    }
     // the prompt's "save one for this project" line follows the same rule
     expect(skillsSection(e.files, who('alice'), undefined, null, { project: FALCON })).toContain('projects/falcon/skills/<short-name>/SKILL.md')
     expect(skillsSection(e.files, who('bob'), undefined, null, { project: FALCON })).not.toContain('projects/falcon/skills/<short-name>/SKILL.md')

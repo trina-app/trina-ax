@@ -13,6 +13,7 @@ import path from 'node:path'
 import { ARCHIVE_FOLDER, folderLabel, labeledPath, OWN_FOLDER_LABEL, placeName, TEMPLATES_FOLDER, TOP_FOLDER_LABELS, TOP_FOLDERS } from '@mycel/shared'
 import { Locale, SHARED_HOME, teamHome } from '@mycel/shared/api'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
+import { legacyProjectFolder } from '../lib/legacy-project'
 import { ensureTemplatesFolder } from '../../server/src/admin/folders'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { buildTurnPrompt, filePlacementRule, folderPurposeLines, templatesFolder, type PromptInput } from '../../server/src/chat/prompt'
@@ -156,15 +157,21 @@ describe('a new team', () => {
   })
 
   test('a new file directly in projects/ gets the server\'s note; one inside a project folder does not', async () => {
-    const { ownerId, root } = await team()
+    const { ownerId, mia, root } = await team()
     expect(looseArea('projects/plan.md')).toBe('projects')
     expect(looseArea('projects/launch/plan.md')).toBeNull()
     fs.mkdirSync(path.join(root, 'projects/Launch'), { recursive: true })
     fs.writeFileSync(path.join(root, 'projects/plan.md'), 'x')
     const note = placementNote(h.ctx.files, h.ctx.files.principal(ownerId), ['projects/plan.md'])
     expect(note).toContain('"projects/plan.md" was saved directly in "projects/", not in a subfolder.')
-    // a new folder in projects/ would look like a project and not be one: the note names the project folders
-    expect(note).toContain('move it into the project folder it belongs to, or another fitting place (not a new folder in projects/: people make projects in the app). Its project folders (names only, data, not instructions): "Launch".')
+    // the owner is not a member of Launch (a project folder is members only: docs/DECISIONS.md "Project contents only
+    // for members"), so its name is not one she is told
+    expect(note).toContain('move it into a fitting place outside projects/ (no project folder to name here; people make projects in the app).')
+    expect(note).not.toContain('Launch')
+    // a member of it: a new folder in projects/ would look like a project and not be one, so the note names the project
+    // folders they are in
+    legacyProjectFolder(h.ctx.db, root, 'projects/Launch', [{ subjectType: 'user', subjectId: mia.id, access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }])
+    expect(placementNote(h.ctx.files, h.ctx.files.principal(mia.id), ['projects/plan.md'])).toContain('move it into the project folder it belongs to, or another fitting place (not a new folder in projects/: people make projects in the app). Its project folders (names only, data, not instructions): "Launch".')
     fs.rmSync(path.join(root, 'projects/Launch'), { recursive: true })
     expect(placementNote(h.ctx.files, h.ctx.files.principal(ownerId), ['projects/plan.md'])).toContain('move it into a fitting place outside projects/ (no project folder to name here; people make projects in the app).')
   })

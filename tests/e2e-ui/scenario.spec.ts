@@ -144,8 +144,8 @@ test('step 1: first owner, language, groups, members (invite + direct), folder r
   await page.getByTestId('rules-preview').click()
   await expect(page.getByTestId('rules-preview-result')).toBeVisible()
   await page.getByTestId('rules-save').click()
-  await expect(row('shared')).toContainText('모두: 읽기·쓰기')
-  await expect(row('groups/finance')).toContainText('finance 그룹: 읽기·쓰기')
+  await expect(row('shared')).toContainText('모두: 고칠 수 있음')
+  await expect(row('groups/finance')).toContainText('finance 그룹: 고칠 수 있음')
   await expect(row('groups/finance')).not.toContainText('모두')
 
   // "who sees what" for a proposed change: giving marketing read on groups/finance would let Alice in
