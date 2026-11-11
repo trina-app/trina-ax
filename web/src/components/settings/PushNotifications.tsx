@@ -193,7 +193,7 @@ export function PhonePushLine() {
   const t = useT()
   const denied = usePhonePush((s) => s.permission === 'denied')
   if (!denied || !mobilePushApp()) return null
-  return <div className="flex items-center gap-2 px-3 pb-1 text-sm md:hidden" data-testid="phone-push-line">
+  return <div className="flex items-center gap-2 px-4 pt-2 text-sm md:hidden" data-testid="phone-push-line">
     <span className="min-w-0 flex-1 text-muted">{t('push.phoneOffShort')}</span>
     {canOpenAppSettings() && <Button size="sm" onClick={() => void openAppSettings().catch(() => {})}>{t('push.openSettings')}</Button>}
   </div>

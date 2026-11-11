@@ -304,6 +304,7 @@ export const ko = {
   'owner.check.members': '팀원 초대하기',
   'owner.check.folders': '폴더 권한 정하기',
   'owner.check.backup': '첫 백업 만들기',
+  'owner.check.left': '{count}개 남음',
 
   'chat.error.auth': CHAT_ERROR_MESSAGES.auth.ko,
   'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.ko,
@@ -3741,6 +3742,7 @@ export const ko = {
   "rooms.event.unknown": "대화방 정보가 바뀌었어요",
   "tabs.label": "주요 메뉴",
   "tabs.back": "뒤로",
+  "tabs.backTo": "뒤로: {page}",
   "sidebar.aiChats": "{name} 기록",
   "sidebar.showMore": "더 보기 ({n})",
   "sidebar.allRooms": "모든 대화",

@@ -305,6 +305,7 @@ export const en: Record<MessageKey, string> = {
   'owner.check.members': 'Invite your team',
   'owner.check.folders': 'Set folder permissions',
   'owner.check.backup': 'Make the first backup',
+  'owner.check.left': '{count, plural, one {# left} other {# left}}',
 
   'chat.error.auth': CHAT_ERROR_MESSAGES.auth.en,
   'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.en,
@@ -3742,6 +3743,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.event.unknown": "Something in this chat changed",
   "tabs.label": "Main",
   "tabs.back": "Back",
+  "tabs.backTo": "Back to {page}",
   "sidebar.aiChats": "{name} history",
   "sidebar.showMore": "Show more ({n})",
   "sidebar.allRooms": "All conversations",

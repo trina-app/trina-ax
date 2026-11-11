@@ -119,11 +119,11 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
       if (size.width >= 768) {
         const first = (await page.getByTestId('new-chat').boundingBox())!
         expect(first.y).toBeGreaterThanOrEqual(0)
+        expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       } else {
-        // Admin is a page under the 나 tab: its top bar has ‹ (no ☰ there)
-        expect((await page.getByTestId('topbar-back').boundingBox())!.y).toBeGreaterThanOrEqual(0)
+        // a phone: Admin's page has its own bar with ‹ (no ☰, no menu: the list is a step back)
+        expect((await page.getByTestId('admin-back').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       }
-      expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
     }
   }
 })

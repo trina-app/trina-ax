@@ -2,8 +2,9 @@
 //   트리나 (Home):  ☰ the AI's history (검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, 삭제한 기록) · the AI's name
 //   대화 (/rooms):   its name · ⊕ a new conversation (the people list)
 //   파일:            none (the Files page's own header is the bar)
-//   a page under a tab (팀 스킬, 프로젝트, 관리자, …): ‹ back · the page's name (the page keeps its heading for screen
-//                    readers only, so the name is not said twice)
+//   a page under a tab (팀 스킬, 프로젝트, …): ‹ back · the page's name (the page keeps its heading for screen readers
+//                    only, so the name is not said twice), in the bar every phone page uses (phone/PhonePageBar.tsx)
+//   관리자 (/admin):  none here: Admin draws the same bar itself, with "‹ Admin" over its pages (admin/AdminLayout.tsx)
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the tab's list in place of this entry (lib/back.ts), so the phone's own back never loops. Every button is 44 px.
 import clsx from 'clsx'
@@ -15,6 +16,7 @@ import { aiName, hidesTabs, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../
 import { useAttention } from '../store/sessionMarkers'
 import { useUi } from '../store/ui'
 import { IconButton } from './ui'
+import { PhonePageBar } from './phone/PhonePageBar'
 
 const icon = 'size-11 shrink-0'
 
@@ -26,12 +28,14 @@ export function PhoneTopBar() {
   const attention = useAttention()
   const tab = tabOf(path)
   const back = useGoBack(TAB_ROOT[tab ?? START_TAB])
-  if (hidesTabs(path) || tab === 'files') return null
+  if (hidesTabs(path) || tab === 'files' || path === '/admin' || path.startsWith('/admin/')) return null
   // a project's new chat ("/?project=") is reached from the project: a way back there, not the history drawer
   const home = path === '/' && !new URLSearchParams(search).has('project')
   const rooms = path === '/rooms'
   const titleKey = pageTitleKey(path)
   const title = path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
+  if (!home && !rooms)
+    return <PhonePageBar onBack={back} title={title} titleHidden={!!titleKey} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
       {home ? (

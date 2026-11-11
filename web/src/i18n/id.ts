@@ -305,6 +305,7 @@ export const id: Record<MessageKey, string> = {
   'owner.check.members': 'Undang anggota tim',
   'owner.check.folders': 'Atur izin folder',
   'owner.check.backup': 'Buat backup pertama',
+  'owner.check.left': '{count} lagi',
 
   'chat.error.auth': CHAT_ERROR_MESSAGES.auth.id,
   'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.id,
@@ -3742,6 +3743,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.event.unknown": "Ada yang berubah di obrolan ini",
   "tabs.label": "Menu utama",
   "tabs.back": "Kembali",
+  "tabs.backTo": "Kembali ke {page}",
   "sidebar.aiChats": "Riwayat {name}",
   "sidebar.showMore": "Lihat lainnya ({n})",
   "sidebar.allRooms": "Semua percakapan",

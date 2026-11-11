@@ -251,13 +251,17 @@ describe('the top bar', () => {
   })
 
   test('a page below a tab: ‹ and its name, for the eye only (the page has its heading); no ☰', async () => {
-    for (const [p, key] of [['/skills', 'skills.title'], ['/projects', 'projects.title'], ['/scheduled/s1', 'settings.schedules'], ['/trash', 'trash.title'], ['/admin/members', 'admin.title']] as const) {
+    for (const [p, key] of [['/skills', 'skills.title'], ['/projects', 'projects.title'], ['/scheduled/s1', 'settings.schedules'], ['/trash', 'trash.title']] as const) {
       const h = await html(p)
       expect(h).toContain('data-testid="topbar-back"')
       expect(h).toContain(`aria-label="${ko('tabs.back')}"`)
       expect(h).toMatch(new RegExp(`aria-hidden="true"[^>]*data-testid="topbar-title">${ko(key)}<`))
       expect(h).not.toContain('menu-open')
     }
+  })
+
+  test('관리자: no bar here (Admin draws the same bar itself, with "‹ Admin" over its pages)', async () => {
+    for (const p of ['/admin', '/admin/members']) expect(await html(p)).toBe('')
   })
 
   test('a project\'s new chat (/?project=) has ‹ back to the project instead of ☰', async () => {
@@ -288,10 +292,10 @@ describe('‹ never pushes', () => {
 
   test('opened from outside (the first entry): the tab\'s list in place of this entry', async () => {
     historyAt(0)
-    const m = await mount(withBar(['/admin/members']))
+    const m = await mount(withBar(['/scheduled']))
     try {
       await m.click('topbar-back')
-      expect(seen).toMatchObject({ path: '/settings', type: 'REPLACE' })
+      expect(seen).toMatchObject({ path: '/', type: 'REPLACE' })
     } finally {
       await m.unmount()
     }
@@ -376,9 +380,9 @@ describe('the 나 tab\'s list on a phone', () => {
       expect(m.get('settings-inbox-unread').textContent).toContain('7')
       // a member: no 관리자 row
       expect(m.find('settings-admin')).toBeNull()
+      // the phone's list (phone/PhoneList.tsx) has no 알림 row of its own: 알림함 is it
       const own = m.get('settings-menu').querySelectorAll('a[href="/settings/notifications"]').filter((a) => a !== inbox)
-      expect(own.length).toBe(1)
-      expect(own[0]!.getAttribute('class')).toContain('max-md:hidden')
+      expect(own.length).toBe(0)
     } finally {
       await m.unmount()
     }

@@ -2,24 +2,36 @@
 // (diagnostics, update, backup / restore, export, connection) is the owner's; admins see the storage use there, and in
 // office mode the automatic update card (docs/OFFICE.md "자동 업데이트").
 //
-// The menu stays where it is while a page scrolls: its own column on wide screens, a strip under the title on narrow
-// ones. Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
+// From 768 px (tablets and computers): the menu in its own column beside the page, staying where it is while the page
+// scrolls. From 1024 px it has the names beside the icons; between 768 and 1023 px (a tablet, beside the app's own
+// sidebar) it is a narrow rail with each name small under its icon (no tips: a finger has no hover), so the page keeps
+// room (a column of the full width there left it 280 to 330 px). Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
 // connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
 // (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team:
 // the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
 // everyone in <team>", common.tsx AdminScope), so page titles keep the same nouns as Settings'. Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
-import clsx from 'clsx'
+//
+// Below 768 px (phones): /admin is a list (PhoneRoot.tsx) and each page opens over it with a push, under its own bar
+// (‹ and the page's name; the phone top bar steps aside for /admin). The list is always under a page, also one opened
+// from a link, and Back returns to it at the same place (lib/backStack.ts; docs/DECISIONS.md "Admin and Settings on
+// phones: a list you tap into").
 import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { lazy, Suspense, useRef } from 'react'
 import { Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
+import clsx from 'clsx'
 import { teamIconUrl } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
+import { useGoBack } from '../../lib/back'
+import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
-import { Spinner, useEdgeFade } from '../../components/ui'
+import { Spinner, useMediaQuery } from '../../components/ui'
+import { PhonePageBar } from '../../components/phone/PhonePageBar'
+import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
 
 const Home = lazy(() => import('./Home'))
+const PhoneRoot = lazy(() => import('./PhoneRoot'))
 const Members = lazy(() => import('./Members'))
 const Groups = lazy(() => import('./Groups'))
 const Folders = lazy(() => import('./Folders'))
@@ -74,41 +86,105 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
   },
 ]
 
+/** The name of an address for the phone's ‹ label: Admin's list and pages, and Settings' (lib/backStack.ts). */
+function pageName(path: string, t: (key: MessageKey) => string): string | null {
+  if (path === '/admin') return t('admin.title')
+  if (path.startsWith('/admin/')) {
+    const id = path.slice('/admin/'.length).split('/')[0]
+    const s = MENU.flatMap((g) => g.items).find((x) => x.id === id)
+    return s ? t(s.label) : null
+  }
+  return settingsPageName(path, t)
+}
+
+/** The old addresses that open another page (see the top of this file), else null. */
+function redirectOf(section: string, search: string): string | null {
+  const q = new URLSearchParams(search)
+  // the team's AI settings moved from the Providers page's second tab into Team settings: its old address opens them
+  if ((section === 'engines' || section === 'providers') && q.get('tab') === 'team') return q.get('focus') === 'limits' ? '/admin/settings#ai-limits' : '/admin/settings#ai'
+  // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
+  if (section === 'engines') return `/admin/providers${search}`
+  if (section === 'credentials') return '/admin/providers?engine=claude-code'
+  // MCP and App connectors are one page now, Connectors (App connectors' old address opens it at Google Drive)
+  if (section === 'integrations') return `/admin/connectors${search}`
+  if (section === 'app-connectors') return '/admin/connectors?drive=1'
+  return null
+}
+
 export default function AdminLayout() {
   const t = useT()
   const me = useMeStrict()
   const { section = '' } = useParams()
   const { search } = useLocation()
-  const nav = useRef<HTMLElement>(null)
-  useEdgeFade(nav)
-  // the strip of a narrow screen scrolls sideways: bring the open page's link into it
-  useEffect(() => {
-    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [section])
-  if (!isAdmin(me)) return <Navigate to="/" replace />
-  // the team's AI settings moved from the Providers page's second tab into Team settings: its old address opens them
-  const q = new URLSearchParams(search)
-  if ((section === 'engines' || section === 'providers') && q.get('tab') === 'team') return <Navigate to={q.get('focus') === 'limits' ? '/admin/settings#ai-limits' : '/admin/settings#ai'} replace />
-  // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
-  if (section === 'engines') return <Navigate to={`/admin/providers${search}`} replace />
-  if (section === 'credentials') return <Navigate to="/admin/providers?engine=claude-code" replace />
-  // MCP and App connectors are one page now, Connectors (App connectors' old address opens it at Google Drive)
-  if (section === 'integrations') return <Navigate to={`/admin/connectors${search}`} replace />
-  if (section === 'app-connectors') return <Navigate to="/admin/connectors?drive=1" replace />
+  // phones: the list and its pages (below 768 px, the width of the phone top bar and tabs)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  // tablets: the menu as a rail of icons (names in tips); computers: with the names
+  const wide = useMediaQuery('(min-width: 1024px)')
+  const content = useRef<HTMLDivElement>(null)
+  const admin = isAdmin(me)
+  const redirect = admin ? redirectOf(section, search) : null
   const menu = MENU.map((g) => ({ ...g, items: g.items.filter((s) => !s.ownerOnly || isOwner(me)) })).filter((g) => g.items.length)
-  if (!menu.some((g) => g.items.some((s) => s.id === section))) return <Navigate to="/admin" replace />
+  const known = menu.some((g) => g.items.some((s) => s.id === section))
+  // the page that stays (no redirect, allowed): only then may the list be put under it
+  const final = admin && !redirect && known && section !== ''
+  useListUnderPage('/admin', phone, final)
+  useKeptScroll(content, 'admin', phone && admin && !redirect && known)
+  const label = useBackLabel(section ? '/admin' : '/settings', (p) => pageName(p, t))
+  const back = useGoBack(section ? '/admin' : '/settings')
+  if (!admin) return <Navigate to="/" replace />
+  if (redirect) return <Navigate to={redirect} replace />
+  if (!known) return <Navigate to="/admin" replace />
+  const current = menu.flatMap((g) => g.items).find((s) => s.id === section)!
+
+  const page = (
+    <Suspense fallback={<Spinner />}>
+      {section === '' && <Home />}
+      {section === 'members' && <Members />}
+      {section === 'groups' && <Groups />}
+      {section === 'folders' && <Folders />}
+      {section === 'providers' && <Engines />}
+      {section === 'connectors' && <Integrations />}
+      {section === 'ai-apps' && <AiApps />}
+      {section === 'plugins' && <Plugins />}
+      {section === 'slack' && <Slack />}
+      {section === 'usage' && <Usage />}
+      {section === 'audit' && <Audit />}
+      {section === 'settings' && <TeamSettingsPage />}
+      {section === 'system' && <System />}
+    </Suspense>
+  )
+
+  if (phone)
+    return (
+      <div className="flex h-full min-h-0 flex-col" data-testid="admin-phone">
+        {/* the list's bar: ‹ back to where it came from (the 나 list: "‹ Settings"); its big title is in the list */}
+        <PhonePageBar onBack={back} backLabel={label} title={section ? t(current.label) : ''} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
+        <div ref={content} className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
+          {section === '' ? (
+            <Suspense fallback={<Spinner />}>
+              <PhoneRoot groups={menu.filter((g): g is typeof g & { label: MessageKey } => g.label !== null)} />
+            </Suspense>
+          ) : (
+            <div className="mx-auto w-full max-w-6xl p-4">
+              {/* every page here applies to the whole team (Settings says "Just for you" the same way) */}
+              <AdminScope />
+              {page}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+
   return (
-    <div className="flex h-full min-h-0 flex-col lg:flex-row">
-      <div className="shrink-0 border-b border-line lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-b-0">
+    <div className="flex h-full min-h-0 flex-row">
+      <div className={clsx('flex shrink-0 flex-col border-r border-line', wide ? 'w-60' : 'w-[5.5rem]')} data-testid="admin-sidebar" data-rail={wide ? undefined : ''}>
         {/* whose admin this is: the team's logo and "<team> admin", as the main sidebar shows the team (its logo, else the
-            product's mark). Phones: the top bar says the name (components/PhoneTopBar.tsx) */}
-        <h1 className="flex items-center gap-2 px-4 pt-4 pb-2 text-lg font-semibold tracking-tight max-md:sr-only sm:px-6 lg:px-5 lg:pt-6 lg:pb-4" data-testid="admin-title">
+            product's mark); the rail shows the logo and keeps the words for screen readers */}
+        <h1 className={clsx('flex items-center gap-2 pt-6 pb-4 text-lg font-semibold tracking-tight', wide ? 'px-5' : 'justify-center px-2')} data-testid="admin-title">
           <img src={me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'} alt="" aria-hidden className="size-6 shrink-0 rounded-md object-cover" data-testid="admin-team-logo" />
-          <span className="min-w-0 truncate">{t('admin.teamTitle', { team: me.team.name })}</span>
+          <span className={wide ? 'min-w-0 truncate' : 'sr-only'}>{t('admin.teamTitle', { team: me.team.name })}</span>
         </h1>
-        {/* narrow screens: the strip runs to the screen edges, so a link cut off at the right reads as "scroll for more";
-            relative: the group names hidden there (sr-only) stay inside the strip instead of widening the page */}
-        <nav ref={nav} aria-label={t('admin.title')} className="scroll-thin edge-fade relative flex items-center gap-1 overflow-x-auto px-4 pb-3 max-md:pt-3 sm:px-6 lg:min-h-0 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-5 lg:overflow-x-hidden lg:overflow-y-auto lg:px-3 lg:pb-6" data-testid="admin-menu">
+        <nav aria-label={t('admin.title')} className={clsx('scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto pb-6', wide ? 'gap-5 px-3' : 'items-center gap-3 px-2')} data-testid="admin-menu">
           {menu.map((g) => {
             const links = g.items.map((s) => (
               <NavLink
@@ -116,16 +192,16 @@ export default function AdminLayout() {
                 to={s.id ? `/admin/${s.id}` : '/admin'}
                 end
                 className={({ isActive }) =>
-                  clsx('flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm whitespace-nowrap hover:bg-hover lg:whitespace-normal hover:text-ink focus-visible:-outline-offset-2 max-lg:py-2', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
+                  clsx('flex rounded-lg hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', wide ? 'items-center gap-2.5 px-3 py-1.5 text-sm' : 'w-full flex-col items-center gap-1 px-1 py-2 text-center text-micro leading-tight', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
                 }
               >
-                <s.icon size={15} className="shrink-0" aria-hidden /> {t(s.label)}
+                <s.icon size={wide ? 15 : 18} className="shrink-0" aria-hidden /> <span className={wide ? undefined : 'line-clamp-2 break-words'}>{t(s.label)}</span>
               </NavLink>
             ))
-            if (!g.label) return <div key="home" className="flex shrink-0 lg:flex-col">{links}</div>
+            if (!g.label) return <div key="home" className="flex flex-col">{links}</div>
             return (
-              <div key={g.label} role="group" aria-labelledby={`admin-menu-${g.label}`} className="flex shrink-0 items-center gap-1 max-lg:border-l max-lg:border-line max-lg:pl-1 lg:flex-col lg:items-stretch lg:gap-0.5">
-                <p id={`admin-menu-${g.label}`} className="sr-only lg:not-sr-only lg:px-3 lg:pb-1 lg:text-xs lg:text-faint">
+              <div key={g.label} role="group" aria-labelledby={`admin-menu-${g.label}`} className={clsx('flex flex-col gap-0.5', !wide && 'items-center border-t border-line pt-3')}>
+                <p id={`admin-menu-${g.label}`} className={wide ? 'px-3 pb-1 text-xs text-faint' : 'sr-only'}>
                   {t(g.label)}
                 </p>
                 {links}
@@ -134,25 +210,11 @@ export default function AdminLayout() {
           })}
         </nav>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="admin-content">
         <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:px-8 lg:py-7">
           {/* every page here applies to the whole team (Settings says "Just for you" the same way) */}
           <AdminScope />
-          <Suspense fallback={<Spinner />}>
-            {section === '' && <Home />}
-            {section === 'members' && <Members />}
-            {section === 'groups' && <Groups />}
-            {section === 'folders' && <Folders />}
-            {section === 'providers' && <Engines />}
-            {section === 'connectors' && <Integrations />}
-            {section === 'ai-apps' && <AiApps />}
-            {section === 'plugins' && <Plugins />}
-            {section === 'slack' && <Slack />}
-            {section === 'usage' && <Usage />}
-            {section === 'audit' && <Audit />}
-            {section === 'settings' && <TeamSettingsPage />}
-            {section === 'system' && <System />}
-          </Suspense>
+          {page}
         </div>
       </div>
     </div>

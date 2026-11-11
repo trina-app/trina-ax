@@ -25,6 +25,7 @@ import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
+import { noteLocation } from './lib/backStack'
 import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 
@@ -68,6 +69,9 @@ function useSettingsOverlay() {
   const page = useRef<Location | null>(null)
   const depth = useRef(0)
   const open = isSettings(location.pathname)
+  // the phone's back stack notes what is under each entry the first time it shows, before any page renders and reads
+  // it (lib/backStack.ts: the list under a page opened from a link, and the ‹ button's label)
+  noteLocation(location, navType)
   useEffect(() => {
     if (!open) {
       page.current = location

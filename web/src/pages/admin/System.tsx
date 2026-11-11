@@ -13,6 +13,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
+import { forgetKeptChecks } from './overview'
 import OfficeUpdate from './OfficeUpdate'
 import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
@@ -155,7 +156,8 @@ function SystemSections() {
 function Health({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
-  const state = useLoad(() => api.call(API.diagnostics), [rev])
+  // the phone's Admin list keeps the checks for a minute (overview.tsx): this read makes those old
+  const state = useLoad(async () => { const r = await api.call(API.diagnostics); forgetKeptChecks(); return r }, [rev])
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
   return (
