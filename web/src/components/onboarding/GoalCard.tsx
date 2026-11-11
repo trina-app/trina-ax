@@ -1,7 +1,8 @@
 // The 7-day team goal on Home for owners and admins (docs/DECISIONS.md "G — The 7-day team goal" and "Y — Home shows
-// one thing at a time"; contract shared/src/api/onboarding-goal.ts): the title names the skill, "7일 안에 3명이 '광고
-// 문구' 써 보기 · 1/3 · 5일 남음" ("같은 스킬" while there is none; a skill without a title by its folder name as words,
-// shared skillLabel), ONE line of what to do next and ONE button. Someone joined and has not run a team skill: "민지님이
+// one thing at a time"; contract shared/src/api/onboarding-goal.ts): the title invites people to make documents with
+// colleagues with a few of this team's own skills (owner 2026-11-11), "동료와 함께 만들어 보기: '광고 문구', '견적
+// 만들기', '카드뉴스' · 1/3 · 5일 남음" with the count small (the plain invitation while there is no skill; a skill
+// without a title by its folder name as words, shared skillLabel), ONE line of what to do next and ONE button. Someone joined and has not run a team skill: "민지님이
 // 들어왔어요. '광고 문구'는 아직 써 보기 전이에요." [다시 보내기] (copies a nudge with the skill form's link; never
 // "들어왔지만": the goal's skill may have changed after they joined, docs/DECISIONS.md "W5"); one more person: "한 명만 더
 // 쓰면 달성이에요."; nobody joined, from the third day: "아직 아무도 안 들어왔어요." — those two with [초대 문구 복사] (the
@@ -24,7 +25,7 @@ import { api, API, isConnectionError } from '../../lib/api'
 import { useAutoRetry } from '../../lib/autoRetry'
 import { SKILL_CATALOG } from '../../lib/nav'
 import { teamLinkMessage } from '../../lib/team-link'
-import { goalNext, goalNextText, goalProgressText, resendText, runnerNames, skillQuote, skillRunUrl } from '../../lib/teamGoal'
+import { goalNext, goalNextText, goalProgressText, goalTitleSkills, goalTitleText, resendText, runnerNames, skillRunUrl } from '../../lib/teamGoal'
 import { showResume } from '../../lib/welcome'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMe, useMeStrict } from '../../store/session'
@@ -87,8 +88,9 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [shown, setShown] = useState(false)
   const nextId = useId()
-  // the team's skills, as the owner can run them (personal ones left out); read again as skills change
-  const prepared = useTeamPrepared(givenSkills === undefined && goal.state === 'open').data
+  // the team's skills, as the owner can run them (personal ones left out); read again as skills change. The title names
+  // a few of them, so it is read while the goal is open
+  const prepared = useTeamPrepared(goal.state === 'open').data
   const noSkills = givenSkills === undefined ? !!prepared && prepared.skills.length === 0 : !givenSkills
   useEffect(() => {
     if (given !== undefined || goal.state !== 'open') return
@@ -153,13 +155,16 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
       )
     }
   }
-  // the skill by name when there is one ("7일 안에 3명이 '견적 만들기' 써 보기"), else "같은 스킬"
-  const titleText = named ? t('goal.titleSkill', { days: goal.days, target: goal.target, skill: skillQuote(locale, named.name) }) : t('goal.title', { days: goal.days, target: goal.target })
+  // an invitation to make documents with colleagues, naming a few of this team's own skills (the goal's one first; owner
+  // 2026-11-11), never the intro deck; the count and the days follow it, small
+  const deckPaths = [GENERAL_DECK_SKILL, ...(welcome?.general?.introDeckPath ? [welcome.general.introDeckPath] : [])]
+  const titleNames = goalTitleSkills(named?.name ?? null, (prepared?.skills ?? []).map((p) => ({ path: p.path, name: skillLabel({ name: p.name, title: p.title }) })), deckPaths)
+  const titleText = goalTitleText(t, locale, titleNames)
   const title = <span className={phone ? 'font-medium text-ink' : 'font-semibold'}>{titleText}</span>
   // phones: the counts as the row's second line, so a wrap never leaves "남음" alone
   const counts = phone
     ? <span className="block text-xs text-muted tabular-nums" data-testid="team-goal-progress">{progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
-    : <span className="text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
+    : <span className="text-xs text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
   const nextLine = <p className={clsx('text-sm text-muted text-pretty', !phone && 'mt-1')} data-testid="team-goal-next" data-next={noSkills ? 'noSkills' : next.kind}>{noSkills ? noSkillsText(t, next) : goalNextText(t, locale, next, named?.name ?? null)}</p>
   // phones never get [다시 보내기]
   const phoneAction = next.kind !== 'waiting' && action

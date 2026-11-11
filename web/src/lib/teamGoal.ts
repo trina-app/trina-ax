@@ -84,6 +84,35 @@ export function resendText(t: T, locale: string, o: { first: string; more: numbe
   return o.more ? t('goal.resendMany', { skill, url: o.url }) : t('goal.resendOne', { name: o.first, skill, url: o.url })
 }
 
+/** How many of the team's skills the goal's title names (owner 2026-11-11: two to four; three keeps it to one line). */
+export const GOAL_TITLE_SKILLS = 3
+
+/** The skill names the goal's title invites people to make things with: the goal's own skill first (the one people
+ * run, or the team link's), then the team's other skills in the order Home lists them, each once, by the name people
+ * read (never a folder name, never the owner's intro deck: `skip` paths). At most GOAL_TITLE_SKILLS. */
+export function goalTitleSkills(first: string | null, skills: readonly { path: string; name: string }[], skip: readonly string[] = []): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const name of [first, ...skills.filter((s) => !skip.includes(s.path)).map((s) => s.name)]) {
+    const key = name?.trim().normalize('NFC').toLowerCase()
+    if (!name || !key || seen.has(key)) continue
+    seen.add(key)
+    out.push(name.trim())
+    if (out.length === GOAL_TITLE_SKILLS) break
+  }
+  return out
+}
+
+/** The goal's title: an invitation to make documents with colleagues with the team's own skills ("동료와 함께 만들어
+ * 보기: '견적 만들기', '카드뉴스', '광고 문구'"); without a skill to name, the plain invitation. The count and the days
+ * stay out of it (they follow it, small). */
+export function goalTitleText(t: T, locale: string, names: readonly string[]): string {
+  if (names.length === 0) return t('goal.title')
+  const quoted = names.map((n) => skillQuote(locale, n))
+  const skills = locale === 'ko' ? quoted.join(', ') : locale === 'ja' ? quoted.join('') : new Intl.ListFormat(locale, { type: 'conjunction' }).format(quoted)
+  return t('goal.titleSkills', { skills })
+}
+
 /** "2/3" up to the target, then "4명" (more people than the goal needs). */
 export function goalProgressText(t: T, count: number, target: number): string {
   return count <= target ? t('goal.progress', { count, target }) : t('goal.people', { n: count })
