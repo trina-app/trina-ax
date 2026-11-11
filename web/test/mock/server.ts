@@ -1895,7 +1895,6 @@ export class MockServer {
       this.fileList = { ...this.fileList, running: true, lastRun: { startedAt: new Date().toISOString(), endedAt: null, trigger: 'now', read: 0, stoppedBy: null } }
       return this.fileList
     },
-    frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
     oftenAsked: (c) => {
       if (!this.settings.oftenAsked) return { scope: 'none', items: [] }
       const shown = (xs: string[] | undefined) => (xs && xs.length >= 3 ? xs.slice(0, 10) : [])
@@ -5260,7 +5259,7 @@ export class MockServer {
       return out
     })
 
-    // "프로젝트 사람들과 공유" (server/src/chat/share-chat.ts, short): a chat of mine in a team project that shares its
+    // "프로젝트 멤버와 공유" (server/src/chat/share-chat.ts, short): a chat of mine in a team project that shares its
     // chats. What its answers read (the recorded sources: "sources", "mine-source") that some of the project's other
     // people cannot open makes it ask first (how many; the folders I may open, my own folder, more I cannot); a question
     // with "memory" in it brings the memory note; `ask` asks first anyway. The key is stale after POST
@@ -5268,7 +5267,7 @@ export class MockServer {
     const no = (reason: string, message: string): never => fail('conflict', 409, message, undefined, { reason })
     h.shareChat = (c) => {
       const chat = chatOf(c.params.id!)
-      if (this.sharedChats.has(chat.id)) { view(chat, c.user); no('already_shared', '이미 프로젝트 사람들과 공유한 채팅이에요.') }
+      if (this.sharedChats.has(chat.id)) { view(chat, c.user); no('already_shared', '이미 프로젝트 멤버와 공유한 채팅이에요.') }
       if (othersPrivate(chat.id, c.user) || chat.deletedAt) fail('not_found', 404)
       if (this.allConfidential || chat.confidential) no('safe_ops', CHAT_TEXT.chatShareSafeOps.ko)
       const p = chat.projectId ? this.projects.find((x) => x.id === chat.projectId) : undefined
@@ -5350,7 +5349,7 @@ export class MockServer {
       const requestId = `shared-read-${turnId}`
       const request: TurnRequest = {
         kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-        question: `AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 프로젝트 사람 ${people.length}명 중 ${blind}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.`,
+        question: `AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 멤버 ${people.length}명 중 ${blind}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.`,
         options: [{ label: '읽고 공유하기', value: 'share' }, { label: '읽지 않기', value: 'skip' }],
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
       }
@@ -5366,8 +5365,8 @@ export class MockServer {
       this.sharedSend((uid) => (uid === user.id ? { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } } : null))
       pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
       const yes = answer === 'share' || (Array.isArray(answer) && answer[0] === 'share')
-      put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '프로젝트 사람 모두가 볼 수는 없는 곳이라 읽지 않았어요' }) })
-      text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 사람 모두가 볼 수 있는 자료로만 답할게요.'
+      put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '프로젝트 멤버 모두가 볼 수는 없는 곳이라 읽지 않았어요' }) })
+      text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 멤버 모두가 볼 수 있는 자료로만 답할게요.'
     }
     if (/hold/i.test(prompt) && !this.stopped.has(turnId)) await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
     if (gen !== this.generation) return

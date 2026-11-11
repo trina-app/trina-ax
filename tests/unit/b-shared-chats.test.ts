@@ -295,7 +295,7 @@ describe('the read card', () => {
     expect(r.card.kind).toBe('ask_user')
     const q = (r.card as { question: string }).question
     expect(q).toContain('Groups › marketing')
-    expect(q).toContain('Of the 2 people in the project who see this chat, 1 cannot see this place')
+    expect(q).toContain('Of the 2 members who see this chat, 1 cannot see this place')
     expect((r.card as { options: { label: string }[] }).options.map((o) => o.label)).toEqual(['Read and share', "Don't read"])
     expect(r.done.content).toContain(CANARY)
     expect(ws.bob!.frames.slice(bobFrames).some((f) => f.type === 'turn.request')).toBe(false)
@@ -319,7 +319,7 @@ describe('the read card', () => {
     expect(r.done.content).not.toContain('groups/marketing')
     expect(r.done.content).not.toMatch(/Bob|bob/)
     const step = r.done.steps.find((s) => s.tool === 'read')!
-    expect(step).toMatchObject({ label: 'Not read: not everyone in the project can see that place', status: 'ok' })
+    expect(step).toMatchObject({ label: 'Not read: not every member of the project can see that place', status: 'ok' })
     // bug 8: a card that timed out is not "chose not to share"
     const t = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), null)
     expect(t.done.content).not.toContain(CANARY)
@@ -341,7 +341,7 @@ describe('the read card', () => {
     const own = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' }, sayResult: true }), 'skip')
     expect((own.card as { question: string }).question).toContain('your personal folder')
     // bob (the owner and admins are not members, so they are not counted)
-    expect((own.card as { question: string }).question).toContain('Of the 2 people in the project who see this chat, 1 cannot see this place')
+    expect((own.card as { question: string }).question).toContain('Of the 2 members who see this chat, 1 cannot see this place')
     expect(own.done.content).not.toContain('Draft Q4 campaign report')
     // no path: the project folder only (everyone who sees the chat reads it): no card, nothing from marketing
     const cards = () => audits('chat.shared_read', chat.id).length
@@ -388,7 +388,7 @@ describe('the read card', () => {
     const att = await h.api('alice').call(API.attachTeamFile, { body: { chatId: chat.id, path: 'users/alice/todo.md' } })
     const r = await askWithCard('alice', chat.id, 'see the file\n' + fake({ echo: 'message' }), 'skip', [att.id])
     expect(r.done.content).not.toContain('users/alice/todo.md')
-    expect(r.done.steps.find((s) => s.tool === 'attachment')?.label).toBe('Not read: not everyone in the project can see that place')
+    expect(r.done.steps.find((s) => s.tool === 'attachment')?.label).toBe('Not read: not every member of the project can see that place')
     // bob sees the attachment blanked (he cannot open it)
     const forBob = await messages('bob', chat.id)
     expect(forBob[0]!.attachments[0]).toMatchObject({ unavailable: true, name: '', path: '' })

@@ -11,6 +11,7 @@ import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
+import { useMemberWelcome } from './store/memberWelcome'
 import { useHandover } from './store/handover'
 import { useRooms } from './store/rooms'
 import { usePeople } from './store/people'
@@ -34,7 +35,8 @@ import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { noteLocation } from './lib/backStack'
 import { safeNext } from './lib/nav'
-import { afterJoinTarget, clearAfterJoin, readJoinToken } from './lib/team-link'
+import { afterJoinSet, afterJoinTarget, clearAfterJoin, readJoinToken } from './lib/team-link'
+import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
@@ -113,6 +115,7 @@ function dropPersonStores() {
   useProjects.getState().reset()
   useAiAccess.getState().reset()
   useWelcome.getState().reset()
+  useMemberWelcome.getState().reset()
   useHandover.getState().reset()
   useRooms.getState().reset()
   usePeople.getState().reset()
@@ -325,12 +328,27 @@ export default function App() {
 /** Signed in while on /join: the page the team link sent the new member to (lib/team-link.ts), else Home. The join page
  * takes the link's token out of the address as soon as it opens, so a token still there (read once: the page below takes
  * it out too) is a team link opened while someone was signed in already: say who, and offer to sign out and join, as an
- * invite does (QA TC-200). */
+ * invite does (QA TC-200). Otherwise a team link opened while already signed in (nothing was joined here): Home, saying
+ * "You're already in {team}" (docs/DECISIONS.md "A welcome for invited people"). */
 export function AfterJoin() {
   const [opened] = useState(() => readJoinToken(window.location).cleanUrl !== null)
-  useEffect(() => () => clearAfterJoin(), [])
+  useEffect(() => () => { if (opened) clearAfterJoin() }, [opened])
   if (opened) return <InviteWhileSignedIn />
-  return <Navigate to={afterJoinTarget()} replace />
+  return <AfterJoinHome />
+}
+
+function AfterJoinHome() {
+  const t = useT()
+  const team = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.team.name : ''))
+  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet() }))
+  const told = useRef(false)
+  useEffect(() => {
+    if (!target.joined && team && !told.current) { told.current = true; toast({ level: 'info', text: t('teamLink.alreadyIn', { team }) }) }
+    return () => clearAfterJoin()
+    // once, on arriving
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return <Navigate to={target.to} replace />
 }
 
 /** Signed in while on /setup: the welcome steps right after the team was made (lib/welcome.ts), else Home. */

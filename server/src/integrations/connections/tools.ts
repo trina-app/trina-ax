@@ -715,7 +715,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       // a read names the address it reads ("주소"); a change where it sends ("보내는 곳", as the connection's own card)
       const fields = [{ name: tr('roomAiChangeAction', L), value: what }, { name: read ? tr('roomAiChangeAddress', L) : say('fieldAddress', L), value: url }, ...lines.fields]
       const marks = opaqueParts([text, ...fields.map((f) => f.value)].join('\n'))
-      return { what, details: [{ label: say('sendsLabel', L), text, fields, ...(marks.length ? { marks } : {}), ...(lines.exact ? { exact: true as const } : {}) }] }
+      return { what, details: [{ label: say(read ? 'readsLabel' : 'sendsLabel', L), text, fields, ...(marks.length ? { marks } : {}), ...(lines.exact ? { exact: true as const } : {}) }] }
     },
     // GET and HEAD only read (the method as call() takes it); every other method asks on the card (gate). The method is
     // the AI's choice and some APIs act on a GET, so after a room read a GET still raises the room card. A scheduled

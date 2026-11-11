@@ -6,7 +6,7 @@ import { CHATS, DRIVE, NOTIFICATIONS, SCHEDULES, PUSH } from '@mycel/shared/api'
 import { enumerateRoutes } from './lib/matrix'
 import { SPECS } from './lib/cases'
 const root = path.resolve(import.meta.dir, '../..')
-const p4 = [...Object.keys(DRIVE), ...Object.keys(NOTIFICATIONS), ...Object.keys(PUSH), 'listScheduleTemplates', 'createScheduleFromTemplate', 'frequentQuestions', 'oftenAsked', 'popularSkills']
+const p4 = [...Object.keys(DRIVE), ...Object.keys(NOTIFICATIONS), ...Object.keys(PUSH), 'listScheduleTemplates', 'createScheduleFromTemplate', 'oftenAsked', 'popularSkills']
 test('every P4 contract route is enumerated and has a permanent persona matrix case', () => {
   const routes = enumerateRoutes(root)
   for (const key of p4) {

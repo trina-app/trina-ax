@@ -100,13 +100,21 @@ export function outcomeLines(t: T, locale: string, data: Pick<FolderEditPreview,
 
 /** Who gains that no head count can see, by name, a line each (the confirm before Save): people switched off, whoever
  * joins these groups, whoever joins the team. "Can open it" when they only get view, "open or edit" when one of them
- * gets edit somewhere (QA TC-232), or when the answer does not say (an older server). */
+ * gets edit somewhere (QA TC-232), or when the answer does not say (an older server). The groups group by group: the
+ * ones whose new people get edit in one line, the ones whose new people only open it in another (QA TC-284); an answer
+ * without a group's own `edit` (an older server) says them in one line, as before. */
 export function latentLines(t: T, locale: string, latent: FolderEditPreview['latent'], team: string): string[] {
   if (!latent) return []
   const edit = latent.edit ?? { team: true, off: true, groups: true }
   const out: string[] = []
   if (latent.off.length) out.push(t(edit.off ? 'folderAccess.latentOff' : 'folderAccess.latentOffView', { names: namesText(t, locale, latent.off.map((u) => u.name), latent.off.length) }))
-  if (latent.groups.length) out.push(t(edit.groups ? 'folderAccess.latentGroups' : 'folderAccess.latentGroupsView', { groups: namesText(t, locale, latent.groups.map((g) => g.name), latent.groups.length) }))
+  const groupsLine = (gs: { name: string }[], canEdit: boolean) => {
+    if (gs.length) out.push(t(canEdit ? 'folderAccess.latentGroups' : 'folderAccess.latentGroupsView', { groups: namesText(t, locale, gs.map((g) => g.name), gs.length) }))
+  }
+  if (latent.groups.some((g) => g.edit !== undefined)) {
+    groupsLine(latent.groups.filter((g) => g.edit !== false), true)
+    groupsLine(latent.groups.filter((g) => g.edit === false), false)
+  } else groupsLine(latent.groups, edit.groups)
   if (latent.team) out.push(t(edit.team ? 'folderAccess.latentTeam' : 'folderAccess.latentTeamView', { team }))
   return out
 }

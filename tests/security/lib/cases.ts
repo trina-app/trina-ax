@@ -136,6 +136,10 @@ export const SPECS: Record<string, Spec> = {
   mySessions: { build: (c) => c.get('/api/me/sessions'), scope: 'byLevel' },
   // own usage only: nothing in the request names another person (tests/unit/a-my-usage.test.ts)
   myUsage: { build: (c) => c.get('/api/me/usage'), scope: 'self' },
+  // the welcome card for invited people (docs/DECISIONS.md "A welcome for invited people"): the caller's own only; no
+  // id in the address, a body that names anyone is refused (strict)
+  getMemberWelcome: { build: (c) => c.get('/api/me/welcome?userId=alice'), scope: 'self' },
+  updateMemberWelcome: { build: (c) => c.patch('/api/me/welcome', { hide: true }), scope: 'self' },
   revokeMySession: { skipPositive: true, build: (c, w) => c.del(`/api/me/sessions/${w.ids.aliceSession}`), scope: 'byLevel',
     // alice's session id: no one else may revoke it (cross-user). bob etc must 404, not kill her session.
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} revoked alice's session`) } },
@@ -194,7 +198,7 @@ export const SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's answer`)
       if (r.status < 300 && r.json?.status === 'confirm' && /erin|Erin/.test(r.text)) throw new Error(`the confirm answer names a member: ${r.text}`)
     } },
-  // "프로젝트 사람들과 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
+  // "프로젝트 멤버와 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
   // chat); it is in no project that shares chats, so even she is refused (409) and nothing is shared. A confirm, if one
   // came, names nobody
   shareChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/share`, {}), scope: 'own-alice-chat',

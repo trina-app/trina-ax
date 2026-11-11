@@ -10,6 +10,7 @@
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
 // A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
+// Until it is closed or ✦ is used, one line under the header says what ✦ is (components/rooms/RoomAskHint.tsx).
 // ✦ opens my Trina side chat (components/rooms/SideChatPanel.tsx) in the same place: one of the two at a time, in the
 // room's right column (components/rooms/RoomSideColumn.tsx). Which one shows is in the rooms store (side), so the file
 // viewer can start the same way. Its ✕ (‹ on a phone), ✦ again, leaving the room and the thread that took its place
@@ -46,6 +47,7 @@ import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { roomLeft, SideChatPanel, threadClosedOn, type SideSeed } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
+import { RoomAskHint, useRoomAskHint } from '../components/rooms/RoomAskHint'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
@@ -129,6 +131,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     useSideChats.getState().close(roomId)
     setSideOpen(false)
   }, [roomId, setSideOpen])
+  // the one-time "✦ Ask Trina about this room" line under the header (components/rooms/RoomAskHint.tsx): gone for good
+  // once closed or once ✦ was used
+  const askHint = useRoomAskHint()
+  const seenHint = askHint.seen
+  useEffect(() => { if (sideOpen) seenHint() }, [sideOpen, seenHint])
   // on a phone the side chat fills the screen: Android's Back closes it and the room stays (QA TC-080)
   const phone = !useMediaQuery('(min-width: 768px)')
   useBackCloses(sideOpen && !threadId, closeSide, phone)
@@ -356,6 +363,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         {room && <RoomNotifyMenu room={room} openRequest={notifyRequest} />}
         {room && <RoomMenu room={room} onNotify={() => setNotifyRequest((n) => n + 1)} className="shrink-0" buttonClassName="touch-hit" />}
       </div>
+      {room && askHint.show && <RoomAskHint onAsk={() => { if (threadId) closeThread(); setSideOpen(true) }} onClose={askHint.seen} />}
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-4">
