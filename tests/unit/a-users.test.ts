@@ -156,6 +156,17 @@ describe('members and role guards', () => {
     await owner.call('PATCH', `/api/admin/users/${n.id}`, { status: 'disabled' })
     await owner.call('PATCH', `/api/admin/users/${n.id}`, { status: 'active' })
     expect(await valid(off.token)).toBe(false)
+    // a wrong current password changes nothing and leaves the link alone
+    const kept = await admin.call('POST', `/api/admin/users/${n.id}/reset-link`)
+    const nc = h.client()
+    await nc.login('vera', n.password)
+    expect((await nc.try('POST', '/api/auth/password', { currentPassword: 'not it at all', newPassword: 'purple new garden 99' })).status).toBe(403)
+    expect(await valid(kept.token)).toBe(true)
+    // made an admin: an owner-made link for the member would now open an admin account
+    const promo = await owner.call('POST', `/api/admin/users/${n.id}/reset-link`)
+    await owner.call('PATCH', `/api/admin/users/${n.id}`, { role: 'admin' })
+    expect(await valid(promo.token)).toBe(false)
+    await owner.call('PATCH', `/api/admin/users/${n.id}`, { role: 'member' })
     // a link made after all this still works
     const fresh = await admin.call('POST', `/api/admin/users/${n.id}/reset-link`)
     expect(await valid(fresh.token)).toBe(true)
