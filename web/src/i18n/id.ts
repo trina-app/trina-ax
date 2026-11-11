@@ -3225,6 +3225,7 @@ export const id: Record<MessageKey, string> = {
   "plugins.unsupported.driver": "Build ini tidak diterima oleh {product}.",
   "plugins.unsupported.damaged": "Berkas yang terpasang berubah atau hilang. Hapus plugin lalu pasang lagi.",
   "plugins.unsupported.revoked": "Versi ini ditarik dari daftar resmi dan sudah dinonaktifkan. Perbarui ke versi yang lebih baru atau hapus.",
+  "plugins.unsupported.untrusted": "Server ini tidak lagi memercayai paket ini (pengaturan uji dimatikan atau kunci tanda tangannya dihapus), jadi paket dinonaktifkan. Pasang versi yang dipercaya server ini atau hapus.",
   "plugins.platforms": "Berjalan di: {list}",
   "plugins.platform.any": "server apa pun",
   "plugins.platform.glibc": "glibc {version}+",
@@ -3305,6 +3306,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.plugin.rollback": "Mengembalikan versi plugin",
   "audit.act.plugin.uninstall": "Menghapus plugin",
   "audit.act.plugin.revoke": "Plugin yang ditarik dinonaktifkan",
+  "audit.act.plugin.untrust": "Plugin yang tidak dipercaya dinonaktifkan",
   "hwp.disabledAdmin": "Admin dapat menambahkannya di Admin > Plugin (Pratinjau HWP).",
   "hwp.disabledAdminOff": "Admin dapat mengaktifkannya di Admin › Plugin (Pratinjau HWP).",
   // onboarding stream C: recommended skill pack and skill forms

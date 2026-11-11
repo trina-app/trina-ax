@@ -3181,6 +3181,7 @@ export const es: Record<MessageKey, string> = {
   "plugins.unsupported.driver": "Esta compilación no es una que {product} acepte.",
   "plugins.unsupported.damaged": "Los archivos instalados cambiaron o faltan. Quite el complemento e instálelo de nuevo.",
   "plugins.unsupported.revoked": "Esta versión se retiró de la lista oficial y se desactivó. Actualice a una versión más reciente o quítela.",
+  "plugins.unsupported.untrusted": "Este servidor ya no confía en este paquete (se desactivó un ajuste de prueba o se quitó su clave de firma), así que se desactivó. Instale una versión en la que este servidor confíe o quítela.",
   "plugins.platforms": "Funciona en: {list}",
   "plugins.platform.any": "cualquier servidor",
   "plugins.platform.glibc": "glibc {version}+",
@@ -3261,6 +3262,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.plugin.rollback": "Revirtió un complemento",
   "audit.act.plugin.uninstall": "Quitó un complemento",
   "audit.act.plugin.revoke": "Complemento retirado desactivado",
+  "audit.act.plugin.untrust": "Complemento no confiable desactivado",
   "hwp.disabledAdmin": "Los administradores pueden añadirla en Administración > Complementos (Vista previa de HWP).",
   "hwp.disabledAdminOff": "Un administrador puede activarla en Administración › Complementos (Vista previa de HWP).",
   // onboarding stream C: recommended skill pack and skill forms

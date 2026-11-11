@@ -3224,6 +3224,7 @@ export const ko = {
   "plugins.unsupported.driver": "{product}이(가) 받아들이는 빌드가 아니에요.",
   "plugins.unsupported.damaged": "설치된 파일이 바뀌었거나 없어요. 플러그인을 제거한 뒤 다시 설치하세요.",
   "plugins.unsupported.revoked": "이 버전은 공식 목록에서 철회돼서 꺼졌어요. 새 버전으로 업데이트하거나 제거하세요.",
+  "plugins.unsupported.untrusted": "이 서버가 더 이상 믿지 않는 꾸러미라서 꺼졌어요(시험 설정이 꺼졌거나 서명 키가 빠졌어요). 이 서버가 믿는 버전을 설치하거나 제거하세요.",
   "plugins.platforms": "지원 환경: {list}",
   "plugins.platform.any": "모든 서버",
   "plugins.platform.glibc": "glibc {version} 이상",
@@ -3304,6 +3305,7 @@ export const ko = {
   "audit.act.plugin.rollback": "플러그인 되돌리기",
   "audit.act.plugin.uninstall": "플러그인 제거",
   "audit.act.plugin.revoke": "철회된 플러그인 끄기",
+  "audit.act.plugin.untrust": "믿을 수 없게 된 플러그인 끄기",
   "hwp.disabledAdmin": "관리자는 관리 > 플러그인(한글 문서 미리보기)에서 추가할 수 있어요.",
   "hwp.disabledAdminOff": "관리자 › 플러그인에서 한글 문서 미리보기를 켤 수 있어요.",
   // onboarding stream C: recommended skill pack and skill forms

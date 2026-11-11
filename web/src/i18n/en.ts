@@ -3225,6 +3225,7 @@ export const en: Record<MessageKey, string> = {
   "plugins.unsupported.driver": "This build is not one {product} accepts.",
   "plugins.unsupported.damaged": "The installed files changed or are missing. Remove the plugin and install it again.",
   "plugins.unsupported.revoked": "This version was withdrawn from the official list and has been turned off. Update to a newer version or remove it.",
+  "plugins.unsupported.untrusted": "This server no longer trusts this package (a test setting was turned off or its signing key was removed), so it has been turned off. Install a version this server trusts, or remove it.",
   "plugins.platforms": "Runs on: {list}",
   "plugins.platform.any": "any server",
   "plugins.platform.glibc": "glibc {version}+",
@@ -3305,6 +3306,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.plugin.rollback": "Rolled back a plugin",
   "audit.act.plugin.uninstall": "Removed a plugin",
   "audit.act.plugin.revoke": "Withdrawn plugin turned off",
+  "audit.act.plugin.untrust": "Untrusted plugin turned off",
   "hwp.disabledAdmin": "Admins can add it in Admin > Plugins (HWP Preview).",
   "hwp.disabledAdminOff": "An admin can turn it on in Admin › Plugins (HWP Preview).",
   // onboarding stream C: recommended skill pack and skill forms

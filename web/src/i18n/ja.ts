@@ -3181,6 +3181,7 @@ export const ja: Record<MessageKey, string> = {
   "plugins.unsupported.driver": "このビルドは{product}が受け付けるものではありません。",
   "plugins.unsupported.damaged": "インストールされたファイルが変更されたか、見つかりません。プラグインを削除してから再インストールしてください。",
   "plugins.unsupported.revoked": "このバージョンは公式リストから取り下げられたため、オフになりました。新しいバージョンに更新するか、削除してください。",
+  "plugins.unsupported.untrusted": "このサーバーはこのパッケージをもう信頼していないため、オフになりました(テスト設定がオフになったか、署名鍵が外されました)。このサーバーが信頼するバージョンをインストールするか、削除してください。",
   "plugins.platforms": "対応環境: {list}",
   "plugins.platform.any": "すべてのサーバー",
   "plugins.platform.glibc": "glibc {version}以降",
@@ -3261,6 +3262,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.plugin.rollback": "プラグインを以前のバージョンに戻す",
   "audit.act.plugin.uninstall": "プラグインを削除",
   "audit.act.plugin.revoke": "取り下げられたプラグインをオフ",
+  "audit.act.plugin.untrust": "信頼されなくなったプラグインをオフ",
   "hwp.disabledAdmin": "管理者は 管理 > プラグイン（HWPプレビュー）から追加できます。",
   "hwp.disabledAdminOff": "管理者は 管理 › プラグイン（HWPプレビュー）でオンにできます。",
   // onboarding stream C: recommended skill pack and skill forms
