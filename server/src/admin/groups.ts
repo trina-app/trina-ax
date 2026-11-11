@@ -86,10 +86,9 @@ export function groupFolder(ctx: AppContext, id: string): string | null {
 }
 
 /** Make a group as `actorId` (Admin › Groups, and the welcome steps' team group): the group, its folder groups/<name>/
- * with its folders row and the rule "this group writes", audited as group.create. */
-/** Make a group as `actorId`. `room: false` (the welcome steps' team group): the group gets no team room — its room row
- * is written archived with the group, so rooms/service.ts sync (run at the end, afterAccessChange) never makes one
- * (docs/DECISIONS.md "One room for the whole team"). */
+ * with its folders row and the rule "this group writes", audited as group.create. `room: false` (the welcome steps' team
+ * group): no team room — its room row is written archived with the group, so rooms/service.ts sync (run at the end,
+ * afterAccessChange) never makes one (docs/DECISIONS.md "One room for the whole team"). */
 export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[]; room?: false }, locale: Locale, from: ChangeFrom = {}): Group {
   const auth = { user: { id: actorId } }
   if (nameTaken(ctx, b.name)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })

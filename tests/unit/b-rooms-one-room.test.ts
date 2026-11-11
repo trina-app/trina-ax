@@ -49,6 +49,10 @@ test('a new team: the welcome team group gets no room, only the everyone room; o
   expect(setupWelcomeTeam(h.ctx, 'olga', 'ko').progress.teamGroup!.id).toBe(teamGroup.id)
   roomsOf(h.ctx).sync()
   expect(h.ctx.db.query("SELECT COUNT(*) n FROM rooms WHERE kind = 'team' AND group_id = ?").get(teamGroup.id)).toEqual({ n: 1 })
+  // the sync itself skips the recorded group too (a row with no room at all, e.g. one an older step left)
+  h.ctx.db.query('DELETE FROM rooms WHERE id = ?').run(row.id)
+  roomsOf(h.ctx).sync()
+  expect(teamRoomOf(teamGroup.id)).toBeNull()
   // any other group gets its room as before
   const design = await owner.call('POST', '/api/admin/groups', { name: 'design', memberIds: [mia.id] })
   expect(teamRoomOf(design.id)!.archived_at).toBeNull()

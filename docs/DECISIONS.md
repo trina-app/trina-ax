@@ -17251,7 +17251,8 @@ what each one is for.
   one when shared/ has a templates folder under any language's name (NFC, any letter case). Existing teams are not
   touched (nothing runs it for them). No department folders.
 - **The company start in shared/.** The team's start (`setupWelcomeTeam`) still makes the team group (the invite link
-  puts joiners in it; no team room since "One room for the whole team"), but the meeting notes and brand folders go to `shared/회의록/` and `shared/브랜드/`
+  puts joiners in it; no team room since "One room for the whole team"), but the meeting notes and brand folders go
+  to `shared/회의록/` and `shared/브랜드/`
   (with `이미지/`), and the welcome row records `teamGroup.home: 'shared'` (`TeamGroupRef.home`, optional; `teamHome()`).
   회사 소개's brand action writes 회사 소개.md and the website's pictures there; 팀 파일 uploads into `shared/<picked
   folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
