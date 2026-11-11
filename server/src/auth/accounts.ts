@@ -27,6 +27,7 @@ import { authOf } from './service'
 import { assertSeatFree } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
+import { resolveLayout } from '../system/layout'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
@@ -150,9 +151,11 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
   }).immediate()
   if (!created) fail('conflict', msg('setupDone', o.locale))
   ensurePersonalFolder(ctx.files.fx.root, id)
-  // the one-time token is spent
+  // the one-time token is spent: the server's copy and the installer's copy for the administrator (<base>/setup/code,
+  // `sudo cat` on Linux and the Mac; QA TC-211: it stayed on disk after setup)
   ctx.config.setupToken = null
   fs.rmSync(path.join(ctx.config.dataDir, 'setup-token'), { force: true })
+  try { fs.rmSync(path.join(resolveLayout(ctx.config).setupDir, 'code'), { force: true }) } catch (e) { ctx.log.warn('the setup code file could not be removed', { err: e }) }
   return id
 }
 

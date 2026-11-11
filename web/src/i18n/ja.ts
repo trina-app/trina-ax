@@ -1780,6 +1780,7 @@ export const ja: Record<MessageKey, string> = {
   'members.inviteReady': "招待リンクを作成しました",
   'members.inviteLink': "招待リンク",
   'members.inviteLinkNote': "このウィンドウを閉じるとリンクを再表示できません。今コピーしてください。",
+  'links.thisComputerOnly': "このリンクはこのコンピューター自身のアドレスなので、ほかのコンピューターでは開けません。送るには「{path}」でチームのアドレスを設定し、そのアドレスでアプリを開いてからリンクを作り直してください。",
   'members.copyLink': "リンクをコピー",
   'members.qr': "QRコード",
   'groups.desc': "グループ全体にフォルダーの権限を付与します。",

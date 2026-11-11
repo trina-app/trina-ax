@@ -1811,6 +1811,7 @@ export const en: Record<MessageKey, string> = {
   'members.inviteReady': 'Invite link created',
   'members.inviteLink': 'Invite link',
   'members.inviteLinkNote': "You won't see this link again after closing this window. Copy it now.",
+  'links.thisComputerOnly': "This link uses this computer's own address, so other computers can't open it. To send it to someone, set the team address in {path}, open the app at that address and make the link again.",
   'members.copyLink': 'Copy link',
   'members.qr': 'QR code',
 

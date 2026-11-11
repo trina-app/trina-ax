@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 17:20
 - Branch: `fix/linux-first-run`
-- Status: in progress
+- Status: done
 - Where: `server/src/auth/accounts.ts`, `scripts/install-linux.sh`, `scripts/install-macos.sh`, `web/` (Members, the
   team link panel), `docs/`. Why: first setup, invites and the install guides are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — fixes to first setup, a warning and docs; no new feature
@@ -59,4 +59,13 @@ tests, web unit (Members / team link).
 
 ## Result
 
-(filled in at the end)
+Built as planned; INSTALL-LINUX's other page names in the first-week steps follow the app too (관리자 › 팀 설정, 부서,
+폴더 권한, 멤버·초대). Tests: `tests/unit/a-auth.test.ts` "first-run setup" (the code file goes, the folder's other
+files stay), `tests/unit/setup-code-cleanup.test.ts` (the installers' line run by bash: removed only when the team is
+set up), `web/test/unit/local-link-note.test.tsx` (hosts, words). Local dev server: a fresh team's `setup/code` was
+gone after setup; in the browser, Admin › 멤버·초대 › 팀에 초대 at http://127.0.0.1 showed the note under the link
+(screenshot kept with the QA files).
+
+Rebased 2026-11-12: dev's `drop_spent_setup_code` (install-linux.sh, same condition, also on an uninstall that keeps the
+data) replaces this branch's Linux line; the macOS line and the server's deletion stay. The cleanup test runs dev's
+function for Linux and the Mac line.

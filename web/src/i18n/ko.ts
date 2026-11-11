@@ -1810,6 +1810,7 @@ export const ko = {
   'members.inviteReady': '초대 링크를 만들었어요',
   'members.inviteLink': '초대 링크',
   'members.inviteLinkNote': '이 창을 닫으면 링크를 다시 볼 수 없어요. 지금 복사해 두세요.',
+  'links.thisComputerOnly': "이 링크는 이 컴퓨터의 주소라서 다른 컴퓨터에서는 열리지 않아요. 팀원에게 보내려면 {path}에서 팀 주소를 정하고, 그 주소로 들어와 링크를 다시 만들어 주세요.",
   'members.copyLink': '링크 복사',
   'members.qr': 'QR 코드',
 

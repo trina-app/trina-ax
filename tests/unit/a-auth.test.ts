@@ -6,6 +6,7 @@ import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { passwordProblem, temporaryPassword } from '../../server/src/auth/passwords'
 import { weakPasswordMessage } from '../../server/src/auth/messages'
 import { OWNER_PW, SETUP_TOKEN, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { resolveLayout } from '../../server/src/system/layout'
 const SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'A'.repeat(16), ct: 'A'.repeat(40) } // well-formed, never opened
 
 // argon2id with 64 MiB per hash, 4 at a time (auth/passwords.ts): the rate-limit cases hash dozens of passwords and take
@@ -18,6 +19,11 @@ describe('first-run setup', () => {
     h = await harness('setup')
     fs.mkdirSync(h.ctx.config.dataDir, { recursive: true })
     fs.writeFileSync(path.join(h.ctx.config.dataDir, 'setup-token'), SETUP_TOKEN + '\n')
+    // the installer's copy for the administrator (sudo cat <base>/setup/code), next to another setup file it keeps
+    const setupDir = resolveLayout(h.ctx.config).setupDir
+    fs.mkdirSync(setupDir, { recursive: true })
+    fs.writeFileSync(path.join(setupDir, 'code'), SETUP_TOKEN + '\n')
+    fs.writeFileSync(path.join(setupDir, 'lan-cert.sha256'), 'x\n')
   })
   afterAll(() => h.close())
 
@@ -56,6 +62,10 @@ describe('first-run setup', () => {
     const rules = Object.fromEntries(folders.items.map((f: any) => [f.path, f.rules.map((r: any) => `${r.subjectType}:${r.subjectId}:${r.access}`).sort()]))
     expect(rules).toEqual({ shared: ['everyone:null:write'], skills: ['everyone:null:read', 'role:admin:write'] })
     expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'setup-token'))).toBe(false)
+    // QA TC-211: the administrator's copy of the spent code goes too; the folder's other files stay
+    const setupDir = resolveLayout(h.ctx.config).setupDir
+    expect(fs.existsSync(path.join(setupDir, 'code'))).toBe(false)
+    expect(fs.existsSync(path.join(setupDir, 'lan-cert.sha256'))).toBe(true)
     expect(h.ctx.config.setupToken).toBeNull()
   })
   test('cannot run twice; status now shows the team', async () => {
