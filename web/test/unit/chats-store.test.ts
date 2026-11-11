@@ -134,6 +134,19 @@ describe('sending', () => {
     expect(calls.map((c) => c.path)).toEqual([`/api/chats/${CHAT}/messages`, `/api/chats/${CHAT}/stop`])
   })
 
+  test('Stop waiting for a send when the session ends (sign-out): no stop goes to the server', async () => {
+    let answer!: (r: Response) => void
+    route = (_m, p) => (p.endsWith('/stop') ? json({ stopped: true, turnId: null }) : new Promise<Response>((r) => { answer = r }))
+    useChats.setState({ threads: { [CHAT]: { messages: [], nextCursor: null, stale: false } } })
+    await useChats.getState().send({ chatId: CHAT, content: 'hi', attachments: [], author: me })
+    const stop = useChats.getState().stop(CHAT)
+    await tick(5)
+    useChats.getState().reset()
+    answer(json(started(null, 'hi'), 202))
+    await stop
+    expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false)
+  })
+
   test('Stop with nothing on its way stops at once', async () => {
     route = () => json({ stopped: true, turnId: uuidv7() })
     await useChats.getState().stop(CHAT)

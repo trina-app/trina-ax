@@ -529,6 +529,7 @@ export const useChats = create<ChatsState>((set, get) => {
     async stop(chatId) {
       // Stop pressed while the message is still on its way: the server has no turn yet, so a stop now would find
       // nothing and the answer would start anyway. Wait until the send returns its turn (or fails), then stop it.
+      // (a send started after this press is not waited for: the box holds new messages while an answer runs)
       const session = generation
       const sending = [...delivering.values()].filter((d) => d.chatId === chatId).map((d) => d.done)
       if (sending.length) {
