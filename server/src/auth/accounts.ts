@@ -224,7 +224,13 @@ export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<
   const hash = await hashPassword(b.newPassword)
   // the forced path writes only while the account still has its temporary password (a second, parallel change in the
   // same session finds must_change_password = 0 and is refused)
-  const changed = ctx.db.query(`UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0 WHERE id = ?${forced ? ' AND must_change_password = 1' : ''}`).run(hash, auth.user.id).changes
+  // open reset links for this account stop working with the old password (a link pasted in the wrong chat must not
+  // outlive a password the person chose themselves)
+  const changed = ctx.db.transaction(() => {
+    const n = ctx.db.query(`UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0 WHERE id = ?${forced ? ' AND must_change_password = 1' : ''}`).run(hash, auth.user.id).changes
+    if (n) revokeResetLinksFor(ctx.db, auth.user.id, a.now())
+    return n
+  })()
   if (!changed) fail('validation', msg('currentPasswordRequired', locale), { fields: { 'body.currentPassword': 'required' } })
   if (auth.session.tempLogin) a.finishTempLogin(auth.session.id)
   const ended = a.endUserSessions(auth.user.id, 'password_changed', auth.session.id)
@@ -360,13 +366,23 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
 class UsernameTaken extends Error {}
 
 // ---------------- password reset links ----------------
+/**
+ * Every open reset link for this account stops working. Called wherever the password changes (own change, an admin's
+ * temporary password, a used reset link) and when the account is disabled, in the same transaction as that write:
+ * a link lasts a day and signs its holder in as the person, so one pasted in the wrong place must not outlive the
+ * password it was meant to replace. Marked used rather than deleted, so re-enabling the account does not bring it back.
+ */
+export function revokeResetLinksFor(db: Database, userId: string, now: number): number {
+  return db.query('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(new Date(now).toISOString(), userId).changes
+}
+
 export function createResetLink(ctx: AppContext, userId: string, createdBy: string | null, base: string): { token: string; url: string; expiresAt: string } {
   const token = newToken()
   const now = authOf(ctx).now()
   const expiresAt = new Date(now + RESET_TTL_MS).toISOString()
   ctx.db.transaction(() => {
     // only the newest link works
-    ctx.db.query('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(new Date(now).toISOString(), userId)
+    revokeResetLinksFor(ctx.db, userId, now)
     ctx.db.query('INSERT INTO password_resets (id, user_id, token_hash, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(newId(), userId, hashToken(token), createdBy, new Date(now).toISOString(), expiresAt)
     audit(ctx.db, { actor: createdBy, action: 'user.reset_link', target: userId, detail: { expiresAt, recovery: createdBy === null } })
@@ -425,6 +441,8 @@ export async function completeReset(c: Context<AppEnv>, ctx: AppContext, token: 
     if (!fresh || !resetUsable(ctx.db, fresh, getUser(ctx.db, u!.id), a.now())) return false
     if (ctx.db.query('UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now, r!.id).changes !== 1) return false
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, r!.created_by, now, u!.id)
+    // any other open link for the account goes with the old password too
+    revokeResetLinksFor(ctx.db, u!.id, a.now())
     audit(ctx.db, { actor: u!.id, action: 'auth.password_reset', target: u!.id, detail: { by: r!.created_by, ip: c.get('info').ip } })
     return true
   })()

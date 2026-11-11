@@ -106,6 +106,37 @@ describe('auth levels', () => {
   })
 })
 
+describe('health', () => {
+  const health = async (via: 'relay' | 'direct' | 'local', o: { ip?: string; as?: keyof typeof people } = {}) => {
+    const h = new Headers()
+    if (o.as) h.set('x-test-user', o.as)
+    const r = await app.fetch(new Request('http://team.localhost/api/health', { headers: h }), { ip: o.ip ?? '127.0.0.1', via, port: 19172 })
+    expect(r.status).toBe(200)
+    return await r.json() as Record<string, unknown>
+  }
+  test('signed out through the relay: liveness only, no version / schema / uptime (the relay is the internet)', async () => {
+    const relayed = await health('relay', { ip: '203.0.113.7' })
+    expect(Object.keys(relayed).sort()).toEqual(['ok', 'time'])
+    expect(relayed.ok).toBe(true)
+    // a relay that reports a loopback client (a relay on this machine) is still the relay
+    expect(Object.keys(await health('relay', { ip: '127.0.0.1' })).sort()).toEqual(['ok', 'time'])
+  })
+  test('this server and the office network, signed out: the full answer as before (bootstrap, installers, menubar)', async () => {
+    for (const [via, ip] of [['direct', '127.0.0.1'], ['direct', '192.168.1.50'], ['local', '127.0.0.1']] as const) {
+      const full = await health(via, { ip })
+      expect(full.version).toBe(ctx.version)
+      expect(full.schema).toBeTruthy()
+      expect(typeof full.uptimeSec).toBe('number')
+    }
+  })
+  test('signed in through the relay: the full answer', async () => {
+    const full = await health('relay', { ip: '203.0.113.7', as: 'admin' })
+    expect(full.version).toBe(ctx.version)
+    expect(full.schema).toBeTruthy()
+    expect(typeof full.uptimeSec).toBe('number')
+  })
+})
+
 describe('job progress wording', () => {
   test('step ids become words; numbers are kept; unknown text passes through', () => {
     expect(stepText('ko', 'team folder')).toBe('팀 폴더 보관 중')
