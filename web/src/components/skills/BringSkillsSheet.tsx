@@ -1,17 +1,102 @@
-// "내 스킬 가져오기" on the Team skills page for owners and admins (docs/DECISIONS.md "W6"; FLOW-v6 §4.2): the lasting
-// way in for skills from Claude Code or Codex, also for an owner who finished 내 스킬 on a phone. One sheet: pick a
-// folder (the same window, hint and checks as 내 스킬: SkillsStep.tsx useSkillPick) → the list (SkillShareReview, which
-// applies directly: [팀에 넣기 · n개], its secondary [닫기]) → what went in, [닫기]. A check still running after 30 seconds is ended, as on 내
-// 스킬. Closing the sheet with a list open drops that list (nothing went in). Members get ContributeSheet instead.
+// "내 스킬 가져오기" on the Team skills page for owners and admins (docs/DECISIONS.md "W6", "W7"; FLOW-v6 §4.2): the
+// one way in for an owner's or admin's own skills from Claude Code or Codex (the setup steps do not bring them). One
+// sheet: pick a folder (useSkillPick below: Chrome and Edge showDirectoryPicker, Safari and Firefox <input
+// webkitdirectory>, or a drop; lib/skillScan.ts reads only the known paths and filters before anything leaves the
+// browser; the Mac App Store app answers the folder input with its own window at .claude) → the list
+// (SkillShareReview, which applies directly: [팀에 넣기 · n개], its secondary [닫기]) → what went in, [닫기]. A check
+// still running after SHARE_CHECK_LIMIT_MS is ended (stop-check): the list then shows with nothing ticked. Closing the
+// sheet with a list open drops that list (nothing went in). Members get ContributeSheet instead.
 import { FolderOpen, Laptop } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, type DragEvent } from 'react'
 import type { CreateSkillShare, SkillShare } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { answersFileInputs, isDesktop } from '../../lib/desktop'
+import { canPickHandle, droppedFolder, fromFiles, pickClaudeFolder, scanFolder, type ScanDir } from '../../lib/skillScan'
 import { useLocale, useT } from '../../i18n'
 import { FolderHint } from '../onboarding/FolderHint'
 import { SkillShareReview } from '../onboarding/SkillShareReview'
-import { SHARE_CHECK_LIMIT_MS, useSkillPick } from '../onboarding/SkillsStep'
 import { Button, ErrorNote, Modal } from '../ui'
+
+/** How long the sheet waits for the AI's check of own skills before it ends it (walk review M2). */
+export const SHARE_CHECK_LIMIT_MS = 30_000
+
+/** Picking a skill folder (the folder window, the folder input, a drop) and reading it here, before a proposal is made.
+ * `onFound` gets the body to send. */
+export function useSkillPick({ busy, onFound }: { busy?: boolean; onFound: (body: CreateSkillShare) => Promise<void> }) {
+  const t = useT()
+  const locale = useLocale()
+  // only the Mac App Store build answers the page's folder input with its own window (opened at .claude); any other
+  // desktop build picks like a browser
+  const app = answersFileInputs()
+  const handle = !app && canPickHandle()
+  const source = isDesktop() ? 'desktop' : 'browser'
+  const [reading, setReading] = useState(false)
+  const [misses, setMisses] = useState(0)
+  const [none, setNone] = useState(false)
+  const [error, setError] = useState<{ text: string; retry?: () => void } | null>(null)
+  const [over, setOver] = useState(false)
+  const input = useRef<HTMLInputElement>(null)
+  /** a folder to read (null: the window was closed, nothing happens) */
+  const begin = async (dir: ScanDir | null) => {
+    if (!dir) return
+    setReading(true)
+    setError(null)
+    try {
+      const r = await scanFolder(dir, source)
+      if (!r.body) {
+        setNone(true)
+        setMisses((m) => m + 1)
+        return
+      }
+      setNone(false)
+      await onFound(r.body)
+    } catch (e) {
+      setError({ text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setReading(false)
+    }
+  }
+  /** straight from the click: the folder window needs it */
+  const pick = () => {
+    if (reading || busy) return
+    if (handle) pickClaudeFolder().then((d) => begin(d), (e) => setError({ text: errorText(e, locale, t('error.network')) }))
+    else input.current?.click()
+  }
+  const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
+  const dropProps = {
+    onDragOver: (e: DragEvent) => { if (hasFiles(e) && !busy) { e.preventDefault(); setOver(true) } },
+    onDragLeave: (e: DragEvent<HTMLElement>) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) },
+    onDrop: (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      setOver(false)
+      if (reading || busy) return
+      // read now: the browser empties the list when the event ends
+      const dir = droppedFolder(e.dataTransfer)
+      if (dir) void begin(dir)
+      else { setNone(true); setMisses((m) => m + 1) }
+    },
+  }
+  const folderInput = (
+    <input
+      ref={input}
+      type="file"
+      className="hidden"
+      // not in React's types; the Mac App Store app opens its own window at the home folder with .claude picked
+      {...{ webkitdirectory: '' }}
+      data-open-at="claude"
+      onChange={(e) => {
+        const files = [...(e.target.files ?? [])]
+        e.target.value = ''
+        if (files.length) void begin(fromFiles(files))
+      }}
+      data-testid="skills-input"
+    />
+  )
+  const reset = () => { setNone(false); setMisses(0); setError(null) }
+  return { app, handle, source, reading, misses, none, error, setError, over, pick, dropProps, folderInput, reset }
+}
+
 
 export function BringSkillsSheet({ team, onClose }: { team: string; onClose: () => void }) {
   const t = useT()

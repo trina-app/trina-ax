@@ -2,34 +2,28 @@
 // owner checks it: while the server checks it (`checking`) the skills found so far with skeleton reasons and "그만 찾기";
 // then one list (the recommended skills ticked, "그 밖에" and "빠진 것" folded under them), the CLAUDE.md (Codex:
 // AGENTS.md) rule line and the tools line (Claude Code's servers, or a .codex folder's config.toml), both unticked;
-// [팀에 공유 · N개] applies what is ticked; then what went in (a merge waits in a chat for its confirmation; the welcome
-// step on a computer adds a quiet "다른 폴더도 가져오기" beside its primary). Without the AI's judgement (`ai` none or
-// failed) nothing is recommended and the rest is not "그 밖에 · 나만 쓰는 것, 개발용" (nothing judged it so): it is
-// listed under a neutral "찾은 스킬 N개", each row with its own reason when it has one (a command, a path). Used by
-// the welcome step (components/onboarding/SkillsStep.tsx) and by /skills/share/:id (pages/SkillSharePage.tsx), where
+// [팀에 공유 · N개] applies what is ticked; then what went in (a merge waits in a chat for its confirmation; the Team
+// skills sheet adds a quiet "다른 폴더도 가져오기" beside its primary). Without the AI's judgement (`ai` none or failed)
+// nothing is recommended and the rest is not "그 밖에 · 나만 쓰는 것, 개발용" (nothing judged it so): it is listed under
+// a neutral "찾은 스킬 N개", each row with its own reason when it has one (a command, a path). Used by Team skills ›
+// Bring my skills (components/skills/BringSkillsSheet.tsx) and by /skills/share/:id (pages/SkillSharePage.tsx), where
 // the notice about a Claude Code or Codex proposal leads. During the owner's setup (`inSetup`, docs/DECISIONS.md "W5")
 // the done rows have no 열기 (the steps go on; the skill form is a trip away from them), and a merge waits for the end
-// of the setup ("합치기는 설정 끝나고 확인해요"; one Inbox notice then leads to the merge chat). The welcome step passes
-// the skills shared earlier in the setup (`earlier`: another folder, Claude Code or Codex), so what went in lists them
-// all, each once, not only this share's.
+// of the setup ("합치기는 설정 끝나고 확인해요"; one Inbox notice then leads to the merge chat).
 // Group skills (docs/DECISIONS.md "Group skills"): on the share page (`pickTarget`) the proposer chooses where it goes,
 // the team or one of their groups (PATCH: the server checks it again for that target); a share to a group carries its
 // skills only (no team rule, no tools), its primary says the group, and a member of the group who reviews it reads
-// whose it is. The welcome step keeps the team.
-// Embedded (docs/DECISIONS.md "W6": the owner's 내 스킬 step, under the kept skills' rows): no primary and no 나중에 하기
-// of its own; the step's one primary covers both parts, so the list tells the step what is ticked (`onState`) and the
-// step applies it (`handle.apply`). `checkLimitMs`: how long a check may run on screen before the page ends it (POST
+// whose it is. `checkLimitMs`: how long a check may run on screen before the page ends it (POST
 // /api/skill-shares/:id/stop-check, walk review M2): the list then shows with nothing ticked ("AI 없이 찾았어요").
 // One primary per screen; on phones the list loses its frame and keeps its hairlines.
 import clsx from 'clsx'
 import { ChevronDown, CircleAlert, CircleCheck, FileCode, FileQuestionMark, FolderOpen, GitMerge, KeyRound, Loader2, Package, Plug, Sparkles, Terminal, Users } from 'lucide-react'
-import { Fragment, useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { skillLabel, type ApplySkillShare, type ShareAction, type ShareCandidate, type ShareReason, type SkillShare, type SkillShareSource } from '@mycel/shared/api'
+import { type ApplySkillShare, type ShareAction, type ShareCandidate, type ShareReason, type SkillShare, type SkillShareSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatRelative } from '../../lib/format'
 import { skillRunLink } from '../../lib/skillForm'
-import { skillNameOf } from '../../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Modal, useMediaQuery } from '../ui'
 
@@ -87,12 +81,6 @@ function SkillName({ c, phone, muted }: { c: Pick<ShareCandidate, 'name' | 'titl
   )
 }
 
-/** What an embedded list tells the step: its state, the titles ticked (skills only), how many skills, and the team rule
- * and the tools when ticked (`extras`). */
-export interface ShareReviewState { id: string; status: SkillShare['status']; names: string[]; count: number; extras: number; applying: boolean }
-/** An embedded list's apply, run by the step's primary: the share after it, or the error thrown. */
-export interface ShareReviewHandle { apply: () => Promise<SkillShare> }
-
 export interface SkillShareReviewProps {
   share: SkillShare
   /** the team's name, for the who lines */
@@ -100,8 +88,6 @@ export interface SkillShareReviewProps {
   /** the done state's primary: its label and what it does */
   doneLabel: string
   onDone: () => void
-  /** once, right after an apply succeeded */
-  onApplied?: (share: SkillShare) => void
   /** "나중에 하기" under the list (the parent decides whether the proposal is dismissed) */
   onLater: () => void
   /** "그만 찾기" while checking: the proposal is dismissed here first */
@@ -113,20 +99,12 @@ export interface SkillShareReviewProps {
   busy?: boolean
   /** the owner's welcome steps are unfinished: no 열기 on what went in, a merge waits for their end */
   inSetup?: boolean
-  /** the skills shared earlier in the welcome steps (the progress's `shared.skills`, in the order they went in): listed
-   * above this share's in what went in, a skill of this share's never twice */
-  earlier?: readonly { path: string; title: string }[]
   /** the proposer may choose where it goes: the team or one of their groups (docs/DECISIONS.md "Group skills"; the
    * share page). The welcome step keeps the team: no choice there. */
   pickTarget?: boolean
   /** told the name of the group the share goes to now (null: the team), also after the proposer moved it: the share
    * page's title follows it */
   onTarget?: (group: string | null) => void
-  /** under another primary (the 내 스킬 step): none of its own, and no 나중에 하기; the step reads `onState` and applies
-   * through `handle` */
-  embedded?: boolean
-  onState?: (s: ShareReviewState) => void
-  handle?: Ref<ShareReviewHandle>
   /** a check still running after this long on screen is ended (stop-check): nothing ticked, the list can go */
   checkLimitMs?: number
   /** the primary's words for n ticked skills (default "팀에 공유 · N개") */
@@ -135,7 +113,7 @@ export interface SkillShareReviewProps {
   laterLabel?: string
 }
 
-export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, earlier, pickTarget = false, onTarget, embedded = false, onState, handle, checkLimitMs, shareLabel: labelFor, laterLabel }: SkillShareReviewProps) {
+export function SkillShareReview({ share: given, team, doneLabel, onDone, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, pickTarget = false, onTarget, checkLimitMs, shareLabel: labelFor, laterLabel }: SkillShareReviewProps) {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -148,7 +126,6 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ruleShown, setRuleShown] = useState(false)
-  const applied = useRef(false)
   const heading = useRef<HTMLHeadingElement>(null)
   const wasChecking = useRef(given.status === 'checking')
   const ids = useId()
@@ -165,7 +142,6 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
     setOpen(null)
     setError(null)
     setStopError(null)
-    applied.current = false
     wasChecking.current = given.status === 'checking'
   }
 
@@ -244,8 +220,9 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
     void api.call(API.dismissSkillShare, { params: { id: share.id } }).catch(() => {})
     onStopped()
   }
-  /** what is ticked goes in; the share after it (thrown: the request failed) */
-  const applyNow = async (): Promise<SkillShare> => {
+  /** what is ticked goes in */
+  const apply = async () => {
+    setError(null)
     setApplying(true)
     try {
       const body: ApplySkillShare = {
@@ -255,29 +232,13 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
       }
       const s = await api.call(API.applySkillShare, { params: { id: share.id }, body })
       setShare(s)
-      if (!applied.current && s.status === 'applied') {
-        applied.current = true
-        onApplied?.(s)
-      }
-      if (!embedded) requestAnimationFrame(() => heading.current?.focus())
-      return s
+      requestAnimationFrame(() => heading.current?.focus())
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
     } finally {
       setApplying(false)
     }
   }
-  const apply = async () => {
-    setError(null)
-    try { await applyNow() } catch (e) { setError(errorText(e, locale, t('error.network'))) }
-  }
-  useImperativeHandle(handle, () => ({ apply: applyNow }))
-  // an embedded list tells the step what its primary covers
-  const extras = (ruleOn && !!rule ? 1 : 0) + (toolsOn && tools.length > 0 ? 1 : 0)
-  const tickedNames = share.status === 'ready' ? chosen.map((c) => c.title?.trim() || skillLabel(c)) : []
-  const stateKey = `${share.id}|${share.status}|${tickedNames.join('\n')}|${extras}|${applying}`
-  useEffect(() => {
-    onState?.({ id: share.id, status: share.status, names: tickedNames, count: tickedNames.length, extras, applying })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateKey])
 
   const frame = phone ? 'border-y border-line' : 'rounded-xl border border-line bg-surface'
   const pad = phone ? 'px-0' : 'px-4'
@@ -360,16 +321,12 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
   // ---- applied: what went in
   if (share.status === 'applied') {
     const rows = share.candidates.filter((c) => c.applied)
-    // what went in before this share (another folder, Claude Code, Codex): each once, this share's own rows as they are
-    const mine = new Set(share.candidates.map((c) => c.applied?.path).filter(Boolean))
-    const before = (earlier ?? []).filter((s, i, all) => !mine.has(s.path) && all.findIndex((x) => x.path === s.path) === i)
     return (
       <div className="space-y-4" data-testid="skill-review" data-status="applied">
         <div className={frame}>
           <h3 ref={heading} tabIndex={-1} className={clsx('pt-3 pb-1 text-sm font-semibold text-ink outline-none', pad)} data-testid="skills-done">{t('welcome.skills.done')}</h3>
           <ul>
-            {before.map((s, i) => <EarlierRow key={s.path} s={s} phone={phone} first={i === 0} pad={pad} />)}
-            {rows.map((c, i) => <DoneRow key={c.name} c={c} phone={phone} first={!before.length && i === 0} pad={pad} inSetup={inSetup} />)}
+            {rows.map((c, i) => <DoneRow key={c.name} c={c} phone={phone} first={i === 0} pad={pad} inSetup={inSetup} />)}
             {share.rule?.path && (
               <li className={clsx('flex items-start gap-3 border-t border-line py-3', pad)} data-testid="skill-done-row" data-kind="rule">
                 <CircleCheck size={18} className="shrink-0 text-ok" aria-hidden />
@@ -392,14 +349,10 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
           </ul>
         </div>
         {group ? <p className="text-label text-muted" data-testid="skills-done-who">{t('skillShare.doneWhoGroup', { group: group.name ?? '' })}</p> : <DoneWho team={team} />}
-        {embedded ? (
-          onMore && <div><Button variant="ghost" className={clsx('-ml-2.5', phone && 'w-full')} onClick={onMore} disabled={busy} data-testid="skills-more">{t('welcome.skills.more')}</Button></div>
-        ) : (
-          <div className={phone ? 'space-y-2' : 'flex items-center justify-between gap-3'}>
-            <Button variant="primary" className={phone ? 'w-full' : undefined} onClick={onDone} disabled={busy} data-testid="skills-done-next">{doneLabel}</Button>
-            {onMore && <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onMore} disabled={busy} data-testid="skills-more">{t('welcome.skills.more')}</Button>}
-          </div>
-        )}
+        <div className={phone ? 'space-y-2' : 'flex items-center justify-between gap-3'}>
+          <Button variant="primary" className={phone ? 'w-full' : undefined} onClick={onDone} disabled={busy} data-testid="skills-done-next">{doneLabel}</Button>
+          {onMore && <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onMore} disabled={busy} data-testid="skills-more">{t('welcome.skills.more')}</Button>}
+        </div>
       </div>
     )
   }
@@ -457,6 +410,8 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
       <ChevronDown size={16} className={clsx('ml-auto shrink-0 text-faint transition', folds[key] && 'rotate-180')} aria-hidden />
     </button>
   )
+  // the team rule and the tools count as one item each when ticked
+  const extras = (ruleOn && !!rule ? 1 : 0) + (toolsOn && tools.length > 0 ? 1 : 0)
   const shareLabel = group?.name
     ? chosen.length > 0 ? t('skillShare.shareGroup', { group: group.name, n: chosen.length }) : t('skillShare.shareGroupOnly', { group: group.name })
     : labelFor ? labelFor(chosen.length + extras)
@@ -569,14 +524,12 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
       <p className="text-label text-muted" data-testid="skills-who">{group?.name ? t('skillShare.whoGroup', { group: group.name }) : t('welcome.skills.who', { team })}</p>
       {!canApply && group?.name && <p className="text-label text-muted" data-testid="skills-cannot-apply">{t('skillShare.cannotApply')}</p>}
       {error && <ErrorNote onRetry={applying ? undefined : () => void apply()}>{error}</ErrorNote>}
-      {!embedded && (
-        <div className={phone ? 'space-y-2' : 'flex items-center justify-between gap-3'}>
-          <Button variant="primary" className={phone ? 'w-full' : undefined} busy={applying} disabled={!anything || busy || moving || !canApply} onClick={() => void apply()} data-testid="skills-share">
-            {!applying && <Users size={15} aria-hidden />} {shareLabel}
-          </Button>
-          <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onLater} disabled={applying || busy} data-testid="skills-later">{laterLabel ?? t('welcome.later')}</Button>
-        </div>
-      )}
+      <div className={phone ? 'space-y-2' : 'flex items-center justify-between gap-3'}>
+        <Button variant="primary" className={phone ? 'w-full' : undefined} busy={applying} disabled={!anything || busy || moving || !canApply} onClick={() => void apply()} data-testid="skills-share">
+          {!applying && <Users size={15} aria-hidden />} {shareLabel}
+        </Button>
+        <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onLater} disabled={applying || busy} data-testid="skills-later">{laterLabel ?? t('welcome.later')}</Button>
+      </div>
       {rule && (
         <Modal open={ruleShown} onClose={() => setRuleShown(false)} title={t('welcome.skills.ruleTitle')} width={560}>
           <p className="mb-3 text-label text-muted">{rule.dropped > 0 ? t('welcome.skills.ruleNote', { m: rule.dropped }) : t('welcome.skills.ruleNoteAll')}</p>
@@ -619,22 +572,6 @@ function DoneRow({ c, phone, first, pad, inSetup }: { c: ShareCandidate; phone: 
         <span className="mt-0.5 block text-label text-muted">{line}</span>
       </span>
       {action}
-    </li>
-  )
-}
-
-/** A skill an earlier share of the setup added (the progress keeps its path and the name people read): as an added row
- * of this share reads, without 열기 (the steps go on). */
-function EarlierRow({ s, phone, first, pad }: { s: { path: string; title: string }; phone: boolean; first: boolean; pad: string }) {
-  const t = useT()
-  const name = skillNameOf(s.path)
-  return (
-    <li className={clsx('flex items-start gap-3 border-line py-3', pad, !first && 'border-t')} data-testid="skill-done-row" data-kind="added" data-name={name}>
-      <CircleCheck size={18} className="shrink-0 text-ok" aria-hidden />
-      <span className="min-w-0 flex-1">
-        <SkillName c={{ name, title: s.title }} phone={phone} />
-        <span className="mt-0.5 block text-label text-muted">{t('welcome.skills.doneAdded')}</span>
-      </span>
     </li>
   )
 }

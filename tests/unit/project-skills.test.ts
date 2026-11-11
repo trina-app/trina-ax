@@ -8,7 +8,9 @@
 // for its owner is skipped and the owner told.
 //
 // Fixture (tests/lib/fixtures.ts): projects/falcon is alice's (write) and finance's (bob, read); projects/atlas is
-// finance's. alice + erin = marketing, bob = finance, carol = admin, dana = owner. The projects rows are made here.
+// finance's. alice + erin = marketing, bob = finance, carol = admin, dana = owner. The projects rows are made here. The
+// owner and admins read a team project only as its members (docs/DECISIONS.md "Project contents only for members"): in
+// the app below carol is made a member of falcon (write), dana is a member of none.
 import fs from 'node:fs'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -23,6 +25,7 @@ import { buildSkillList, resolveSkill, skillTag } from '../../server/src/chat/sk
 import { neutralizeTags, skillBlock, skillsSection } from '../../server/src/chat/prompt'
 import { inSkills, projectLevelPossible, skillRootOf } from '../../server/src/skills/guard'
 import { skillWriteRefusal } from '../../server/src/connectors/remote-mcp/upload'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 setDefaultTimeout(60_000)
 
@@ -231,9 +234,16 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
   const cm = () => 'cm-' + crypto.randomUUID()
   beforeAll(async () => {
     h = await startHarness({ name: 'project-skills-app', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+    // this build's one-time start steps (chat/members-only-once.ts) make a project of every projects/<name> folder that no
+    // project uses, when they run (after the start, in their own time): the fixture's falcon and atlas are this suite's own
+    // projects (made below, as before that build), so the ones the steps made for them go, once the steps are done
     linkGroups(h.ctx.db)
     projects(h.ctx.db)
     layout(h.team)
+    // carol (admin) is a member of falcon who writes it; and of projects/nobody-yet, a folder an admin gave her rules on
+    // in an older build (tests/lib/legacy-project.ts), which no project uses
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_falcon_carol', (SELECT id FROM folders WHERE path = 'projects/falcon'), 'user', 'carol', 'write')").run()
+    legacyProjectFolder(h.ctx.db, h.team, 'projects/nobody-yet', [{ subjectType: 'user', subjectId: 'carol', access: 'write' }])
     for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) {
       socks[u] = await h.ws(u, { windowId: `win-ps-${u}` })
       await socks[u]!.next('hello')
@@ -277,8 +287,10 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     expect(inProject.content).toContain(`- launch [project: Falcon]: ${LAUNCH}`)
     const elsewhere = await turn('bob', await projectChat('bob', null), fake({ echo: 'system' }))
     expect(elsewhere.content).not.toContain(LAUNCH)
-    // owners and admins: in their own project chats too
-    expect((await turn('dana', await projectChat('dana'), fake({ echo: 'system' }))).content).toContain('[project: Falcon]')
+    // owners and admins: in their own project chats too, as its members (carol); dana, the owner, is not one: she opens
+    // no chat in it
+    expect((await turn('carol', await projectChat('carol'), fake({ echo: 'system' }))).content).toContain('[project: Falcon]')
+    expect(await projectChat('dana').then(() => 200, (e) => (e as { status: number }).status)).toBe(404)
   })
 
   test('a person who loses the project loses its skills at the next turn', async () => {
@@ -314,9 +326,15 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     // bob made the project and reads its folder: told, in words that name the project
     const told = await socks.bob!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.message.includes('projects/falcon/skills/pitch/SKILL.md'))
     expect(told.data.message).toContain('"Falcon"')
-    const changes = (await h.api('dana').call(API.listSkillChanges, { query: { limit: 20 } })).items
+    // in the admins' list of skill changes for who reads the project (carol, a member); not for dana, the owner, who is
+    // not one, nor told to her (docs/DECISIONS.md "Project contents only for members")
+    const changes = (await h.api('carol').call(API.listSkillChanges, { query: { limit: 20 } })).items
     expect(changes.find((c) => c.path === 'projects/falcon/skills/pitch/SKILL.md')?.project).toEqual({ id: '01900000-0000-7000-8000-00000000f001', name: 'Falcon' })
-    // without the card the file layer refuses, also where no project is (fail closed by path; carol may write there)
+    await socks.carol!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.message.includes('projects/falcon/skills/pitch/SKILL.md'))
+    expect(JSON.stringify((await h.api('dana').call(API.listSkillChanges, { query: { limit: 20 } })).items)).not.toContain('projects/falcon')
+    expect(socks.dana!.frames.some((f) => f.type === 'notice' && JSON.stringify(f.data).includes('projects/falcon/skills/pitch'))).toBe(false)
+    // without the card the file layer refuses, also where no project is (fail closed by path; carol may write there: a
+    // member of falcon, and named by the rules of projects/nobody-yet)
     const c = crypto.randomUUID(), t = crypto.randomUUID()
     h.ctx.db.query('INSERT INTO chats (id, user_id) VALUES (?, ?)').run(c, 'carol')
     h.ctx.db.query('INSERT INTO turns (id, chat_id, user_id, engine) VALUES (?,?,?,?)').run(t, c, 'carol', 'claude-code')
@@ -347,6 +365,14 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(id, 'Kite', 'projects/kite-old', 'dana', new Date().toISOString())
     fs.mkdirSync(path.join(h.team, 'projects/kite/skills/fly'), { recursive: true })
     fs.writeFileSync(path.join(h.team, 'projects/kite/skills/fly/SKILL.md'), md('fly', 'kite fly'))
+    // the owner repoints it only as a member of its old contents (docs/DECISIONS.md "Project contents only for members",
+    // security review M4): not one, refused before anything about the target is said, nothing changes
+    expect(await status(h.api('dana').call(API.updateProject, { params: { id }, body: { folderPath: 'projects/kite' } }))).toBe('project_not_member')
+    expect((h.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(id) as { folder_path: string }).folder_path).toBe('projects/kite-old')
+    // named by the rules of its gone folder, and writing projects/kite (an older build's rules there): asked first
+    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_kite_old', 'projects/kite-old')").run()
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_kite_old_dana', 'f_kite_old', 'user', 'dana', 'write')").run()
+    legacyProjectFolder(h.ctx.db, h.team, 'projects/kite', [{ subjectType: 'user', subjectId: 'dana', access: 'write' }])
     expect(await status(h.api('dana').call(API.updateProject, { params: { id }, body: { folderPath: 'projects/kite' } }))).toBe('project_skills_on')
     expect((h.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(id) as { folder_path: string }).folder_path).toBe('projects/kite-old')
     await h.api('dana').call(API.updateProject, { params: { id }, body: { folderPath: 'projects/kite', skillsOk: true } })
@@ -374,8 +400,11 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     try {
       const before = socks.erin!.frames.length
       await turn('alice', await projectChat('alice'), fake({ tool: 'write', args: { file_path: 'projects/falcon/skills/pitch2/SKILL.md', content: md('pitch2', 'x') }, sayResult: true }), 'save')
-      await socks.dana!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.message.includes('pitch2'))
+      // carol (an admin who is a member) is told; erin, its creator now, does not read it; nor dana, the owner, who is not
+      // a member of it
+      await socks.carol!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.message.includes('pitch2'))
       expect(socks.erin!.frames.slice(before).some((f) => f.type === 'notice' && JSON.stringify(f).includes('pitch2'))).toBe(false)
+      expect(socks.dana!.frames.some((f) => f.type === 'notice' && JSON.stringify(f).includes('pitch2'))).toBe(false)
     } finally { h.ctx.db.query("UPDATE projects SET created_by = 'bob' WHERE id = '01900000-0000-7000-8000-00000000f001'").run() }
   })
 
@@ -386,7 +415,7 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     expect(r.card!.options!.map((o) => o.value)).toEqual(['rename', 'skip'])
     expect(r.content).toContain('pick a new name')
     expect(fs.existsSync(path.join(h.team, 'projects/falcon/skills/quote/SKILL.md'))).toBe(false)
-    // carol (admin) may change the team's: offered
+    // carol (admin, a member of falcon) may change the team's: offered
     const c = await turn('carol', await projectChat('carol'), fake({ tool: 'write', args: { file_path: 'projects/falcon/skills/quote/SKILL.md', content: md('quote', 'falcon quote') }, sayResult: true }), 'fix')
     expect(c.card!.options!.map((o) => o.value)).toEqual(['rename', 'fix', 'skip'])
     expect(c.content).toContain('change the existing "quote" skill')

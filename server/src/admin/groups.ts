@@ -43,11 +43,16 @@ export interface ChangeFrom { via?: 'connector'; seen?: SeenStates }
 const viaOf = (o: ChangeFrom) => (o.via ? { via: o.via } : {})
 const byOf = (actor: string, target: string, o: ChangeFrom) => ({ actor, target, ...viaOf(o), ...(o.seen ? { seen: o.seen } : {}) })
 
-function checkMembers(ctx: AppContext, ids: readonly string[], locale: Locale): string[] {
+/** The members asked for, checked: people who exist. A disabled account is never added to a group (it keeps a group it is
+ * already in, `keep`): its access is not counted while it is off, so a group it joined then would let it into team
+ * projects unseen when it comes back (docs/DECISIONS.md "Project contents only for members"; enabling it again records
+ * the projects it joins, admin/users.ts). As chat/project-access.ts checkParticipants does for a project's people. */
+function checkMembers(ctx: AppContext, ids: readonly string[], locale: Locale, keep: ReadonlySet<string> = new Set()): string[] {
   const uniq = [...new Set(ids)]
   if (!uniq.length) return []
-  const found = (ctx.db.query(`SELECT id FROM users WHERE deleted_at IS NULL AND id IN (${uniq.map(() => '?').join(',')})`).all(...uniq) as { id: string }[]).length
-  if (found !== uniq.length) fail('validation', msg('unknownUsers', locale), { fields: { 'body.memberIds': 'unknown person' } })
+  const found = ctx.db.query(`SELECT id, status FROM users WHERE deleted_at IS NULL AND id IN (${uniq.map(() => '?').join(',')})`).all(...uniq) as { id: string; status: string }[]
+  if (found.length !== uniq.length) fail('validation', msg('unknownUsers', locale), { fields: { 'body.memberIds': 'unknown person' } })
+  if (found.some((u) => u.status !== 'active' && !keep.has(u.id))) fail('validation', msg('switchedOffNoGroups', locale), { fields: { 'body.memberIds': 'disabled account' }, params: { reason: 'account_disabled' } })
   return uniq
 }
 
@@ -123,7 +128,7 @@ export function updateGroupAs(ctx: AppContext, actorId: string, id: string, b: {
   const g = ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow | null
   if (!g) fail('not_found')
   if (b.name !== undefined && nameTaken(ctx, b.name, id)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
-  const memberIds = b.memberIds ? checkMembers(ctx, b.memberIds, locale) : undefined
+  const memberIds = b.memberIds ? checkMembers(ctx, b.memberIds, locale, new Set((ctx.db.query('SELECT user_id FROM group_members WHERE group_id = ?').all(id) as { user_id: string }[]).map((m) => m.user_id))) : undefined
   const before = captureState(ctx.db)
   ctx.db.transaction(() => {
     if (b.name !== undefined) ctx.db.query('UPDATE groups SET name = ? WHERE id = ?').run(b.name, id)

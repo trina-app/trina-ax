@@ -1,20 +1,18 @@
 // Who sees a team project (docs/DECISIONS.md "Projects live only in projects/", "Project members in one panel"): the
 // member picker of the project create, share and members dialogs, and the count line under it. People come from the
 // people directory (/api/people, every member may read it: a name and a title); groups ("부서" in Korean copy) are a
-// member's own groups (Me.groups) and, for admins, every group (Admin › Groups). The creator, the owner and admins
-// always see the project: the line says so. The count is the server's (POST /api/projects/access-preview), so it
-// matches who really sees it. It leads with the project's own people ("멤버 3명") and puts the owner and admins after it:
-// with their number for the owner and admins (`split`), without one for a member's new project (`adminsApart`: the count
-// must not tell who is an admin).
+// member's own groups (Me.groups) and, for admins, every group (Admin › Groups). The creator always sees the project.
+// The count is the server's (POST /api/projects/access-preview), so it matches who really sees it: its members ("멤버
+// 3명"), the owner and admins only when they are members (docs/DECISIONS.md "Project contents only for members": no part
+// for the owner and admins by role any more).
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Search, User, Users, X } from 'lucide-react'
 import clsx from 'clsx'
-import type { AudienceSplit, Group, ProjectAccessPreview, ProjectParticipant } from '@mycel/shared/api'
+import type { Group, ProjectAccessPreview, ProjectParticipant, SubjectType } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { isAdmin, useMe } from '../store/session'
-import { byRoleLine } from '../lib/whoByRole'
 import { IconButton } from './ui'
 
 export const participantKey = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
@@ -234,64 +232,59 @@ const RowIcon = ({ group }: { group: boolean }) =>
   group ? <Users size={14} className="shrink-0 text-faint" aria-hidden /> : <User size={14} className="shrink-0 text-faint" aria-hidden />
 
 /**
- * Who would see it (the server's count; the last one stays while it counts again; the names are the list above it),
- * the project's own people first (docs/DECISIONS.md "Who sees it: the project's own people first"):
- * - the owner and admins (`split`): "멤버 3명 · 팀장·관리자 2명도 볼 수 있어요", the role part only when there is one;
- * - a member's new project (`adminsApart`, #304: the count is the caller and the people chosen): "멤버 2명 ·
- *   팀장·관리자도 볼 수 있어요", the role part without a number;
- * - a member who manages an existing project gets the total only: "5명이 봐요 (팀장·관리자 포함)" (a split beside it
- *   would tell them how many see it only by role).
- * No owner's or admin's name anywhere.
+ * Who would see it (the server's count; the last one stays while it counts again; the names are the list above it):
+ * "멤버 3명", for everyone (docs/DECISIONS.md "Project contents only for members": a team project is its members', the
+ * owner and admins included only as members, so there is no part for them by role). No owner's or admin's name anywhere.
  */
 export function AccessSummary({ count, testId = 'project-access-summary' }: { count: AccessCount | null; testId?: string }) {
   const t = useT()
   const last = useRef<AccessCount | null>(null)
   if (count !== null) last.current = count
   const c = count ?? last.current
-  const w = c && accessWords(t, c)
   return (
     <p className={clsx('text-xs leading-5 break-keep text-muted', count === null && c !== null && 'opacity-60')} aria-live="polite" data-testid={testId}>
-      {!w ? t('projects.whoCounting') : (
-        <>
-          {w.lead}
-          {w.role && <span className="text-faint" data-testid={`${testId}-role`}>{' · '}{w.role}</span>}
-        </>
-      )}
+      {!c ? t('projects.whoCounting') : accessWords(t, c)}
     </p>
   )
 }
 
-/** The count line's two parts: the people there by the project, then (quieter) the owner and admins by role. */
-export function accessWords(t: ReturnType<typeof useT>, c: AccessCount): { lead: string; role: string | null } {
-  if (c.split) return { lead: t('projects.whoMembers', { n: c.split.direct }), role: byRoleLine(t, c.split.byRole, 'project') }
-  if (c.adminsApart) return { lead: t('projects.whoMembers', { n: c.n }), role: byRoleLine(t, 'any', 'project') }
-  return { lead: t('projects.whoCount', { n: c.n }), role: null }
+/** The count line: the project's members ("멤버 3명"). */
+export function accessWords(t: ReturnType<typeof useT>, c: AccessCount): string {
+  return t('projects.whoMembers', { n: c.n })
 }
 
-/** The server's count for the line under the picker: `adminsApart` when the owner and admins are left out of it (a
- * member's new project), `split` the count apart (the owner and admins only). */
-export interface AccessCount { n: number; adminsApart: boolean; split?: AudienceSplit }
+/** The server's count for the line under the picker. */
+export interface AccessCount { n: number }
 
-/** How many people would see the project with these participants (the server's dry run), asked again 300 ms after the
- * last change; null while asking or when it failed. */
-export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean }): AccessCount | null {
+/** How many people would see the project with these participants (the server's dry run; `removeRules`: other settings
+ * of its folder taken out too), asked again 300 ms after the last change; null while asking or when it failed. */
+export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean; removeRules?: readonly RuleRef[] }): AccessCount | null {
   const [n, setN] = useState<AccessCount | null>(null)
   const key = participants.map(participantKey).sort().join(',')
+  const removing = (o.removeRules ?? []).map(ruleKey).sort().join(',')
   useEffect(() => {
     if (!o.enabled) return
     let live = true
     setN(null)
     const h = setTimeout(() => {
-      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}) } }).then((r) => live && setN({ n: r.people, adminsApart: !!r.adminsApart, ...(r.split ? { split: r.split } : {}) }), () => {})
+      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people }), () => {})
     }, 300)
     return () => { live = false; clearTimeout(h) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, o.projectId, o.enabled])
+  }, [key, removing, o.projectId, o.enabled])
   return n
 }
 
-/** The widening confirm's lines: who gains it, and what they will see (only what there is). */
+/** Another setting on a project's own folder (a person or group who only reads, an everyone or role setting), taken
+ * out from the members dialog (PUT …/participants `removeRules`). */
+export interface RuleRef { subjectType: SubjectType; subjectId: string | null }
+export const ruleKey = (r: { subjectType: string; subjectId: string | null }) => `${r.subjectType}:${r.subjectId ?? ''}`
+
+/** The widening confirm's lines: who gains it, and what they will see (only what there is). Asked by someone who
+ * manages the project without being a member (`contentsHidden`): no numbers, only that they will see its files and
+ * chats. */
 export function widenLines(t: ReturnType<typeof useT>, p: ProjectAccessPreview): string[] {
+  if (p.contentsHidden) return [t('projects.othersSee')]
   return [
     ...(p.files ? [p.othersFiles ? t('projects.widenFilesOthers', { n: p.files, m: p.othersFiles }) : t('projects.widenFiles', { n: p.files })] : []),
     ...(p.sharedChats ? [t('projects.widenChats', { n: p.sharedChats })] : []),

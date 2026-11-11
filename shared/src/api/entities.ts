@@ -180,6 +180,13 @@ export const Project = z.object({
    * owner or admin, or whoever may change its members): to anyone else it would tell that the others are admins.
    * Absent: someone else sees it by a rule, the caller may not read its rules, a personal project, or an older server. */
   alone: z.literal(true).optional(),
+  /** false: the caller manages this team project without being a member (the owner or an admin, GET with manage=1):
+   * its name, creator and member count only; `instructions` is empty and nothing of its contents comes with it
+   * (docs/DECISIONS.md "Project contents only for members"). Absent: a member, or an older server. */
+  member: z.literal(false).optional(),
+  /** the caller may manage it without reading it: rename, members, delete, restore (the owner or an admin for a team
+   * project; its creator while they may edit it). Absent from older servers: use canEdit. */
+  canManage: z.boolean().optional(),
 })
 export type Project = z.infer<typeof Project>
 

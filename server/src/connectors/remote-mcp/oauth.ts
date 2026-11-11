@@ -16,6 +16,46 @@ const invalid = () => new OAuthError('invalid_grant')
 const string = (v: unknown, max = 2048): string => { if (typeof v !== 'string' || !v || v.length > max) throw new OAuthError('invalid_request'); return v }
 const iso = (v: number) => new Date(v).toISOString()
 
+/**
+ * Limits of the connector's own OAuth server (mutable for tests). perAddress: [window ms, requests] per client
+ * address (an IPv6 address counts by its /64) for each anonymous area. Registration comes from the apps' servers
+ * (Claude, ChatGPT), so one of their addresses carries many people's (and anyone can make them register): 240 an
+ * hour, while a full table makes room anyway (register()). One authorize makes at most one pending request, so 200
+ * per 10 minutes is also the pending requests per address; pendingPerClient counts one app's sign-ins per address (an
+ * app's id is public, so it is not counted per app alone). Both leave room for an office behind one public address
+ * connecting a whole team to one app. A token request with a live credential and a live upload
+ * link are not in the shared bucket: a refresh or a one-time upload link must work during a flood.
+ */
+export const OAUTH_LIMITS: {
+  perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; mcpPerGrantPerMinute: number
+  clients: number; idleClientMs: number; pending: number; pendingPerClient: number
+} = {
+  perAddress: { register: [[60_000, 12], [3600_000, 240]], authorize: [[60_000, 180], [600_000, 200]], default: [[60_000, 180]] },
+  anonymousPerMinute: 2400, mcpPerGrantPerMinute: 300,
+  clients: 2000, idleClientMs: 7 * 24 * 3600_000, pending: 2000, pendingPerClient: 50,
+}
+/** A registered app that has no connection and no sign-in in progress: removed a week after its last use (one
+ * registration is often shared by a team whose members connect days later; a full table makes room anyway). An app
+ * that got a grant keeps its id while the grant lasts. */
+const IDLE_CLIENT = 'id NOT IN (SELECT client_id FROM remote_mcp_grants) AND id NOT IN (SELECT client_id FROM remote_mcp_requests)'
+/** When the table is full, also an app whose only sign-ins nobody has opened (anyone can start one for any app): its
+ * requests go with it (ON DELETE CASCADE). */
+const EVICTABLE_CLIENT = 'id NOT IN (SELECT client_id FROM remote_mcp_grants) AND id NOT IN (SELECT client_id FROM remote_mcp_requests WHERE user_id IS NOT NULL)'
+const HOUSEKEEP_MS = 10_000
+/** The rate key of a client address: IPv4 as is (also when IPv4-mapped), IPv6 by its /64 (one host usually holds a
+ * whole /64, so counting single addresses would not limit it). The address comes from the socket, the relay or the
+ * office tunnel (http/middleware.ts), never from a header the client sent. */
+export function ipKey(ip: string | null): string {
+  if (!ip) return 'unknown'
+  const v = ip.split('%')[0]!.toLowerCase()
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v)
+  if (mapped) return mapped[1]!
+  if (!v.includes(':')) return v
+  const [head = '', tail] = v.split('::'), h = head ? head.split(':') : [], t = tail ? tail.split(':') : []
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t]
+  return groups.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64'
+}
+
 /** An active owner or admin right now (the users table, not the role when a grant was made). mcp:admin needs this. */
 export function isTeamAdmin(db: Database, userId: string): boolean {
   return !!db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL AND role IN ('owner','admin')").get(userId)
@@ -57,24 +97,63 @@ export class RemoteOAuth {
       authorization_response_iss_parameter_supported: true }
   }
   protectedMetadata() { return { resource: this.resource(), authorization_servers: [this.enabled()], scopes_supported: [...SCOPES], bearer_methods_supported: ['header'], resource_name: `${PRODUCT.displayName} files` } }
-  /** Durable hashed identities, bounded by both a global bucket and per-transport/client buckets. */
+  /** Durable hashed identities. `window`: a whole number of minutes; the row keeps the minute its window ends, so
+   * housekeep() can drop finished windows of any length. */
   rate(area: string, identity: string, limit: number, window = 60_000) {
-    const bucket = Math.floor(this.now() / window), key = hash(area + '\0' + identity)
+    const bucket = (Math.floor(this.now() / window) + 1) * (window / 60_000), key = hash(area + '\0' + identity)
     const count = this.db.query(`INSERT INTO remote_mcp_limits(key,bucket,count) VALUES(?,?,1)
       ON CONFLICT(key) DO UPDATE SET bucket=excluded.bucket,count=CASE WHEN bucket=excluded.bucket THEN count+1 ELSE 1 END RETURNING count`).get(key, bucket) as { count: number }
     if (count.count > limit) throw new OAuthError('slow_down', 429)
   }
-  ingress(area: string, ip: string | null) {
+  /**
+   * A request no credential vouches for yet. Order: a full shared bucket refuses at once, writing nothing (so a flood
+   * from ever new addresses adds no rows once it is full); then the address's own buckets (an address over its limit
+   * does not spend the shared one); then the shared bucket. `shared: false`: only the address's buckets (token, which
+   * with a live code or refresh token, see liveCredential(); an upload link that is live).
+   * An /mcp call with a live access token goes through granted() instead.
+   */
+  ingress(area: string, ip: string | null, o: { shared?: boolean } = {}) {
     this.enabled()
-    this.rate('global', 'all', 2400)
-    this.rate(area, ip ?? 'unknown', area === 'register' ? 12 : 180)
-    // Fixed-size lifetime for attacker-controlled keys: this table never contains raw IPs or tokens.
-    this.db.query('DELETE FROM remote_mcp_limits WHERE bucket < ?').run(Math.floor(this.now() / 60_000) - 2)
+    const shared = o.shared !== false
+    if (shared) {
+      const g = this.db.query('SELECT bucket,count FROM remote_mcp_limits WHERE key=?').get(hash('global\0all')) as { bucket: number; count: number } | null
+      if (g && g.bucket === Math.floor(this.now() / 60_000) + 1 && g.count >= OAUTH_LIMITS.anonymousPerMinute) throw new OAuthError('slow_down', 429)
+    }
+    const who = ipKey(ip)
+    for (const [window, limit] of OAUTH_LIMITS.perAddress[area] ?? OAUTH_LIMITS.perAddress.default!) this.rate(window === 60_000 ? area : `${area}@${window}`, who, limit, window)
+    if (shared) this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute)
+    this.housekeep()
+  }
+  /** A token request that carries an unused, unexpired code or refresh token of a live grant of the app it names (a
+   * hash lookup): it is not counted in the shared anonymous bucket nor in the app's token bucket, so a flood cannot
+   * stop a connected app's refresh. A request that then fails is charged to the shared bucket (the route). */
+  liveCredential(body: Record<string, unknown>): boolean {
+    const code = body.grant_type === 'authorization_code' ? body.code : body.grant_type === 'refresh_token' ? body.refresh_token : null
+    if (typeof code !== 'string' || !code || code.length > 128 || typeof body.client_id !== 'string') return false
+    const table = body.grant_type === 'authorization_code' ? 'remote_mcp_codes' : "remote_mcp_tokens"
+    return !!this.db.query(`SELECT 1 FROM ${table} t JOIN remote_mcp_grants g ON g.id=t.grant_id WHERE t.hash=? AND t.used_at IS NULL AND t.expires_at>?
+      ${table === 'remote_mcp_tokens' ? "AND t.kind='refresh'" : ''} AND g.client_id=? AND g.revoked_at IS NULL AND g.expires_at>?`).get(hash(code), this.now(), body.client_id, this.now())
+  }
+  /** Charge a request to the shared anonymous bucket after the fact (an exempt request that failed); never throws. */
+  chargeShared() { try { this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute) } catch { /* already full */ } }
+  /** An /mcp call with a live access token: its grant's own bucket, never the anonymous ones, so unauthenticated
+   * traffic cannot stop a connected person's tool calls. */
+  granted(g: Grant) {
+    this.rate('mcp-grant', g.id, OAUTH_LIMITS.mcpPerGrantPerMinute)
+    this.housekeep()
+  }
+  private swept = -Infinity
+  private housekeep() {
     this.db.query('DELETE FROM remote_mcp_requests WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_upload_links WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_grants WHERE expires_at <= ?').run(this.now())
     pruneScopes(this.db, this.now())
-    this.db.query('DELETE FROM remote_mcp_clients WHERE last_used_at < ? AND id NOT IN (SELECT client_id FROM remote_mcp_grants) AND id NOT IN (SELECT client_id FROM remote_mcp_requests)').run(this.now() - GRANT_MS)
+    // At most every HOUSEKEEP_MS: these two are scans (no index on the limits' bucket; the idle-app subqueries).
+    if (this.now() - this.swept < HOUSEKEEP_MS && this.now() >= this.swept) return
+    this.swept = this.now()
+    // Fixed-size lifetime for attacker-controlled keys: this table never contains raw IPs or tokens.
+    this.db.query('DELETE FROM remote_mcp_limits WHERE bucket < ?').run(Math.floor(this.now() / 60_000) - 1)
+    this.db.query(`DELETE FROM remote_mcp_clients WHERE last_used_at < ? AND ${IDLE_CLIENT}`).run(this.now() - OAUTH_LIMITS.idleClientMs)
   }
   register(body: Record<string, unknown>) {
     this.enabled()
@@ -83,7 +162,11 @@ export class RemoteOAuth {
     if (body.token_endpoint_auth_method !== undefined && body.token_endpoint_auth_method !== 'none') throw new OAuthError('invalid_client_metadata')
     if (body.grant_types !== undefined && (!Array.isArray(body.grant_types) || body.grant_types.some(v => !['authorization_code', 'refresh_token'].includes(v)))) throw new OAuthError('invalid_client_metadata')
     if (body.response_types !== undefined && (!Array.isArray(body.response_types) || body.response_types.some(v => v !== 'code'))) throw new OAuthError('invalid_client_metadata')
-    if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_clients').get() as { n: number }).n >= 2000) throw new OAuthError('temporarily_unavailable', 503)
+    // Full: the longest-idle apps without a grant or a sign-in someone opened make room (oldest first), so
+    // registrations from many addresses, kept alive with unopened sign-ins, cannot lock out the next real app.
+    const clients = (this.db.query('SELECT count(*) AS n FROM remote_mcp_clients').get() as { n: number }).n
+    if (clients >= OAUTH_LIMITS.clients) this.db.query(`DELETE FROM remote_mcp_clients WHERE id IN (SELECT id FROM remote_mcp_clients WHERE ${EVICTABLE_CLIENT} ORDER BY last_used_at, created_at LIMIT ?)`).run(clients - OAUTH_LIMITS.clients + 1)
+    if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_clients').get() as { n: number }).n >= OAUTH_LIMITS.clients) throw new OAuthError('temporarily_unavailable', 503)
     const name = body.client_name === undefined ? 'MCP app' : string(body.client_name, 80)
     if (/[\x00-\x1f\x7f<>]/.test(name)) throw new OAuthError('invalid_client_metadata')
     const id = secret('tax_client_'), unique = [...new Set(redirects as string[])]
@@ -95,15 +178,19 @@ export class RemoteOAuth {
     if (!row) throw new OAuthError('invalid_client', 401)
     return row
   }
-  authorize(body: Record<string, unknown>): string {
+  /** `ip`: the browser's address (pending sign-ins of one app are counted per address). */
+  authorize(body: Record<string, unknown>, ip: string | null = null): string {
     const origin = this.enabled(), c = this.client(body.client_id)
     const redirect = string(body.redirect_uri)
     if (!redirectMatches(JSON.parse(c.redirects), redirect)) throw new OAuthError('invalid_redirect_uri')
     if (body.response_type !== 'code' || body.code_challenge_method !== 'S256' || typeof body.code_challenge !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(body.code_challenge)) throw new OAuthError('invalid_request')
     if (!resourceMatches(origin, body.resource)) throw new OAuthError('invalid_target')
     if (body.state !== undefined && (typeof body.state !== 'string' || body.state.length > 1024)) throw new OAuthError('invalid_request')
-    this.rate('authorize-client', c.id, 60)
-    if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_requests').get() as { n: number }).n >= 2000) throw new OAuthError('temporarily_unavailable', 503)
+    this.rate('authorize-client-address', c.id + '\0' + ipKey(ip), OAUTH_LIMITS.pendingPerClient, REQUEST_MS)
+    // Full: the oldest requests nobody has opened yet make room (one a person opened is kept until it expires).
+    const pending = (this.db.query('SELECT count(*) AS n FROM remote_mcp_requests').get() as { n: number }).n
+    if (pending >= OAUTH_LIMITS.pending) this.db.query('DELETE FROM remote_mcp_requests WHERE id IN (SELECT id FROM remote_mcp_requests WHERE user_id IS NULL ORDER BY expires_at LIMIT ?)').run(pending - OAUTH_LIMITS.pending + 1)
+    if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_requests').get() as { n: number }).n >= OAUTH_LIMITS.pending) throw new OAuthError('temporarily_unavailable', 503)
     const id = secret()
     this.db.query('INSERT INTO remote_mcp_requests VALUES(?,?,?,?,?,?,?,?,?,?)').run(id, c.id, redirect, body.code_challenge, body.state as string ?? null, JSON.stringify(scopes(body.scope)), this.resource(), null, null, this.now() + REQUEST_MS)
     return origin + '/connectors/authorize?id=' + id
@@ -190,9 +277,10 @@ export class RemoteOAuth {
     this.db.query('UPDATE remote_mcp_clients SET last_used_at=? WHERE id=?').run(this.now(), g.client_id)
     return { access_token: access, token_type: 'Bearer', expires_in: Math.floor((end - this.now()) / 1000), scope: selected.join(' '), ...(refresh ? { refresh_token: refresh } : {}) }
   }
-  token(body: Record<string, unknown>) {
+  /** `live`: liveCredential(body) was true (the app's token bucket is skipped). */
+  token(body: Record<string, unknown>, live = false) {
     const origin = this.enabled(), c = this.client(body.client_id)
-    this.rate('token-client', c.id, 180)
+    if (!live) this.rate('token-client', c.id, 180)
     if (!resourceMatches(origin, body.resource)) throw new OAuthError('invalid_target')
     // Return an error value from the transaction: replay revocation must COMMIT even though exchange fails.
     const result = this.db.transaction(() => {

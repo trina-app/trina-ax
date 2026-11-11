@@ -13,7 +13,7 @@ import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
-  actualFolderPath, afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, keepOfRow, listFolders,
+  actualFolderPath, afterAccessChange, assertNotInProject, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, keepOfRow, listFolders,
   previewRules, replaceRules, resolveFolderPath, rulesHashAt, rulesOf, toFolder, validateRules, type FolderRow,
 } from '../admin/folders'
 import { rulesHash } from '../admin/access-edit'
@@ -39,6 +39,7 @@ import { codexIsBeta } from '../chat/engines'
 import { ENGINE_CHOICE_CHANGED, codexOffHere, engineOn, limitFallbackAvailable, limitFallbackOn, memberChoice, setLimitFallback, setMemberChoice } from '../admin/engine-choice'
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 import { listSkillManagers, setSkillManager } from '../skills/managers'
+import { auditSight } from '../admin/audit-sight'
 import { listSkillChanges } from '../skills/changes'
 import { addressOf, hasStoredApiKey, readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
@@ -136,6 +137,8 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.createFolder, ({ c, body, auth }) => {
       const locale = c.get('locale')
+      // a project's folder and anything in it: its members are changed on its page (before anything else is looked at)
+      assertNotInProject(body.path, locale)
       validateRules(ctx.db, body.rules, locale)
       // judged before anything is made on disk (create: true)
       const typed = actualFolderPath(ctx, body.path)
@@ -197,6 +200,7 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.putFolderRules, ({ c, params, body, auth }) => {
       const f = editableRow(params.id)
+      assertNotInProject(f.path, c.get('locale'), 'params.id')
       // a folder moved into users/ keeps its row; rules there are ignored, so refuse to edit them as if they worked
       if (f.path === 'users' || f.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
       keepsRules(f.path, body.rules, c.get('locale'))
@@ -214,6 +218,7 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.deleteFolder, ({ c, params, auth }) => {
       const f = editableRow(params.id)
+      assertNotInProject(f.path, c.get('locale'), 'params.id')
       const keep = keepOfRow(ctx, f)
       if (keep === 'team') fail('conflict', msg('teamFolderKeepsRules', c.get('locale')))
       if (keep === 'group') fail('conflict', msg('groupFolderKeepsRow', c.get('locale')))
@@ -226,19 +231,25 @@ export const adminRoutes: RouteModule = {
       afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
     })
 
-    kit.handle(API.previewRules, ({ c, body }) => previewRules(ctx, body.changes, c.get('locale')))
+    kit.handle(API.previewRules, ({ c, body }) => {
+      for (const [i, x] of body.changes.entries()) assertNotInProject(x.path, c.get('locale'), `body.changes.${i}.path`)
+      return previewRules(ctx, body.changes, c.get('locale'))
+    })
     // who sees a folder and why, what one person sees and why (admin/access-explain.ts; read only)
     kit.handle(API.explainFolderAccess, ({ c, query }) => explainFolder(ctx, query, c.get('locale')))
     kit.handle(API.explainPersonAccess, ({ params, query }) => explainPerson(ctx, params.id, query))
     kit.handle(API.explainNewPersonAccess, ({ c, body }) => explainNewPerson(ctx, body, c.get('locale')))
     kit.handle(API.explainAccessTree, ({ c, query }) => explainTree(ctx, query, c.get('locale')))
     // the edit panel: what saving these rules would change (admin/access-edit.ts; nothing is saved)
-    kit.handle(API.previewFolderEdit, ({ c, body }) => explainEdit(ctx, body, c.get('locale')))
+    kit.handle(API.previewFolderEdit, ({ c, body }) => {
+      assertNotInProject(body.path, c.get('locale'))
+      return explainEdit(ctx, body, c.get('locale'))
+    })
 
     // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------
     kit.handle(API.listSkillManagers, () => listSkillManagers(ctx))
     kit.handle(API.setSkillManager, ({ c, body, auth }) => setSkillManager(ctx, auth.user.id, body, c.get('locale')))
-    kit.handle(API.listSkillChanges, ({ query, auth }) => listSkillChanges(ctx.db, auth.user.id, query))
+    kit.handle(API.listSkillChanges, ({ query, auth }) => listSkillChanges(ctx.db, auth.user.id, query, auditSight(ctx, auth.user.id)))
 
     // ---------------- engines ----------------
     kit.handle(API.engines, ({ c }) => enginesResponse(ctx, engineCache, c.get('locale')))
@@ -451,6 +462,7 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.usage, ({ query }) => usage(ctx.db, query))
-    kit.handle(API.audit, ({ query, auth }) => listAudit(ctx.db, query, auth.user.id))
+    // nothing inside a team project the viewer does not read (admin/audit-sight.ts)
+    kit.handle(API.audit, ({ query, auth }) => listAudit(ctx.db, query, auth.user.id, auditSight(ctx, auth.user.id)))
   },
 }

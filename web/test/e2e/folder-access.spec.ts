@@ -97,6 +97,8 @@ test('the whole team, and a team project\'s folder with its own count and a way 
   await expect(chip(page)).toHaveText(en('folderAccess.people', { n: audience }))
   await chip(page).click()
   await expect(page.getByTestId('folder-access-project')).toContainText(en('folderAccess.project', { name: 'Kite' }))
+  // its members only (docs/DECISIONS.md "Project contents only for members"): no "(owner and admins included)"
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCountApart', { n: audience }))
   await page.getByTestId('folder-access-open-project').click()
   await expect(page).toHaveURL(new RegExp(`/projects/${p.id}`))
 })
@@ -130,7 +132,7 @@ test('a project made before outside projects/: an admin reads where its members 
   await page.goto('/files?path=docs')
   await chip(page).click()
   await expect(page.getByTestId('folder-access-project')).toContainText(en('folderAccess.project', { name: 'Old docs' }))
-  await expect(page.getByTestId('folder-access-members-hint')).toHaveText(en('projects.legacyNote', { folder: 'docs' }))
+  await expect(page.getByTestId('folder-access-members-hint')).toHaveText(en('projects.legacyNote'))
   await expect(page.getByTestId('folder-access-members')).toHaveCount(0)
   await expect(page.getByTestId('sharing')).toBeVisible()
 })
@@ -320,16 +322,18 @@ test('a team project\'s folder and the folders inside it: shown, not changed, an
   await chip(page).click()
   await expect(page.getByTestId('folder-access-project')).toContainText(en('folderAccess.project', { name: 'Kite' }))
   await expect(page.getByTestId('folder-access-headline')).toBeVisible()
-  await expect(page.getByTestId('folder-access-footer')).toHaveText(t['folderAccess.adminsAlways'])
+  // no "the owner and admins can always open it" inside a project: they open it only as its members
+  await expect(page.getByTestId('folder-access-footer')).toHaveCount(0)
   await expect(page.getByTestId('sharing')).toHaveCount(0)
   await expect(panel(page).getByRole('combobox')).toHaveCount(0)
   await page.keyboard.press('Escape')
-  // inside it: the count, the way to Folder permissions, nothing to change
+  // inside it: the count, nothing to change
   await page.goto(`/files?path=${encodeURIComponent(p.folderPath + '/notes')}`)
   await chip(page).click()
   await expect(page.getByTestId('folder-access-headline')).toBeVisible()
   await expect(page.getByTestId('sharing')).toHaveCount(0)
-  await expect(page.getByTestId('folder-access-open-admin')).toHaveAttribute('href', `/admin/folders?folder=${encodeURIComponent(p.folderPath + '/notes')}`)
+  // and no way to Folder permissions, which changes nothing inside a project
+  await expect(page.getByTestId('folder-access-open-admin')).toHaveCount(0)
   expect(asked).toEqual([])
 })
 
@@ -417,4 +421,58 @@ test.describe('phone', () => {
     await save.tap()
     await expect(page.getByTestId('sharing-done')).toBeVisible()
   })
+})
+
+// docs/DECISIONS.md "Project contents only for members"
+test('a team project\'s folder for its members and the owner: its members\' count, its Members button, no rules editor', async ({ page }) => {
+  await signIn(page)
+  const made = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Kite', participants: [{ subjectType: 'user', subjectId: 'bob' }] } })
+  const p = (await made.json()) as { folderPath: string }
+  await page.goto(`/files?path=${encodeURIComponent(p.folderPath)}`)
+  // Olga and Bob: the owner is in it as its creator; Dana and Eve (admins) are not counted
+  await expect(chip(page)).toHaveText(en('folderAccess.people', { n: 2 }))
+  await expect(chip(page)).toHaveAccessibleName(en('folderAccess.people', { n: 2 }))
+  await chip(page).click()
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCountApart', { n: 2 }))
+  await expect(page.getByTestId('folder-access-headline')).not.toContainText(t['accessTree.who.adminsOnly'])
+  // said once, by the panel's own lines and its Members button: no lone "Members only", no way to Folder permissions
+  // (it only says "Members only" there), no rules editor
+  await expect(page.getByTestId('folder-access-project')).toBeVisible()
+  await expect(page.getByTestId('folder-access-members-only')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-all')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-change')).toHaveCount(0)
+  // no list of people and settings: the "Who can open it" panel asks no admin endpoint about a team project's folder,
+  // whose people are its members (the Members button above)
+  await expect(page.getByTestId('folder-access-admin')).toHaveCount(0)
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-members')).toBeVisible()
+})
+
+test('the projects folder takes no new folder or upload; a project\'s folder the owner is not in opens the project\'s page', async ({ page }) => {
+  await signIn(page)
+  const made = await page.request.post('/__test/project', { data: { name: 'falcon', by: 'bob', files: { 'plan.md': 'plan', 'drafts/a.md': 'a' } } })
+  const { id } = (await made.json()) as { id: string }
+  await page.goto('/files?path=projects')
+  await expect(page.getByTestId('crumb').last()).toBeVisible()
+  await expect(page.getByTestId('new-folder-button')).toHaveCount(0)
+  await expect(page.getByTestId('upload-button')).toHaveCount(0)
+  await expect(page.getByTestId('folder-upload-button')).toHaveCount(0)
+  // its row: "Members only", the words of Folder permissions, not "pass-through only" (a click opens its page)
+  await expect(row(page, 'falcon').getByTestId('members-only')).toHaveText(t['accessTree.membersOnly'])
+  await expect(row(page, 'falcon').getByTestId('pass-through')).toHaveCount(0)
+  await row(page, 'falcon').getByRole('button', { name: 'falcon' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
+  // not hers to read: its page, where she can add herself, not "folder not found"; a folder inside it too
+  for (const path of ['projects/falcon', 'projects/falcon/drafts']) {
+    await page.goto(`/files?path=${encodeURIComponent(path)}`)
+    await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
+    await expect(page.getByTestId('project-members-only')).toBeVisible()
+  }
+  await expect(page.getByText(t['files.folderNotFound'])).toHaveCount(0)
+  // Bob reads it: his folder as before
+  const bob = await page.context().browser()!.newPage({ baseURL: new URL(page.url()).origin, locale: 'en-US' })
+  await signIn(bob, BOB)
+  await bob.goto('/files?path=projects%2Ffalcon')
+  await expect(row(bob, 'plan.md')).toBeVisible()
+  await bob.close()
 })

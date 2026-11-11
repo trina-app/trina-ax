@@ -1,7 +1,7 @@
 // The kept skills a person can put in the team (docs/DECISIONS.md "W6"; FLOW-v6 §2.1, §4.2): the catalog (GET
 // /api/onboarding/packs, owners and admins), its rows (checkbox · title · one line · 예시, the example viewer behind
 // 예시) and the install of what was checked (POST /api/onboarding/packs/:id/install, one call per pack with the names).
-// Each row keeps its one line on phones too (what the skill makes is how a person chooses). Used by the owner's 내 스킬 step (components/onboarding/SkillsStep.tsx) and by the Team skills page's fold
+// Each row keeps its one line on phones too (what the skill makes is how a person chooses). Used by the owner's skills step (components/onboarding/SkillsStep.tsx) and by the Team skills page's fold
 // (components/AvailableSkills.tsx). Nothing here installs without a press, and nothing tells anyone that a skill is new:
 // a skill shipped later is one more row.
 import clsx from 'clsx'
@@ -66,7 +66,7 @@ export async function installPacks(items: readonly Pick<PackCatalogSkill, 'pack'
 }
 
 /** The notes under the rows after a press: the names already taken, the folder rules, a request that did not go. */
-export function PackNotes({ outcome, onRetry, failedText }: { outcome: PackInstallOutcome | null; onRetry?: () => void; failedText?: string }) {
+export function PackNotes({ outcome, onRetry }: { outcome: PackInstallOutcome | null; onRetry?: () => void }) {
   const t = useT()
   const locale = useLocale()
   if (!outcome) return null
@@ -74,7 +74,7 @@ export function PackNotes({ outcome, onRetry, failedText }: { outcome: PackInsta
     <>
       {outcome.taken.length > 0 && <p className="text-label text-muted" role="status" data-testid="skill-pack-taken">{t('skillPack.taken', { n: outcome.taken.length })}</p>}
       {outcome.blocked.length > 0 && <p className="text-label text-muted" role="status" data-testid="skill-pack-blocked">{t('skillPack.blockedRules')}</p>}
-      {outcome.failed.length > 0 && <div data-testid="skill-pack-failed"><ErrorNote onRetry={onRetry}>{failedText ?? errorText(outcome.error, locale, t('error.network'))}</ErrorNote></div>}
+      {outcome.failed.length > 0 && <div data-testid="skill-pack-failed"><ErrorNote onRetry={onRetry}>{errorText(outcome.error, locale, t('error.network'))}</ErrorNote></div>}
     </>
   )
 }

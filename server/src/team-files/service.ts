@@ -12,7 +12,7 @@ import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { CONTENT_KINDS, fileTimeline, placeNow } from '../files/timeline'
 import { HttpError } from '../http/errors'
-import { atLeast, RuleSet, splitOf, type Principal } from '../policy/access'
+import { atLeast, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
@@ -306,6 +306,9 @@ export class TeamFiles {
    * managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
   private assertMovable(segs: string[]) {
     if (segs.length === 0 || (segs[0] === 'users' && segs.length <= 2) || segs[0] === PRODUCT.systemDir) fileError('forbidden', 'protectedFolder')
+    // the top projects/ folder (any letter case): moved or renamed, every project folder would leave the members-only
+    // zone and open to the owner and admins (docs/DECISIONS.md "Project contents only for members")
+    if (isProjectsTop(segs)) fileError('forbidden', 'protectedFolder')
     if (this.fx.managed?.heldBelow(segs)) fileError('forbidden', 'pluginManaged', undefined, { reason: 'plugin_managed' })
   }
   /** A folder may move / go to the trash only if the caller can write every rule folder inside it: otherwise
@@ -476,6 +479,9 @@ export class TeamFiles {
     // under users/ folder rules are not read: the folder would become private to one person and the rest of the team,
     // admins included, could not see it to move it back. Nobody may do that, owner included (design tab 2 rule 3).
     if (managed && target[0] === 'users') fileError('validation', 'ruleFolderToUsers', { to: 'invalid_path: a group, project or rule folder cannot move under users/' })
+    // a project's own folder stays in projects/ (docs/DECISIONS.md "Project contents only for members"): moved out, its
+    // project would follow it out of the members-only zone and open to the owner and admins
+    if (isDir && fr.segs.length === 2 && inProjectZone(fr.segs) && !(target.length === 2 && inProjectZone(target))) fileError('conflict', 'projectFolderStays', { to: 'project_location' }, { reason: 'project_location' })
     // an ordinary item into the caller's own folder: whoever could read it and cannot any more must be confirmed
     let narrowed = 0
     if (target[0] === 'users' && !(fr.segs[0] === 'users' && fr.segs[1] === target[1])) {
@@ -1165,8 +1171,11 @@ export class TeamFiles {
    * changed between the two checks goes back where it was (`AiTrashChanged`); one that cannot go back (something took
    * its place meanwhile) stays in the trash with its row, nothing lost, and `changed` says so.
    */
-  remove(userId: string, rel: string, turnId: string | null = null, o: { projectFolder?: boolean; ai?: { item: AiTrashItem; retentionDays: number } } = {}): { trashId: string; purgeAt: string; changed?: true } {
-    const user = this.principal(userId)
+  remove(userId: string, rel: string, turnId: string | null = null, o: { projectFolder?: boolean; manager?: true; ai?: { item: AiTrashItem; retentionDays: number } } = {}): { trashId: string; purgeAt: string; changed?: true } {
+    // `manager`: a team project's own folder, put in the trash by whoever manages the project without reading it (the
+    // owner or an admin who is not a member: routes/chats.ts deleteProject checked mayManageProject and that `rel` is
+    // exactly its projects/<name>). The checks run as the system; the trash row and the events name the person.
+    const user = o.manager && o.projectFolder && turnId === null && rel.split('/').length === 2 && inProjectZone(rel.split('/')) ? SYSTEM_PRINCIPAL : this.principal(userId)
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: true })
     this.assertMovable(r.segs)
@@ -1204,8 +1213,8 @@ export class TeamFiles {
       // the folder's rules go with it (parked under its trash path): a new folder made at the same path does not
       // inherit them, and the deleted one gets them back wherever it is restored
       if (isDir) rebaseFolders(db, r.rel, storage)
-      // the team projects of this folder and below go with it: admins and the owner only until it comes back
-      // (chat/projects.ts canSeeProject), and they follow it when it is restored. A project already marked keeps the
+      // the team projects of this folder and below go with it: nobody reads them until it comes back, the owner and admins
+      // manage them (chat/projects.ts canSeeProject, mayManageProject), and they follow it when it is restored. A project already marked keeps the
       // folder trashed first. Personal projects are their person's in the trash too.
       if (isDir && r.segs[0] !== 'users') db.query("UPDATE projects SET trashed_with = ? WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (folder_path = ? OR substr(folder_path, 1, length(?) + 1) = ? || '/')").run(id, r.rel, r.rel, r.rel)
       fileEvent(db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id, ...(ai ? { tool: 'delete_files' } : {}), ...(changed ? { changedWhileMoving: true } : {}), ...(rescued ? { rescued: true } : {}) } })
@@ -1243,8 +1252,11 @@ export class TeamFiles {
         // place) stay at the old path without rebaseFolders, so whatever took that place would get them, and the item
         // would come back from the trash with none (review of #278: a closed folder's files readable by every member
         // after a restore). Such an item stays only in the trash storage, logged above, for an admin to recover
-        if (isDir && this.holdsFolderRows(r.rel)) {
-          this.ctx.log.error('the trash rows failed again and the folder carries folder rules or a project: it stays only in the trash storage', { path: r.rel, storage: s.storage, err: again })
+        if ((isDir && this.holdsFolderRows(r.rel)) || inProjectZone(r.segs)) {
+          // also anything inside a team project: a bare row is judged by its old path alone, which falls back to the
+          // rules above the project's folder once that is renamed or gone (docs/DECISIONS.md "Project contents only for
+          // members")
+          this.ctx.log.error('the trash rows failed again and the folder carries folder rules or a project (or the item is inside one): it stays only in the trash storage', { path: r.rel, storage: s.storage, err: again })
         } else {
           this.ctx.log.error('the trash rows failed again; writing the trash row alone', { path: r.rel, storage: s.storage, err: again })
           try {
@@ -1432,7 +1444,7 @@ export class TeamFiles {
     for (const e of fileTimeline(db, rel, { limit: 50 })) {
       if (!CONTENT_KINDS.has(e.kind) || !e.userId || e.userId === user.id || into.has(e.userId) || !readable(e.path)) continue
       const now = placeNow(db, e.path, e.id)
-      if ('at' in now ? now.at === e.path || readable(now.at) : user.role === 'owner' || user.role === 'admin') into.add(e.userId)
+      if ('at' in now ? now.at === e.path || readable(now.at) : isStaff(user) && !inProjectZone(segsOf(e.path))) into.add(e.userId)
     }
   }
 
@@ -1570,8 +1582,12 @@ export class TeamFiles {
     // and every folder that held it and went to the trash after it, were still in place. The live rules alone no
     // longer have them, so the path fell back to shared/ and every member read old versions of a restricted folder's
     // files (security round 3).
+    // the owner and admins: a version saved inside a team project (path_at_save in the members-only zone) only while they
+    // read that place, also when the file left it since or its folder row is one above the project's folder (a project
+    // folder without rules of its own; docs/DECISIONS.md "Project contents only for members")
+    if (isStaff(user) && row.path_at_save && inProjectZone(segsOf(row.path_at_save)) && !atLeast(rules.access(user, segsOf(row.path_at_save)), 'read')) return false
     const parked = row.folder_id ? this.parkedView(row.folder_id) : null
-    if (parked === 'unknown') return user.role === 'owner' || user.role === 'admin'
+    if (parked === 'unknown') return isStaff(user) && !inProjectZone(segsOf(row.path)) && !(row.path_at_save && inProjectZone(segsOf(row.path_at_save)))
     if (parked) return atLeast(parked.rules.access(user, segsOf(parked.path)), 'read') && atLeast(parked.rules.access(user, segsOf(row.path)), 'read')
     const f = row.folder_id ? this.folderLivePath(row.folder_id) : null
     if (f !== null) return atLeast(rules.access(user, segsOf(f)), 'read')
@@ -1625,7 +1641,8 @@ export class TeamFiles {
       if (!p || !readable(p)) return false
       const now = placeNow(db, p, id)
       if ('at' in now) return now.at === p || readable(now.at)
-      return user.role === 'owner' || user.role === 'admin'
+      // its place is in the trash or purged: the owner and admins, never inside a team project
+      return isStaff(user) && !inProjectZone(segsOf(p))
     }
     const timeline = exists ? fileTimeline(db, at).filter((e) => seen(e.path, e.id)) : []
     // who made the content as it is now: the newest content change, when it made exactly this content
@@ -1844,13 +1861,19 @@ export class TeamFiles {
     }
   }
 
-  restoreTrash(userId: string, id: string): { entry: FileEntry } {
-    const user = this.principal(userId)
+  restoreTrash(userId: string, id: string, o: { manager?: true } = {}): { entry: FileEntry } {
+    const person = this.principal(userId)
     const rules = this.rules()
     const t = this.trashRow(id)
-    if (!t || !this.trashVisible(user, rules, t)) throw new HttpError('not_found')
+    const home = t ? this.trashHome(t) : null
+    // a team project's own folder comes back into projects/, where nobody but the system makes a new entry (the
+    // members-only zone has no rule for its name yet): the person may restore it (trashVisible, or `manager`: the owner
+    // or an admin restoring a project they manage, routes/chats.ts restoreProject), the system puts it back
+    const projectFolder = !!t && t.kind === 'folder' && home !== null && segsOf(home).length === 2 && inProjectZone(segsOf(home))
+    if (!t || !(o.manager && projectFolder ? isStaff(person) : this.trashVisible(person, rules, t))) throw new HttpError('not_found')
+    const user = projectFolder ? SYSTEM_PRINCIPAL : person
     const isDir = t.kind === 'folder'
-    const want = segsOf(this.trashHome(t)!)
+    const want = segsOf(home!)
     // the original parent may be gone: it is created again (names were valid when the item was deleted).
     // A taken name (exactly or nearly) gets " (restored)" in the team's default language.
     const parentRel = want.slice(0, -1).join('/')
@@ -1897,7 +1920,7 @@ export class TeamFiles {
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: t.size, detail: { trashId: id, folder: isDir, originalPath: t.original_path } })
     if (!isDir) this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
-    return { entry: this.entry(user, rules, r.segs) }
+    return { entry: this.entry(person, this.rules(), r.segs) }
   }
   /**
    * A folder came back from the trash at `to` (its old path, or a " (restored)" name): the projects that went to the
@@ -1929,9 +1952,11 @@ export class TeamFiles {
 
   /** Admin or owner (route auth), and like every trash action only for items the caller could restore: an admin has
    * no access to other people's users/<id>/, so their trashed files stay out of reach too. */
-  purgeTrash(id: string, byUserId: string) {
+  purgeTrash(id: string, byUserId: string, o: { manager?: true } = {}) {
     const t = this.trashRow(id)
-    if (!t || !this.trashVisible(this.principal(byUserId), this.rules(), t)) throw new HttpError('not_found')
+    // `manager`: a team project's own folder, deleted for good with its project by whoever manages it (routes/chats.ts
+    // deleteProject checked mayManageProject and that this is the project's trash item)
+    if (!t || !(o.manager ? t.kind === 'folder' : this.trashVisible(this.principal(byUserId), this.rules(), t))) throw new HttpError('not_found')
     this.purgeRow(t)
     this.ctx.db.query('INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?,?,?,?)').run(byUserId, 'trash.purge', t.original_path, JSON.stringify({ trashId: id, size: t.size, kind: t.kind }))
   }

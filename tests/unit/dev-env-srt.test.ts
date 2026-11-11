@@ -10,7 +10,7 @@ import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
 import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { oldProject } from '../lib/legacy-project'
+import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
@@ -34,13 +34,18 @@ const RANK: Record<Access, number> = { none: 0, read: 1, write: 2 }
 const who = (id: string, role: Principal['role'] = 'member', groups: string[] = []): Principal => ({ id, name: id, role, groups })
 
 /** the fixture's rules (tests/lib/fixtures.ts seed) */
-const FIXTURE_RULES = new RuleSet([
+const ruleRows = (xs: (string | null)[][]) => xs.map(([p, t, s, a]) => ({ path: p!, subject_type: t as never, subject_id: s ?? null, access: a as Access }))
+const FIXTURE_ROWS = ruleRows([
   ['shared', 'everyone', null, 'write'], ['skills', 'everyone', null, 'read'],
   ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
   ['groups/finance', 'group', 'finance', 'write'],
   ['projects/falcon', 'user', 'alice', 'write'], ['projects/falcon', 'group', 'finance', 'read'], ['projects/falcon/public', 'everyone', null, 'read'],
   ['projects/atlas', 'group', 'finance', 'write'],
-].map(([p, t, s, a]) => ({ path: p!, subject_type: t as never, subject_id: s, access: a as Access })))
+])
+const FIXTURE_RULES = new RuleSet(FIXTURE_ROWS)
+/** the same, with carol (an admin) a member of projects/falcon: inside a team project the owner and admins are judged
+ * as members (docs/DECISIONS.md "Project contents only for members") */
+const CAROL_IN_FALCON = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/falcon', 'user', 'carol', 'write']])])
 const PEOPLE: Record<string, Principal> = { alice: who('alice', 'member', ['marketing']), bob: who('bob', 'member', ['finance']), carol: who('carol', 'admin'), dana: who('dana', 'owner'), erin: who('erin', 'member', ['marketing']) }
 
 describe('the folder access of a run (from the folder rules)', () => {
@@ -52,14 +57,70 @@ describe('the folder access of a run (from the folder rules)', () => {
       denyWrite: ['projects/falcon/public'],
     })
   })
-  test('an admin: the whole team folder, but never .system/ or other people\'s personal folders', () => {
-    const v = folderView(FIXTURE_RULES, PEOPLE.carol!)
-    expect(v.write).toEqual(['', 'users/carol'])
-    expect(v.denyRead).toEqual(['.system', 'users'])
-    expect(viewAccess(v, 'users/bob/notes.md')).toBe('none')
-    expect(viewAccess(v, 'users/carol/x.md')).toBe('write')
-    expect(viewAccess(v, '.system/history/old.bin')).toBe('none')
-    expect(viewAccess(v, 'groups/finance/budget.md')).toBe('write')
+  test('an admin: the whole team folder, but never .system/, other people\'s personal folders or a project they are not in', () => {
+    for (const p of [PEOPLE.carol!, PEOPLE.dana!]) {
+      const v = folderView(FIXTURE_RULES, p)
+      expect(v.write).toEqual(['', `users/${p.id}`])
+      // inside projects/<name> the owner and admins are judged as members: falcon and atlas are not theirs, and nothing
+      // deeper either while they do not read the project itself (not falcon's public/, which everyone in it reads)
+      expect(v.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon'])
+      expect(v.read).toEqual([])
+      expect(viewAccess(v, 'users/bob/notes.md')).toBe('none')
+      expect(viewAccess(v, `users/${p.id}/x.md`)).toBe('write')
+      expect(viewAccess(v, '.system/history/old.bin')).toBe('none')
+      expect(viewAccess(v, 'groups/finance/budget.md')).toBe('write')
+      expect(viewAccess(v, 'projects/falcon/plan.md')).toBe('none')
+      expect(viewAccess(v, 'projects/falcon/public/notice.md')).toBe('none')
+      expect(viewAccess(v, 'projects/atlas/budget.md')).toBe('none')
+      // projects/ itself is outside the zone
+      expect(viewAccess(v, 'projects/readme.md')).toBe('write')
+    }
+    // a member of the project: as any member who writes it
+    const m = folderView(CAROL_IN_FALCON, PEOPLE.carol!)
+    expect(m).toEqual({ read: [], write: ['', 'users/carol'], denyRead: ['.system', 'users', 'projects/atlas'], denyWrite: ['projects/falcon/public'] })
+    expect(viewAccess(m, 'projects/falcon/plan.md')).toBe('write')
+    expect(viewAccess(m, 'projects/falcon/public/notice.md')).toBe('read')
+    // a team member keeps a partial access: erin reads falcon's public/ without reading falcon
+    const erin = folderView(FIXTURE_RULES, PEOPLE.erin!)
+    expect(viewAccess(erin, 'projects/falcon/public/notice.md')).toBe('read')
+    expect(viewAccess(erin, 'projects/falcon/plan.md')).toBe('none')
+  })
+  test('an admin and a project folder with no rules of its own (an older build made it): hidden too, once the runner names it', () => {
+    // the runner passes every projects/<name> on disk (policy/zone.ts projectZoneFolders): a folder with no rule is
+    // still where an admin's access changes
+    const zone = ['projects/falcon', 'projects/atlas', 'projects/plain']
+    const v = folderView(FIXTURE_RULES, PEOPLE.carol!, undefined, undefined, zone)
+    expect(v.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon', 'projects/plain'])
+    expect(viewAccess(v, 'projects/plain/notes.md')).toBe('none')
+    expect(viewAccess(v, 'projects/readme.md')).toBe('write')
+    expect(viewAccess(v, 'shared/x.md')).toBe('write')
+    // a member keeps the rules above: no rule anywhere gives alice projects/plain, so it is hidden for her as before
+    expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('none')
+    // rules on the team root or projects/ (an admin's own, a role rule, everyone) never reach in for admins; members get them
+    const above = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['', 'user', 'carol', 'read'], ['projects', 'role', 'admin', 'write'], ['projects', 'everyone', null, 'read']])])
+    const a = folderView(above, PEOPLE.carol!, undefined, undefined, zone)
+    for (const f of ['projects/plain/notes.md', 'projects/falcon/plan.md', 'projects/atlas/x.md']) expect([f, viewAccess(a, f)]).toEqual([f, 'none'])
+    expect(viewAccess(folderView(above, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('read')
+    // a rule inside such a folder is a boundary without the runner's list too (its projects/<name> is a candidate)
+    const inner = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'carol', 'read']])])
+    const i = folderView(inner, PEOPLE.carol!)
+    expect(i.denyRead).toContain('projects/plain')
+    expect(viewAccess(i, 'projects/plain/notes.md')).toBe('none')
+    // ...and that rule does not let her in while she does not read projects/plain itself; a member keeps it
+    expect(viewAccess(i, 'projects/plain/inner/a.md')).toBe('none')
+    const aliceInner = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'alice', 'read']])])
+    expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/inner/a.md')).toBe('read')
+    expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/notes.md')).toBe('none')
+    // once a member (read on projects/plain), the rule inside counts for her too
+    const both = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read'], ['projects/plain/inner', 'user', 'carol', 'read']])])
+    expect(viewAccess(folderView(both, PEOPLE.carol!, undefined, undefined, zone), 'projects/plain/inner/a.md')).toBe('read')
+    // with a member rule the admin reads it, and nothing else changes
+    const member = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read']])])
+    const r = folderView(member, PEOPLE.carol!, undefined, undefined, zone)
+    expect(r.denyWrite).toEqual(['projects/plain'])
+    expect(r.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon'])
+    expect(viewAccess(r, 'projects/plain/notes.md')).toBe('read')
+    expect(viewAccess(r, 'projects/falcon/plan.md')).toBe('none')
   })
   test('the model of srt gives every fixture path the access the rules give (users/ itself: hidden)', () => {
     for (const [user, rel, want] of EXPECTED) {
@@ -138,11 +199,13 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
     // a chat with no project: still not her own skills
     expect(viewAccess(runOf(null), 'users/alice/skills/x.md')).toBe('read')
     // a start that is a skill folder, in one, or groups/ or projects/ themselves writes no team folder (an admin's run)
+    // (carol a member of falcon: inside a project she is not in she reads nothing at all)
     for (const start of ['skills/ops', 'projects/falcon/skills', 'groups/marketing/skills/brief', 'projects', 'groups']) {
-      const a = folderView(FIXTURE_RULES, PEOPLE.carol!, { start })
+      const a = folderView(CAROL_IN_FALCON, PEOPLE.carol!, { start })
       expect([start, viewAccess(a, `${start}/x.md`)]).toEqual([start, 'read'])
       expect(viewAccess(a, 'users/carol/x.md')).toBe('write')
     }
+    expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon/skills' }), 'projects/falcon/skills/x.md')).toBe('none')
     // a group's folder as the start: its skills folder is read-only too
     expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'groups/marketing' }), 'groups/marketing/skills/brief/SKILL.md')).toBe('read')
     expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'groups/marketing' }), 'groups/marketing/brief.md')).toBe('write')
@@ -179,12 +242,21 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
     expect(viewAccess(v, 'users/alice/x.md')).toBe('write')
   })
   test('an admin\'s run: the team root is read-only, the start folder writable; a start below a rule folder', () => {
-    const v = folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon/app' })
+    // carol a member of falcon (inside a team project an admin is judged as a member)
+    const v = folderView(CAROL_IN_FALCON, PEOPLE.carol!, { start: 'projects/falcon/app' })
     expect(viewAccess(v, 'groups/finance/budget.md')).toBe('read')
     expect(viewAccess(v, 'projects/falcon/readme.md')).toBe('read')
     expect(viewAccess(v, 'projects/falcon/app/x')).toBe('write')
     expect(viewAccess(v, 'users/carol/x')).toBe('write')
     expect(viewAccess(v, 'users/bob/x')).toBe('none')
+    expect(viewAccess(v, 'projects/atlas/x')).toBe('none')
+    // not a member: nothing of the project, the start folder and what everyone in it reads included
+    const out = folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon/app' })
+    expect(viewAccess(out, 'projects/falcon/readme.md')).toBe('none')
+    expect(viewAccess(out, 'projects/falcon/app/x')).toBe('none')
+    expect(viewAccess(out, 'projects/falcon/public/notice.md')).toBe('none')
+    expect(viewAccess(out, 'groups/finance/budget.md')).toBe('read')
+    expect(out.write).toEqual(['users/carol'])
   })
   test('a start folder that the person can only read stays read-only; the team root or ".." is refused', () => {
     expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.bob!, { start: 'projects/falcon' }), 'projects/falcon/x')).toBe('read')
@@ -287,7 +359,8 @@ describe('the srt settings file', () => {
     expect(settingsProblems(s, { ...w, work: `${BASE}/data` }).join()).toContain('work folder')
   })
   test('a writable folder inside a read-only one is a denyRead landing too, so srt binds it back writable (A28c, A28d)', () => {
-    const v = folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon' })
+    // carol a member of falcon (inside a team project an admin is judged as a member)
+    const v = folderView(CAROL_IN_FALCON, PEOPLE.carol!, { start: 'projects/falcon' })
     const c = { ...input, userId: 'carol', view: v }
     const s = srtSettings(c)
     expect(v.read).toEqual([''])
@@ -963,8 +1036,18 @@ describe('jobs and the queue (per team)', () => {
     expect(stops).toContain(runIdOfRow(run!))
     expect(mine).toEqual({ running: [], waiting: [] })
     await alice().call({ command: 'sleep', job: true, log_name: 'proj' })
-    const page = await h.api('carol').call(API.devEnvRunStop, { params: { id: falconId, runId: String(rows()[2]!.id) } })
-    expect(page.runs).toEqual({ running: [], waiting: [] })
+    // an admin who is not a member of the project does not open its page (docs/DECISIONS.md "Project contents only for
+    // members"): the run goes on
+    await expect(h.api('carol').call(API.devEnvRunStop, { params: { id: falconId, runId: String(rows()[2]!.id) } })).rejects.toThrow()
+    expect(stops).not.toContain(runIdOfRow(rows()[2]!))
+    expect(rows()[2]!.state).not.toBe('ended')
+    // a member of it, an admin stops it there (with no dev environment of their own)
+    const before = h.ctx.files.rules().rulesAt(FALCON)
+    legacyProjectFolder(h.ctx.db, h.team, FALCON, [...before, { subjectType: 'user', subjectId: 'carol', access: 'read' }])
+    try {
+      const page = await h.api('carol').call(API.devEnvRunStop, { params: { id: falconId, runId: String(rows()[2]!.id) } })
+      expect(page.runs).toEqual({ running: [], waiting: [] })
+    } finally { legacyProjectFolder(h.ctx.db, h.team, FALCON, before) }
   })
 })
 

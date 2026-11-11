@@ -541,7 +541,7 @@ describe('/welcome', () => {
       expect(called('PATCH /api/onboarding/welcome')[0]!.body).toEqual({ site: 'https://acme.example/' })
       // five steps on the bar, 도구 연결 and the invite counted, no first result
       expect(items(m)).toEqual(['profile', 'skills', 'files', 'tools', 'invite'])
-      for (const [n, label] of [[1, '회사 소개'], [2, '내 스킬'], [3, '팀 파일'], [4, '도구 연결'], [5, '팀원 초대']] as const) expect(m.get('welcome-progress').textContent).toContain(`${n}/5 ${label}`)
+      for (const [n, label] of [[1, '회사 소개'], [2, '스킬'], [3, '팀 파일'], [4, '도구 연결'], [5, '팀원 초대']] as const) expect(m.get('welcome-progress').textContent).toContain(`${n}/5 ${label}`)
       expect(m.html()).not.toContain('첫 결과')
       await m.until(() => m.find('profile-step-site'), 'the profile step (D)')
       expect(m.html()).not.toContain('마케팅팀이에요')
@@ -557,7 +557,7 @@ describe('/welcome', () => {
       expect(progress!.teamGroup).toEqual(TEAM)
       expect(progress!.steps.profile).toBe('skipped')
       expect(progress!.resultChatId).toBeNull()
-      expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/5 내 스킬')
+      expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/5 스킬')
       // nothing about a deck on the later steps
       expect(m.find('welcome-deck-status')).toBeNull()
       expect(m.html()).not.toContain('회사 소개서')

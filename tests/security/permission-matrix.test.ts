@@ -178,7 +178,9 @@ describe('shared project chat x every persona', () => {
     await W.as.memberIn.ok('POST', `/api/chats/${chat}/messages`, { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: `${CANARY}\n@fake ` + JSON.stringify({ say: 'shared ok' }) })
     for (let i = 0; i < 100 && (await W.as.memberIn.get(`/api/chats/${chat}`)).json.runState !== 'idle'; i++) await Bun.sleep(100)
   })
-  const sees = new Set(['memberIn', 'memberOut', 'owner', 'admin'])
+  // its audience: who reads projects/falcon (alice, bob); the owner and admins only as members (docs/DECISIONS.md
+  // "Project contents only for members")
+  const sees = new Set(['memberIn', 'memberOut'])
   for (const who of WHO) {
     test(`${who}: view ${sees.has(who) ? 'allowed' : 'refused'}, continue and manage as the design says`, async () => {
       // a fresh sign-in: the matrix's writes above may have ended a persona's shared session

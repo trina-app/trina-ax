@@ -1325,7 +1325,12 @@ describe('what makes an answer private: what some member could not see, per ques
   const allRoom = async () => (await h.api('bob').call(API.listRooms)).items.find((r) => r.kind === 'all')!.id
 
   test('a member with no group asks a general question in the everyone room: it goes to the room, and so does the next', async () => {
-    await withoutGroup(async () => {
+    // bob's search reaches projects/falcon/public, which everyone reads by its rule; the owner and admins read inside a
+    // project only as its members (docs/DECISIONS.md "Project contents only for members"), so carol and dana are
+    // falcon's members here: else they could not see it, and the answer would rightly stay private
+    const joined = ['dana', 'carol'].map((u) => `rooms-nogroup-${u}`)
+    for (const [i, u] of ['dana', 'carol'].entries()) h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_projects_falcon', 'user', ?, 'read')").run(joined[i]!, u)
+    try { await withoutGroup(async () => {
       const roomId = await allRoom()
       // another member's answer from a group folder, posted: the room now names a file bob cannot open
       const a = await ask('alice', roomId, `@트리나 brief?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { say: `[brief](/files/view?path=${encodeURIComponent(BRIEF)}) says Autumn Upgrade` })}`)
@@ -1352,7 +1357,7 @@ describe('what makes an answer private: what some member could not see, per ques
       // the private preview, posted later, is decided on what its own question used
       const p = (await answerTo('bob', roomId, mine.q))!
       expect((await h.api('bob').call(API.shareRoomMessage, { params: { id: roomId, messageId: p.id } })).visibility).toBe('room')
-    })
+    }) } finally { for (const id of joined) h.ctx.db.query('DELETE FROM folder_rules WHERE id = ?').run(id) }
   })
 
   test('a question that reads a group folder another member cannot read stays private', async () => {

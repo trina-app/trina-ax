@@ -1,10 +1,9 @@
-// The composer's mic: shown when voice input is on (or the server is older), hidden for members when it is off, and a
-// hint to the setting for admins and the owner. Rooms: blocked while every chat is confidential and voice input goes
+// The composer's mic: shown when voice input is on (or the server is older), hidden for everyone when it is off. Rooms: blocked while every chat is confidential and voice input goes
 // out. Holding Space and a finger on the mic (lib/voiceInput.ts): the 400 ms threshold, repeats, IME keys, an empty
 // box against one with text, letting go early, Esc, the window losing the focus, the 5-minute cap, the permission
 // question; the transcription job's own label.
 import { describe, expect, test } from 'bun:test'
-import { micState, SPEECH_SETTINGS_PATH, voiceBlockedHere, voiceBlockedInRoom } from '../../src/lib/voice'
+import { micState, voiceBlockedHere, voiceBlockedInRoom } from '../../src/lib/voice'
 import { CAP_MS, DRAG_CANCEL_PX, HOLD_MS, jobLabel, VoiceInput, WARN_MS, type KeyLike, type VoiceDeps, type VoiceNote } from '../../src/lib/voiceInput'
 
 const me = (role: 'owner' | 'admin' | 'member', voiceInput?: boolean) => ({ user: { role }, team: { name: 'T', defaultLocale: 'en' as const, ...(voiceInput === undefined ? {} : { voiceInput }) } })
@@ -17,11 +16,8 @@ describe('mic visibility', () => {
     expect(micState(me('member'))).toBe('on')
     expect(micState(null)).toBe('on')
   })
-  test('off: members do not see it, admins and the owner get a hint to Admin > Team settings', () => {
-    expect(micState(me('member', false))).toBe('hidden')
-    expect(micState(me('admin', false))).toBe('adminHint')
-    expect(micState(me('owner', false))).toBe('adminHint')
-    expect(SPEECH_SETTINGS_PATH).toBe('/admin/settings#speech')
+  test('off (it can\'t be used on this server): nobody sees it, owners and admins included', () => {
+    for (const r of ['owner', 'admin', 'member'] as const) expect(micState(me(r, false))).toBe('hidden')
   })
 })
 

@@ -9,6 +9,12 @@
 // - a project that cannot be changed here says who does it, with no save;
 // - the independent review: Esc on the search or a result closes the results, not the dialog; a "no access" rule from Admin is no
 //   member (only in the read-only box); after × the keyboard is on 되돌리기, after 되돌리기 on ×.
+// - members only (docs/DECISIONS.md "Project contents only for members"): the count line is the members ("3 members"),
+//   for the owner and admins too, with no part for them by role; another setting of the folder itself has × (sent as
+//   removeRules, in the dry run too), those inside stay read-only, and those inside the caller may not read are counted;
+//   a save that adds only the caller asks with the "Add me" confirm; for someone who manages it without being a member
+//   the widening confirm says they will see its files and chats, with no numbers; the project is read again with
+//   manage=1 after a save.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
@@ -33,7 +39,7 @@ const access = (o: Partial<ProjectAccess> = {}): ProjectAccess => ({
 const preview = (o: Partial<ProjectAccessPreview> = {}): ProjectAccessPreview => ({ people: 3, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...o })
 
 let routes: Record<string, (init?: RequestInit) => Response | Promise<Response>> = {}
-const sent: { key: string; body: unknown }[] = []
+const sent: { key: string; url: string; body: unknown }[] = []
 const realFetch = globalThis.fetch
 const localeBefore = useLocaleStore.getState().locale
 const sessionBefore = useSession.getState().status
@@ -42,7 +48,7 @@ beforeAll(() => {
   useLocaleStore.setState({ locale: 'en' })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
-    sent.push({ key, body: init?.body ? JSON.parse(String(init.body)) : null })
+    sent.push({ key, url: String(input), body: init?.body ? JSON.parse(String(init.body)) : null })
     return routes[key]?.(init) ?? json(500, { error: { code: 'internal', message: `no route ${key}` } })
   }) as unknown as typeof fetch
 })
@@ -82,11 +88,21 @@ describe('the members now', () => {
     // Admin's read rule: in the list, tagged, without ×; and in the read-only box with the rule inside
     expect(state(m, 'participant-user-jiwoo')).toBe('fixed')
     expect(m.get('participant-user-jiwoo').textContent).toContain(`${en('access.read')} · ${en('projects.folderRuleTag')}`)
+    expect(en('projects.folderRuleTag')).toBe('set separately')
+    expect(translate('ko', 'projects.folderRuleTag')).toBe('따로 정함')
     expect(m.find('participant-remove-user-jiwoo')).toBeNull()
     const other = m.get('project-other-rules').textContent ?? ''
+    // its title: who else sees it, in plain words (not "rules set in folder permissions")
+    expect(other).toContain('Others who can see it')
+    expect(translate('ko', 'projects.otherRules')).toBe('멤버 말고도 볼 수 있는 사람')
     expect(other).toContain(`Jiwoo: ${en('access.read')}`)
     expect(other).toContain(`${en('projects.ruleInside', { path: 'hr' })} · ${en('rules.everyone')}: ${en('access.none')}`)
-    expect(other).not.toContain(en('projects.otherRulesLink')) // a member: no link to the admin screen
+    expect(other).not.toContain(en('projects.otherRulesLink')) // no link to the admin screen
+    expect(other).not.toContain('cannot be changed here')
+    // the setting of the folder itself can go (×); the one of a folder inside cannot
+    expect(m.find('project-other-rule-remove-user-jiwoo')).not.toBeNull()
+    expect(m.get('project-other-rule-everyone-all').getAttribute('data-state')).toBe('inside')
+    expect(m.find('project-other-rule-remove-everyone-all')).toBeNull()
     // nothing changed yet: no save
     expect(m.get('project-members-save').hasAttribute('disabled')).toBe(true)
     expect(m.get('participant-user-sora').textContent).toContain('Designer')
@@ -110,28 +126,26 @@ describe('the members now', () => {
     await m.unmount()
   })
 
-  test('an admin (the owner\'s case): the members first, then how many more see it as the owner and admins, no names', async () => {
+  test('an admin (the owner\'s case): its members only, with no part for the owner and admins by role, no names', async () => {
     signedIn('admin')
-    // the creator and a group of three she is in: 3 members; the owner and another admin see it only by role
-    let split = { direct: 3, byRole: 2 }
+    let n = 3
     routes = {
       'GET /api/people': () => json(200, PEOPLE),
       'GET /api/admin/groups': () => json(200, { items: [] }),
-      [`GET /api/projects/${P1}/access`]: () => json(200, access({ people: 5 })),
-      'POST /api/projects/access-preview': () => json(200, preview({ people: split.direct + split.byRole, split })),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access({ people: 3 })),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: n, split: { direct: n, byRole: 0 } })),
     }
     const m = await dialog()
-    await m.until(() => m.find('project-access-summary')?.textContent === `${en('projects.whoMembers', { n: 3 })} · ${en('projects.whoByRole', { n: 2 })}`, 'the count apart', 2000)
-    expect(m.get('project-access-summary-role').textContent).toBe(` · ${en('projects.whoByRole', { n: 2 })}`)
-    // an admin added counts once, with the members
-    split = { direct: 4, byRole: 1 }
+    await m.until(() => m.find('project-access-summary')?.textContent === en('projects.whoMembers', { n: 3 }), 'the members', 2000)
+    expect(m.find('project-access-summary-role')).toBeNull()
+    n = 4
     await addBob(m)
-    await m.until(() => m.get('project-access-summary').textContent === `${en('projects.whoMembers', { n: 4 })} · ${en('projects.whoByRole', { n: 1 })}`, 'the new count', 2000)
+    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoMembers', { n: 4 }), 'the new count', 2000)
     for (const name of ['Mia', 'Bob', 'Sora', 'Jiwoo']) expect(m.get('project-access-summary').textContent).not.toContain(name)
     await m.unmount()
   })
 
-  test('the count line only: how many see it, the owner and admins included', async () => {
+  test('the count line only: its members, for a member who manages it too', async () => {
     signedIn('member')
     let n = 3
     routes = {
@@ -140,12 +154,11 @@ describe('the members now', () => {
       'POST /api/projects/access-preview': () => json(200, preview({ people: n })),
     }
     const m = await dialog()
-    await m.until(() => m.find('project-access-summary')?.textContent === en('projects.whoCount', { n: 3 }), 'the count', 2000)
+    await m.until(() => m.find('project-access-summary')?.textContent === en('projects.whoMembers', { n: 3 }), 'the count', 2000)
     n = 4
     await addBob(m)
-    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCount', { n: 4 }), 'the new count', 2000)
+    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoMembers', { n: 4 }), 'the new count', 2000)
     expect(m.get('project-access-summary').textContent).not.toContain('Sora')
-    // a member who manages the project gets no split: no number for the owner and admins
     expect(m.find('project-access-summary-role')).toBeNull()
     await m.unmount()
   })
@@ -327,10 +340,143 @@ describe('a project not changed here', () => {
       signedIn(role)
       const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'shared/acme' })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
       const line = await m.until(() => m.find('project-members-locked'), 'the line', 2000)
-      expect(line.textContent).toBe(role === 'admin' ? en('projects.legacyNote', { folder: 'Company-wide/acme' }) : en('projects.membersByAdmins'))
+      expect(line.textContent).toBe(role === 'admin' ? en('projects.legacyNote') : en('projects.membersByAdmins'))
+      // no folder path in the words
+      expect(line.textContent).not.toContain('shared/acme')
       expect(m.find('project-participants')).toBeNull()
       expect(m.find('project-members-save')).toBeNull()
       await m.unmount()
     }
+  })
+
+  test('a team project whose folder is missing: what the admin can do (delete it), not a trip to Folder permissions that refuses it', async () => {
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access({ editable: false })),
+    }
+    signedIn('admin')
+    const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'projects/acme' })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    const line = await m.until(() => m.find('project-members-locked'), 'the line', 2000)
+    expect(line.textContent).toBe("This project's folder is missing, so its members can't be changed. You can delete the project.")
+    expect(translate('ko', 'projects.membersFolderMissing')).toBe('이 프로젝트의 폴더가 없어서 멤버를 바꿀 수 없어요. 프로젝트를 삭제할 수 있어요.')
+    for (const l of ['en', 'ko', 'es', 'id', 'ja'] as const) expect(translate(l, 'projects.membersFolderMissing')).not.toContain('›')
+    await m.unmount()
+  })
+})
+
+describe('members only (docs/DECISIONS.md "Project contents only for members")', () => {
+  const OWN = { path: 'projects/acme', subjectType: 'group' as const, subjectId: 'g-leads', name: 'Leads', access: 'read' as const }
+  const INSIDE = { path: 'projects/acme/hr', subjectType: 'user' as const, subjectId: 'jiwoo', name: 'Jiwoo', access: 'write' as const }
+
+  test('another setting of the folder itself: × takes it out (the dry run and the save send it), 되돌리기 keeps it; one inside stays', async () => {
+    signedIn('admin')
+    const previews: unknown[] = []
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      'GET /api/admin/groups': () => json(200, { items: [{ id: 'g-leads', name: 'Leads', description: '', memberIds: [] }] }),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access({ otherRules: [OWN, INSIDE] })),
+      'POST /api/projects/access-preview': (init) => {
+        const b = JSON.parse(String(init?.body)) as { removeRules?: unknown[] }
+        previews.push(b.removeRules ?? null)
+        return json(200, preview({ people: b.removeRules ? 2 : 3, removed: b.removeRules ? 1 : 0 }))
+      },
+      [`PUT /api/projects/${P1}/participants`]: () => json(200, access({ rulesHash: 'h2' })),
+      [`GET /api/projects/${P1}`]: () => json(200, project({ audience: 2 })),
+    }
+    let saved: Project | null = null
+    const m = await dialog({ onSaved: (p) => { saved = p } })
+    await m.until(() => m.find('project-other-rule-remove-group-g-leads'), 'the × of the folder\'s own setting', 2000)
+    // the group that only reads is in the list, tagged, until it is taken out
+    expect(state(m, 'participant-group-g-leads')).toBe('fixed')
+    expect(m.find('project-other-rule-remove-user-jiwoo')).toBeNull()
+    expect(m.get('project-other-rule-user-jiwoo').textContent).toContain(en('projects.ruleInside', { path: 'hr' }))
+    expect(m.get('project-other-rule-remove-group-g-leads').getAttribute('aria-label')).toBe(en('projects.removeMember', { name: en('projects.whoGroup', { name: 'Leads' }) }))
+    await m.click('project-other-rule-remove-group-g-leads')
+    expect(m.get('project-other-rule-group-g-leads').getAttribute('data-state')).toBe('removed')
+    expect(m.find('participant-group-g-leads')).toBeNull()
+    expect(m.get('project-members-save').hasAttribute('disabled')).toBe(false)
+    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoMembers', { n: 2 }), 'the count without it', 2000)
+    // 되돌리기, then × again
+    await m.click('project-other-rule-undo-group-g-leads')
+    expect(m.get('project-other-rule-group-g-leads').getAttribute('data-state')).toBe('own')
+    expect(m.get('project-members-save').hasAttribute('disabled')).toBe(true)
+    await m.click('project-other-rule-remove-group-g-leads')
+    await m.click('project-members-save')
+    // taking it out only narrows: saved at once, with removeRules
+    await m.until(() => saved, 'the save', 2000)
+    expect(m.find('project-widen-confirm')).toBeNull()
+    expect(calls(`PUT /api/projects/${P1}/participants`)[0]!.body).toEqual({ participants: [{ subjectType: 'user', subjectId: 'sora' }], expectedHash: 'h1', removeRules: [{ subjectType: 'group', subjectId: 'g-leads' }] })
+    expect(previews).toContainEqual([{ subjectType: 'group', subjectId: 'g-leads' }])
+    // read again as the caller manages it (an owner or admin who is not a member gets it without its contents)
+    expect(sent.find((x) => x.key === `GET /api/projects/${P1}`)!.url).toContain('manage=1')
+    await m.unmount()
+  })
+
+  test('settings inside the caller may not read: counted, never named; no read-only box without any', async () => {
+    signedIn('admin')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      'GET /api/admin/groups': () => json(200, { items: [] }),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access({ otherRulesHidden: 2 })),
+      'POST /api/projects/access-preview': () => json(200, preview()),
+    }
+    const m = await dialog()
+    const line = await m.until(() => m.find('project-other-rules-hidden'), 'the count inside', 2000)
+    expect(line.textContent).toBe(en('projects.insideOwn', { n: 2 }))
+    expect(translate('ko', 'projects.insideOwn', { n: 2 })).toBe('안쪽 폴더 2개는 볼 수 있는 사람이 따로 정해져 있어요')
+    expect(m.get('project-other-rules').textContent).not.toContain(en('projects.otherRules'))
+    await m.unmount()
+  })
+
+  test('a save that adds only me: the "Add me" confirm, not "Let more people see it?"; cancel saves nothing', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'olga', name: 'Olga', role: 'owner' }, groups: [], team: { name: 'Acme', defaultLocale: 'en', projectCreators: 'members' }, server: { version: '0', dev: false } } } } as never)
+    routes = {
+      'GET /api/people': () => json(200, { people: [...PEOPLE.people, { id: 'olga', name: 'Olga' }] }),
+      'GET /api/admin/groups': () => json(200, { items: [] }),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: 4, added: 1, contentsHidden: true })),
+      [`PUT /api/projects/${P1}/participants`]: () => json(200, access({ rulesHash: 'h2' })),
+      [`GET /api/projects/${P1}`]: () => json(200, project({ audience: 4 })),
+    }
+    let saved: Project | null = null
+    const m = await dialog({ onSaved: (p) => { saved = p } })
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await m.type('project-participants-search', 'olga')
+    await m.click(await m.until(() => m.find('participant-add-user-olga'), 'me to add', 2000))
+    await m.click('project-members-save')
+    const box = await m.until(() => m.find('project-add-me-confirm'), 'the Add me confirm', 2000)
+    expect(m.html()).toContain(en('projects.addMeTitle', { name: 'Acme launch' }))
+    expect(box.textContent).toBe(en('projects.addMeBody'))
+    expect(m.find('project-widen-confirm')).toBeNull()
+    expect(m.get('dialog-confirm').textContent).toBe(en('projects.addMe'))
+    await m.click(m.get('dialog-confirm').parentElement!.querySelector('button')!)
+    await m.settle(30)
+    expect(calls(`PUT /api/projects/${P1}/participants`)).toEqual([])
+    await m.click('project-members-save')
+    await m.until(() => m.find('project-add-me-confirm'), 'asked again', 2000)
+    await m.click('dialog-confirm')
+    await m.until(() => saved, 'the save', 2000)
+    expect(calls(`PUT /api/projects/${P1}/participants`)[0]!.body).toEqual({ participants: [{ subjectType: 'user', subjectId: 'sora' }, { subjectType: 'user', subjectId: 'olga' }], expectedHash: 'h1' })
+    await m.unmount()
+  })
+
+  test('someone who manages it without being a member adds others: "They\'ll see its files and chats", no numbers', async () => {
+    signedIn('admin')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      'GET /api/admin/groups': () => json(200, { items: [] }),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: 4, added: 1, contentsHidden: true })),
+    }
+    const m = await dialog()
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await addBob(m)
+    await m.click('project-members-save')
+    const box = await m.until(() => m.find('project-widen-confirm'), 'the confirm', 2000)
+    expect(box.textContent).toContain(en('projects.othersSee'))
+    expect(translate('ko', 'projects.othersSee')).toBe('이 사람들은 파일과 채팅을 보게 돼요.')
+    expect(box.textContent).not.toContain(en('projects.widenFiles', { n: 0 }))
+    expect(box.querySelectorAll('li').length).toBe(1)
+    await m.unmount()
   })
 })

@@ -6,6 +6,9 @@
 // trash of the folder wherever it is restored (" (restored)" name included), and go for good when it is purged.
 // #5: a trashed group / project / rule folder was listed in its members' trash, but their restore failed with 404
 // (they cannot write groups/ or projects/). Trashing those folders is admin-only, and so is seeing and restoring them.
+// Inside projects/<name> the owner and admins act only as members (docs/DECISIONS.md "Project contents only for
+// members"): a project folder's trash is its members' and the owner's and admins' who are members; the others put it
+// back through the project (POST /api/projects/:id/restore).
 // Fixture: alice, erin = marketing (groups/marketing write); bob = finance (groups/finance, projects/atlas write);
 // carol = admin; dana = owner; shared/ everyone write.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -14,6 +17,7 @@ import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
 import { ensureFolderRow, replaceRules } from '../../server/src/admin/folders'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('sec-r2-trash-home') })
@@ -67,8 +71,19 @@ describe('#1 trash items follow the folder they were trashed from', () => {
     expect((await save('bob', 'projects/atlas/launch-secret.md', 'LAUNCH-SECRET\n')).status).toBe(200)
     const file = await del('bob', 'projects/atlas/launch-secret.md')
     expect(await ids('bob')).toContain(file)
+    // an admin who is not a member of it neither sees nor trashes it (the same 404 as for a missing path)
+    for (const who of ['carol', 'dana'] as const) {
+      expect(await ids(who)).not.toContain(file)
+      expect((await A.json('/api/files' + q({ path: 'projects/atlas' }), { as: who, method: 'DELETE' })).status).toBe(404)
+    }
+    expect(fs.existsSync(path.join(A.team, 'projects/atlas'))).toBe(true)
+    // carol, made a member of it, does
+    legacyProjectFolder(A.ctx.db, A.team, 'projects/atlas', [{ subjectType: 'group', subjectId: 'finance', access: 'write' }, { subjectType: 'user', subjectId: 'carol', access: 'write' }])
     const folder = await del('carol', 'projects/atlas')
-    ruleFolder('projects/atlas', 'marketing')
+    // Admin › Folder permissions no longer makes a folder at a projects/<name>: an older build's admin did
+    const made = await A.json('/api/admin/folders', { as: 'carol', ...jsonBody({ path: 'projects/atlas', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
+    expect([made.status, made.body.error?.params?.reason]).toEqual([409, 'project_members_only'])
+    legacyProjectFolder(A.ctx.db, A.team, 'projects/atlas', [{ subjectType: 'group', subjectId: 'marketing', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol')
     expect(await ids('alice')).not.toContain(file)
     expect((await restore('alice', file)).status).toBe(404)
     expect((await read('alice', 'projects/atlas/launch-secret.md')).status).toBe(404)
@@ -98,17 +113,31 @@ describe('#5 a trashed group / project / rule folder: listed and restored by adm
     const p = await A.json('/api/projects', { as: 'carol', ...jsonBody({ name: 'Launch', folderPath: 'projects/launch', participants: [{ subjectType: 'group', subjectId: 'marketing' }] }) })
     expect(p.status).toBe(201)
     expect((await save('alice', 'projects/launch/memo.md', 'memo\n')).status).toBe(200)
+    // carol made it: she is a member of it
     const folder = await del('carol', 'projects/launch')
     for (const who of ['alice', 'erin'] as const) {
       expect(await ids(who)).not.toContain(folder)
       expect((await restore(who, folder)).status).toBe(404)
     }
     expect(await ids('carol')).toContain(folder)
-    expect(await ids('dana')).toContain(folder)
+    // the owner, no member of it: not in her files trash, no restore from there (she restores the project instead)
+    expect(await ids('dana')).not.toContain(folder)
+    expect((await restore('dana', folder)).status).toBe(404)
     const r = await restore('carol', folder)
     expect(r.status).toBe(200)
     expect((await read('alice', 'projects/launch/memo.md')).status).toBe(200)
     expect((await A.json(`/api/projects/${p.body.id}`, { as: 'alice' })).status).toBe(200)
+    // in the trash again: the owner puts it back through the project, as the system, without reading it
+    const again = await del('carol', 'projects/launch')
+    expect((await A.json(`/api/projects/${p.body.id}`, { as: 'alice' })).status).toBe(404)
+    const back = await A.json(`/api/projects/${p.body.id}/restore`, { as: 'dana', method: 'POST' })
+    expect([back.status, back.body.member, back.body.inTrash]).toEqual([200, false, false])
+    expect(JSON.stringify(back.body)).not.toContain('memo')
+    expect(A.ctx.db.query('SELECT restored_at IS NOT NULL AS r FROM trash_items WHERE id = ?').get(again)).toEqual({ r: 1 })
+    expect((await read('alice', 'projects/launch/memo.md')).status).toBe(200)
+    expect((await read('dana', 'projects/launch/memo.md')).status).toBe(404)
+    // a member may not (the owner and admins only)
+    expect((await A.json(`/api/projects/${p.body.id}/restore`, { as: 'alice', method: 'POST' })).status).toBe(403)
   })
 
   test('group folder and shared/ rule folder: same; an ordinary folder a member trashed stays theirs to restore', async () => {
