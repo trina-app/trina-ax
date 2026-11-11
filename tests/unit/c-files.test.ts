@@ -264,6 +264,29 @@ describe('history', () => {
     expect(h2.body.items.map((x: any) => x.kind)).toEqual(['restore', 'edit'])
     expect((await A.req(`/api/files/history/${v.id}/download`, { as: 'bob' })).status).toBe(200) // shared: everyone reads
   })
+  test('a version inside a trashed plain folder waits for the folder: history says why, restore refuses (QA TC-229)', async () => {
+    const p = 'shared/Proj229/note.txt'
+    write(p, 'v1')
+    await A.json('/api/files/content', { ...jsonBody({ path: p, content: 'v2', baseSha256: sha256hex('v1') }, 'PUT'), as: 'alice' })
+    await A.json('/api/files/content', { ...jsonBody({ path: p, content: 'v3', baseSha256: sha256hex('v2') }, 'PUT'), as: 'alice' })
+    const before = await A.json('/api/files/history' + q({ path: p }), { as: 'alice' })
+    expect(before.body).toMatchObject({ canRestore: true, restoreBlocked: null })
+    const del = await A.json('/api/files' + q({ path: 'shared/Proj229' }), { method: 'DELETE', as: 'alice' })
+    expect(del.status).toBe(200)
+    const h = await A.json('/api/files/history' + q({ path: p }), { as: 'alice' })
+    expect(h.body.items.map((v: any) => v.version)).toEqual([2, 1])
+    expect(h.body).toMatchObject({ canRestore: false, restoreBlocked: 'folderInTrash' })
+    const v1 = h.body.items.find((v: any) => v.version === 1)
+    const r = await A.json('/api/files/restore', { ...jsonBody({ path: p, versionId: v1.id }), as: 'alice' })
+    expect(r.status).toBe(409)
+    expect(r.body.error.message).toBe('The folder of this version is in the trash. Restore the folder from the trash first, then the version.')
+    expect(exists(T(), 'shared/Proj229')).toBe(false) // nothing made outside the trash
+    // the folder comes back from the trash under its own name, then the version
+    expect((await A.json(`/api/files/trash/${del.body.trashId}/restore`, { method: 'POST', as: 'alice' })).body.entry.path).toBe('shared/Proj229')
+    expect((await A.json('/api/files/history' + q({ path: p }), { as: 'alice' })).body).toMatchObject({ canRestore: true, restoreBlocked: null })
+    expect((await A.json('/api/files/restore', { ...jsonBody({ path: p, versionId: v1.id }), as: 'alice' })).status).toBe(200)
+    expect(read(p)).toBe('v1')
+  })
   test('old versions saved in a private folder stay private after the file moves to a shared one', async () => {
     const p = 'groups/finance/plan-x.md'
     write(p, 'CANARY-FIN-7731 secret draft')

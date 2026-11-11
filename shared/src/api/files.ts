@@ -115,6 +115,9 @@ export const HistoryResponse = z.object({
   currentSha256: z.string().nullable().optional(),
   /** the caller may restore versions (write access to the path; the same check POST /api/files/restore makes) */
   canRestore: z.boolean().optional(),
+  /** why canRestore is false although the caller may write the path: the file's folder is in the trash (restore the
+   * folder first, POST /api/files/trash/:id/restore) */
+  restoreBlocked: z.enum(['folderInTrash']).nullable().optional(),
   /** the content as it is now and who saved it (author null: not known, e.g. changed outside the app); null: the file
    * does not exist. `version`: the number it has in the list (one above the newest stored version). */
   current: z.object({

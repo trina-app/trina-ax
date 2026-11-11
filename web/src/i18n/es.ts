@@ -822,6 +822,7 @@ export const es: Record<MessageKey, string> = {
   'files.restoreBody': "El contenido actual se conserva como una nueva versión, por lo que siempre podrá recuperarlo.",
   'files.restored': "Se restauró v{version}.",
   'files.sameAsNow': "Igual que ahora",
+  'files.versionsFolderInTrash': "La carpeta de este archivo está en la papelera, así que sus versiones no se pueden restaurar. Restaure primero la carpeta desde la papelera.",
   'files.currentVersion': "Actual",
   'files.unknownAuthor': "Autor desconocido",
   'files.replacedBy': "Autor desconocido · reemplazado por {name}",

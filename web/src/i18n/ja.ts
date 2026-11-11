@@ -822,6 +822,7 @@ export const ja: Record<MessageKey, string> = {
   'files.restoreBody': "現在の内容も新しいバージョンとして保存されるため、いつでも戻せます。",
   'files.restored': "v{version}を復元しました。",
   'files.sameAsNow': "現在と同じ",
+  'files.versionsFolderInTrash': "このファイルのフォルダーはゴミ箱にあるため、バージョンを復元できません。先にフォルダーをゴミ箱から復元してください。",
   'files.currentVersion': "現在",
   'files.unknownAuthor': "作成者不明",
   'files.replacedBy': "作成者不明 · {name}が置換",

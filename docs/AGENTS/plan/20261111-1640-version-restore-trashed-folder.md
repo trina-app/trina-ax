@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:40
 - Branch: `fix/version-restore-trashed-folder`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`server/src/team-files/service.ts`, `shared/src/api/files.ts`, the history modal in
   `web/src/pages/Files.tsx`, i18n; tests). Why: file versions of the core.
 - Version impact: patch; one optional field in the history answer, a refusal that already existed for rule folders
@@ -17,8 +17,8 @@ restore is refused with "restore the folder from the trash first", and the histo
 ## Cause
 
 `versionInTrash` looks only at the version's `folders` row (`folder_id`, the nearest folder with a row). A plain
-folder has none, so its trash is not seen. (The modal hides 되돌리기 because the restore check in `history`
-fails for other reasons in the QA case, but says nothing.)
+folder has none, so its trash is not seen. The modal had no 되돌리기 because `history` found the file's folder
+missing (`authorize` answers not_found) and left `canRestore` false, without a reason.
 
 ## Change
 
@@ -38,4 +38,8 @@ made; after the trash restore the version restores. Web unit/e2e for the note if
 
 ## Result
 
-(filled in at the end)
+Built as planned; `history` also handles the missing folder (not_found from `authorize`): the reason is given to
+whoever may write the place. Unit: the new case in `c-files` (history, 409 with the folder-first words, nothing made,
+then the trash restore and the version restore); `c-files`, `c-history-restore`, `c-version-authors`, `contracts`,
+`a-folders-keep`, `access-explain-api` pass. Local dev server (WebKit): the history modal shows the note and no
+되돌리기; `POST /api/files/restore` answers 409 "이 버전의 폴더가 휴지통에 있어요. …".
