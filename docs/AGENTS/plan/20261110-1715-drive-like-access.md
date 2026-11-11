@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 17:15
 - Branch: `feat/drive-like-access`
-- Status: draft (phase 1: plan and review done, no code)
+- Status: done (PR #346; the owner approved option A, 2026-11-11)
 - Where: Team AX core: `web/src/components/FolderAccess.tsx`, a new `web/src/pages/admin/FolderSharing.tsx` (replaces
   `FolderAccessAdmin.tsx`), a hook taken out of `web/src/pages/admin/AccessEdit.tsx`, `web/src/lib/folder-access.ts`,
   one optional field in `server/src/admin/access-edit.ts` and `shared/src/api/admin.ts`. Why: files and permissions
@@ -449,7 +449,7 @@ Out: links or guests; a panel for single files; making someone "No access" in th
 panel; editing project folders in the panel; any change to Admin › Folder permissions; anything members learn;
 "broadest wins" (open question 1); Admin's words (open question 2); the chip's verb (open question 3).
 
-## Steps (two PRs to `dev`)
+## Steps (planned as two PRs; built as one, PR #346, at the coordinator's request)
 
 1. **PR 1, the read view** (`feat/drive-like-access`): this plan (first commit); `everyoneAbove` and the
    `CreateFolderBody` limit (server, shared type, docs:api); `FolderSharing.tsx` showing the rows, general access, footer
@@ -570,4 +570,23 @@ anything new.
 
 ## Result
 
-Filled in at the end.
+Built in one PR, #346 (`feat/drive-like-access`). The owner chose option A for open question 1 (the deepest folder
+wins, as today; the panel names who loses access before Save); Admin's words move to "Can view / Can edit" in a later
+PR; the chip stays the count (#341). The panel title is "Who can open it" / "열 수 있는 사람" in all five languages.
+
+What differs from the plan, and why:
+- **When Save asks** comes only from the server's answer. The plan's local comparison of settings (`raisesAccess`) was
+  built and dropped after the product review: it asked "Give more access?" for a change that only lowered someone. In
+  its place the edit preview has `latentMore` (the security review's finding: switched-off people, whoever joins an
+  empty group or the team later, an "everyone" that counts nobody today), checked with the permission function for
+  each of them before and after, at the folder and its rule folders below.
+- **The footer** (what will happen and the buttons) is the Modal's own footer slot, not a sticky bar in the body (it
+  covered the last link and left a gap).
+- **Project folders**: the admin count shows without #341's role line (the footer says the owner and admins can always
+  open team folders).
+- "Same as the folder above" for a folder in `groups/`, `projects/` or `connected/` (no disk name on screen); "Change in
+  Sales" for the general access link; Korean names joined with commas.
+- The security review's other fixes: after a save the draft starts from the re-read rules; leaving during Save stops
+  it; a row made meanwhile is saved over with PUT; the folder row by its exact path; two clicks are one Save.
+- #339 (shared phone rows) was not merged: the panel uses the app's bottom sheet with 44 px controls; `CompactRow` when
+  it lands.
