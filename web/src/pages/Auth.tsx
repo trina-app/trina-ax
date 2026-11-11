@@ -2,7 +2,7 @@
 // (/join#t=…) and the forced password change.
 import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
@@ -13,6 +13,7 @@ import { useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
+import { isTextField } from '../lib/viewport'
 import { clearLocalData } from '../lib/localData'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
@@ -99,8 +100,9 @@ export function LanguageSwitcher() {
  * person's or the team's. */
 function AuthFrame({ title, children, sub, switcher = true }: { title: string; children: ReactNode; sub?: ReactNode; switcher?: boolean }) {
   const inApp = !!mobileApp()
+  const box = useFieldAboveBar()
   return (
-    <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10 max-sm:h-full max-sm:justify-start max-sm:overflow-y-auto max-sm:scroll-pb-20 max-sm:pt-[max(2.5rem,8vh)]" data-testid="auth-frame">
+    <div ref={box} className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10 max-sm:h-full max-sm:justify-start max-sm:overflow-y-auto max-sm:scroll-pb-28 max-sm:pt-[max(2.5rem,8vh)]" data-testid="auth-frame">
       <main className="w-full max-w-sm">
         <p className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight max-sm:mb-8">
           <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg dark:ring-1 dark:ring-line" />
@@ -116,6 +118,31 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
       </main>
     </div>
   )
+}
+
+/** On a phone, the field being typed in stays in sight above the button bar (SubmitBar) and the keyboard: when it gets
+ * the focus, and when the keyboard opens and the box gets shorter (visualViewport's resize), the box scrolls it into
+ * view, keeping the bar's height free under it (the box's scroll-padding-bottom). A computer's page does not scroll. */
+function useFieldAboveBar() {
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = box.current
+    const phone = window.matchMedia?.('(max-width: 639.98px)')
+    if (!el || !phone) return
+    const reveal = () => {
+      const f = document.activeElement
+      if (phone.matches && isTextField(f) && el.contains(f)) f.scrollIntoView?.({ block: 'nearest' })
+    }
+    // after the keyboard's own scrolling and the new --app-h have settled
+    const later = () => requestAnimationFrame(reveal)
+    el.addEventListener('focusin', later)
+    window.visualViewport?.addEventListener('resize', later)
+    return () => {
+      el.removeEventListener('focusin', later)
+      window.visualViewport?.removeEventListener('resize', later)
+    }
+  }, [])
+  return box
 }
 
 /** An error on screen: a text key of ours, or what the server said. Drawn in the language on screen: our own texts,
