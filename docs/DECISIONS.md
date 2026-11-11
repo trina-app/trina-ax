@@ -20385,3 +20385,19 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   plain-words follow-up decides those.
 - Tests: e2e `project-list-menu` (the cards of a row are one height at 1440, also beside a name that wraps; one card
   per row at 390; the who line and the empty line). Version impact: **patch** (layout and words on one page; no API or data change).
+
+## Another person signs in over a session (fix/web-reset-user-switch, 2026-11-11)
+
+- **A change of the signed-in person in one window is a sign-out and a sign-in.** A password reset link completed while
+  someone else is signed in (a shared computer) used to keep the first person's stores and live connection: only
+  "signed in" → "signed out" emptied them. `useSessionLifecycle` (web/src/App.tsx) now remembers the last person: when
+  the user id changes it closes the live connection, forgets what the tab kept (`forgetPersonInTab`, the same as
+  `signedOut`), empties every per-person store (also the AI picker's list and room side chats, now emptied at sign-out
+  too), opens the new person's connection, and loads the page again. The screens are keyed by the person, so they start
+  afresh even when the reload is held back (a "leave this page?" prompt).
+- Why both and not only a reload: the reload drops every module's own cache, which no list of stores can promise; the
+  in-place reset makes the window right at once and stays right when the reload is cancelled.
+- The AI picker's list (`store/engines.ts`) has `reset()`; a failed read is asked again by the next `load()` (it was
+  kept as "loaded, empty" until a reload). An answer to a request made before a reset is dropped.
+- Tests: web unit `person-switch` (A's stores and socket, reset completed as B: nothing of A, a new socket, a reload).
+- Version impact: **patch** (no API or data change).

@@ -15,7 +15,9 @@ import { useHandover } from './store/handover'
 import { useRooms } from './store/rooms'
 import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
-import { useSession } from './store/session'
+import { useEngines } from './store/engines'
+import { useSideChats } from './store/sideChats'
+import { forgetPersonInTab, useSession } from './store/session'
 import Layout from './components/Layout'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
@@ -91,29 +93,52 @@ function useSettingsOverlay() {
   return { open, under, close, real }
 }
 
+/** Everything one person's window keeps in memory of their own: chats, the messages waiting to be sent, the projects
+ * seen, rooms and their side chats, people, the AI engine picker's list. */
+function dropPersonStores() {
+  useChats.getState().reset()
+  useDeckBuilds.getState().reset()
+  useSendQueue.getState().reset()
+  useProjects.getState().reset()
+  useAiAccess.getState().reset()
+  useWelcome.getState().reset()
+  useHandover.getState().reset()
+  useRooms.getState().reset()
+  useSideChats.getState().reset()
+  usePeople.getState().reset()
+  useEngines.getState().reset()
+}
+
+/** The page load after another person signed in over the signed-in one (tests replace it). */
+export const personSwitch = { reload: () => location.reload() }
+
 /** The session's side effects (Gate): live updates while signed in; when signed out, nothing one person's window kept
- * stays for the next (chats, the messages waiting to be sent, the projects seen, rooms and people). Returns whether
- * signed in. */
+ * stays for the next. Another person signing in over a signed-in one in this window (a password reset link on a shared
+ * computer, docs/DECISIONS.md "Another person signs in over a session") is a sign-out and a sign-in: the old live
+ * connection closes, the stores are emptied, the new person's connection opens, and the page loads again so that no
+ * screen's own copy of the last person's data stays either. Returns whether signed in. */
 export function useSessionLifecycle(): boolean {
   const status = useSession((s) => s.status)
   const signedIn = status.kind === 'signed-in' && !status.me.user.mustChangePassword
+  const userId = status.kind === 'signed-in' ? status.me.user.id : null
+  /** the person this window last had signed in (also while changing a forced password) */
+  const lastUser = useRef<string | null>(null)
   useEffect(() => {
-    if (signedIn) startLive()
+    const before = lastUser.current
+    if (status.kind !== 'loading') lastUser.current = userId
+    const switched = !!before && !!userId && before !== userId
+    if (signedIn && !switched) startLive()
     else {
       stopLive()
-      if (status.kind !== 'loading') {
-        useChats.getState().reset()
-        useDeckBuilds.getState().reset()
-        useSendQueue.getState().reset()
-        useProjects.getState().reset()
-        useAiAccess.getState().reset()
-        useWelcome.getState().reset()
-        useHandover.getState().reset()
-        useRooms.getState().reset()
-        usePeople.getState().reset()
+      if (status.kind !== 'loading') dropPersonStores()
+      if (switched) {
+        // what signedOut() would have forgotten of the last person in this tab (no sign-out happened here)
+        forgetPersonInTab()
+        if (signedIn) startLive()
+        personSwitch.reload()
       }
     }
-  }, [signedIn, status.kind])
+  }, [signedIn, status.kind, userId])
   return signedIn
 }
 
@@ -188,7 +213,8 @@ function Gate() {
     <Suspense fallback={<Splash />}>
       {/* under Settings: the page it was opened from (Settings itself is the dialog below), out of reach while it is open */}
       <RealPath.Provider value={settings.real}>
-      <div className="h-full" inert={settings.open} aria-hidden={settings.open || undefined}>
+      {/* keyed by the person: another person signed in over this one starts every screen afresh (useSessionLifecycle) */}
+      <div key={status.me.user.id} className="h-full" inert={settings.open} aria-hidden={settings.open || undefined}>
       <Routes location={settings.under}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />

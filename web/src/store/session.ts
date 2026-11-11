@@ -66,6 +66,16 @@ let pickedBeforeSignIn = false
 /** team default as last seen, for the sign-in screen after a sign-out */
 let lastTeamDefault: Locale | null = null
 
+/** The next person in this tab gets nothing of this one's composer chips, draft chats, last chat or uploads: on sign-out
+ * and when another person signs in over this one (App.tsx useSessionLifecycle). */
+export function forgetPersonInTab() {
+  forgetTeamAttach()
+  forgetStarters()
+  forgetSkillList()
+  forgetFileUploads()
+  forgetFolderUploads()
+}
+
 export const useSession = create<SessionState>((set, get) => ({
   status: { kind: 'loading' },
 
@@ -112,12 +122,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   signedOut(reason) {
-    // the next person in this tab gets nothing of this one's composer chips, draft chats, last chat or uploads
-    forgetTeamAttach()
-    forgetStarters()
-    forgetSkillList()
-    forgetFileUploads()
-    forgetFolderUploads()
+    forgetPersonInTab()
     pendingPick = null
     pickedBeforeSignIn = false
     storeRecentLocale(null)
