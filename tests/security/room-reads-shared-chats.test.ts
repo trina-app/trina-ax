@@ -1,6 +1,7 @@
 // A room's @트리나 reads shared project chats (docs/DECISIONS.md "대화방의 트리나가 공유 프로젝트 채팅을 읽는다"): people x
 // states. The chat is a shared chat of the project on projects/falcon (alice made it and writes the folder; bob reads it
-// through finance; carol is an admin, dana the owner; erin is not in its audience). Each person asks in a room of their
+// through finance; carol is an admin and dana the owner, neither a member, so not in its audience: docs/DECISIONS.md
+// "Project contents only for members"; erin is not in its audience either). Each person asks in a room of their
 // own, and project_chats / project_chat answer as the design says: the chat's title and content for its audience, the
 // same refusal as for a chat that does not exist for anyone else. States: as it is, in the trash, while its project's
 // folder is in the trash, after bob lost the folder, after it stopped being shared, while safe operations (1A) are on.
@@ -24,7 +25,8 @@ const CANARY = 'SEC-ROOM-CANARY-7731'
 const NOT_FOUND = 'No shared project chat with that id that the user can see. Use project_chats to find the chats they can see.'
 const PEOPLE = ['alice', 'bob', 'carol', 'dana', 'erin'] as const
 type Who = (typeof PEOPLE)[number]
-const AUDIENCE: Who[] = ['alice', 'bob', 'carol', 'dana']
+// (the owner and admins are not members of it: they get the refusal, as erin does)
+const AUDIENCE: Who[] = ['alice', 'bob']
 
 let h: Harness
 const ws: Partial<Record<Who, TestSocket>> = {}
@@ -90,7 +92,7 @@ async function readers(): Promise<Who[]> {
 }
 
 describe('who reads the chat through a room', () => {
-  test('as it is: its audience, never erin; her refusal is the same as for a chat that does not exist', async () => {
+  test('as it is: its audience, never erin, the owner or an admin; the refusal is the same as for a chat that does not exist', async () => {
     expect(await readers()).toEqual(AUDIENCE)
     const roomId = await room(['erin'])
     const { q } = await ask('erin', roomId, `@트리나 x\n${fake({ tool: 'project_chat', args: { chat: uuidv7() }, sayResult: true })}`)
@@ -100,7 +102,7 @@ describe('who reads the chat through a room', () => {
   test('after bob lost the folder: not bob', async () => {
     const rule = h.ctx.db.query("SELECT r.id FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/falcon' AND r.subject_type = 'group'").get() as { id: string }
     h.ctx.db.query("UPDATE folder_rules SET access = 'none' WHERE id = ?").run(rule.id)
-    try { expect(await readers()).toEqual(['alice', 'carol', 'dana']) } finally { h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE id = ?").run(rule.id) }
+    try { expect(await readers()).toEqual(['alice']) } finally { h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE id = ?").run(rule.id) }
   })
 
   test('in the trash, its project in the trash, no longer shared: nobody (the owner and admins neither)', async () => {

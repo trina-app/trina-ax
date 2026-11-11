@@ -192,18 +192,8 @@ export function FolderAccessPanel({ target, project, projectOf, onClose }: {
               {place === 'own' && <p className="text-sm text-muted">{t('folderAccess.ownFolder')}</p>}
               {projectFolder && <ProjectLines project={proj} admin={admin} go={go} />}
               {place === 'ask' && !admin && <p className="text-sm text-muted">{t('folderAccess.adminsChange')}</p>}
-              {admin && inProjects(path) && (
-                <div className="space-y-1 border-t border-line pt-3 text-xs text-muted">
-                  <p data-testid="folder-access-footer">{t('folderAccess.adminsAlways')}</p>
-                  {!projectFolder && (
-                    <p>
-                      <Link to={`/admin/folders?folder=${encodeURIComponent(path)}`} onClick={onClose} className="text-accent-text underline-offset-2 hover:underline" data-testid="folder-access-open-admin">
-                        {t('folderAccess.openInAdmin')}
-                      </Link>
-                    </p>
-                  )}
-                </div>
-              )}
+              {/* inside a team project nothing more: the owner and admins open it only as its members, and Admin › Folder
+                  permissions changes nothing there (docs/DECISIONS.md "Project contents only for members") */}
             </>
           )}
         </div>
