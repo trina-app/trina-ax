@@ -8,7 +8,8 @@ import { admins } from '../credentials/store'
 import { canUseAi } from '../credentials/access'
 import { isManaged } from '../app-config'
 import { authorize } from '../policy/authorize'
-import { atLeast } from '../policy/access'
+import { atLeast, inProjectZone } from '../policy/access'
+import { canSeeProject, mayManageProject } from '../chat/projects'
 import { readScope } from '../chat/read-scope'
 import { getRow as getIntegration, mayUse as mayUseIntegration, templateCovers } from '../integrations/connections/store'
 import { shareCovers, shareRow } from '../integrations/google-drive/shares'
@@ -617,8 +618,9 @@ export class Notifications {
       if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name },
         ...this.scheduleOf(row.user_id, skip.schedule_id) }
       // a run whose project its owner no longer sees: says so, no link (the project is not theirs to open now)
-      const gone = this.ctx.db.query('SELECT schedule_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string } | null
-      if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true, ...this.scheduleOf(row.user_id, gone.schedule_id) }
+      const gone = this.ctx.db.query('SELECT schedule_id, project_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string; project_id: string } | null
+      if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true,
+        ...(this.membersOnlyNow(row.user_id, gone.project_id) ? { membersOnly: true as const } : {}), ...this.scheduleOf(row.user_id, gone.schedule_id) }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(SAVE_LAPSE_SOURCE)) {
       // its save folder to check again: the Scheduled page, never a chat; the task by its title while it is there
@@ -670,6 +672,20 @@ export class Notifications {
   /** A scheduled run's task by its title, while the task is the person's and there (a deleted one: nothing, and the
    * Inbox says "a scheduled task"). The person's own words, read now and never stored with the notice; a push never
    * carries it (the lock screen's text is generic, text.ts). */
+  /** A task's project that is still there, in projects/<name>, which this person (the owner or an admin) may add
+   * themselves to and does not read now: "only its members can use it now" (docs/DECISIONS.md "Projects from before the
+   * update: one card, Add me to these"). Never its name or folder. */
+  private membersOnlyNow(userId: string, projectId: string): boolean {
+    try {
+      const r = this.ctx.db.query('SELECT folder_path, created_by, trashed_with FROM projects WHERE id = ?').get(projectId) as { folder_path: string; created_by: string | null; trashed_with: string | null } | null
+      if (!r || r.trashed_with !== null) return false
+      const segs = r.folder_path.split('/')
+      if (segs.length !== 2 || !inProjectZone(segs)) return false
+      const p = this.ctx.files.principal(userId)
+      return (p.role === 'owner' || p.role === 'admin') && mayManageProject(this.ctx.files, p, r) && !canSeeProject(this.ctx.files, p, r)
+    } catch { return false }
+  }
+
   private scheduleOf(userId: string, scheduleId: string | null | undefined): Pick<InboxNotification, 'schedule'> {
     if (!scheduleId) return {}
     const s = this.ctx.db.query('SELECT title FROM schedules WHERE id=? AND user_id=?').get(scheduleId, userId) as { title: string } | null

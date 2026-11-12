@@ -300,6 +300,13 @@ export const DeleteProjectQuery = z.object({
 /** GET /api/projects and GET /api/projects/:id: `manage=1` (the owner and admins) also answers the team projects the
  * caller manages without being a member (Project.member false, no contents). Without it: projects the caller reads. */
 export const ProjectsQuery = z.object({ manage: QueryBool.optional() })
+/** The owner's or an admin's card for team projects from before the update (docs/DECISIONS.md "Projects from before the
+ * update: one card, Add me to these"): id and name only, never their contents. No items: no card. */
+export const ProjectsUpdateNotice = z.object({ items: z.array(z.object({ id: z.string(), name: z.string() })) })
+export type ProjectsUpdateNotice = z.infer<typeof ProjectsUpdateNotice>
+/** "Add me to these": how many projects the caller is a member of now, and how many could not be saved. */
+export const ProjectsUpdateJoined = z.object({ joined: z.number().int().nonnegative(), skipped: z.number().int().nonnegative() })
+export type ProjectsUpdateJoined = z.infer<typeof ProjectsUpdateJoined>
 
 /** A participant as the project's edit screen shows it. `creator`: the project's creator, always kept. */
 export const ProjectMember = ProjectParticipant.extend({ name: z.string(), creator: z.boolean().optional() })
@@ -396,6 +403,10 @@ export const CHATS = {
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', query: ProjectsQuery, response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read; manage=1 (the owner and admins): also the team projects they manage without being a member, without their contents.' }),
+  // docs/DECISIONS.md "Projects from before the update: one card, Add me to these" (Admin › Home)
+  getProjectsUpdateNotice: endpoint({ method: 'GET', path: '/api/projects/update-notice', auth: 'user', owner: 'B', response: ProjectsUpdateNotice, summary: 'For the owner or an admin: the team projects from before the update to members-only projects (0.4.0 to 0.5.0) that they read by their role then and do not read now, by name, for one card on Admin › Home. Empty for members, after the card was dismissed, and for people who were not the owner or an admin at the update.' }),
+  joinProjectsUpdateNotice: endpoint({ method: 'POST', path: '/api/projects/update-notice/join', auth: 'user', owner: 'B', response: ProjectsUpdateJoined, summary: '"Add me to these": the caller becomes a member of every project on their card, each saved as Add me on the project saves it (audited per project with self, its members told), plus one audit row. Projects not on the card are never touched; one that cannot be saved is skipped and counted.' }),
+  dismissProjectsUpdateNotice: endpoint({ method: 'POST', path: '/api/projects/update-notice/dismiss', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Hide the card for good, for the caller (every device).' }),
   createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: a new team project folder projects/<name> with participants (members too, unless the team lets only admins), or a personal one in users/<me>/projects/<name>. Nowhere else.' }),
   previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants (for the owner and admins also apart: by its rules, by role only), or (projectId: its creator or an admin) who gains and loses an existing one, what the people who gain it would see, and whether saving also writes the floor rule or puts the creator\'s rule back (the screen asks first then). Nothing is saved.' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', query: ProjectsQuery, response: Project, summary: 'One project (manage=1: also one the owner or an admin manages without being a member, without its contents).' }),
