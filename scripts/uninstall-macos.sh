@@ -4,7 +4,8 @@
 #   sudo scripts/uninstall-macos.sh [--id mycel] [--server-user _axserver] [--agent-user _axagent] [--delete-data]
 #                                   [--keep-accounts]   (repair / reinstall: leave the role accounts in place)
 #
-# Stops and removes the LaunchDaemons, empties the pf anchor and releases our pf reference, removes the role accounts
+# Stops and removes the LaunchDaemons, empties the pf anchor and releases our pf reference, removes the dev environment
+# (scripts/dev-env/srt/uninstall-srt-mac.sh: the dev slot accounts, the sudoers rule, the folder ACL), the role accounts
 # and their groups, the app, root/, config, secrets, sockets, logs, the newsyslog config, the cron.deny / at.deny
 # entries and the Time Machine exclusions. The team folder, the DB and the backups stay unless --delete-data is
 # given (they are then owned by root so they are not left with the deleted account's uid). At the end it lists
@@ -46,6 +47,14 @@ done
 for u in "$SRV_USER" "$AGT_USER"; do
   if id "$u" >/dev/null 2>&1; then launchctl bootout "user/$(id -u "$u")" >/dev/null 2>&1 || true; pkill -KILL -u "$(id -u "$u")" >/dev/null 2>&1 || true; fi
 done
+
+# the dev environment: its runs end with the server (every process of the dev slot accounts), then its accounts,
+# sudoers rule and folder ACL go; its run data (<base>/devenv) goes with --delete-data
+case "$SRV_USER" in *server) DEV_PREFIX="${SRV_USER%server}dev" ;; *) DEV_PREFIX="${SRV_USER}dev" ;; esac
+if [ -f "/etc/sudoers.d/$ID-devenv" ] || dscl . -read "/Groups/$DEV_PREFIX" >/dev/null 2>&1; then
+  UARGS=(--id "$ID" --base "$BASE" --server-user "$SRV_USER" --prefix "$DEV_PREFIX"); [ "$DELETE_DATA" = 1 ] && UARGS+=(--purge)
+  bash "$(cd "$(dirname "$0")" && pwd -P)/dev-env/srt/uninstall-srt-mac.sh" "${UARGS[@]}" || say "uninstall-srt-mac.sh failed; the dev environment's accounts or files may stay"
+fi
 
 # 2) firewall: empty our anchor, release our reference (pf stays as it was before us)
 pfctl -q -a "$ANCHOR" -F all >/dev/null 2>&1 || true
@@ -125,6 +134,8 @@ for u in "$SRV_USER" "$AGT_USER"; do
   dscl . -read "/Groups/$u" >/dev/null 2>&1 && LEFT+=("group $u")
   pgrep -u "$u" >/dev/null 2>&1 && LEFT+=("processes of $u")
 done
+[ -e "/etc/sudoers.d/$ID-devenv" ] && LEFT+=("/etc/sudoers.d/$ID-devenv")
+for u in $(dscl . -list /Users 2>/dev/null | grep -E "^${DEV_PREFIX}[0-9]{1,2}$"); do LEFT+=("dev slot account $u (locked)"); done
 N=$(pfctl -a "$ANCHOR" -s rules 2>/dev/null | grep -c .)
 [ "${N:-0}" -gt 0 ] && LEFT+=("pf anchor $ANCHOR ($N rules)")
 [ -e "/etc/newsyslog.d/$ID.conf" ] && LEFT+=("/etc/newsyslog.d/$ID.conf")
