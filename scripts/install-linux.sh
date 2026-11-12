@@ -363,8 +363,6 @@ for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account se
   [ -f "$KROOT/$f" ] || die "$KROOT/$f missing (not a Linux kit? bun scripts/build-bundle.ts --os linux)"
 done
 for f in bin/bun bin/pandoc server/src/main.js server/src/admin.js server/src/account.js server/src/office-worker.js native/mycel-gate native/mycel-bridge native/mycel-safeops; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
-# root/mycel-boxd is not in the list above: a repair without --from uses the installed version, and a version from before
-# the kit had mycel-boxd has no such file (every kit from now on has it: build-bundle.ts LINUX_ROOT_NATIVE)
 if [ "$ALLOW_UNSIGNED" = 0 ] && [ ! -f "$BUNDLE/manifest.sig" ]; then die "the kit is not signed (use --allow-unsigned for development builds)"; fi
 
 # ---- 1) system checks (also `check`) ----
@@ -394,7 +392,6 @@ elf_arch() {
   case "$mach" in 3e00) echo amd64 ;; b700) echo arm64 ;; *) echo "elf-$mach" ;; esac
 }
 KIT_ELFS=("$BUNDLE/bin/bun" "$BUNDLE/native/mycel-gate" "$BUNDLE/native/mycel-bridge" "$KROOT/mycel-bootstrap" "$KROOT/mycel-launcher" "$KROOT/mycel-sandbox" "$KROOT/mycel-ctl")
-[ ! -f "$KROOT/mycel-boxd" ] || KIT_ELFS+=("$KROOT/mycel-boxd")
 for f in "${KIT_ELFS[@]}"; do
   a=$(elf_arch "$f")
   [ "$a" = "$ARCH" ] || die "${f#"$FROM"/} is $a, this server is $ARCH: use the $ARCH kit"
@@ -1016,61 +1013,32 @@ if [[ "$ROOT_V" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$ ]] && [ "$(kitbun "$ADMIN_
   ROOT_KEEP=1
   warn "the root programs (bootstrap, launcher, sandbox helper, mycel-ctl) stay at $ROOT_V, newer than this kit ($VERSION); to go back, uninstall (the data is kept) and install $VERSION"
 fi
-# BEGIN boxd restart
+# BEGIN box runner retire
 # native/cmd/mycel-ctl/update_test.go runs the text between BEGIN and END.
-BOXD_SOCK=/run/mycel-boxd/boxd.sock
-boxd_sum() { if [ -f "$BASE/root/mycel-boxd" ]; then sha256sum "$BASE/root/mycel-boxd" | cut -d' ' -f1; fi; }
-# Says why boxes do not work, or nothing. The unit is Type=simple, so `systemctl restart` is done when the process starts,
-# and the socket file of the old process stays until boxd ends its checks: ask boxd. boxd takes this request from root.
-boxd_problem() {
-  python3 -I - "$BOXD_SOCK" <<'BOXD_ASK'
-import json, socket, sys, time
-end = time.time() + 30
-while True:
-    try:
-        s = socket.socket(socket.AF_UNIX)
-        s.settimeout(5)
-        s.connect(sys.argv[1])
-        s.sendall(b'{"op":"status"}\n')
-        st = json.loads(s.makefile().readline())
-        if st.get("ev") == "status" and not st.get("available"):
-            print("boxes are not available:", st.get("reason"))
-        break
-    except (OSError, ValueError):
-        if time.time() > end:
-            print("no answer on", sys.argv[1])
-            break
-        time.sleep(0.5)
-BOXD_ASK
+# The box runner of the dev environment is gone (docs/DECISIONS.md "Dev environment: box runner removed, srt only"). The
+# same step as retireBoxRunner in native/cmd/mycel-ctl/update.go: the service of scripts/dev-env/install-trial.sh (up to
+# v0.5.0-beta.1), its drop-in of the team server (only when it names the box socket and not srt: install-srt.sh writes
+# the same file) and root/mycel-boxd go. The team server is stopped here (stop_units) and starts after the
+# daemon-reload below. The box state stays: box folders were mounts of project folders, and a delete through a mount
+# deletes team files (docs/INSTALL-LINUX.md "Removed: the box runner"). Every step is a warning, never a stop.
+retire_box_runner() {
+  local unit="$UNIT_DIR/mycel-boxd.service" dropin="$UNIT_DIR/$ID-server.service.d/dev-env.conf" done=0 p left=""
+  if [ "$SYSTEMD" = 1 ] && have_systemd && [ -f "$unit" ]; then
+    systemctl disable --now mycel-boxd.service >/dev/null 2>&1 || warn "mycel-boxd.service did not stop"
+    rm -f "$unit" && done=1
+    systemctl reset-failed mycel-boxd.service >/dev/null 2>&1 || true
+    say "the box runner of the dev environment is removed: mycel-boxd.service is stopped and its unit file is gone"
+  fi
+  if [ -f "$dropin" ] && grep -qs MYCEL_BOXD_SOCK "$dropin" && ! grep -qs MYCEL_DEV_ENV_RUNNER=srt "$dropin"; then
+    rm -f "$dropin"; rmdir "$(dirname "$dropin")" 2>/dev/null || true; done=1
+    warn "the dev environment is off: $dropin turned on the removed box runner. To use the dev environment, install srt: scripts/dev-env/srt/install-srt.sh"
+  fi
+  rm -f "$BASE/root/mycel-boxd"
+  [ "$done" = 1 ] || return 0
+  for p in "$BASE/boxd" "$BASE/boxd-storage" /var/lib/mycel-boxd /var/lib/mycel-boxd-trial /home/mycel-devbox; do [ ! -e "$p" ] || left="$left $p"; done
+  [ -z "$left" ] || warn "the box state stays:$left (and the account mycel-devbox). docs/INSTALL-LINUX.md \"Removed: the box runner\" says how to remove it"
 }
-# The same rule as restartBoxd in native/cmd/mycel-ctl/update.go: a start of boxd stops the boxes that run, so only a
-# changed program comes here, and only a service that runs this file restarts. A service that an administrator stopped
-# stays stopped; a failed one restarts. Without this step the old process runs on from a deleted file. The team server
-# is stopped here (stop_units) and starts after this step. The server works without boxes, so a failure is a warning.
-boxd_restart() {  # the boxd_sum from before the install
-  local unit="$UNIT_DIR/mycel-boxd.service" out why
-  [ "$SYSTEMD" = 1 ] && have_systemd && [ -f "$unit" ] || return 0
-  [ "$1" != "$(boxd_sum)" ] || return 0
-  case $'\n'"$(cat "$unit")" in
-    *$'\n'"ExecStart=$BASE/root/mycel-boxd "*) ;;
-    *) warn "mycel-boxd.service does not run $BASE/root/mycel-boxd, so it keeps the old program: run scripts/dev-env/install-trial.sh again"; return 0 ;;
-  esac
-  if [ "$(systemctl is-active mycel-boxd.service 2>/dev/null || true)" = inactive ]; then
-    say "mycel-boxd.service is stopped, so it stays stopped: its next start runs the new mycel-boxd"
-    return 0
-  fi
-  if ! out=$(systemctl restart mycel-boxd.service 2>&1); then
-    warn "restart of mycel-boxd.service failed, so boxes may not work: $out (journalctl -u mycel-boxd, then \`sudo systemctl restart mycel-boxd\`)"
-    return 0
-  fi
-  why=$(boxd_problem 2>&1 || true)
-  if [ -n "$why" ]; then
-    warn "mycel-boxd.service restarted, but boxes may not work: $why (journalctl -u mycel-boxd)"
-    return 0
-  fi
-  say "mycel-boxd changed: mycel-boxd.service restarted; boxes that ran have stopped and start again at their next use"
-}
-# END boxd restart
+# END box runner retire
 rootfile() {  # mode name
   if [ "$ROOT_KEEP" = 1 ] && [ -f "$BASE/root/$2" ] && [ ! -L "$BASE/root/$2" ]; then return 0; fi
   nolink "$BASE/root/$2"
@@ -1080,12 +1048,7 @@ rootfile() {  # mode name
 # new mycel-ctl, whose `status` says "AN UPDATE DID NOT FINISH" (0.4.0's has no such check; QA TC-340 retest). The new
 # mycel-ctl works with the old programs and units until the rest are in.
 for f in mycel-ctl mycel-bootstrap mycel-launcher mycel-sandbox mycel-account set-claude-token; do rootfile 755 "$f"; done
-# the dev environment's root helper. It runs only from here, never from a version folder (the server account owns those),
-# and only when scripts/dev-env/install-trial.sh added its service: this file alone changes nothing. A kit without it (a
-# repair from an older installed version) leaves the file in place.
-BOXD_BEFORE=$(boxd_sum)
-[ ! -f "$KROOT/mycel-boxd" ] || rootfile 755 mycel-boxd
-boxd_restart "$BOXD_BEFORE"
+retire_box_runner
 rootfile 644 safe-fs.sh
 # the one list of system packages, its flat copy and its reader: `mycel-ctl update` syncs this machine to them
 # (packages.sh sync) and compares root/packages.synced with the list. A kit from before the list has none.

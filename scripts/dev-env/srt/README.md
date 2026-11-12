@@ -1,9 +1,10 @@
 # Dev environment on srt: install
 
 The srt runner of the dev environment (design: `docs/research/srt-dev-env.md`). The AI's `box_shell` commands run on
-the team server as the server account, inside srt, in a `systemd-run --scope` unit. The podman box (`../install-trial.sh`)
-stays the default until a later PR removes it. Do not install both on one server: `install-srt.sh` writes the same
-drop-in file (`dev-env.conf`) and sets `MYCEL_DEV_ENV_RUNNER=srt`.
+the team server as the server account, inside srt, in a `systemd-run --scope` unit. srt is the only runner.
+`install-srt.sh` writes the drop-in file `dev-env.conf` of the server unit. The server does not read
+`MYCEL_DEV_ENV_RUNNER=srt` any more, but the file keeps the line: `uninstall-srt.sh` and `mycel-ctl update` know the file
+of srt by it.
 
 ## Files
 

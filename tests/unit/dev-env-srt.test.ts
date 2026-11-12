@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, t
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
+import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION } from '@mycel/shared/api'
 import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
@@ -20,10 +20,11 @@ import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } fro
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
 import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
-import { mayUseDevEnv, newConsent, requiredWarningVersion, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
+import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
+import { fileEvent } from '../../server/src/files/store'
 
 setDefaultTimeout(40_000)
 const REPO = path.join(import.meta.dir, '..', '..')
@@ -564,12 +565,12 @@ describe('the argv of a run', () => {
   })
 })
 
-describe('the plan file (the same rules as mycel-boxd)', () => {
+describe('the plan file (root/dev-env.json)', () => {
   const ok = '{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}'
   test('a good file; network empty means offline', () => {
     expect(parsePlan(ok)).toMatchObject({ plan: 'team', maxRunning: 1, memoryMiB: 2560, network: '' })
   })
-  test('the cases that plan_test.go refuses', () => {
+  test('the cases that are refused', () => {
     for (const bad of [
       '{"format":2,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}',
       '{"format":1,"plan":"","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}',
@@ -684,6 +685,8 @@ const runs = new Map<string, FakeRun>()
 const stops: string[] = []
 let selfTestProblem = ''
 let cpu = 0
+/** what the fake run of "during" does while it runs (another person saves a file, for example) */
+let during: (() => void) | null = null
 /** commands: "echo X", "exit N", "write <rel> <text>", "sleep" (runs until stopped or ended), "oom" (the kernel kills it) */
 const fake: SrtSystem = {
   spawn(spec) {
@@ -702,6 +705,7 @@ const fake: SrtSystem = {
       if (m) { fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); return end(0) }
       m = /^exit (\d+)$/.exec(c)
       if (m) return end(Number(m[1]))
+      if (c === 'during') { during?.(); return end(0) }
       if (c === 'blocked') { fs.appendFileSync(spec.stderrFile, 'curl: (56) CONNECT tunnel failed, response 403\n'); return end(56) }
       m = /^write (\S+) (.*)$/.exec(c)
       if (m) { fs.writeFileSync(path.join(spec.cwd, m[1]!), m[2]!); return end(0) }
@@ -734,8 +738,8 @@ const publish: { user: string; frame: { type: string; data: { code?: string; mes
 
 type ProjectArg = { id: string; folderPath: string; name: string } | null
 const falcon = (): ProjectArg => ({ id: falconId, folderPath: FALCON, name: 'Falcon' })
-const shell = (userId: string, project: ProjectArg, chatId: string, signal = new AbortController().signal) =>
-  boxShellTool({ ctx: h.ctx, project, userId, turnId: 'turn-1', chatId, signal, confirm: async () => null, redact: (s) => s.replaceAll('hunter2', '[hidden]') })
+const shell = (userId: string, project: ProjectArg, chatId: string, signal = new AbortController().signal, confirm: Parameters<typeof boxShellTool>[0]['confirm'] = async () => null) =>
+  boxShellTool({ ctx: h.ctx, project, userId, turnId: 'turn-1', chatId, signal, confirm, redact: (s) => s.replaceAll('hunter2', '[hidden]') })
 const alice = (o: { project?: ProjectArg; chat?: string } = {}) => shell('alice', o.project === undefined ? falcon() : o.project, o.chat ?? chatFalcon)
 const out = (r: { content: { type: string; text?: string }[] }) => r.content.map((c) => c.text ?? '').join('\n')
 const rows = () => h.ctx.db.query('SELECT * FROM dev_env_runs ORDER BY started_at, id').all() as Record<string, unknown>[]
@@ -747,7 +751,6 @@ const turnOnTeam = (patch: Partial<ReturnType<typeof teamSetting>> = {}) =>
 
 beforeAll(async () => {
   process.env.MYCEL_DEV_ENV = '1'
-  process.env.MYCEL_DEV_ENV_RUNNER = 'srt'
   process.env.MYCEL_TEST_SECRET_FOR_SRT = 'CANARY-ENV'
   h = await startHarness({ name: 'dev-env-srt' })
   devBase = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-base-'))
@@ -764,7 +767,7 @@ beforeAll(async () => {
 })
 afterAll(async () => {
   setSrtSystem(null)
-  for (const k of ['MYCEL_DEV_ENV', 'MYCEL_DEV_ENV_RUNNER', 'MYCEL_TEST_SECRET_FOR_SRT']) delete process.env[k]
+  for (const k of ['MYCEL_DEV_ENV', 'MYCEL_TEST_SECRET_FOR_SRT']) delete process.env[k]
   await h.close()
   fs.rmSync(devBase, { recursive: true, force: true })
 })
@@ -779,12 +782,11 @@ beforeEach(() => {
 })
 
 describe('the team setting', () => {
-  test('srt asks for its own warning; a consent to the box warning does not count; off for everyone when off', () => {
-    expect(requiredWarningVersion()).toBe(DEV_ENV_SRT_WARNING_VERSION)
-    expect(requiredWarningVersion({})).toBe(DEV_ENV_WARNING_VERSION)
+  test('the srt warning; a consent to the warning of the removed box runner (1) does not count; off for everyone when off', () => {
+    expect(newConsent({ id: 'carol', name: 'Carol Park' }).warningVersion).toBe(DEV_ENV_SRT_WARNING_VERSION)
     const s = teamSetting(h.ctx.db)
     expect(teamInForce(s)).toBe(true)
-    expect(teamInForce({ ...s, consent: { ...s.consent!, warningVersion: DEV_ENV_WARNING_VERSION } })).toBe(false)
+    expect(teamInForce({ ...s, consent: { ...s.consent!, warningVersion: 1 } })).toBe(false)
     expect(mayUseDevEnv(h.ctx.db, h.ctx.files, 'alice')).toBe(true)
     turnOnTeam({ enabled: false })
     expect(mayUseDevEnv(h.ctx.db, h.ctx.files, 'alice')).toBe(false)
@@ -792,16 +794,17 @@ describe('the team setting', () => {
     expect(mayUseDevEnv(h.ctx.db, h.ctx.files, 'alice')).toBe(false)
     expect(mayUseDevEnv(h.ctx.db, h.ctx.files, 'bob')).toBe(true)
   })
-  test('admins turn it on with the warning; a project setting is refused on srt', async () => {
+  test('admins turn it on with the warning; there is no project setting', async () => {
     turnOnTeam({ enabled: false, consent: null })
     await expect(h.api('carol').call(API.updateDevEnvTeam, { body: { enabled: true } })).rejects.toThrow()
     await expect(h.api('alice').call(API.updateDevEnvTeam, { body: { enabled: true, acceptWarning: 2 } })).rejects.toThrow()
     const r = await h.api('carol').call(API.updateDevEnvTeam, { body: { enabled: true, acceptWarning: DEV_ENV_SRT_WARNING_VERSION } })
     expect(r.setting).toMatchObject({ enabled: true, consent: { warningVersion: DEV_ENV_SRT_WARNING_VERSION } })
-    expect(r.runner).toBe('srt')
-    await expect(h.api('carol').call(API.updateDevEnv, { params: { id: falconId }, body: { enabled: true, scope: { mode: 'writers', groupIds: [], userIds: [] } } })).rejects.toThrow()
+    const put = await h.req('carol', `/api/projects/${falconId}/dev-env`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true, scope: { mode: 'writers', groupIds: [], userIds: [] } }) })
+    expect(put.status).toBe(404)
     const page = await h.api('alice').call(API.devEnv, { params: { id: falconId } })
-    expect(page).toMatchObject({ runner: 'srt', mayUse: true, box: null, setting: { enabled: true } })
+    expect(page).toMatchObject({ mayUse: true, setting: { enabled: true } })
+    expect(page).not.toHaveProperty('box')
   })
   test('availability says why srt cannot run', async () => {
     selfTestProblem = 'cannot start a scope (polkit rule or slice missing)'
@@ -921,6 +924,37 @@ describe('a command follows the person, not the project', () => {
     const r = await alice().call({ command: 'write a.txt hi', cwd: 'src' })
     expect(out(r)).toContain('created')
     expect(out(r)).toContain('src/a.txt')
+  })
+  test('a login command after changes by others: the person sees them and decides', async () => {
+    // a first command: the changes after it are by others
+    await alice().call({ command: 'echo baseline' })
+    fileEvent(h.ctx.db, { turnId: null, userId: 'carol', path: `${FALCON}/package.json`, action: 'update', size: 10 })
+    const asked: string[][] = []
+    const before = runs.size
+    const r = await shell('alice', falcon(), chatFalcon, undefined, async (_q, _o, details) => { asked.push(details); return 'no' }).call({ command: 'git push origin main' })
+    expect(asked[0]).toContain(`Carol Park: update ${FALCON}/package.json`)
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain('did not allow')
+    expect(runs.size).toBe(before)
+  })
+  test('a Files save during a command is kept as a conflict copy', async () => {
+    const target = path.join(h.team, FALCON, 'notes.md')
+    fs.writeFileSync(target, 'base')
+    await alice().call({ command: 'echo baseline' })
+    during = () => {
+      // carol saves from the file screen while the command runs; then the command overwrites it
+      fs.writeFileSync(target, 'carol edit')
+      fileEvent(h.ctx.db, { turnId: null, userId: 'carol', path: `${FALCON}/notes.md`, action: 'update', size: 10 })
+      fs.writeFileSync(target, 'run result')
+    }
+    try {
+      expect(out(await alice().call({ command: 'during' }))).toContain('their version is kept as')
+    } finally { during = null }
+    const copies = fs.readdirSync(path.join(h.team, FALCON)).filter((n) => n.startsWith('notes (') && n.includes('Carol Park'))
+    expect(copies.length).toBe(1)
+    expect(fs.readFileSync(path.join(h.team, FALCON, copies[0]!), 'utf8')).toBe('carol edit')
+    expect(fs.readFileSync(target, 'utf8')).toBe('run result')
+    for (const n of [...copies, 'notes.md']) fs.rmSync(path.join(h.team, FALCON, n), { force: true })
   })
   test('a cwd through a link out of the folder is refused before the run (A10)', async () => {
     const link = path.join(h.team, FALCON, 'out')
@@ -1127,9 +1161,6 @@ describe('dev servers', () => {
     await alice().call({ command: 'echo x' })
     expect(lastSettings().network.allowedDomains).toEqual([])
   })
-  test('preview is not available on srt yet', async () => {
-    await expect(h.api('alice').call(API.devEnvPreview, { params: { id: falconId }, body: { port: 3000 } })).rejects.toThrow()
-  })
 })
 
 describe('the tracker', () => {
@@ -1160,7 +1191,7 @@ describe('the tracker', () => {
 describe('the team\'s sites (admins)', () => {
   test('read and change; bad domains refused; the next run gets them', async () => {
     const r = await h.api('carol').call(API.devEnvTeam, {})
-    expect(r).toMatchObject({ runner: 'srt', setting: { extraDomains: [] }, plan: { plan: 'starter', maxRunning: 1 } })
+    expect(r).toMatchObject({ setting: { extraDomains: [] }, plan: { plan: 'starter', maxRunning: 1 } })
     expect(r.defaultDomains).toContain('registry.npmjs.org')
     await expect(h.api('carol').call(API.updateDevEnvTeam, { body: { extraDomains: ['*.com'] } })).rejects.toThrow()
     await expect(h.api('alice').call(API.updateDevEnvTeam, { body: { extraDomains: ['api.example.net'] } })).rejects.toThrow()

@@ -27,7 +27,7 @@ for (const lang of ['en', 'ko'] as const) {
     test('the site card: Always allow puts the site on her own list', async ({ page }) => {
       await reset(page)
       const errors = watchConsole(page)
-      await page.request.post('/__test/dev-env', { data: { srt: true } })
+      await page.request.post('/__test/dev-env', { data: {} })
       await signIn(page)
       await page.getByTestId('composer-input').fill('devenvsite ask')
       await page.getByTestId('send').click()
@@ -61,7 +61,7 @@ for (const lang of ['en', 'ko'] as const) {
 
     test('Full internet asks first with the warning; Remove takes a site off', async ({ page }) => {
       await reset(page)
-      await page.request.post('/__test/dev-env', { data: { srt: true, sites: ['api.openweathermap.org', '*.example-cdn.net'] } })
+      await page.request.post('/__test/dev-env', { data: { sites: ['api.openweathermap.org', '*.example-cdn.net'] } })
       await signIn(page)
       await page.goto('/settings/dev-env-sites')
       const s = page.getByTestId('dev-env-sites')
@@ -96,7 +96,7 @@ for (const lang of ['en', 'ko'] as const) {
 
     test('No network: nothing to allow, no Full internet switch', async ({ page }) => {
       await reset(page)
-      await page.request.post('/__test/dev-env', { data: { srt: true, network: 'offline', sites: ['api.openweathermap.org'] } })
+      await page.request.post('/__test/dev-env', { data: { network: 'offline', sites: ['api.openweathermap.org'] } })
       await signIn(page)
       await page.goto('/settings/dev-env-sites')
       const s = page.getByTestId('dev-env-sites')

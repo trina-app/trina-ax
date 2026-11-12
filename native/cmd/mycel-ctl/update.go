@@ -918,8 +918,6 @@ func (u *updater) updateRoot(dir, v string) error {
 		}
 	}
 	systemd := u.in.Systemd && fileExists(systemdRunDir)
-	// before the files change: a process from before an older install-linux.sh update stays with no other sign
-	stale := systemd && u.boxdStale()
 	if len(diff) == 0 {
 		// root files already those of v: say so (rootNeeded compares root/VERSION with the feed's rootSince, and a server
 		// whose files are right would otherwise be sent here again by every check)
@@ -929,16 +927,7 @@ func (u *updater) updateRoot(dir, v string) error {
 			}
 			u.res.Notes = append(u.res.Notes, "root files already match "+v+": root/VERSION is "+v+" now")
 		}
-		if err := u.syncUnits(systemd, false); err != nil {
-			return err
-		}
-		if stale {
-			if !u.waitForTurns() {
-				return u.deferUpdate(v, boxdUnit+" not restarted")
-			}
-			u.restartBoxd()
-		}
-		return nil
+		return u.syncUnits(systemd, false)
 	}
 	stage := u.e.root(".new")
 	if err := os.RemoveAll(stage); err != nil {
@@ -962,13 +951,7 @@ func (u *updater) updateRoot(dir, v string) error {
 	if !u.waitForTurns() {
 		return u.deferUpdate(v, "root files not replaced")
 	}
-	units, boxd := false, stale
-	// also when a later step fails: the next run finds root/mycel-boxd already new and would not restart it
-	defer func() {
-		if boxd && systemd {
-			u.restartBoxd()
-		}
-	}()
+	units := false
 	for _, rel := range diff {
 		dest := u.e.root(rel)
 		if err := mkdirAll755(filepath.Dir(dest)); err != nil {
@@ -985,9 +968,6 @@ func (u *updater) updateRoot(dir, v string) error {
 		}
 		if strings.HasPrefix(rel, "systemd/") {
 			units = true
-		}
-		if rel == boxdProgram {
-			boxd = true
 		}
 	}
 	if err := writeRootFile(u.e.root("VERSION"), []byte(v+"\n"), 0o644); err != nil {
@@ -1020,114 +1000,73 @@ func (u *updater) updateRoot(dir, v string) error {
 	return nil
 }
 
-// The dev environment's root helper: root/<boxdProgram> comes with every kit, and only a server with the dev env has
-// the service (scripts/dev-env/install-trial.sh writes it, with this name for every install id). Without the service the
-// file runs nothing, so a server without the dev env has no step here. A hosted team VM with the service takes the same
-// step: the control plane's update runs this code too.
+// The box runner of the dev environment is gone (docs/DECISIONS.md "Dev environment: box runner removed, srt only"). A
+// server where scripts/dev-env/install-trial.sh ran (up to v0.5.0-beta.1) still has its root service, the drop-in that
+// turned the box on for the team server, and root/mycel-boxd from the kit. The update takes those three away before the
+// new server starts, so it does not start with MYCEL_DEV_ENV=1 and no srt. The box state (the mycel-devbox account, the
+// box volumes, the podman storage) stays: box folders were mounts of project folders, and a delete through a mount
+// deletes team files, so the note says where it is and how to remove it. Every step is a note, never a failure.
 const (
-	boxdProgram = "mycel-boxd"
-	boxdUnit    = "mycel-boxd.service"
+	retiredBoxProgram = "mycel-boxd"
+	retiredBoxUnit    = "mycel-boxd.service"
 )
 
-// boxdSock is the default of mycel-boxd --listen (install-trial.sh keeps it). boxdWait is the time for its checks, the
-// same as in install-trial.sh. Variables for the tests.
-var (
-	boxdSock = "/run/mycel-boxd/boxd.sock"
-	boxdWait = 30 * time.Second
-	boxdExe  = func(pid string) string { return "/proc/" + pid + "/exe" }
-)
-
-// boxdStale: the service runs root/mycel-boxd, but its process has other content than that file. The path of the process
-// says "(deleted)" also for a file that was replaced with the same content, and that needs no restart, so this compares
-// the content, as install-trial.sh does. A service that runs another path, has no process, or has a program that cannot
-// be read is not stale: a restart stops the boxes.
-func (u *updater) boxdStale() bool {
-	unit, err := os.ReadFile(filepath.Join(systemdUnitDir, boxdUnit))
-	if err != nil || !strings.Contains(string(unit), "\nExecStart="+u.e.root(boxdProgram)+" ") {
-		return false
-	}
-	out, err := exec.Command(u.e.systemctl, "show", "-p", "MainPID", "--value", boxdUnit).Output()
-	pid := strings.TrimSpace(string(out))
-	if err != nil || pid == "" || pid == "0" {
-		return false
-	}
-	running, _, err := bundle.HashFile(boxdExe(pid))
-	if err != nil {
-		return false
-	}
-	file, _, err := bundle.HashFile(u.e.root(boxdProgram))
-	if err != nil || running == file {
-		return false
-	}
-	u.res.Notes = append(u.res.Notes, boxdUnit+" runs an old program, not the file "+u.e.root(boxdProgram)+": it restarts")
-	return true
+// retiredBoxState: the folders and the account that install-trial.sh made, for the note
+var retiredBoxState = func(base string) []string {
+	return []string{filepath.Join(base, "boxd"), filepath.Join(base, "boxd-storage"), "/var/lib/mycel-boxd", "/var/lib/mycel-boxd-trial", "/home/mycel-devbox"}
 }
 
-// restartBoxd runs the new root/mycel-boxd after this update replaced it, before the team server restarts (updateApp).
-// A helper that starts stops the boxes that run (native/cmd/mycel-boxd setup fails closed), so only a changed program
-// comes here, and only a service that runs this file restarts: one from an earlier trial runs another path and would
-// stop the boxes for nothing. A service that an administrator stopped stays stopped; a failed one restarts. The server
-// works without boxes, so a failure is a note and the update goes on.
-func (u *updater) restartBoxd() {
-	unit, err := os.ReadFile(filepath.Join(systemdUnitDir, boxdUnit))
-	if err != nil {
-		return
-	}
-	if !strings.Contains(string(unit), "\nExecStart="+u.e.root(boxdProgram)+" ") {
-		u.res.Notes = append(u.res.Notes, boxdUnit+" does not run "+u.e.root(boxdProgram)+", so it keeps the old program: run scripts/dev-env/install-trial.sh again")
-		return
-	}
-	if out, _ := exec.Command(u.e.systemctl, "is-active", boxdUnit).Output(); strings.TrimSpace(string(out)) == "inactive" {
-		u.res.Notes = append(u.res.Notes, boxdUnit+" is stopped, so it stays stopped: its next start runs the new "+boxdProgram)
-		return
-	}
-	if out, err := exec.Command(u.e.systemctl, "restart", boxdUnit).CombinedOutput(); err != nil {
-		u.res.Notes = append(u.res.Notes, fmt.Sprintf("restart of %s failed, so boxes may not work: %v %s (journalctl -u %s, then `sudo systemctl restart %s`)",
-			boxdUnit, err, strings.TrimSpace(string(out)), boxdUnit, boxdUnit))
-		return
-	}
-	if why := boxdProblem(); why != "" {
-		u.res.Notes = append(u.res.Notes, fmt.Sprintf("%s restarted, but boxes may not work: %s (journalctl -u %s)", boxdUnit, why, boxdUnit))
-		return
-	}
-	u.res.Notes = append(u.res.Notes, boxdProgram+" changed: "+boxdUnit+" restarted; boxes that ran have stopped and start again at their next use")
-}
-
-// boxdProblem asks the helper after a restart and says why boxes do not work, or "". The exit status of `systemctl
-// restart` cannot say this: the unit is Type=simple, so systemctl is done when the process starts, also for a program that
-// stops at once. The helper answers after its checks; until then the socket file of the old process refuses a connection.
-func boxdProblem() string {
-	for end := time.Now().Add(boxdWait); ; {
-		var st struct {
-			Ev        string `json:"ev"`
-			Available bool   `json:"available"`
-			Reason    string `json:"reason"`
+// retireBoxRunner runs before the server restarts on the new version (updateApp). Nothing to do on a server where
+// install-trial.sh never ran, which is almost every server.
+func (u *updater) retireBoxRunner(systemd bool) {
+	reload := false
+	unit := filepath.Join(systemdUnitDir, retiredBoxUnit)
+	if systemd && fileExists(unit) {
+		if out, err := exec.Command(u.e.systemctl, "disable", "--now", retiredBoxUnit).CombinedOutput(); err != nil {
+			u.res.Notes = append(u.res.Notes, fmt.Sprintf("%s did not stop: %v %s", retiredBoxUnit, err, strings.TrimSpace(string(out))))
 		}
-		if line, err := boxdAsk(); err == nil && json.Unmarshal(line, &st) == nil {
-			if st.Ev == "status" && !st.Available {
-				return "boxes are not available: " + st.Reason
-			}
-			return "" // a boxd from before the status for root says no, but it answers: it runs
+		if err := os.Remove(unit); err != nil {
+			u.res.Notes = append(u.res.Notes, "cannot remove "+unit+": "+err.Error())
+		} else {
+			reload = true
+			u.res.Notes = append(u.res.Notes, "the box runner of the dev environment is removed: "+retiredBoxUnit+" is stopped and its unit file is gone")
 		}
-		if time.Now().After(end) {
-			return "no answer on " + boxdSock + " after " + boxdWait.String()
+	}
+	// the drop-in is the box trial's when it names the box socket and not the srt runner (install-srt.sh writes the
+	// same file with MYCEL_DEV_ENV_RUNNER=srt, and uninstall-srt.sh knows its own file by that line)
+	dropin := filepath.Join(systemdUnitDir, u.in.ID+"-server.service.d", "dev-env.conf")
+	if b, err := os.ReadFile(dropin); err == nil && strings.Contains(string(b), "MYCEL_BOXD_SOCK") && !strings.Contains(string(b), "MYCEL_DEV_ENV_RUNNER=srt") {
+		if err := os.Remove(dropin); err != nil {
+			u.res.Notes = append(u.res.Notes, "cannot remove "+dropin+": "+err.Error())
+		} else {
+			reload = true
+			_ = os.Remove(filepath.Dir(dropin)) // only when empty
+			u.res.Notes = append(u.res.Notes, "the dev environment is off: "+dropin+" turned on the removed box runner. To use the dev environment, install srt: scripts/dev-env/srt/install-srt.sh")
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
-}
-
-// boxdAsk sends one status request. boxd takes only this request from root.
-func boxdAsk() ([]byte, error) {
-	c, err := net.DialTimeout("unix", boxdSock, 2*time.Second)
-	if err != nil {
-		return nil, err
+	if reload {
+		if out, err := exec.Command(u.e.systemctl, "daemon-reload").CombinedOutput(); err != nil {
+			u.res.Notes = append(u.res.Notes, fmt.Sprintf("daemon-reload failed: %v %s", err, strings.TrimSpace(string(out))))
+		}
+		_ = exec.Command(u.e.systemctl, "reset-failed", retiredBoxUnit).Run()
 	}
-	defer c.Close()
-	c.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := c.Write([]byte(`{"op":"status"}` + "\n")); err != nil {
-		return nil, err
+	if prog := u.e.root(retiredBoxProgram); fileExists(prog) {
+		if err := os.Remove(prog); err != nil {
+			u.res.Notes = append(u.res.Notes, "cannot remove "+prog+": "+err.Error())
+		}
 	}
-	return bufio.NewReader(c).ReadBytes('\n')
+	if !reload {
+		return
+	}
+	var left []string
+	for _, p := range retiredBoxState(u.e.base) {
+		if fileExists(p) {
+			left = append(left, p)
+		}
+	}
+	if len(left) > 0 {
+		u.res.Notes = append(u.res.Notes, "the box state stays: "+strings.Join(left, ", ")+" (and the account mycel-devbox). docs/INSTALL-LINUX.md \"Removed: the box runner\" says how to remove it")
+	}
 }
 
 // syncUnits renders the units from root/systemd and root/install.json on every update (not only when a template
@@ -1394,6 +1333,7 @@ func (u *updater) updateApp(dir, v string) error {
 		return fmt.Errorf("switch: %v %s", err, strings.TrimSpace(out))
 	}
 	if systemd {
+		u.retireBoxRunner(systemd)
 		if err := u.restartSrv(); err != nil {
 			return err
 		}
