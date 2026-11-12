@@ -662,6 +662,22 @@ test('the invite to the phone\'s share sheet (QA TC-271): the app\'s own (share-
     // a computer keeps its copy button
     w.matchMedia = () => ({ matches: false })
     expect(canShareText()).toBe(false)
+    // Settings › Apps' send-to-computer row (QA TC-089) knows it is on a phone or tablet: any width (a phone held
+    // sideways, a tablet), and the browser's sheet gets the link as a link (AirDrop opens it on a Mac)
+    expect(canShareText({ anyWidth: true })).toBe(true)
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES] }
+    const links: unknown[] = []
+    setShare(async (d) => { links.push(d) })
+    expect(canShareText({ anyWidth: true })).toBe(true)
+    expect(await shareText('https://team.example/settings/apps', { url: true, title: 'Desktop app' })).toBe('shared')
+    expect(links).toEqual([{ url: 'https://team.example/settings/apps', title: 'Desktop app' }])
+    setShare(undefined)
+    expect(canShareText({ anyWidth: true })).toBe(false)
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, SHARE_TEXT_CAPABILITY] }
+    handler = (m) => reply(m)
+    expect(canShareText({ anyWidth: true })).toBe(true)
+    expect(await shareText('https://team.example/settings/apps', { url: true })).toBe('shared')
+    expect(messages.filter((m) => m.type === 'share-text').at(-1)).toEqual(expect.objectContaining({ text: 'https://team.example/settings/apps' }))
   } finally {
     w.matchMedia = media
     if (had) Object.defineProperty(nav, 'share', had); else Reflect.deleteProperty(nav, 'share')

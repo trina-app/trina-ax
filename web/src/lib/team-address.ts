@@ -22,5 +22,6 @@ export function teamAddressHost(address: string | null | undefined): string | nu
 export function teamAddressShown(address: string | null | undefined): string | null {
   const host = teamAddressHost(address)
   if (!host) return null
-  return address!.trim().toLowerCase().startsWith('http:') ? new URL(address!).origin : host
+  const u = new URL(address!)
+  return u.protocol === 'http:' ? u.origin : host
 }

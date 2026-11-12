@@ -902,7 +902,8 @@ function SendToComputer({ address }: { address: string | undefined }) {
   })()
   const send = async () => {
     // closed without sending: nothing more; no sheet, or one that failed: the link is copied instead
-    if (canShareText() && (await shareText(link)) !== 'failed') return
+    // the row shows on phones and tablets only (by platform): any width, a phone held sideways too
+    if (canShareText({ anyWidth: true }) && (await shareText(link, { url: true, title: t('apps.desktopTitle') })) !== 'failed') return
     await copy(link)
     toast({ level: 'success', text: t('apps.linkCopied') })
   }
