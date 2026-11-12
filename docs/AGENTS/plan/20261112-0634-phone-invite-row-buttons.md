@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 06:34
 - Branch: `fix/phone-invite-row-buttons`
-- Status: in progress
+- Status: done
 - Where: `web/` (this repo). Why: a phone layout of two Admin pages in the web app the phone app shows.
 - Version impact: patch, a layout fix on phones only.
 
@@ -54,4 +54,9 @@ the same General page (language, time zone) and AI engine.
 
 ## Result
 
-Filled in at the end.
+Built as planned, in https://github.com/trina-app/trina-ax/pull/580. The team link's details run under the name and
+the buttons (the grid's columns 2–3), not only under the name: in Spanish the name column alone was about 115 px.
+Upload logo and Run now are `PhoneListRow`s (rows, not full-width buttons), to match the Settings list. The 1440
+screenshots before and after are byte-identical. The e2e `phone-invite-rows` passes in Chromium and WebKit; the
+existing `team-icon` phone-width test fails the same way on `dev` (it clicks "Show previews", hidden on phones since
+TC-269).
