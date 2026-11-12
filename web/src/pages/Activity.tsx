@@ -1,10 +1,11 @@
 // Activity (what used to be the Inbox, in Settings › Notifications): a page of its own, read like Slack's Activity. The
 // title and its tabs (All · Mentions · Threads, a dot on a tab with something unread; no DMs tab: direct and group chats
-// are read in the conversation list, owner 2026-11-13, and their mentions and followed replies are under these tabs); under them "Unreads" and a
-// search that narrow what is loaded; the notices grouped under their day (Today, Yesterday, a date), newest first. A row
-// is the writer's photo (a bell for a notice of the app's own), who and the time, the line, and underneath where it was
-// (a DM, #room › Thread) or what it is about. The unread count sits on the right. The whole row opens the place and reads
-// it; a notice with nowhere to open keeps its "Mark as read". The preferences stay in Settings › Notifications (the gear).
+// are read in the conversation list, owner 2026-11-13, and their mentions and followed replies are under these tabs);
+// under them "Unreads" and a search that narrow what is loaded; the notices grouped under their day (Today, Yesterday,
+// a date), newest first. A row is the writer's photo (a bell for a notice of the app's own), who and the time, the
+// line, and underneath where it was (a DM, #room › Thread) or what it is about. The unread count sits on the right. The
+// whole row opens the place and reads it; a notice with nowhere to open keeps its "Mark as read". The preferences stay
+// in Settings › Notifications (the gear).
 // Opened from a phone's 대화 tab (its 멘션·스레드 row, `?in=chats`: lib/screens.ts CHATS_ACTIVITY) it is that tab's page of
 // the conversations only: the same tabs, rows of rooms (no notice of the app's own: the server sends only
 // those, GET /api/notifications?only=rooms), named "멘션·스레드". "Nothing here" is never said while older pages are left:

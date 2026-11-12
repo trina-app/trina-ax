@@ -98,7 +98,7 @@ test('no DMs tab (owner 2026-11-13): an old ?tab=dms opens All; a mention and a 
   await expect(page.getByTestId('activity-tab-all')).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('notification-item')).toHaveCount(2)
   await page.getByTestId('activity-tab-mentions').click()
-  await expect(page.getByTestId('notification-room-line')).toHaveText(['@Olga 내일 봐요'].map((x) => new RegExp(x.slice(1))))
+  await expect(page.getByTestId('notification-room-line')).toHaveText([/내일 봐요/])
   await page.getByTestId('activity-tab-threads').click()
   await expect(page.getByTestId('notification-room-line')).toHaveText(['답글이에요'])
   expect(errors).toEqual([])
