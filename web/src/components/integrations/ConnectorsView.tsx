@@ -1,4 +1,4 @@
-// What Admin › Connectors and Connectors (the main sidebar's, pages/Connectors.tsx) share, like Claude's Connectors: the
+// What Admin › Connectors and Settings › Connectors (pages/Connectors.tsx) share, like Claude's Connectors: the
 // title row of Admin's page (the title, the search and Add with its ⌄ menu), which stays at the top while the page
 // scrolls; one line of the connected ones (ConnectorRow); one row of Discover (DiscoverCard); and a listed service's
 // or a connection's page (ConnectorDetail: a big logo, the main action, what it does and its tools).

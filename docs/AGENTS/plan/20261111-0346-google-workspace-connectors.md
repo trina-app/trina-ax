@@ -56,6 +56,8 @@ can do. Never "MCP", "OAuth", "scope", "token", "sidecar".
     do, Information (developer, category, links), the tools under "Show all tools". Connected: **Try in chat**,
     **Settings**, ⋯ (Reconnect, Disconnect). Settings › Connectors opens the same page (no second layout). Admin ›
     Connectors keeps the team setup (switches, Google app).
+    (2026-11-12: the item left the sidebar; the page is Settings › Connectors, docs/DECISIONS.md "Connectors in
+    Settings".)
 13. One PR into `dev` for trina-ax.
 
 ## How it fits together

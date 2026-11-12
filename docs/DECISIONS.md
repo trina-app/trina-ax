@@ -22865,6 +22865,8 @@ Version impact: patch (security fix).
 
 ## Connectors: the page is in the sidebar, Settings has no Connectors section (fix/connectors-simple-rebased, 2026-11-12, supersedes #399)
 
+Superseded the same day by "Connectors in Settings" (QA TC-400): the page is Settings › Connectors.
+
 - The person's own connections live under **Connectors** (main sidebar, `/connectors`); the old `/settings/connectors`,
   `/settings/integrations` and `/settings/drive` redirect there. Admin › Connected apps (the team's) keeps its name.
 - Discover shows only what is not connected. An app the team has not set up yet stays in Discover, last: owners and
@@ -23379,3 +23381,186 @@ suggestions and the setup's folder plan read, so a team must not be able to lose
   c-file-list-format.test.ts` (the rule's text), `web/test/unit/file-list-settings.test.tsx`, `web/test/e2e/
   admin-file-list.spec.ts`.
 - Version impact: **minor** (an admin setting removed).
+
+## Connectors in Settings (fix/connectors-into-settings, 2026-11-12, product owner, QA TC-400)
+
+Supersedes "Connectors: the page is in the sidebar, Settings has no Connectors section" (2026-11-12) and decision 12 of
+the Google Workspace connectors plan (#366, `docs/AGENTS/plan/20261111-0346-google-workspace-connectors.md`) on where
+the page lives. The owner: "설정안으로 옮기자". A service is connected once and rarely visited again, the sidebar had 8
+items, and Claude.ai keeps connectors under Settings › Connectors.
+- **Where.** The person's own Connectors is a section of Settings for every role, first of the Connections group
+  (before Providers and AI apps: everyone has it, and it is the one an ordinary person needs). The sidebar and the
+  phone's ☰ drawer have no Connectors item. Admin › Connected apps (the team's) does not change.
+- **The same content.** The list (the search, Add custom connector for owners and admins, an admin's requests, Your
+  connectors, the Slack line, Discover) and the pages are the same components. Only the frame changed: the section's
+  title and line as in Settings' other sections instead of the page's sticky title bar, and the pages drawn inside
+  Settings' column. The settings search also finds it by the services in it ("Gmail", "슬랙").
+- **A connector's page is a page under the section**, like the account deletion page under Profile:
+  `/settings/connectors/<id>` (a built-in or listed service) and `/settings/connectors/mcp/<id>` (one of the person's
+  connections, or a team connection they may use). On a computer the list stays on the left with Connectors marked and
+  the page keeps its way back ("Connectors › Gmail", "← Connectors"); on a phone the bar says "‹ Connectors". One
+  element holds the list and its pages (`ConnectorsSettings`), so a Google sign-in started from a Discover + goes on
+  when its page opens. A page opens at the top and Back puts the list's place back, on a computer too. A Google app's
+  name is an h2 under the dialog's title and takes the keyboard when the page opens.
+- **Settings stays open while a Google sign-in waits** for its confirm step: a stray click beside the dialog or Esc does
+  nothing then (`SettingsHold`), since closing would lose the step; its ✕, the phone's tabs and Back still leave. The
+  old full page could not be closed by a stray click.
+- **Old addresses keep working**, with their query and hash: `/connectors`, `/connectors/<id>`, `/connectors/mcp/<id>`
+  (App.tsx `OldConnectors`), `/settings/integrations` (the list) and `/settings/drive` (Google Drive's page). An old
+  `/connectors…` link opens Settings over the page it came from (Home when opened directly), so closing Settings never
+  lands on the old address again. `/connectors/authorize` (an outside app's consent) stays. On a phone the old
+  addresses are the same screens of 나 (lib/screens.ts). Any other unknown address under Settings opens its list
+  instead of a page with no dialog.
+- **⌘K** offers "Connect an app" (Settings › Connectors) to everyone now, not only while members may add their own
+  services: with no sidebar item it is the other quick way there.
+- **Every text that sends a person to their own connections says "Settings › Connectors"** ("설정 › 커넥터") in the
+  five languages, and every link opens it: the web's notices (requests, templates, Drive's reconnect, an asked app that
+  is ready), search, a scheduled run's "needs your key", the onboarding Tools step, the Slack link pages and Admin's
+  "Just for me"; the server's request links (`/settings/connectors?request=`), the Slack sign-in return and its e-mail
+  notice, the Slack texts, the "Always allow" note, the scheduled-run and changed-connection errors, and what the AI is
+  told (refusals, `fixWhere`, the connection list). This replaces the last bullet of the superseded entry.
+- **Phones.** The 나 list gets a Connectors row in Connections; nothing else lists it, so no duplicate row or loop (QA
+  TC-263). The phone app keeps "status and Disconnect only" (#564, QA TC-262).
+- Version impact: patch.
+
+## Rooms left a moment ago open at once (perf/room-switch-cache, 2026-11-12, the owner, QA TC-401)
+
+The owner: going back and forth between rooms loads everything again. Measured on a copy of the QA team (a team room of
+93 messages, a DM of 70, an AI chat of 18; a phone network of 150 ms and 1.6 Mbit/s): each return to a room showed the
+skeleton for about 340 ms, read its whole newest page again (about 24 KB, plus the AI's two small reads) and landed at
+the bottom, wherever the reader was. The cause was the web app: the rooms store held one timeline, `close()` dropped it
+and `open()` started from an empty one (`web/src/store/rooms.ts` open/close, `pages/Room.tsx`). The server already
+pages by position with an older and a newer cursor and never reads a whole history. AI chats already showed at once
+from memory (their messages stay in `store/chats.ts`) and re-read their newest page in the background; they too opened
+at the bottom.
+- **Kept rooms** (`kept` in the rooms store): leaving a room keeps its timeline when it was read to the newest (not a
+  window around an older message, not loading or failed) and the room is in my list: the last `KEPT_ROOMS` (10) rooms,
+  each cut to its newest `KEPT_MESSAGES` (200; the rest load again on scrolling up from there). In memory only, never on
+  the device.
+- **Kept current by the events**: the same pure changes that keep the open timeline right (`withMessage`,
+  `withUpdatedMessage`, `withThreadSummary`, `withReactions`) apply to the kept ones, so messages, edits, deletes,
+  reactions and thread counts that come while away are there on return. Unread counts are not touched by this (the
+  rooms list keeps them, as before).
+- **Going back** shows the kept timeline from the first frame (the page reads it until `open()` takes it), then asks
+  only for what came after its newest message: `GET /api/rooms/:id/messages?cursor=` with the server's own newer cursor
+  from that position (`roomTimelineCursor` in `shared/src/api/rooms.ts`, the format `server/src/rooms/service.ts`
+  reads, pinned by a server test). Usually empty; added by id, with the changes made meanwhile made again on top. More
+  than a page (a gap the events did not fill): the newest page as on a first open.
+- **When unsure, read as before**: a reconnect the server could not resume (reset, resync, events it could not read)
+  drops every kept room (`forgetKept`, from `live.ts` onReload and `resync()`), and the room open then is not kept when
+  left until its newest page has been read again (a read started after that). Someone joining or leaving drops that
+  room's kept copy (the events do not say whose reactions went, on any message), and the open one is not kept when left.
+  A reconnect that resumed needs nothing: the server replays what was missed.
+- **Access**: a kept room goes when the room goes from my list (taken out, left, closed: `withoutRoom`, and every list
+  read), when the newer read answers 403 or 404 (the page then shows "not found" with nothing of it on screen), and at
+  sign-out or another person signing in (`reset`). It is shown only while the live connection is up and was heard in
+  the last 30 s (`keptFor`; a ping every 20 s gets its answer within 10 s; `lastHeard` in `lib/realtime.ts`): a link
+  that is down or went quiet (a computer waking from sleep) may have missed the event that took me out of the room, so
+  the room is read as the first time (404 then, nothing of it shown). Another team is another address and another page,
+  so nothing crosses teams.
+- **The reader's place**: leaving a room or an AI chat part way up keeps the first message in sight and its distance
+  from the top (`listPlace` in `lib/stickToBottom.ts`); going back puts it there before the first frame. At the bottom,
+  or when something came in the room since (`keptPlace`), it opens at the bottom as before, with what came in sight
+  (rooms have no "new messages" marker to point at it otherwise); a link to a message goes to that message. AI chats keep the
+  last 20 places (`chatPlaces`, `store/chats.ts`), message ids only, under the same rule: the chat's last message
+  unchanged (`chatEnd`: the same message, length and state), else the bottom.
+- After, same network: a room returns in about 40 to 50 ms with no skeleton, reading 86 bytes (the empty newer page
+  and the AI's two reads) instead of about 24 KB, at the place it was left; 1440 and 390 the same.
+- **Not changed**: an AI chat still re-reads its newest page when shown again (3 small reads; about 10 KB here). Its
+  events do not carry everything (a version picked in another window, another member's turn in a shared project chat),
+  and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
+  visible branch). AI chats' messages stay in memory without a limit, as before.
+
+## Move picker: suggested and recent folders — 옮기기 창의 추천·최근 (feat/move-picker-suggestions, 2026-11-12, product owner)
+
+넣을 곳: Team AX core (`server/src/team-files/move-suggest.ts`, `server/src/file-list/service.ts` `lineFields`,
+`shared/src/api/files.ts`, `web/src/components/FolderPicker.tsx`, Files), 이유: files and the file screen are core.
+Plan: `docs/AGENTS/plan/20261112-1236-move-picker-suggestions.md`. Files onboarding plan, PR C (owner, 2026-11-12,
+option 1): the AI judges folders only during setup; after it, the Move picker suggests. No popup at upload.
+
+- **What shows.** In Move (one file, or a selection) "추천" (Suggested) on top with 1–3 folders, each with ✕, then
+  "최근" (Recent, up to 3), then "전체 폴더" (All folders) and the folder browser as before. A row is a button that opens
+  that folder in the picker (pressed), and "여기로 옮기기" moves there: one primary action, as before. No hints: no
+  sections. Share and Save pickers are unchanged.
+- **No AI call** (`POST /api/files/move-suggestions`). Dropbox found that name-similarity rules beat a model here. The
+  files' names (letters only, by script, without dates and filler words such as 최종/사본/final) and, when the person's
+  own `_FILES.md` shows it, the file's list line (type, what, names) against each candidate folder: its own name ("견적서"
+  in "견적서_삼성_2025.xlsx" covers it), the words of the files directly in it and of their lines (a word common in this
+  folder and rare in the others defines it, damped while the folder has few files), and a little more for a shared
+  extension only once the match is over the threshold (it ranks, it never makes a suggestion). A Korean, Chinese or
+  Japanese word inside another counts ("회의록" in "주간회의록", "見積" in "見積書"), so do English plurals; a folder name of
+  two letters or less counts only for the same word or with a file in it that agrees ("인사" does not take
+  "인사말.docx" on its name). Several files: the mean. **Threshold 0.5, none rather than a weak guess**, each shown at least 60% of the best. A new file without a
+  line: its name only; the file list off or empty: names only.
+- **Only what the person may see.** Candidates are folders they can **write**, found by a walk of what the file screen
+  shows them (`siblingVisible`; not skills, not `groups/`, `users/`, `projects/` themselves, not where the files are);
+  files pass `visiblePath`; a line counts only when their `_FILES.md` would show it now (`lineFields`: the view's unit
+  chain, call-mates, size/mtime/inode checks). Files in a subfolder closed to them never count for its parent. A
+  moved folder is never a place for itself: neither it nor any folder inside it is suggested or recent. The
+  answer names those folders and a number, never a file. A path they cannot read: 404, like the file screen.
+- **Bounded.** At most 1,000 folders walked (a folder's entries streamed, 300 at most), 250 candidates, 6 levels, 40
+  files per folder, 10 files of a selection and 12 words each scored. Each folder is indexed once and every word is
+  matched once against all candidates' words (set lookups of its substrings and prefixes, no pairwise loop): the
+  scoring at those caps takes a few milliseconds (a unit test holds it under 150 ms); the walk yields to other
+  requests every 50 folders. 30 requests per person a minute (429 after). Nothing is stored.
+- **Recent** comes from the person's own `file_events` (a move's `create` row, uploads, saves; the last 20,000 events),
+  the folder each went into, still writable and shown to them (every part of its path), not where the files are now,
+  not a suggestion. No new storage.
+- **✕** (`POST /api/files/move-suggestions/dismiss`) is kept per person, folder and the file's name pattern (digits as
+  `#`, so "견적서_삼성_2026.xlsx" after "견적서_삼성_2025.xlsx"), in `suggestion_dismissals` (migration 229, keys
+  `move:[folder, pattern]`): on every device, not suggested again for files named like it; other names and other
+  people still get it. Only for a folder the person can write (404 otherwise); a person keeps at most 500 such rows,
+  the oldest go. No new migration.
+- Tests: `tests/unit/c-move-suggest.test.ts` (scoring, threshold, permissions incl. a closed subfolder and read-only
+  project folders, file-list lines incl. another group's and a changed file, dismiss, recent),
+  `web/test/unit/folder-picker-suggestions.test.tsx`, `web/test/e2e/move-suggestions.spec.ts` (1360 and 390, light and
+  dark, keyboard).
+- Version impact: **minor** (two endpoints, a new part of the Move picker).
+
+## 휴대폰 앱 아이콘의 숫자 — the phone app's icon shows the unread count (feat/phone-app-badge, 2026-11-12, QA TC-408)
+
+넣을 곳: Team AX core (`mobile/`, `push-gateway/`, `shared/src/cloud-protocol/push-gateway.ts`, `shared/src/api/attention.ts`,
+`server/src/notifications/`, `web/src/lib/mobile.ts`, `web/src/store/sessionMarkers.ts`). Why: phone and push are core.
+
+- **Problem.** Pushes reached the iPhone (an answer finished, an @mention, a DM), but the app icon never showed a number:
+  the app asked the OS with `allowBadge: false`, no push carried a count and nothing set one.
+- **Which number.** The one count n ("Session markers"): the AI chats that need me and the rooms that want me, each
+  once. It is already the tab title's "(n)", the Mac Dock's and an installed web app's icon number, so the phone shows
+  the same, not a new count. The Inbox's unread count is not used: it counts notices (schedules, connections), not what
+  waits for me. The phone shows no dot for "other unread rooms" (the Dock's dot): a phone icon shows a number or nothing.
+- **One set of rules.** `markerOf`, `roomWantsMe`, `roomLightsDot` and `attentionCount` moved from `web/src/lib/` to
+  `shared/src/api/attention.ts`; the web re-exports them from where they were. The server counts with the same code.
+- **While the app is closed: the push.** At send time the push service asks, for an iPhone device only, `pushBadge(userId)`
+  (`server/src/notifications/push-badge.ts`): the person's rooms as GET /api/rooms gives them (read only: `Rooms.listed`,
+  no sync) and the AI chats of the first page of their list (pinned ones, then the newest 50, as the page loads; a shared
+  chat only while they see its project, as the list's `visible()`), with the runtime's word on what waits for them. The count is per recipient: a DM counts for its other member, an @mention for the one named, a plain team
+  message for nobody at its default level, a room set to 끄기 or hidden never. The gateway contract gets an optional
+  `badge` (0 to 9999, `validPushBadge`, used by the server and the gateway); APNs `aps.badge`. Android gets none: launchers count the notifications in the tray and add up each one's
+  `notification_count`, so a total on every push would show 1+2+3 = 6 after three; there each notification counts as
+  one, and the open app sets the exact number. The server does
+  not know which chat is on screen in a window: the page corrects that when it opens.
+- **An older gateway.** Its body schema is strict, so it answers `400 invalid_body` to `badge`. Only that answer (the
+  code read from the 400's body, at most 512 bytes) to a push that carried a badge counts as an older gateway; any other
+  400 is the push's answer as before. The transport then sends the same push without it (`invalid_body` is checked before the dedupe, so nothing is lost or doubled) and tries
+  the field again an hour later (`NO_BADGE_RETRY_MS`). Team servers can update before the gateway.
+- **While the page is open: the page.** New capability `badge-v1`: `{type:'badge', count}` (a whole number 0 to 9999),
+  sent by `setAppBadge` (`web/src/lib/mobile.ts`) when n changes (a burst waits `WEB_BADGE_MS`), when the bridge comes,
+  after a session reset and on every `mycel:mobile-foreground` even unchanged (a push may have set the server's number
+  meanwhile). The app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  In the foreground a push's number is not applied (`shouldSetBadge: false`): the page's is the newer.
+- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the app
+  (`forgetDelivered`); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
+  0, never the last session's number, until its own count is worked out.
+- **Permission.** The OS question asks for the badge with alerts and sounds. iOS asks once: an iPhone that said yes before
+  1.0.5 is asked once more (`askBadgeAgain`, remembered in the keychain), which shows no dialog; if iOS keeps Badges off,
+  Settings › Notifications › Badges turns it on. Android's notification permission covers the icon; while the app is closed
+  the launcher shows its own count of the notifications in the tray (or a dot).
+- **Privacy.** A number only: no id, name or kind of what it counts in the push or the bridge message. Lock-screen text
+  is unchanged (TC-365).
+- **Ships with:** the next phone build (1.0.5 on dev). The gateway (push.trina.app) needs a deploy for the number to come
+  with pushes; until then the app sets it when it opens. Team servers need nothing else.
+- Tests: `tests/unit/push-badge.test.ts` (per recipient; the push carries it; an older gateway), `push-gateway.test.ts`
+  (contract, APNs, FCM), `push-native.test.ts`, `mobile-badge.test.ts` (permission, the message, the bridge, latest
+  wins), `web/test/unit/mobile.test.ts` (badge-v1: changes, bridge, foreground, sign-out), `web-badge.test.ts` (the
+  phone app gets n).
+- Version impact: **patch**.

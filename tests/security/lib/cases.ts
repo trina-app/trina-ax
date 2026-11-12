@@ -417,6 +417,9 @@ export const SPECS: Record<string, Spec> = {
   findFiles: { build: (c) => c.get('/api/files/find?q=SEC&limit=100'), scope: 'self' },
   searchFileContents: { build: (c) => c.get('/api/files/search?q=SEC&limit=100'), scope: 'self' },
   recentFiles: { build: (c) => c.get('/api/files/recent?limit=50'), scope: 'self' },
+  // the Move picker's suggestions for a file in users/alice/: only alice; nobody else learns a folder or that it exists
+  moveSuggestions: { build: (c) => c.post('/api/files/move-suggestions', { paths: ['users/alice/todo.md'] }), scope: 'users-alice' },
+  dismissMoveSuggestion: { build: (c) => c.post('/api/files/move-suggestions/dismiss', { paths: ['users/alice/todo.md'], folder: 'shared' }), scope: 'users-alice' },
   createUploadSession: { build: (c) => c.post('/api/upload-sessions', { target: { kind: 'path', path: 'users/alice/sess.bin', onExists: 'rename' }, size: 4, sha256: 'ab'.repeat(32) }), scope: 'users-alice' },
   uploadChunk: { build: (c, w) => c.req('PUT', `/api/upload-sessions/${w.ids.uploadAlice}/chunks/0`, undefined, { raw: '0123456789', headers: { 'content-type': 'application/octet-stream', [CSRF_HEADER]: '1' } }), scope: 'own-alice' },
   getUploadSession: { build: (c, w) => c.get(`/api/upload-sessions/${w.ids.uploadAlice}`), scope: 'own-alice' },

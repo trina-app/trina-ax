@@ -393,7 +393,7 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     // a "code" that is an address or a path: no sign-in page with it, the flow ends
     p = params((await start('erin')).json.authorizationUrl)
     const loc = await backTo(null, { state: p.state!, code: 'https://evil.example/x' })
-    expect(loc).toBe('/connectors?slack=signin_failed')
+    expect(loc).toBe('/settings/connectors?slack=signin_failed')
     expect(await back('erin', { state: p.state!, code: 'code-erin-0004' })).toBe('signin_expired')
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ n: 0 })
   })
@@ -1068,7 +1068,7 @@ describe('Enterprise Grid: one link per Slack user, whatever the enterprise id',
       const p = Object.fromEntries(new URL((await call('bob', 'POST', '/api/slack/signin', {})).json.authorizationUrl).searchParams)
       fake.codes['code-bob-grid-01'] = { user: 'U0MALLORY', nonce: p.nonce! } // the id_token says nothing of the organization
       const r = await h.req('bob', `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: p.state!, code: 'code-bob-grid-01' })}`, { redirect: 'manual' })
-      expect(r.headers.get('location')).toBe('/connectors?slack=linked')
+      expect(r.headers.get('location')).toBe('/settings/connectors?slack=linked')
       expect(h.ctx.db.query("SELECT enterprise_id FROM slack_links WHERE user_id = 'bob'").get()).toEqual({ enterprise_id: 'E0ORG' })
       // a question from that Slack user, with the organization in the event: answered as bob
       const ts = nextTs()

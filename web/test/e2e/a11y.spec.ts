@@ -262,6 +262,7 @@ async function seedIntegrations(page: Page) {
 }
 
 async function auditIntegrations(page: Page, where: string) {
+  // Settings › Connectors (its old address leads there)
   await page.goto('/connectors')
   await expect(page.getByTestId('connected-apps')).toBeVisible()
   await audit(page, `connectors${where}`)
@@ -271,7 +272,8 @@ async function auditIntegrations(page: Page, where: string) {
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-toggle').click()
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-tools-toggle').click()
   await audit(page, `connectors, a connection${where}`)
-  await page.getByTestId('connector-back').click()
+  // the page's own ← on a computer, the phone bar's ‹ on a phone
+  await page.locator('[data-testid="connector-back"]:visible, [data-testid="settings-back"]:visible').first().click()
   // Popular is on the same page, under the connected apps
   await expect(page.getByTestId('connector-list')).toBeVisible()
   await audit(page, `settings/integrations discover${where}`)

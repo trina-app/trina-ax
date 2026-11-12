@@ -36,11 +36,12 @@ async function staysPut(header: Locator, line = true) {
 }
 
 for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
-  test(`Connectors keeps its title row at the top in Admin and on its own page (${name})`, async ({ page }) => {
+  test(`Connectors keeps its title row at the top in Admin (${name})`, async ({ page }) => {
     await page.setViewportSize(size)
     await start(page)
-    // a phone's Connectors page scrolls its search away with the list (QA TC-262: the test below); Admin keeps its row
-    for (const path of name === 'phone' ? ['/admin/connectors'] : ['/admin/connectors', '/connectors']) {
+    // the person's Connectors is a section of Settings (QA TC-400): its top scrolls with Settings' column like every
+    // section's (a phone: the test below); Admin keeps its row
+    for (const path of ['/admin/connectors']) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
       // Admin keeps its own name (Connected apps); the page is Connectors (a phone's top bar says it there); the cards are under it
@@ -63,10 +64,10 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
   })
 }
 
-test("a phone's Connectors page scrolls its description, search and 'Add custom connector' away with the list (TC-262)", async ({ page }) => {
+test("a phone's Settings › Connectors scrolls its description, search and 'Add custom connector' away with the list (TC-262)", async ({ page }) => {
   await page.setViewportSize(PHONE)
   await start(page)
-  await page.goto('/connectors')
+  await page.goto('/settings/connectors')
   const header = page.getByTestId('connectors-header')
   await expect(page.getByTestId('connector-card').first()).toBeVisible()
   const box = scroller(page.getByTestId('connector-card').first())

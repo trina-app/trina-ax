@@ -3,6 +3,7 @@ import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
@@ -45,11 +46,11 @@ export const credentialChangeText = (c: NonNullable<InboxNotification['credentia
 export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId' | 'contribution'>) =>
   `/skills?${item.code === 'skill.suggested' ? (item.contribution ? 'batch' : 'review') : 'mine'}=${encodeURIComponent(item.sourceId)}`
 
-/** Settings › MCP: a request opens as ?request=, a connection template (its notice, or a scheduled run that needed it)
- * opens its Connect as ?template=. */
+/** Settings › Connectors: a request opens as ?request=, a connection template (its notice, or a scheduled run that
+ * needed it) opens its Connect as ?template=. */
 export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'template' | 'needsKey'>) => {
   const template = item.template?.id ?? item.needsKey?.templateId
-  return template ? `/connectors?template=${encodeURIComponent(template)}` : `/connectors?request=${encodeURIComponent(item.sourceId)}`
+  return template ? `${CONNECTORS_HOME}?template=${encodeURIComponent(template)}` : `${CONNECTORS_HOME}?request=${encodeURIComponent(item.sourceId)}`
 }
 
 export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
@@ -152,10 +153,10 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
-  if (item.link === 'connections') return { to: '/connectors/google-drive', testId: 'notification-connections-link' }
+  if (item.link === 'connections') return { to: connectorHref('google-drive'), testId: 'notification-connections-link' }
   // a member's ask: the app's setup while one waits (an owner or admin), the app's page once it is ready (the member)
   if (item.code === 'service.request' && item.serviceRequest?.open) return { to: serviceSetupLink(item.serviceRequest.service), testId: 'notification-service-request-link' }
-  if (item.code === 'service.ready' && item.serviceRequest) return { to: `/connectors/${encodeURIComponent(item.serviceRequest.service)}`, testId: 'notification-service-ready-link' }
+  if (item.code === 'service.ready' && item.serviceRequest) return { to: connectorHref(item.serviceRequest.service), testId: 'notification-service-ready-link' }
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }

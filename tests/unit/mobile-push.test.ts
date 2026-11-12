@@ -113,7 +113,7 @@ test('the Trina edition builds app.trina.ax for iPhone only, with usage strings,
   process.env.MYCEL_MOBILE_EDITION = 'trina'
   delete process.env.MYCEL_MOBILE_GOOGLE_SERVICES; delete process.env.MYCEL_MOBILE_BUILD_NUMBER
   const c = appConfig({ config: {}, projectRoot: mobileRoot } as never)
-  expect(c.name).toBe('Trina AX'); expect(c.version).toBe('1.0.4')
+  expect(c.name).toBe('Trina AX'); expect(c.version).toBe('1.0.5')
   expect(c.ios).toMatchObject({ bundleIdentifier: 'app.trina.ax', supportsTablet: false, buildNumber: '1', appleTeamId: 'YWW96288YY', infoPlist: { ITSAppUsesNonExemptEncryption: false } })
   for (const key of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSPhotoLibraryUsageDescription']) {
     expect(c.ios?.infoPlist?.[key]).toBeTruthy()
@@ -658,15 +658,25 @@ test('the session check: the page answers GET /api/me with the check number; any
   const script = sessionCheckScript(7)
   expect(script).toContain("fetch('/api/me',{credentials:'same-origin'")
   expect(script).toContain('mycelSessionCheck:7')
-  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 7, ok: true }), 7)).toBe(true)
-  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 7, ok: false }), 7)).toBe(false)
-  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 6, ok: true }), 7)).toBeNull() // an older check
-  for (const other of ['{"v":1,"type":"push-token"}', 'not json', JSON.stringify({ mycelSessionCheck: 7, ok: 'yes' }), 'x'.repeat(300)]) expect(readSessionCheck(other, 7)).toBeNull()
+  expect(script).toContain('status:r.status')
+  expect(script).toContain('status:0')
+  const ans = (status: unknown, n = 7) => readSessionCheck(JSON.stringify({ mycelSessionCheck: n, status }), 7)
+  expect(ans(200)).toBe('in')
+  expect(ans(204)).toBe('in')
+  // the team says no one is signed in
+  expect(ans(401)).toBe('out')
+  expect(ans(403)).toBe('out')
+  // a blip is not "signed out" (the owner, 2026-11-12: the team line under a signed-in Settings page on 4G)
+  for (const blip of [0, 429, 500, 502, 503, 504, 404]) expect(ans(blip)).toBe('unknown')
+  expect(ans(200, 6)).toBeNull() // an older check
+  for (const other of ['{"v":1,"type":"push-token"}', 'not json', JSON.stringify({ mycelSessionCheck: 7, status: '200' }), JSON.stringify({ mycelSessionCheck: 7, status: 2.5 }), JSON.stringify({ mycelSessionCheck: 7, ok: true }), 'x'.repeat(300)]) expect(readSessionCheck(other, 7)).toBeNull()
   // the footer follows the rule shared with the desktop (shared/src/team-link.ts hostLineNow): it waits for this check
   // (or 300 ms) before it shows, so a signed-in page does not jump; the check's answer counts as answered
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
   expect(app).toContain('const showFooter = hostLineNow({ path: pathname, signedIn, answered, waited })')
-  expect(app).toContain('if (session !== null) { setSignedIn(session); setAnswered(true); return }')
+  expect(app).toContain("if (session !== null) { if (session !== 'unknown') setSignedIn(session === 'in'); setAnswered(true); return }")
+  // back in the foreground: asked again
+  expect(app).toContain('if (ready.current) checkSession()')
   expect(app).toContain('if (!waitTimer.current) waitTimer.current = setTimeout(() => setWaited(true), 300)')
 })
 

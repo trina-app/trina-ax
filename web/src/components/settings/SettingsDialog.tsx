@@ -13,8 +13,9 @@
 // goes, "‹ Settings") and its own name (its page keeps that heading for screen readers only, so the name is not said
 // twice on screen; "설정" stays the dialog's name). Computers keep replacing: closing the dialog steps back once.
 // docs/DECISIONS.md "Admin and Settings on phones: a list you tap into". A page under a section (`page`:
-// /settings/account/delete, the account deletion request under the profile) keeps its section marked in the list, and
-// its way back goes to that section. Admin stays its own page. On a phone the sections about what the AI may open
+// /settings/account/delete, the account deletion request under the profile; a connector's page under Connectors,
+// /settings/connectors/<id> and /settings/connectors/mcp/<id>) keeps its section marked in the list, and its way back
+// goes to that section. Admin stays its own page. On a phone the sections about what the AI may open
 // (트리나에게 허용한 것, 브라우저, 개발 환경 사이트) are one page, 트리나에게 허용한 것, with a part for each that is shown
 // (PHONE_FOLDED; their old addresses open it), every section has no "나에게만 적용" line (all of 나 is just for you),
 // its bar has a place for the section's one action (SettingsBar.tsx: Memory's "+"), and 로그아웃 asks first.
@@ -26,6 +27,7 @@ import { api, API } from '../../lib/api'
 import { useGoBack } from '../../lib/back'
 import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { browserSettingsBridge } from '../../lib/desktop'
+import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
 import { useNoticeUnread } from '../../store/inbox'
@@ -37,7 +39,7 @@ import { useLogout } from '../../lib/logout'
 import { PhonePushLine } from './PushNotifications'
 import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
 import { PhonePageBar } from '../phone/PhonePageBar'
-import { SettingsBarSlot } from './SettingsBar'
+import { SettingsBarSlot, SettingsHold } from './SettingsBar'
 import type { MessageKey } from '../../i18n'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
@@ -54,10 +56,11 @@ export function settingsOpenedFrom(el: HTMLElement | null) {
 }
 
 /** pages under a section, by their address (App.tsx routes them here): the account deletion request under the
- * profile, and on a phone the password form and every signed-in device under 보안·기기 */
-export type SettingsPage = 'account-delete' | 'security-password' | 'security-devices'
-const PAGE_SECTION: Record<SettingsPage, string> = { 'account-delete': 'profile', 'security-password': 'security', 'security-devices': 'security' }
-/** a page's name in a phone's bar (the account deletion page says its own) */
+ * profile, on a phone the password form and every signed-in device under 보안·기기, and a connector's page under
+ * Connectors */
+export type SettingsPage = 'account-delete' | 'security-password' | 'security-devices' | 'connector'
+const PAGE_SECTION: Record<SettingsPage, string> = { 'account-delete': 'profile', 'security-password': 'security', 'security-devices': 'security', connector: 'connectors' }
+/** a page's name in a phone's bar (the account deletion page and a connector's page say their own) */
 const PAGE_TITLE: Partial<Record<SettingsPage, MessageKey>> = { 'security-password': 'auth.changePassword', 'security-devices': 'settings.devices' }
 export default function SettingsDialog({ onClose, page }: { onClose: () => void; page?: SettingsPage }) {
   const t = useT()
@@ -75,7 +78,10 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
     openedFrom = null
     return el
   })
-  useFocusTrap(ref, true, onClose, returnTo)
+  // a Google sign-in under way in Connectors: a stray click beside the dialog or Esc does not close it (its ✕ does)
+  const [held, setHeld] = useState(false)
+  const softClose = () => { if (!held) onClose() }
+  useFocusTrap(ref, true, softClose, returnTo)
   // the page under the dialog is inert until it has closed, so the keyboard goes back once it is reachable again
   useEffect(() => () => void requestAnimationFrame(() => returnTo?.isConnected && returnTo.focus()), [returnTo])
   const [own, setOwn] = useState<boolean | null>(null)
@@ -103,22 +109,24 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const waiting = (tab === 'providers' && own === null) || (tab === 'dev-env-sites' && sites === null)
   // phones: a section opened from a link gets the list under it, once it is the section that stays; the list and the
   // open section each keep their place for Back (lib/backStack.ts)
-  const redirecting = tab === 'drive' || tab === 'integrations' || tab === 'connectors' || tab === 'credentials' || (phone && !page && !!tab && PHONE_FOLDED.has(tab))
+  const redirecting = tab === 'drive' || tab === 'integrations' || tab === 'credentials' || (phone && !page && !!tab && PHONE_FOLDED.has(tab))
   const valid = !!tab && !waiting && !redirecting && tabs.some((x) => x.id === tab)
   // the Activity page (#364) is the 나 tab's too: 알림 opened from its gear goes back to it, with no list put between
   useListUnderPage('/settings', phone, valid && !page, ['/activity'])
   const listRef = useRef<HTMLElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   useKeptScroll(listRef, 'settings-list', phone && !tab)
-  useKeptScroll(contentRef, 'settings-section', phone && !!tab && !waiting)
+  // Connectors' pages are pushed on a computer too (a connector's page from the list): each starts at the top and Back
+  // puts the list's place back
+  useKeptScroll(contentRef, 'settings-section', (phone || tab === 'connectors') && !!tab && !waiting)
   // the section's one action in a phone's bar (SettingsBar.tsx)
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
   const back = useGoBack(page ? `/settings/${tab}` : '/settings')
   const backLabel = useBackLabel(page ? `/settings/${tab}` : '/settings', (p) => settingsPageName(p, t))
-  // Connectors is its own page in the sidebar now (pages/Connectors.tsx): its section here leads there, with what its
-  // address asked for (?add=1, ?template=, ?request=); Google Drive and MCP were sections of their own before that
-  if (tab === 'connectors' || tab === 'integrations') return <Navigate to={`/connectors${location.search}`} replace />
-  if (tab === 'drive') return <Navigate to="/connectors/google-drive" replace />
+  // Connectors' older addresses here (MCP and Google Drive were sections of their own): its section, with what the
+  // address asked for (?add=1, ?template=, ?request=), and Google Drive's page under it
+  if (tab === 'integrations') return <Navigate to={`${CONNECTORS_HOME}${location.search}`} replace />
+  if (tab === 'drive') return <Navigate to={connectorHref('google-drive')} replace />
   // AI connections are now AI providers (the same accounts, by provider)
   if (tab === 'credentials') return <Navigate to="/settings/providers" replace />
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app while the team does not
@@ -135,7 +143,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const fold = phone && current === 'allowances' && !page ? { browser: tabs.some((x) => x.id === 'browser'), devEnvSites: tabs.some((x) => x.id === 'dev-env-sites') } : undefined
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={softClose}>
       <div
         ref={ref}
         role="dialog"
@@ -220,7 +228,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                   {/* a phone: everything under 나 is just for you, so the line is not on every section */}
                   <p className="mb-3 text-xs text-faint max-md:hidden" data-testid="page-scope">{t('scope.you')}</p>
                   <SettingsBarSlot.Provider value={phone && tab ? barSlot : null}>
-                    <SettingsPane tab={page ?? current} fold={fold} />
+                    <SettingsHold.Provider value={setHeld}>
+                      <SettingsPane tab={page ?? current} fold={fold} />
+                    </SettingsHold.Provider>
                   </SettingsBarSlot.Provider>
                 </Suspense>
               )}

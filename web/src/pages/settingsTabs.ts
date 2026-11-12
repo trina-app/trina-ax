@@ -1,18 +1,19 @@
 // The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx, pages/Settings.tsx), in named
 // groups the dialog's list shows: Account (you and this device: profile, security, the in-app browser, your own usage,
 // what the AI remembers about you, what you allowed it in advance (트리나에게 허용한 것: room folders for new files,
-// components/settings/AiAllowances.tsx); the whole team's usage is Admin › Usage) · Connections (Providers: your own AI
-// accounts, while the team lets members add their own or one is still there; AI apps: outside AI apps such as Claude
-// using this server). Connectors (the AI using other services with your accounts) is not here: it is its own item of
-// the main sidebar (pages/Connectors.tsx) · App (notices, the apps to install, about).
+// components/settings/AiAllowances.tsx); the whole team's usage is Admin › Usage) · Connections (Connectors: the AI
+// using other services with your accounts, pages/Connectors.tsx, for everyone, its pages under it at
+// /settings/connectors/<id>; Providers: your own AI accounts, while the team lets members add their own or one is still
+// there; AI apps: outside AI apps such as Claude using this server) · App (notices, the apps to install, about).
 // The same groups as Admin's menu, which has no AI group either. Every section is just for you (Admin is the team's).
 // "Browser" is there inside a desktop app that offers it (the AI has the browser only there, server/src/chat/turn.ts);
 // on the web and phones only while the person's own "Allow all websites" for the AI's web reads is on, so it can be
-// turned off again (Me.user.webAllowAll, while the team allows it: Me.team.webAllowAll). Old addresses: /settings/connectors,
-// /settings/integrations and /settings/drive (Connectors), /settings/credentials (Providers, /settings/providers), SettingsDialog.tsx. "Dev
+// turned off again (Me.user.webAllowAll, while the team allows it: Me.team.webAllowAll). Old addresses: /settings/integrations
+// and /connectors (Connectors), /settings/drive (Connectors › Google Drive), /settings/credentials (Providers,
+// /settings/providers), SettingsDialog.tsx and App.tsx. "Dev
 // environment sites" (the sites the person allowed for her own dev-environment commands, and her Full internet switch)
 // is there while the dev environment on srt is on for her.
-import { Bell, Bot, Brain, Download, Gauge, Globe, Info, KeyRound, Laptop, Network, ShieldCheck, User } from 'lucide-react'
+import { Bell, Bot, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Network, ShieldCheck, User } from 'lucide-react'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
@@ -38,6 +39,8 @@ const TABS: SettingsTab[] = [
   { id: 'memory', label: 'settings.memory', find: 'settings.find.memory', icon: Brain, group: 'account' },
   // named after the AI where the product is (트리나에게 허용한 것), else "AI에게 허용한 것"
   { id: 'allowances', label: PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi', find: 'settings.find.allowances', icon: ShieldCheck, group: 'account' },
+  // the person's own connections (Google Drive, Gmail, Slack, MCP services): everyone's, with its pages under it
+  { id: 'connectors', label: 'integrations.title', find: 'settings.find.services', icon: Cable, group: 'connections', keywords: ['Google', 'Drive', 'Gmail', 'Slack', 'Notion', 'MCP'] },
   { id: 'providers', label: 'settings.providers', find: 'settings.find.credentials', icon: KeyRound, group: 'connections', keywords: ['Claude', 'Codex', 'ChatGPT', 'AI'] },
   { id: 'ai-apps', label: 'aiApps.title', find: 'settings.find.connectors', icon: Bot, group: 'connections', keywords: ['Claude', 'Claude Code'] },
   { id: 'dev-env-sites', label: 'settings.devEnvSites', find: 'settings.find.devEnvSites', icon: Network, group: 'connections' },
@@ -62,6 +65,10 @@ export const browserTabShown = (desktopBridge: boolean, teamWebAllowAll: boolean
 /** Whether the search box finds a section: by its name or by the words of what is inside it ("비밀번호" finds 보안·기기).
  * `q` is the search text, trimmed and in lower case. */
 export const sectionMatches = (tab: SettingsTab, q: string, t: (key: MessageKey) => string) => !q || `${t(tab.label)} ${t(tab.find)} ${(tab.keywords ?? []).join(' ')}`.toLowerCase().includes(q)
+
+/** Where the person's own connections are, in words, for every text that sends them there: "Settings › Connectors"
+ * ("설정 › 커넥터"). */
+export const connectorsPlace = (t: (key: MessageKey) => string) => `${t('settings.title')} › ${t('integrations.title')}`
 
 /** The name of a Settings address for the phone's ‹ label (lib/backStack.ts): "Settings" for the list, the section's
  * own name for a section, "Activity" for the 나 tab's Activity page (pages/Activity.tsx, whose gear opens 알림); null

@@ -14,3 +14,8 @@ export function SettingsBarAction({ children }: { children: ReactNode }) {
 
 /** Whether the section has the phone bar's action place (a phone): the section then leaves out its own button. */
 export const useSettingsBar = () => useContext(SettingsBarSlot) !== null
+
+/** A section's way to keep the dialog open against a stray click beside it or Esc while something is under way there
+ * (Connectors: a Google sign-in waiting for its confirm step, which closing would lose); its ✕, a tab and Back still
+ * leave. */
+export const SettingsHold = createContext<(on: boolean) => void>(() => {})

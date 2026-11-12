@@ -176,6 +176,12 @@ export class Rooms {
     else this.syncSoon()
     // my team rooms and everyone room whose history is not open to me yet (rooms/history.ts)
     this.openHistoriesOf(userId)
+    return this.listed(userId)
+  }
+
+  /** The rooms I am in as list() returns them, read only: no sync, nothing opened (a phone push's badge,
+   * notifications/push-badge.ts, reads them while it sends). */
+  listed(userId: string): Room[] {
     const rows = this.db.query(`SELECT r.*, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.history_from_seq, m.muted, m.notify_level, m.hidden_at,
       EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden FROM rooms r JOIN room_members m ON m.room_id = r.id
       WHERE m.user_id = ? AND r.archived_at IS NULL`).all(userId) as (RoomRow & MemberRow)[]

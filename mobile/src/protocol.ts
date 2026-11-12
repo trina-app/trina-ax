@@ -37,6 +37,27 @@ export const MAX_SHARE_TEXT = 4000
  * app. A tapped notification is opened with `mycel:open` (the page's router, no reload), or `location.assign` when no
  * page listener takes it. An app without it never hears `nav`; a page that sends none keeps today's raw history. */
 export const NAV_CAPABILITY = 'nav-v1'
+/** Optional, versioned: `photo-pick` opens the phone's own photo picker (PHPicker on iOS, the Photo Picker on Android),
+ * so the page's 사진 보관함 skips the small menu iOS shows for any input that takes pictures (Photo Library / Take Photo
+ * / Choose File). The reply names what the person picked (name, type, size; never a path or URL) and what was left out
+ * for its size; the page then asks for the bytes with `photo-chunk`, one chunk at a time and in order, and ends with
+ * `photo-done` (the app deletes its copies). Cancelled is an empty list. An app without it: the page keeps its file input. */
+export const PHOTO_PICK_CAPABILITY = 'photo-pick-v1'
+/** Optional, versioned: `badge` gives the app the page's count (the one count n of its tab title and the Mac Dock) for
+ * the app icon: when it changes, whenever the app comes to the foreground, and 0 at sign-out. A number only. An app
+ * without it: the icon shows what the last push set (an app before 1.0.5 asked for no badge, so iOS shows none). */
+export const BADGE_CAPABILITY = 'badge-v1'
+/** The largest icon number (shared/src/cloud-protocol/push-gateway.ts PUSH_GATEWAY_MAX_BADGE; a test keeps them equal). */
+export const MAX_BADGE = 9999
+/** The most files one pick returns: a message's attachment limit. The page asks for what its box still takes. */
+export const MAX_PICK_FILES = 20
+/** The most bytes one pick returns: the page holds them in memory until it has uploaded them. One file stays within
+ * MAX_FILE_BYTES (also the room upload limit). */
+export const MAX_PICK_BYTES = 200 * 1024 * 1024
+/** One `photo-chunk` reply: small enough for injectJavaScript (iOS evaluateJavaScript, Android evaluateJavascript). */
+export const PICK_CHUNK_BYTES = 1024 * 1024
+/** A picked picture or video as the page learns it: no path, no URL. */
+export interface PickedFile { name: string; mime: string; size: number }
 /** undetermined: the app may still show the OS prompt (Android 13+ before the question, iOS before an answer). */
 export type PushPermission = 'granted' | 'undetermined' | 'denied'
 export type PushPlatform = 'ios' | 'android'
@@ -72,8 +93,18 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'share-text'; text: string }
   // nav-v1: Back has somewhere to go in the page (canGoBack), and the page is on its start tab or in no tab (home)
   | { type: 'nav'; canGoBack: boolean; home?: boolean }
+  // photo-pick-v1: the phone's photo picker for at most `limit` pictures and videos (the envelope id names the pick);
+  // then the picked files' bytes, chunk `seq` (counted over the whole pick) of file `index` at byte `offset`, in order;
+  // then done (also when the page gives up), and the app deletes its copies
+  | { type: 'photo-pick'; limit: number }
+  | { type: 'photo-chunk'; seq: number; index: number; offset: number }
+  | { type: 'photo-done' }
+  // badge-v1: the app icon's number, 0 clears it
+  | { type: 'badge'; count: number }
 ))
-export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string }
+/** files/tooBig: a `photo-pick` answer (the picked files, and the names of those left out for their size); b64: a
+ * `photo-chunk` answer. */
+export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string; files?: PickedFile[]; tooBig?: string[]; b64?: string }
 export const pushPermission = (v: unknown): v is PushPermission => v === 'granted' || v === 'undetermined' || v === 'denied'
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const generation = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v < 0x7fffffff
@@ -120,12 +151,35 @@ export function parseMessage(raw: string): MobileMessage | null {
     case 'appearance': if (typeof m.dark !== 'boolean' || (m.system !== undefined && typeof m.system !== 'boolean')) return null; break
     case 'share-text': if (typeof m.text !== 'string' || !m.text.trim() || m.text.length > MAX_SHARE_TEXT) return null; break
     case 'nav': if (typeof m.canGoBack !== 'boolean' || (m.home !== undefined && typeof m.home !== 'boolean')) return null; break
+    case 'photo-pick': if (typeof m.limit !== 'number' || !Number.isSafeInteger(m.limit) || m.limit < 1 || m.limit > MAX_PICK_FILES) return null; break
+    case 'photo-chunk':
+      if (!seq(m.seq) || typeof m.index !== 'number' || !Number.isSafeInteger(m.index) || m.index < 0 || m.index >= MAX_PICK_FILES
+        || typeof m.offset !== 'number' || !Number.isSafeInteger(m.offset) || m.offset < 0 || m.offset >= MAX_FILE_BYTES || m.offset % PICK_CHUNK_BYTES !== 0) return null
+      break
+    case 'photo-done': break
+    case 'badge': if (typeof m.count !== 'number' || !Number.isInteger(m.count) || m.count < 0 || m.count > MAX_BADGE) return null; break
     case 'push-registered': if (!deviceId(m.deviceId) || typeof m.removeKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(m.removeKey)) return null; break
     case 'external-open': if (m.purpose !== 'google-oauth' || typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break
     default: return null
   }
   return m as unknown as MobileMessage
 }
+/** A picked file's type: a picture or a video; never SVG (a script can ride in it; the photo pickers never give one). */
+export const pickedMime = (v: unknown): v is string => typeof v === 'string' && v.length <= 120 && /^(?:image|video)\/[\w.+-]+$/.test(v) && !/svg/i.test(v)
+/** A `photo-pick` answer: at most `limit` files, each a safe name, a picture or video type and 1 byte to MAX_FILE_BYTES,
+ * together at most MAX_PICK_BYTES; and the names left out for their size. Checked on both sides. */
+export function validPicks(files: unknown, tooBig: unknown, limit: number): files is PickedFile[] {
+  if (!Array.isArray(files) || files.length > Math.min(limit, MAX_PICK_FILES) || !Array.isArray(tooBig) || tooBig.length > MAX_PICK_FILES) return false
+  let total = 0
+  for (const f of files) {
+    if (!object(f) || typeof f.name !== 'string' || !f.name || f.name !== safeFileName(f.name) || !pickedMime(f.mime)
+      || typeof f.size !== 'number' || !Number.isSafeInteger(f.size) || f.size < 1 || f.size > MAX_FILE_BYTES) return false
+    total += f.size
+  }
+  return total <= MAX_PICK_BYTES && tooBig.every(n => typeof n === 'string' && !!n && n === safeFileName(n))
+}
+/** How many bytes the `photo-chunk` at `offset` of a file of `size` bytes carries. */
+export const pickChunkLength = (size: number, offset: number): number => Math.max(0, Math.min(PICK_CHUNK_BYTES, size - offset))
 /** APNs device tokens are hex (32 bytes today; Apple says the length may grow); FCM registration tokens are opaque. */
 export function validPushToken(v: unknown): v is PushToken {
   if (!object(v) || (v.environment !== 'sandbox' && v.environment !== 'production') || typeof v.token !== 'string') return false

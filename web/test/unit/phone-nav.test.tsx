@@ -101,11 +101,12 @@ const historyAt = (idx: number) => Object.defineProperty(globalThis, 'history', 
 describe('which tab an address belongs to', () => {
   test('the four tabs and their lists', async () => {
     expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', projects: '/projects', me: '/settings' })
-    for (const p of ['/', '/c/abc', '/scheduled', '/scheduled/s1', '/skills', '/connectors', '/trash']) expect(tabOf(p)).toBe('ai')
+    for (const p of ['/', '/c/abc', '/scheduled', '/scheduled/s1', '/skills', '/trash', '/connectors/authorize']) expect(tabOf(p)).toBe('ai')
     for (const p of ['/rooms', '/rooms/r1']) expect(tabOf(p)).toBe('chats')
     // 프로젝트 (QA TC-255): the projects and the team folder with its Trash
     for (const p of ['/projects', '/projects/p1', '/projects/p1/files', '/files', '/files/view']) expect(tabOf(p)).toBe('projects')
-    for (const p of ['/settings', '/settings/notifications', '/admin', '/admin/members', '/activity']) expect(tabOf(p)).toBe('me')
+    // Connectors is a section of Settings (its old /connectors addresses lead there)
+    for (const p of ['/settings', '/settings/notifications', '/settings/connectors/gmail', '/connectors', '/connectors/gmail', '/admin', '/admin/members', '/activity']) expect(tabOf(p)).toBe('me')
     for (const p of ['/welcome', '/skillsx', '/roomsy', '/nothing']) expect(tabOf(p)).toBeNull()
   })
 

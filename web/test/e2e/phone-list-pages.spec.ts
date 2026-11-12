@@ -40,7 +40,7 @@ const PAGES: { path: string; ready: string; primary?: string; filters?: string }
   { path: '/admin/usage', ready: 'usage-stats', primary: 'usage-limits-link', filters: 'usage-filters' },
   { path: '/admin/audit', ready: 'audit-list', filters: 'activity-more' },
   { path: '/settings/providers', ready: 'my-providers' },
-  // Settings › Connectors leads to the Connectors page (/connectors) since #366: its own design, not a Settings list
+  // Settings › Connectors (QA TC-400) keeps the Connectors page's own design, not a Settings list: not checked here
   { path: '/settings/ai-apps', ready: 'ai-app-list' },
   { path: '/settings/usage', ready: 'my-usage-totals' },
 ]

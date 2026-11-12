@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
-import { API, uuidv7, type RoomMessage, type RoomSearchPage } from '@mycel/shared/api'
+import { API, roomTimelineCursor, uuidv7, type RoomMessage, type RoomSearchPage } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
 import { searchRoomMessages, snippetOf } from '../../server/src/rooms/search'
@@ -494,6 +494,31 @@ describe('the page around a message (a hit opens the room there)', () => {
     expect(bob.newerCursor).toBeUndefined()
     // the newest page as before: no newerCursor
     expect((await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: {} })).newerCursor).toBeUndefined()
+  })
+
+  test("the app's own cursor from a message's position (a room gone back to): only what came after it, or before it", async () => {
+    const chat = await groupChat('alice', ['erin', 'carol'])
+    const ids: string[] = []
+    h.ctx.db.transaction(() => { for (let i = 0; i < 8; i++) ids.push(put(chat, 'alice', `KEPT ${i}`)) })()
+    // a private preview for alice after the ones erin holds: never in erin's pages
+    put(chat, 'alice', 'KEPT private', { privateTo: 'alice' })
+    const newest = await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: {} })
+    const at = newest.items.find((m) => m.id === ids[5])!.seq
+    const after = await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: { cursor: roomTimelineCursor('newer', at), limit: 50 } })
+    expect(after.items.map((m) => m.body)).toEqual(['KEPT 6', 'KEPT 7'])
+    expect(after.nextCursor).toBeNull()
+    expect(after.newerCursor ?? null).toBeNull()
+    // nothing new after the newest: an empty page
+    const none = await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: { cursor: roomTimelineCursor('newer', newest.items.at(-1)!.seq), limit: 50 } })
+    expect(none.items).toEqual([])
+    // more than a page after it: newerCursor says so
+    const paged = await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: { cursor: roomTimelineCursor('newer', at - 4), limit: 2 } })
+    expect(paged.items.map((m) => m.body)).toEqual(['KEPT 2', 'KEPT 3'])
+    expect(paged.newerCursor).toBeTruthy()
+    // before it (a long timeline the app keeps only the newest part of)
+    const before = await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: { cursor: roomTimelineCursor('older', at), limit: 2 } })
+    expect(before.items.map((m) => m.body)).toEqual(['KEPT 3', 'KEPT 4'])
+    expect(before.nextCursor).toBeTruthy()
   })
 
   test('around with a page of one: the message, and newer ones after it', async () => {

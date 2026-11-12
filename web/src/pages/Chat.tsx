@@ -31,10 +31,10 @@ import { openHome } from '../lib/screenHistory'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { CHAT_ROW, holdPlace, useStickToBottom } from '../lib/stickToBottom'
+import { CHAT_ROW, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
-import { useChats } from '../store/chats'
+import { chatEnd, chatPlace, keepChatPlace, useChats } from '../store/chats'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
@@ -205,6 +205,24 @@ function ChatView({ chatId }: { chatId: string }) {
     list.follow()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, last?.content.length, last?.steps.length])
+  // back in a chat whose messages are still in memory, left with the reader part way up and nothing new since: the same
+  // message in the same place, before the first frame shows (at the bottom, or when its end changed: the newest, as on
+  // any open)
+  const [place] = useState(() => {
+    const kept = chatPlace(chatId), th = useChats.getState().threads[chatId]
+    return kept && th && kept.last === chatEnd(th.messages) ? kept : null
+  })
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (place && el?.clientHeight && restorePlace(el, el.querySelector(`[data-message-id="${place.messageId}"]`), place.offset)) stick.current = false
+    // leaving: where the reader is now, for the next time
+    return () => {
+      const at = scroller.current
+      const left = at ? listPlace(at, CHAT_ROW, (row) => row.getAttribute('data-message-id'), stick.current) : null
+      keepChatPlace(chatId, left && { ...left, last: chatEnd(useChats.getState().threads[chatId]?.messages ?? []) })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const onScroll = async () => {
     const el = scroller.current

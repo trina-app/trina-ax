@@ -13,6 +13,7 @@ import { htmlPdfDownload, saveHtmlPdf } from '../team-files/html-pdf-save'
 import { authorize } from '../policy/authorize'
 import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
+import { dismissMoveSuggestion, moveSuggestions } from '../team-files/move-suggest'
 import { hashFile, writeTemp } from '../team-files/place'
 import { registerCTools } from '../tools'
 import { HwpError } from '../files/hwp-engine'
@@ -206,6 +207,9 @@ export const filesRoutes: RouteModule = {
     // ---------------- team files in chats (picker + reference attachments) ----------------
     kit.handle(API.findFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => findFiles(svc, auth.user.id, query.q, query.path, query.limit, { folders: query.folders === '1' })))
     kit.handle(API.searchFileContents, ({ c, query, auth }) => mapErrors(c.get('locale'), () => searchFileContents(svc, auth.user.id, query.q, query.path, query.limit, c.req.raw.signal)))
+    // the Move picker's "추천" and "최근" (team-files/move-suggest.ts): no AI call, only folders the caller can write
+    kit.handle(API.moveSuggestions, ({ c, body, auth }) => mapErrors(c.get('locale'), () => moveSuggestions(svc, auth.user.id, body.paths)))
+    kit.handle(API.dismissMoveSuggestion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => dismissMoveSuggestion(svc, auth.user.id, body.paths, body.folder)))
     kit.handle(API.recentFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => recentFiles(svc, auth.user.id, query.limit)))
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
     // a chip taken out before sending: a computer upload into a shared chat goes to the trash (uploads/team-refs.ts discard)
