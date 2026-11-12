@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { FileTransfers, type TransferIO } from '../../mobile/src/bridge'
 import { googleOAuthUrl, MAX_FILE_BYTES, parseMessage, sameTeam, safeFileName, type FileMessage } from '../../mobile/src/protocol'
+import { backAction, backGestures, openScript, START_TAB_SCRIPT } from '../../mobile/src/nav'
 const base = { v: 1 as const, nonce: 'a'.repeat(64), generation: 1, id: 'transfer-123' }
 const hash = (s: string) => createHash('sha256').update(s).digest('hex')
 const begin = (s: string): FileMessage => ({ ...base, type: 'file-begin', name: 'report.txt', mime: 'text/plain', size: Buffer.byteLength(s), sha256: hash(s) })
@@ -84,4 +85,49 @@ test('idle expiry removes a partially received file', async () => {
   await expect(f.transfers.receive(chunk('a', 0))).rejects.toThrow()
   expect(f.shared()).toBe(0)
   expect(f.removed()).toBeGreaterThan(0)
+})
+
+test('nav-v1: the page\'s Back state is two booleans; anything else is refused', () => {
+  const nav = { ...base, type: 'nav', canGoBack: true }
+  expect(parseMessage(JSON.stringify(nav))).toEqual(nav as never)
+  expect(parseMessage(JSON.stringify({ ...nav, canGoBack: false, home: false }))).not.toBeNull()
+  for (const over of [{ canGoBack: 'yes' }, { canGoBack: undefined }, { home: 'no' }, { home: 0 }]) expect(parseMessage(JSON.stringify({ ...nav, ...over }))).toBeNull()
+})
+
+test('nav-v1: the iOS swipe and Android Back follow the page, and stay as before until it has said', () => {
+  // a page that has not said (an older server, a document loading): the WebView's own history
+  expect(backGestures(null)).toBe(true)
+  expect(backAction(null, true)).toBe('back')
+  expect(backAction(null, false)).toBe('exit')
+  // a screen under this one or an open sheet: back, whatever the WebView's own history says
+  expect(backGestures({ canGoBack: true, home: true })).toBe(true)
+  expect(backAction({ canGoBack: true, home: false }, false)).toBe('back')
+  // a tab's root: no swipe; Android goes to the start tab, then leaves the app
+  expect(backGestures({ canGoBack: false, home: false })).toBe(false)
+  expect(backAction({ canGoBack: false, home: false }, true)).toBe('start-tab')
+  expect(backAction({ canGoBack: false, home: true }, true)).toBe('exit')
+})
+
+test('nav-v1: a tapped notification goes to the page\'s router, or loads the path when nothing in the page takes it', () => {
+  const run = (script: string, listen?: (e: CustomEvent<{ path: string }>) => void) => {
+    const win = new EventTarget() as EventTarget & { location: { assign(p: string): void } }
+    const assigned: string[] = []
+    win.location = { assign: p => { assigned.push(p) } }
+    if (listen) win.addEventListener('mycel:open', e => listen(e as CustomEvent<{ path: string }>))
+    // the script as injectJavaScript runs it (it ends with `true;`, the value react-native-webview wants)
+    expect(script.endsWith(';true;')).toBe(true)
+    new Function('window', 'CustomEvent', script)(win, CustomEvent)
+    return assigned
+  }
+  // a server from before nav-v1: no listener, a load as before
+  expect(run(openScript('/rooms/abc'))).toEqual(['/rooms/abc'])
+  // the page took it: no load
+  let heard = ''
+  expect(run(openScript('/rooms/abc'), e => { heard = e.detail.path; e.preventDefault() })).toEqual([])
+  expect(heard).toBe('/rooms/abc')
+  // a listener that leaves it (a path it does not open itself): a load
+  expect(run(openScript('/join#t=abc'), () => {})).toEqual(['/join#t=abc'])
+  // the path is data, never code
+  expect(run(openScript("/x');alert(1);('"))).toEqual(["/x');alert(1);('"])
+  expect(START_TAB_SCRIPT).toBe("window.dispatchEvent(new CustomEvent('mycel:start-tab'));true;")
 })
