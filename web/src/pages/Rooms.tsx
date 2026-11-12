@@ -9,8 +9,11 @@
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
 // Rooms I pinned (docs/DECISIONS.md "Pinned conversations") come right after the AI's row, all of them, the most
 // recently pinned first, with the sidebar's pin after the name; then the others by latest activity.
+// On a phone the list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
+// threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
+// count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
 import clsx from 'clsx'
-import { BellOff, ChevronDown, Plus } from 'lucide-react'
+import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -18,8 +21,10 @@ import { PRODUCT_NAMED_AFTER_AI, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
 import { pinnedFirst, plainLine, roomUnread } from '../lib/rooms'
+import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
+import { useRoomNoticeUnread } from '../store/inbox'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { AiFace } from '../components/rooms/AiFace'
@@ -84,6 +89,7 @@ export default function Rooms() {
               </span>
             </Link>
           </li>
+          <ChatsActivityRow className={row} />
           {rooms.map((r) => (
             <RoomListRow key={r.id} room={r} className={row} />
           ))}
@@ -99,6 +105,27 @@ export default function Rooms() {
       </div>
       <PeoplePicker open={picking} onClose={() => setPicking(false)} />
     </div>
+  )
+}
+
+/** A phone's first row: 멘션·스레드, the conversations' part of Activity (a page of this tab), a dot while one is unread. */
+function ChatsActivityRow({ className }: { className: string }) {
+  const t = useT()
+  const unread = useRoomNoticeUnread() > 0
+  return (
+    <li className="md:hidden">
+      <Link to={CHATS_ACTIVITY} className={className} data-testid="rooms-activity">
+        <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-hover text-muted">
+          <AtSign size={18} />
+        </span>
+        <span className={clsx('min-w-0 flex-1 truncate text-base text-ink', unread ? 'font-semibold' : 'font-medium')}>{t('feed.chats')}</span>
+        {unread && (
+          <span className="mr-1 size-2.5 shrink-0 rounded-full bg-accent" data-testid="rooms-activity-unread">
+            <span className="sr-only">{t('feed.chatsUnread')}</span>
+          </span>
+        )}
+      </Link>
+    </li>
   )
 }
 
