@@ -333,7 +333,8 @@ export class FileList implements VirtualFiles {
       stop = await this.readPending(pick.reader, st, deadline, runId)
       return stop
     } catch (e) {
-      stop = st.abort.signal.aborted ? (this.closed ? 'stopped' : 'off') : 'failed'
+      // only close() aborts a run now (no team switch): the server stopped
+      stop = st.abort.signal.aborted ? 'stopped' : 'failed'
       if (!st.abort.signal.aborted) throw e
       return stop
     } finally {

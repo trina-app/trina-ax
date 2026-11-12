@@ -23365,7 +23365,8 @@ suggestions and the setup's folder plan read, so a team must not be able to lose
 - **The host keeps its way off** (`server.json` `fileList.enabled: false`, docs/CONFIGURATION.md): an operator's choice
   for a whole server, not a team's. Run now then answers 409 `forced_off`; the `off` reason is gone.
 - **Gone with the switch:** `FORGET_ON_OFF` and the clear on switch-off. `FileListStop` keeps `off` for the runs of
-  older builds and for a run the host turned off meanwhile.
+  older builds (and a run that finds the host's config off); an aborted run is `stopped` (only the server's stop aborts
+  one now).
 - **The AI's rule says the lists are a night old** (`FILE_LIST_RULE`, prompt.ts). The owner: "하루 늦게 업데이트가 되니깐
   클로드가 이것만 무조건 믿으면 안 되겠네". A file added today is not in a list, a file changed today keeps
   yesterday's line. The rule now says so, tells the AI to search names and contents before it says a file is not there,
