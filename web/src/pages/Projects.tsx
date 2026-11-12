@@ -71,6 +71,7 @@ import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAcce
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy, useMediaQuery } from '../components/ui'
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
+import { Tooltip } from '../components/Tooltip'
 import { useFocusAfterRemove } from './admin/common'
 
 const PHONE = '(max-width: 767.98px)'
@@ -311,9 +312,11 @@ export function ProjectList() {
         <>
           <h1 className="sr-only">{t('projects.title')}</h1>
           <PhoneBarAction>
-            <button type="button" onClick={() => setCreating(true)} aria-label={t('projects.new')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-new">
-              <Plus size={22} aria-hidden />
-            </button>
+            <Tooltip label={t('projects.new')}>
+              <button type="button" onClick={() => setCreating(true)} aria-label={t('projects.new')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-new">
+                <Plus size={22} aria-hidden />
+              </button>
+            </Tooltip>
           </PhoneBarAction>
         </>
       ) : (
@@ -837,9 +840,11 @@ export function ProjectFiles() {
       <PhoneBarTitle>{name}</PhoneBarTitle>
       {path !== null && (
         <PhoneBarAction>
-          <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">
-            <FolderOpen size={20} aria-hidden />
-          </button>
+          <Tooltip label={t('projects.openFolder')}>
+            <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">
+              <FolderOpen size={20} aria-hidden />
+            </button>
+          </Tooltip>
         </PhoneBarAction>
       )}
       <div className="px-4 pt-2 pb-8">

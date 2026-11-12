@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:23
 - Branch: `fix/phone-home-projects`
-- Status: in progress
+- Status: done
 - Where: web/ (Home, its suggestion blocks, the project pages). Why: the phone app shows the web app, so phone layout
   fixes are web fixes (see docs/REPOSITORY-RULES.md: phones go to the core first).
 - Version impact: patch, phone layout only; computers are unchanged.
@@ -67,4 +67,15 @@ touched e2e specs on port 19355.
 
 ## Result
 
-(filled in at the end)
+Built as planned, PR #531 (https://github.com/trina-app/trina-ax/pull/531).
+
+- Home on a phone: the box is sticky at the bottom of Home's own scroll area (so it is the same element as on a
+  computer, no second composer); the one thing is at the top, the greeting and the suggestion row right above the box.
+  `RecentChats` is gone. 1440 screenshots before and after are byte-identical.
+- The suggestion row is `components/SuggestionRow.tsx`; TeamPrepared and OftenAsked draw their phone chips with it.
+  The phone chips are named by their own text (axe label-content-name-mismatch flagged the shorter aria-label).
+- Projects: `PhoneBarTitle` beside `PhoneBarAction` names the bar; `/projects/:id/files` is `ProjectFiles` in
+  pages/Projects.tsx, `?dir=` relative to the project's folder; a computer is sent to the folder on the 파일 screen.
+- Tests: new `web/test/e2e/phone-home-projects.spec.ts` and `web/test/unit/phone-project-files.test.ts`; adjusted
+  often-asked, project-page, project-list-menu, sticky-headers, phone-nav, session-markers specs and the phone-nav,
+  member-welcome and team-prepared unit tests.
