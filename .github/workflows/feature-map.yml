@@ -3,7 +3,8 @@
 # the QA sheet when its secrets are set. Not a required check, and not on pull requests (the suite takes long: it runs in
 # four shards).
 # A burst of merges does not cancel a run that is going: one runs, the newest push waits (GitHub keeps one pending).
-# Failing e2e tests do not fail this workflow (the coverage of the run is still written); the job logs show them.
+# A failing e2e test fails its shard and the run ends red, but only after the coverage of every shard is uploaded and the
+# Features tab is rewritten (the sheet job still runs). Each shard's failed tests are listed in the run summary.
 #
 # One-time setup (docs/FEATURES.md "Sheet sync in CI"): the secret GOOGLE_SHEETS_SA_JSON (a Google service account's key
 # JSON, the sheet shared with its e-mail as an editor) and the secret FEATURES_SHEET_ID (the QA sheet's
@@ -60,11 +61,15 @@ jobs:
         run: bun run build:web
       - name: Playwright browsers (Chromium, WebKit)
         run: cd web && bunx playwright install --with-deps chromium webkit
+      # no continue-on-error: a failed test fails the shard (and the run); the steps below run anyway (if: always())
       - name: e2e suite, shard ${{ matrix.shard }} of 4 (records the endpoints it reaches)
-        continue-on-error: true
-        run: cd web && bunx playwright test -c playwright.config.ts --shard=${{ matrix.shard }}/4 --reporter=dot
+        run: cd web && bunx playwright test -c playwright.config.ts --shard=${{ matrix.shard }}/4 --reporter=dot,json
         env:
           FEATURE_COVERAGE_FILE: ${{ github.workspace }}/coverage/feature-coverage-${{ matrix.shard }}.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-report.json
+      - name: Failed tests in the run summary
+        if: ${{ !cancelled() }}
+        run: bun scripts/features/e2e-failures.ts "$RUNNER_TEMP/e2e-report.json" "shard ${{ matrix.shard }}/4" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
