@@ -380,3 +380,18 @@ test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and th
   await page.getByTestId('credential-submit').click()
   await expect(page.getByTestId('claude-open')).toBeVisible()
 })
+
+// A member's own ChatGPT sign-in (Settings › AI accounts) asked them to sign in "with the account the team will use":
+// it is their own account, so the step says so; the team's sign-in in Admin keeps the team wording (test above).
+test('my own ChatGPT sign-in asks for my own account, not the team\'s', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/settings/providers')
+  await page.getByTestId('my-credential-add-codex').click()
+  await page.getByTestId('kind-chatgpt').check()
+  await page.getByTestId('credential-label').fill('내 ChatGPT')
+  await page.getByTestId('plan-notice-ack').check()
+  await page.getByTestId('credential-submit').click()
+  await expect(page.getByTestId('chatgpt-code')).toContainText(DICTS.ko['credentials.chatgpt.step3Own'])
+  await expect(page.getByTestId('chatgpt-code')).not.toContainText(DICTS.ko['credentials.chatgpt.step3'])
+})

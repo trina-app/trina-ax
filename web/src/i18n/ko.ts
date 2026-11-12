@@ -2928,6 +2928,7 @@ export const ko = {
   'credentials.chatgpt.step1': '이 주소를 여세요',
   'credentials.chatgpt.step2': '이 코드를 넣으세요 (15분 안에)',
   'credentials.chatgpt.step3': '팀이 쓸 ChatGPT 계정으로 로그인해 승인하세요.',
+  'credentials.chatgpt.step3Own': '내 ChatGPT 계정으로 로그인해 승인하세요.',
   'credentials.chatgpt.waiting': '기다리는 중…',
   'credentials.chatgpt.starting': '로그인 준비 중…',
   'credentials.chatgpt.done': '연결했어요 · ChatGPT {plan}',

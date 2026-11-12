@@ -421,7 +421,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       {!secure ? <p className="text-sm text-warn" data-testid="credential-https-only">{t('credentials.httpsOnly')}</p>
         : login ? (login.kind === 'anthropic-oauth'
           ? <ClaudeProgress l={login} code={loginCode} onCode={(v) => { setLoginCode(v); setError(null) }} onSubmit={sendCode} error={error} />
-          : <ChatgptProgress l={login} />)
+          : <ChatgptProgress l={login} personal={personal} />)
         : (
           <div className="space-y-4">
             {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
@@ -565,7 +565,8 @@ function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLog
   return <p className="text-sm text-danger" data-testid="claude-failed">{t(reason)}</p>
 }
 
-function ChatgptProgress({ l }: { l: CredentialLogin }) {
+/** `personal`: a member's own account (Settings › AI accounts), not the one the team uses */
+function ChatgptProgress({ l, personal }: { l: CredentialLogin; personal?: boolean }) {
   const t = useT()
   if (l.state === 'starting') return <p className="text-sm text-muted">{t('credentials.chatgpt.starting')}</p>
   if (l.state === 'code' && l.url && l.code) return (
@@ -579,7 +580,7 @@ function ChatgptProgress({ l }: { l: CredentialLogin }) {
       <li>{t('credentials.chatgpt.step2')}
         <span className="mt-1 flex items-center gap-2"><code className="text-xl font-semibold tracking-widest" data-testid="chatgpt-user-code">{l.code}</code><CopyButton text={l.code} /></span>
       </li>
-      <li>{t('credentials.chatgpt.step3')}</li>
+      <li>{t(personal ? 'credentials.chatgpt.step3Own' : 'credentials.chatgpt.step3')}</li>
       <li className="list-none text-muted">⏳ {t('credentials.chatgpt.waiting')}</li>
     </ol>
   )
