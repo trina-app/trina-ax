@@ -43,7 +43,7 @@
 // so Back returns to the project.
 import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
@@ -552,6 +552,10 @@ function ProjectPage() {
   }
   const me = useMe()
   const phone = useMediaQuery(PHONE)
+  // opened from + on the project's header in Trina history (components/history/HistoryGroups.tsx): the box is ready to
+  // type in (with a mouse; a phone's keyboard does not jump up)
+  const location = useLocation()
+  const newChat = !!(location.state as { newChat?: boolean } | null)?.newChat
   // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
   // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
   const personal = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`) && (isAdmin(me) || me.team.projectCreators === 'members')
@@ -626,6 +630,13 @@ function ProjectPage() {
     const next = keepFaces(old, chat)
     return [next, ...rest].sort(chatOrder)
   })
+
+  // + in Trina history said "a new chat here": once the box has it (it mounts with the project, its own effect runs
+  // first), the word goes from this history entry, so Back or a reload do not focus the box again and a second + does
+  useEffect(() => {
+    if (newChat && p) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newChat, p?.id])
 
   // ?members=1 opens the members dialog once the project is here, for whoever may change them; otherwise it goes
   useEffect(() => {
@@ -793,7 +804,7 @@ function ProjectPage() {
                 )}
               </div>
             ) : (
-              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t('projects.newChat')} />
+              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t('projects.newChat')} autoFocus={newChat} />
             )}
           </div>
           {(!outside || hasMembers) && (

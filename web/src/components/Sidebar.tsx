@@ -5,9 +5,11 @@
 // AI chat, ⇧⌘O; it is also the way Home), 검색 (⌘K), 프로젝트, 예약 작업, 알림함 (its count on the row), 파일 and 팀 스킬;
 // then one scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the
 // five latest rooms and the room on screen, "더 보기 (N)" for the rest with what is unread there) and "트리나 기록" (the
-// AI's history: the five latest and the chat on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K"
-// when hidden chats show a "?" or a dot; one session marker per row from the chat list itself, chat/ChatState.tsx: "?", a
-// spinner or a dot), so the AI never sinks under many rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its
+// AI's history by project, history/HistoryGroups.tsx and docs/DECISIONS.md "Trina history by project": the five
+// projects with the latest activity and the chats in no project last, three rows each with "N more", a group folding
+// under its ▾; without a chat in a project the five latest and the chat on screen, as before; "모두 보기" for the whole
+// of it with its filters, with "답 필요 K" when hidden chats show a "?" or a dot; one session marker per row from the chat
+// list itself, chat/ChatState.tsx: "?", a spinner or a dot), so the AI never sinks under many rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its
 // own row between the two. People and the AI never share a word: no bare "채팅" here. Each folds, and each one's whole
 // list stays open or closed, remembered in this browser. Then the account menu (the person's email or ID, Settings,
 // Usage (their own, in Settings), Deleted history, Sign out), which opens above the profile line. Below
@@ -22,7 +24,7 @@
 // "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) there too, the dialog of the chat's title menu; a shared chat stays
 // in its project. Every row's "···" has "상단에 고정" / "고정 해제" (docs/DECISIONS.md "Pinned chats"): my pinned chats
 // come first, the most recently pinned first, with a pin before the title and no header of their own; on a computer at
-// most ten of them above the five latest, all of them in "모두 보기" and in the phone's drawer.
+// most ten of them above the five latest (or the projects), all of them in "모두 보기" and in the phone's drawer.
 import clsx from 'clsx'
 import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, Pin, Search, Settings, Smile, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -49,6 +51,8 @@ import { MyStatusRow, openStatusDialog, StatusEmoji, useMyStatusWords } from './
 import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
+import { HistoryGroups, useHistoryGroups, useSeesProject } from './history/HistoryGroups'
+import { useProjects } from '../store/projects'
 import { AiMark } from './rooms/AiFace'
 import { MenuButton } from './rooms/MenuButton'
 import { useRowMenu } from './rooms/RoomMenu'
@@ -79,19 +83,27 @@ const VIEW = {
 } as const satisfies Record<string, { label: MessageKey; options: Record<string, MessageKey> }>
 type ViewKey = keyof typeof VIEW
 type RecentsView = { [K in ViewKey]: keyof (typeof VIEW)[K]['options'] }
-const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'date', sort: 'updated' }
-const VIEW_KEY = 'mycel.sidebar.recentsView'
+const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'project', sort: 'updated' }
+/** what differs from the default only, so a later default reaches everyone who did not choose otherwise */
+const VIEW_KEY = 'mycel.sidebar.historyView'
+/** before 2026-11-12 (docs/DECISIONS.md "Trina history by project") the whole view was kept, its grouping the old
+ * default "by date" for everyone who ever touched the menu: its other choices are kept, a grouping by date is not */
+const OLD_VIEW_KEY = 'mycel.sidebar.recentsView'
 const DAY = 86_400_000
-const passes = (v: RecentsView, c: Chat, seen: MarkerView, now: number) => {
+/** `inProject`: the chat is in a project the person sees (one they no longer see counts as none, as its header and the
+ * chat page say: docs/DECISIONS.md "Trina history by project") */
+const passes = (v: RecentsView, c: Chat, seen: MarkerView, now: number, inProject: (c: Chat) => boolean) => {
   const s = v.status
-  const ok = s === 'waiting' ? waitingOrRunning(c, seen) : s === 'project' ? !!c.projectId : s === 'noProject' ? !c.projectId : s === 'confidential' ? !!c.confidential : true
+  const ok = s === 'waiting' ? waitingOrRunning(c, seen) : s === 'project' ? inProject(c) : s === 'noProject' ? !inProject(c) : s === 'confidential' ? !!c.confidential : true
   const age = now - new Date(c.updatedAt).getTime()
   const fresh = v.activity === 'today' ? dateBucket(c.updatedAt) === 'today' : v.activity === 'week' ? age <= 7 * DAY : v.activity === 'month' ? age <= 30 * DAY : true
   return ok && fresh
 }
 const rememberedView = (): RecentsView => {
   try {
-    const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<RecentsView>
+    const kept = localStorage.getItem(VIEW_KEY)
+    const v = JSON.parse(kept ?? localStorage.getItem(OLD_VIEW_KEY) ?? '{}') as Partial<RecentsView>
+    if (kept === null && v.group === 'date') delete v.group
     const out = { ...DEFAULT_VIEW }
     for (const k of Object.keys(VIEW) as ViewKey[]) if (v[k] && v[k] in VIEW[k].options) (out as Record<string, string>)[k] = v[k] as string
     return out
@@ -118,8 +130,12 @@ const remember = (key: string, v: string) => {
 }
 const OPEN_KEY = 'mycel.sidebar.recents'
 const ALL_KEY = 'mycel.sidebar.recentsAll'
-/** a computer: AI chats shown before "모두 보기" */
+/** a computer: AI chats shown before "모두 보기" (no chat in a project) */
 const LATEST = 5
+/** a computer, the history by project beside the rooms: the latest projects in sight (and the other chats), and the
+ * rows of each before its "N more" (docs/DECISIONS.md "Trina history by project") */
+const PROJECTS_SHOWN = 5
+const ROWS_SHOWN = 3
 /** a computer: pinned chats shown above them (the rest are first in "모두 보기") */
 const PINS_SHOWN = 10
 /** my pinned chats, the most recently pinned first (docs/DECISIONS.md "Pinned chats") */
@@ -137,6 +153,7 @@ export default function Sidebar() {
   // goes to another group (a date, a project) and is made again, as the share right after the move needs
   // (components/chat/ChatProject.tsx, the switch "프로젝트 멤버와 공유")
   const [moving, setMoving] = useState<Chat | null>(null)
+  const navRef = useRef<HTMLElement>(null)
   const loaded = useChats((s) => s.chatsLoaded)
   const cursor = useChats((s) => s.chatsCursor)
   const loadChats = useChats((s) => s.loadChats)
@@ -157,39 +174,30 @@ export default function Sidebar() {
   const [view, setViewState] = useState<RecentsView>(rememberedView)
   const setView = (v: RecentsView) => {
     setViewState(v)
-    remember(VIEW_KEY, JSON.stringify(v))
+    remember(VIEW_KEY, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== DEFAULT_VIEW[k]).map((k) => [k, v[k]]))))
   }
   const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
   const requests = useChats((s) => s.requests)
   // session markers as this window sees them: the chats with a card open here, the chat on screen in a visible window
   const cards = useMemo(() => cardChats(requests), [requests])
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
-  // project names, only when Recents is grouped by project (one read, kept while the sidebar is there)
-  const [projects, setProjects] = useState<Map<string, string> | null>(null)
-  useEffect(() => {
-    if (view.group !== 'project' || projects) return
-    api.call(API.listProjects).then((r) => setProjects(new Map(r.items.map((p) => [p.id, p.name]))), () => setProjects(new Map()))
-  }, [view.group, projects])
-  const groups = useMemo(() => {
+  // the whole history as the filter and sort choose it (the drawer, "모두 보기"): a chat made only to hold attachments (a
+  // file attached, nothing sent yet) is not a conversation yet; pinned chats come first, without a header
+  // (`pinnedRows`), the rest follow by project, by date or in one list
+  // before the first read of the project list, a chat with a project counts as in one (the read then sorts it out)
+  const listed = useProjects((s) => s.listed)
+  const seesProject = useSeesProject()
+  const inProject = useCallback((c: Chat) => !!c.projectId && (!listed || seesProject(c.projectId)), [listed, seesProject])
+  const filtered = useMemo(() => {
     const now = Date.now()
-    // a chat made only to hold attachments (a file attached, nothing sent yet) is not a conversation yet
-    // pinned chats come first, without a header (`pinnedRows`); the groups hold the rest
-    const shown = chats.filter((c) => !isUnused(c) && !c.pinnedAt && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now))
+    const shown = chats.filter((c) => !isUnused(c) && !c.pinnedAt && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now, inProject))
     const when = (c: Chat) => (view.sort === 'created' ? c.createdAt : c.updatedAt)
-    shown.sort((a, b) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : when(b).localeCompare(when(a))))
-    const g = new Map<string, { label: string | null; items: Chat[] }>()
-    for (const c of shown) {
-      const key = view.group === 'date' ? dateBucket(when(c)) : view.group === 'project' ? (c.projectId ?? '') : ''
-      const label = view.group === 'date' ? t(BUCKET_LABEL[key as DateBucket]) : view.group === 'project' ? (c.projectId ? (projects?.get(c.projectId) ?? '…') : t('sidebar.noProject')) : null
-      if (!g.has(key)) g.set(key, { label, items: [] })
-      g.get(key)!.items.push(c)
-    }
-    return [...g.entries()]
-  }, [chats, view, cards, here, projects, t])
+    return shown.sort((a, b) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : when(b).localeCompare(when(a))))
+  }, [chats, view, cards, here, inProject])
   const pinnedRows = useMemo(() => {
     const now = Date.now()
-    return pinnedFirst(chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now)))
-  }, [chats, view, cards, here])
+    return pinnedFirst(chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now, inProject)))
+  }, [chats, view, cards, here, inProject])
   const listId = useId()
   const peek = useChatPeek()
   // a computer: my pinned chats (at most ten), then the five latest of the others and the chat on screen, unless the
@@ -197,14 +205,33 @@ export default function Sidebar() {
   const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
   const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
   const pins = useMemo(() => pinnedFirst(used).filter((c, i) => i < PINS_SHOWN || c.id === openChat), [used, openChat])
-  const latest = useMemo(() => [...pins, ...used.filter((c) => !c.pinnedAt).filter((c, i) => i < LATEST || c.id === openChat)], [used, pins, openChat])
-  // the hidden chats that need me, counted on "모두 보기" as their rows would show them (session markers: a "?" or a dot,
-  // not a spinner: a chat that runs again shows the spinner); amber when one of them is a "?"
-  const hiddenNeeds = useMemo(() => {
-    const marks = used.filter((c) => !latest.includes(c)).map((c) => markerOf(c, { card: cards.has(c.id), here: c.id === here })).filter(needsMe)
-    return { n: marks.length, waiting: marks.some((m) => m!.kind === 'ask') }
-  }, [used, latest, cards, here])
+  const unpinned = useMemo(() => used.filter((c) => !c.pinnedAt), [used])
+  const latest = useMemo(() => [...pins, ...unpinned.filter((c, i) => i < LATEST || c.id === openChat)], [unpinned, pins, openChat])
   const full = !wide || allChats || changed.length > 0
+  // the history by project (docs/DECISIONS.md "Trina history by project"): beside the rooms the latest projects, a few
+  // rows each; the whole of it in the drawer and in "모두 보기". Without a chat in a project there are no headers: the
+  // plain list (by date in the whole history), as before
+  const byProject = useHistoryGroups(full ? filtered : unpinned, full ? { open: openChat } : { projects: PROJECTS_SHOWN, rows: ROWS_SHOWN, open: openChat })
+  const grouped = byProject.grouped && (!full || view.group === 'project')
+  const dateGroups = useMemo(() => {
+    const by = view.group === 'none' ? 'none' : 'date'
+    const g = new Map<string, { label: string | null; items: Chat[] }>()
+    for (const c of filtered) {
+      const key = by === 'date' ? dateBucket(view.sort === 'created' ? c.createdAt : c.updatedAt) : ''
+      if (!g.has(key)) g.set(key, { label: by === 'date' ? t(BUCKET_LABEL[key as DateBucket]) : null, items: [] })
+      g.get(key)!.items.push(c)
+    }
+    return [...g.entries()]
+  }, [filtered, view.group, view.sort, t])
+  // the hidden chats that need me, counted on "모두 보기" as their rows would show them (session markers: a "?" or a dot,
+  // not a spinner: a chat that runs again shows the spinner); amber when one of them is a "?". By project: the chats of
+  // the projects past the latest ones and the pins past ten (a folded group and a group's "N more" carry their own mark)
+  const hiddenNeeds = useMemo(() => {
+    const hidden = grouped ? [...used.filter((c) => c.pinnedAt && !pins.includes(c)), ...byProject.behind.flatMap((g) => g.chats)] : used.filter((c) => !latest.includes(c))
+    const marks = hidden.map((c) => markerOf(c, { card: cards.has(c.id), here: c.id === here })).filter(needsMe)
+    return { n: marks.length, waiting: marks.some((m) => m!.kind === 'ask') }
+  }, [grouped, used, pins, byProject.behind, latest, cards, here])
+  const row = (c: Chat) => <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
   const toggleRecents = () => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
 
   const close = () => setDrawer(false)
@@ -216,7 +243,7 @@ export default function Sidebar() {
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
 
   return (
-    <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
+    <nav ref={navRef} aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
       {wide ? (
         // the team on top (TeamMenu.tsx): its logo and name, and for owners and admins the team menu
         <TeamMenu />
@@ -288,20 +315,26 @@ export default function Sidebar() {
           <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
         </div>
         <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
-          {!loaded && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {/* the chats, and the projects the person sees for their headers (one read): no flat list first */}
+          {(!loaded || !byProject.ready) && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
           {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" minor className="mx-1 mt-2" />}
           {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
-          {loaded && chats.some((c) => !isUnused(c)) && !groups.length && !pinnedRows.length && (
+          {loaded && chats.some((c) => !isUnused(c)) && !filtered.length && !pinnedRows.length && (
             <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
               {t('sidebar.filter.none')}
             </p>
           )}
-          {!full && (
-            <ul data-testid="ai-chats-latest">
-              {latest.map((c) => (
-                <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
-              ))}
-            </ul>
+          {loaded && byProject.ready && !full && !grouped && <ul data-testid="ai-chats-latest">{latest.map(row)}</ul>}
+          {/* by project beside the rooms: my pins as before, then the latest projects (docs/DECISIONS.md "Trina history by project") */}
+          {loaded && byProject.ready && !full && grouped && (
+            <>
+              {pins.length > 0 && (
+                <ul className="mb-2" data-testid="ai-chats-pinned">
+                  {pins.map(row)}
+                </ul>
+              )}
+              <HistoryGroups state={byProject} row={row} onNavigate={close} />
+            </>
           )}
           {/* always there while there is a history (the owner, 2026-11-07), even when all of it is in sight: the whole
               history with its filters is behind it */}
@@ -317,21 +350,16 @@ export default function Sidebar() {
               )}
             </button>
           )}
-          {full && pinnedRows.length > 0 && (
+          {full && byProject.ready && pinnedRows.length > 0 && (
             <ul className="mb-2" data-testid="ai-chats-pinned">
-              {pinnedRows.map((c) => (
-                <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
-              ))}
+              {pinnedRows.map(row)}
             </ul>
           )}
-          {full && groups.map(([key, { label, items }]) => (
+          {full && byProject.ready && grouped && <HistoryGroups state={byProject} row={row} onNavigate={close} />}
+          {full && byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => (
             <div key={key || 'all'} className="mb-2">
               {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
-              <ul>
-                {items.map((c) => (
-                  <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
-                ))}
-              </ul>
+              <ul>{items.map(row)}</ul>
             </div>
           ))}
           {full && cursor && (
@@ -356,7 +384,27 @@ export default function Sidebar() {
         </div>
       </div>
       {peek.card}
-      {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => useChats.getState().upsertChat(c)} />}
+      {moving && (
+        <MoveToProjectDialog
+          chat={moving}
+          onClose={() => {
+            const id = moving.id
+            setMoving(null)
+            // the moved row is a new row in its project's group (docs/DECISIONS.md "Trina history by project"): the
+            // dialog's way back to the old "···" is gone, so the keyboard goes to the row's "···" where it is now
+            requestAnimationFrame(() => {
+              if (document.activeElement && document.activeElement !== document.body) return
+              navRef.current?.querySelector(`a[href="/c/${id}"]`)?.closest('li')?.querySelector<HTMLElement>('[data-testid="chat-row-menu"]')?.focus()
+            })
+          }}
+          onMoved={(c) => {
+            useChats.getState().upsertChat(c)
+            // the dialog read the project list a moment ago: the row goes to its project's group at once
+            const p = c.projectId ? useProjects.getState().byId[c.projectId] : undefined
+            if (p) byProject.projects.add(p)
+          }}
+        />
+      )}
       {wide ? (
         <AccountMenu />
       ) : (
