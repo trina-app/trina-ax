@@ -38,6 +38,7 @@ import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/des
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { teamAddressShown } from '../lib/team-address'
+import { canShareText, shareText } from '../lib/share'
 import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, Skeleton, confirmDialog, inputCls, noKeyRepeat, useCopy, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
@@ -889,9 +890,10 @@ function Apps() {
   )
 }
 
-/** A phone's row that sends the team's Apps page to a computer: the phone's share sheet where there is one, else the
- * link is copied (and a toast says so). Opened on the computer, the person signs in and gets the Mac or Windows app
- * there. The address is the team's (GET /api/me team.address), else this page's. */
+/** A phone's row that sends the team's Apps page to a computer: the phone's share sheet where there is one (the phone
+ * app's own, share-text-v1, then the browser's: lib/share.ts; Android's WebView has no navigator.share), else the link
+ * is copied (and a toast says so). Opened on the computer, the person signs in and gets the Mac or Windows app there.
+ * The address is the team's (GET /api/me team.address), else this page's. */
 function SendToComputer({ address }: { address: string | undefined }) {
   const t = useT()
   const { copy } = useCopy()
@@ -899,16 +901,8 @@ function SendToComputer({ address }: { address: string | undefined }) {
     try { return `${new URL(address ?? window.location.origin).origin}/settings/apps` } catch { return `${window.location.origin}/settings/apps` }
   })()
   const send = async () => {
-    const nav = navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> }
-    if (typeof nav.share === 'function') {
-      try {
-        await nav.share({ url: link, title: t('apps.desktopTitle') })
-        return
-      } catch (e) {
-        // closed without sending: nothing more; a share sheet that failed: the link is copied instead
-        if (e instanceof DOMException && e.name === 'AbortError') return
-      }
-    }
+    // closed without sending: nothing more; no sheet, or one that failed: the link is copied instead
+    if (canShareText() && (await shareText(link)) !== 'failed') return
     await copy(link)
     toast({ level: 'success', text: t('apps.linkCopied') })
   }
