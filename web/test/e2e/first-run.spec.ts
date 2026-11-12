@@ -114,6 +114,21 @@ for (const phone of [false, true]) {
   })
 }
 
+test('Settings › 앱: an office server reached at a port; plain http says the apps need https (QA TC-089)', async ({ page }) => {
+  await reset(page)
+  expect((await page.request.post('/__test/team-address', { data: { address: 'https://192.168.1.2:19300' } })).ok()).toBe(true)
+  await signIn(page)
+  await page.goto('/settings/apps')
+  await expect(page.getByTestId('apps-team-address-host')).toHaveText('192.168.1.2:19300')
+  await expect(page.getByTestId('apps-team-address')).toContainText(ko('apps.teamAddressHint'))
+  expect((await page.request.post('/__test/team-address', { data: { address: 'http://192.168.1.2:19300' } })).ok()).toBe(true)
+  await page.reload()
+  await expect(page.getByTestId('apps-team-address-host')).toHaveText('http://192.168.1.2:19300')
+  await expect(page.getByTestId('apps-team-address')).toContainText(ko('apps.teamAddressHttpHint'))
+  await audit(page, 'Settings › 앱 with an http team address')
+  expect((await page.request.post('/__test/team-address', { data: { address: null } })).ok()).toBe(true)
+})
+
 // phase 2 (docs/AGENTS/plan/20261108-1025-first-run-open-links.md): "앱에서 열기" on both join pages carries this page's own
 // link (the team link's token from memory: the address bar no longer has it), and only where our own app receives it:
 // the desktop app's scheme on a Mac or Windows, an intent naming our package on Android, nothing on an iPhone or Linux

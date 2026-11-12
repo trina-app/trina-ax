@@ -14,6 +14,7 @@ import { authOf, installAuth } from '../auth/service'
 import { startSweeper } from '../auth/sweeper'
 import { getUser, setUserLocale } from '../auth/users'
 import type { RouteModule } from './module'
+import { reachedAt } from '../system/connection'
 import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
 import { myUsage } from '../admin/my-usage'
 import { registerAccountDeletionRoutes } from './account-deletion'
@@ -47,7 +48,7 @@ export const authRoutes: RouteModule = {
       return { ok: true as const }
     })
 
-    kit.handle(API.me, ({ auth }) => a().me(auth.user.id, auth.session.id))
+    kit.handle(API.me, ({ c, auth }) => a().me(auth.user.id, auth.session.id, reachedAt(c)))
 
     // my "Allow all websites" for the AI's web reads (tools/web-allow-all.ts, docs/DECISIONS.md "Allow all websites
     // covers the AI's web reads"): on only with the risk sentence the person was shown and while the team allows it;
@@ -64,7 +65,7 @@ export const authRoutes: RouteModule = {
       return { allowAll }
     })
 
-    kit.handle(API.updateMe, ({ auth, body }) => {
+    kit.handle(API.updateMe, ({ c, auth, body }) => {
       const u = getUser(ctx.db, auth.user.id)
       if (!u) fail('unauthorized')
       const sets: string[] = []
@@ -94,7 +95,7 @@ export const authRoutes: RouteModule = {
       }
       // the person's other windows and devices switch too
       if (body.locale !== undefined) ctx.services.realtime.publish(auth.user.id, LOCALE_CHANGED)
-      return a().me(auth.user.id, auth.session.id)
+      return a().me(auth.user.id, auth.session.id, reachedAt(c))
     })
 
     // only the caller's own turns: the person comes from the session, never from the request

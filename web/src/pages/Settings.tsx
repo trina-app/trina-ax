@@ -917,20 +917,23 @@ function SendToComputer({ address }: { address: string | undefined }) {
 
 /**
  * The team's address, for a new device (docs/AGENTS/plan/20261108-0930-first-run-one-box.md): the desktop and phone
- * apps take it in their one box. It comes from the server (GET /api/me team.address: the relay's or the public
- * address), never from the address this page is at, and shows as the URL API gives it (punycode). No address known
- * (the office network only): no row.
+ * apps take it in their one box. It comes from the server (GET /api/me team.address: the relay's, the public address,
+ * or for a server without a relay the address it is reached at, with its port), and shows as the URL API gives it
+ * (punycode). A plain http address (an office server without a certificate) shows with its http:// and says the apps
+ * need https: they refuse it, a browser opens it. No address known: no row.
  */
 export function TeamAddressRow({ address }: { address: string | undefined }) {
   const t = useT()
   const host = teamAddressHost(address)
   if (!address || !host) return null
+  const origin = new URL(address).origin
+  const insecure = origin.startsWith('http:')
   return (
     <div className="mb-6" data-testid="apps-team-address">
-      <Row label={t('apps.teamAddress')} hint={t('apps.teamAddressHint')}>
+      <Row label={t('apps.teamAddress')} hint={t(insecure ? 'apps.teamAddressHttpHint' : 'apps.teamAddressHint')}>
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{host}</span>
-          <CopyButton text={new URL(address).origin} showLabel className="shrink-0" />
+          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{insecure ? origin : host}</span>
+          <CopyButton text={origin} showLabel className="shrink-0" />
         </div>
       </Row>
     </div>

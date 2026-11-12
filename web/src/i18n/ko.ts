@@ -1645,6 +1645,7 @@ export const ko = {
 
   'apps.teamAddress': "팀 주소",
   'apps.teamAddressHint': "새 기기에서 앱을 열고 이 주소를 넣으세요.",
+  'apps.teamAddressHttpHint': "데스크톱 앱과 휴대폰 앱은 보안 주소(https)가 필요해요. 새 컴퓨터에서는 웹 브라우저로 이 주소를 여세요.",
   'apps.installTitle': '앱으로 설치',
   'apps.installDesc': '휴대폰이나 컴퓨터에 앱처럼 설치해서 바로 열 수 있어요.',
   'apps.install': '앱으로 설치',

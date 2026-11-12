@@ -1646,6 +1646,7 @@ export const id: Record<MessageKey, string> = {
 
   'apps.teamAddress': "Alamat tim",
   'apps.teamAddressHint': "Buka aplikasi di perangkat baru dan masukkan alamat ini.",
+  'apps.teamAddressHttpHint': "Aplikasi desktop dan ponsel memerlukan alamat aman (https). Di komputer baru, buka alamat ini di browser web.",
   'apps.installTitle': 'Pasang sebagai aplikasi',
   'apps.installDesc': 'Pasang di ponsel atau komputer dan buka seperti aplikasi.',
   'apps.install': 'Pasang aplikasi',
