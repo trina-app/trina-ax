@@ -19,7 +19,7 @@ import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 import { WhoSeesLine } from './WhoSees'
 
-export function NewChatComposer({ projectId, project, onMembers, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor }: {
+export function NewChatComposer({ projectId, project, onMembers, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
   projectId: string | null
   /** the project, when known: who will see its new chat (whether it is shared, and with how many people) */
   project?: Project | null
@@ -39,6 +39,8 @@ export function NewChatComposer({ projectId, project, onMembers, initialText, re
   aiLine?: boolean
   /** `initialText` needs the person's own text after it: not sent alone, this line under the box (Composer `waitsFor`) */
   waitsFor?: { text: string; hint: string }
+  /** phones: the box as one card, its tools in a row inside it (Home, QA TC-391; Composer `card`) */
+  card?: boolean
 }) {
   const me = useMeStrict()
   const navigate = useNavigate()
@@ -105,6 +107,7 @@ export function NewChatComposer({ projectId, project, onMembers, initialText, re
       sharedUploads={shared ? { audience: project!.audience ?? 0, allowed: project!.chatUploads !== false } : undefined}
       projectId={projectId}
       waitsFor={waitsFor}
+      card={card}
     />
     </>
   )

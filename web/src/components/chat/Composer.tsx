@@ -14,7 +14,9 @@
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
 // Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach inside it on the left, the mic and a round send
 // on the right; the row under it keeps only the engine picker, for people who may choose one, and only when two or more
-// engines are switched on (EngineMenu showsEnginePicker).
+// engines are switched on (EngineMenu showsEnginePicker). Home's new chat (`card`, QA TC-391) is one card instead, as AI
+// apps have it: the text on top and one row under it inside the box (+ · the engine picker · mic · send), nothing under
+// the box.
 // Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic in the box right before send (as in ChatGPT's
 // box), holding Space in the box on a computer, or a finger held on the mic; the words go to the end of the box, never
 // sent by themselves.
@@ -90,6 +92,7 @@ export default function Composer({
   sharedUploads,
   projectId,
   waitsFor,
+  card,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -137,6 +140,9 @@ export default function Composer({
   /** the box was filled with a request that needs the person's own text after it (자연스러운 글's "/humanizer 아래 글을
    * …:"): while the box holds only `text` (and no file), nothing is sent and `hint` shows under the box */
   waitsFor?: { text: string; hint: string }
+  /** phones: one card (Home's new chat, QA TC-391), the text on top and a row under it inside the box with + · the
+   * engine picker · mic · send; no row under the box. Computers and the other boxes keep their layout */
+  card?: boolean
 }) {
   const t = useT()
   const locale = useLocale()
@@ -310,6 +316,8 @@ export default function Composer({
   const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
   // below 768px (the phone top bar and tabs): attach and voice go inside the box, as in a room's box
   const phone = useMediaQuery('(max-width: 767.98px)')
+  // a phone's card: the text on top, the tools in one row under it, inside the box
+  const stacked = phone && !!card
 
   // the request alone, nothing of the person's own after it yet (a file attached is their text: it can go, but not one
   // whose upload failed, which is not sent)
@@ -383,7 +391,8 @@ export default function Composer({
   // attach: under the box with its small menu on a computer; inside the box on a phone, as the attach sheet every
   // message box has there (AttachSheet: 사진 보관함, 사진 찍기, 파일, 팀 파일; one picker each)
   const attachControls = phone ? (
-    <AttachSheet onFiles={(all) => void addFiles(all)} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={19} />} testId="attach-button" filesTestId="file-input" />
+    // the card's +: a quiet round button as tall as the picker beside it
+    <AttachSheet onFiles={(all) => void addFiles(all)} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={stacked ? 20 : 19} />} testId="attach-button" filesTestId="file-input" buttonClassName={stacked ? 'size-9 rounded-full! border border-line p-0! text-ink!' : undefined} />
   ) : (
     <>
       <div
@@ -500,6 +509,61 @@ export default function Composer({
     </>
   )
 
+  // the text's padding (the "#" layer behind it has the same): a phone's card has the text alone on its line, the
+  // tools under it; elsewhere the buttons share the line
+  const fieldPad = clsx(stacked ? 'px-4 pb-1' : ['pb-2', phone ? 'pl-1' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
+
+  // the mic, then send (or stop, or the answer's and the waiting message's buttons): at the end of the box's row
+  const actions = (
+    <>
+      {/* the mic right before send, as in ChatGPT's box ("+" and the engine stay where they are) */}
+      <VoiceMic voice={voice} mic={mic} disabled={sending} />
+      {answering
+        ? canSend && (
+            // the AI's question: also how phones (Enter makes a new line there) answer from the box
+            <Tooltip label={t('composer.sendAnswer')}>
+              <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
+                {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
+              </button>
+            </Tooltip>
+          )
+        : running &&
+          canSend && (
+            // phones make a new line with Enter: this button is how a message waits for the answer there
+            <Tooltip label={t('outbox.sendLater')}>
+              <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-later">
+                <Clock size={17} aria-hidden />
+              </button>
+            </Tooltip>
+          )}
+      {running ? (
+        <Tooltip label={t('composer.stop')}>
+          <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
+            {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
+          </button>
+        </Tooltip>
+      ) : (
+        !answering && (
+          <Tooltip label={t('chat.send')}>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSend}
+              aria-label={t('chat.send')}
+              // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
+              className={clsx('touch-hit flex items-center justify-center transition', phone
+                ? clsx(stacked ? 'size-9' : 'size-10', 'rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
+                : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
+              data-testid="send"
+            >
+              {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
+            </button>
+          </Tooltip>
+        )
+      )}
+    </>
+  )
+
   return (
     // a phone with the keyboard up (lib/viewport.ts .keyboard-open): the row under the box (the engine picker) goes, so
     // the box and send keep the room above the keyboard; it comes back with the keyboard down
@@ -517,7 +581,7 @@ export default function Composer({
       {/* The one field that is focused most of the time: a quiet edge, as in Claude, not the 2px accent edge of other
           fields. At rest --c-field-border (3:1); focused a darker 1px edge (--c-faint, >= 5.5:1) and the caret. */}
       <div
-        className={clsx('rounded-2xl border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
+        className={clsx(stacked ? 'rounded-3xl' : 'rounded-2xl', 'border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         {...dropProps}
         data-testid="composer"
       >
@@ -560,12 +624,12 @@ export default function Composer({
                 --spacing-composer-line: the text box's 8px bottom padding, its line and 8px above): one line, one
                 centre; more lines, the buttons stay on the last. The rest of the space under the text is the row's. A
                 phone: 4 px on the right, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
-            <div className={clsx('flex items-end gap-1 pr-2 pb-1 max-md:pr-1', phone && 'pl-1.5')}>
-              {phone && <div className="flex h-composer-line shrink-0 items-center">{attachControls}</div>}
+            <div className={clsx('flex', stacked ? 'flex-col' : ['items-end gap-1 pr-2 pb-1 max-md:pr-1', phone && 'pl-1.5'])}>
+              {phone && !stacked && <div className="flex h-composer-line shrink-0 items-center">{attachControls}</div>}
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
               <div className="relative min-w-0 flex-1">
-                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('pb-2 text-reading leading-reading', phone ? 'pl-1' : 'pl-5', answering || hold ? 'pt-2' : 'pt-3')} />}
+                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('text-reading leading-reading', fieldPad)} />}
                 <textarea
                   ref={taRef}
                   rows={1}
@@ -594,65 +658,29 @@ export default function Composer({
                   // not disabled: the focus stays in the box while the words are on their way
                   readOnly={voice.busy}
                   aria-busy={transcribing || undefined}
-                  className={clsx('relative block max-h-[240px] w-full max-md:max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))] min-w-0 resize-none bg-transparent pb-2 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering || hold ? 'pt-2' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  className={clsx('relative block max-h-[240px] w-full max-md:max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))] min-w-0 resize-none bg-transparent text-reading leading-reading outline-none placeholder:text-faint', fieldPad, tokens && 'room-ref-field [scrollbar-gutter:stable]')}
                   data-testid="composer-input"
                 />
               </div>
-              <div className="flex h-composer-line shrink-0 items-center gap-1">
-                {/* the mic right before send, as in ChatGPT's box ("+" and the engine stay where they are) */}
-                <VoiceMic voice={voice} mic={mic} disabled={sending} />
-                {answering
-                  ? canSend && (
-                      // the AI's question: also how phones (Enter makes a new line there) answer from the box
-                      <Tooltip label={t('composer.sendAnswer')}>
-                        <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
-                          {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
-                        </button>
-                      </Tooltip>
-                    )
-                  : running &&
-                    canSend && (
-                      // phones make a new line with Enter: this button is how a message waits for the answer there
-                      <Tooltip label={t('outbox.sendLater')}>
-                        <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-later">
-                          <Clock size={17} aria-hidden />
-                        </button>
-                      </Tooltip>
-                    )}
-                {running ? (
-                  <Tooltip label={t('composer.stop')}>
-                    <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
-                      {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
-                    </button>
-                  </Tooltip>
-                ) : (
-                  !answering && (
-                    <Tooltip label={t('chat.send')}>
-                      <button
-                        type="button"
-                        onClick={submit}
-                        disabled={!canSend}
-                        aria-label={t('chat.send')}
-                        // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
-                        className={clsx('touch-hit flex items-center justify-center transition', phone
-                          ? clsx('size-10 rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
-                          : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
-                        data-testid="send"
-                      >
-                        {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
-                      </button>
-                    </Tooltip>
-                  )
-                )}
-              </div>
+              {stacked ? (
+                // the card's row: + and the engine picker on the left, the mic and send on the right, each taking taps
+                // from 44 px (touch-hit)
+                <div className="flex items-center gap-1.5 px-2.5 pt-1 pb-2.5" data-testid="composer-tools">
+                  {attachControls}
+                  {pick && <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} title={t('composer.engine')} testId="engine-picker" look="pill" />}
+                  <div className="ml-auto flex shrink-0 items-center gap-1.5">{actions}</div>
+                </div>
+              ) : (
+                <div className="flex h-composer-line shrink-0 items-center gap-1">{actions}</div>
+              )}
             </div>
           </>
         )}
       </div>
       {/* under the box, like Claude's: attach on the left, the engine on the right, the note between (the mic is in the
           box, before send). Phones: attach sits inside the box, as in a room's box, and this row is only there for the
-          engine. */}
-      {(!phone || pick) && (
+          engine; a phone's card (`card`) has the engine in its own row inside the box, and no row here. */}
+      {(!phone || (pick && !stacked)) && (
       <div className="flex items-center gap-2 px-1 pt-1.5 max-md:pt-1" data-testid="composer-controls">
         <div className="flex flex-1 basis-0 items-center gap-0.5">
           {!phone && attachControls}

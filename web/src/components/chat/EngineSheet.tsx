@@ -24,10 +24,12 @@ export function engineMenuItems(engines: readonly EngineId[], models: Partial<Re
   ])
 }
 
-/** the button's look: the quiet picker under the message box, or a secondary button ("다른 모델로 다시 시도"), as on a computer */
+/** the button's look: the quiet picker under the message box, a pill in a phone's composer card (Home, QA TC-391: as tall
+ * as the card's + and send beside it), or a secondary button ("다른 모델로 다시 시도"), as on a computer */
 // (over MenuButton's own: its rounded-md and colour give way, ! ; its padding to the px / py here)
 const LOOK = {
   picker: 'gap-1 rounded-lg! px-2 py-1.5 text-xs max-sm:px-2 max-sm:py-1.5',
+  pill: 'h-9 min-w-0 gap-1 rounded-full! border border-line px-3 text-label whitespace-nowrap text-ink! max-sm:px-3 max-sm:py-0',
   secondary: 'h-8 gap-1.5 rounded-lg! border border-field-border bg-surface px-2.5 text-label font-medium whitespace-nowrap text-ink! max-sm:px-2.5 max-sm:py-0',
 } as const
 
@@ -54,9 +56,9 @@ export function EngineSheet({ engines, models, current, onPick, label, title, te
       items={engineMenuItems(engines, models, current, onPick, t('composer.defaultModel'))}
       icon={<>{label} <ChevronDown size={13} aria-hidden /></>}
       muted={look === 'picker'}
-      // the picker: a quiet word with a 44 px tap area around it (touch-hit), as on a computer; the button: 44 px tall,
-      // as every button on a phone
-      compact={look === 'picker'}
+      // the picker and the pill: a 44 px tap area around them (touch-hit), as on a computer; the button: 44 px tall, as
+      // every button on a phone
+      compact={look !== 'secondary'}
       buttonClassName={LOOK[look]}
       testId={testId}
     />

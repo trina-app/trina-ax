@@ -12,12 +12,16 @@
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
-// Phones (below 768px): Home is the 트리나 tab, where the app opens, laid out like the ChatGPT and Claude apps (QA
-// TC-253): the "one thing" (the setup row, the goal, the welcome or lead card, the no-AI card) at the top, without a
-// frame; the greeting, the one row of suggestions (the block under the box on a computer, as chips that scroll
-// sideways) and the box at the bottom, the box docked there so it stays in sight while the rest scrolls. No list of
-// the AI's chats here: the whole history is behind ☰ in the top bar. A project's new chat ("/?project=") shows no goal
-// and no setup row: they are about the team.
+// Phones (below 768px): Home is the 트리나 tab, where the app opens, laid out like an AI app (QA TC-253, TC-391): the
+// "one thing" (the setup row, the goal, the welcome or lead card, the no-AI card) at the top, without a frame; Trina's
+// mark and the greeting in the middle of the space left; the one row of suggestions (the block under the box on a
+// computer, as chips that scroll sideways) and the box at the bottom, the box docked there so it stays in sight while
+// the rest scrolls. The box is one card (components/chat/Composer.tsx `card`): the text on top, + · the engine picker
+// · mic · send in a row inside it, nothing under it. It is never focused by itself on a phone (not on opening, not
+// coming back from another tab): the keyboard comes up only when the person taps the box, so the tab bar stays until
+// then (the owner, 11-12: "채팅이 보고싶은 걸 수도 있는데"); with the keyboard up the card sits on it. No list of the AI's
+// chats here: the whole history is behind ☰ in the top bar. A project's new chat ("/?project=") shows no goal and no
+// setup row: they are about the team.
 // Someone who joined with a team link, an invite or "Add directly" gets the welcome card as the one thing at the top while
 // it shows (components/onboarding/MemberWelcome.tsx, docs/DECISIONS.md "A welcome for invited people"): in place of the
 // no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team".
@@ -26,10 +30,11 @@
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
+import { Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
-import type { Project } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { useMediaQuery } from '../components/ui'
@@ -49,6 +54,7 @@ import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Dem
 import { TeamPrepared } from '../components/onboarding/TeamPrepared'
 import { MemberWelcomeCard } from '../components/onboarding/MemberWelcome'
 import { useMemberWelcome } from '../store/memberWelcome'
+import { TrinaStar } from '../components/TrinaStar'
 
 export default function Home() {
   const t = useT()
@@ -112,16 +118,19 @@ export default function Home() {
   if (elsewhere) return <Navigate to={landingPath(true)} state={LANDING_STATE} replace />
   if (resuming) return <div className="h-full" data-testid="home-resuming" />
   // the box: on a computer under the greeting, before the suggestions; on a phone after them, held at the bottom of the
-  // screen, so the order things are read and reached in is the order they are seen
+  // screen, so the order things are read and reached in is the order they are seen. With a phone's keyboard up (the tab
+  // bar gone) the card sits right on the keyboard
   const dock = (
-    <div className="max-md:sticky max-md:bottom-0 max-md:z-10 max-md:bg-canvas max-md:pt-2 max-md:pb-3 md:contents" data-testid="home-dock">
+    <div className="max-md:sticky max-md:bottom-0 max-md:z-10 max-md:bg-canvas max-md:pt-2 max-md:pb-3 max-md:in-[.keyboard-open]:pb-1 md:contents" data-testid="home-dock">
       <NewChatComposer
         projectId={projectId}
         project={project}
         initialText={preset?.text}
         resetKey={preset?.n ?? 0}
-        // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
-        autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
+        // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first. Never
+        // on a phone: its keyboard would cover the tab bar and the page before the person asked for it (QA TC-391)
+        autoFocus={!phone && (navigationType === 'PUSH' || (preset?.n ?? 0) > 0)}
+        card
         aiLine={!noAi}
         waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}
       />
@@ -132,15 +141,17 @@ export default function Home() {
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="home-scroll">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 max-md:justify-start max-md:pt-4 max-md:pb-0">
-        {/* phones: the one thing at the top; the greeting, the suggestions' one row and the box at the bottom, the box
-            docked there (it stays in sight while the rest scrolls), like the ChatGPT and Claude apps. From 768px one
-            centred column, the box under the greeting and the suggestions under the box (the wrappers are display:
-            contents there) */}
+        {/* phones: the one thing at the top; the mark and the greeting in the middle of what is left; the suggestions'
+            one row and the box at the bottom, the box docked there (it stays in sight while the rest scrolls), as AI
+            apps have it. From 768px one centred column, the box under the greeting and the suggestions under the box
+            (the wrappers are display: contents there) */}
         <div className="w-full max-w-[720px] max-md:flex max-md:flex-1 max-md:flex-col" data-testid="home-column">
           <div className="md:contents" data-testid="home-top">
             {oneThing}
           </div>
-          <div className="max-md:mt-auto max-md:pt-6 md:contents" data-testid="home-head">
+          <div className="max-md:flex max-md:flex-1 max-md:flex-col max-md:items-center max-md:justify-center max-md:py-6 md:contents" data-testid="home-head">
+            {/* not under a welcome or lead card: they fill the top, and the mark would sit alone over the box */}
+            {!leadCard && !welcomeCard && <HomeMark />}
             {project && (
               <p className="mb-2 text-center text-sm text-muted">
                 <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -149,7 +160,7 @@ export default function Home() {
                 · {t('home.inProject')}
               </p>
             )}
-            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[1.625rem] font-semibold tracking-tight text-balance max-md:mb-4 sm:text-[1.75rem]">{t('home.greeting', { name: me.user.name })}</h1>}
+            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[1.625rem] font-semibold tracking-tight text-balance max-md:mb-0 sm:text-[1.75rem]">{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
           </div>
           {!phone && dock}
@@ -166,6 +177,17 @@ export default function Home() {
       </div>
       <p className="px-4 pb-3 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>
     </div>
+  )
+}
+
+/** Phones: the AI's mark over the greeting (QA TC-391), the one it has everywhere (rooms/AiFace.tsx): Trina's star where
+ * the product is named after its AI, else the sparkle. Decorative: the greeting says it. While the keyboard is up it
+ * goes, so the suggestions keep their room above the card. Computers keep the greeting alone. */
+function HomeMark() {
+  return (
+    <span aria-hidden className="mb-4 flex md:hidden in-[.keyboard-open]:hidden" data-testid="home-mark">
+      {PRODUCT_NAMED_AFTER_AI ? <TrinaStar size={48} /> : <Sparkles size={40} className="text-accent-text" aria-hidden />}
+    </span>
   )
 }
 
