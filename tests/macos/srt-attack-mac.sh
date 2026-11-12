@@ -44,12 +44,14 @@ trap 'end_slots; rm -rf "$OUT"; launchctl bootout "system/$LABEL.attackrestart" 
 if [ -n "${ATTACK_JS:-}" ]; then cp "$ATTACK_JS" "$OUT/attack.js"
 else sudo -u "$SUDO_USER" "$U_HOME/.bun/bin/bun" build "$REPO/tests/macos/srt-attack-mac.ts" --target bun --outfile "$OUT/attack.js" >/dev/null; fi
 PROBE=""
-if [ -x /usr/bin/cc ] && sudo -u "$SUDO_USER" /usr/bin/cc -O -o "$OUT/argv-probe" "$REPO/tests/macos/argv-probe.c" 2>/dev/null; then PROBE="$OUT/argv-probe"; fi
+PT=$(sudo -u "$SUDO_USER" mktemp /tmp/argv-probe.XXXXXX)
+if [ -x /usr/bin/cc ] && sudo -u "$SUDO_USER" /usr/bin/cc -O -o "$PT" "$REPO/tests/macos/argv-probe.c" 2>/dev/null; then cp "$PT" "$OUT/argv-probe"; PROBE="$OUT/argv-probe"; fi
+rm -f "$PT"
 chmod -R a+rX "$OUT"
 BUN="$BASE/app/current/bin/bun"
 ENVS=(PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$BASE/data" MYCEL_INSTALL_BASE="$BASE")
 for k in MYCEL_DEV_ENV_SLOTS MYCEL_DEV_ENV_PORT_BASE MYCEL_DEV_ENV_POOL_MIB MYCEL_DEV_ENV_PIDS_MAX MYCEL_DEV_ENV_ACL; do ENVS+=("$k=$(envv "$k")"); done
-ENVS+=(ATTACK_SERVER_PORT="$SERVER_PORT" ATTACK_PROXY_PORT="$PROXY_PORT" ATTACK_TLS_PORT="$TLS_PORT" ATTACK_LAN_IP="$LAN_IP" ATTACK_OWNER_HOME="$U_HOME" ATTACK_PROBE="$PROBE")
+ENVS+=(ATTACK_OUTSIDE_WAIT="${ATTACK_OUTSIDE_WAIT:-0}" ATTACK_RESTART_OUT="$OUT/restart.out" ATTACK_SERVER_PORT="$SERVER_PORT" ATTACK_PROXY_PORT="$PROXY_PORT" ATTACK_TLS_PORT="$TLS_PORT" ATTACK_LAN_IP="$LAN_IP" ATTACK_OWNER_HOME="$U_HOME" ATTACK_PROBE="$PROBE")
 [ -n "$REPORT" ] && { touch "$OUT/report.json"; chown "$SRV" "$OUT/report.json"; ENVS+=(ATTACK_REPORT="$OUT/report.json"); }
 
 echo "== as root: the sudoers rule allows run-wrap-mac as a slot account, nothing else"
@@ -78,10 +80,10 @@ cat > "/Library/LaunchDaemons/$LABEL.attackrestart.plist" <<EOF
   <key>StandardErrorPath</key><string>$OUT/restart.log</string>
 </dict></plist>
 EOF
-touch "$OUT/restart.log"; chown "$SRV" "$OUT/restart.log"
+touch "$OUT/restart.log" "$OUT/restart.out"; chown "$SRV" "$OUT/restart.log" "$OUT/restart.out"
 launchctl bootstrap system "/Library/LaunchDaemons/$LABEL.attackrestart.plist"
-for i in $(seq 1 30); do grep -q '^RUN ' "$OUT/restart.log" && break; sleep 1; done
-read -r _ RUNID ACCT < <(grep '^RUN ' "$OUT/restart.log" | head -n 1) || true
+for i in $(seq 1 30); do grep -q '^RUN ' "$OUT/restart.out" && break; sleep 1; done
+read -r _ RUNID ACCT < <(grep '^RUN ' "$OUT/restart.out" | head -n 1) || true
 if [ -z "${ACCT:-}" ]; then echo "FAIL S3 the job did not start a run: $(tail -5 "$OUT/restart.log")"; R=1
 else
   launchctl bootout "system/$LABEL.attackrestart"; sleep 3

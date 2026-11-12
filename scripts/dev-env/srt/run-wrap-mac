@@ -37,7 +37,7 @@ ME=$(id -un)
 # The slot: every process of this uid; the pool: every process of the slots' group (the slot accounts' primary group).
 # tests/unit/dev-env-srt-mac.test.ts replaces these two lines to use a process group of the test's own account, so
 # keep each one a single line.
-slot_ps() { ps -x -U "$(id -u)" -o pid=,ppid=,stat=,rss=; }
+slot_ps() { ps -x -U "$(id -u)" -o pid=,ppid=,stat=,rss=,uid=,command=; }
 pool_ps() { ps -x -G "$(id -g)" -o uid=,rss=; }
 # Signals go to the pids that ps lists by real uid, never to -1: kill -1 as the slot account also hits the sudo that
 # started this file (it keeps the slot's uid as its saved uid), and sudo then stops or ends itself and the run with it
@@ -50,12 +50,11 @@ slot_kill() { local s k; s=$(stop_pids); [ -n "$s" ] && kill -STOP $s 2>/dev/nul
 slot_term() { local p; p=$(slot_pids); [ -n "$p" ] && kill -TERM $p 2>/dev/null; }
 
 # Is there a process of this slot other than this shell ($$; bash 3.2 has no BASHPID, so the watchdog is its own
-# invocation of this file) and the processes up to three levels below it? Those are the helpers of this check (a
-# $(...) subshell, the pipeline's subshell and its ps and awk) and, in a run, srt and the command's shell (every
-# process of the slot got the signal anyway); zombies do not count.
+# invocation of this file), zombies and the helpers of this check (below this shell, and only ps,
+# awk or a subshell of this file, up to four levels: the command's own processes count, also when they are this close; a fork bomb is)?
 others() {
-  slot_ps | awk -v me="$$" '{ pp[$1] = $2; st[$1] = $3 }
-    END { for (p in pp) { if (p == me || st[p] ~ /^Z/) continue; q = pp[p]; if (q == me || pp[q] == me || pp[pp[q]] == me) continue; found = 1 } exit !found }'
+  slot_ps | awk -v me="$$" '{ pp[$1] = $2; st[$1] = $3; h[$1] = ($6 ~ /(^|\/)(ps|awk)$/ || index($0, "run-wrap-mac") > 0) }
+    END { for (p in pp) { if (p == me || st[p] ~ /^Z/) continue; q = pp[p]; if (h[p] && (q == me || pp[q] == me || pp[pp[q]] == me || pp[pp[pp[q]]] == me)) continue; found = 1 } exit !found }'
 }
 # "none" when others finds nothing. At the process limit (a fork bomb) the check itself cannot fork and prints nothing,
 # which is not "none": the caller goes on killing

@@ -159,7 +159,7 @@ function wrapCopy(): string {
   const src = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/run-wrap-mac'), 'utf8')
   const swap = (s: string, from: RegExp, to: string) => { if (!from.test(s)) throw new Error(`run-wrap-mac changed: ${from}`); return s.replace(from, () => to) }
   let s = swap(src, /^\[\[ "\$ME" =~ .*$/m, ': # the test runs as its own account')
-  s = swap(s, /^slot_ps\(\) \{.*$/m, `slot_ps() { ps -A -o pid=,ppid=,stat=,rss=,pgid= | awk -v g="$TEST_PGID" '$5 == g'; }`)
+  s = swap(s, /^slot_ps\(\) \{.*$/m, `slot_ps() { ps -A -o pid=,ppid=,stat=,rss=,pgid=,command= | awk -v g="$TEST_PGID" '$5 == g'; }`)
   s = swap(s, /^pool_ps\(\) \{.*$/m, `pool_ps() { ps -A -o uid=,rss=,pgid= | awk -v g="$TEST_PGID" '$3 == g { print $1, $2 }'; }`)
   const f = path.join(tmp, `run-wrap-mac-${Math.random().toString(36).slice(2)}`)
   fs.writeFileSync(f, s, { mode: 0o755 })
@@ -192,6 +192,8 @@ function runSlot(args: string[]) {
 }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
 const groupAlive = (pgid: number) => { try { process.kill(-pgid, 0); return true } catch { return false } }
+/** the watchdog may still check the slot for a moment after the run ended */
+const groupGone = async (pgid: number) => { for (let i = 0; i < 50 && groupAlive(pgid); i++) await Bun.sleep(100); return !groupAlive(pgid) }
 const bun = process.execPath
 
 describe('run-wrap-mac', () => {
@@ -215,8 +217,7 @@ describe('run-wrap-mac', () => {
     expect(res.code).not.toBe(0)
     expect(fs.existsSync(`${ef}.oom`)).toBe(true)
     expect(fs.existsSync(ef)).toBe(false)
-    await Bun.sleep(300)
-    expect(groupAlive(r.pgid)).toBe(false)
+    expect(await groupGone(r.pgid)).toBe(true)
   })
   test('over the pool limit (all slots together) the slot that uses the most ends', async () => {
     const ef = exitFile('c')
@@ -241,8 +242,7 @@ describe('run-wrap-mac', () => {
     const s = spawnSync('/bin/bash', [f, 'stop'], { env: { ...process.env, TEST_PGID: String(r.pgid) }, timeout: 20_000 })
     expect(s.status).toBe(0)
     await r.done
-    await Bun.sleep(300)
-    expect(groupAlive(r.pgid)).toBe(false)
+    expect(await groupGone(r.pgid)).toBe(true)
     expect(fs.existsSync(ef)).toBe(false)
   })
   test('a busy slot is refused; bad limits and a relative exit file are refused', async () => {

@@ -53,6 +53,9 @@ const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: [] as st
 // "the server's" process: an argv and an environment with a canary, as the server account
 const victim = Bun.spawn(['/bin/sleep', '600'], { env: { PATH: '/usr/bin:/bin', SERVER_SECRET: `${CANARY}-server-env` }, stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
 
+// runs of an earlier attack run that stopped half-way: their state files would refuse the same run ids
+for (const f of fs.readdirSync(devenvPaths(BASE).run)) if (f.startsWith('mattack')) fs.rmSync(path.join(devenvPaths(BASE).run, f), { force: true })
+
 // ---- one run, as the runner does it ----
 let n = 0
 interface Res { code: number | null; out: string; oom: boolean; timeout: boolean; ms: number; runId: string }
@@ -93,9 +96,11 @@ async function finish(runId: string, exitFile: string, outFile: string, settings
   for (const f of [exitFile, outFile, settingsFile]) fs.rmSync(f, { force: true })
   return { code, out, oom, timeout }
 }
-const slotEmpty = (runId?: string) => {
-  const accounts = runId ? [sys.slotOf(runId)?.account ?? ''] : mc.c.slots
-  return accounts.every((a) => { const u = host.uid(a); return u === null || host.procs([u]).length === 0 })
+/** every slot is empty, within 5 s (the watchdog checks the slot for a moment after the run ended) */
+const slotEmpty = async () => {
+  const empty = () => mc.c.slots.every((a) => { const u = host.uid(a); return u === null || host.procs([u]).length === 0 })
+  for (let i = 0; i < 50 && !empty(); i++) await Bun.sleep(100)
+  return empty()
 }
 async function health(): Promise<boolean> {
   try { return (await fetch(`http://127.0.0.1:${SERVER_PORT}/api/health`, { signal: AbortSignal.timeout(5000) })).ok } catch { return false }
@@ -132,7 +137,8 @@ async function attack(id: string, what: string, cmd: string, check: Check, o: Pa
 // and waits; launchd then ends this job, and the run must keep going (a server restart or update keeps the runs)
 if (process.env.ATTACK_MODE === 'restart-spawn') {
   const r = await run('sleep 45; echo survived', { background: true })
-  console.log(`RUN ${r.runId} ${sys.slotOf(r.runId)?.account}`)
+  // a file, not stdout: bun keeps stdout to a file in its buffer while this process sleeps
+  fs.writeFileSync(process.env.ATTACK_RESTART_OUT ?? '/dev/null', `RUN ${r.runId} ${sys.slotOf(r.runId)?.account}\n`)
   await Bun.sleep(600_000)
   process.exit(0)
 }
@@ -188,25 +194,25 @@ if (PROBE) {
   console.log(`${preview === 'run-b-dev-server' ? 'PASS' : 'FAIL'} M12a preview from the server: ${preview.slice(0, 80)}`)
   await attack('M12', `another run's dev server on port ${port}; listen on a port that is not the run's own, or on the server's port`, `curl -s -m 3 --noproxy '*' http://127.0.0.1:${port}/; curl -s -m 3 http://127.0.0.1:${port}/; node -e "require('net').createServer().listen(${mc.c.portBase + mc.c.slots.length + 50}).on('error',e=>console.log('bind-other:'+e.code)).on('listening',()=>{console.log('BOUND');process.exit()})"; node -e "require('net').createServer().listen(${port}).on('error',e=>console.log('bind-run-b:'+e.code)).on('listening',()=>{console.log('BOUND');process.exit()})"; node -e "require('net').createServer().listen(${SERVER_PORT}).on('error',e=>console.log('bind-server:'+e.code)).on('listening',()=>{console.log('BOUND');process.exit()})"; true`,
     both(not(/run-b-dev-server|BOUND/, 'another run was reached or a port was taken'), has('bind-other:EPERM')))
-  if (LAN_IP) {
-    let lan = ''
-    try { lan = await (await fetch(`http://${LAN_IP}:${port}/`, { signal: AbortSignal.timeout(3000) })).text() } catch (e) { lan = 'refused' }
-    results.push({ id: 'M12b', what: 'a run\'s dev server from the LAN address (pf: nothing from outside the Mac)', pass: lan !== 'run-b-dev-server', note: lan.slice(0, 60) })
-  }
+  // from another computer (pf: nothing from outside the Mac reaches a run's port): from this Mac the LAN address goes
+  // over lo0, so ATTACK_OUTSIDE_WAIT keeps the dev server up for that many seconds while srt-attack-mac.sh's caller
+  // tries it from outside (curl http://<this Mac>:<port>/)
+  const wait = Number(process.env.ATTACK_OUTSIDE_WAIT ?? 0)
+  if (wait > 0) { console.log(`OUTSIDE try now: curl -m 3 http://<this Mac>:${port}/ (${wait} s)`); await Bun.sleep(wait * 1000) }
   await sys.stop(b.runId)
   await finish(b.runId, path.join(personLogs(BASE, ME), `${b.runId}.exit`), path.join(personLogs(BASE, ME), `${b.runId}.out`), path.join(devenvPaths(BASE).run, `${b.runId}.json`))
 }
 await attack('M13', 'a process that leaves the session (setsid nohup sleep &): gone when the command ends', 'perl -e \'use POSIX; if (fork) { exit 0 } setsid(); exec "/bin/sleep", "600"\'; nohup /bin/sleep 600 >/dev/null 2>&1 & disown; echo started', has('started'),
-  {}, async () => { await Bun.sleep(500); return slotEmpty() ? null : 'a process of the slot is still there' })
+  {}, async () => (await slotEmpty() ? null : 'a process of the slot is still there'))
 // limits
 let bombHealth = true, bombSpawn = true
 await attack('M14', 'a fork bomb: stopped at the process limit; the server answers and can still start a program; nothing left after', ':(){ :|:& };:', () => null,
   { timeoutMs: 20_000, limits: { pids: 256 }, during: async () => { for (let i = 0; i < 4; i++) { await Bun.sleep(3000); bombHealth &&= await health(); bombSpawn &&= await serverCanSpawn() } } },
-  async () => { await Bun.sleep(1000); return !bombHealth ? 'the server did not answer during the bomb' : !bombSpawn ? 'the server could not start a program during the bomb' : slotEmpty() ? null : 'processes are left' })
+  async () => { await Bun.sleep(1000); return !bombHealth ? 'the server did not answer during the bomb' : !bombSpawn ? 'the server could not start a program during the bomb' : (await slotEmpty()) ? null : 'processes are left' })
 for (const [kind, js] of [['ones', 'Buffer.alloc(64<<20, 1)'], ['zeros written', 'Buffer.alloc(64<<20).fill(0)'], ['random', 'require("crypto").randomFillSync(Buffer.allocUnsafe(64<<20))']] as const) {
   await attack(`M15 ${kind}`, `a RAM flood (${kind}) over the run's 1024 MiB: the watchdog ends it (oom); the server answers`, `node -e 'const a=[];setInterval(()=>a.push(${js}),40)'`,
     (r) => (r.oom ? null : `not ended as oom (code ${r.code}, ${r.ms} ms)`), { timeoutMs: 60_000, limits: { memoryMiB: 1024 } },
-    async () => (await health() ? (slotEmpty() ? null : 'processes are left') : 'the server does not answer'))
+    async () => (await health() ? ((await slotEmpty()) ? null : 'processes are left') : 'the server does not answer'))
 }
 await attack('M16', 'the time limit: the run ends (stopped by the runner\'s timer)', 'sleep 120', (r) => (r.ms < 20_000 ? null : `ran ${r.ms} ms`), { timeoutMs: 5000 })
 
