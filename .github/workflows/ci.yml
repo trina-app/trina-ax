@@ -109,6 +109,9 @@ jobs:
           # go test covers the seccomp filter (errnos on a child), the Landlock probe, the bwrap argv golden, the
           # nft rule golden, plan / firewall-status parsing, the bundle verifier and the launcher symlink fix
           cd native && go vet ./... && go test ./...
+          # the test binary is the sandboxed helper: with cgo it is dynamic and TestExecNetProxy (QA TC-309) skips, so
+          # run the package again static like the release build (-v: the log shows it ran, not skipped)
+          CGO_ENABLED=0 go test -count=1 -v ./cmd/mycel-sandbox/
       - name: Pinned browser against Chrome for Testing Stable
         timeout-minutes: 2
         run: bun scripts/system/browser-staleness.ts
