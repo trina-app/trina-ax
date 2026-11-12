@@ -16,9 +16,9 @@ import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-rela
 import { startPresence, type Presence } from '../realtime/presence'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
-import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type TurnSpec } from './turn'
+import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
 import { engineError, tr } from './i18n'
-import { forgetPurgedChats, retryPendingForgets } from './forget'
+import { forgetPurgedChats, launcherSockOf, retryPendingForgets } from './forget'
 import { effectiveConcurrency, memoryAdmission } from '../system/limits'
 import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
 import { updateUnderway } from '../system/update-underway'
@@ -56,8 +56,9 @@ export const MEMORY_RECHECK_MS = 2000
  * Only the launch waits: the turn is claimed, holds its slot and counts as running from dispatch, as before. */
 export const START_BURST = 3
 export const START_SPREAD_MS = 200
-/** after the engine launcher stopped for an update, queued answers wait at least this long (the update restarts this
- * server next, and they run on the new version) and at most LAUNCHER_HOLD_MAX_MS for a launcher that is back */
+/** after the engine launcher stopped for an update, queued answers wait at least this long while this server is about
+ * to switch versions (the update restarts it next, and they run on the new version), and at most LAUNCHER_HOLD_MAX_MS
+ * for a launcher that is back */
 const UPDATE_HOLD_MS = 120_000
 const LAUNCHER_HOLD_MAX_MS = 10 * 60_000
 /** settings key: the server stopped answers for an update (shutdown); the next start's recovery reads and clears it */
@@ -234,14 +235,18 @@ export class ChatRuntime {
   slotWaitMaxMs = SLOT_WAIT_MAX_MS
   /** the engine launcher stops or restarts (its orderly stop, QA TC-338): queued answers stay queued and launches wait
    * (launcherReady) until a launcher answers that is not stopping */
-  private launcherHold: { cause: 'update' | 'restart'; since: number; waiters: (() => void)[] } | null = null
+  private launcherHold: { stop: LauncherStop; since: number; waiters: (() => void)[] } | null = null
   private holdTimer: ReturnType<typeof setTimeout> | null = null
   /** how often a hold asks the launcher whether it is back; how long an update's hold lasts at least (tests) */
   launcherHoldPollMs = 1000
   updateHoldMs = UPDATE_HOLD_MS
   /** a launcher answers that takes turns again (tests replace it) */
   launcherBack: () => Promise<boolean> = async () => {
-    const st = await launcherStatus(this.ctx.config.engine.launcherSock ?? path.join(this.ctx.engineConfig.runDir, 'launcher.sock'), 1000)
+    // the installed launcher's socket; one the server started itself (dev, local login) has none known: nothing to
+    // wait for (it does not come back without this server)
+    const sock = launcherSockOf(this.ctx)
+    if (!sock) return true
+    const st = await launcherStatus(sock, 1000)
     return !!st && !st.stopping
   }
   /** why the server stops now (shutdown): an update (its answers say so, QA TC-338) or another restart; tests set it */
@@ -552,11 +557,11 @@ export class ChatRuntime {
   }
 
   /** The launcher said it stops (a turn's exit or a refused launch, chat/turn.ts): hold the queue until it is back. */
-  launcherStopped(cause: 'update' | 'restart') {
+  launcherStopped(stop: LauncherStop) {
     if (this.closing) return
-    if (this.launcherHold) { if (cause === 'update') this.launcherHold.cause = 'update'; return }
-    this.launcherHold = { cause, since: Date.now(), waiters: [] }
-    this.log.info('engine launcher stopping: queued answers wait for it', { cause })
+    if (this.launcherHold) { if (stop === 'update') this.launcherHold.stop = 'update'; return }
+    this.launcherHold = { stop, since: Date.now(), waiters: [] }
+    this.log.info('engine launcher stopping: queued answers wait for it', { stop })
     this.pollLauncherHold()
   }
   get launcherHeld() { return !!this.launcherHold }
@@ -574,7 +579,9 @@ export class ChatRuntime {
       let back = false
       try { back = await this.launcherBack() } catch {}
       const held = Date.now() - h.since
-      if ((back && held >= (h.cause === 'update' ? this.updateHoldMs : 0)) || held >= LAUNCHER_HOLD_MAX_MS) {
+      // an update after which this server switches versions: at least updateHoldMs (the restart comes next and the queue
+      // runs on the new version); one of root files only ('update-root') goes on as soon as the launcher is back
+      if ((back && (h.stop !== 'update' || held >= this.updateHoldMs)) || held >= LAUNCHER_HOLD_MAX_MS) {
         this.endLauncherHold(back ? 'launcher back' : 'launcher not back in time')
         this.schedule()
       } else this.pollLauncherHold()
@@ -587,7 +594,7 @@ export class ChatRuntime {
     this.launcherHold = null
     if (this.holdTimer) clearTimeout(this.holdTimer)
     this.holdTimer = null
-    this.log.info('engine launcher hold ended', { why, cause: h.cause, ms: Date.now() - h.since })
+    this.log.info('engine launcher hold ended', { why, stop: h.stop, ms: Date.now() - h.since })
     for (const w of h.waiters.splice(0)) w()
   }
 
@@ -1280,6 +1287,16 @@ export class ChatRuntime {
   }
   resume() { this.closing = false; this.schedule() }
 
+  /** Turns that never ran (TurnExec.neverRan) and ended at shutdown: queued again with their place (queue_seq), their
+   * answer waiting as it did; recoverState runs them after the restart. */
+  private requeueForRestart(execs: TurnExec[]) {
+    this.db.transaction(() => { for (const e of execs) {
+      const r = this.db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL WHERE id=? AND status IN ('interrupted','error','stopped')").run(e.id)
+      if (r.changes) this.db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(e.spec.assistantId)
+    } })()
+    this.log.info('answers queued again for the restart', { n: execs.length })
+  }
+
   private shutdownP: Promise<void> | null = null
   shutdown(): Promise<void> {
     if (this.shutdownP) return this.shutdownP
@@ -1302,8 +1319,11 @@ export class ChatRuntime {
         if (cause === 'update') { try { setSetting(this.db, STOPPED_FOR_UPDATE, new Date().toISOString()) } catch (e) { this.log.warn('noting the update stop failed', { err: e }) } }
         this.log.info('stopping the running answers', { n: execs.length, cause })
       }
+      // answers that only waited for a stopping launcher never ran: back to the queue, the next start runs them in order
+      const waiting = execs.filter((e) => e.neverRan)
       for (const e of execs) e.interrupt(cause)
       await Promise.race([Promise.all(execs.map((e) => e.done)), Bun.sleep(6000)])
+      if (waiting.length) { try { this.requeueForRestart(waiting.filter((e) => e.status === 'finished')) } catch (e) { this.log.warn('queueing answers for the restart failed', { err: e }) } }
       this.relay.close()
       this.hub.close()
     })()

@@ -1004,7 +1004,12 @@ func (u *updater) updateRoot(dir, v string) error {
 		// the answers that still run after the wait end as stopped for the update, with their end confirmed, before the
 		// restart cuts the launcher's connections (the server then says so and gives their turn slots back)
 		if u.prepareLauncher != nil {
-			u.prepareLauncher("update")
+			// "update-root": the app stays (the server is not restarted next), so its queue need not wait for the switch
+			reason := "update"
+			if v == u.res.From {
+				reason = "update-root"
+			}
+			u.prepareLauncher(reason)
 		}
 		if out, err := exec.Command(u.e.systemctl, "restart", u.in.ID+"-launcher.service").CombinedOutput(); err != nil {
 			return fmt.Errorf("restart launcher: %v %s", err, out)
@@ -1303,9 +1308,9 @@ func countProcs(uid int, except string) (int, error) {
 func cmdLauncherStatusChild(e *env, args []string) (int, error) {
 	fs := flag.NewFlagSet("launcher-status-as-server", flag.ContinueOnError)
 	sock := fs.String("sock", "", "launcher.sock")
-	prepare := fs.String("prepare-stop", "", "instead of the status: tell the launcher it stops for this reason (update)")
-	if err := fs.Parse(args); err != nil || *sock == "" || (*prepare != "" && *prepare != "update") {
-		return 2, usageError{"--sock [--prepare-stop update]"}
+	prepare := fs.String("prepare-stop", "", "instead of the status: tell the launcher it stops for this reason (update, update-root)")
+	if err := fs.Parse(args); err != nil || *sock == "" || (*prepare != "" && *prepare != "update" && *prepare != "update-root") {
+		return 2, usageError{"--sock [--prepare-stop update|update-root]"}
 	}
 	c, err := net.DialTimeout("unix", *sock, 3*time.Second)
 	if err != nil {

@@ -21,6 +21,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -192,7 +193,8 @@ func signaled(werr error) bool {
 }
 
 // validReason: the reasons a prepare-stop may give
-func validReason(r string) bool { return r == "update" || r == "shutdown" }
+// ("update-root": an update of root files only, after which the server keeps its version)
+func validReason(r string) bool { return r == "update" || r == "update-root" || r == "shutdown" }
 
 // prepareStop answers {"op":"prepare-stop","reason":…}: the live turns end now with that reason, new turns are refused,
 // and a stop of the launcher in the next two minutes says the reason too.
@@ -218,7 +220,9 @@ func endOnSignal() {
 	go func() {
 		<-ch
 		go func() { <-ch; killAllAndExit() }()
-		turns.endAll(turns.stopReason(time.Now()), true)
+		if n, all := turns.endAll(turns.stopReason(time.Now()), true); !all {
+			fmt.Fprintf(os.Stderr, "mycel-launcher: stopping: not every one of %d turns reported its end in time; killing the rest\n", n)
+		}
 		killAllAndExit()
 	}()
 }

@@ -60,7 +60,7 @@ const message = (id: string) => {
 }
 
 /** an engine launch that the launcher ends in an orderly stop: its exit event says why (signal) */
-function launcherStops(signal: 'update' | 'shutdown', launches: { n: number }) {
+function launcherStops(signal: 'update' | 'update-root' | 'shutdown', launches: { n: number }) {
   return async (exec: TurnExec) => {
     const core = { turns: { bind() {} }, launcher: { launch: () => { launches.n++; return { kill() {}, events: (async function* () {
       yield { ev: 'started', pid: 999_999, pgid: 999_999 }
@@ -226,3 +226,37 @@ test('a launch the stopping launcher refused (nothing started) is made again onc
   expect(message(t.assistantMessage.id).status).toBe('done')
   expect(rt.queueDiagnostics().quarantined).toBe(0)
 }, 30_000)
+
+test('an update of root files only (the server keeps its version) holds the queue only until the launcher is back', async () => {
+  await setup('root-only')
+  const a = newChat(), b = newChat()
+  rt.updateHoldMs = 60 * 60_000
+  engines.set(a, launcherStops('update-root', { n: 0 }))
+  const first = send(a)
+  const queued = send(b)
+  expect(await waitFor(() => turnStatus(first.turnId) === 'interrupted')).toBe(true)
+  expect(message(first.assistantMessage.id).error).toMatchObject({ params: { reason: 'updating' } })
+  expect(await waitFor(() => turnStatus(queued.turnId) === 'done')).toBe(true)
+}, 30_000)
+
+test('an answer that only waited for the stopping launcher when the server stopped never ran: it runs after the restart', async () => {
+  await setup('requeue')
+  const a = newChat(), b = newChat()
+  rt.launcherBack = async () => false
+  const launches = { n: 0 }
+  engines.set(a, launcherRefuses(1, launches)) // refused once: it waits for the launcher (held)
+  const t = send(a)
+  const q = send(b)
+  expect(await waitFor(() => rt.launcherHeld && launches.n === 1)).toBe(true)
+  rt.shutdownCause = () => 'update'
+  await rt.shutdown()
+  expect(turnStatus(t.turnId)).toBe('queued')
+  expect(message(t.assistantMessage.id)).toEqual({ status: 'streaming', error: null })
+  expect(turnStatus(q.turnId)).toBe('queued')
+  for (const x of spies.splice(0)) x.mockRestore()
+  execs.length = 0
+  await h.close()
+  await setup('requeue', { reuse: true })
+  expect(await waitFor(() => turnStatus(t.turnId) === 'done' && turnStatus(q.turnId) === 'done')).toBe(true)
+  expect(execs.map((e) => e.id)).toEqual([t.turnId, q.turnId])
+}, 60_000)

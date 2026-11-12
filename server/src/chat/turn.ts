@@ -202,6 +202,14 @@ export function continueAfterConnect(names: string[], added: string[]): string {
     'Do not ask the person to send the question again and do not repeat what you already wrote.]'
 }
 
+/** How the engine launcher's orderly stop (mycel-launcher ending.go) ended or refused a launch: an update after which
+ * this server switches versions ('update'), an update of the root files only ('update-root'), or another stop
+ * ('restart', the launcher's "shutdown"). */
+export type LauncherStop = 'update' | 'update-root' | 'restart'
+function launcherStopOf(signal: unknown): LauncherStop | null {
+  return signal === 'update' ? 'update' : signal === 'update-root' ? 'update-root' : signal === 'shutdown' ? 'restart' : null
+}
+
 export class TurnExec {
   content = ''
   /** a shared chat's steps keep a line that names paths aside (StoredStep.sv; ChatStore.viewSteps) */
@@ -312,6 +320,13 @@ export class TurnExec {
   private readonly wallEndsAt: number
   private activeCore: Running | null = null
   private terminationUnconfirmed = false
+  /** an engine of this turn started (the launcher's started event): it ran, so a restart never queues it again */
+  private engineStarted = false
+  /** waiting in launcherReady for a stopping launcher to come back */
+  private waitingLauncher = false
+  /** The turn never ran: it waits for the launcher and no engine of it started. A server stop puts it back in the queue
+   * (ChatRuntime.shutdown) instead of failing it. */
+  get neverRan(): boolean { return this.waitingLauncher && !this.engineStarted && !this.producedOutput }
   /** why a stop for 'shutdown' happened: an update (the answer says so) or another restart */
   private interruptedFor: 'update' | 'restart' | null = null
   private quarantined = false
@@ -1348,16 +1363,17 @@ export class TurnExec {
    * it started) is made again then. */
   private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[] }> {
     for (let i = 0; ; i++) {
-      await this.rt.launcherReady(this.abort.signal)
+      this.waitingLauncher = true
+      try { await this.rt.launcherReady(this.abort.signal) } finally { this.waitingLauncher = !!this.stopReason && !this.engineStarted }
       const r = await this.launchOnce(core, lr, onLine)
       if (!r.refused) return r
       this.rt.launcherStopped(r.refused)
       if (this.stopReason) return r
-      if (i >= 2) { this.interrupt(r.refused); return r }
+      if (i >= 2) { this.interrupt(r.refused === 'restart' ? 'restart' : 'update'); return r }
     }
   }
 
-  private async launchOnce(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[]; refused?: 'update' | 'restart' }> {
+  private async launchOnce(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[]; refused?: LauncherStop }> {
     if (this.remainingWallMs() <= 0) this.expireWall()
     // a run that ended without its total (crash, kill): its calls' tokens stay counted; then the budget once more
     // (other answers of this person may have used it up since the last attempt)
@@ -1377,9 +1393,9 @@ export class TurnExec {
     const notes: string[] = []
     let exit: any = null
     /** the launcher's orderly stop ended the engine (its exit says "update" / "shutdown": mycel-launcher ending.go) */
-    let launcherStop: 'update' | 'restart' | null = null
+    let launcherStop: LauncherStop | null = null
     /** the launcher refused the launch while it stops (`launcher_stopping: <reason>`): nothing of it started */
-    let refused: 'update' | 'restart' | undefined
+    let refused: LauncherStop | undefined
     try {
     const it = h.events[Symbol.asyncIterator]()
     const abandoned = new Promise<'abandoned'>((r) => {
@@ -1391,7 +1407,7 @@ export class TurnExec {
       if (next === 'abandoned') { try { h.close?.() } catch {} throw new Error('engine end not confirmed by the release time; turn abandoned') }
       if (next.done) break
       const e = next.value
-      if (e.ev === 'started') { this.enginePgid = e.pgid; core.turns.bind(this.id, e.pgid) }
+      if (e.ev === 'started') { this.enginePgid = e.pgid; this.engineStarted = true; core.turns.bind(this.id, e.pgid) }
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') {
@@ -1399,9 +1415,9 @@ export class TurnExec {
         // Native terminal replies are emitted after cleanup (including sandbox startup failures).
         // SocketLauncher synthesizes transport errors with this prefix; a broken socket proves nothing.
         if (e.ev === 'exit' || !e.message.startsWith('launcher: ')) this.terminationUnconfirmed = false
-        if (e.ev === 'exit' && (e.signal === 'update' || e.signal === 'shutdown')) launcherStop = e.signal === 'update' ? 'update' : 'restart'
-        const stopping = e.ev === 'error' ? /^launcher_stopping: (update|shutdown)$/.exec(e.message) : null
-        if (stopping) refused = stopping[1] === 'update' ? 'update' : 'restart'
+        if (e.ev === 'exit') launcherStop = launcherStopOf(e.signal) ?? launcherStop
+        const stopping = e.ev === 'error' ? /^launcher_stopping: ([a-z-]+)$/.exec(e.message) : null
+        if (stopping) refused = launcherStopOf(stopping[1]) ?? undefined
       }
       else if (e.ev === 'note') notes.push(e.message)
     }
@@ -1426,12 +1442,13 @@ export class TurnExec {
       if (launcherStop) {
         // a launcher stopped by an installer while an update switches this server (office mode, macOS) said only
         // "shutdown"
-        if (launcherStop === 'restart') { try { launcherStop = this.rt.shutdownCause() } catch {} }
-        this.rt.log.info('engine launcher stopped the turn', { turn: this.id, cause: launcherStop })
+        let cause: 'update' | 'restart' = launcherStop === 'restart' ? 'restart' : 'update'
+        if (cause === 'restart') { try { cause = this.rt.shutdownCause() } catch {} }
+        this.rt.log.info('engine launcher stopped the turn', { turn: this.id, stop: launcherStop, cause })
         // first: the queue holds before this turn's end gives its slot back (a queued answer would start into the
         // stopping launcher and be cut too)
         this.rt.launcherStopped(launcherStop)
-        this.interrupt(launcherStop)
+        this.interrupt(cause)
       }
     }
   }
