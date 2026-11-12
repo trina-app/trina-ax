@@ -114,5 +114,8 @@ PR #468. Built as planned, with these differences:
 - AI apps' rows on phones are drawn in `admin/AiApps.tsx` (the shared `AiAppConnect.tsx` rows are the settings
   agent's): tappable rows, Claude Code and Codex marked "Set this up on a computer".
 - Connectors on a phone have no Add (by address) button, so "Ask a member to connect" (in its ⌄) is a computer's too.
+- #457 (nav-model, merged in `dev` meanwhile): `lib/screens.ts` now takes Admin's parents from `adminParent`, so its
+  phone history puts the right pages under an address opened from outside; Folder permissions keeps #457's detour from
+  Files and Projects.
 - Left: System as a list of pages (ADM-14) and System's folder path (another session is changing System's backup and
   storage parts); the address card of AI apps (`pages/AiApps.tsx` ConnectorAddress, the settings agent's).
