@@ -1,2 +1,0 @@
-- A release tag now has to be on main: the release stops before it reads any secret when the tagged commit did not come through a reviewed main merge.
-- The Microsoft Store package builds only from a release tag on main, and only after the full CI tests passed on that commit in the same run.
