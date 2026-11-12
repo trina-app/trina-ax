@@ -186,7 +186,11 @@ export class RelayServer {
         try { (socket as Duplex).destroy() } catch {}
       })
     })
+    // sockets answered with the head-too-big page and still being read: Node keeps feeding the rest of the head to its
+    // failed parser, which raises clientError again; ignore those (the drain timer closes the socket)
+    const draining = new WeakSet<object>()
     this.server.on('clientError', (e: NodeJS.ErrnoException, socket) => {
+      if (draining.has(socket)) return
       // an answer to an earlier request on this connection is still going out: an error page now would be read as its
       // answer (pipelining), so just close
       if (e.code === 'ECONNRESET' || !socket.writable || (socket as Duplex & { _httpMessage?: unknown })._httpMessage) { socket.destroy(); return }
@@ -195,9 +199,11 @@ export class RelayServer {
           this.counters.headTooBig++
           // the rest of the head is still on its way: closing with unread input resets the connection and the browser
           // shows a connection error instead of the page. Read and drop it for a moment, then close.
-          socket.on('data', () => {})
+          draining.add(socket)
+          let dropped = 0
+          socket.on('data', (d: Buffer) => { dropped += d.length; if (dropped > 1024 * 1024) socket.destroy() })
           socket.resume()
-          socket.end(headTooBigResponse(this.cfg.hsts))
+          socket.end(headTooBigResponse(this.cfg.hsts ? HSTS : null))
           setTimeout(() => socket.destroy(), 3000).unref()
         }
         else socket.end('HTTP/1.1 400 Bad Request\r\nconnection: close\r\ncontent-length: 0\r\n\r\n')

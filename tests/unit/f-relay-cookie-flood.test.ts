@@ -45,7 +45,7 @@ describe('headTooBigResponse', () => {
     expect(head).toContain('connection: close')
     expect(head).not.toMatch(/clear-site-data/i)
     expect(head).not.toMatch(/strict-transport-security/i)
-    expect(headTooBigResponse(true)).toContain('strict-transport-security: max-age=31536000\r\n')
+    expect(headTooBigResponse('max-age=31536000')).toContain('strict-transport-security: max-age=31536000\r\n')
     expect(body).toContain('too many cookies')
   })
 

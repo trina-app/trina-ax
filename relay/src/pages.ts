@@ -217,7 +217,7 @@ function headTooBigHtml(): string {
 }
 
 /** The whole raw HTTP/1.1 answer (written on the socket: the request was never parsed). 431, closes the connection. */
-export function headTooBigResponse(hsts = false): string {
+export function headTooBigResponse(hsts: string | null = null): string {
   const body = headTooBigHtml()
   const hash = createHash('sha256').update(HEAD_TOO_BIG_SCRIPT).digest('base64')
   return 'HTTP/1.1 431 Request Header Fields Too Large\r\n'
@@ -226,7 +226,7 @@ export function headTooBigResponse(hsts = false): string {
     + 'cache-control: no-store\r\n'
     + 'x-relay-error: request_too_big\r\n'
     + 'x-content-type-options: nosniff\r\n'
-    + (hsts ? 'strict-transport-security: max-age=31536000\r\n' : '')
+    + (hsts ? `strict-transport-security: ${hsts}\r\n` : '')
     + `content-security-policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n`
     + 'connection: close\r\n\r\n'
     + body

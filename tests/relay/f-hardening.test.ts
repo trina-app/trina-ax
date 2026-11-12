@@ -108,6 +108,29 @@ describe('relay hardening (Node 25 relay)', () => {
     expect(big.split('\r\n')[0]).toBe('HTTP/1.1 431 Request Header Fields Too Large')
     expect(big).toContain('content-type: text/html')
     expect(big).toContain('too many cookies')
+    // the rest of a big head still arriving after the page went out is read and dropped (no reset, which would show a
+    // connection error instead of the page): sent in 8 KB pieces, every piece is taken
+    const slow = await new Promise<{ out: string; err: string | null; sent: number; total: number }>((resolve) => {
+      const head = Buffer.from(`GET / HTTP/1.1\r\nHost: victim.localhost\r\nCookie: ${flood(60)}\r\n\r\n`)
+      let out = ''
+      let err: string | null = null
+      let sent = 0
+      const s = net.connect({ port: PORT, host: '127.0.0.1', allowHalfOpen: true }, () => {
+        const next = () => {
+          if (err || sent >= head.length) { setTimeout(() => s.destroy(), 300); return }
+          const piece = head.subarray(sent, sent + 8192)
+          s.write(piece, (e) => { if (e) err ??= (e as NodeJS.ErrnoException).code ?? 'error'; else sent += piece.length })
+          setTimeout(next, 20)
+        }
+        next()
+      })
+      s.on('data', (d) => { out += d.toString('utf8') })
+      s.on('error', (e: NodeJS.ErrnoException) => { err ??= e.code ?? 'error' })
+      s.on('close', () => resolve({ out, err, sent, total: head.length }))
+    })
+    expect(slow.out).toContain('too many cookies')
+    expect(slow.err).toBeNull()
+    expect(slow.sent).toBe(slow.total)
     // the same for a WebSocket upgrade
     const up = await raw(`GET /api/ws HTTP/1.1\r\nHost: victim.localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: ${flood(60)}\r\n\r\n`)
     expect(up).toContain(' 431 ')
