@@ -434,6 +434,31 @@ describe('the card, clicked', () => {
     await m.unmount()
   })
 
+  test('Google Drive in the desktop app: no blank window; Google\'s page opens in the system browser once the server answered', async () => {
+    const r = card({ target: 'google_drive', name: 'Google Drive', service: undefined })
+    open(r)
+    connects({ state: 'connected' })
+    const google = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x'
+    routes['POST /api/integrations/google-drive/authorize'] = () => json({ flowId: 'd2', authorizationUrl: google, expiresAt })
+    routes['GET /api/integrations/google-drive/flows/d2'] = () => json({ flowId: 'd2', state: 'pending', account: null, expiresAt, reason: null })
+    // the desktop app's window handler (desktop/src/main/security.ts): http(s) to the system browser, never a window
+    const asked: string[] = []
+    const was = globalThis.open
+    Object.assign(globalThis, { mycelDesktop: { bridgeVersion: 1 }, open: (url: string) => { asked.push(url); return null } })
+    try {
+      const m = await mount(<ConnectCard request={r} />)
+      await m.click('connect-drive')
+      await m.until(() => asked.length > 0, 'Google opened')
+      expect(asked).toEqual([google])
+      // "Continue with Google" stays as the way back to it
+      expect(m.get('connect-card').textContent).toContain(translate('en', 'drive.openGoogle'))
+      await m.unmount()
+    } finally {
+      delete (globalThis as Record<string, unknown>).mycelDesktop
+      globalThis.open = was
+    }
+  })
+
   test('done that failed: the card offers it again, and the second one finishes', async () => {
     const r = linear()
     open(r)

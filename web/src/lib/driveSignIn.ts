@@ -1,4 +1,6 @@
 import { driveBrokerConnectUrl } from '@mycel/shared/cloud-protocol/drive-broker'
+import { isDesktop } from './desktop'
+import { mobileApp } from './mobile'
 
 /** Google's own sign-in page, or an error: the only address a Drive sign-in may open directly (and the only one the
  * phone app's browser hand-off accepts). */
@@ -20,4 +22,29 @@ export function driveSignInUrl(answer: { authorizationUrl: string; connectUrl?: 
   const loopback = u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]'
   if (u.protocol !== 'https:' && !(u.protocol === 'http:' && loopback)) return google
   return driveBrokerConnectUrl(u.origin, answer.connectUrl) ?? google
+}
+
+/** Where a Google sign-in opens: the phone app hands the address to its browser (lib/mobile.ts openExternal), the
+ * desktop app to the system browser, a browser opens a window of its own. */
+export type SignInPlace = 'phone' | 'desktop' | 'browser'
+export const signInPlace = (): SignInPlace => (mobileApp() ? 'phone' : isDesktop() ? 'desktop' : 'browser')
+type Open = (url: string, target: string) => Window | null
+const browserOpen: Open = (url, target) => window.open(url, target)
+
+/** During the click: a browser reserves a blank window (one opened after the server answers is blocked as a popup).
+ * The phone app opens nothing here. Neither does the desktop app: its window handler (desktop/src/main/security.ts)
+ * sends only http(s) addresses to the system browser and refuses a blank window, so the reserved window was always
+ * null and the person saw only "Continue with Google". */
+export function reserveSignInWindow(place: SignInPlace, open: Open = browserOpen): Window | null {
+  if (place !== 'browser') return null
+  const w = open('about:blank', '_blank')
+  if (w) w.opener = null
+  return w
+}
+
+/** Once the checked address is known (driveSignInUrl), outside the phone app: the browser sends the reserved window
+ * there; the desktop app opens it now, in the system browser (its handler answers every window.open with none). */
+export function openSignInWindow(place: SignInPlace, reserved: Window | null, url: string, open: Open = browserOpen) {
+  if (place === 'desktop') open(url, '_blank')
+  else if (place === 'browser' && reserved) reserved.location.replace(url)
 }
