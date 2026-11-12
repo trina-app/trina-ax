@@ -1,54 +1,43 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="72" alt="트리나 AX 로고">
+<img src="web/public/favicon.svg" width="64" alt="트리나 AX 로고">
 
-# 트리나 AX
+<h1>팀 모두가 같이 쓰는 AI.</h1>
 
-**팀 모두가 같이 쓰는 AI.**
+트리나 AX는 팀의 파일, 스킬, 도구를 서버 하나에 모아요. 모두의 AI가 거기서 시작하고,<br>AI가 여는 파일은 모두 물어본 사람의 권한으로 확인해요.
 
-팀의 파일, 스킬, 도구를 서버 하나에 모아요. 모두의 AI가 거기서 시작해요.
+<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store에서 다운로드"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play에서 다운로드"></a>
 
-[웹사이트](https://ax.trina.app) · [다운로드](https://ax.trina.app/download) · [문서](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
-
-<a href="https://apps.apple.com/kr/app/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store에서 다운로드"></a>&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play에서 다운로드"></a>
+[웹사이트](https://ax.trina.app) · [맥·Windows용 다운로드](https://ax.trina.app/download) · [문서](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 [English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-</div>
-
 <br>
 
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="97초 이야기 보기: 팀장 Alex는 한 줄로 7쪽짜리 제안서를 받아요. 입사 첫날인 Mina가 똑같이 묻자, Mina의 AI는 'Trina Logistics? Who are they?'라고 답해요."></a>
+<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="97초 이야기 보기. 같은 Claude에 같은 부탁을 했는데 결과가 달라요. 팀장 Alex는 7쪽짜리 제안서를 받고, 빈 폴더로 첫 출근한 Mina는 'Trina Logistics? Who are they?'라는 답을 받아요. 트리나가 있으면 Mina의 AI도 팀의 파일과 스킬에서 시작해요."></a>
 
-<p align="center"><sub>신입의 AI는 빈 폴더에서 시작해요. 트리나는 그 AI에게 팀의 폴더를 줘요.</sub></p>
-
-## 이렇게 돌아가요
-
-<img src="docs/images/readme/v3/how.png" width="100%" alt="1 파일과 스킬 넣기: 폴더마다 누가 열 수 있는지 보이는 파일 창과, Customer quote 스킬의 네 단계. 2 도구 연결하기: Higgsfield, Notion, Linear, GitHub, 회사 API가 트리나 서버를 거치고, 사람마다 권한을 확인해요. Higgsfield 사진으로 만든 덱. 3 팀원 초대하기: Mina, Alex, Sam이 각자 기기에서 물어요. 모두 트리나 서버 하나로, 각자의 권한으로요.">
+</div>
 
 ## 팀이 얻는 것
 
-<img src="docs/images/readme/v3/room.png" width="100%" alt="어느 대화방 옆에서든 묻고, 한 번에 보내요: Expo booth crew 대화방에서 Mina가 자기만 보는 옆 채팅으로 트리나에게 묻고, 그 답을 방에 보내요.">
+**어느 대화방 옆에서든 묻고, 클릭 한 번으로 보내요.** 나만 보는 옆 채팅에서 묻고, 클릭 한 번이면 트리나의 답이 대화방에 올라가요.
 
-<p>
-<img src="docs/images/readme/v3/access.png" width="49%" alt="각자 열 수 있는 것만 봐요: 폴더마다 열 수 있는 사람의 얼굴이 보여요. Mina는 shared/Finance를 열 수 없어요.">
-<img src="docs/images/readme/v3/handoff.png" width="49%" alt="동료의 AI 채팅을 이어받아요: Sam이 Mina의 프로젝트 채팅을 자기 권한으로 이어서 해요.">
-</p>
+<img src="docs/images/readme/v3/room.gif" width="100%" alt="Expo booth crew 대화방에서 Mina가 자기만 보는 옆 채팅으로 트리나에게 11월 17일 반입 일정을 묻고, 버튼 하나로 그 답을 대화방에 올려요.">
 
-<p>
-<img src="docs/images/readme/v3/skills.png" width="32%" alt="팀이 일하는 방식을 적어 둬요: 팀장의 Customer quote 스킬을 Mina, Sam, Jordan이 써요.">
-<img src="docs/images/readme/v3/tools.png" width="32%" alt="쓰던 도구를 연결해요: 어떤 MCP 서버든, Google Drive, Slack, 회사 API까지.">
-<img src="docs/images/readme/v3/versions.png" width="32%" alt="바뀐 내용은 모두 남아요: Alex, Mina, Sam이 저장한 Price sheet.xlsx 버전들. AI가 답하는 중에 저장된 버전도 있고, 복원할 수 있어요.">
-</p>
+**각자 열 수 있는 것만 봐요.** Mina가 Finance를 못 열면 Mina의 AI도 못 열어요. [권한은 이렇게 돌아가요](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-answers.png" width="100%" alt="Alex와 Mina가 'What was our revenue last quarter?'라고 물어요. Finance를 열 수 있는 Alex는 $498,000이라는 답을 받아요. Mina는 열 수 없어서, Mina의 AI는 Mina가 열 수 있는 파일에서는 매출 자료를 찾지 못했다고 답해요.">
+<img src="docs/images/readme/v3/access-band.png" width="100%" alt="폴더마다 열 수 있는 사람의 얼굴이 보여요. Mina는 shared/Finance를 열 수 없어요.">
 
-AI가 여는 파일은 모두 물은 사람의 권한으로 확인해요. [권한은 이렇게 돌아가요](docs/PERMISSIONS.md)
+- 🤝 **동료의 AI 채팅을 이어받아요.** 동료의 프로젝트 채팅을 이어서 하고, 내가 묻는 건 내 권한으로 처리돼요.
+- 📋 **팀 스킬.** 팀이 일하는 방식을 한 번 적어 두면, 모두의 AI가 그대로 따라요.
+- 🔌 **쓰던 도구.** 어떤 MCP 서버든, Google Drive, Slack, 회사 API까지. 사람마다 권한을 확인해요.
+- 🕘 **바뀐 내용은 모두 남아요.** 사람이 바꿨든 그 사람의 AI가 바꿨든, 어느 버전이든 되돌릴 수 있어요.
+- 📱 **어느 기기에서든.** 맥, 아이폰, 안드로이드, Windows, 그리고 어떤 브라우저에서든요.
 
 ## 시작하기
 
-- **트리나 호스팅:** 서버를 따로 운영할 필요가 없어요. 14일 무료 체험 뒤 월 요금제예요. [요금제](https://ax.trina.app/#pricing)
-- **앱:** 맥, 아이폰, 안드로이드, Windows, 또는 어떤 브라우저에서든 써요. [다운로드](https://ax.trina.app/download)
+- **트리나 호스팅:** 서버를 따로 운영할 필요가 없어요. 14일 무료 체험 뒤 월 요금제예요. [요금제](https://ax.trina.app/pricing)
+- **앱:** [맥, 아이폰, 안드로이드, Windows](https://ax.trina.app/download), 또는 어떤 브라우저에서든 써요.
 - **직접 설치:** 회사 리눅스 서버, Docker, 사무실 맥에 설치해요. 무료예요. [리눅스](docs/INSTALL-LINUX.md) · [Docker](docs/INSTALL-DOCKER.md) · [사무실 맥](docs/OFFICE.md)
 
 <details>
