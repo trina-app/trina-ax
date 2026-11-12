@@ -187,8 +187,33 @@ describe('diagnostics of an installed Linux server', () => {
     expect((await check({}, 'pf_anchor'))!.detail).toContain('mycel-firewall.timer')
     fw({ loaded: false, error: 'nft: table busy' })
     expect((await check({}, 'pf_anchor'))!.detail).toContain('nft: table busy')
+    // nft's whole answer from an older mycel-ctl: one plain line, no echoed command or "^^^^^" (QA TC-310 retest)
+    fw({ loaded: false, error: 'the table is not in effect now: table inet mycel is not loaded (nft list: Error: No such file or directory\nlist table inet mycel\n                ^^^^^)' })
+    const raw = (await check({}, 'pf_anchor'))!.detail!
+    expect(raw).toContain('(the table is not in effect now: table inet mycel is not loaded)')
+    expect(raw).not.toMatch(/\^|\n|Error:|nft list/)
     fw({})
     expect(await check({}, 'pf_anchor')).toMatchObject({ status: 'ok', detail: '7 nftables rules (the engine account reaches 127.0.0.1:47821 only)' })
+  })
+  test('firewall: the file says loaded, the launcher finds the rules not in effect (QA TC-310)', async () => {
+    const saved = status
+    try {
+      fw({})
+      status = { ...saved!, firewall: { loaded: true, at: null, live: true } }
+      expect((await check({}, 'pf_anchor'))!.status).toBe('ok')
+      status = { ...saved!, firewall: { loaded: true, at: null, live: false, liveProblem: 'a loopback connection to a port other than the model proxy went through' } }
+      const c = (await check({}, 'pf_anchor'))!
+      expect(c.status).toBe('fail')
+      expect(c.detail).toContain("network protection (its nftables rules) is off right now")
+      expect(c.detail).toContain('sudo mycel-ctl firewall apply')
+      expect(c.detail).toContain('went through')
+      const h = (await check({ hosted: true }, 'pf_anchor'))!
+      expect(h.status).toBe('fail')
+      expect(h.detail).not.toMatch(/sudo|mycel-ctl|nft|loopback/)
+      // a launcher from before the live test leaves it out: the file decides
+      status = { ...saved!, firewall: { loaded: true, at: null } }
+      expect((await check({}, 'pf_anchor'))!.status).toBe('ok')
+    } finally { status = saved }
   })
   test('launcher and its sandbox report', async () => {
     expect(await check({}, 'launcher')).toMatchObject({ status: 'ok' })

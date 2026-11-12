@@ -202,7 +202,7 @@ describe('Linux root scripts: syntax and rules', () => {
     expect(s).not.toMatch(/"\$BASE\/app\/[^"]*bin\/bun"/)
     expect(s).not.toMatch(/>\s*"\$BASE\//) // no shell redirection straight into the install folder
     // chown -R only on copies root just made in root-only places
-    for (const m of s.matchAll(/^[^#\n]*chown -R [^\n]*/gm)) expect(/\$DEST\.partial|\$RKIT|\$SBX\.new/.test(m[0])).toBe(true)
+    for (const m of s.matchAll(/^[^#\n]*chown -R [^\n]*/gm)) expect(/\$STAGE\/\$VERSION|\$RKIT|\$SBX\.new/.test(m[0])).toBe(true)
     // a repair run stops the role accounts' processes before touching their folders
     expect(s.indexOf('\nkill_accounts\n')).toBeGreaterThan(0)
     expect(s.indexOf('\nkill_accounts\n')).toBeLessThan(s.indexOf('mk root root 755 "$BASE"\n'))

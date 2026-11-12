@@ -328,11 +328,11 @@ export function ConnectorRow({ id, logo, name, team, status, onOpen, onConnect, 
           <Check size={14} className="text-ok" aria-hidden /> {t('drive.status.connected')}
         </span>
       ) : status === 'signin' ? (
-        <button type="button" className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
       ) : status === 'reconnect' ? (
-        <button type="button" className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('drive.reconnect')}: ${name}`} data-testid="connector-row-status">{t('drive.reconnect')}</button>
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('drive.reconnect')}: ${name}`} data-testid="connector-row-status">{t('drive.reconnect')}</button>
       ) : status === 'attention' ? (
-        <button type="button" className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('connectors.state.attention')}: ${name}`} data-testid="connector-row-status">{t('connectors.state.attention')}</button>
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('connectors.state.attention')}: ${name}`} data-testid="connector-row-status">{t('connectors.state.attention')}</button>
       ) : (
         <Button size="sm" variant="primary" className="shrink-0" onClick={onConnect ?? onOpen} aria-label={`${t('aiApps.connect')}: ${name}`} data-testid="template-connect">{t('aiApps.connect')}</Button>
       )}

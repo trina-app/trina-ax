@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func goldenParams() bwrapParams {
@@ -121,5 +123,54 @@ func TestListenInodesParsesProcNetTCP(t *testing.T) {
 	// smoke: the parser runs on this machine's table without error (port 1 is never ours)
 	if n := listenInodes(1, 0); len(n) != 0 {
 		t.Fatalf("unexpected listener on port 1: %v", n)
+	}
+}
+
+// The live firewall check (QA TC-310): every call probes (nothing is kept, neither a pass nor a failure); a failure
+// is retried once before the turn is refused.
+func TestFirewallLiveProbesEveryTurn(t *testing.T) {
+	saved, savedRetry := fwLiveProbe, fwLiveRetry
+	defer func() { fwLiveProbe, fwLiveRetry = saved, savedRetry }()
+	fwLiveRetry = 0
+	calls := 0
+	fail := false
+	fwLiveProbe = func(int, time.Duration) error {
+		calls++
+		if fail {
+			return fmt.Errorf("a loopback connection went through")
+		}
+		return nil
+	}
+	if err := firewallLive(); err != nil || calls != 1 {
+		t.Fatalf("first: %v, %d calls", err, calls)
+	}
+	// a pass is never kept: the table can go between two turns a moment apart
+	if err := firewallLive(); err != nil || calls != 2 {
+		t.Fatalf("a pass is not kept: %v, %d calls", err, calls)
+	}
+	fail = true
+	// a failure is tried once more before the turn is refused
+	if err := firewallLive(); err == nil || calls != 4 {
+		t.Fatalf("pass then failure: %v, %d calls", err, calls)
+	}
+	if err := firewallLive(); err == nil || calls != 6 {
+		t.Fatalf("a failure is not kept: %v, %d calls", err, calls)
+	}
+	fail = false
+	if err := firewallLive(); err != nil || calls != 7 {
+		t.Fatalf("back: %v, %d calls", err, calls)
+	}
+	// one hiccup: the retry passes, the turn goes on
+	failOnce := true
+	fwLiveProbe = func(int, time.Duration) error {
+		calls++
+		if failOnce {
+			failOnce = false
+			return fmt.Errorf("hiccup")
+		}
+		return nil
+	}
+	if err := firewallLive(); err != nil || calls != 9 {
+		t.Fatalf("hiccup: %v, %d calls", err, calls)
 	}
 }
