@@ -113,7 +113,7 @@ export class SlackBrokerClient {
   private install(raw: unknown): SlackBrokerInstallInfo | null { return raw === null ? null : parseSlackBrokerInstallInfo(raw) }
 
   /** The hosting service serves this server now: its app id and this server's install (or none). A short time limit:
-   * Admin › Slack waits for it. */
+   * Admin › Connected apps › Slack waits for it. */
   async status(): Promise<{ appId: string; install: SlackBrokerInstallInfo | null }> {
     const j = await this.call('status', { v: 1 }, undefined, 8000)
     if (j.ok !== true || typeof j.appId !== 'string' || !ID.test(j.appId)) throw new SlackBrokerError('unreachable')
