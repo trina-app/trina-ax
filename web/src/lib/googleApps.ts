@@ -19,7 +19,9 @@ export const builtInLogo = (id: BuiltInId) => appConnectorLogo(APP_CONNECTORS.fi
 
 /** The one line under a built-in card's name (what the AI does with it). */
 export const lineKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-drive' ? 'drive' : id}.line` as MessageKey
-export const aboutKey = (id: BuiltInId): MessageKey => (id === 'google-drive' ? 'connectors.drive.about' : `gapps.${id}.about` as MessageKey)
+/** A connector page's About (what it lets the AI do, and that only the person uses it); what the AI may change is the
+ * page's own line under it, so the text does not say it again. */
+export const aboutKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-drive' ? 'drive' : id}.about` as MessageKey
 export const categoryKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-drive' ? 'drive' : id}.category` as MessageKey
 
 /** A card's state in Popular: connected (✓), needs a new sign-in, can be connected (+), or not now (with why). */

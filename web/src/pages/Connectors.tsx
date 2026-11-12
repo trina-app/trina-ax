@@ -25,7 +25,7 @@ import { Link, Navigate, Outlet, useNavigate, useParams, useSearchParams } from 
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
-import { builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
+import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
 import { awaitingFirstSignIn, canonicalService, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
@@ -337,7 +337,7 @@ function DrivePage() {
         <div className="empty:hidden">{p.steps}</div>
         <DriveTeamShares shares={p.shares} />
       </> : undefined}
-      about={t('connectors.drive.about')} canChange={false}
+      about={t(aboutKey(id))} canChange={false}
       developer={t('gapps.dev.trina')} category={t('gapps.drive.category')} signIn={GOOGLE} links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
       tools={DRIVE_TOOL_LIST.map((x) => ({ name: x.name, title: t(`gapps.drive.tool.${x.name}`), changes: x.changes }))} />
   )

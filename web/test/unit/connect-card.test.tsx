@@ -397,6 +397,29 @@ describe('the card, clicked', () => {
     await m.unmount()
   })
 
+  test('sign-in in the desktop app: no blank window; the service\'s sign-in page opens in the system browser once known', async () => {
+    const r = linear()
+    open(r)
+    connects({ state: 'sign_in', integrationId: 'i9', status: 'needs_auth' })
+    routes['POST /api/integrations/i9/authorize'] = () => json({ flowId: 'f4', authorizationUrl: 'https://auth.linear.example/authorize?state=s4', expiresAt })
+    routes['GET /api/integrations/flows/f4'] = () => json({ flowId: 'f4', state: 'pending', expiresAt, reason: null })
+    // the desktop app's window handler (desktop/src/main/security.ts): http(s) to the system browser, never a window
+    const asked: string[] = []
+    const was = globalThis.open
+    Object.assign(globalThis, { mycelDesktop: { bridgeVersion: 1 }, open: (url: string) => { asked.push(url); return null } })
+    try {
+      const m = await mount(<ConnectCard request={r} />)
+      await m.click('connect-sign-in')
+      await m.until(() => asked.length > 0, 'the sign-in page opened')
+      expect(asked).toEqual(['https://auth.linear.example/authorize?state=s4'])
+      expect(m.get('connect-signin').textContent).toContain(translate('en', 'integrations.signIn.waiting'))
+      await m.unmount()
+    } finally {
+      delete (globalThis as Record<string, unknown>).mycelDesktop
+      globalThis.open = was
+    }
+  })
+
   test('TC-020: a sign-in the service refused says why in words, never the server\'s code', async () => {
     const r = linear()
     open(r)

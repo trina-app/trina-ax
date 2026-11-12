@@ -24,7 +24,7 @@ export function driveSignInUrl(answer: { authorizationUrl: string; connectUrl?: 
   return driveBrokerConnectUrl(u.origin, answer.connectUrl) ?? google
 }
 
-/** Where a Google sign-in opens: the phone app hands the address to its browser (lib/mobile.ts openExternal), the
+/** Where a sign-in (Google's, or another service's: IntegrationRow.tsx useSignIn) opens: the phone app hands the address to its browser (lib/mobile.ts openExternal), the
  * desktop app to the system browser, a browser opens a window of its own. */
 export type SignInPlace = 'phone' | 'desktop' | 'browser'
 export const signInPlace = (): SignInPlace => (mobileApp() ? 'phone' : isDesktop() ? 'desktop' : 'browser')
@@ -42,9 +42,10 @@ export function reserveSignInWindow(place: SignInPlace, open: Open = browserOpen
   return w
 }
 
-/** Once the checked address is known (driveSignInUrl), outside the phone app: the browser sends the reserved window
- * there; the desktop app opens it now, in the system browser (its handler answers every window.open with none). */
+/** Once the checked address is known (driveSignInUrl for Google, authorizationUrl for another service), outside the
+ * phone app: the browser sends the reserved window there (unless the person closed it); the desktop app opens it now,
+ * in the system browser (its handler answers every window.open with none). */
 export function openSignInWindow(place: SignInPlace, reserved: Window | null, url: string, open: Open = browserOpen) {
   if (place === 'desktop') open(url, '_blank')
-  else if (place === 'browser' && reserved) reserved.location.replace(url)
+  else if (place === 'browser' && reserved && !reserved.closed) reserved.location.replace(url)
 }

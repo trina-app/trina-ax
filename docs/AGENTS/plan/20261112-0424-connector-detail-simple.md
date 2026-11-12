@@ -39,8 +39,7 @@ What gets removed:
 - The "What the AI can do" card, the "Information" table and "Show all tools / Hide tools".
 - i18n keys no longer used, in all five language files.
 
-Out: the listed MCP services' page (`ConnectorDetail`) and the MCP sign-in window (`IntegrationRow.tsx`), which keep
-their own layout and flow.
+Out: the listed MCP services' page (`ConnectorDetail`), which keeps its own layout.
 
 ## Plain words
 
@@ -79,3 +78,8 @@ Playwright specs for connectors, Google apps and Drive.
   `privacyLink`, `termsLink`, `showTools`, `hideTools`, `tryInChat`, and `gapps.<app>.ex1-3`. New: `gapps.tools`,
   `gapps.signIn`. Changed wording: `gapps.readOnlyLine`, `developer` (Made by), `privacy`, `terms`.
 - docs/GOOGLE-APPS.md "What members see" updated.
+- Follow-up (review): the same desktop fix for every other service's sign-in (`IntegrationRow.tsx` `reserveSignInWindow`
+  and `useSignIn`, used by the connector pages, the chat's connect card, the add/answer dialogs and the welcome steps),
+  with a unit test. About texts no longer repeat the line under them: Drive's page has its own `gapps.drive.about`
+  without the read-only sentence (Admin › Connectors keeps `connectors.drive.about`), and the four Google apps' About
+  lost the "asks you first, unless Always allow" sentence, in all five languages.

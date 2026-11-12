@@ -63,11 +63,19 @@ describe('card states', () => {
 })
 
 describe('words', () => {
-  test('every built-in card has its line, category, About and three things to try in every language', () => {
+  test('every built-in card has its line, category and About in every language', () => {
     for (const [locale, dict] of Object.entries(DICTS)) {
       for (const id of BUILT_IN_ORDER) {
         for (const k of [lineKey(id), categoryKey(id), aboutKey(id)]) expect({ locale, k, text: !!(dict as Record<string, string>)[k]?.trim() }).toEqual({ locale, k, text: true })
       }
+    }
+  })
+
+  test('About does not say again what the line under it says (read only, asks first, Always allow)', () => {
+    for (const id of BUILT_IN_ORDER) {
+      const about = DICTS.en[aboutKey(id) as keyof typeof DICTS.en] as string
+      expect({ id, about }).toEqual({ id, about: about.replace(/only reads|read only|can't change|asks you first|Always allow/gi, '') })
+      expect(about).toContain('Only you use this connection.')
     }
   })
 
