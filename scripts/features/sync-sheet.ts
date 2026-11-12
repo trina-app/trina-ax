@@ -50,7 +50,8 @@ function gws(id: string): Sheets {
 }
 
 async function serviceAccount(id: string, keyJson: string): Promise<Sheets> {
-  const key = JSON.parse(keyJson) as { client_email: string; private_key: string; token_uri?: string }
+  let key: { client_email: string; private_key: string; token_uri?: string }
+  try { key = JSON.parse(keyJson) } catch { throw new Error('GOOGLE_SHEETS_SA_JSON is not a valid key JSON') }
   const b64 = (x: string | Buffer) => Buffer.from(x).toString('base64url')
   const now = Math.floor(Date.now() / 1000)
   const aud = key.token_uri ?? 'https://oauth2.googleapis.com/token'
@@ -104,11 +105,25 @@ function lastChanges(map: ReturnType<typeof buildMap>): (id: string) => string {
   }
 }
 
+/** The column of a QA header (case and spaces aside), -1 when missing. */
+const headerCol = (values: string[][], name: string) => (values[0] ?? []).findIndex((h) => h.trim().toLowerCase() === name.toLowerCase())
+
+/** A QA date cell as YYYY-MM-DD ("2026-11-10", "2026. 11. 10", "11/10/2026", a date and time), else ''. */
+export function isoDate(cell: string): string {
+  const t = cell.trim()
+  let m = t.match(/^(\d{4})[-./]\s*(\d{1,2})[-./]\s*(\d{1,2})/)
+  if (m) return `${m[1]}-${m[2]!.padStart(2, '0')}-${m[3]!.padStart(2, '0')}`
+  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+  if (m) return `${m[3]}-${m[1]!.padStart(2, '0')}-${m[2]!.padStart(2, '0')}`
+  return ''
+}
+
 function qaRows(values: string[][], featureCol: number): QaRow[] {
-  const head = values[0] ?? []
-  const at = (name: string) => head.findIndex((h) => h.trim().toLowerCase() === name.toLowerCase())
-  const [idC, resC, dateC] = [at('TC ID'), at('Result'), at('Test date')]
-  return values.slice(1).filter((r) => r[idC]?.trim()).map((r) => ({ id: r[idC]!.trim(), result: r[resC] ?? '', testDate: (r[dateC] ?? '').trim().slice(0, 10), features: featureCol < 0 ? [] : parseFeatureCell(r[featureCol] ?? '') }))
+  const [idC, resC, dateC] = [headerCol(values, 'TC ID'), headerCol(values, 'Result'), headerCol(values, 'Test date')]
+  // a renamed header would make every feature look untested: stop instead of writing that
+  if (idC < 0 || resC < 0) throw new Error('the QA tab has no "TC ID" or "Result" header: nothing written')
+  if (dateC < 0) console.warn('the QA tab has no "Test date" header: no Stale status')
+  return values.slice(1).filter((r) => r[idC]?.trim()).map((r) => ({ id: r[idC]!.trim(), result: r[resC] ?? '', testDate: dateC < 0 ? '' : isoDate(r[dateC] ?? ''), features: featureCol < 0 ? [] : parseFeatureCell(r[featureCol] ?? '') }))
 }
 
 const HEADER = ['Feature ID', 'Name', 'Area', 'Status', 'e2e endpoints hit', 'e2e %', 'QA Pass', 'QA Fail', 'QA Blocked', 'QA open', 'Last QA Pass', 'Last contract change', 'Screens', 'Endpoints']
@@ -137,7 +152,8 @@ async function main() {
   if (!files.length) files.push(path.join(ROOT, 'web', 'test-results', 'feature-coverage.json'))
   const runs = files.filter((f) => existsSync(f)).map((f) => JSON.parse(readFileSync(f, 'utf8')) as { finishedAt?: string; commit?: string | null; endpoints: Record<string, number> })
   const hits: Record<string, number> = {}
-  for (const r of runs) for (const [e, n] of Object.entries(r.endpoints)) hits[e] = (hits[e] ?? 0) + n
+  // GET /api/health is Playwright's own check that the mock server is up, before any test: not a test's
+  for (const r of runs) for (const [e, n] of Object.entries(r.endpoints)) if (e !== 'health') hits[e] = (hits[e] ?? 0) + n
   const last = runs.map((r) => r.finishedAt ?? '').sort().at(-1)
   const commit = runs.find((r) => r.commit)?.commit
   const coverageNote = runs.length ? `e2e coverage from ${runs.length} run file(s), last finished ${last || '?'}${commit ? ` (${commit.slice(0, 9)})` : ''}; made by scripts/features/sync-sheet.ts, do not edit this tab` : 'no e2e coverage file: every e2e column is 0'
@@ -147,15 +163,24 @@ async function main() {
 
   // the QA tab: its header row, then the Feature ID column (added at the first free header cell, by that one cell)
   const meta = sheets ? await sheets.get('sheets.properties') : { sheets: [] }
-  const tabs: { title: string; sheetId: number; gridProperties: { rowCount: number } }[] = meta.sheets.map((s: any) => s.properties)
+  const tabs: { title: string; sheetId: number; gridProperties: { rowCount: number; columnCount: number } }[] = meta.sheets.map((s: any) => s.properties)
   const qaTab = tabs.find((t) => t.title === QA)
+  if (sheets && !qaTab) throw new Error(`the sheet has no "${QA}" tab`)
   let values: string[][] = sheets ? await sheets.values(`${QA}!A1:ZZ`) : []
-  let featureCol = (values[0] ?? []).findIndex((h) => h.trim() === FEATURE_HEADER)
+  let featureCol = headerCol(values, FEATURE_HEADER)
   if (sheets && featureCol < 0) {
-    featureCol = (values[0] ?? []).length
-    while ((values[0] ?? [])[featureCol - 1] === '' && featureCol > 0) featureCol--
-    if (!dry) await sheets.update([{ range: `${QA}!${col(featureCol)}1`, values: [[FEATURE_HEADER]] }])
-    console.log(`QA tab: "${FEATURE_HEADER}" header added in column ${col(featureCol)}`)
+    // the first column with nothing in any row (a column with data but no header is never taken), by its header cell
+    featureCol = Math.max(0, ...values.map((r) => r.length))
+    if (dry) console.log(`QA tab: would add the "${FEATURE_HEADER}" header in column ${col(featureCol)}`)
+    else {
+      if (featureCol >= qaTab!.gridProperties.columnCount) await sheets.batch([{ appendDimension: { sheetId: qaTab!.sheetId, dimension: 'COLUMNS', length: 1 } }])
+      // read the header row again just before: another run may have added it meanwhile
+      const again = await sheets.values(`${QA}!A1:ZZ1`)
+      const there = headerCol(again, FEATURE_HEADER)
+      if (there >= 0) featureCol = there
+      else await sheets.update([{ range: `${QA}!${col(featureCol)}1`, values: [[FEATURE_HEADER]] }])
+      console.log(`QA tab: "${FEATURE_HEADER}" header in column ${col(featureCol)}`)
+    }
   }
 
   // the backfill: only empty cells, each by its own address, rows found by TC ID just now
@@ -164,9 +189,11 @@ async function main() {
     const known = new Set(map.features.map((f) => f.id))
     const want = new Map(readFileSync(backfill, 'utf8').split('\n').map((l) => l.split('\t')).filter((x) => x[0]?.trim() && x[1]?.trim()).map((x) => [x[0]!.trim(), parseFeatureCell(x[1]!).filter((f) => known.has(f)).join(', ')]))
     values = await sheets.values(`${QA}!A1:ZZ`)
+    const idC = headerCol(values, 'TC ID')
+    if (idC < 0) throw new Error('the QA tab has no "TC ID" header')
     const data: { range: string; values: string[][] }[] = []
     values.forEach((r, i) => {
-      const ids = want.get((r[0] ?? '').trim())
+      const ids = want.get((r[idC] ?? '').trim())
       if (i > 0 && ids && !(r[featureCol] ?? '').trim()) data.push({ range: `${QA}!${col(featureCol)}${i + 1}`, values: [[ids]] })
     })
     if (!dry && data.length) await sheets.update(data)
@@ -184,11 +211,7 @@ async function main() {
   }
 
   // the Features tab: made if missing, emptied and written again
-  let tab = tabs.find((t) => t.title === TAB)
-  if (!tab) {
-    await sheets.batch([{ addSheet: { properties: { title: TAB, gridProperties: { frozenRowCount: FIRST_ROW - 1, frozenColumnCount: 1 } } } }])
-    tab = ((await sheets.get('sheets.properties')).sheets as any[]).map((s) => s.properties).find((t) => t.title === TAB)
-  }
+  if (!tabs.some((t) => t.title === TAB)) await sheets.batch([{ addSheet: { properties: { title: TAB, gridProperties: { frozenRowCount: FIRST_ROW - 1, frozenColumnCount: 1 } } } }])
   await sheets.clear(`${TAB}!A1:Z`)
   await sheets.update([{ range: `${TAB}!A1`, values: out }])
   // the dropdown of the QA tab's Feature ID column: the Features tab's IDs (a warning, not a refusal: a cell may name two)

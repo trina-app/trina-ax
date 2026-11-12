@@ -3,8 +3,8 @@ import { describe, expect, test } from 'bun:test'
 import { FEATURES, type Feature } from '../../docs/features'
 import { buildMap } from '../../scripts/features/map'
 import { featureRows, parseFeatureCell, summaryLine, type QaRow } from '../../scripts/features/status'
-import { col } from '../../scripts/features/sync-sheet'
-import { globRe, readEndpoints, readScreens, routesIn, screenOfUrl, type EndpointUnit } from '../../scripts/features/units'
+import { col, isoDate } from '../../scripts/features/sync-sheet'
+import { globRe, readEndpoints, readScreens, routesIn, type EndpointUnit } from '../../scripts/features/units'
 
 const ep = (name: string, group = 'ROOMS'): EndpointUnit => ({ name, group, method: 'GET', path: `/api/${name}`, auth: 'user', summary: '' })
 
@@ -57,14 +57,6 @@ describe('units', () => {
     expect(screens).not.toContain('/settings/schedules')
     expect(screens).not.toContain('/admin/:section')
   })
-
-  test('an address belongs to the most written-out screen', () => {
-    const s = ['/rooms', '/rooms/:roomId', '/rooms/:roomId/t/:messageId', '/settings/connectors/:id', '/settings/connectors/mcp/:integrationId']
-    expect(screenOfUrl('http://127.0.0.1:1/rooms/r1/t/m2?x=1', s)).toBe('/rooms/:roomId/t/:messageId')
-    expect(screenOfUrl('/rooms/', s)).toBe('/rooms')
-    expect(screenOfUrl('/settings/connectors/mcp/i1', s)).toBe('/settings/connectors/mcp/:integrationId')
-    expect(screenOfUrl('/nowhere', s)).toBeNull()
-  })
 })
 
 describe('gap status', () => {
@@ -104,5 +96,6 @@ describe('gap status', () => {
     expect(parseFeatureCell(' rooms.ai, rooms.threads ')).toEqual(['rooms.ai', 'rooms.threads'])
     expect(parseFeatureCell('')).toEqual([])
     expect([col(0), col(15), col(25), col(26)]).toEqual(['A', 'P', 'Z', 'AA'])
+    expect(['2026-11-10', '2026. 11. 3', '11/10/2026', '2026-11-10 09:00', 'soon', ''].map(isoDate)).toEqual(['2026-11-10', '2026-11-03', '2026-11-10', '2026-11-10', '', ''])
   })
 })

@@ -69,9 +69,14 @@ export function readScreens(): ScreenUnit[] {
   const adminMenu = idsIn(read('web/src/pages/admin/AdminLayout.tsx'), 'const MENU', ']\n\n')
   const teamSettings = idsIn(read('web/src/pages/admin/teamSettingsGroups.ts'))
   const systemGroups = idsIn(read('web/src/pages/admin/systemGroups.ts'))
+  // a change of how these files are written must not drop screens without a word
+  for (const [name, ids] of Object.entries({ settingsTabs, adminMenu, teamSettings, systemGroups })) if (!ids.length) throw new Error(`features: no ids read for ${name}: update scripts/features/units.ts`)
+  const routes = routesIn(app)
+  const tags = app.match(/<Route\b/g)?.length ?? 0
+  if (routes.length !== tags) throw new Error(`features: ${tags} <Route> tags in App.tsx but ${routes.length} read (write path= before element=, or update scripts/features/units.ts)`)
   const out = new Map<string, string>()
   const add = (p: string, source: string) => { if (!out.has(p)) out.set(p, source) }
-  for (const r of routesIn(app)) {
+  for (const r of routes) {
     if (NOT_SCREENS.has(r.element) || r.path === '*' || r.path.endsWith('/*')) continue
     const p = r.path === '' ? '/' : r.path.startsWith('/') ? r.path : `/${r.path}`
     if (p === '/settings/:tab?') {
@@ -93,18 +98,4 @@ export function readScreens(): ScreenUnit[] {
 /** A pattern of docs/features.ts: an exact name, or `*` for any run of characters. */
 export function globRe(pattern: string): RegExp {
   return new RegExp('^' + pattern.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$')
-}
-
-/** The screen an address belongs to ("/rooms/r1/t/m2?x=1" → "/rooms/:roomId/t/:messageId"): the pattern with the most
- * written-out segments wins, like the router. null for an address of no screen. */
-export function screenOfUrl(url: string, screens: readonly string[]): string | null {
-  const pathname = (url.replace(/^[a-z]+:\/\/[^/]+/i, '').split(/[?#]/)[0] || '/').replace(/\/+$/, '') || '/'
-  let best: { p: string; score: number } | null = null
-  for (const p of screens) {
-    const re = new RegExp('^' + p.split('/').map((s) => (s.startsWith(':') ? '[^/]+' : s.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))).join('/') + '$')
-    if (!re.test(pathname)) continue
-    const score = p.split('/').filter((s) => s && !s.startsWith(':')).length
-    if (!best || score > best.score) best = { p, score }
-  }
-  return best?.p ?? null
 }

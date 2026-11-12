@@ -3,7 +3,7 @@
 // this grouping is kept by hand. `bun run features:check` fails when an endpoint or a screen belongs to no feature, or a
 // pattern here claims nothing.
 //
-// IDs are stable: QA rows in the QA sheet name them (its Feature column). Never rename or reuse an ID; add a new one.
+// IDs are stable: QA rows in the QA sheet name them (its "Feature ID" column). Never rename or reuse an ID; add a new one.
 // Patterns: an exact endpoint name / screen path, or `*` for any run of characters ("*Room*", "/admin/system/*").
 // An endpoint may belong to more than one feature. `manual: true`: a feature with no endpoint or screen of its own (the
 // desktop and phone apps, installs, releases), judged by QA rows only.
