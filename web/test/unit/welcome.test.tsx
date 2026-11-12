@@ -1242,7 +1242,7 @@ describe('the later steps and the end', () => {
       await m.until(() => stepOf(m) === 'tools', '도구 연결')
       expect(m.get('welcome-progress').querySelector('[aria-current="step"]')!.textContent).toContain('4/5 도구 연결')
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('자주 쓰는 도구를 연결해 둘까요?')
-      expect(m.get('welcome-tools').textContent).toContain('나중에 커넥터에서')
+      expect(m.get('welcome-tools').textContent).toContain('나중에 설정 › 커넥터에서')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
       // Drive is not on this server: its card says so, never a hidden row (TC sheet TC-145)
       const drive = await m.until(() => m.find('welcome-tools-drive'), 'the Drive card')

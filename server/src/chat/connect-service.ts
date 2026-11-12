@@ -325,13 +325,13 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true, shownLabel)
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
-  // changed or removed in Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
+  // changed or removed in Settings › Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
   // through it
   if (kept.integrationId && (!made || (card.target === 'service' && !asShown(made, card)))) { made = null; kept.changed = true }
   if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}), ...(note ? { note } : {}) }, false, shownLabel) }
   exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectNotConnected', L), ...relabel(st.label, shownLabel) }))
   const reason = made ? `"${made.name}" ${kept.created ? 'was added but is not working yet' : 'is still not working'} (${stateOf(made)}); ${made.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix it in ${SCREEN.connectors(L)}`}`
-    : kept.changed ? 'the connection this card made was changed or removed in Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
+    : kept.changed ? 'the connection this card made was changed or removed in Settings › Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
   return { content: json({ skipped: true, ...(reason ? { reason } : {}), ...(note ? { note } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
 }
 

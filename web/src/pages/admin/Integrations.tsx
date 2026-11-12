@@ -20,7 +20,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, GoogleAppView, Group, Integration, IntegrationRequest, IntegrationTemplate, RequestableService, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../../lib/connectors'
+import { CONNECTOR_DOCS, connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../../lib/connectors'
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
@@ -155,11 +155,11 @@ export default function AdminIntegrations() {
               <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={back}
                 action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span> : (
                   // QA TC-134: one click for the team (one shared key, the admin picks who), or a template each member
-                  // connects, or the admin's own connection (their Connectors page)
+                  // connects, or the admin's own connection (their Settings › Connectors)
                   <SplitAction label={t('connectors.connectTeam')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
                     items={[
                       { label: t('connectors.connectTemplate'), onSelect: () => setDialog({ connector: c, startAs: 'template', toList: true }), testId: 'connector-connect-template' },
-                      ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(`/connectors/${c.id}`), testId: 'connector-connect-mine' }] : []),
+                      ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(connectorHref(c.id)), testId: 'connector-connect-mine' }] : []),
                     ]} />
                 )}
                 description={t('connectors.mcp.aboutForTeam', { name: c.name })} address={have ? undefined : c.url} docs={have ? undefined : CONNECTOR_DOCS[c.id]} tools={tools} />

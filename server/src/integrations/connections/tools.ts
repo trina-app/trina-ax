@@ -308,7 +308,7 @@ function pinnedRefusal(row: Row, pinned: { pins: string[]; urls: string[] }, des
 /** Where a connection's settings are changed, by whom (E6, E11): a team connection by an admin, a personal one by its
  * owner. */
 function connectionSettings(row: Pick<Row, 'scope' | 'google_app' | 'name'>, L: Locale): string {
-  if (row.google_app) return `in ${SCREEN.connectors(L, row.name)} › Settings`
+  if (row.google_app) return `in ${SCREEN.connectors(L, row.name)}, its ⋯ menu › Settings`
   return row.scope === 'team' ? `in ${SCREEN.adminMcp(L)}` : `in ${SCREEN.connectors(L)}`
 }
 
@@ -1039,7 +1039,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
           if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
           // the person's own connection: they sign in again (or give a new key) on a card in the chat (QA TC-127)
           else if (row.scope === 'personal' && !row.google_app) lines.push(`- ${row.name} (personal connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}. When they ask for ${row.name}, call connect_service with connection "${row.id}" and name "${row.name}" so they can ${row.auth === 'oauth' ? 'sign in again' : 'give the key'} on a card in this chat (not in a scheduled run)`)
-          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app ? `the user can fix it in Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
+          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app ? `the user can fix it in Settings › Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
           continue
         }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }

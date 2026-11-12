@@ -36,6 +36,7 @@ import { useNavigate } from 'react-router-dom'
 import { nameMatch, searchWords } from '@mycel/shared'
 import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type Room, type RoomFileSearchHit, type RoomSearchHit, type RoomSearchRoom, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
+import { connectionHref, CONNECTORS_HOME } from '../lib/connectors'
 import { listTime } from '../lib/format'
 import { pinnedFirst, plainLine, shownInLists } from '../lib/rooms'
 import { platform } from '../lib/pwa'
@@ -415,7 +416,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     }
   }
   const mcpRow = (i: Integration, attention?: string): Row => ({
-    key: `mcp:${i.id}`, kind: 'mcp', icon: Cable, title: i.name, href: i.scope === 'personal' ? `/connectors/mcp/${i.id}` : '/connectors', match: true,
+    key: `mcp:${i.id}`, kind: 'mcp', icon: Cable, title: i.name, href: i.scope === 'personal' ? connectionHref(i.id) : CONNECTORS_HOME, match: true,
     sub: attention ?? (i.scope === 'team' ? t('search.team') : undefined), attention: !!attention,
   })
   const fileNameRow = (f: FileEntry): Row => ({
@@ -444,9 +445,9 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]
     const m = ok(mcp)
-    // owners and admins go straight to the add-by-address form; a member to the page, which lists the services to
-    // connect (the form is an admin's job). "MCP" and the page's name still find it.
-    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin ? '/connectors?add=1' : '/connectors', terms: `MCP ${t('integrations.title')}` })
+    // owners and admins go straight to the add-by-address form; a member to Settings › Connectors, which lists the
+    // services to connect (the form is an admin's job). "MCP" and the section's name still find it.
+    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')}` })
     list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0

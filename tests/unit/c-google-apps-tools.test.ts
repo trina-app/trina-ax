@@ -225,7 +225,7 @@ describe('calls', () => {
     lib.tokens.clear(); google.invalidRefresh = true
     const bad = await turn('bob').call('my_gmail__search_gmail_messages', { query: 'x' })
     expect(bad.isError).toBe(true)
-    expect(bad.text).toContain('Connectors › Gmail')
+    expect(bad.text).toContain('Settings › Connectors › Gmail')
     expect(apps.view('bob', 'gmail').status).toBe('needs_reconnect')
     google.invalidRefresh = false
     // Reconnect: the same connection signs in again
@@ -243,7 +243,7 @@ describe('calls', () => {
       const r = await turn('alice').call('my_gmail__search_gmail_messages', { query: 'x' })
       expect(r.isError).toBe(true)
       expect(r.text).toContain('Gmail is not reachable right now, try again in a minute')
-      expect(r.text).not.toContain('Connectors › Gmail')
+      expect(r.text).not.toContain('Settings › Connectors › Gmail')
       expect(refreshes()).toBe(before + 1)
       expect(apps.view('alice', 'gmail').status).toBe('connected')
       expect((A.ctx.db.query('SELECT status FROM integrations WHERE id=?').get(aliceGmail) as { status: string }).status).toBe('connected')
@@ -251,7 +251,7 @@ describe('calls', () => {
       google.invalidRefresh = true
       const bad = await turn('alice').call('my_gmail__search_gmail_messages', { query: 'x' })
       expect(bad.isError).toBe(true)
-      expect(bad.text).toContain('Connectors › Gmail')
+      expect(bad.text).toContain('Settings › Connectors › Gmail')
       expect(apps.view('alice', 'gmail').status).toBe('needs_reconnect')
     } finally { lib.refuseAll = false; google.invalidRefresh = false }
     const f = await apps.authorize('alice', 'alice-session', 'gmail')

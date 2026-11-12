@@ -664,7 +664,7 @@ describe('another key on the same card follows the rules of now', () => {
     expect(rowsAt(url).map((r) => r.id)).toEqual([id])
     const r = resultOf(await doneOf(t.messageId))
     expect(r.skipped).toBe(true)
-    expect(r.reason).toContain('changed or removed in Connectors or Admin')
+    expect(r.reason).toContain('changed or removed in Settings › Connectors or Admin')
   })
 
   test('the card\'s time runs out after its connection was moved in Settings with a working key: the AI is told it changed, not connected', async () => {
@@ -681,7 +681,7 @@ describe('another key on the same card follows the rules of now', () => {
       const r = resultOf(await doneOf(t.messageId))
       expect(r.connected).toBeUndefined()
       expect(r.skipped).toBe(true)
-      expect(r.reason).toContain('changed or removed in Connectors or Admin')
+      expect(r.reason).toContain('changed or removed in Settings › Connectors or Admin')
     })
   })
 
@@ -694,7 +694,7 @@ describe('another key on the same card follows the rules of now', () => {
       await h.api('alice').call(API.deleteIntegration, { params: { id: first.body.integrationId as string } })
       const r = resultOf(await doneOf(t.messageId))
       expect(r.skipped).toBe(true)
-      expect(r.reason).toContain('changed or removed in Connectors or Admin')
+      expect(r.reason).toContain('changed or removed in Settings › Connectors or Admin')
     })
   })
 
@@ -711,7 +711,7 @@ describe('another key on the same card follows the rules of now', () => {
     expect(h.ctx.db.query('SELECT url FROM integrations WHERE id = ?').get(id)).toEqual({ url: moved })
     const r = resultOf(await doneOf(t.messageId))
     expect(r.skipped).toBe(true)
-    expect(r.reason).toContain('changed or removed in Connectors or Admin')
+    expect(r.reason).toContain('changed or removed in Settings › Connectors or Admin')
   })
 
   test('the connection changed in Settings meanwhile: refused with a word to start again, nothing sent to it, and Not now leaves it', async () => {
@@ -727,7 +727,7 @@ describe('another key on the same card follows the rules of now', () => {
     const before = svc.seen.length
     const again = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
     expect(again.status).toBe(409)
-    expect(again.body.error.message).toBe('This connection was changed or removed in Connectors or Admin after the card was shown. Nothing was sent. Ask the AI to connect it again.')
+    expect(again.body.error.message).toBe('This connection was changed or removed in Settings › Connectors or Admin after the card was shown. Nothing was sent. Ask the AI to connect it again.')
     // still so for another key and for done; the key reached no address
     expect((await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })).status).toBe(409)
     expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).status).toBe(409)
@@ -737,7 +737,7 @@ describe('another key on the same card follows the rules of now', () => {
     expect(h.ctx.db.query('SELECT url FROM integrations WHERE id = ?').get(id)).toEqual({ url: moved })
     const r = resultOf(await doneOf(t.messageId))
     expect(r.skipped).toBe(true)
-    expect(r.reason).toContain('changed or removed in Connectors or Admin')
+    expect(r.reason).toContain('changed or removed in Settings › Connectors or Admin')
     expect(leaksIn([t.turnId])).toEqual([])
   })
 })

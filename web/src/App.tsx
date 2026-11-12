@@ -53,10 +53,6 @@ const SkillSharePage = lazy(() => import('./pages/SkillSharePage'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
-const ConnectorsLayout = lazy(() => import('./pages/Connectors').then((m) => ({ default: m.ConnectorsLayout })))
-const ConnectorsHome = lazy(() => import('./pages/Connectors').then((m) => ({ default: m.ConnectorsHome })))
-const ConnectorPage = lazy(() => import('./pages/Connectors').then((m) => ({ default: m.ConnectorPage })))
-const CustomConnectorPage = lazy(() => import('./pages/Connectors').then((m) => ({ default: m.CustomConnectorPage })))
 const SlackLink = lazy(() => import('./pages/SlackLink'))
 const SlackSignInReturn = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackSignInReturn })))
 const SlackDone = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackDone })))
@@ -74,7 +70,10 @@ function Splash() {
   )
 }
 
-const isSettings = (path: string) => path === '/settings' || path.startsWith('/settings/')
+/** Connectors' old addresses (/connectors, /connectors/<id>, /connectors/mcp/<id>): Settings › Connectors now, so they
+ * open the dialog over the page they came from too. Not the outside apps' consent page (/connectors/authorize). */
+const oldConnectors = (path: string) => (path === '/connectors' || path.startsWith('/connectors/')) && !/^\/connectors\/authorize(\/|$)/.test(path)
+const isSettings = (path: string) => path === '/settings' || path.startsWith('/settings/') || oldConnectors(path)
 
 /** Settings is a dialog over a page (components/settings/SettingsDialog.tsx): the page it was opened from, or Home when
  * its address was opened directly. `close` goes back to that page: back through the history entries Settings added on
@@ -273,14 +272,8 @@ function Gate() {
           <Route path="scheduled/:id" element={<ScheduledTask />} />
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
           <Route path="welcome" element={<Welcome />} />
+          {/* an outside AI app asks to use this server as the person (Connectors itself is in Settings, below) */}
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
-          {/* Connectors, from the sidebar (pages/Connectors.tsx): the list, a built-in or listed service's page, one of
-              the person's own connections; Settings › Connectors leads here */}
-          <Route path="connectors" element={<ConnectorsLayout key={`${status.me.user.id}:${status.me.session.id}`} />}>
-            <Route index element={<ConnectorsHome />} />
-            <Route path="mcp/:integrationId" element={<CustomConnectorPage />} />
-            <Route path=":id" element={<ConnectorPage />} />
-          </Route>
           {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
           <Route path="slack/link" element={<SlackLink key={`${status.me.user.id}:${status.me.session.id}`} />} />
           {/* "Sign in with Slack" back in a browser that had to sign in first, and its end page outside the app */}
@@ -312,6 +305,13 @@ function Gate() {
           {/* a phone's 보안·기기 opens the password form and every signed-in device as pages under it */}
           <Route path="/settings/security/password" element={<SettingsDialog onClose={settings.close} page="security-password" />} />
           <Route path="/settings/security/devices" element={<SettingsDialog onClose={settings.close} page="security-devices" />} />
+          {/* Connectors (pages/Connectors.tsx) is a section: a connector's page and one of the person's connections are
+              pages under it */}
+          <Route path="/settings/connectors/mcp/:integrationId" element={<SettingsDialog onClose={settings.close} page="connector" />} />
+          <Route path="/settings/connectors/:id" element={<SettingsDialog onClose={settings.close} page="connector" />} />
+          {/* Connectors was a page of the sidebar until 2026-11-12: its addresses (notices, Slack, mails, bookmarks) lead
+              to the same place in Settings, with their query */}
+          <Route path="/connectors/*" element={<OldConnectors />} />
           <Route path="/settings/:tab?" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}
@@ -356,6 +356,12 @@ export function AfterJoin() {
 export function AfterSetup() {
   useEffect(() => () => clearAfterSetup(), [])
   return <Navigate to={afterSetupTarget()} replace />
+}
+
+/** /connectors, /connectors/<id>, /connectors/mcp/<id>: the same place in Settings, its query and hash kept. */
+function OldConnectors() {
+  const { pathname, search, hash } = useLocation()
+  return <Navigate to={`/settings${pathname}${search}${hash}`} replace />
 }
 
 /** An address the app does not know (a wrong or old link): a clear message and a link to Home, inside the normal layout. */

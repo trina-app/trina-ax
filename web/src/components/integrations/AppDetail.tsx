@@ -1,5 +1,6 @@
-// A built-in connector's own page (/connectors/<id>: Google Drive, Gmail, Google Calendar, Google Docs, Google Sheets),
-// kept simple like Claude's connector page: "Connectors › Gmail" on top, the logo, the name and one line ("By Google ·
+// A built-in connector's own page (/settings/connectors/<id>, inside Settings: Google Drive, Gmail, Google Calendar,
+// Google Docs, Google Sheets), kept simple like Claude's connector page: "Connectors › Gmail" on top (the way back to
+// Settings › Connectors), the logo, the name and one line ("By Google ·
 // Read and manage Gmail") with the one status or action and ⋯ on the right, the sign-in line under it while one is under
 // way, then the About text, one line on what the AI may do, every tool as a chip, and a small details block (made by,
 // category, sign-in, privacy). Fewer boxes, the same facts. What the person does with it (Connect, the account to
@@ -9,6 +10,7 @@
 import { ChevronRight, ExternalLink, PenLine } from 'lucide-react'
 import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { CONNECTORS_HOME } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Tooltip } from '../Tooltip'
 import { LogoTile } from './ConnectorsView'
@@ -40,9 +42,9 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
   /** the sign-in's owner and its privacy policy and terms (what the person agrees to at its sign-in) */
   links?: { by: string; privacy: string; terms: string }
   tools: AppTool[]
-  /** the list it belongs to, for the way back (default: Connectors) */
+  /** the list it belongs to, for the way back (default: Settings › Connectors) */
   list?: { to: string; name: string }
-  /** inside a page that has its own column and scrolling (Admin) */
+  /** inside a page that has its own column and scrolling (Settings, Admin) */
   embedded?: boolean
   /** under the details: Admin's team settings */
   children?: ReactNode
@@ -55,7 +57,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
         <div>
           {/* phones: the top bar names the list and has its way back */}
           <nav aria-label={t('gapps.breadcrumb')} className="mb-5 flex min-w-0 items-center gap-1 text-sm text-muted max-md:hidden" data-testid="app-breadcrumb">
-            <Link to={list?.to ?? '/connectors'} className="rounded hover:text-ink hover:underline" data-testid="app-breadcrumb-connectors">{list?.name ?? t('integrations.title')}</Link>
+            <Link to={list?.to ?? CONNECTORS_HOME} className="rounded hover:text-ink hover:underline" data-testid="app-breadcrumb-connectors">{list?.name ?? t('integrations.title')}</Link>
             <ChevronRight size={14} aria-hidden className="shrink-0 text-faint" />
             <span aria-current="page" className="truncate text-ink">{name}</span>
           </nav>

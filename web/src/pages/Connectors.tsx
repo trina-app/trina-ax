@@ -1,6 +1,8 @@
-// Connectors (/connectors, an item of the main sidebar and of the phone's drawer): what the AI may use with the person's
-// own accounts, kept simple like Claude's Connectors page. On top the title, one line, a search box and, for owners and
-// admins, "Add custom connector" (any MCP server or API by its address). Then what an admin asked the person to connect
+// Settings › Connectors (/settings/connectors, a section of the Settings dialog for everyone; it was an item of the main
+// sidebar and of the phone's drawer until 2026-11-12, docs/DECISIONS.md "Connectors in Settings"): what the AI may use
+// with the person's own accounts, kept simple like Claude's Settings › Connectors. On top the section's title, one line,
+// a search box and, for owners and admins, "Add custom connector" (any MCP server or API by its address). Then what an
+// admin asked the person to connect
 // (components/integrations/AnswerDialog.tsx, only while there is something), and two sections:
 // - **Your connectors**: one line each (ConnectorsView.tsx ConnectorRow) for every connection the person can use: the
 //   built-in ones they connected (Google Drive, Gmail, …), their own MCP connections, and what the team provides
@@ -13,28 +15,29 @@
 //   member "Not set up yet" (its page has "Ask admin to add it", and the card then says "Asked":
 //   components/integrations/AskAdmin.tsx); one turned off for members is left out for them. A member reads "Not listed?
 //   Ask an admin to add it." under it (docs/DECISIONS.md "Plain words for members").
-// A card opens its page, /connectors/<id>: a built-in's (AppDetail.tsx), a listed service's (ConnectorDetail), or
-// /connectors/mcp/<connection id> for one of the person's connections or a team connection they may use.
-// /settings/connectors (old links) leads here (SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1
-// (old Drive links: Google Drive's page). The state (the lists, Drive's and the Google apps' sign-ins, the add dialog)
-// lives in ConnectorsLayout, so a + can open Google during the click and its page shows the same sign-in.
-// Phones (below 768 px, QA TC-262): the line, the search and Add are the top of the page and scroll away with it (a
-// computer keeps them in the sticky title bar), and the small links take a 44 px tap. In the phone app nothing signs in
+// A card opens its page inside Settings, a page under the section (SettingsDialog.tsx): /settings/connectors/<id> for a
+// built-in's (AppDetail.tsx) or a listed service's (ConnectorDetail), /settings/connectors/mcp/<connection id> for one
+// of the person's connections or a team connection they may use; its way back is the list. The old addresses lead here
+// with their query (/connectors, /connectors/<id>, /connectors/mcp/<id>, /settings/integrations: App.tsx and
+// SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1 (old Drive links: Google Drive's page). The
+// state (the lists, Drive's and the Google apps' sign-ins, the add dialog) lives in ConnectorsProvider, one for the
+// list and its pages, so a + can open Google during the click and its page shows the same sign-in.
+// Phones (below 768 px, QA TC-262): the section's top (the line, the search and Add) scrolls away with the list, the
+// phone bar says the name, and the small links take a 44 px tap. In the phone app nothing signs in
 // to Google here (connecting is done on a computer): a built-in one's + only opens its page, and its page shows what it
 // is now, Disconnect, and one line "Connect … on a computer".
-import clsx from 'clsx'
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../lib/connectors'
+import { CONNECTOR_DOCS, connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
-import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, inputCls, pageColumn, useMediaQuery } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Skeleton, inputCls } from '../components/ui'
 import { ConnectorDetail, ConnectorRow, DiscoverCard, DISCOVER_FIRST, type DiscoverItem } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
@@ -48,8 +51,6 @@ import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integra
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { useLoad } from './admin/common'
 import { mobileApp } from '../lib/mobile'
-
-const PHONE = '(max-width: 767.98px)'
 
 /** How many Discover cards show before "Show all" (ConnectorsView.tsx). */
 export const POPULAR_FIRST = DISCOVER_FIRST
@@ -88,14 +89,26 @@ type ConnectorsState = ReturnType<typeof useConnectorsState>
 const Ctx = createContext<ConnectorsState | null>(null)
 const useConnectors = () => useContext(Ctx)!
 
-/** /connectors and the pages under it: one state for all of them. */
-export function ConnectorsLayout() {
+/** Settings › Connectors and the pages under it (SettingsDialog.tsx, pages/Settings.tsx): one element for the list and
+ * every page, so their state stays while the person goes from one to the other (/settings/connectors, …/<id>,
+ * …/mcp/<id>). */
+export function ConnectorsSettings() {
+  const { id, integrationId } = useParams()
+  return (
+    <ConnectorsProvider>
+      {integrationId ? <CustomConnectorPage /> : id ? <ConnectorPage /> : <ConnectorsHome />}
+    </ConnectorsProvider>
+  )
+}
+
+/** The section and the pages under it: one state for all of them. */
+function ConnectorsProvider({ children }: { children: ReactNode }) {
   const s = useConnectorsState()
   const navigate = useNavigate()
   const { dialog, setDialog, actions, list } = s
   return (
     <Ctx.Provider value={s}>
-      <Outlet />
+      {children}
       {dialog && (
         <IntegrationDialog
           scope={dialog.existing?.scope ?? 'personal'}
@@ -107,7 +120,7 @@ export function ConnectorsLayout() {
             const created = !dialog.existing && !list.data?.items.some((x) => x.id === i.id)
             actions.saved(i, next, created)
             // a new connection: its page, where its row is (the button that opened the dialog may be gone)
-            if (!dialog.existing) navigate(`/connectors/mcp/${i.id}`)
+            if (!dialog.existing) navigate(connectionHref(i.id))
           }}
         />
       )}
@@ -119,15 +132,14 @@ export function ConnectorsLayout() {
  * from its page); `asked`: a member who asked an admin to add it */
 type Card = DiscoverItem
 
-/** /connectors */
-export function ConnectorsHome() {
+/** Settings › Connectors: the list */
+function ConnectorsHome() {
   const t = useT()
   const navigate = useNavigate()
   const { list, drive, google, asks, requests, actions, setDialog, admin } = useConnectors()
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
   const [params, setParams] = useSearchParams()
-  const phone = useMediaQuery(PHONE)
   // the phone app: Google's sign-in is not started from here (connecting is done on a computer, QA TC-262)
   const inApp = !!mobileApp()
   const personalAllowed = list.data?.personalAllowed
@@ -143,17 +155,17 @@ export function ConnectorsHome() {
   const team = list.data ? splitByScope(list.data.items).team : null
   const fromTeam = useFromTeam({
     team, latest: list.data?.items, version: requests, query,
-    onOpen: (i) => navigate(`/connectors/mcp/${i.id}`),
+    onOpen: (i) => navigate(connectionHref(i.id)),
     onConnected: (i, signIn) => actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)),
   })
-  if (params.get('drive') === '1') return <Navigate to="/connectors/google-drive" replace />
+  if (params.get('drive') === '1') return <Navigate to={connectorHref('google-drive')} replace />
   const q = query.trim()
 
   // the built-in cards: Google Drive (its own connection), then the Google apps this server knows (none on an older one)
   const dState = driveCardState(drive.connection)
   const builtIns: Card[] = BUILT_IN_ORDER.flatMap((id): Card[] => {
     const name = builtInName(id)
-    const open = () => navigate(`/connectors/${id}`)
+    const open = () => navigate(connectorHref(id))
     // a member who asked an admin to add it: "Asked" in place of "Not set up yet"
     const asked = !admin && asks.stateOf(id) !== 'none'
     if (id === 'google-drive') {
@@ -176,7 +188,7 @@ export function ConnectorsHome() {
   const listed: Card[] = personalAllowed ? CONNECTORS.map((c) => ({
     id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c),
     state: isConnected(c, urls) ? 'added' as const : 'available' as const,
-    onOpen: () => navigate(`/connectors/${c.id}`), onAdd: () => setDialog({ connector: c }),
+    onOpen: () => navigate(connectorHref(c.id)), onAdd: () => setDialog({ connector: c }),
   })) : []
   // Discover: only what is not connected yet (connected ones are in Your connectors). The Google ones first, always in
   // their order (Drive, Gmail, Calendar, Docs, Sheets: QA TC-138), also one that cannot be connected yet because the
@@ -199,7 +211,7 @@ export function ConnectorsHome() {
       const c = connectorFor(i.url)
       return { name: i.name, row: (
         <ConnectorRow key={i.id} id={i.id} logo={c ? connectorLogo(c) : undefined} name={i.name}
-          status={connectionRowStatus(i)} onOpen={() => navigate(`/connectors/mcp/${i.id}`)} />
+          status={connectionRowStatus(i)} onOpen={() => navigate(connectionHref(i.id))} />
       ) }
     }),
     ...fromTeam.rows,
@@ -223,21 +235,17 @@ export function ConnectorsHome() {
     </>
   )
   return (
-    <div className="flex h-full flex-col overflow-y-auto" data-testid="integrations">
-      {phone ? (
-        // a phone: the same line, search and Add as the title bar's, but as the top of the page, so they scroll away
-        // with the list like the other phone pages' tops (QA TC-262); the phone's top bar says the page's name
-        <div className="shrink-0 border-b border-line px-4 py-4" data-testid="connectors-header">
-          <h1 className="sr-only">{t('integrations.title')}</h1>
-          <p className="text-sm text-muted">{t('connectorsPage.desc')}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">{headActions}</div>
-        </div>
-      ) : (
-        <PageHeader testId="connectors-header" title={t('integrations.title')} desc={t('connectorsPage.desc')} actions={headActions} />
-      )}
-      <div className={clsx(pageColumn, 'space-y-8 p-4 pb-10 sm:p-6')}>
+    <div data-testid="integrations">
+      {/* the section's top, like Settings' other sections: its name (a phone's bar says it, so there for screen readers
+          only), one line, the search and Add; it scrolls with the list (QA TC-262) */}
+      <div data-testid="connectors-header">
+        <h2 className="text-base font-semibold max-md:sr-only">{t('integrations.title')}</h2>
+        <p className="mt-1 text-sm text-muted max-md:mt-0">{t('connectorsPage.desc')}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">{headActions}</div>
+      </div>
+      <div className="mt-6 space-y-8 pb-6">
         {/* what an admin asked this person to connect: answered, its own page, with its row */}
-        <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(`/connectors/mcp/${i.id}`) }} />
+        <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(connectionHref(i.id)) }} />
         {list.error && <ErrorNote onRetry={() => void list.reload()}>{list.error}</ErrorNote>}
         {/* a service a member looked for and did not find: where to go next (an owner or admin has Add above) */}
         {loading ? <Skeleton lines={4} /> : nothing ? (
@@ -255,7 +263,7 @@ export function ConnectorsHome() {
             )}
             {yours.length > 0 && (
               <section aria-labelledby="connectors-yours">
-                <h2 id="connectors-yours" className="mb-1 text-sm font-semibold">{t('connectors.yours')}</h2>
+                <h3 id="connectors-yours" className="mb-1 text-sm font-semibold">{t('connectors.yours')}</h3>
                 <ul data-testid="connected-apps">{yours.map((x) => x.row)}</ul>
               </section>
             )}
@@ -263,7 +271,7 @@ export function ConnectorsHome() {
             {cards.length > 0 && (
               <section aria-labelledby="connectors-discover" data-testid="connector-discover">
                 <div className="mb-1 flex items-center gap-2">
-                  <h2 id="connectors-discover" className="text-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h2>
+                  <h3 id="connectors-discover" className="text-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h3>
                   {!q && cards.length > POPULAR_FIRST && (
                     // a text link; on a phone 44 px tall (and at least as wide), still without a box
                     <button type="button" className="touch-hit ml-auto text-sm text-muted hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-end" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
@@ -290,15 +298,15 @@ export function ConnectorsHome() {
   )
 }
 
-/** /connectors/:id: a built-in card's page, or a listed service's. */
-export function ConnectorPage() {
+/** /settings/connectors/:id: a built-in card's page, or a listed service's. */
+function ConnectorPage() {
   const { id = '' } = useParams()
   const { google, asks, admin } = useConnectors()
   if (id === 'google-drive') return <DrivePage />
   if (isGoogleApp(id)) {
     if (!google.apps) return <PageSkeleton />
     const v = google.apps.find((x) => x.id === id)
-    if (!v) return <Navigate to="/connectors" replace />
+    if (!v) return <Navigate to={CONNECTORS_HOME} replace />
     // a member, the team has not set it up, never connected: ask an admin to add it (once the server says what was asked)
     const ask = !admin && asks.ready && v.reason === 'not_set_up' && v.status === 'disconnected'
       ? { state: asks.stateOf(v.id), busy: asks.busy === v.id, onAsk: () => void asks.ask(v.id, builtInName(v.id), () => void google.load()), onWithdraw: () => void asks.withdraw(v.id), error: asks.error?.service === v.id ? asks.error.text : null }
@@ -306,11 +314,11 @@ export function ConnectorPage() {
     return <GoogleAppDetail v={v} g={google} ask={ask} />
   }
   const c = CONNECTORS.find((x) => x.id === id)
-  return c ? <ListedPage c={c} /> : <Navigate to="/connectors" replace />
+  return c ? <ListedPage c={c} /> : <Navigate to={CONNECTORS_HOME} replace />
 }
 
 function PageSkeleton() {
-  return <div className={clsx(pageColumn, 'p-4 sm:p-6')}><Skeleton lines={6} /></div>
+  return <Skeleton lines={6} />
 }
 
 /** Google Drive's page: Trina's own connector, the same layout as the Google apps'. */
@@ -340,7 +348,7 @@ function DrivePage() {
     </>
   ) : null
   return (
-    <AppDetail testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
+    <AppDetail embedded testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
       actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} onWithdraw={() => void asks.withdraw(id)} />
         : inApp ? appActions
         : p.action}
@@ -374,7 +382,7 @@ function ListedPage({ c }: { c: Connector }) {
   const own = !!list.data?.personalAllowed
   return (
     <McpShell>
-      <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={() => navigate('/connectors')}
+      <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={() => navigate(CONNECTORS_HOME)}
         action={have.length ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
           : own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
@@ -386,20 +394,20 @@ function ListedPage({ c }: { c: Connector }) {
   )
 }
 
-/** /connectors/mcp/:integrationId: one of the person's own connections (added by address, from the list or from a
- * team template), or a team connection they may use (read-only: its state, its tools, "Run without asking"). */
-export function CustomConnectorPage() {
+/** /settings/connectors/mcp/:integrationId: one of the person's own connections (added by address, from the list or
+ * from a team template), or a team connection they may use (read-only: its state, its tools, "Run without asking"). */
+function CustomConnectorPage() {
   const t = useT()
   const navigate = useNavigate()
   const { integrationId = '' } = useParams()
   const { list } = useConnectors()
   if (!list.data) return <PageSkeleton />
   const i = list.data.items.find((x) => x.id === integrationId)
-  if (!i) return <Navigate to="/connectors" replace />
+  if (!i) return <Navigate to={CONNECTORS_HOME} replace />
   const c = connectorFor(i.url)
   return (
     <McpShell>
-      <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name} line={c ? t(`integrations.catalog.${c.id}`) : i.url} official={!!c} onBack={() => navigate('/connectors')}
+      <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name} line={c ? t(`integrations.catalog.${c.id}`) : i.url} official={!!c} onBack={() => navigate(CONNECTORS_HOME)}
         description={t(i.scope === 'team' ? 'connectors.mcp.aboutTeam' : 'connectors.mcp.about', { name: i.name })} noTools>
         <MineRows items={[i]} readOnly={i.scope === 'team'} />
       </ConnectorDetail>
@@ -407,15 +415,13 @@ export function CustomConnectorPage() {
   )
 }
 
-/** A connection's page; the privacy note (moved off the list) at its end. */
+/** A connection's page (inside Settings' column, which scrolls it); the privacy note (moved off the list) at its end. */
 function McpShell({ children }: { children: ReactNode }) {
   const t = useT()
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-4xl p-4 pb-10 sm:p-6">
-        {children}
-        <p className="mt-8 text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>
-      </div>
+    <div className="pb-6">
+      {children}
+      <p className="mt-8 text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>
     </div>
   )
 }
@@ -427,7 +433,7 @@ function MineRows({ items, readOnly }: { items: Integration[]; readOnly?: boolea
   const navigate = useNavigate()
   // deleted: back to the list (the page has nothing left to show)
   const ids = useMemo(() => items.map((i) => i.id).join(','), [items])
-  useEffect(() => { if (!ids) navigate('/connectors', { replace: true }) }, [ids, navigate])
+  useEffect(() => { if (!ids) navigate(CONNECTORS_HOME, { replace: true }) }, [ids, navigate])
   return (
     <ul className="-mx-2 divide-y divide-line rounded-xl bg-surface" data-testid="integrations-mine">
       {items.map((i) => <IntegrationRow key={i.id} i={i} actions={actions} readOnly={readOnly} onEdit={() => setDialog({ existing: i })} />)}

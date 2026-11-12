@@ -7,6 +7,7 @@
 //   done, back to the app (its Settings line shows the link when the app is used again).
 import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { CONNECTORS_HOME } from '../lib/connectors'
 import { useT } from '../i18n'
 import { installOutcome, outcomeText, resumeTarget } from '../lib/slackSignIn'
 
@@ -31,7 +32,7 @@ export function SlackDone({ signedIn }: { signedIn: boolean }) {
     <section className="mx-auto max-w-xl space-y-3 p-4 sm:p-6" data-testid="slack-done">
       <h1 className="text-xl font-semibold">Slack</h1>
       <p className={`text-sm ${ok ? '' : 'text-warn'}`} role="status" data-testid="slack-done-text">{t(code === 'linked' ? 'slack.signin.doneApp' : code === 'installed' ? 'slack.install.doneApp' : outcomeText(code))}</p>
-      {signedIn && !installOutcome(code) && <Link to="/connectors" className="text-sm text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>}
+      {signedIn && !installOutcome(code) && <Link to={CONNECTORS_HOME} className="text-sm text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>}
     </section>
   )
 }
