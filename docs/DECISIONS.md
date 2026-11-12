@@ -23888,6 +23888,11 @@ Slack account.
   four steps, no "Replace tokens" and no Remove of it; one plain line says "Only the team owner can change or remove
   this Slack app." (set up) or "Only the team owner can connect Slack here." (nothing added and no Add to Slack). The old
   `/admin/slack` opens Slack's page for admins too. Members: unchanged.
+- **Races and role changes.** An install is never kept over an own app saved while Slack was asked (checked again in
+  the write), an admin's Remove never deletes an own app saved while the hosting service was asked (409
+  `own_app_saved`), and an install waiting for Slack's check is dropped when the person who pressed it is no longer the
+  owner or an admin. An admin whose own-app connection fails is told to ask the owner, not pointed at "Replace tokens";
+  Discover shows an admin the Slack card only where Add to Slack is offered.
 - **Audit.** Unchanged: every change (`slack.installed`, `slack.enabled`, `slack.disabled`, `slack.removed`) names who
   made it.
 - Tests: `tests/unit/c-slack.test.ts` (route levels pinned; admin sees, turns off, refused on tokens and on removing the

@@ -28,7 +28,7 @@ import { CONNECTOR_DOCS, connectorFor, connectorHref, connectorLogo, CONNECTORS,
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
-import { useMeStrict } from '../../store/session'
+import { isOwner, useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
 import { Badge, EmptyState, useMediaQuery } from '../../components/ui'
 import { ConnectorDetail, ConnectorRow, ConnectorsHeader, DiscoverCard, DISCOVER_FIRST, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds, type DiscoverItem, type RowStatus } from '../../components/integrations/ConnectorsView'
@@ -68,6 +68,7 @@ export default function AdminIntegrations() {
   // Gmail, Google Calendar, Google Docs and Google Sheets on this server (an older server has none): set up per card
   const gapps = useLoad(async () => { try { return (await api.call(API.googleAppsAdminStatus)).apps } catch { return [] as GoogleAppAdminStatus[] } })
   // Slack: the owner and admins (an older server refuses admins); it fails quietly (no row)
+  const owner = isOwner(me)
   const slack = useLoad(async () => { try { return await api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }) } catch { return null as SlackAdmin | null } })
   // Team settings' "Members can add their own connections": off, the admin's own ("Just for me") is refused too
   const personal = useLoad(async () => { try { return (await api.call(API.listIntegrations)).personalAllowed } catch { return true } })
@@ -242,7 +243,8 @@ export default function AdminIntegrations() {
             id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c), state: 'available' as const,
             onOpen: () => setOpen({ kind: 'listed', c }), onAdd: () => setDialog({ connector: c, toList: true }),
           }))
-          const slackCard: DiscoverItem[] = sl && !slackAdded(sl)
+          // an admin gets the card only where Add to Slack is offered (the team's own app is the owner's to set up)
+          const slackCard: DiscoverItem[] = sl && !slackAdded(sl) && (owner || sl.official)
             ? [{ id: SLACK_APP.id, name: SLACK_APP.name, line: slackLine, logo: slackLogo, state: 'available', onOpen: openSlack, onAdd: openSlack }] : []
           const cards = [...builtIns.filter((b) => !b.on), ...slackCard, ...listed].filter((c) => fits(q, c.name, c.line))
           const shownCards = q || all ? cards : cards.slice(0, DISCOVER_FIRST)

@@ -4225,6 +4225,7 @@ export const id: Record<MessageKey, string> = {
   "slack.admin.replace": "Ganti token",
   "slack.admin.ownerOnlyApp": "Hanya pemilik tim yang bisa mengubah atau menghapus aplikasi Slack ini.",
   "slack.admin.ownerOnlySetup": "Hanya pemilik tim yang bisa menghubungkan Slack di sini.",
+  "slack.admin.askOwner": "Slack tidak berjalan dengan aplikasi ini sekarang. Minta pemilik tim untuk memperbaikinya.",
   "slack.admin.remove": "Hapus Slack",
   "slack.admin.removeTitle": "Hapus koneksi Slack?",
   "slack.admin.removeBody": "Token dan tautan akun semua orang dihapus. Hapus aplikasinya sendiri di Slack.",

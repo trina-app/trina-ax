@@ -369,6 +369,35 @@ describe('removed, restored and removed by the owner', () => {
     h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
     try { expect(outcome(await open('carol', broker.slackReturn('install')))).toBe('install_failed') } finally { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = 'carol'").run() }
     expect(cfg()?.secret_enc ?? null).toBeNull()
+    // demoted while the install waits for Slack's check: taken off there, not kept here
+    const uninstalls = broker.of('uninstall').length
+    fake.failNext['auth.test'] = { hang: true }
+    expect((await call('carol', 'POST', '/api/admin/slack/official/install', { origin: h.url })).status).toBe(200)
+    expect(outcome(await open('carol', broker.slackReturn('install')))).toBe('install_pending')
+    h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
+    try { await waitFor(() => broker.of('uninstall').length > uninstalls, { timeoutMs: 8000 }) } finally { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = 'carol'").run() }
+    expect(cfg()?.secret_enc ?? null).toBeNull()
+  })
+
+  test('an admin\'s Remove of the official app never deletes an own app the owner saved while the hosting service was asked', async () => {
+    broker.nextInstall = {}
+    expect(outcome(await add())).toBe('installed')
+    const svc = slackOf(h.ctx) as unknown as { broker: { uninstall(): Promise<string> } }
+    const uninstall = svc.broker.uninstall
+    // the owner's own app lands while the hosting service takes the official one off the workspace
+    svc.broker.uninstall = async function (this: unknown) {
+      const r = await uninstall.call(svc.broker)
+      h.ctx.db.query("UPDATE slack_config SET mode = 'own', install_id = NULL, secret_enc = 'sealed-own', key_version = 1, enabled = 0").run()
+      return r
+    }
+    try {
+      const r = await call('carol', 'DELETE', '/api/admin/slack')
+      expect(r.status).toBe(409)
+      expect(r.json.error.params.reason).toBe('own_app_saved')
+      expect(cfg()).toMatchObject({ mode: 'own', secret_enc: 'sealed-own' })
+    } finally { svc.broker.uninstall = uninstall }
+    h.ctx.db.query('DELETE FROM slack_config').run()
+    slackOf(h.ctx).refresh()
   })
 
   test('the bot token, the handoffs and the verifiers are in no log line, row or answer', async () => {

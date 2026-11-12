@@ -4181,6 +4181,7 @@ export const es: Record<MessageKey, string> = {
   "slack.admin.replace": "Cambiar tokens",
   "slack.admin.ownerOnlyApp": "Solo el propietario del equipo puede cambiar o quitar esta aplicación de Slack.",
   "slack.admin.ownerOnlySetup": "Solo el propietario del equipo puede conectar Slack aquí.",
+  "slack.admin.askOwner": "Slack no funciona ahora con esta aplicación. Pida al propietario del equipo que lo arregle.",
   "slack.admin.remove": "Quitar Slack",
   "slack.admin.removeTitle": "¿Quitar la conexión de Slack?",
   "slack.admin.removeBody": "Se borran los tokens y los vínculos de cuenta de todos. La aplicación en sí bórrela en Slack.",

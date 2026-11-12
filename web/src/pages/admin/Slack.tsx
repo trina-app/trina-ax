@@ -148,7 +148,9 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                   </div>
                   {fix ? (
                     <p className="mt-2 text-sm text-danger" data-testid="slack-error">
-                      <FixText text={t(fix.key)} href={fix.page && fix.page !== 'replace' ? slackPage(s.appId, fix.page) : undefined} onClick={fix.page === 'replace' && owner ? () => setReplacing(true) : undefined} />
+                      {/* an admin cannot replace the tokens: the words ask the owner instead */}
+                      {fix.page === 'replace' && !owner ? t('slack.admin.askOwner')
+                        : <FixText text={t(fix.key)} href={fix.page && fix.page !== 'replace' ? slackPage(s.appId, fix.page) : undefined} onClick={fix.page === 'replace' ? () => setReplacing(true) : undefined} />}
                     </p>
                   ) : s.enabled && s.botName ? (
                     <p className="mt-2 text-sm text-muted" data-testid="slack-invite"><CodeText text={t('slack.admin.invite', { bot: s.botName })} /></p>

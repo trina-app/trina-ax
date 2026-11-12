@@ -382,7 +382,12 @@ export class SlackConnector {
       this.feed?.stop(); this.feed = null
       slack = this.broker ? await this.broker.uninstall() : 'unavailable'
     }
-    this.db.transaction(() => { this.forgetWorkspace(); this.db.query('DELETE FROM slack_config').run() })()
+    this.db.transaction(() => {
+      // the team's own app saved while the hosting service was asked: that one is not what was removed
+      const now = this.config()
+      if (cfg?.mode === 'official' && now?.mode !== 'official' && now?.secret_enc) throw new SlackError('own_app_saved', 'conflict')
+      this.forgetWorkspace(); this.db.query('DELETE FROM slack_config').run()
+    })()
     if (cfg) audit(this.db, { actor, action: 'slack.removed', target: cfg.team_id, ...(slack ? { detail: { via: 'official', slack } } : {}) })
     this.refresh()
     return this.adminView()
@@ -736,6 +741,11 @@ export class SlackConnector {
     return !!answer
   }
 
+  /** May add the official app now: the team's owner or an admin, active, not waiting to change their password */
+  private mayInstall(userId: string): boolean {
+    return !!this.db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId)
+  }
+
   /** The owner or an admin pressed "Add to Slack" (Slack's admin page): a flow bound to them (state hashed, its PKCE verifier
    * sealed, 10 minutes, used once, the newest only), and Slack's own install page from the hosting service. `origin`:
    * the team's address the page is open at (where links in Slack will open). */
@@ -779,8 +789,7 @@ export class SlackConnector {
     if (!this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'used' WHERE id = ? AND state = 'pending'").run(f.id).changes) return out('install_expired')
     const fail = (reason: string) => { this.db.query('UPDATE slack_install_flows SET reason = ? WHERE id = ?').run(reason, f.id); return out(reason) }
     // still the team's owner or an admin (a role can change in 10 minutes)
-    const allowed = this.db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(f.user_id)
-    if (!allowed || !this.broker) return fail('install_failed')
+    if (!this.mayInstall(f.user_id) || !this.broker) return fail('install_failed')
     let verifier: string
     try { verifier = this.box.open<{ verifier: string }>(`slack:install-flow:${f.id}`, f.verifier_enc, f.key_version).verifier } catch { return fail('install_failed') }
     let got: { install: SlackBrokerInstallInfo; botToken: string }
@@ -839,6 +848,8 @@ export class SlackConnector {
       }
       if (this.pending !== p) return
       if (got.install.installId !== p.installId) { this.pending = null; return }
+      // still the owner or an admin who pressed it (a role can change in 30 minutes)
+      if (!this.mayInstall(p.actor)) { this.pending = null; this.dropInstall(p.installId); return }
       try {
         await this.saveInstall(p.actor, got.install, got.botToken, p.origin)
         this.pending = null
@@ -875,6 +886,8 @@ export class SlackConnector {
     const now = iso(this.now())
     const url = typeof who.url === 'string' && /^https:\/\/[a-z0-9.-]+\/?$/i.test(who.url) ? who.url : null
     this.db.transaction(() => {
+      // the team's own app saved while Slack was asked (the owner's): never replaced by an install
+      { const now = this.config(); if (now?.mode !== 'official' && now?.secret_enc) throw new SlackError('own_app_saved', 'conflict') }
       if (changed) this.forgetWorkspace()
       this.db.query(`INSERT INTO slack_config (id, enabled, team_id, team_name, team_url, enterprise_id, bot_user_id, bot_name, app_id, client_id, secret_enc, key_version, link_origin, last_error, updated_by, updated_at, mode, install_id)
         VALUES (1, 1, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, ?, ?, 'official', ?)
