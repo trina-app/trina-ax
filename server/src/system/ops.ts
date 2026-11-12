@@ -69,6 +69,13 @@ export interface OpsOptions {
 
 /** Reported failures of the desktop app's office-network direct connection (POST /api/connect-info/lan-failure). */
 export type LanFailureCode = 'unreachable' | 'cert_mismatch' | 'timeout'
+/** A firewall reason as one plain line for the Health line: an older `mycel-ctl` wrote nft's whole answer (the echoed
+ * command and its "^^^^^" marker, QA TC-310) into the status file. The full text stays in the firewall timer's journal. */
+export const oneLineReason = (why: string): string => {
+  const line = (why.split('\n')[0] ?? '').replace(/\s*\(nft list: [^)]*$/, '').replace(/\bError:\s*/g, '').trim()
+  return line || 'not loaded'
+}
+
 const LAN_FAILURE_WINDOW_MS = 24 * 3600_000
 const LAN_FAILURE_PER_SESSION_MS = 3600_000
 
@@ -704,8 +711,8 @@ export class OpsService {
     const fw = this.firewallStatus()
     if (!fs.existsSync(L.firewallStatusFile)) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallMissing))
     else if (!fw || this.now().getTime() - Date.parse(fw.at) > 15 * 60_000) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallStale))
-    else if (!fw.loaded || fw.rules === 0) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallOff(fw.error ?? (fw.loaded ? 'no rules' : 'not loaded'))))
-    else if (st?.firewall?.live === false) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(ML.firewallNotLive(st.firewall.liveProblem ?? 'not in effect', hosted)))
+    else if (!fw.loaded || fw.rules === 0) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallOff(oneLineReason(fw.error ?? (fw.loaded ? 'no rules' : 'not loaded')))))
+    else if (st?.firewall?.live === false) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(ML.firewallNotLive(oneLineReason(st.firewall.liveProblem ?? 'not in effect'), hosted)))
     else add('pf_anchor', 'pf_anchor', t(M.firewall), 'ok', t(ML.firewallOkLinux(fw.rules, fw.proxyPort)))
 
     if (sock) {
