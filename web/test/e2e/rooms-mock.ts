@@ -102,6 +102,8 @@ export interface MockRoomSpec {
   name: string | null
   peers: { id: string; name: string }[]
   unread?: number
+  /** threads I follow there with replies I have not read (Room.threadsUnread) */
+  threads?: number
   mentioned?: boolean
   muted?: boolean
   hidden?: boolean
@@ -140,7 +142,7 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
     return {
       id: s.id, kind: s.kind, name: s.name, canRename: s.kind === 'group', managerId: s.kind === 'group' ? 'olga' : null,
       groupId: s.kind === 'team' ? `019a5f00-0000-7000-8000-${String(800 + i).padStart(12, '0')}` : null,
-      memberCount: s.peers.length + 1, peers: s.peers.slice(0, 4), lastSeq: 3, unreadCount: s.unread ?? 0, threadsUnread: 0, nextThreadId: null,
+      memberCount: s.peers.length + 1, peers: s.peers.slice(0, 4), lastSeq: 3, unreadCount: s.unread ?? 0, threadsUnread: s.threads ?? 0, nextThreadId: null,
       mentioned: !!s.mentioned, lastReadSeq: 3 - Math.min(3, s.unread ?? 0),
       lastMessage: { id: msgId(i), seq: 3, author: s.peers[0] ?? null, excerpt: s.last, fileCount: 0, deleted: false, createdAt: when(s.ago) },
       muted: level === 'off', notify: { own: s.own, byDefault, level }, createdAt: when(600), activityAt: when(s.ago),
