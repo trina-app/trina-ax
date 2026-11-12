@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText } from '../../src/lib/mobile'
+import { initMobile, mobileApp, sendFileToApp, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText, appPicksPhotos, pickPhotosFromApp } from '../../src/lib/mobile'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../src/lib/share'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, OFF_HERE_PREFIX, phonePushView, registerMobilePush, setMobilePushSession, turnOffPhonePush, usePhonePush } from '../../src/lib/mobile-push'
@@ -8,7 +8,7 @@ import { clearLocalData } from '../../src/lib/localData'
 import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
 import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
 import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -682,4 +682,104 @@ test('the invite to the phone\'s share sheet (QA TC-271): the app\'s own (share-
     w.matchMedia = media
     if (had) Object.defineProperty(nav, 'share', had); else Reflect.deleteProperty(nav, 'share')
   }
+})
+
+/** photo-pick-v1 (QA TC-251): an app that answers a pick with these files and their bytes, chunk by chunk */
+function photoApp(files: { name: string; mime: string; bytes: Buffer }[], over: (m: MobileMessage) => Partial<MobileReply> | null = () => ({})) {
+  win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PHOTO_PICK_CAPABILITY] }
+  handler = (m) => {
+    const extra = over(m)
+    if (extra === null) return
+    if (m.type === 'photo-pick') reply(m, { files: files.map((f) => ({ name: f.name, mime: f.mime, size: f.bytes.length })), tooBig: [], ...extra })
+    else if (m.type === 'photo-chunk') reply(m, { b64: files[m.index]!.bytes.subarray(m.offset, m.offset + PICK_CHUNK_BYTES).toString('base64'), ...extra })
+    else if (m.type === 'session-reset') { win.mycelMobile = { ...win.mycelMobile, generation: m.generation + 1 }; reply(m, { nextGeneration: m.generation + 1 }) }
+    else reply(m, extra)
+  }
+}
+const fill = (n: number, seed: number) => Buffer.from(Array.from({ length: n }, (_, i) => (i * 7 + seed) & 255))
+
+test('photo-pick-v1: only an app that offers it opens its picker; an older app keeps the input and hears nothing', async () => {
+  expect(appPicksPhotos()).toBe(false)
+  await expect(pickPhotosFromApp(3)).rejects.toThrow('mobile_unavailable')
+  expect(messages.some((m) => m.type.startsWith('photo-'))).toBe(false)
+  photoApp([])
+  expect(appPicksPhotos()).toBe(true)
+  // a browser: no app at all
+  win.top = {}
+  expect(appPicksPhotos()).toBe(false)
+})
+
+test('photo-pick-v1: the picked files arrive whole, in order, with their names and types; done lets the app delete its copies', async () => {
+  const photo = fill(PICK_CHUNK_BYTES + 3, 1), clip = fill(9, 2)
+  photoApp([{ name: 'IMG_0001.jpg', mime: 'image/jpeg', bytes: photo }, { name: 'clip.mov', mime: 'video/quicktime', bytes: clip }])
+  const { files, tooBig } = await pickPhotosFromApp(25)
+  expect(tooBig).toEqual([])
+  expect(files.map((f) => [f.name, f.type, f.size])).toEqual([['IMG_0001.jpg', 'image/jpeg', photo.length], ['clip.mov', 'video/quicktime', 9]])
+  expect(Buffer.from(await files[0]!.arrayBuffer()).equals(photo)).toBe(true)
+  expect(Buffer.from(await files[1]!.arrayBuffer()).equals(clip)).toBe(true)
+  const sent = messages.filter((m) => m.type.startsWith('photo-'))
+  // the limit is clamped to what one message takes; the chunks go one by one, in order, under the pick's id
+  expect(sent[0]).toMatchObject({ type: 'photo-pick', limit: 20 })
+  expect(sent.slice(1).map((m) => m.type === 'photo-chunk' ? [m.seq, m.index, m.offset] : m.type)).toEqual([[0, 0, 0], [1, 0, PICK_CHUNK_BYTES], [2, 1, 0], 'photo-done'])
+  expect(new Set(sent.map((m) => m.id)).size).toBe(1)
+})
+
+test('photo-pick-v1: cancelled is an empty answer with no error; what the app left out for its size is named', async () => {
+  photoApp([])
+  expect(await pickPhotosFromApp(1)).toEqual({ files: [], tooBig: [] })
+  // nothing to delete: no done after an empty answer
+  expect(messages.filter((m) => m.type.startsWith('photo-')).map((m) => m.type)).toEqual(['photo-pick'])
+  photoApp([], (m) => (m.type === 'photo-pick' ? { tooBig: ['long-video.mov'] } : {}))
+  expect(await pickPhotosFromApp(1)).toEqual({ files: [], tooBig: ['long-video.mov'] })
+})
+
+test('photo-pick-v1: a forged answer (a path, another type, too many, too big) or a chunk of the wrong length is refused', async () => {
+  const ok = { name: 'a.jpg', mime: 'image/jpeg', size: 4 }
+  for (const files of [[{ ...ok, name: '../../a.jpg' }], [{ ...ok, mime: 'text/html' }], [ok, ok], [{ ...ok, size: MAX_FILE_BYTES + 1 }], 'file:///private/a.jpg']) {
+    photoApp([], (m) => (m.type === 'photo-pick' ? { files: files as never } : {}))
+    messages = []
+    await expect(pickPhotosFromApp(1)).rejects.toThrow('mobile_protocol_mismatch')
+    // the app is told to drop its copies
+    expect(messages.at(-1)?.type).toBe('photo-done')
+  }
+  photoApp([{ name: 'a.jpg', mime: 'image/jpeg', bytes: fill(4, 3) }], (m) => (m.type === 'photo-chunk' ? { b64: fill(5, 3).toString('base64') } : {}))
+  await expect(pickPhotosFromApp(1)).rejects.toThrow('mobile_protocol_mismatch')
+  photoApp([{ name: 'a.jpg', mime: 'image/jpeg', bytes: fill(4, 3) }], (m) => (m.type === 'photo-chunk' ? { b64: undefined } : {}))
+  await expect(pickPhotosFromApp(1)).rejects.toThrow('mobile_protocol_mismatch')
+  // a refusal by the phone is named (a short message); any other failure is generic
+  photoApp([], (m) => (m.type === 'photo-pick' ? { ok: false, error: 'photo_denied' } : {}))
+  await expect(pickPhotosFromApp(1)).rejects.toThrow('photo_denied')
+  photoApp([], (m) => (m.type === 'photo-pick' ? { ok: false, error: '/var/mobile/secret' } : {}))
+  await expect(pickPhotosFromApp(1)).rejects.toThrow('mobile_operation_failed')
+})
+
+test('photo-pick-v1: a sign-out or another person during the pick stops it; no chunk is asked for under the next session', async () => {
+  let picked: MobileMessage | null = null
+  photoApp([{ name: 'a.jpg', mime: 'image/jpeg', bytes: fill(PICK_CHUNK_BYTES * 2, 4) }], (m) => {
+    if (m.type === 'photo-pick') { picked = m; return null }
+    return {}
+  })
+  const picking = pickPhotosFromApp(1).then(() => null, (e) => e)
+  for (let i = 0; i < 20 && !picked; i++) await tick()
+  setMobileSession(`photo-person-${Date.now()}`)
+  // the answer comes late, for the old document state
+  reply(picked!, { files: [{ name: 'a.jpg', mime: 'image/jpeg', size: PICK_CHUNK_BYTES * 2 }], tooBig: [] })
+  const error = await picking
+  expect(error).toBeInstanceOf(DOMException)
+  expect((error as DOMException).name).toBe('AbortError')
+  await tick()
+  expect(messages.filter((m) => m.type === 'photo-chunk')).toHaveLength(0)
+  // a forged reply (another nonce) does not answer the pick either
+  let second: MobileMessage | null = null
+  photoApp([{ name: 'b.jpg', mime: 'image/jpeg', bytes: fill(3, 5) }], (m) => {
+    if (m.type === 'photo-pick' && !second) { second = m; return null }
+    return {}
+  })
+  const again = pickPhotosFromApp(1)
+  for (let i = 0; i < 20 && !second; i++) await tick()
+  reply(second!, { nonce: 'f'.repeat(64), files: [{ name: 'evil.jpg', mime: 'image/jpeg', size: 1 }], tooBig: [] })
+  await tick()
+  expect(messages.filter((m) => m.type === 'photo-chunk')).toHaveLength(0)
+  reply(second!, { files: [{ name: 'b.jpg', mime: 'image/jpeg', size: 3 }], tooBig: [] })
+  expect((await again).files.map((f) => f.name)).toEqual(['b.jpg'])
 })

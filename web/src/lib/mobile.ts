@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, base64Size, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
 import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
@@ -10,7 +10,7 @@ export function mobileApp(): MobileConfig | null {
 interface Pending { config: MobileConfig; type: MobileMessage['type']; seq?: number; resolve: (reply: MobileReply) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
 const pending = new Map<string, Pending>()
 const downloads = new Set<AbortController>()
-let epoch = 0, busy = false, initialized = false
+let epoch = 0, busy = false, picking = false, initialized = false
 let sessionKey: string | null = null
 // No one is signed in on this page (status signed-out: the sign-in page at a cold start, a sign-out, an expired
 // session), and whether the app has heard it since: it is told once per bridge, also when the bridge comes later.
@@ -30,7 +30,7 @@ function receive(event: Event) {
   const p = pending.get(keyOf(reply.id, reply.for, reply.seq))
   if (!p || reply.v !== 1 || reply.type !== 'mobile-result' || reply.nonce !== p.config.nonce || reply.generation !== p.config.generation || typeof reply.ok !== 'boolean') return
   pending.delete(keyOf(reply.id, reply.for, reply.seq)); clearTimeout(p.timer)
-  if (reply.ok) p.resolve(reply); else p.reject(new Error(reply.error === 'push_denied' || reply.error === 'push_unavailable' ? reply.error : 'mobile_operation_failed'))
+  if (reply.ok) p.resolve(reply); else p.reject(new Error(reply.error === 'push_denied' || reply.error === 'push_unavailable' || reply.error === 'photo_denied' ? reply.error : 'mobile_operation_failed'))
 }
 function request(message: MobileMessage, config: MobileConfig, timeoutMs = 60_000): Promise<MobileReply> {
   if (!current(config)) return Promise.reject(cancelled())
@@ -221,6 +221,60 @@ export async function shareTextToApp(text: string): Promise<void> {
   if (!text.trim() || text.length > MAX_SHARE_TEXT) throw new Error('mobile_share_text')
   // the sheet waits for the person (iOS answers when it closes)
   await request({ ...envelope(config), type: 'share-text', text }, config, 300_000)
+}
+/** The app opens the phone's own photo picker (photo-pick-v1): the 사진 보관함 row skips the small menu iOS shows for
+ * any input that takes pictures. An older app: the page keeps its file input. */
+export const appPicksPhotos = () => !!mobileApp()?.capabilities.includes(PHOTO_PICK_CAPABILITY)
+/** What one pick takes: bytes a file, bytes together, files. */
+export const PHOTO_PICK_LIMITS = { file: MAX_FILE_BYTES, pick: MAX_PICK_BYTES, files: MAX_PICK_FILES } as const
+function fromBase64(b64: string): Uint8Array {
+  const text = atob(b64), out = new Uint8Array(text.length)
+  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i)
+  return out
+}
+/** What the person picked in the phone's own photo picker (photo-pick-v1), as files for the box's usual upload: at most
+ * `limit`, [] when they cancelled; `tooBig`, the names the app left out for their size (50 MiB a file, 200 MiB a pick).
+ * Only bytes cross: never a path or a URL, and nothing is fetched. Each chunk is asked for in order and must be exactly
+ * as long as the file says. Rejects with photo_denied when the phone refused access, and with an AbortError when the
+ * page moved on (a navigation, a team change, a sign-out); the app then drops the pick itself. */
+export async function pickPhotosFromApp(limit: number): Promise<{ files: File[]; tooBig: string[] }> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PHOTO_PICK_CAPABILITY)) throw new Error('mobile_unavailable')
+  if (picking) throw new Error('mobile_transfer_busy')
+  picking = true
+  const env = envelope(config), want = Math.min(Math.max(1, Math.floor(limit) || 1), MAX_PICK_FILES)
+  const check = () => { if (turn !== epoch || !current(config)) throw cancelled() }
+  let asked = false
+  try {
+    // the picker waits for the person
+    const reply = await request({ ...env, type: 'photo-pick', limit: want }, config, 600_000)
+    check()
+    // the app holds copies unless it answered "nothing picked" (cancelled, or all left out)
+    asked = !Array.isArray(reply.files) || reply.files.length > 0
+    const tooBig = reply.tooBig ?? []
+    if (!validPicks(reply.files, tooBig, want)) throw new Error('mobile_protocol_mismatch')
+    const files: File[] = []
+    let seq = 0
+    for (const [index, f] of reply.files.entries()) {
+      const parts: Uint8Array[] = []
+      for (let offset = 0; offset < f.size; offset += PICK_CHUNK_BYTES) {
+        check()
+        const r = await request({ ...env, type: 'photo-chunk', seq, index, offset }, config)
+        check()
+        if (typeof r.b64 !== 'string' || base64Size(r.b64) !== pickChunkLength(f.size, offset)) throw new Error('mobile_protocol_mismatch')
+        parts.push(fromBase64(r.b64)); seq++
+      }
+      files.push(new File(parts as BlobPart[], f.name, { type: f.mime }))
+    }
+    return { files, tooBig }
+  } finally {
+    picking = false
+    // the app deletes its copies (also when the page gave up)
+    if (asked && current(config)) void request({ ...env, type: 'photo-done' }, config, 10_000).catch(() => {})
+  }
 }
 /** The page's look for the app's status bar (appearance-v1): when the bridge comes, when the theme changes, and again
  * after every session reset (a send that the reset fenced off is not lost). Not tied to a session: the latest look
