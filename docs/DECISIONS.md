@@ -3196,13 +3196,16 @@ only themselves. The owner chose the safest defaults for the open questions:
   "on". The turn sends the realtime frame `turn.busy` { chatId, messageId, turnId, busy } to the person's windows when
   the state changes. The web app shows "The AI service is busy. Still trying…" under that running answer, in all five
   languages (`chat.providerBusy`). It clears the line on the first text, a step, the end of the answer, or a
-  `busy: false` frame. A late frame for an answer that ended is ignored.
+  `busy: false` frame. A late frame for an answer that ended is ignored. An answer with text or steps can be busy again
+  (the next request after a tool step hits the limit): the line shows again.
 - **Why a frame, not a step or a notice.** A step stays in the answer's record after the wait is over. A notice is a
   toast for the whole app and does not belong to one chat. The frame is optional: an older web app ignores it.
-- **Not covered.** Room answers have their own run status and do not get the line. The Codex path waits out a short 429
-  inside the proxy, so the engine sees no 429.
-- Tests: `tests/unit/proxy-subscription.test.ts` (busy once on a short 429, off on the next answer, nothing more),
-  `web/test/unit/busy-store.test.ts`.
+- **Not covered.** Room answers have their own run status and do not get the line. Claude Code also retries 500/502/503
+  and an `overloaded_error` event inside a 200 stream; these show no line. The Codex path waits out a short 429 (retry
+  after 10 s or less, one retry) inside the proxy; its 5xx retries show no line. In one turn with several requests at
+  once (sub-agents), one request's answer clears "busy" while another still retries: the line can go off early.
+- Tests: `tests/unit/proxy-subscription.test.ts` (busy once on a short 429 or a 529, off on the next answer, nothing
+  more), `web/test/unit/busy-store.test.ts`. TC-388 re-test (real Claude Code, Mac mini): see the plan's Result.
 - Version impact: **patch**.
 
 ## Continue after the per-answer limit (feat/chat-continuity, 2026-10-30)

@@ -706,7 +706,7 @@ export function AssistantMessage({
             <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
           </StepPostView.Provider>
         )}
-        {providerBusy && (queuePos === undefined || queuePos === 0) && (
+        {providerBusy && !waitingForYou && (queuePos === undefined || queuePos === 0) && (
           <p className="mb-2 text-sm text-muted" role="status" data-testid="provider-busy">{t('chat.providerBusy')}</p>
         )}
         {thinking && (queuePos === undefined || queuePos === 0) && (

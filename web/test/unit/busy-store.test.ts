@@ -26,6 +26,19 @@ test('the first text clears it; an empty reset delta (a refused attempt) does no
   expect(isBusy()).toBe(false)
 })
 
+test('busy again after a step or text: shown again (the next request after a tool step hit the limit)', () => {
+  busy(true)
+  h({ type: 'message.step', seq: 2, at: 0, data: { chatId: CHAT, messageId: assistant.id, step: { id: 's1', kind: 'tool', tool: 'read', label: 'Read', status: 'done' } } })
+  expect(isBusy()).toBe(false)
+  busy(true)
+  expect(isBusy()).toBe(true)
+  h({ type: 'message.delta', seq: 3, at: 0, data: { chatId: CHAT, messageId: assistant.id, offset: 0, text: 'Hi' } })
+  busy(true)
+  expect(isBusy()).toBe(true)
+  busy(false)
+  expect(isBusy()).toBe(false)
+})
+
 test('a step clears it', () => {
   busy(true)
   h({ type: 'message.step', seq: 2, at: 0, data: { chatId: CHAT, messageId: assistant.id, step: { id: 's1', kind: 'tool', tool: 'read', label: 'Read', status: 'running' } } })

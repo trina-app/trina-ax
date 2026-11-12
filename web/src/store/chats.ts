@@ -670,8 +670,9 @@ export const useChats = create<ChatsState>((set, get) => {
         }
         case 'turn.busy': {
           const { messageId, busy } = ev.data
-          // a late frame for an answer that already ended or shows output is ignored
-          if (!busy || finishedMessages.has(messageId) || outputMessages.has(messageId)) clearBusy(messageId)
+          // a late frame for an answer that already ended is ignored; an answer with text or steps can be busy again (the
+          // next request after a tool step), and the server says busy: false before that request's text
+          if (!busy || finishedMessages.has(messageId)) clearBusy(messageId)
           else if (!get().busy[messageId]) set((s) => ({ busy: { ...s.busy, [messageId]: true } }))
           return
         }
@@ -731,6 +732,7 @@ export const useChats = create<ChatsState>((set, get) => {
   }
 })
 
-/** Queue position of a message, or undefined when not queued. */
+/** The AI provider is busy for this answer and the engine tries again (turn.busy, QA TC-388). */
 export const useProviderBusy = (messageId: string | undefined) => useChats((s) => (messageId ? !!s.busy[messageId] : false))
+/** Queue position of a message, or undefined when not queued. */
 export const useQueuePosition = (messageId: string | undefined) => useChats((s) => (messageId ? s.queue[messageId] : undefined))
