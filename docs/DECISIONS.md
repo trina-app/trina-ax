@@ -23470,3 +23470,32 @@ at the bottom.
   events do not carry everything (a version picked in another window, another member's turn in a shared project chat),
   and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
   visible branch). AI chats' messages stay in memory without a limit, as before.
+||||||| parent of a2a6547aa (Dev environment: the installer turns srt on (Debian 13 self-install))
+||||||| parent of e046059e5 (Dev environment: the installer turns srt on (Debian 13 self-install))
+
+## Dev environment: the installer turns srt on (feat/install-srt-auto, 2026-11-12)
+
+Owner (pras), after Dion's list of where the dev environment is missing (2026-11-12): "Linux servers customers install
+themselves: the packages are installed, but install-srt.sh still has to be run once by hand. The installer can run it
+automatically." Plan agreed with the owner: srt is the only runner (no box), on hosted Linux, self-installed Linux and,
+later, a team's own Mac mini.
+
+- **The kit carries srt.** `scripts/build-bundle.ts` puts the image's srt install files (`build-ami.sh` SRT_FILES) in
+  `app/<v>/root/dev-env-srt/`, with the package list and its reader in `dev-env-srt/system/` (where `install-srt.sh`
+  looks first). They are root files: `install-linux.sh` copies them root-owned to `<base>/root/dev-env-srt/` and root
+  runs `install-srt.sh` and `uninstall-srt.sh` only from there, never from `app/` (the server account's).
+- **When the installer turns it on.** Self-install, Debian 13, not `--minimal` (its tools are in the default groups),
+  systemd on. It runs after the server answers (step 15), because the first `install-srt.sh` restarts the server; then
+  it waits for the server again. A failure is a warning with the retry command: the server runs without it. Ubuntu
+  24.04 and Debian 12 are skipped with the reason (`install-srt.sh` stops there: Ubuntu needs its AppArmor profile,
+  spike S6). Hosted servers keep `mycel-devenv-boot` (the plan decides).
+- **Options.** `--dev-env` (stop when this system cannot have it), `--no-dev-env` (off; on a repair it runs
+  `uninstall-srt.sh`). Kept in `install.json` as `devEnv` (true, false, or null = the default for the system).
+- **Updates.** `mycel-ctl update` (`devenv.go`) runs the new `root/dev-env-srt/install-srt.sh --id <id>` once when the
+  release changed files there and srt is on here (the drop-in names `MYCEL_DEV_ENV_RUNNER=srt`). It runs before the
+  package sync (both may use apt). A failure is a note; the server keeps the dev environment it had.
+- **Uninstall** runs `uninstall-srt.sh` (`--purge` with `--purge`) before `root/` goes.
+- **Exposure.** `MYCEL_DEV_ENV=1` makes the feature exist. A new team has it on by default with "Allowed sites only"
+  (owner, 2026-11-06); a team that had people before migration 236 stays off. Team admins turn it off.
+- Open: preview on srt (`mycel-sandbox port-forward`, `docs/research/srt-dev-env.md` §5), Ubuntu 24.04 (the installer
+  already writes `apparmor-bwrap.in` for bwrap; `install-srt.sh` needs the same for srt's apply-seccomp), macOS.

@@ -101,6 +101,8 @@ type updater struct {
 	// place (updateRoot finished), so what failed was the app: the long hold
 	attempted bool
 	rootIn    bool
+	// devEnvIn: this run put new files of root/dev-env-srt/ in place (devenv.go devEnvAfter)
+	devEnvIn bool
 	// syncOnlyRun: the scheduled gate found no release for root to install now, but the system packages' sync is
 	// pending (sync.go): run installs nothing and syncs. verified: the bundle folder VerifyDir accepted ("" = none)
 	syncOnlyRun bool
@@ -430,6 +432,8 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	// the system packages last, after the root files and the app (neither waits for apt or a download), and also when
 	// there was nothing to install but the list in place is not synced here (sync.go)
 	defer u.syncAfter()
+	// before the sync (defers run last first): install-srt.sh may install packages, and the sync's own unit uses apt too
+	defer u.devEnvAfter()
 	if u.syncOnlyRun {
 		return nil // the gate found no release for root to install now; syncAfter syncs the list in place
 	}
@@ -971,6 +975,9 @@ func (u *updater) updateRoot(dir, v string) error {
 		}
 		if strings.HasPrefix(rel, "systemd/") {
 			units = true
+		}
+		if strings.HasPrefix(rel, devEnvRootDir+"/") {
+			u.devEnvIn = true
 		}
 	}
 	if err := writeRootFile(u.e.root("VERSION"), []byte(v+"\n"), 0o644); err != nil {

@@ -248,6 +248,11 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   - 되돌려진 앱이 업데이트 시간을 알려 주지 못하는 옛 버전(0.2.18 이하)이면, root 부분 버전(`root/VERSION`)의 앱
     폴더에 있는 `admin.js`가 팀의 업데이트 시간과 시간대를 읽는다(읽기만). 그것도 안 되면 root가 마지막으로 받아 둔 시간,
     그다음은 `/etc/default/<id>`의 `MYCEL_TEAM_TZ`(없으면 서버 시계)로 03:00–05:00이다.
+- **The dev environment on srt is turned on by the installer** (`docs/DECISIONS.md` "Dev environment: the installer
+  turns srt on"). On Debian 13 with the default groups and systemd, `install-linux.sh` runs
+  `<base>/root/dev-env-srt/install-srt.sh` after the server answers. `--no-dev-env` keeps it off; `--dev-env` stops the
+  install when the system cannot have it (Ubuntu 24.04, Debian 12, `--minimal`, `--no-systemd`). `mycel-ctl update`
+  brings new srt files in; `uninstall` removes them.
 - **Removed: the box runner** (`docs/DECISIONS.md` "Dev environment: box runner removed, srt only"). The dev
   environment runs only in srt (`scripts/dev-env/srt/install-srt.sh`). Up to v0.5.0-beta.1 every kit had
   `root/mycel-boxd`, and `scripts/dev-env/install-trial.sh` could add the box runner to a server. On a server where it
