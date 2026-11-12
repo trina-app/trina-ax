@@ -11,11 +11,11 @@ const PEOPLE = [{ id: 'minjun', name: '민준' }, { id: 'seoyeon', name: '서연
 
 type Item = Record<string, unknown>
 const base = (n: number, code: string, minutes: number): Item => ({ id: id(n), eventType: code, sourceId: id(n + 1000), code, createdAt: ago(minutes), readAt: null, chatId: null, link: 'room', outcome: null })
-/** 24 direct messages (All and DMs scroll) and two mentions (Mentions does not) */
+/** 24 replies in threads of direct chats (All and Threads scroll) and two mentions (Mentions does not) */
 function inbox(): Item[] {
   const dms = Array.from({ length: 24 }, (_, i) => {
     const who = PEOPLE[i % 3]!
-    return { ...base(10 + i, 'room.dm', 5 + i * 7), room: { id: id(400 + i), from: who.name, fromId: who.id, kind: 'dm', name: null, reason: 'message', message: id(600 + i), preview: `회의 자료 ${i + 1}번 확인 부탁드려요`, count: 1, people: 1, at: ago(5 + i * 7) } }
+    return { ...base(10 + i, 'room.dm', 5 + i * 7), room: { id: id(400 + i), from: who.name, fromId: who.id, kind: 'dm', name: null, thread: id(800 + i), reason: 'reply', message: id(600 + i), preview: `회의 자료 ${i + 1}번 확인 부탁드려요`, count: 1, people: 1, at: ago(5 + i * 7) } }
   })
   const mentions = [
     { ...base(1, 'room.mention', 3), room: { id: id(390), from: '민준', fromId: 'minjun', kind: 'team', name: '디자인 리뷰', reason: 'mention', message: id(590), preview: '@Olga https://example.com/a/very/long/link/that/does/not/break/anywhere/because/it/has/no/spaces/at/all/0123456789abcdef', count: 2, people: 1, at: ago(3) } },
@@ -31,7 +31,7 @@ async function routeInbox(page: Page) {
 // scroll bars that take room, as on Windows or a Mac with a mouse (headless Chromium hides them by default)
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
 
-const TABS = ['all', 'dms', 'mentions', 'threads'] as const
+const TABS = ['all', 'mentions', 'threads'] as const
 const SIZES = [['1440', { width: 1440, height: 900 }, false], ['390', { width: 390, height: 844 }, true]] as const
 
 for (const [name, viewport, mobile] of SIZES) {
@@ -61,8 +61,7 @@ for (const [name, viewport, mobile] of SIZES) {
     for (const tab of TABS) {
       await page.getByTestId(`activity-tab-${tab}`).click()
       await expect(page.getByTestId(`activity-tab-${tab}`)).toHaveAttribute('aria-selected', 'true')
-      if (tab === 'threads') await expect(page.getByTestId('notification-item')).toHaveCount(0)
-      else await expect(page.getByTestId('notification-item').first()).toBeVisible()
+      await expect(page.getByTestId('notification-item').first()).toBeVisible()
       seen[tab] = await where()
       if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS_DIR ?? 'test-results/activity-tabs'}/activity-${name}-${tab}.png` })
     }
@@ -82,3 +81,25 @@ for (const [name, viewport, mobile] of SIZES) {
     await ctx.close()
   })
 }
+
+test('no DMs tab (owner 2026-11-13): an old ?tab=dms opens All; a mention and a reply inside a DM stay under Mentions and Threads', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(String(e)))
+  await reset(page)
+  await signIn(page)
+  const items = [
+    { ...base(1, 'room.mention', 3), room: { id: id(390), from: '민준', fromId: 'minjun', kind: 'dm', name: null, reason: 'mention', message: id(590), preview: '@Olga 내일 봐요', count: 1, people: 1, at: ago(3) } },
+    { ...base(2, 'room.dm', 9), room: { id: id(391), from: '지호', fromId: 'jiho', kind: 'group', name: null, thread: id(700), reason: 'reply', message: id(591), preview: '답글이에요', count: 1, people: 1, at: ago(9) } },
+  ]
+  await page.route('**/api/notifications?*', (route) => route.fulfill({ json: { items, nextCursor: null, unreadCount: items.length } }))
+  await page.goto('/activity?tab=dms')
+  await expect(page.getByTestId('activity-tabs').getByRole('tab')).toHaveCount(3)
+  await expect(page.getByTestId('activity-tab-dms')).toHaveCount(0)
+  await expect(page.getByTestId('activity-tab-all')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('notification-item')).toHaveCount(2)
+  await page.getByTestId('activity-tab-mentions').click()
+  await expect(page.getByTestId('notification-room-line')).toHaveText([/내일 봐요/])
+  await page.getByTestId('activity-tab-threads').click()
+  await expect(page.getByTestId('notification-room-line')).toHaveText(['답글이에요'])
+  expect(errors).toEqual([])
+})

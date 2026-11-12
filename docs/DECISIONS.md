@@ -23628,10 +23628,16 @@ the Android QA app and the iPhone TestFlight build. Plan and evidence:
 - **While the page is open: the page.** New capability `badge-v1`: `{type:'badge', count}` (a whole number 0 to 9999),
   sent by `setAppBadge` (`web/src/lib/mobile.ts`) when n changes (a burst waits `WEB_BADGE_MS`), when the bridge comes,
   after a session reset and on every `mycel:mobile-foreground` even unchanged (a push may have set the server's number
-  meanwhile). The app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  meanwhile). The iPhone app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  **Android never sets a number** (`setsIconNumber`, fix/phone-badge-iphone-only, 2026-11-13, QA TC-408 on a Galaxy
+  Note10, One UI 4): expo-notifications 58.1.6 sets it through ShortcutBadger, One UI shows it only while a notification
+  is in the tray, and its `setBadgeCount(0)` only cancels the app's notifications (the whole tray) and never clears
+  Samsung's number, so the number stuck after reading and sign-out. On Android the launcher counts the notifications in
+  the tray; the page may still send `badge`, and the app takes it and does nothing. Ships with Android build 11; iOS
+  unchanged.
   In the foreground a push's number is not applied (`shouldSetBadge: false`): the page's is the newer.
-- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the app
-  (`forgetDelivered`); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
+- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the iPhone app
+  (`forgetDelivered`; on Android the cleared tray clears the launcher's count); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
   0, never the last session's number, until its own count is worked out.
 - **Permission.** The OS question asks for the badge with alerts and sounds. iOS asks once: an iPhone that said yes before
   1.0.5 is asked once more (`askBadgeAgain`, remembered in the keychain), which shows no dialog; if iOS keeps Badges off,
@@ -23826,6 +23832,40 @@ Supersedes the Admin menu item "Slack" (c964122e3, 2026-11-05). The owner: "설�
 - Tests: `web/test/unit/slack-screens.test.tsx`, `web/test/e2e/slack-in-connectors.spec.ts`, the admin menu lists in
   `admin-home.spec.ts` and `settings-ia.spec.ts`, the phone specs that open Slack's page.
 - Version impact: **minor** (a visible move in Admin; no API change).
+
+## Files onboarding: follow-ups from hands-on QA (fix/files-onboarding-qa, 2026-11-13, QA)
+
+넣을 곳: trina-ax core (`web/src/components/onboarding/SkillShareCard.tsx`, `server/src/onboarding/form-skill.ts`,
+`server/src/team-files/move-suggest.ts`, `web/src/components/FolderPicker.tsx`), 이유: hands-on QA of "Setup 팀 파일:
+forms become skills" and "Move picker: suggested and recent folders" (merged 2026-11-12) found four rough edges.
+
+Version impact: **patch** (no route, no migration).
+
+- **The form skill card listed every input.** A weekly-report form's card showed six asks. The server already folds all
+  but `SKILL_DRAFT_VISIBLE_INPUTS` = 3 (`advanced: true`, under "더 자세히 정하기"), but the share card listed folded
+  inputs too. The card now shows only the inputs that are not folded (S's drafts as well).
+- **What the fallback tells the person depends on the file type.** Step 7 of the fixed procedure said "ask an admin to
+  turn on the dev environment" for every form. A Hangul form is filled by edit_hwp, which needs the Hangul document
+  preview (HWP) plugin, so for .hwp/.hwpx it now says to ask an admin to turn that plugin on in Admin › Plugins (no
+  "own chat" hint: the plugin is team-wide). Excel and Word forms keep "open it in your own chat, or ask an admin to turn
+  on the dev environment".
+- **One save per file.** In a room "@트리나 견적서 만들어줘" asked twice to make the same file. A room has no box_shell, so
+  an Excel form goes straight to step 7's make_file. The room card is asked per call (tool and arguments) before the
+  tool runs. A make_file that then fails (most likely the form passed as `template`: make_file takes templates only
+  under `skills/`), or that is followed by a second save or a move into the person's folder, asks again. The procedure
+  now says: call make_file once, with the filled fields as `content` (a table for .xlsx), no `template`, and `output`
+  already in the step-5 folder. Never make or move it again. Step 5 adds: save once, and never repeat a save the person
+  allowed (a room asks for each save). The room's card-before-the-call order is the room flow's own (rooms/ai-tools.ts,
+  chat/turn.ts confirmRoomChange) and is unchanged: a call that fails after the yes still costs a card.
+- **✕ on a suggested folder.** (a) The folder came back under 최근 on the next opening and read as still suggested.
+  Now a folder ✕'d for any of the files being moved is left out of 최근 too (server), and the picker drops it from
+  최근 at once (web). (b) After ✕, weaker folders (양식, 내 폴더) rose into 추천. The ✕'d folder was taken out of the
+  candidates before scoring, so its files no longer made "견적서" a common word, and a folder with one quote form
+  crossed THRESHOLD. `rank` now scores every candidate and drops the ✕'d ones only at the end. The bar stays the best
+  folder's (RELATIVE) and THRESHOLD still applies, so a ✕ never promotes a weak folder; the result may be no
+  suggestion at all.
+- Tests: `tests/unit/b-form-skill.test.ts`, `tests/unit/c-move-suggest.test.ts`, `web/test/unit/form-skills.test.tsx`,
+  `web/test/unit/folder-picker-suggestions.test.tsx`.
 
 ## Team link: show and change the groups people join (feat/team-link-groups, 2026-11-13, QA TC-458)
 
