@@ -616,7 +616,7 @@ test('a registration answered after the session changed does not hand that devic
   } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
 })
 
-test('the invite to the phone\'s share sheet (QA TC-271): the app\'s own (share-text-v1), else navigator.share, else none (the page copies); never on a computer', async () => {
+test('the invite to the phone\'s share sheet (QA TC-271): the app\'s own (share-text-v1), else navigator.share, else none (the page points at its copy button); never on a computer', async () => {
   const w = win as unknown as { matchMedia?: (q: string) => { matches: boolean } }
   const media = w.matchMedia
   const nav = globalThis.navigator as unknown as { share?: unknown }
@@ -646,11 +646,14 @@ test('the invite to the phone\'s share sheet (QA TC-271): the app\'s own (share-
     expect(canShareText()).toBe(true)
     expect(await shareText('초대해요\nhttps://team.example/join#t=x')).toBe('shared')
     expect(messages.filter((m) => m.type === 'share-text')).toEqual([expect.objectContaining({ type: 'share-text', text: '초대해요\nhttps://team.example/join#t=x' })])
-    // the app could not: the browser's sheet, else none
+    // the app could not: no second sheet after its answer (the press is spent, WebKit would refuse it): the page points
+    // at its copy button
     handler = (m) => { if (m.type === 'share-text') reply(m, { ok: false, error: 'mobile_operation_failed' }); else reply(m) }
     expect(await shareText('초대해요')).toBe('failed')
-    setShare(async () => {})
-    expect(await shareText('초대해요')).toBe('shared')
+    let browser = 0
+    setShare(async () => { browser++ })
+    expect(await shareText('초대해요')).toBe('failed')
+    expect(browser).toBe(0)
     // too long for the bridge: never sent
     const before = messages.length
     setShare(undefined)

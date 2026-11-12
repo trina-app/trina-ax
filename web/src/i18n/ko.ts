@@ -3574,7 +3574,7 @@ export const ko = {
   "teamLink.copyLink": "링크만 복사",
   "teamLink.copyMessage": "메시지 복사",
   "teamLink.shareMessage": "메시지 보내기",
-  "teamLink.shareFailed": "보낼 수 없어서 메시지를 복사했어요. 채팅에 붙여 넣으세요.",
+  "teamLink.shareFailed": "보낼 수 없어요. 아래 메시지 복사를 눌러 채팅에 붙여 넣으세요.",
   "teamLink.messagePreview": "함께 보낼 메시지",
   "teamLink.message": "{name}님이 {product}에서 {team}에 함께하자고 초대했어요. 링크로 바로 들어올 수 있어요: {url}",
   "teamLink.messageSkill": "{name}님이 {product}에서 {team}에 함께하자고 초대했어요. '{skill}' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: {url}",

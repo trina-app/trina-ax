@@ -3575,7 +3575,7 @@ export const en: Record<MessageKey, string> = {
   "teamLink.copyLink": "Copy link only",
   "teamLink.copyMessage": "Copy message",
   "teamLink.shareMessage": "Send message",
-  "teamLink.shareFailed": "Couldn't open sharing, so the message was copied. Paste it into a chat.",
+  "teamLink.shareFailed": "Couldn't open sharing. Tap Copy message below and paste it into a chat.",
   "teamLink.messagePreview": "Message to send with it",
   "teamLink.message": "{name} invited you to {team} on {product}. You can join right away with this link: {url}",
   "teamLink.messageSkill": "{name} invited you to {team} on {product} to try the '{skill}' skill together. You can join right away with this link: {url}",

@@ -18,7 +18,6 @@ import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../lib/share'
 import { teamLinkMessage } from '../../lib/team-link'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
-import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import QrCode from '../QrCode'
 import type { InviteShared } from './InviteStep'
@@ -380,23 +379,25 @@ function ManageFold({ keepOpen = false, children }: { keepOpen?: boolean; childr
 
 /** The one primary action: copy the ready-made message (it ends with the link). Full width on a phone. On a phone with
  * a share sheet (lib/share.ts: the app's, or the browser's) it sends the message there instead ("메시지 보내기": KakaoTalk,
- * Slack, a text message; QA TC-271), and copying stays one quiet press under it; a sheet that cannot open copies. */
+ * Slack, a text message; QA TC-271), and copying stays one quiet press under it. A sheet that cannot open says so and
+ * points at that press: copying by itself after the sheet's answer would copy nothing in WebKit (the press is spent). */
 function CopyPrimary({ text, label }: { text: string; label: string }) {
   const t = useT()
   const { copied, copy } = useCopy()
   const phone = useMediaQuery(SHARE_PHONE_QUERY)
+  const [failed, setFailed] = useState(false)
   if (phone && canShareText()) {
     const send = async () => {
-      if ((await shareText(text)) !== 'failed') return
-      await copy(text)
-      toast({ level: 'info', text: t('teamLink.shareFailed') })
+      setFailed(false)
+      setFailed((await shareText(text)) === 'failed')
     }
     return (
       <div className="mt-3 flex flex-col gap-1" data-testid="team-link-share-actions">
         <Button variant="primary" className="w-full" onClick={() => void send()} data-testid="team-link-share">
           <Share size={14} aria-hidden /> {t('teamLink.shareMessage')}
         </Button>
-        <Button variant="ghost" className="w-full" onClick={() => void copy(text)} data-testid="team-link-copy-message">
+        {failed && <p className="text-center text-label text-warn" role="status" data-testid="team-link-share-failed">{t('teamLink.shareFailed')}</p>}
+        <Button variant="ghost" className="w-full" onClick={() => { setFailed(false); void copy(text) }} data-testid="team-link-copy-message">
           {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
         </Button>
       </div>

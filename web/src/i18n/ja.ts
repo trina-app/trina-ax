@@ -3531,7 +3531,7 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.copyLink": "リンクだけコピー",
   "teamLink.copyMessage": "メッセージをコピー",
   "teamLink.shareMessage": "メッセージを送る",
-  "teamLink.shareFailed": "共有を開けなかったため、メッセージをコピーしました。チャットに貼り付けてください。",
+  "teamLink.shareFailed": "共有を開けませんでした。下の「メッセージをコピー」を押して、チャットに貼り付けてください。",
   "teamLink.messagePreview": "一緒に送るメッセージ",
   "teamLink.message": "{name}さんが{product}の{team}に招待しています。このリンクからすぐに参加できます: {url}",
   "teamLink.messageSkill": "{name}さんが{product}の{team}に招待しています。「{skill}」スキルを一緒に使ってみようとのことです。このリンクからすぐに参加できます: {url}",

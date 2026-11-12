@@ -117,7 +117,8 @@ export function PackRows({ items, checked, onToggle, outcome, disabled, classNam
                     checked={checked.has(s.name)}
                     onChange={(e) => onToggle(s.name, e.target.checked)}
                     disabled={disabled}
-                    className="size-4.5 accent-[var(--c-accent)] dark:[color-scheme:dark]"
+                    // over the label's tap box, so a tap on the box itself lands on it
+                    className="relative z-[1] size-4.5 accent-[var(--c-accent)] dark:[color-scheme:dark]"
                     data-testid="skill-pack-check"
                   />
                 </label>

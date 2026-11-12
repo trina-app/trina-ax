@@ -3575,7 +3575,7 @@ export const id: Record<MessageKey, string> = {
   "teamLink.copyLink": "Salin tautannya saja",
   "teamLink.copyMessage": "Salin pesan",
   "teamLink.shareMessage": "Kirim pesan",
-  "teamLink.shareFailed": "Tidak bisa membagikan, jadi pesannya disalin. Tempel di chat.",
+  "teamLink.shareFailed": "Tidak bisa membagikan. Ketuk Salin pesan di bawah lalu tempel di chat.",
   "teamLink.messagePreview": "Pesan yang dikirim bersama tautan",
   "teamLink.message": "{name} mengajak Anda bergabung dengan {team} di {product}. Anda bisa langsung bergabung lewat tautan ini: {url}",
   "teamLink.messageSkill": "{name} mengajak Anda bergabung dengan {team} di {product} dan mencoba skill '{skill}' bersama. Anda bisa langsung bergabung lewat tautan ini: {url}",

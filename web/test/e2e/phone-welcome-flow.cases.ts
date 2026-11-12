@@ -195,4 +195,91 @@ export function welcomeFlowCases() {
     // the app answered: no copy, no note
     await expect(page.getByTestId('toast')).toHaveCount(0)
   })
+
+  test('step 3, a sheet that cannot open: it says so and points at 메시지 복사, which copies (nothing copied by itself)', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { throw Object.assign(new Error('no'), { name: 'NotAllowedError' }) } })
+    })
+    await newOwner(page)
+    await toInvite(page)
+    await page.getByTestId('team-link-share').click()
+    await expect(page.getByTestId('team-link-share-failed')).toContainText('메시지 복사를 눌러')
+    const copy = page.getByTestId('team-link-copy-message')
+    await expect(copy).toHaveText('메시지 복사')
+    await copy.click()
+    await expect(copy).toHaveText('복사됨')
+    await expect(page.getByTestId('team-link-share-failed')).toHaveCount(0)
+  })
+
+  test('finished: the end screen\'s address reloaded goes Home (as a computer does), never the end screen again', async ({ page }) => {
+    await newOwner(page)
+    await toInvite(page)
+    await page.getByTestId('invite-step-done').click()
+    await stepIs(page, 'done')
+    await expect(page.getByTestId('welcome-done')).toContainText('준비 끝났어요')
+    expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.finishedAt).toBeTruthy()
+    await page.reload()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+    await expect(page.getByTestId('welcome')).toHaveCount(0)
+  })
+
+  test('the end screen\'s skill: Back from its form goes to where the steps were opened from (Home), never through the steps', async ({ page }) => {
+    await newOwner(page)
+    await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
+    await stepIs(page, 'skills')
+    // one kept skill in, so the end screen offers a first result with it
+    await page.getByTestId('skill-packs').locator('[data-testid="skill-pack-row"][data-name="humanizer"]').getByTestId('skill-pack-check').check()
+    await page.getByTestId('skills-primary').click()
+    await stepIs(page, 'files')
+    await page.getByTestId('welcome-later').click()
+    await stepIs(page, 'invite')
+    await page.getByTestId('invite-step-done').click()
+    await stepIs(page, 'done')
+    const patches = () => page.evaluate(() => performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/api/onboarding/welcome')).length)
+    const make = page.getByTestId('welcome-done-make')
+    await expect(make).toHaveAttribute('data-skill', 'skills/work/humanizer/SKILL.md')
+    await make.click()
+    await expect(page).toHaveURL(/\/skills\?run=/)
+    await expect(page.getByTestId('skill-form')).toBeVisible()
+    // the steps' entries are gone: Back closes the form (its own layer, TC-245), the next Back is Home; no step showed
+    // (or was recorded) on the way
+    const before = await patches()
+    await back(page)
+    await expect(page.getByTestId('skill-form')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/skills$/)
+    await expect(page.getByTestId('welcome')).toHaveCount(0)
+    await back(page)
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+    await expect(page.getByTestId('welcome')).toHaveCount(0)
+    expect(await patches()).toBe(before)
+  })
+
+  test('Back while a step is being saved: the step gone back to stays, the next one is not pushed over it', async ({ page }) => {
+    await newOwner(page)
+    await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
+    await page.getByTestId('skills-later').click()
+    await stepIs(page, 'files')
+    // hold 팀 파일's 나중에 at the server, go back meanwhile, then let it through
+    let release!: () => void
+    const held = new Promise<void>((r) => { release = r })
+    let holding = true
+    await page.route('**/api/onboarding/welcome', async (route) => {
+      if (holding && route.request().method() === 'PATCH') { holding = false; await held }
+      await route.continue()
+    })
+    await page.getByTestId('welcome-later').click()
+    await back(page)
+    await stepIs(page, 'skills')
+    await expect(title(page)).toHaveText('2/4 스킬')
+    const entries = await page.evaluate(() => history.length)
+    release()
+    await expect.poll(async () => (await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.files).toBe('skipped')
+    await page.waitForTimeout(500)
+    await stepIs(page, 'skills')
+    await expect(page.getByTestId('skills-step')).toBeVisible()
+    expect(await page.evaluate(() => history.length)).toBe(entries)
+    await page.unroute('**/api/onboarding/welcome')
+  })
 }
