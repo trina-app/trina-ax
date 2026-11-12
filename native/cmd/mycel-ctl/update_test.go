@@ -767,11 +767,15 @@ func TestUpdateRestartsBoxdWhenALaterStepFails(t *testing.T) {
 func TestUpdateSaysHowMuchSpaceItNeeds(t *testing.T) {
 	const mb = int64(1 << 20)
 	// the version that runs is the estimate; three times the archive when that is larger
-	if got, want := spaceNeeded(150*mb, 540*mb), uint64(150*mb+2*540*mb+spaceMargin); got != want {
+	if got, want := spaceNeeded(150*mb, 540*mb, 0), uint64(150*mb+2*540*mb+spaceMargin); got != want {
 		t.Fatalf("spaceNeeded = %d, want %d", got, want)
 	}
-	if got, want := spaceNeeded(300*mb, 0), uint64(300*mb+2*900*mb+spaceMargin); got != want {
+	if got, want := spaceNeeded(300*mb, 0, 0), uint64(300*mb+2*900*mb+spaceMargin); got != want {
 		t.Fatalf("spaceNeeded without a current version = %d, want %d", got, want)
+	}
+	// the copy of the database the new version makes before it migrates counts too
+	if got, want := spaceNeeded(150*mb, 540*mb, 700*mb), uint64(150*mb+2*540*mb+700*mb+spaceMargin); got != want {
+		t.Fatalf("spaceNeeded with a database = %d, want %d", got, want)
 	}
 	msg := spaceError("/var/lib/mycel", "0.5.0", 1536<<20, 600<<20).Error()
 	for _, s := range []string{"not enough free space for 0.5.0", "/var/lib/mycel", "it needs about 1.5 GB free, it has 0.6 GB", "nothing was changed"} {

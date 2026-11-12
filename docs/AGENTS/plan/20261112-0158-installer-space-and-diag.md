@@ -69,3 +69,7 @@ the version folder it created. A check that asks for too much refuses an update 
 - mycel-ctl in the VM with 600 MB free: before "write ...: no space left on device" (after a download); now "not
   enough free space for 0.4.0 on the disk of /var/lib/mycel: it needs about 1.4 GB free, it has 0.6 GB; nothing was
   changed" before the download.
+- Review of #541: a leftover `app/versions/<v>.partial` (a box already hit by TC-339) is removed before the copy (after
+  the update lock), a stale `.install-stage` counts as free; a second signal during the trap is ignored; a run without
+  a switch keeps the new root files from the firewall step on (`committed`), and units are rendered from the new root
+  files when a failure comes before step 13; a df that fails says so; mycel-ctl counts the database copy.

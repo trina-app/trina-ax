@@ -502,7 +502,7 @@ trap 'rm -rf "$KIT_WORK" "$RKIT" "$ITMP"' EXIT
 # tests/unit/install-linux-space.test.ts runs the text between BEGIN and END.
 STAGE="$BASE/.install-stage"        # root-only (700): the new version, copied while the server runs
 ROOT_OLD="$BASE/.install-root-old"  # root/ as it was before step 7 (hard links: no space), put back by a failure
-PHASE=running WAS_ACTIVE=() DEST_NEW=0 OLD_CURRENT=""
+PHASE=running WAS_ACTIVE=() DEST_NEW=0 OLD_CURRENT="" UNITS_DONE=0
 dev_of() { stat -c %d "$1" 2>/dev/null; }
 # the nearest folder of PATH that exists (a fresh install has no $BASE yet)
 existing_dir() { local p=$1; while [ ! -d "$p" ]; do p=$(dirname "$p"); done; printf '%s\n' "$p"; }
@@ -513,7 +513,8 @@ gb() { awk -v k="$1" 'BEGIN { printf "%.1f GB", k / 1048576 }'; }
 SPACE_MARGIN_KB=$(( 512 * 1024 ))
 need_space() {
   local have need=$(( $2 + SPACE_MARGIN_KB ))
-  have=$(free_kb "$1") || die "cannot read the free space of $1"
+  have=$(free_kb "$1" 2>/dev/null) || have=""
+  [[ "$have" =~ ^[0-9]+$ ]] || die "cannot read the free space of $1 (df); nothing was changed"
   [ "$have" -ge "$need" ] && return 0
   local what="the server keeps running"; [ "$CMD" = install ] && what="nothing was installed"
   die "not enough free space for $VERSION on the disk of $1: it needs about $(gb "$need") free, it has $(gb "$have"). Nothing was changed and $what. Free some space (old backups in Admin › System › Backups, apt's cache: sudo apt-get clean) and run it again."
@@ -530,6 +531,7 @@ space_for_version() {
   local f
   NEED_KB=() NEED_AT=()
   need_on "$BASE/app/versions" $(( $(kb_of "$BUNDLE") - $(kb_of "$BASE/app/versions/$VERSION.partial") ))
+  need_on "$BASE" $(( - $(kb_of "$STAGE") ))   # a stage a killed run left: removed before the copy
   need_on "$BASE/root" "$(kb_of "$KROOT" "$BUNDLE/bin/pandoc" "$BUNDLE/native/mycel-safeops")"
   for f in "$CLAUDE_FILE" "$CODEX_FILE"; do [ -z "$f" ] || need_on "$BASE/app/engines" "$(kb_of "$f")"; done
   for f in "${DL_WORK:-/nonexistent}"/engine-*; do
@@ -538,6 +540,33 @@ space_for_version() {
   need_on "$BASE/data" "$(kb_of "$BASE/data/app.db")"
   # (the copy is made in $STAGE, on the install folder's disk: a second disk for app/ needs it on both)
   [ "$(dev_of "$(existing_dir "$BASE")")" = "$(dev_of "$(existing_dir "$BASE/app/versions")")" ] || need_on "$BASE" "$(kb_of "$BUNDLE")"
+}
+# drop_stale: what a run that did not finish left on the disk, removed before the copy needs the space (QA TC-339: an
+# installer before this check left app/versions/<v>.partial filling the disk, so every new run ran out of space again).
+# The partial of the version this run installs is never used by the server; links are not followed (rm -rf removes a
+# link itself) and a version folder behind a link is left alone. After the update lock: a `mycel-ctl update` that ran
+# has finished with its own <v>.partial.
+drop_stale() {
+  rm -rf "$STAGE"
+  if [ -d "$BASE/app/versions" ] && [ ! -L "$BASE/app" ] && [ ! -L "$BASE/app/versions" ] && [ -e "$BASE/app/versions/$VERSION.partial" ]; then
+    rm -rf "$BASE/app/versions/$VERSION.partial"
+    say "removed app/versions/$VERSION.partial, left by an earlier run that did not finish"
+  fi
+}
+# refresh_units: a failure after the root files changed and before step 13 put the new units in: the units are rendered
+# from the root files in place, so the new root programs never start from the old units' flags (best effort)
+# shellcheck disable=SC2317  # (called by on_exit, which runs from the EXIT trap)
+refresh_units() {
+  local d f r=1
+  [ "$SYSTEMD" = 1 ] && [ "$UNITS_DONE" = 0 ] && [ -x "$BASE/root/mycel-ctl" ] || return 0
+  d=$(mktemp -d) || return 1
+  if "$BASE/root/mycel-ctl" render-units --base "$BASE" --out "$d" >/dev/null 2>&1; then
+    r=0
+    for f in "$d"/*; do [ -f "$f" ] && install -m 644 "$f" "$UNIT_DIR/$(basename "$f")" && chown root:root "$UNIT_DIR/$(basename "$f")" || r=1; done
+    [ "$r" = 1 ] || systemctl daemon-reload >/dev/null 2>&1 || r=1
+  fi
+  rm -rf "$d"
+  return "$r"
 }
 # The units that run now, so a failure starts exactly these again (an admin's stopped unit stays stopped).
 record_active() {
@@ -561,13 +590,19 @@ keep_root() {
 # it only cleans up. In between, a failure:
 # - before app/current switched (PHASE=stopped): root/ goes back to the copy (root/VERSION too), the new version folder
 #   this run made and the staged copy are removed, and the units that ran start again on the version that ran;
-# - after the switch (PHASE=switched): root/ stays new (the new version needs it); the units start again, and the
-#   bootstrap goes back to the previous version by itself when the new one does not start.
+# - after the switch (PHASE=switched), or once the last steps began without a switch (PHASE=committed: the engine
+#   firewall, config and units are of the new root files): root/ stays new (the new version needs it), units rendered
+#   from it when step 13 had not put them in yet, and the units start again; after a switch the bootstrap goes back to
+#   the previous version by itself when the new one does not start.
+# A second Ctrl-C or a closed SSH session while it puts things back is ignored: it never leaves root/ half swapped.
 # shellcheck disable=SC2317  # (it runs from the EXIT trap)
 on_exit() {
   local rc=$? u started=()
+  trap '' INT TERM HUP PIPE
   set +e
-  if [ "$rc" -ne 0 ] && { [ "$PHASE" = stopped ] || [ "$PHASE" = switched ]; }; then
+  if [ "$rc" -ne 0 ] && { [ "$PHASE" = stopped ] || [ "$PHASE" = switched ] || [ "$PHASE" = committed ]; }; then
+    local units_note=""
+    [ "$PHASE" = stopped ] || refresh_units || units_note=" (the units could not be rendered from the new root files: run the installer again)"
     if [ "$PHASE" = stopped ]; then
       if [ -d "$ROOT_OLD" ]; then
         rm -rf "$BASE/.install-root-failed"
@@ -587,7 +622,11 @@ on_exit() {
     if [ "$PHASE" = stopped ]; then
       echo "install: the $CMD did not finish (exit $rc). $BASE/root is as it was$([ -n "$OLD_CURRENT" ] && echo " and ${OLD_CURRENT#versions/} is still the app")$([ ${#started[@]} -gt 0 ] && echo "; started again: ${started[*]}"). See the message above, then run it again." >&2
     else
-      echo "install: the $CMD did not finish after the switch to $VERSION (exit $rc)$([ ${#started[@]} -gt 0 ] && echo "; started again: ${started[*]} (the server goes back to ${OLD_CURRENT#versions/} by itself if $VERSION does not start)"). See the message above." >&2
+      if [ "$PHASE" = switched ]; then
+        echo "install: the $CMD did not finish after the switch to $VERSION (exit $rc)$([ ${#started[@]} -gt 0 ] && echo "; started again: ${started[*]} (the server goes back to ${OLD_CURRENT#versions/} by itself if $VERSION does not start)")$units_note. See the message above." >&2
+      else
+        echo "install: the $CMD did not finish in its last steps (exit $rc): the root files of $VERSION stay$([ ${#started[@]} -gt 0 ] && echo "; started again: ${started[*]}")$units_note. See the message above, then run it again." >&2
+      fi
     fi
     [ ${#started[@]} -eq ${#WAS_ACTIVE[@]} ] || echo "install: not every unit started again: sudo systemctl start ${WAS_ACTIVE[*]}" >&2
   fi
@@ -888,6 +927,7 @@ done
 
 # ---- free space again (the packages and downloads above took some), then the new version copied while the server
 # still runs (QA TC-339). Nothing has stopped yet, so a refusal changes nothing. ----
+drop_stale
 space_for_version
 check_space
 # The copy: in a root-only folder of the install folder (the server account owns app/versions, and its processes still
@@ -1349,6 +1389,8 @@ if { [ -n "$PUBLIC_HOST" ] || [ -n "$APP_CONNECTORS" ]; } && [ -f "/etc/default/
 fi
 
 # ---- 12) the engine firewall: loaded before any engine can run, or no install ----
+# from here on the firewall, the units and config are of the new root files: a failure keeps them (on_exit)
+[ "$PHASE" = switched ] || PHASE=committed
 # (image mode: no engine runs in the build; $ID-firewall.service loads it at boot, before the launcher)
 if [ "$IMAGE_MODE" = 1 ]; then
   say "image mode: engine firewall not loaded ($ID-firewall.service loads it at boot)"
@@ -1374,6 +1416,7 @@ if [ "$SYSTEMD" = 1 ]; then
   fi
   mkdir -p "$UNIT_DIR"
   for f in "$ITMP/units"/*; do install -o root -g root -m 644 "$f" "$UNIT_DIR/$(basename "$f")"; done
+  UNITS_DONE=1
   # (image mode: no running systemd; the booted VM reads the units)
   if have_systemd; then systemctl daemon-reload; fi
   # both units are stopped (above): stopping their empty slice makes systemd create it again with the limits it has now

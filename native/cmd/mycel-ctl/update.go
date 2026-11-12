@@ -744,13 +744,14 @@ const spaceMargin = 256 << 20
 
 // spaceNeeded is about what an update writes on the install's disk: the archive it downloads (0 for --bundle, which
 // is on disk already), the archive unpacked in .install-tmp and that copy in app/versions (each about the size of the
-// version that runs now, or three times the archive when that is larger), and a margin.
-func spaceNeeded(archive, current int64) uint64 {
+// version that runs now, or three times the archive when that is larger), the copy of the database the new version
+// makes before it migrates (db: the size of data/app.db, as install-linux.sh counts it), and a margin.
+func spaceNeeded(archive, current, db int64) uint64 {
 	unpacked := current
 	if 3*archive > unpacked {
 		unpacked = 3 * archive
 	}
-	return uint64(archive + 2*unpacked + spaceMargin)
+	return uint64(archive + 2*unpacked + db + spaceMargin)
 }
 
 // treeSize: the bytes of the regular files under dir (links are not followed); 0 when it cannot be read.
@@ -780,7 +781,11 @@ func (u *updater) checkSpace(version string, archive int64) error {
 	if v := currentVersion(u.e.base); v != "" {
 		cur = treeSize(filepath.Join(u.e.base, "app", "versions", v))
 	}
-	need := spaceNeeded(archive, cur)
+	var db int64
+	if st, err := os.Lstat(filepath.Join(u.e.base, "data", "app.db")); err == nil && st.Mode().IsRegular() {
+		db = st.Size()
+	}
+	need := spaceNeeded(archive, cur, db)
 	if free >= need {
 		return nil
 	}
