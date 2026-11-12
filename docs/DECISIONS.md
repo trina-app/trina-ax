@@ -162,6 +162,7 @@
 - **make_file이 기존 파일을 만나면**: 이 턴에 그 버전을 read했으면 덮어쓰고(이전 내용은 버전), 아니면 충돌 사본 이름으로 저장한다(설계 "있으면 충돌 사본").
 - **web_fetch는 Bun fetch·node:http를 쓰지 않고 net/tls 소켓 위의 작은 HTTP/1.1 GET**이다. 둘 다 `HTTP(S)_PROXY` 환경 변수를 따르고 끌 수 없으며(실측), IP를 고정할 수 없다. 한 번 푼 주소(전역 유니캐스트 허용 목록, IPv4-mapped는 안의 IPv4로 검사, 서버 자신의 주소 거부)로 직접 연결하고 Host·SNI는 원래 이름. 이름 규칙: localhost·*.local·*.internal·*.home.arpa·*.lan·한 단어 이름 거부. 압축 해제는 스트리밍으로 5MB에서 끊는다(Bun 1.3.12의 `gunzipSync({maxOutputLength})` 경로가 테스트 중 프로세스를 죽였다). 결과는 `<external_data>`로 감싸고 tool_events에 URL 전체를 남긴다. 성공하면 `ctx.files.events`에 `'external'`을 내보낸다(B의 remember 보호용).
 - **Bun 1.3.12 함정 두 개와 대응**: ① Hono의 `c.header()`는 끝난 응답을 `new Response(res.body, res)`로 다시 감싼다 → 파일 응답이 JS 스트림이 되어 배압 없이 메모리에 쌓인다. 기반 미들웨어를 헤더 직접 설정으로 고쳤다. ② `Bun.file().slice()` 본문을 스트림으로 읽으면 끝을 무시하고 파일 끝까지 나오고, `slice().stream()`은 끝나지 않는다. 그래서 전체 파일은 `Bun.file`(sendfile), Range는 우리 pull 스트림으로 한 응답에 최대 8MB(Content-Range로 알림, 미디어·PDF 뷰어는 다음 부분을 다시 요청). 중계(F)가 `res.body`를 읽어도 정확하고 메모리는 요청당 8MB 이하. ③ (QA TC-222, 2026-11-11) macOS의 sendfile은 소켓의 논블로킹 표시를 보기 전에 버퍼를 M_WAIT로 잡고 파일을 읽는다 → 메모리에 없는 파일을 느린 클라이언트가 받으면 서버의 하나뿐인 JS 스레드가 커널에 묶여 팀 전체가 멈췄다(352초 무응답, 중계도 오프라인). 그래서 sendfile은 리눅스에서만 쓰고, 그 밖(오피스 맥)에서는 256MB까지 스레드 풀에서 통째로 읽어 보내고(본문이 메모리에 있어야 Content-Length가 남는다: Bun 1.3.12는 스트림 본문의 Content-Length를 지우고 chunked로 보낸다. TLS 리스너에서 Bun이 원래 하던 방식), 더 큰 파일은 우리 pull 스트림(`team-files/download.ts` `fileBody`; `/downloads/*`도 같음). 대가: 배압이 없어 느린 클라이언트가 아직 안 받은 만큼(최대 파일 크기)은 받기가 끝날 때까지 메모리에 남는다. 두 가지로 줄인다(#419 검토): 팀 주소(중계)로 온 요청은 중계 클라이언트가 본문을 256KB씩 직접 읽으므로(소켓이 없어 sendfile도 없음) 예전처럼 `Bun.file`을 게으르게 읽고, 통째로 읽는 본문은 모두 합쳐 768MB(`HELD_CAP`)까지만이고 넘으면 스트림으로 보낸다. Bun.serve는 본문이 다 나간 때를 알려 주지 않아서, 한 본문은 클라이언트가 떠날 때(req.signal)나 2MB/s로 보냈을 시간(최소 10초) 중 먼저 오는 때까지 센다. Bun 1.4는 macOS에서 sendfile을 쓰지 않고 스트림 본문에 배압을 건다(oven-sh/bun#33728, #32553) → 올리면 이 대가가 없어진다.
+- **Bun 1.3.12 함정 두 개 더** (2026-11-12): ① `openDb`의 DB는 `strict: true`라서 이름 붙은 바인딩은 `$` 없는 키로 넘긴다(`.all({ from, to })`, SQL에는 `$from`; strict가 아닌 DB에서는 반대로 `$`가 있어야 하고, 없으면 1.3.12가 조용히 NULL을 넣는다). Bun 1.4는 `{ $from }`도 받지만 1.3.12는 `Missing parameter "from"`으로 거부한다 → 1.4(개발 맥)에서는 테스트가 통과하고 서버(1.3.12)에서는 '그룹이 자주 묻는 질문'의 하루 한 번 실행이 매번 실패했다. ② `bun -e` 코드가 `require`를 쓰고 예외를 던지면 1.3.12는 아무것도 찍지 않고 0으로 끝난다(파일 실행과 1.4는 1). 그래서 DB 복사가 실패해도 끝난 것처럼 보였다: `.partial`이 없다는 ENOENT가 남거나, 빈 `.partial`이 다 된 복사본으로 이름이 바뀌었다. 서버의 `bun -e` 자식 코드(`system/backup.ts`의 복사·검사)는 `childCode`(try/catch, 메시지를 stderr에, `exitCode = 1`)로 감싼다. 설치 스크립트의 `bun -e`(`install-macos.sh`·`install-linux.sh`의 설정 쓰기, `system/packages.sh`)는 아직 그대로다. ①은 1.4에서도 `tests/unit/p1-db-bindings.test.ts`가 코드를 읽어 잡고, ②는 Bun 1.3.12로 테스트를 돌려야 잡힌다.
 - **휴지통 목록은 원래 경로에 쓰기 권한이 있는 항목만**(4번 탭; 계약 요약도 그렇게 고침). 영구 삭제 `DELETE /api/files/trash/:id`(admin 이상)를 계약에 더했다. 폴더 삭제는 폴더째 `.system/trash/`로 rename(읽지 않음), 되돌리기도 폴더째.
 - **버전·휴지통의 folder_id·path_at_save는 트리거로 채운다**(stage 1 도구 쓰기도 같이). `file_versions.path`는 *지금* 경로(이동 API가 고침), `path_at_save`는 그대로. 열람은 folder_id 폴더의 지금 경로와 파일의 지금 경로 둘 다 읽기 권한(폴더 행이 없으면 path_at_save) — 비밀 폴더에서 공용으로 옮긴 파일의 옛 버전은 계속 숨는다(시험 있음).
 - **휴지통에 간 폴더 안 파일의 버전은 폴더가 돌아온 뒤에 되돌린다**(QA TC-229, 2026-11-11): 규칙 폴더는 `folder_id`로 알고(보안 4회차), 규칙 없는 폴더는 `folders` 행이 없어 "파일의 폴더가 지금 없고 그 위의 폴더가 휴지통(`trash_items`, 되돌리지 않음)에 있음"으로 안다. 전에는 되돌리기가 그 폴더를 휴지통 밖에 다시 만들어, 휴지통의 되돌리기가 "(복원됨)" 이름이 됐다. 같은 이름의 폴더를 새로 만들었으면 거기로 되돌릴 수 있다. 기록 응답은 `restoreBlocked: 'folderInTrash'`로 이유를 알리고(그 자리에 쓸 수 있는 사람에게만) 버전 기록 창이 그 문구를 보인다.
@@ -616,6 +617,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **연결 방식 화면**: `ConnectionStatus`에 `availableModes`·`teamName`(선택 필드). Team AX 중계는 설정 `relay.officialAvailable`(기본 false, 환경 변수 `MYCEL_RELAY_OFFICIAL=1`)일 때만 목록에 있고 서버도 409로 거부한다. Cloudflare·Tailscale은 목록에서 뺐다(원래 409). 중계 연결(자체·Team AX)은 팀 이름이 필요하다: `RelayTeamName`(소문자·숫자·가운데 하이픈 2–40자), 주지 않으면 server.json의 기존 값, 둘 다 없으면 400 `body.teamName`. `relay.teamName`을 server.json에 같이 쓴다.
 - **비밀번호 재설정 링크 버튼**(관리자 > 팀원): 이미 있던 `POST /api/admin/users/:id/reset-link`을 화면에 붙였다. 확인 → 링크(24시간·1회·새 링크가 이전 링크를 무효화) 복사, 메일 없음. owner 행에는 버튼이 없다(owner는 서버 맥의 CLI로만). 임시 비밀번호 버튼은 그대로 둔다.
 - **재설정 링크는 그 계정 주인에게 알린다**(2026-11-11, QA TC-202): 서버 CLI(`mycel-account`·`mycel-ctl reset-link`)나 owner·관리자가 링크를 만들면, 그 계정 주인의 활동에 알림 `account.reset_link`(표 `reset_link_notices`, 마이그레이션 119; 출처는 링크 행 id, 토큰은 없음)가 항상 생긴다. 누가 만들었는지(서버 / 이름)와, 링크가 아직 살아 있으면(안 쓰고·안 바뀌고·안 지남, 읽을 때 계산) "내가 부탁한 게 아니면 보안·기기에서 비밀번호를 바꾸면 바로 막혀요"를 보여 주고 그 화면으로 연다. 전에는 활동 기록 한 줄뿐이었다. 휴대폰 푸시는 아직 없다.
+- **호스팅이 팀의 것을 복사하면 활동 기록과 알림을 남긴다**(2026-11-12, QA TC-348): `admin.js credentials-escrow-out`(AI 연결의 키, 키가 없으면 아무것도 남기지 않음), `archive --upload`(전체 내보내기), `cloud-backup upload`(외부 백업)는 성공한 뒤 감사 기록 `hosting.key_escrow`(키 버전)·`hosting.export`(크기·sha256)·`hosting.offsite_backup`(백업 id·파일 수)을 남긴다(행위자 없음 = 호스팅). 키 복사와 내보내기는 owner에게 활동 알림 `hosting.key_copied`·`hosting.exported`(항상 보임, 표 `hosting_notices`, 마이그레이션 120, 출처는 내보내기는 감사 행, 키는 키 버전이라 같은 키를 다시 복사하면 알림 하나, 키를 바꾼 뒤에는 다시 알림)도 보낸다. 기록·알림이 실패해도 명령은 실패하지 않는다(내보내기 암호는 그 뒤 한 번만 출력). 외부 백업은 매일 돌아서 알림을 주지 않는다(실행마다 기록 한 줄). 전에는 아무 기록도 없었다. **팀 주소가 다른 키로 옮겨지면 알린다**(QA TC-350): 중계가 이 서버의 키를 거부하면(`key rotated` / `signature does not match the registered key`) 중계 기록 `key_moved`와 owner·관리자 알림 `relay.address_moved`를 한 번 남긴다. `key_moved`·`connected` 중 가장 새 것이 `key_moved`면 다시 남기지 않아서 재시도·재시작으로 반복되지 않고, 그 사이 연결되면 다음 변경에 다시 알린다. 재시도는 그대로 한다. 중계 운영 API가 팀 동의 없이 키를 옮길 수 있는지는 대표가 정할 일로 남겼다.
 - **버전 기록 되돌리기**: 저장된 버전은 모두 '바뀌기 전 내용'이라 가장 새 버전도 지금 파일과 다르다. 화면이 맨 위 버전을 '지금 파일'로 여겨 되돌리기를 숨기던 것을 고쳤다. `GET /api/files/history`가 `currentSha256`(지금 파일)과 `canRestore`(그 경로 쓰기 권한, 되돌리기 API와 같은 규칙)를 준다. 지금 파일과 같은 버전만 '지금 내용과 같음'으로 표시하고, 쓰기 권한이 없으면 내려받기만. 권한 규칙은 바꾸지 않았다.
 
 ## 사무실 모드 (feat/office-mode, 2026-10-21)
@@ -5816,6 +5818,33 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   ("sites a person allows": once, always, deny, refused hosts, No network, Full internet, a waiting job, removal stops
   a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c,
   A12e, A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
+
+### Dev environment on srt: reads on the host are an allow-list (fix/srt-deny-host-paths, 2026-11-12)
+
+QA TC-306 (a Debian 13 install with srt): a member's command read files outside the team folder: the NAS source behind
+a connected folder under `/mnt` (a sub-folder the rules close too), other apps' files under `/srv` and `/opt`, a tunnel
+token in a unit file under `/etc/systemd`, and listed `/var/lib`. The settings hid a short deny list only. Through the
+team folder the closed sub-folder stayed closed: the leak was the raw host path.
+
+- **Allow-list.** `denyRead` now holds `/`: srt expands it into the root's children (not `/proc`, `/dev`, `/sys`) and
+  skips the ones `allowRead` gives back. srt lists the root when a run starts: a top folder made during a run is
+  visible to that run and hidden from the next. `SYSTEM_READ_PATHS` gives back what
+  a run needs: `/usr` (and `/bin`, `/lib`, `/lib64`, `/sbin`, which point into it), `/etc` and `/opt/trina` (node,
+  python, srt, the headless browser). `ETC_SECRETS` stay hidden inside `/etc`: whole folders and files, many of them
+  world-readable (unit files, `/etc/default`, `/etc/environment`, `/etc/fstab` with share passwords, netplan, cron, VPN,
+  mail, rclone and apt credentials, a hosted image's `/etc/ax` and `/etc/cloud`). A cleaned `/etc` as the engine
+  sandbox gets (`root/sandbox-etc`) was not used: srt has no setting to put another folder at `/etc`. `/mnt`, `/media`, `/srv`, `/opt`,
+  `/var/lib` and the old list are named too, so they stay hidden if `/` were dropped.
+- **Connected sources.** The runner reads every source in `connected_folders`, and the check refuses a run that can
+  read one. A source is named in `denyRead` only when nothing there hides it already (Linux sources are under `/mnt`,
+  `/media` or `/srv`): srt looks at every `denyRead` path when a run starts, and a hung network mount would stall
+  every run. The run reads the mirror `connected/<name>` with its folder rules.
+- **The check.** `settingsProblems` refuses a run when `/`, a host path, a server path or a connected source is not
+  hidden, counting srt's rule that `allowRead` wins over `denyRead` (the deepest entry decides), and when an `allowRead`
+  lies in a source or an `/etc` secret.
+- **Not changed.** The network: with a person's Full internet switch on, public sites are reachable (owner's setting).
+- **Tests.** `tests/unit/dev-env-srt.test.ts`; attack cases A30, A31, A31b, A31c (host paths and `/etc` secrets) and A0c (node, python, git,
+  bun and an npm install still work) in `tests/linux/srt-attack.ts`.
 
 ### Dev environment: no line on the project page (chore/remove-project-devenv-row, 2026-11-08)
 
@@ -22279,6 +22308,45 @@ confidential chat, a room or a shared chat, and only comes with the web-or-phone
 
 Version impact: patch (tests, and the invite page on a full team no longer names the inviter; no API shape or data
 change).
+
+## Projects made on 0.4.0: what the owner and admins keep after the update — 0.4.0 프로젝트, 업데이트 뒤 (fix/projects-kept-after-update, 2026-11-12, QA TC-360)
+
+넣을 곳: trina-ax core (`server/src/chat/schedules.ts`), 이유: scheduled tasks and project access are core. Plan:
+`docs/AGENTS/plan/20261112-0136-projects-kept-after-update.md`.
+
+QA updated a real 0.4.0 team to 0.5.0: an admin's team projects, the owner's own chat in one and her Daily file index
+task on its folder. The owner and another admin no longer opened those projects (404), while her chat stayed and her
+task stayed on.
+
+- **The rule stays "Project contents only for members"** (owner option B). The owner and admins find every team
+  project in Projects (`?manage=1`, `member: false`, "Only members can see what's inside", #474) and get in with
+  **Add me**, which its members are told. `GET /api/projects` without `manage` is "projects I read" for pickers, so it
+  is empty for them, as decided. No migration gives the owner or admins membership: that would undo the decision for
+  every project made before it.
+- **The owner's own chat** in a project she is not in stays hers and readable (H7, "권한 회수": a person's own
+  conversation is never taken away). A turn there no longer gets the project's name, folder or instructions
+  (`projectForChat`), she cannot start a new chat in it, and nobody else sees the chat. Unchanged; now tested for an
+  upgraded team.
+- **A template task** (Daily file index, Weekly summary) whose folder its owner cannot read now (the access check of
+  `validateTemplateFolders`, on that folder itself) and which is in a team project (`projects/<name>/…`) is treated
+  like a task whose project is gone ("Project skills"): its next
+  due run does not start, it is paused, `schedule_project_skips` records that project's id and its owner gets the
+  "project gone" inbox notice once (no project name, no folder); **Run now** answers 409 `schedule_project_gone`.
+  Before, `members-only-once` step 3 only took save folders, and the run only checked `project_id`, so the task stayed
+  on and every day started a turn that `validateTemplateTurn` refused at dispatch (an empty failed chat, no reason).
+  A member who reads only a folder inside a project (a 0.4.0 grant) keeps a working task on it. The project is the
+  one on that folder as the volume compares names, a live one first, then the oldest. A folder in `projects/` that no
+  project uses keeps the old behaviour (the skip row names a project).
+- **Open, for the owner:** (1) a one-time notice at the upgrade to the owner and admins ("N team projects are now for
+  members only; find them in Projects") — default 4 of "Project contents only for members" says none; the QA row
+  expected one. (2) An ordinary 0.4.0 team folder inside a `Projects/` folder (any letter case, possible on Linux next
+  to `projects/`) is now in the members-only zone: the owner and admins lose it while members keep it, until an admin
+  opens Projects and it is adopted as a project.
+- Tests: `tests/unit/b-projects-after-update.test.ts` (a 0.4.0-shaped team, the start steps, then the owner, another
+  admin, the creator, a member and someone not in it; the owner's chat; the template task on the project, a template
+  task on Shared that still runs, a project task; Add me).
+- Version impact: **patch** (a task that could no longer work is paused and its owner told; no API, data or permission
+  change).
 
 ## Self-installed servers sign in to Google through the hosting service (feat/google-one-library, 2026-11-11)
 

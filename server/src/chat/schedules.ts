@@ -32,6 +32,9 @@ import { rememberUrls } from '../tools/url-gate'
 import { audit } from '../admin/audit'
 import { missingTemplateKey } from '../integrations/connections/schedule-needs'
 import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type ScopeSource } from './schedule-scope'
+import { inZone } from '../policy/zone'
+import { volumeKey } from '../policy/names'
+import { canRead } from './projects'
 
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
@@ -222,8 +225,9 @@ export class Schedules {
     // said now, not run without the service (integrations/connections/schedule-needs.ts)
     const need = missingTemplateKey(this.db, s)
     if (need) throw new HttpError('conflict', tr('scheduleNeedsKey', locale, { name: need.name }), { params: { reason: 'schedule_needs_key', templateId: need.templateId } })
-    // its project is gone for its owner: never run as a chat without it (docs/DECISIONS.md "Project skills")
-    if (s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(userId))) throw new HttpError('conflict', tr('scheduleProjectGone', locale), { params: { reason: 'schedule_project_gone' } })
+    // its project is gone for its owner: never run as a chat without it (docs/DECISIONS.md "Project skills"); a
+    // template's folder in a project its owner does not read now is the same
+    if ((s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(userId))) || this.templateProjectGone(s)) throw new HttpError('conflict', tr('scheduleProjectGone', locale), { params: { reason: 'schedule_project_gone' } })
     const blocked = budgetBlock(this.db, userId, locale, now)
     if (blocked) throw new HttpError('budget_exceeded', blocked.message)
     // its own occurrence key: never a whole minute, so never the key of a scheduled occurrence (turns_schedule_occurrence)
@@ -308,7 +312,12 @@ export class Schedules {
         const need = ownerActive ? missingTemplateKey(this.db, s) : null
         // a task in a project its owner no longer sees (the folder's access was taken away, or it is in the trash): the
         // run does not start, rather than run as a chat without the project (docs/DECISIONS.md "Project skills")
-        const gone = ownerActive && !need && s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) ? s.project_id : null
+        // A template task whose folder is in a team project its owner does not read now (docs/DECISIONS.md "Project
+        // contents only for members": an owner or admin who is not a member, after the update from 0.4.0) is the same,
+        // instead of a run that fails every day at its start
+        const gone = !ownerActive || need ? null
+          : s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) ? s.project_id
+          : this.templateProjectGone(s)
         const chatId = need || gone ? null : this.start(s, now, originalDue, commit)
         if (chatId) started.push(s.id)
         else this.db.transaction(() => {
@@ -341,6 +350,30 @@ export class Schedules {
       }
     }
     return started
+  }
+
+  /**
+   * A template task (Daily file index, Weekly summary) reads one folder its owner chose. When its owner cannot read
+   * that folder now (the same access check as schedule-templates.ts validateTemplateFolders) and it is in a team
+   * project (`projects/<name>/…`), the project's id, else null. Such a run could not start (validateTemplateTurn
+   * refuses the folder at dispatch), so it is skipped, paused and its owner told once, as a task whose project is gone
+   * (QA TC-360: an owner's task on an admin's project from 0.4.0 stayed on and failed every day). Only the folder the
+   * task reads counts: a member with access to just a folder inside a project keeps a working task. The project is the
+   * one on that folder as the volume compares names (projects.ts projectOnFolder), a live one first, then the oldest; a
+   * folder in projects/ that no project uses: null (unchanged).
+   */
+  private templateProjectGone(s: Pick<ScheduleRow, 'user_id' | 'template_id' | 'template_source_path'>): string | null {
+    const src = s.template_id ? s.template_source_path : null
+    if (!src || !inZone(src)) return null
+    const files = this.rt.ctx.files
+    let reads = false
+    try { reads = canRead(files, files.principal(s.user_id), src) } catch { reads = false }
+    if (reads) return null
+    const ci = files.fx.caseInsensitive
+    const segs = src.split('/')
+    const top = volumeKey(`${segs[0]}/${segs[1]}`, ci)
+    const rows = this.db.query('SELECT id, folder_path FROM projects ORDER BY trashed_with IS NOT NULL, created_at, id').all() as { id: string; folder_path: string }[]
+    return rows.find((p) => volumeKey(p.folder_path, ci) === top)?.id ?? null
   }
 
   /** The chat of a run of this task that is queued or running now, or null. */

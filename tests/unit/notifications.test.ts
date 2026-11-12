@@ -10,7 +10,7 @@ function terminal(id = 'turn-1', status = 'done', at = new Date().toISOString())
 afterEach(async () => { await h?.close() })
 test('terminal reconcile deduplicates, metadata is generic, read is own-user and link is rechecked', async () => {
   const n = await setup(); terminal(); n.reconcile(); n.reconcile()
-  let page = n.list('olga', {}); expect(page.items).toHaveLength(1); expect(page.unreadCount).toBe(1)
+  let page = n.list('olga', {}); expect(page.items).toHaveLength(1); expect(page.unreadCount).toBe(1); expect(page.roomUnreadCount).toBe(0)
   const one = page.items[0]!; expect(one.eventType).toBe('schedule.success'); expect(one.chatId).toBe('turn-1')
   expect(JSON.stringify(page)).not.toMatch(/PRIVATE TITLE|SECRET ERROR/)
   expect(n.list('other', {}).items).toHaveLength(0)

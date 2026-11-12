@@ -15,6 +15,7 @@ import { relayConn } from './realtime-conn'
 import { noteEgressIp } from '../tools/egress'
 import { REGISTRATION_FILE, RelayRegistrationError, ensureRegistered, forgetRegistration, heartbeat, loadOrCreateKey, recordRelayEvent, recoverWithCode, rejectRegistrationFile, type Registration } from './registration'
 import { isHosted } from '../system/deployment'
+import { notifyHosting } from '../notifications/service'
 
 export { RelayClient, relayApiBase, responseHeaders } from './client'
 export { RelayWebSocket } from './virtual-ws'
@@ -60,6 +61,27 @@ function notifyAdmins(ctx: AppContext, code: keyof typeof NOTICES, level: 'info'
     }
   } catch (e) {
     ctx.log.warn('relay notice failed', { err: e })
+  }
+}
+
+/** The relay refused this server's key because the team address now has another one: an operator's key rotation, or
+ * the recovery code used on another server ('key rotated' when it cut the connection, 'signature does not match the
+ * registered key' on each retry after). */
+export const isKeyMoved = (s: RelayClientState) => s.state === 'offline' && s.detail === 'auth_failed' && /^key rotated$|does not match the registered key/.test(s.lastError ?? '')
+
+/**
+ * The team address moved to another key (QA TC-350): a relay event `key_moved` and a notice to the owners and admins
+ * (Inbox, shown always). Once per change: nothing while the newest of `key_moved` / `connected` is a `key_moved`, so
+ * the client's retries and restarts of the server do not repeat it, and a connection in between arms it again.
+ */
+function noteKeyMoved(ctx: AppContext, lastError: string | null): void {
+  try {
+    const last = ctx.db.query("SELECT kind FROM relay_events WHERE kind IN ('key_moved', 'connected') ORDER BY at DESC, id DESC LIMIT 1").get() as { kind: string } | null
+    if (last?.kind === 'key_moved') return
+    const id = recordRelayEvent(ctx.db, 'key_moved', lastError)
+    if (id) notifyHosting(ctx, 'relay.address_moved', id, { admins: true })
+  } catch (e) {
+    ctx.log.warn('relay key moved notice failed', { err: e })
   }
 }
 
@@ -169,6 +191,8 @@ export function startRelayClient(ctx: AppContext): RelayService {
           regTimer = setTimeout(register, 1000)
           return
         }
+        // the address now points to another server's key: never silent (the client keeps retrying, it may move back)
+        if (isKeyMoved(s)) noteKeyMoved(ctx, s.lastError)
         if (s.state === lastState) return
         lastState = s.state
         recordRelayEvent(ctx.db, s.state, s.detail)

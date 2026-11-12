@@ -3,7 +3,7 @@
 // 멘션만, 끄기. The bell shows how it is now (crossed out at 끄기). What each level means is the server's and the room
 // sound's one rule (shared room-alerts.ts); the server answers with the room as it is now. The room's "⋯" menu
 // (RoomMenu.tsx) opens the same menu from its "알림 설정" (`openRequest`); a row has no bell of its own (`bare`: no button,
-// the menu only).
+// the menu only), and neither has the room header on a phone (QA TC-257: ⋯ › 알림 설정 is the one way there).
 import { Bell, BellOff } from 'lucide-react'
 import { roomLevel, type Room, type RoomNotifyLevel } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'

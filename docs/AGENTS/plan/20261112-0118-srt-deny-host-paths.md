@@ -1,0 +1,59 @@
+# Dev environment on srt: a run reads only what it needs on the host
+
+- Date (UTC): 2026-11-12 01:18
+- Branch: `fix/srt-deny-host-paths`
+- Status: done
+- Where: `server/src/devenv/srt/` (config.ts, runner.ts). Why: the Linux run base is core (see docs/REPOSITORY-RULES.md)
+- Version impact: patch, a security fix with no setting or UI change
+
+## Goal
+
+QA TC-306. A member's dev environment command (box_shell on srt) could read host files outside the team folder: the
+source folder behind a connected folder (a NAS mount under /mnt, including sub-folders the member cannot see through
+the team folder), other apps' files under /srv and /opt, host service units with their tokens under /etc/systemd,
+and could list /var/lib. The settings hid a short deny list only (/tmp, /var/log, /run, /home, /root and the base
+folder); everything else on the host was readable.
+
+## Scope
+
+In: the srt settings switch to an allow-list for reads. `denyRead` gets `/` (srt expands it into the root's
+children, skipping /proc, /dev and /sys), and `allowRead` gives back only the system places a run needs: /usr (and
+/bin, /lib, /lib64, /sbin, which point into /usr on Debian 13), /etc and the Trina tools in /opt/trina. Inside /etc,
+host secrets stay hidden: /etc/systemd, /etc/cloudflared, /etc/ssh, /etc/polkit-1, /etc/sudoers.d, /etc/letsencrypt,
+/etc/ssl/private, /etc/default/<ID>. The person's team folders, home, logs and work folder are given back as before.
+Every connected folder's source (from the database) is denied by name too, and `settingsProblems` refuses a run when
+`/` or a source is not hidden.
+Out: the network. Outbound public internet with the person's Full internet switch on is the owner's design, not
+changed.
+
+## Steps
+
+1. config.ts: `SYSTEM_READ_PATHS`, `DENIED_SYSTEM_PATHS` (adds `/` and the /etc secrets), `hiddenPaths` input
+   for connected sources; `settingsProblems` checks.
+2. runner.ts: pass the connected folders' sources.
+3. Unit tests on the settings (tests/unit/dev-env-srt.test.ts).
+4. Docker attack suite (tests/linux/srt-attack.ts): reads of /mnt, /srv, /opt/other, /etc/systemd fail; bun, node,
+   python, git and an npm install in the home still work.
+
+## Risks
+
+A tool that reads a host path outside the list now fails in a run (for example /var/lib or /usr/local outside /usr).
+srt's allow-list needs the Docker suite to prove it; no migration, no UI, no languages.
+
+## Tests
+
+`bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, the devenv unit tests, the srt Docker suite.
+
+## Result
+
+Built as planned. `ETC_SECRETS` also names /etc/wireguard, /etc/NetworkManager/system-connections and /etc/docker.
+`settingsProblems` judges "hidden" the way srt does (the deepest denyRead or allowRead entry at or above a path
+decides, a tie gives it back). Docker suite (colima, Debian 13 image of Dockerfile.srt): A30, A31, A31b fail on dev
+and pass with the fix; A0c passes. A28d, A28e, A28h and A29 fail on that local host with and without this change (they
+pass in CI). install-srt.sh itself was not run (it needs systemd and polkit).
+
+After review: `ETC_SECRETS` names whole folders and files that are often world-readable (`/etc/default`,
+`/etc/environment`, `/etc/fstab`, netplan, cron, VPN, mail, rclone, apt auth, `/etc/ax`, `/etc/cloud`, ...); a cleaned
+`/etc` like the engine sandbox's is not possible through srt's settings. A connected source is named in `denyRead`
+only when nothing hides it already, so a hung NAS mount cannot stall run starts; the check still refuses a readable
+source. New Docker case A31c (0644 canaries in /etc) passes.

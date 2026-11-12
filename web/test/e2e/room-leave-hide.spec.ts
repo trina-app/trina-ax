@@ -328,11 +328,12 @@ test.describe('phone', () => {
     await expect.poll(() => state.hidden).toEqual([{ roomId: TEAM, hidden: true }])
     await expect(page.getByTestId('rooms-row')).toHaveCount(3)
 
-    // in a room, the top bar has the "⋯" beside the bell
+    // in a room, the top bar has the "⋯" and no bell: its 알림 설정 says the level now (QA TC-257)
     await page.goto(`/rooms/${DM}`)
     await expect(page.getByTestId('room-menu')).toBeVisible()
+    await expect(page.getByTestId('room-notify')).toHaveCount(0)
     await page.getByTestId('room-menu').click()
-    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '대화 숨기기'])
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', /^알림 설정\s*· \S/, '링크 복사', '대화 숨기기'])
   })
 })
 

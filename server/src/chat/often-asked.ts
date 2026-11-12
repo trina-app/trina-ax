@@ -97,7 +97,7 @@ export function readQuestions(db: Database, now = new Date()): Question[] {
       AND EXISTS (SELECT 1 FROM turns t WHERE t.chat_id = m.chat_id AND t.user_message_id = m.id AND t.client_kind IN (${typed}))
       AND NOT EXISTS (SELECT 1 FROM turns t WHERE t.chat_id = m.chat_id AND t.user_message_id = m.id AND (t.client_kind IS NULL OR t.client_kind NOT IN (${typed}) OR t.schedule_id IS NOT NULL))
       ${hasTable(db, 'chat_project_left') ? 'AND NOT EXISTS (SELECT 1 FROM chat_project_left l WHERE l.chat_id = m.chat_id AND m.created_at < l.left_at)' : ''}
-    ORDER BY m.created_at DESC, m.id`).all({ $from: from, $since: since, $to: to }) as Question[]
+    ORDER BY m.created_at DESC, m.id`).all({ from, since, to }) as Question[]
 }
 
 /** The question in a message: its first line that is not a quote, at most OFTEN_ASKED.lineChars; null for a skill

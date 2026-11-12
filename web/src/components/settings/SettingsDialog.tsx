@@ -28,7 +28,7 @@ import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backSta
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
-import { useInboxUnread } from '../../store/inbox'
+import { useNoticeUnread } from '../../store/inbox'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { IconButton, Spinner, confirmDialog, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
 import { Avatar } from '../Avatar'
@@ -241,7 +241,8 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
   const t = useT()
   const me = useMeStrict()
   const logout = useLogout()
-  const inbox = useInboxUnread()
+  // the 나 tab's count (the app's own notices: mentions and thread replies are counted on 대화)
+  const inbox = useNoticeUnread()
   const groups = SETTINGS_GROUPS.map((g) => tabs.filter((x) => x.group === g && !PHONE_TOP.has(x.id) && !PHONE_FOLDED.has(x.id))).filter((g) => g.length)
   // signing out asks first (a tap at the end of a long list is easily made by mistake)
   const signOut = async () => {
