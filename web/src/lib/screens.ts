@@ -10,7 +10,8 @@
 // 팀 폴더 row at the end of the projects list) → /projects; a folder → the folder above it, a file → its folder, the
 // Trash (a row of the team folder on phones) → the team folder; a room's thread → the room; a Settings section →
 // /settings (the account deletion page → the profile); Activity and Admin → /settings; an Admin page and what is under
-// it: pages/admin/adminScreens.ts; a connector → /connectors.
+// it: pages/admin/adminScreens.ts; a connector's page → /settings/connectors (Connectors' old /connectors addresses are
+// the same screens of 나).
 // One chat (/c/:id) → / (트리나), always: a chat opened from outside (a link, a notification that loads the page) lands
 // on 트리나 whatever the chat list has loaded by then (its project is not known from the address). A chat opened inside
 // the app stays on the stack it was opened from (a project's page: Back returns to the project): a push keeps the
@@ -95,8 +96,8 @@ export function screenOf(to: string): Screen {
       return s(null, welcomeParent(q(search).get('step')))
     case 'connectors':
       if (b === 'authorize') return s(null, null)
-      if (b === 'mcp' && c) return s('ai', '/connectors')
-      return b ? s('ai', '/connectors') : s('ai', '/')
+      // an old address (App.tsx leads it to Settings › Connectors): the screen it opens there
+      return screenOf(`/settings${pathname}${search}`)
     case 'rooms':
       // a room or a thread with a message picked out (?m=) is the same screen
       if (b && c === 't' && d) return s('chats', `/rooms/${b}`, pathname)
@@ -115,6 +116,8 @@ export function screenOf(to: string): Screen {
     case 'settings':
       // a page under a section (the account deletion request is under the profile; 보안 › 비밀번호, 보안 › 기기 under 보안)
       if (b === 'account' && c === 'delete') return s('me', '/settings/profile')
+      // a connector's page and one of the person's connections are under Connectors
+      if (b === 'connectors' && c) return s('me', '/settings/connectors')
       if (c) return s('me', `/${seg.slice(0, -1).join('/')}`)
       return b ? s('me', '/settings') : s('me', null)
     case 'activity':
@@ -161,7 +164,6 @@ const TITLES: [RegExp, MessageKey][] = [
   [/^\/projects$/, 'projects.title'],
   [/^\/scheduled(\/|$)/, 'settings.schedules'],
   [/^\/skills(\/|$)/, 'skills.title'],
-  [/^\/connectors(\/|$)/, 'integrations.title'],
   [/^\/trash$/, 'trash.title'],
   [/^\/admin$/, 'admin.title'],
   [/^\/rooms$/, 'tabs.chats'],

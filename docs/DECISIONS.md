@@ -22865,6 +22865,8 @@ Version impact: patch (security fix).
 
 ## Connectors: the page is in the sidebar, Settings has no Connectors section (fix/connectors-simple-rebased, 2026-11-12, supersedes #399)
 
+Superseded the same day by "Connectors in Settings" (QA TC-400): the page is Settings › Connectors.
+
 - The person's own connections live under **Connectors** (main sidebar, `/connectors`); the old `/settings/connectors`,
   `/settings/integrations` and `/settings/drive` redirect there. Admin › Connected apps (the team's) keeps its name.
 - Discover shows only what is not connected. An app the team has not set up yet stays in Discover, last: owners and
@@ -23379,3 +23381,44 @@ suggestions and the setup's folder plan read, so a team must not be able to lose
   c-file-list-format.test.ts` (the rule's text), `web/test/unit/file-list-settings.test.tsx`, `web/test/e2e/
   admin-file-list.spec.ts`.
 - Version impact: **minor** (an admin setting removed).
+
+## Connectors in Settings (fix/connectors-into-settings, 2026-11-12, product owner, QA TC-400)
+
+Supersedes "Connectors: the page is in the sidebar, Settings has no Connectors section" (2026-11-12) and decision 12 of
+the Google Workspace connectors plan (#366, `docs/AGENTS/plan/20261111-0346-google-workspace-connectors.md`) on where
+the page lives. The owner: "설정안으로 옮기자". A service is connected once and rarely visited again, the sidebar had 8
+items, and Claude.ai keeps connectors under Settings › Connectors.
+- **Where.** The person's own Connectors is a section of Settings for every role, first of the Connections group
+  (before Providers and AI apps: everyone has it, and it is the one an ordinary person needs). The sidebar and the
+  phone's ☰ drawer have no Connectors item. Admin › Connected apps (the team's) does not change.
+- **The same content.** The list (the search, Add custom connector for owners and admins, an admin's requests, Your
+  connectors, the Slack line, Discover) and the pages are the same components. Only the frame changed: the section's
+  title and line as in Settings' other sections instead of the page's sticky title bar, and the pages drawn inside
+  Settings' column. The settings search also finds it by the services in it ("Gmail", "슬랙").
+- **A connector's page is a page under the section**, like the account deletion page under Profile:
+  `/settings/connectors/<id>` (a built-in or listed service) and `/settings/connectors/mcp/<id>` (one of the person's
+  connections, or a team connection they may use). On a computer the list stays on the left with Connectors marked and
+  the page keeps its way back ("Connectors › Gmail", "← Connectors"); on a phone the bar says "‹ Connectors". One
+  element holds the list and its pages (`ConnectorsSettings`), so a Google sign-in started from a Discover + goes on
+  when its page opens. A page opens at the top and Back puts the list's place back, on a computer too. A Google app's
+  name is an h2 under the dialog's title and takes the keyboard when the page opens.
+- **Settings stays open while a Google sign-in waits** for its confirm step: a stray click beside the dialog or Esc does
+  nothing then (`SettingsHold`), since closing would lose the step; its ✕, the phone's tabs and Back still leave. The
+  old full page could not be closed by a stray click.
+- **Old addresses keep working**, with their query and hash: `/connectors`, `/connectors/<id>`, `/connectors/mcp/<id>`
+  (App.tsx `OldConnectors`), `/settings/integrations` (the list) and `/settings/drive` (Google Drive's page). An old
+  `/connectors…` link opens Settings over the page it came from (Home when opened directly), so closing Settings never
+  lands on the old address again. `/connectors/authorize` (an outside app's consent) stays. On a phone the old
+  addresses are the same screens of 나 (lib/screens.ts). Any other unknown address under Settings opens its list
+  instead of a page with no dialog.
+- **⌘K** offers "Connect an app" (Settings › Connectors) to everyone now, not only while members may add their own
+  services: with no sidebar item it is the other quick way there.
+- **Every text that sends a person to their own connections says "Settings › Connectors"** ("설정 › 커넥터") in the
+  five languages, and every link opens it: the web's notices (requests, templates, Drive's reconnect, an asked app that
+  is ready), search, a scheduled run's "needs your key", the onboarding Tools step, the Slack link pages and Admin's
+  "Just for me"; the server's request links (`/settings/connectors?request=`), the Slack sign-in return and its e-mail
+  notice, the Slack texts, the "Always allow" note, the scheduled-run and changed-connection errors, and what the AI is
+  told (refusals, `fixWhere`, the connection list). This replaces the last bullet of the superseded entry.
+- **Phones.** The 나 list gets a Connectors row in Connections; nothing else lists it, so no duplicate row or loop (QA
+  TC-263). The phone app keeps "status and Disconnect only" (#564, QA TC-262).
+- Version impact: patch.

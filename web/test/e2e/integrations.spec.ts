@@ -40,7 +40,7 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/connectors')
-  await expect(page.getByRole('heading', { name: '커넥터', level: 1, exact: true })).toBeVisible()
+  await expect(page.getByTestId('settings-dialog').getByRole('heading', { name: '커넥터', level: 2, exact: true })).toBeVisible()
   // nothing connected yet: Popular right under the title (no empty box, no heading for the empty list)
   await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()

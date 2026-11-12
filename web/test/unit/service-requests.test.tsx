@@ -42,7 +42,7 @@ describe('the notices', () => {
     expect(noticeLink(notice({ serviceRequest: { service: 'gmail', name: 'A', others: 0, open: false, added: true } }))).toBeNull()
     // a former admin's row (the app only): no way into Admin
     expect(noticeLink(notice({ serviceRequest: { service: 'gmail' } }))).toBeNull()
-    expect(noticeLink(notice({ eventType: 'service.ready', code: 'service.ready', sourceId: uuidv7(), serviceRequest: { service: 'calendar' } }))).toEqual({ to: '/connectors/calendar', testId: 'notification-service-ready-link' })
+    expect(noticeLink(notice({ eventType: 'service.ready', code: 'service.ready', sourceId: uuidv7(), serviceRequest: { service: 'calendar' } }))).toEqual({ to: '/settings/connectors/calendar', testId: 'notification-service-ready-link' })
     for (const s of ['gmail', 'calendar', 'docs', 'sheets'] as const) expect(serviceSetupLink(s)).toBe(`/admin/connectors?app=${s}`)
   })
   test('the five built-in apps and every listed service can be asked for (QA TC-133); nothing else', () => {

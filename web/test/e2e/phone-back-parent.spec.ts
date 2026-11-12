@@ -157,25 +157,28 @@ test('tabs: a tap adds no entry, Back never walks into another tab, each tab kee
   expect(await idx(page)).toBe(0)
 })
 
-test('☰ › 커넥터 stays in the AI tab, ‹ says so and Back returns to the list; pages name where ‹ goes', async ({ page }) => {
+test('나 › 커넥터 stays in the 나 tab, ‹ says so and Back returns to the list; pages name where ‹ goes', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  // Connectors is an item of the drawer (no longer a row of 나's list)
+  // Connectors is a row of 나's list (Settings › Connectors, QA TC-400), not an item of the drawer
   await page.getByTestId('menu-open').click()
-  await page.getByRole('dialog', { name: t['sidebar.label'] }).getByRole('link', { name: t['integrations.title'] }).click()
-  await expect(page).toHaveURL(/\/connectors$/)
-  await expect(tab(page, 'tab-ai')).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('topbar-back-label')).toHaveText(ai)
+  await expect(page.getByRole('dialog', { name: t['sidebar.label'] }).getByRole('link', { name: t['integrations.title'] })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await tab(page, 'tab-me').click()
+  await page.getByTestId('settings-row-connectors').click()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  await expect(tab(page, 'tab-me')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('settings-back')).toContainText(t['settings.title'])
   // a connector's page and ‹: back to the list, not a new entry on top
   const atList = await idx(page)
   await page.getByTestId('connector-open').first().click()
-  await expect(page).toHaveURL(/\/connectors\/.+/)
-  await expect(page.getByTestId('topbar-back-label')).toHaveText(t['integrations.title'])
-  await page.getByTestId('topbar-back').click()
-  await expect(page).toHaveURL(/\/connectors$/)
+  await expect(page).toHaveURL(/\/settings\/connectors\/.+/)
+  await expect(page.getByTestId('settings-back')).toContainText(t['integrations.title'])
+  await page.getByTestId('settings-back').click()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
   expect(await idx(page)).toBe(atList)
   await page.goBack()
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/settings$/)
 
   // 활동 from 나: "‹ 설정"; 팀 스킬 from the drawer: "‹ 트리나"
   await tab(page, 'tab-me').click()

@@ -1033,13 +1033,13 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
   return null
 }
 
-/** where a connection's sign-in or key is fixed: a Google app on its page under Connectors; the person's own on a card
- * in the chat (connect_service, QA TC-127) or in Connectors; one made from a team template on the template's card; a
- * team connection by an admin */
-const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app ? `Connectors › ${APP_NAMES[row.google_app]} (Reconnect)`
+/** where a connection's sign-in or key is fixed: a Google app on its page under Settings › Connectors; the person's own
+ * on a card in the chat (connect_service, QA TC-127) or in Settings › Connectors; one made from a team template on the
+ * template's card; a team connection by an admin */
+const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app ? `Settings › Connectors › ${APP_NAMES[row.google_app]} (Reconnect)`
   : row.scope === 'team' ? 'Admin › Connected apps (only an admin can: tell the user to ask one)'
-  : row.template_id ? `a card in this chat: call connect_service with template "${row.template_id}" (not in a scheduled run), or Connectors in the sidebar`
-  : `a card in this chat: call connect_service with connection "${row.id}" (not in a scheduled run), or Connectors in the sidebar`)
+  : row.template_id ? `a card in this chat: call connect_service with template "${row.template_id}" (not in a scheduled run), or Settings › Connectors`
+  : `a card in this chat: call connect_service with connection "${row.id}" (not in a scheduled run), or Settings › Connectors`)
 
 /** the audit summary's word for a failed call */
 function kindOf(e: unknown): string {

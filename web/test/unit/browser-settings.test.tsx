@@ -50,12 +50,12 @@ afterEach(() => {
 describe('where Settings > Browser shows', () => {
   test('a normal browser or the PWA: no Browser tab (the value lives in the desktop app)', () => {
     expect(browserSettingsBridge()).toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'usage', 'memory', 'allowances', 'ai-apps', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'usage', 'memory', 'allowances', 'connectors', 'ai-apps', 'notifications', 'apps', 'about'])
   })
   test('inside the desktop app: the Browser tab, after Security', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(true)
     expect(browserSettingsBridge()).not.toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'allowances', 'ai-apps', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'allowances', 'connectors', 'ai-apps', 'notifications', 'apps', 'about'])
   })
   test('a desktop app from before this addition (no browserSettings): no tab', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(false)
@@ -65,19 +65,19 @@ describe('where Settings > Browser shows', () => {
   test('Dev environment sites: only when the dev environment on srt is on for the person, after AI apps', () => {
     expect(settingsTabs(false, false).some((x) => x.id === 'dev-env-sites')).toBe(false)
     const ids = settingsTabs(false, false, true).map((x) => x.id)
-    // Connectors is not in Settings: it is its own item of the main sidebar
-    expect(ids).not.toContain('connectors')
+    // Connectors is in Settings for everyone since 2026-11-12 (it was an item of the main sidebar)
+    expect(ids).toContain('connectors')
     expect(ids.indexOf('dev-env-sites')).toBe(ids.indexOf('ai-apps') + 1)
   })
-  test('Providers lead the Connections group, after Account ends with what the AI remembers and what I allowed it, with or without the Browser tab', () => {
-    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 8)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'allowances', 'providers', 'ai-apps'])
-    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 7)).toEqual(['profile', 'security', 'usage', 'memory', 'allowances', 'providers', 'ai-apps'])
+  test('Connectors leads the Connections group, then Providers, after Account ends with what the AI remembers and what I allowed it, with or without the Browser tab', () => {
+    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 9)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'allowances', 'connectors', 'providers', 'ai-apps'])
+    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 8)).toEqual(['profile', 'security', 'usage', 'memory', 'allowances', 'connectors', 'providers', 'ai-apps'])
   })
   test('the groups: Account, Connections, App (no AI group), each section in one of them', () => {
     const by = (g: string) => settingsTabs(true, true).filter((x) => x.group === g).map((x) => x.id)
     expect(by('account')).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'allowances'])
     expect(by('ai')).toEqual([])
-    expect(by('connections')).toEqual(['providers', 'ai-apps'])
+    expect(by('connections')).toEqual(['connectors', 'providers', 'ai-apps'])
     expect(by('app')).toEqual(['notifications', 'apps', 'about'])
   })
 })
@@ -93,6 +93,12 @@ test('the settings search finds a section by what is inside it, in every languag
   // the name still finds it, and an empty search shows every section
   expect(find('ko', '보안')).toEqual(['security'])
   expect(find('ko', '다크 모드')).toEqual(['profile'])
+  // Connectors by a service in it, in every language
+  expect(find('ko', 'gmail')).toEqual(['connectors'])
+  expect(find('ko', '슬랙')).toEqual(['connectors'])
+  expect(find('en', 'google drive')).toEqual(['connectors'])
+  expect(find('ja', 'スプレッドシート')).toEqual(['connectors'])
+  expect(find('es', 'desconectar')).toEqual(['connectors'])
   expect(find('ko', '')).toEqual(tabs.map((x) => x.id))
 })
 

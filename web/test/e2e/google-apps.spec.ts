@@ -1,6 +1,6 @@
-// Connectors in the sidebar (pages/Connectors.tsx) and Gmail, Google Calendar, Google Docs and Google Sheets
-// (components/integrations/GoogleAppConnector.tsx, GoogleAppAdmin.tsx; the mock: test/mock/googleApps.ts): the sidebar
-// item opens the page; Discover lists what can be added now first (Google Drive and the four apps once set up); Gmail's Connect opens Google, its page asks to
+// Settings › Connectors (pages/Connectors.tsx) and Gmail, Google Calendar, Google Docs and Google Sheets
+// (components/integrations/GoogleAppConnector.tsx, GoogleAppAdmin.tsx; the mock: test/mock/googleApps.ts): Settings'
+// section opens the list; Discover lists what can be added now first (Google Drive and the four apps once set up); Gmail's Connect opens Google, its page asks to
 // confirm the account, then shows Connected and ⋯ (Settings, Reconnect, Disconnect); the old Settings › Connectors address leads to the page; Admin sets up
 // a card with the same Google app as Drive; and an app that cannot be connected says why.
 import AxeBuilder from '@axe-core/playwright'
@@ -13,12 +13,16 @@ const control = (page: Page, path: string, body: object) => page.request.post(pa
 const googleApps = (page: Page, body: object) => control(page, '/__test/google-apps', body)
 const fakeGoogle = (page: Page) => page.context().route('https://accounts.google.com/**', (r) => r.fulfill({ contentType: 'text/html', body: '<p>Synthetic Google consent</p>' }))
 
-test('the sidebar opens Connectors: Discover lists the Google ones first (QA TC-138, also not set up, with Set up); the search filters', async ({ page }) => {
+test('Settings opens Connectors: Discover lists the Google ones first (QA TC-138, also not set up, with Set up); the search filters', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  await page.getByTestId('nav-connectors').click()
-  await expect(page).toHaveURL(/\/connectors$/)
+  // no sidebar item since 2026-11-12: the account menu's Settings, its Connectors section
+  await expect(page.getByTestId('nav-connectors')).toHaveCount(0)
+  await page.getByTestId('account-menu').click()
+  await page.getByTestId('account-settings').click()
+  await page.getByTestId('settings-menu').getByRole('link', { name: '커넥터', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
   await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
   const ids = await page.getByTestId('connector-list').getByTestId('connector-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))
   // the Google ones first, in their order, also when not set up yet; then the listed services
@@ -58,8 +62,17 @@ test('Gmail: Connect opens Google, the account is confirmed, then Connected and 
   await detail.getByTestId('gapp-connect').click()
   await popup
   await expect(detail.getByTestId('gapp-account')).toContainText('olga@example.test')
+  // the confirm step is waiting: a stray Esc or a click beside Settings does not close it (and lose the step)
+  await page.keyboard.press('Escape')
+  await page.mouse.click(5, 450)
+  await expect(page.getByTestId('settings-dialog')).toBeVisible()
+  await expect(detail.getByTestId('gapp-confirm')).toBeVisible()
   await detail.getByTestId('gapp-confirm').click()
   await expect(detail).toHaveAttribute('data-state', 'connected')
+  // done: Esc closes Settings again
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('settings-dialog')).toHaveCount(0)
+  await page.goto('/settings/connectors/gmail')
   await expect(detail.getByTestId('gapp-account-line')).toContainText('olga@example.test')
   for (const id of ['gapp-connected', 'gapp-menu']) await expect(detail.getByTestId(id)).toBeVisible()
 
@@ -88,17 +101,22 @@ test('Gmail: Connect opens Google, the account is confirmed, then Connected and 
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Settings › Connectors leads to the Connectors page, with what its address asked for', async ({ page }) => {
+test('Settings › Connectors is the Connectors page, with what its address asked for (also at its old addresses)', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/settings/connectors')
-  await expect(page).toHaveURL(/\/connectors$/)
-  await expect(page.getByTestId('settings-dialog')).toHaveCount(0)
-  await expect(page.getByTestId('connector-discover')).toBeVisible()
-  await page.goto('/settings/connectors?add=1')
-  await expect(page.getByRole('dialog', { name: '주소로 서비스 추가' })).toBeVisible()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  await expect(page.getByTestId('settings-dialog').getByTestId('connector-discover')).toBeVisible()
+  for (const add of ['/settings/connectors?add=1', '/connectors?add=1']) {
+    await page.goto(add)
+    await expect(page.getByRole('dialog', { name: '주소로 서비스 추가' })).toBeVisible()
+    // the add dialog's Escape closes it, not Settings under it
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: '주소로 서비스 추가' })).toHaveCount(0)
+    await expect(page.getByTestId('settings-dialog')).toBeVisible()
+  }
   await page.goto('/settings/drive')
-  await expect(page).toHaveURL(/\/connectors\/google-drive$/)
+  await expect(page).toHaveURL(/\/settings\/connectors\/google-drive$/)
   await expect(page.getByTestId('drive-detail')).toBeVisible()
 })
 
@@ -186,16 +204,18 @@ test('not available: the reason in plain words, Connect off; an admin gets the w
   await expect(page.getByTestId('gapp-admin-detail')).toContainText('Google Calendar')
 })
 
-test('phone width: the page and an app\'s page fit; the drawer has Connectors', async ({ page }) => {
+test('phone width: the page and an app\'s page fit; Me has Connectors, the drawer does not', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await googleApps(page, { client: 'app' })
   await signIn(page)
   await page.goto('/')
   await page.getByTestId('menu-open').click()
-  await page.getByTestId('nav-connectors').last().click()
-  await expect(page).toHaveURL(/\/connectors$/)
-  await expect(page.getByTestId('topbar-title')).toHaveText('커넥터')
+  await expect(page.locator('[data-testid="nav-connectors"]:visible')).toHaveCount(0)
+  await page.goto('/settings')
+  await page.getByTestId('settings-row-connectors').click()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  await expect(page.getByTestId('settings-section-title')).toHaveText('커넥터')
   await expect(card(page, 'gmail')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.goto('/connectors/gmail')
