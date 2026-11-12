@@ -363,8 +363,8 @@ func TestExecNetProxy(t *testing.T) {
 	if c, out, se := run(t, bw, append(bwrap[:len(bwrap)-2:len(bwrap)-2], "--", "/bin/true")...); c != 0 {
 		t.Skipf("bwrap cannot start here (%d): %s %s", c, out, se)
 	}
-	report := func(extra ...string) map[string]any {
-		args := append(append([]string{}, bwrap...), "exec", "--landlock", "best-effort", "--exec-allow", l.a)
+	report := func(mode string, extra ...string) map[string]any {
+		args := append(append([]string{}, bwrap...), "exec", "--landlock", mode, "--exec-allow", l.a)
 		args = append(append(args, extra...), "--", filepath.Join(l.a, "helper"), "net", strconv.Itoa(pp), strconv.Itoa(op), name)
 		code, out, se := run(t, bw, args...)
 		if code != 0 {
@@ -376,12 +376,14 @@ func TestExecNetProxy(t *testing.T) {
 		}
 		return r
 	}
-	// control: without the flag the same sandbox reaches all three (and keeps bwrap's capabilities)
-	r := report()
+	// control: without the flag the same sandbox reaches all three (and keeps bwrap's capabilities). Landlock off:
+	// on ABI 6+ (Linux 6.12+) its own scope already refuses the host's abstract sockets (EPERM), which would hide
+	// whether the namespace does
+	r := report("off")
 	if r["proxy"] != "ok:proxy" || r["other"] != "ok:other" || r["abstract"] != "ok:abstract" {
 		t.Fatalf("control run: %v", r)
 	}
-	r = report("--net-proxy", strconv.Itoa(pp))
+	r = report("best-effort", "--net-proxy", strconv.Itoa(pp))
 	want := map[string]any{"proxy": "ok:proxy", "other": "ECONNREFUSED", "abstract": "ECONNREFUSED",
 		"CapEff": "0000000000000000", "CapPrm": "0000000000000000", "CapAmb": "0000000000000000"}
 	for k, v := range want {
