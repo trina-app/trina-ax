@@ -91,16 +91,16 @@ test('Admin › Google Drive lists its tools in words, not drive_search / drive_
 // The owner's decision (11-12): a server whose Google sign-in comes from the hosting service says so plainly, needs no
 // setup, and still has the team settings
 describe('관리자 › 연결한 서비스 › Google Drive from the hosting service', () => {
-  test('the hosting service line, no Set up and no ⋯, Team settings with who can use it (no members\' switch)', async () => {
+  test('the hosting service line, no Set up and no ⋯; Team settings with who can use it once it is set up (no members\' switch)', async () => {
     as('owner')
-    for (const s of [{ ...admin, configured: true, source: 'service' as const, blocked: 'hosted' as const }, { ...admin, configured: false, source: 'none' as const, blocked: 'hosted' as const }]) {
+    for (const [s, set] of [[{ ...admin, configured: true, source: 'service' as const, blocked: 'hosted' as const }, true], [{ ...admin, configured: false, source: 'none' as const, blocked: 'hosted' as const }, false]] as const) {
       const { text, html } = await page(s)
       expect(html).toContain('data-testid="drive-by-service"')
       expect(text).toContain(ko('appConnectors.byService'))
       expect(html).not.toContain('data-testid="drive-setup"')
       expect(html).not.toContain('data-testid="drive-setup-menu"')
-      expect(html).toContain('data-testid="team-settings"')
-      expect(html).toContain('data-testid="team-who"')
+      expect(html.includes('data-testid="team-settings"')).toBe(set)
+      expect(html.includes('data-testid="team-who"')).toBe(set)
       expect(html).not.toContain('switch')
     }
   })

@@ -4,10 +4,48 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, test } from 'bun:test'
+import { catalogAt, catalogNamed, officialService, SERVICE_CATALOG } from '@mycel/shared'
 import { IntegrationInput } from '@mycel/shared/api'
 import { AI_APPS, BUILT_IN, connectorFor, CONNECTORS, isConnected } from '../../src/lib/connectors'
 import { canonicalService, emptyForm, toInput, validate } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
+
+describe('the shared list of services (shared/src/service-catalog.ts)', () => {
+  test('Discover is the shared list, with a logo for each', () => {
+    expect(CONNECTORS.map(({ id, name, url }) => ({ id, name, url }))).toEqual(SERVICE_CATALOG.map(({ id, name, url }) => ({ id, name, url })))
+    for (const c of CONNECTORS) expect(c.logo).toMatch(/^[a-z0-9-]+\.(svg|png)$/)
+  })
+  test('a name means a listed service exactly, holds one among other words, or names none', () => {
+    for (const n of ['Notion', 'notion', 'NOTION', 'Notion MCP', 'the Notion app', 'Ｎｏｔｉｏｎ']) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'notion' } })
+    for (const [n, id] of [['ClickUp', 'clickup'], ['Click Up', 'clickup'], ['WordPress', 'wordpress'], ['WordPress.com', 'wordpress'], ['Mermaid', 'mermaid'], ['Mermaid Chart', 'mermaid'], ['Monday.com', 'monday']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id } })
+    for (const [n, id] of [['Notion workspace', 'notion'], ['Acme GitLab', 'gitlab'], ['My Click Up tasks', 'clickup']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: false, service: { id } })
+    for (const n of ['Higgs Studio', 'Notes', 'Lineup', 'GitHub']) expect(catalogNamed(n), n).toBeUndefined()
+  })
+  test('look-alikes and local names count as the service: other scripts, accents, digits, Korean and Japanese', () => {
+    for (const n of ['N\u043etion', 'N\u03bftion', 'Not\u00edon', 'Notio\u0301n', 'N0tion', '노션', 'ノーション', '노션 MCP']) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'notion' } })
+    for (const [n, id] of [['피그마', 'figma'], ['フィグマ', 'figma'], ['리니어', 'linear'], ['Jira', 'atlassian'], ['지라', 'atlassian'], ['깃랩', 'gitlab'], ['\u0421anva', 'canva']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id } })
+    expect(catalogNamed('Acme N\u043etion wiki')).toMatchObject({ exact: false, service: { id: 'notion' } })
+  })
+  test('a service named by an ordinary word matches only its exact name', () => {
+    for (const n of ['Square Feet API', 'Linear Regression API', 'Monday Reports', 'Neon Signs', 'Sanity Check', 'Railway Timetable', 'Resend Mail Queue', 'Indeed Jobs Mirror', 'Stripe Pattern Maker'])
+      expect(catalogNamed(n), n).toBeUndefined()
+    for (const [n, id] of [['Square', 'square'], ['Linear', 'linear'], ['Monday', 'monday'], ['Neon MCP', 'neon']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id } })
+  })
+  test('"official" only for the exact official address: https, host and path; no query, port, user or other scheme', () => {
+    expect(officialService('https://mcp.notion.com/mcp')?.id).toBe('notion')
+    expect(officialService('https://mcp.notion.com/mcp/')?.id).toBe('notion')
+    expect(officialService('https://MCP.NOTION.COM/mcp')?.id).toBe('notion')
+    for (const u of ['http://mcp.notion.com/mcp', 'https://mcp.notion.com/mcp?x=1', 'https://mcp.notion.com/mcp#a', 'https://mcp.notion.com:8443/mcp', 'https://u:p@mcp.notion.com/mcp', 'https://mcp.notion.com/other', 'https://mcp.notion.com/MCP', 'https://notion-mcp.example.com/mcp'])
+      expect(officialService(u), u).toBeUndefined()
+  })
+  test('an address is a listed service\'s official one however it is written, and nothing else is', () => {
+    expect(catalogAt('https://mcp.notion.com/mcp')?.id).toBe('notion')
+    expect(catalogAt('https://MCP.NOTION.COM/mcp/')?.id).toBe('notion')
+    expect(catalogAt('https://notion-mcp.example.com/mcp')).toBeUndefined()
+    expect(catalogAt('https://mcp.notion.com.example.com/mcp')).toBeUndefined()
+    expect(catalogAt('https://mcp.notion.com/other')).toBeUndefined()
+  })
+})
 
 describe('Discover', () => {
   test('every service is an MCP server with sign-in that the contract accepts, listed once', () => {

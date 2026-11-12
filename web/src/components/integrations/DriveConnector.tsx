@@ -5,16 +5,13 @@
 //    linked it is a row among the connections (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
 //    client on this server yet: "Your admin needs to turn this on" for a member; an owner or admin is the one to set it
 //    up, so they get "not set up yet" and a button to its page in Admin (QA TC-196).
-//    An admin may not let members connect their own (Admin › Connectors › Google Drive): Connect is then off for
-//    members, and a connection made before says the admin turned it off. An owner or admin gets one button instead,
-//    "팀원도 연결할 수 있게 켜고 내 드라이브 연결하기": their own sign-in, and the switch turns on only once they confirm
-//    the account (docs/DECISIONS.md "W6"; the welcome steps' 도구 연결 row does the same). A Drive the team shares with the person shows as "Shared by
-//    your team" with its folders, with nothing to connect (DriveTeamShares).
-//  - Admin › Connectors: its page (GoogleAdminPage.tsx DriveAdminPage) says Not set up, Ready to set up (a Google client
-//    is there, nothing is on yet) or On (members may connect their own, or a Drive is shared with the team), with the
-//    one-time setup (or Change setup) in a small dialog (DriveSetupDialog) when this page may do it
-//    (integrations/google-drive/admin-setup.ts), and in its Team settings the members' switch and the shares
-//    (DriveShares.tsx). A client alone turns nothing on.
+//    Once it is set up every member may connect their own (no members' switch: docs/DECISIONS.md "No members' switch for
+//    connectors"). A Drive the team shares with the person shows as "Shared by your team" with its folders, with nothing
+//    to connect (DriveTeamShares).
+//  - Admin › Connectors: its page (GoogleAdminPage.tsx DriveAdminPage) says Not set up or On (set up: everyone may
+//    connect their own), with the one-time setup (or Change setup) in a small dialog (DriveSetupDialog) when this page
+//    may do it (integrations/google-drive/admin-setup.ts), and in its Team settings who can use it and the Drives shared
+//    with the team (DriveShares.tsx).
 import { Check, Copy, ExternalLink, FolderOpen, Upload } from 'lucide-react'
 import { useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'

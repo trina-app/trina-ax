@@ -22,7 +22,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
+import { ExternalLink, Loader2, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -32,6 +32,7 @@ import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
+import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
 import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
 import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
 import { changesOf, keepChanges, takeChanges, useDraftOwner } from '../../lib/keptDraft'
@@ -205,7 +206,11 @@ export default function TeamSettingsPage() {
                         <SettingsSection title={t('teamSettings.section.general')} id="ts-general" testId="team-settings-general">
                           <SettingRow id="ts-name" title={t('setup.teamName')} desc={owner ? t('teamSettings.row.nameDesc') : t('teamSettings.nameOwnerOnly')}
                             control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'md:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />} />
-                          <SettingRow id="ts-locale" title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')}
+                          {/* a phone: "Team default language   한국어 ›", the languages in a sheet (QA TC-378) */}
+                          {phone ? (
+                            <PhoneChoiceRow title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')} value={f.defaultLocale}
+                              options={LOCALES.map((l) => ({ value: l.id, label: l.label }))} onChange={(v) => setF({ ...f, defaultLocale: v })} testId="team-default-locale" />
+                          ) : <SettingRow id="ts-locale" title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')}
                             control={
                               <select id="ts-locale" aria-describedby="ts-locale-desc" className={clsx(inputCls, 'md:w-64')} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
                                 {LOCALES.map((l) => (
@@ -214,11 +219,14 @@ export default function TeamSettingsPage() {
                                   </option>
                                 ))}
                               </select>
-                            } />
+                            } />}
                           <TeamIconRow />
                         </SettingsSection>
                         <SettingsSection title={t('teamSettings.section.time')} id="ts-time" testId="team-settings-time">
-                          <SettingRow id="ts-time-zone" title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')}
+                          {phone ? (
+                            <PhoneChoiceRow title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')} value={f.timeZone}
+                              options={timeZoneOptions(f.timeZone).map((z) => ({ value: z, label: z }))} onChange={(v) => setF({ ...f, timeZone: v })} testId="team-time-zone" />
+                          ) : <SettingRow id="ts-time-zone" title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')}
                             control={
                               <select id="ts-time-zone" aria-describedby="ts-time-zone-desc" className={clsx(inputCls, 'md:w-64')} value={f.timeZone} onChange={(e) => setF({ ...f, timeZone: e.target.value })} data-testid="team-time-zone">
                                 {timeZoneOptions(f.timeZone).map((z) => (
@@ -227,7 +235,7 @@ export default function TeamSettingsPage() {
                                   </option>
                                 ))}
                               </select>
-                            } />
+                            } />}
                           {/* the update window drives every automatic update of this server: the app's own (Linux), the root
                               update timer (mycel-ctl) and an office Mac's update agent, in the team time zone. A hosted server
                               is updated by its control plane, so it has none. (No channel here: the channel is the
@@ -291,14 +299,15 @@ export default function TeamSettingsPage() {
 }
 
 /** A retention period: a small number field with "days" after it. Only the owner changes one (the server refuses an
- * admin: a shorter period makes the nightly sweep erase the audit log or old file versions); an admin sees it read-only. */
+ * admin: a shorter period makes the nightly sweep erase the audit log or old file versions); an admin sees it read-only.
+ * A phone: no ⌃⌄ arrows, the number keyboard, the field and "days" at the row's end (phone/PhoneChoice.tsx). */
 function DaysRow({ id, title, desc, value, min, max, ownerOnly, onChange }: { id: string; title: string; desc: string; value: number; min: number; max: number; ownerOnly: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
   const t = useT()
   return (
     <SettingRow id={id} title={title} desc={ownerOnly ? `${desc} ${t('teamSettings.ownerOnlyField')}` : desc} inline
       control={
         <span className="inline-flex items-center gap-2">
-          <input id={id} aria-describedby={`${id}-desc`} className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" min={min} max={max} value={value} disabled={ownerOnly} onChange={onChange} />
+          <input id={id} aria-describedby={`${id}-desc`} className={clsx(inputCls, 'text-right tabular-nums', phoneNumberCls)} style={{ width: '6.5rem' }} type="number" inputMode="numeric" min={min} max={max} value={value} disabled={ownerOnly} onChange={onChange} data-testid={`${id}-days`} />
           <span className="text-sm text-muted">{t('teamSettings.days')}</span>
         </span>
       } />
@@ -357,12 +366,38 @@ export function TeamIconRow() {
 
   // what the sidebar header shows (components/Sidebar.tsx): the logo, else the product's mark
   const logoSrc = version ? teamIconUrl(version) : '/favicon.svg'
+  const spinner = <Loader2 size={16} className="shrink-0 animate-spin text-muted" aria-hidden />
+  const fileInput = (
+    <input
+      ref={input}
+      type="file"
+      accept={TEAM_ICON_TYPES.join(',')}
+      hidden
+      data-testid="team-icon-input"
+      onChange={(e) => {
+        const file = e.target.files?.[0]
+        e.target.value = ''
+        if (file) void upload(file)
+      }}
+    />
+  )
   return (
     <div data-testid="team-icon" data-version={version ?? ''}>
       <SettingRow heading title={t('teamIcon.title')}
         desc={<>{t(phone ? 'teamIcon.descPhone' : 'teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
         more={t('teamIcon.hint')}
-        control={
+        control={phone ? (
+          // a phone (QA TC-382): list rows across the screen, as in Settings, not small buttons beside the logo: the
+          // upload icon, the words and the logo now on the right; "back to the default" a row under it
+          <>
+            <ul className="-mx-4 flex-1 border-y border-line" data-testid="team-icon-rows">
+              <PhoneListRow icon={<Upload size={16} />} title={version ? t('teamIcon.replace') : t('teamIcon.upload')} onClick={() => input.current?.click()} disabled={busy !== null} testId="team-icon-upload"
+                end={busy === 'upload' ? spinner : <img src={logoSrc} alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg border border-line object-cover" />} />
+              {version && <PhoneListRow icon={<RotateCcw size={16} />} title={t('teamIcon.remove')} onClick={() => void remove()} disabled={busy !== null} testId="team-icon-remove" end={busy === 'remove' ? spinner : undefined} />}
+            </ul>
+            {fileInput}
+          </>
+        ) : (
           <span className="inline-flex flex-wrap items-center gap-2">
             <img src={logoSrc} alt="" width={36} height={36} className="h-9 w-9 rounded-lg border border-line object-cover" />
             <Button size="sm" busy={busy === 'upload'} disabled={busy !== null} onClick={() => input.current?.click()} data-testid="team-icon-upload">
@@ -373,20 +408,9 @@ export function TeamIconRow() {
                 <RotateCcw size={14} aria-hidden /> {t('teamIcon.remove')}
               </Button>
             )}
-            <input
-              ref={input}
-              type="file"
-              accept={TEAM_ICON_TYPES.join(',')}
-              hidden
-              data-testid="team-icon-input"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                e.target.value = ''
-                if (file) void upload(file)
-              }}
-            />
+            {fileInput}
           </span>
-        }
+        )}
         below={
           <>
             {error && (
@@ -543,7 +567,7 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
     <SettingRow id="ts-answer-step-limit" testId="team-answer-step-limit" inline title={t('teamSettings.answerStepLimit')} desc={t('teamSettings.row.answerStepLimitDesc', { def: DEFAULT_ANSWER_STEP_LIMIT })}
       more={t('teamSettings.answerStepLimitHint', { min: ANSWER_STEP_LIMIT_MIN, max: ANSWER_STEP_LIMIT_MAX, def: DEFAULT_ANSWER_STEP_LIMIT })}
       control={
-        <input id="ts-answer-step-limit" aria-describedby="ts-answer-step-limit-desc" className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" inputMode="numeric" min={ANSWER_STEP_LIMIT_MIN} max={ANSWER_STEP_LIMIT_MAX} step={1} value={text}
+        <input id="ts-answer-step-limit" aria-describedby="ts-answer-step-limit-desc" className={clsx(inputCls, 'text-right tabular-nums', phoneNumberCls)} style={{ width: '6.5rem' }} type="number" inputMode="numeric" min={ANSWER_STEP_LIMIT_MIN} max={ANSWER_STEP_LIMIT_MAX} step={1} value={text}
           onChange={(e) => { setText(e.target.value); const n = Number(e.target.value); if (inRange(n)) onChange(n) }} onBlur={leave} />
       } />
   )
@@ -552,6 +576,14 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
 /** How long the company intro deck may take (server/src/intro-deck/tiers.ts): 3, 5 (the default, DEFAULT_DECK_TIER) or 10 minutes. */
 export function DeckTierField({ value, onChange }: { value: TeamSettings['introDeckTier'] | undefined; onChange: (v: TeamSettings['introDeckTier']) => void }) {
   const t = useT()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const tiers = ['quick', 'standard', 'deep'] as const
+  const label = { quick: t('teamSettings.deckTierQuick'), standard: t('teamSettings.deckTierStandard'), deep: t('teamSettings.deckTierDeep') }
+  if (phone)
+    return (
+      <PhoneChoiceRow title={t('teamSettings.deckTier')} desc={t('teamSettings.row.deckTierDesc')} more={t('teamSettings.deckTierHint')} value={value ?? DEFAULT_DECK_TIER}
+        options={tiers.map((x) => ({ value: x, label: label[x] }))} onChange={onChange} testId="team-deck-tier" />
+    )
   return (
     <SettingRow id="ts-deck-tier" testId="team-deck-tier" title={t('teamSettings.deckTier')} desc={t('teamSettings.row.deckTierDesc')} more={t('teamSettings.deckTierHint')}
       control={
@@ -615,6 +647,7 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
   const locale = useLocale()
   const act = useAction()
   const signedIn = useSession((s) => s.signedIn)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const key = useLoad(() => api.call(API.speechKey))
   const host = useLoad(() => api.call(API.speechHost))
   // a hosted server's key from the hosting service, used while the team has none of its own (its free hours)
@@ -648,18 +681,24 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
   const remove = async () => {
     if (await confirmDialog({ title: t(key.data?.hosted ? 'speech.removeConfirmHosted' : 'speech.removeConfirm'), confirm: t('speech.removeKey'), danger: true })) await send(null)
   }
+  const pickProvider = (next: SpeechProvider) => onChange({ speechProvider: next, aiMediaTranscripts: transcriptsAfterProvider(next, saved) })
+  const providerNote = provider === 'openrouter' ? <p className={`mt-1 text-sm ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p>
+    : missing.length > 0 ? <p id="ts-speech-local-missing" className="mt-1 text-sm text-warn" data-testid="team-speech-local-missing">{t('speech.localMissing', { tools: new Intl.ListFormat(locale, { type: 'conjunction' }).format(missing) })}</p> : null
   return (
     <SettingsSection id="speech" testId="team-speech" title={t('speech.title')} desc={t('speech.desc')}>
-      <SettingRow id="ts-speech-provider" title={t('speech.provider')}
+      {/* a phone: "Speech to text   Off ›", the three in a sheet (QA TC-378) */}
+      {phone ? (
+        <PhoneChoiceRow title={t('speech.provider')} desc={provider === 'local' ? t('speech.localHint') : undefined} below={providerNote} value={provider}
+          options={PROVIDERS.map((p) => ({ value: p, label: t(`speech.${p}`) }))} onChange={pickProvider} testId="team-speech-provider" />
+      ) : <SettingRow id="ts-speech-provider" title={t('speech.provider')}
         desc={provider === 'local' ? t('speech.localHint') : undefined}
-        below={provider === 'openrouter' ? <p className={`mt-1 text-sm ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p>
-          : missing.length > 0 ? <p id="ts-speech-local-missing" className="mt-1 text-sm text-warn" data-testid="team-speech-local-missing">{t('speech.localMissing', { tools: new Intl.ListFormat(locale, { type: 'conjunction' }).format(missing) })}</p> : null}
+        below={providerNote}
         control={
           <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'md:w-64')} value={provider}
-            onChange={(e) => { const next = e.target.value as SpeechProvider; onChange({ speechProvider: next, aiMediaTranscripts: transcriptsAfterProvider(next, saved) }) }} data-testid="team-speech-provider">
+            onChange={(e) => pickProvider(e.target.value as SpeechProvider)} data-testid="team-speech-provider">
             {PROVIDERS.map((p) => <option key={p} value={p}>{t(`speech.${p}`)}</option>)}
           </select>
-        } />
+        } />}
       {provider !== 'off' && (
         <Loadable state={host} lines={1}>
           {(h) => <MediaTranscriptsSwitch provider={provider} value={transcripts} host={h} hostedKey={hostedKey} onChange={(v) => onChange({ aiMediaTranscripts: v })} />}

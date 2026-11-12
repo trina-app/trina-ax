@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { SEAL_ALG, SealedSecret, TurnConnectBody, TurnRequest, uuidv7, type Locale, type SealingKey } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import ConnectCard from '../../src/components/chat/ConnectCard'
-import { connectCase, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectServiceRequest } from '../../src/lib/connectCard'
+import { cardTrust, connectCase, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectServiceRequest } from '../../src/lib/connectCard'
 import { useChats } from '../../src/store/chats'
 import { CHAT } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
@@ -33,10 +33,10 @@ const card = (o: Partial<ConnectServiceRequest> = {}): ConnectServiceRequest => 
   kind: 'connect_service',
   requestId: 'c1',
   target: 'service',
-  name: 'Higgsfield',
+  name: 'Higgs Studio',
   scope: 'personal',
   service: { kind: 'mcp', url: 'https://mcp.higgsfield.example/mcp', host: 'mcp.higgsfield.example', auth: 'bearer', authHeader: null },
-  why: 'You asked to make videos with Higgsfield.',
+  why: 'You asked to make videos with Higgs Studio.',
   ...o,
 })
 const open = (r: ConnectServiceRequest) => useChats.getState().handleEvent({ type: 'turn.request', seq: 1, at: 0, data: { turnId: TURN, chatId: CHAT, messageId: uuidv7(), request: r } })
@@ -198,8 +198,8 @@ describe('what the card shows', () => {
 
   test('sign-in, no key and Google Drive have no key box', () => {
     setLocale('en')
-    const signIn = html(card({ service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null }, name: 'Linear' }))
-    expect(signIn).toContain('Sign in to Linear')
+    const signIn = html(card({ service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null }, name: 'Lineup' }))
+    expect(signIn).toContain('Sign in to Lineup')
     expect(signIn).toContain('mcp.linear.example')
     expect(signIn).not.toContain('data-testid="connect-key"')
     const drive = html(card({ target: 'google_drive', name: 'Google Drive', service: undefined }))
@@ -221,8 +221,8 @@ describe('what the card shows', () => {
       expect(part(out, 'p', 'connect-url')?.[1]).toBe('https://mcp.higgsfield.example/mcp')
       // above the AI's own line, right under the title
       const at = out.indexOf('data-testid="connect-host"')
-      expect(at).toBeGreaterThan(out.indexOf(translate('en', 'connect.title', { name: 'Higgsfield' })))
-      expect(at).toBeLessThan(out.indexOf('You asked to make videos with Higgsfield.'))
+      expect(at).toBeGreaterThan(out.indexOf(translate('en', 'connect.title', { name: 'Higgs Studio' })))
+      expect(at).toBeLessThan(out.indexOf('You asked to make videos with Higgs Studio.'))
     }
     // a long address scrolls instead of being cut
     const long = `https://mcp.higgsfield.example/${'p/'.repeat(300)}end`
@@ -251,9 +251,11 @@ describe('what the card shows', () => {
     expect(hostOffName('My AI', 'my.ai.example')).toBe(true)
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
       setLocale(locale)
-      const warned = html(card({ name: 'GitHub', service: { kind: 'mcp', url: 'https://mcp.example.org/mcp', host: 'mcp.example.org', auth: 'oauth', authHeader: null } }))
+      // on a team template's card (an unknown service's card has its own warning box instead: one warning, not two)
+      const warned = html(card({ name: 'GitHub', template: { id: 't1', version: 1 }, service: { kind: 'mcp', url: 'https://mcp.example.org/mcp', host: 'mcp.example.org', auth: 'oauth', authHeader: null } }))
       expect(part(warned, 'p', 'connect-host-caution')?.[0]).toContain(esc(translate(locale, 'connect.hostCaution', { name: 'GitHub' })))
-      expect(html(card())).not.toContain('data-testid="connect-host-caution"')
+      expect(html(card({ template: { id: 't1', version: 1 } }))).not.toContain('data-testid="connect-host-caution"')
+      expect(html(card({ name: 'GitHub', service: { kind: 'mcp', url: 'https://mcp.example.org/mcp', host: 'mcp.example.org', auth: 'oauth', authHeader: null } }))).not.toContain('data-testid="connect-host-caution"')
     }
     setLocale('en')
     expect(translate('en', 'connect.hostCaution', { name: 'GitHub' })).toBe("This address is not on GitHub's own site. Check it before you connect.")
@@ -279,12 +281,12 @@ describe('what the card shows', () => {
   test('sign-in: a sign-in page opens in a new window, to check; the AI never sees the password', () => {
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
       setLocale(locale)
-      const out = html(card({ name: 'Linear', service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null } }))
+      const out = html(card({ name: 'Lineup', service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null } }))
       const where = part(out, 'p', 'connect-where')![0]
       expect(where).toContain(esc(translate(locale, 'connect.signInWhere')))
       // the sign-in server comes from the address's own metadata: the sentence names neither the host nor the service
       expect(where).not.toContain('mcp.linear.example')
-      expect(where).not.toContain('Linear')
+      expect(where).not.toContain('Lineup')
     }
     setLocale('en')
     expect(translate('en', 'connect.signInWhere')).toBe('Signing in opens a sign-in page in a new window. Check that it is the service you expect. The AI never sees your password.')
@@ -292,7 +294,7 @@ describe('what the card shows', () => {
 
   test('the whole name in the title, wrapping instead of being cut', () => {
     setLocale('en')
-    const name = 'Higgsfield Video Generation Platform For Teams'
+    const name = 'Higgs Studio Video Generation Platform For Teams'
     const title = part(html(card({ name })), 'span', 'connect-title')!
     expect(title[1]).toBe(esc(translate('en', 'connect.title', { name })))
     expect(title[0]).not.toContain('truncate')
@@ -328,6 +330,90 @@ describe('what the card shows', () => {
     expect(part(html(card({ service: { ...card().service!, auth: 'oauth' } })), 'p', 'connect-kind')![1]).toBe('MCP server')
     expect(html(card({ target: 'google_drive', name: 'Google Drive', service: undefined }))).not.toContain('data-testid="connect-kind"')
   })
+
+  // QA TC-135: the card vouches for an address only from the app's list (shared/src/service-catalog.ts)
+  const notion = (url: string, o: Partial<ConnectServiceRequest> = {}) => card({ name: 'Notion', why: undefined, service: { kind: 'mcp', url, host: new URL(url).host, auth: 'oauth', authHeader: null }, ...o })
+  test('TC-135: Notion at its official address says so, and offers the sign-in', () => {
+    expect(cardTrust(notion('https://mcp.notion.com/mcp'))).toMatchObject({ kind: 'official', service: { id: 'notion' } })
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      const out = html(notion('https://mcp.notion.com/mcp'))
+      expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.title', { name: 'Notion' })))
+      expect(out).toContain(esc(translate(locale, 'connect.official', { name: 'Notion' })))
+      expect(out).toContain('data-testid="connect-sign-in"')
+      expect(out).not.toContain('data-testid="connect-unlisted"')
+    }
+  })
+  test('TC-135 and editions: a listed name (or a look-alike) at another address is named by its host, with the warning, never "official"', () => {
+    const cases = [
+      ['Notion', 'https://notion-mcp.example.com/mcp'],
+      ['Notion workspace', 'https://notion-mcp.example.com/mcp'],
+      ['N\u043etion', 'https://notion-mcp.example.com/mcp'],
+      ['노션', 'https://notion-mcp.example.com/mcp'],
+      ['GitLab', 'https://gitlab.acme.com/api/v4/mcp'],
+      ['Acme GitLab', 'https://gitlab.acme.com/api/v4/mcp'],
+      // the official host but not https, or with a query: not "official" either
+      ['Notion', 'http://mcp.notion.com/mcp'],
+      ['Notion', 'https://mcp.notion.com/mcp?x=1'],
+    ] as const
+    for (const [name, url] of cases) {
+      const host = new URL(url).host
+      expect(cardTrust(notion(url, { name })), `${name} ${url}`).toEqual({ kind: 'unlisted', display: host })
+    }
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      const out = html(notion('https://gitlab.acme.com/api/v4/mcp', { name: 'GitLab' }))
+      expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.title', { name: 'gitlab.acme.com' })))
+      expect(out).toContain(esc(translate(locale, 'connect.signIn', { name: 'gitlab.acme.com' })))
+      expect(part(out, 'p', 'connect-unlisted')![1]).toContain('<strong class="font-semibold">gitlab.acme.com</strong>')
+      expect(out).not.toContain('data-testid="connect-official"')
+      expect(out).not.toContain('GitLab')
+    }
+  })
+  test('a service the app does not know: the address in bold and a plain warning above the button', () => {
+    expect(cardTrust(card())).toEqual({ kind: 'unlisted', display: 'Higgs Studio' })
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      const out = html(card())
+      const box = part(out, 'p', 'connect-unlisted')![1]
+      expect(box).toContain('<strong class="font-semibold">mcp.higgsfield.example</strong>')
+      expect(box).toContain(esc(translate(locale, 'connect.unlisted')))
+      expect(out).not.toContain('data-testid="connect-official"')
+    }
+  })
+  test('a team template or a reconnect at its own address: no "unlisted" box, no block', () => {
+    const tpl = card({ name: 'Notion', template: { id: 't1', version: 1 }, service: { kind: 'mcp', url: 'https://wiki.example.com/mcp', host: 'wiki.example.com', auth: 'oauth', authHeader: null } })
+    expect(cardTrust(tpl)).toEqual({ kind: 'template' })
+    expect(cardTrust({ ...tpl, template: undefined, reconnect: true })).toEqual({ kind: 'template' })
+    const out = html(tpl)
+    expect(out).toContain('data-testid="connect-sign-in"')
+    expect(out).not.toContain('data-testid="connect-unlisted"')
+  })
+  test('bug 2: a reconnect card says it fixes the connection the person has, by sign-in or by key', () => {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      const signIn = html(notion('https://mcp.notion.com/mcp', { reconnect: true }))
+      expect(part(signIn, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectTitle', { name: 'Notion' })))
+      expect(part(signIn, 'p', 'connect-reconnect-note')![1]).toBe(esc(translate(locale, 'connect.reconnectNote', { name: 'Notion' })))
+      const key = html(card({ reconnect: true }))
+      expect(part(key, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectKeyTitle', { name: 'Higgs Studio' })))
+      expect(part(key, 'p', 'connect-reconnect-note')![1]).toBe(esc(translate(locale, 'connect.reconnectKeyNote', { name: 'Higgs Studio' })))
+      expect(key).toContain('data-testid="connect-key"')
+    }
+    setLocale('en')
+    expect(html(card())).not.toContain('connect-reconnect-note')
+  })
+  test('bug 5: a template you sign in to talks about your account, not a key', () => {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      const out = html(notion('https://mcp.notion.com/mcp', { template: { id: 't1', version: 1 } }))
+      expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.templateTitleSignIn', { name: 'Notion' })))
+      expect(part(out, 'p', 'connect-template-note')![1]).toBe(esc(translate(locale, 'connect.templateNoteSignIn')))
+    }
+    setLocale('en')
+    expect(translate('en', 'connect.templateNoteSignIn')).not.toMatch(/\bkey\b/)
+    expect(translate('en', 'integrations.asked.sendsSignIn', { host: 'h', name: 'N' })).not.toContain('token')
+  })
 })
 
 describe('the card, clicked', () => {
@@ -348,7 +434,7 @@ describe('the card, clicked', () => {
   const connects = (...answers: unknown[]) => {
     routes[CONNECT] = () => { const a = answers.shift(); return a ? json(a) : json({ error: { code: 'conflict', message: 'not expected' } }, 409) }
   }
-  const linear = () => card({ name: 'Linear', service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null } })
+  const linear = () => card({ name: 'Lineup', service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null } })
 
   test('a key: a wrong one keeps the card with the reason and an empty box, the right one connects and closes it', async () => {
     const r = card()
