@@ -344,11 +344,13 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
   const text = shared ? m.body.slice(0, shared.at).trim() : m.body
   // "@트리나" stands out like a person's name (the server asked the AI for it), "@전체" too (it mentions everyone); a
-  // shared answer's note mentions nobody (the server keeps no mention on it)
+  // shared answer's note mentions nobody (the server keeps no mention on it). "@트리나" only while the server takes it
+  // (Me.server.roomAiMentions, as the box's "@" list: off, it asks nobody, so it is plain text)
   // (the mention highlight: me, or "@전체" in someone else's message)
+  const aiMentions = !!me?.server?.roomAiMentions
   const marks = useMemo<MessageMention[]>(
-    () => (ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...aiMentionNames(text, mentioned)]).map((x) => ({ ...x, strong: x.id === meId || (x.id === ALL_MENTION_ID && m.author?.id !== meId), all: x.id === ALL_MENTION_ID })),
-    [text, m, mentioned, ai, shared, meId],
+    () => (ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...(aiMentions ? aiMentionNames(text, mentioned) : [])]).map((x) => ({ ...x, strong: x.id === meId || (x.id === ALL_MENTION_ID && m.author?.id !== meId), all: x.id === ALL_MENTION_ID })),
+    [text, m, mentioned, ai, shared, meId, aiMentions],
   )
   const [press, setPress] = useState(0)
   const pressedAt = useRef(0)
