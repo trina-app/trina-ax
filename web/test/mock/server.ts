@@ -29,7 +29,9 @@
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
 // them until the next reset), POST /__test/team-address {address: string | null} (GET /api/me team.address, the team's
-// address for its members, until the next reset; none by default), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
+// address for its members, until the next reset; none by default), POST /__test/slack {admin?: Partial<SlackAdmin>,
+// mine?: Partial<MySlack>} (Admin › Connected apps › Slack and the person's Slack line in Connectors show that, over a
+// connected own app with nobody linked, until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
 // for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
 // {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
 // POST /__test/speech {provider, key?: boolean, chosen?: false}
@@ -68,6 +70,7 @@ import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientVie
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
+import { MySlack, SlackAdmin } from '@mycel/shared/api'
 import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
@@ -389,6 +392,8 @@ export class MockServer {
   connection: ConnectionStatus = defaultConnection()
   /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
   teamAddress: string | null = null
+  /** Slack's state over the default (a connected own app, nobody linked): POST /__test/slack, until the next reset */
+  slackOver: { admin: Partial<SlackAdmin>; mine: Partial<MySlack> } = { admin: {}, mine: {} }
   /** GET /api/admin/backups' lastRestore (POST /__test/last-restore): none until a test sets it */
   lastRestore: import('@mycel/shared/api').LastRestore | null = null
   /** the Move picker's "최근" per person (folders moved into, newest first) and its ✕ (person|folder|name pattern) */
@@ -676,6 +681,7 @@ export class MockServer {
     this.pluginManaged.clear()
     this.connection = defaultConnection()
     this.teamAddress = null
+    this.slackOver = { admin: {}, mine: {} }
     this.lastRestore = null
     if (!this.setupNeeded) this.seed()
     // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
@@ -2107,12 +2113,13 @@ export class MockServer {
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
     listRooms: () => ({ items: this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
-    // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
-    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
+    // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
+    // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
+    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false, ...this.slackOver.mine }),
     slackAdmin: () => ({
       mode: 'own', official: false, enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
-      signIn: false, redirectUrl: null,
+      signIn: false, redirectUrl: null, ...this.slackOver.admin,
     }),
     listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name, ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }),
     // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again
@@ -5082,6 +5089,7 @@ export class MockServer {
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/last-restore') this.lastRestore = (body.last as unknown as import('@mycel/shared/api').LastRestore | null) ?? null
     else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
+    else if (p === '/__test/slack') this.slackOver = { admin: SlackAdmin.partial().parse(body.admin ?? {}), mine: MySlack.partial().parse(body.mine ?? {}) }
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })

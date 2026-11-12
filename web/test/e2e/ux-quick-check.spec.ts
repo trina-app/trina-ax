@@ -82,11 +82,14 @@ test('Admin › Connectors: "applies to everyone in the team" above the title; n
   const s = await box(scope)
   expect(s.y + s.height).toBeLessThanOrEqual(header.y + 0.5)
   // the title is the same noun as Settings', with nothing beside it; no line and no card for requests under it (asking a
-  // member is in Add connection's menu): Discover starts right under the title
+  // member is in Add connection's menu): the list starts right under the title (Connected, here with the mock's Slack,
+  // the owner's; else Discover)
   await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['admin.integrations'], exact: true })).toBeVisible()
   await expect(page.getByTestId('page-scope')).toHaveCount(1)
   await expect(page.getByTestId('team-integrations-note')).toHaveCount(0)
-  expect((await box(page.getByTestId('connector-discover'))).y - (header.y + header.height)).toBeLessThan(40)
+  await expect(page.getByTestId('team-connected')).toBeVisible()
+  expect((await box(page.getByTestId('team-connected'))).y - (header.y + header.height)).toBeLessThan(40)
+  expect((await box(page.getByTestId('connector-discover'))).y).toBeGreaterThan((await box(page.getByTestId('team-connected'))).y)
 })
 
 test('Admin › Plugins: a long licence list is "Licenses", the list in its tooltip and under the line when pressed', async ({ page }) => {

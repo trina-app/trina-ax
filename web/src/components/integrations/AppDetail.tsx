@@ -8,7 +8,8 @@
 // Admin › Connectors shows the same page (GoogleAdminPage.tsx) inside its own column (`embedded`), its way back to
 // Admin's list (`list`), and the team's settings under the details (`children`). In Settings (`inSettings`) the page is
 // under the dialog's own title: its name is an h2 (Tools an h3), and it takes the keyboard when it opens (the card that
-// opened it is gone), as ConnectorDetail's way back does.
+// opened it is gone), as ConnectorDetail's way back does. Slack's page in Admin (pages/admin/Slack.tsx) has only the
+// header: no About, tools or details (`about` and `developer` left out), its own settings as `children`.
 import { ChevronRight, ExternalLink, PenLine } from 'lucide-react'
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -32,15 +33,17 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
   actions?: ReactNode
   /** lines under the header: the account, a sign-in under way, why it cannot be connected */
   status?: ReactNode
-  about: string
+  /** the About text and what the AI may do (left out: neither, Slack's page) */
+  about?: string
   /** the AI may change or send something with it (else it only reads) */
-  canChange: boolean
+  canChange?: boolean
   /** with canChange: whether it asks first ("ask"), or the person chose Always allow */
   asks?: 'ask' | 'allow'
-  developer: string
-  category: string
+  /** the details block (left out: none, Slack's page) */
+  developer?: string
+  category?: string
   /** the account the person signs in with ("Google") */
-  signIn: string
+  signIn?: string
   /** the sign-in's owner and its privacy policy and terms (what the person agrees to at its sign-in) */
   links?: { by: string; privacy: string; terms: string }
   tools: AppTool[]
@@ -81,12 +84,14 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
           {status && <div className="mt-4 space-y-2">{status}</div>}
         </div>
 
-        <div className="space-y-2">
-          <p className="text-sm leading-relaxed text-ink/90" data-testid="app-about">{about}</p>
-          <p className="text-sm text-muted" data-testid="app-abilities" data-can-change={canChange ? 'yes' : 'no'}>
-            {!canChange ? t('gapps.readOnlyLine') : asks === 'allow' ? t('gapps.changeAllowLine') : t('gapps.changeAskLine')}
-          </p>
-        </div>
+        {about !== undefined && (
+          <div className="space-y-2">
+            <p className="text-sm leading-relaxed text-ink/90" data-testid="app-about">{about}</p>
+            <p className="text-sm text-muted" data-testid="app-abilities" data-can-change={canChange ? 'yes' : 'no'}>
+              {!canChange ? t('gapps.readOnlyLine') : asks === 'allow' ? t('gapps.changeAllowLine') : t('gapps.changeAskLine')}
+            </p>
+          </div>
+        )}
 
         {tools.length > 0 && (
           <section aria-labelledby={toolsId}>
@@ -118,7 +123,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
           </section>
         )}
 
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 text-sm" data-testid="app-info">
+        {developer !== undefined && <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 text-sm" data-testid="app-info">
           <Detail label={t('gapps.developer')}>{developer}</Detail>
           <Detail label={t('gapps.category')}>{category}</Detail>
           <Detail label={t('gapps.signIn')}>{signIn}</Detail>
@@ -131,7 +136,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
               </span>
             </Detail>
           )}
-        </dl>
+        </dl>}
 
         {children}
       </article>

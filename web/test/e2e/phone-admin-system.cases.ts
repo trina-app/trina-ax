@@ -355,6 +355,8 @@ export function systemFollowUps() {
       ['/admin/providers/codex', t['admin.team.providers']],
       ['/admin/connectors/google-drive', t['admin.team.integrations']],
       ['/admin/connectors/calendar', t['admin.team.integrations']],
+      // Slack, one of the connected apps (the owner's), not a row of Admin's own
+      ['/admin/connectors/slack', t['admin.team.integrations']],
       [`/admin/plugins/${HWP_PLUGIN_ID}`, t['admin.plugins']],
       ['/admin/members/bob', t['admin.members']],
       // every group of Team settings ("Members and AI" and "Company profile" showed ‹ alone: QA TC-381) and of System
