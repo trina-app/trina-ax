@@ -8364,7 +8364,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   API or a room file. The author is the session's person: the request schemas are `.strict()`, so a body naming
   `author`, `authorId`, `authorKind` or `visibility` is refused (400), and edit and delete are the author's only (403).
   Message text from another member is data: never HTML in the app (shown as plain text until 2026-11-12; since then as
-  Markdown, see "Markdown in people's messages"); the AI step must treat it as untrusted input too, and can rely on `author_id` being the real sender.
+  Markdown, see "Markdown in people's messages"); the AI step must treat it as untrusted input too, and can rely on
+  `author_id` being the real sender.
 - **KakaoTalk's unread number** (removed 2026-11-06: no read receipts, see "스레드와 반응"). Every message carried `unread`: members who may see it (`visible_from_seq < seq`) and
   whose `last_read_seq < seq`. The sender has read their own message (sending moves their read position to it). Reads
   only move forward (`POST /api/rooms/:id/read`, clamped to the room's last seq). Nobody's read position is in any
@@ -22587,6 +22588,7 @@ than one choice" rule of "Home and Getting started polish" (2026-11-11), point 2
 
 - **Each tab's root is the first history entry.** Back at the top of 대화, 파일 or 나 leaves the app (Android) or does
   nothing (the iOS swipe): Back never walks into other tabs. Material's "back to the start tab first" was not taken.
+  (In the Android app since feat/phone-nav-bridge, 2026-11-12: Back at another tab's root goes to the start tab first.)
 - **A screen pushed from another tab stays on the current tab's stack** (a file from a chat, a notice's page from
   Activity): Back returns where you came from, as native tab bars do. The screen table's parent (`lib/screens.ts`) is
   used for pages opened from outside, for ‹ at a stack's root and for Files' folders.
@@ -22600,7 +22602,7 @@ than one choice" rule of "Home and Getting started polish" (2026-11-11), point 2
 The sidebar's section titles (대화, 트리나 기록) are as large as the rows and bold (`SidebarSectionTitle`: `text-sm
 font-bold text-ink`), not a step smaller. Weight and colour alone, with no line or box, set the sections apart (the
 owner prefers a lean UI). The labels inside the lists (팀 대화방, 그룹 대화, 1:1 대화, the dates) and 더 보기 / 접기 stay
-small and grey. This replaces the 2026-11-07 "a step under the rows, 12 px semibold" (`docs/DESIGN-SYSTEM.md`).
+small and grey. This replaces the 2026-11-07 "a step under the rows, 12 px semibold".
 
 ## AI chat: a file dropped anywhere on the chat attaches to its box (fix/chat-drop-anywhere, 2026-11-12, QA TC-071)
 
@@ -22776,7 +22778,8 @@ Version impact: patch (security fix).
   "더 보기", so it never shows the empty text while older pages are left.
 - **A dot, not a count, on 멘션·스레드**, so the same mention is not numbered twice within 대화.
 - **No gaps.** A muted room (level off) makes no notice at all, so nothing 나 stops counting goes uncounted on 대화.
-  Hidden rooms are counted nowhere, as before.
+  Hidden rooms are counted nowhere, as before. A room muted after a mention left its row is counted once, on 나, not
+  on 대화 (#545).
 - **The 대화 search type is phone-only**; the computer's type chips stay as they were.
 
 ## Phone: leaving a team signs out of it (fix/phone-leave-signs-out, 2026-11-12, QA TC-369)
@@ -22838,7 +22841,8 @@ about 35 % and the field keeps 2–3 lines beside files. Computers unchanged (`m
 
 ## Phones: the app's swipe and Back follow the app's screens (feat/phone-nav-bridge, 2026-11-12, QA TC-246)
 
-- **Android Back at another tab's root is a tap on the start tab**, so that tab's stack comes back as it was left; if
+- **Android Back at another tab's root is a tap on the start tab** (changes the Android part of "Phones: Back goes to
+  the screen's parent"), so that tab's stack comes back as it was left; if
   the start tab had a chat open, Back then goes to its root and then leaves the app. Chosen over jumping to the root and
   dropping that stack.
 - **A notification tapped in the app is a push onto the current stack** (`planFor`), without a reload, so Back returns
