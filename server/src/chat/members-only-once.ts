@@ -27,9 +27,10 @@ const DONE = 'projectsMembersOnly.v1'
 
 export async function membersOnlyOnce(ctx: AppContext): Promise<void> {
   try {
-    // (loaded here, as the modules below: it imports the project modules)
-    const { rememberUpdateStaff } = await import('./old-projects')
-    if (getSetting(ctx.db, DONE)) { rememberUpdateStaff(ctx); return }
+    // who was the owner or an admin at the update (chat/old-projects.ts; loaded here, as the modules below: it imports the
+    // project modules), in its own try so a failure never skips the steps
+    const remember = async () => { try { (await import('./old-projects')).rememberUpdateStaff(ctx) } catch (e) { ctx.log.warn('who was an admin at the update not kept', { err: e }) } }
+    if (getSetting(ctx.db, DONE)) { await remember(); return }
     // (loaded here, not at the top: context.ts runs this at start, before those modules may be imported)
     const { markLapsed } = await import('./schedule-scope')
     const { resetEngineSessions } = await import('./runtime')
@@ -72,7 +73,7 @@ export async function membersOnlyOnce(ctx: AppContext): Promise<void> {
     for (const id of staff) { try { sessions += resetEngineSessions(ctx, id) } catch { /* their next turn starts fresh anyway when it cannot resume */ } }
     setSetting(db, DONE, new Date().toISOString())
     // who was the owner or an admin at the update, for the card about projects from before it (chat/old-projects.ts)
-    rememberUpdateStaff(ctx)
+    await remember()
     // (a new team, or one with nothing to take away: no row)
     if (answers || gone.length || schedules || sessions) audit(db, { actor: null, action: 'projects.members_only', target: null, detail: { answers, roleRules: gone.map((r) => ({ path: r.path, role: r.subject_id })), schedules, sessions } })
   } catch (e) { ctx.log.error('the members-only start steps did not finish; they run again at the next start', { err: e }) }

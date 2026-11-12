@@ -4,7 +4,7 @@
 // card on Admin › Home naming them, with "Add me to these" (a member of all of them at once, audited, their members
 // told) and a dismiss. Members never see it.
 //
-// What 0.4.0 showed is worked out, not stored: the update's first start is the time of the `projectsMembersOnly.v1`
+// What 0.4.0 showed is worked out each time (only who was staff at T and the dismissal are stored): the update's first start is the time of the `projectsMembersOnly.v1`
 // setting (chat/members-only-once.ts), T. The person: the owner or an admin now, an account from before T, whose role
 // nobody changed since T (a role change, a handover: they may not have been one then). The projects: team projects in
 // projects/<name> (any letter case, as the zone) made before T, folder in place, that the person may manage, does not
