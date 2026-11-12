@@ -264,7 +264,7 @@ describe('where the steps go', () => {
     expect(prevStep('ai')).toBeNull()
   })
 
-  test('a phone walks past 도구 연결 (docs/DECISIONS.md "W6"): never opened there, ← 이전 skips it, the walk records it as put off; it still counts', () => {
+  test('a phone walks past 도구 연결 (docs/DECISIONS.md "W6"): never opened there, ← 이전 skips it, the walk records it as put off; a phone counts only its own steps (QA TC-271)', () => {
     const p = { ...fresh(), steps: { ...fresh().steps, profile: 'done', skills: 'done', files: 'done' } } as WelcomeProgress
     expect(openHere(p, 'tools', false)).toBe(false)
     expect(openHere(p, 'tools', true)).toBe(true)
@@ -285,8 +285,12 @@ describe('where the steps go', () => {
     expect(showResume(last, false)).toBe(false)
     expect(phoneSkips(last, null, false)).toEqual(['tools'])
     expect(resumeStep(last, true, true)).toBe('tools')
-    // counted on the phone too (n/5), but not named as left there
+    // a computer counts it (n/5); a phone counts only the steps it shows (n/4: the bar jumped 3/5 → 5/5 there)
     expect(stepTotal(last)).toBe(5)
+    expect(stepTotal(last, true, false)).toBe(4)
+    expect(countedSteps(last, true, false)).toEqual(['profile', 'skills', 'files', 'invite'])
+    expect(doneCount(last, true, false)).toBe(4)
+    expect(countedSteps({ ...fresh(), steps: { ...fresh().steps, ai: 'skipped' } }, false, false)).toEqual(['ai', 'profile', 'skills', 'files', 'invite'])
     expect(stepsLeft(last, true, false)).toEqual([])
     expect(stepsLeft(last, true, true)).toEqual(['tools'])
   })
@@ -364,6 +368,8 @@ describe('where the steps go', () => {
     // a computer has 내 스킬 and 도구 연결 left too: the steps done, "2/5", never "5/5"
     expect(stepsLeft(phone, true, true)).toEqual(['skills', 'files', 'tools'])
     expect(setupRowWords(ko, phone, true, true)).toEqual({ text: '설정 이어서 하기', count: '2/5' })
+    // a phone with two left counts its own four steps ("2/4", QA TC-271)
+    expect(setupRowWords(ko, { ...phone, skillsLater: false }, true, false)).toEqual({ text: '설정 이어서 하기', count: '2/4' })
     // only put-off steps left, no phone in it: the one left is named whether open or put off
     const off = { ...fresh(), steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: 'skipped' } } as WelcomeProgress
     expect(setupRowWords(ko, off)).toEqual({ text: '남은 일: 팀원 초대', count: null })
@@ -1321,7 +1327,7 @@ describe('the later steps and the end', () => {
     } finally { await m.unmount() }
   })
 
-  test('a phone walks past 도구 연결: from 팀 파일 straight to the invite, recorded as put off; ← 이전 on the invite goes to 팀 파일', async () => {
+  test('a phone walks past 도구 연결: from 팀 파일 straight to the invite, recorded as put off; its own bar (‹ · "4/4 팀원 초대" · 나중에), no "← 이전" (QA TC-271)', async () => {
     signIn('owner')
     phoneWidth()
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: null, tools: null, invite: null } })
@@ -1329,12 +1335,18 @@ describe('the later steps and the end', () => {
     const m = await app()
     try {
       await m.until(() => stepOf(m) === 'files', '팀 파일')
+      // a phone's four steps (도구 연결 is a computer's): 팀 파일 is 3/4, in the bar
+      expect(m.get('welcome-bar-title').textContent).toBe('3/4 팀 파일')
+      expect(items(m)).toEqual(['profile', 'skills', 'files', 'invite'])
       await m.click(laterButton())
       await m.until(() => stepOf(m) === 'invite', 'the invite, past 도구 연결')
       expect(progress!.steps.tools).toBe('skipped')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body.step).filter(Boolean)).toEqual([{ id: 'files', state: 'skipped' }, { id: 'tools', state: 'skipped' }])
-      await m.click('welcome-back')
-      await m.until(() => stepOf(m) === 'files', '팀 파일, not 도구 연결')
+      expect(m.get('welcome-bar-title').textContent).toBe('4/4 팀원 초대')
+      // Back is the bar's ‹, the history's own (each step an entry: phone-welcome-flow e2e); no "← 이전" here
+      expect(m.find('welcome-back')).toBeNull()
+      expect(m.find('welcome-bar-back')).not.toBeNull()
+      expect(m.find('welcome-bar-later')?.textContent).toBe(translate('ko', 'welcome.leave'))
     } finally { await m.unmount() }
   })
 

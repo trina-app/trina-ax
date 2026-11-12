@@ -12,14 +12,25 @@
 //
 // Leaving the first step sets up every team once (a group named after the team with its folders, POST
 // /api/onboarding/welcome/team; no pack is installed); the server keeps every guarantee.
+//
+// On a phone (below 768 px; QA TC-271) the steps are a full-screen flow: no tab bar (lib/tabs.ts hidesTabs), one bar of
+// their own (‹ · "2/4 스킬" · 나중에), and each step its own history entry (`?step=`, a push per step; lib/screens.ts names
+// the step before as its parent), so ‹, the iPhone app's edge swipe and Android's Back all go to the step before, and
+// from the first step out to where the steps were opened from. Arriving in the middle (Home's row, a landing) puts the
+// steps before under it. 나중에 leaves the steps to where they were opened from (Home when nothing was), recording
+// nothing. The bar and the Home row count only the steps a phone shows (lib/welcome.ts countedSteps). A computer keeps
+// the steps in one entry with its "← 이전".
 import clsx from 'clsx'
 import { ArrowLeft, Check, CircleAlert, ExternalLink, Loader2, Paperclip } from 'lucide-react'
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { WELCOME_BRAND_FILES_MAX, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { useEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
+import { Navigate, parsePath, useLocation, useNavigate } from 'react-router-dom'
+import { WELCOME_BRAND_FILES_MAX, WELCOME_COUNTED, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
+import { useGoBack } from '../lib/back'
 import { markBusy } from '../lib/busy'
 import { joinPath } from '../lib/paths'
+import { stackNow, type Scr } from '../lib/screenHistory'
+import { useScreenName } from '../lib/screens'
 import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
@@ -36,6 +47,7 @@ import { SkillsStep } from '../components/onboarding/SkillsStep'
 import { TeamFilesStep } from '../components/onboarding/TeamFilesStep'
 import { ToolsStep } from '../components/onboarding/ToolsStep'
 import { UploadLabel } from '../components/UploadLabel'
+import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { Button, ErrorNote, Modal, Skeleton, useMediaQuery } from '../components/ui'
 
 export default function Welcome() {
@@ -52,6 +64,26 @@ const STEP_LABEL: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.prog
 
 /** A phone: 도구 연결 is walked past (recorded as put off: its sign-ins do not come back to the phone app yet). */
 export const PHONE_QUERY = '(max-width: 767.98px)'
+const phoneNow = () => typeof window !== 'undefined' && window.matchMedia?.(PHONE_QUERY).matches === true
+
+/** What a phone's address can name (`?step=`): a step it shows, or the end screen. */
+const SCREENS: readonly Screen[] = ['ai', ...WELCOME_COUNTED, 'done']
+/** The step a phone's address names, or null (none, or one a phone does not show: 도구 연결). */
+export function phoneScreen(search: string): Screen | null {
+  const v = new URLSearchParams(search).get('step')
+  const s = (SCREENS as readonly string[]).includes(v ?? '') ? (v as Screen) : null
+  return s && (s === 'ai' || s === 'done' || offeredHere(s, false)) ? s : null
+}
+/** A phone's address of a step: each step is a history entry of its own. */
+export const stepAddress = (s: Screen) => `/welcome?step=${s}`
+/** The steps a phone shows from the first one up to `s`, `s` last (the AI step alone: it is a gate, never gone back to). */
+export function stepsUpTo(s: WelcomeStep): WelcomeStep[] {
+  const out = [s]
+  for (let p = prevStep(s, false); p; p = prevStep(p, false)) out.unshift(p)
+  return out
+}
+/** The pages a token or a sign-in left under the steps: never gone back to from them. */
+const SIGN_IN_PAGE = /^\/(setup|login|password|join|invite|reset-password)(\/|$)/
 
 /** At most this many intro files on 회사 소개 ("소개 자료가 있으면 같이 넣기"): a company intro or a deck is enough, and each
  * goes up on its own (the server takes as many: WELCOME_BRAND_FILES_MAX). */
@@ -79,13 +111,34 @@ function WelcomeSteps() {
   // 회사 소개's brand materials did not go in (the profile is saved): one note on 내 스킬, once
   const [brandNote, setBrandNote] = useState(false)
   const region = useRef<HTMLDivElement>(null)
+  const scroller = useRef<HTMLDivElement>(null)
   const computer = !useMediaQuery(PHONE_QUERY)
   // a step put off and opened again from the end screen: once it is answered, back to the end screen (which lists what
   // is still put off), not Home (QA TC-206)
   const fromDone = useRef(false)
 
+  /** Show a step: on a phone also its own history entry (a push; `replace` for the AI step, which is over once AI
+   * answers). A step already under this one in the history is gone back to instead (lib/screenHistory.ts). */
+  const show = (s: Screen, replace = false) => {
+    setStep(s)
+    if (phoneNow()) navigate(stepAddress(s), { replace })
+  }
+  /** 나중에 (a phone's bar, the AI step's): out of the steps, recording nothing. On a phone back to where they were opened
+   * from (the entry under the steps), else Home; the setup row and Home's row lead back. */
+  const leave = () => {
+    if (!phoneNow()) return navigate('/')
+    const trail = (window.history.state as { scr?: Scr } | null)?.scr?.trail ?? []
+    const from = [...trail].reverse().find((x) => parsePath(x.p).pathname !== '/welcome')
+    navigate(from && !SIGN_IN_PAGE.test(from.p) ? from.p : '/')
+  }
+
+  // the address as the router has it now (open() reads it after its awaits)
+  const where = useRef(location)
+  where.current = location
   const open = async () => {
     setLoadError(null)
+    // a phone's address naming a step (a reload, Back or Forward into the steps, an address opened from outside)
+    const named = phoneNow() ? phoneScreen(where.current.search) : null
     try {
       const w = useWelcome.getState()
       let p = await w.load(true)
@@ -101,8 +154,22 @@ function WelcomeSteps() {
       const s = askedInvite && !p.finishedAt ? 'invite' : resumeStep(p, useAiAccess.getState().usable, here)
       // a phone resuming past 도구 연결: put off there (docs/DECISIONS.md "W6"), so the setup can end on the phone
       for (const id of phoneSkips(p, null, here)) p = await w.update({ step: { id, state: 'skipped' } })
-      if (s) setStep(s)
-      else navigate('/', { replace: true })
+      // gone elsewhere meanwhile: nothing to open
+      if (where.current.pathname !== '/welcome') return
+      if (named && !here) return setStep(named)
+      if (!s) return void navigate('/', { replace: true })
+      setStep(s)
+      if (here) return
+      // a phone arriving without a step: the steps before this one go under it, so ‹, the swipe and Android's Back walk
+      // them (not under the invite asked for by itself: the goal card's [팀원 초대], Back goes back there); with nothing
+      // of the app's under the steps (a landing, right after /setup) Home goes under the first
+      const [first, ...rest] = askedInvite ? [s] : stepsUpTo(s)
+      settling.current = s
+      if (!stackNow()?.below) {
+        navigate('/', { replace: true })
+        navigate(stepAddress(first!))
+      } else navigate(stepAddress(first!), { replace: true })
+      for (const x of rest) navigate(stepAddress(x))
     } catch (e) {
       setLoadError(e)
     }
@@ -112,16 +179,34 @@ function WelcomeSteps() {
   // invite step (the steps are unfinished, or the ask would have opened the invite dialog instead)
   const arrival = useRef(location.key)
   useEffect(() => {
-    if (location.key !== arrival.current && askedInvite && step && step !== 'done') setStep('invite')
+    if (location.key !== arrival.current && askedInvite && step && step !== 'done') show('invite', true)
   }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  // a phone: Back, Forward or ‹ moved to another step's entry; the step its address names shows (the arrival decides
+  // the first one)
+  const urlStep = computer ? null : phoneScreen(location.search)
+  // the step the arrival's entries are being written up to: the ones under it are not shown on the way
+  const settling = useRef<Screen | null>(null)
+  useEffect(() => {
+    if (settling.current) {
+      if (urlStep === settling.current) settling.current = null
+      return
+    }
+    if (!urlStep || step === null || urlStep === step) return
+    setError(null)
+    setBrandNote(false)
+    fromDone.current = false
+    setStep(urlStep)
+  }, [urlStep]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // a new step (not the first): its region takes the focus, so keyboard and screen-reader users hear where they are
   const first = useRef(true)
   useEffect(() => {
     if (!step) return
     if (first.current) { first.current = false; return }
+    // a phone's step is a screen of its own: it starts at the top
+    if (!computer) scroller.current?.scrollTo({ top: 0 })
     region.current?.focus()
-  }, [step])
+  }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true)
@@ -134,10 +219,10 @@ function WelcomeSteps() {
   const go = async (p: WelcomeProgress, from: WelcomeStep) => {
     for (const id of phoneSkips(p, from, computer)) p = await useWelcome.getState().update({ step: { id, state: 'skipped' } })
     setBrandNote(false)
-    if (fromDone.current) { fromDone.current = false; return setStep('done') }
+    if (fromDone.current) { fromDone.current = false; return show('done') }
     const n = nextStep(p, from, computer)
-    if (n) return setStep(n)
-    if (!p.doneShownAt) return setStep('done')
+    if (n) return show(n)
+    if (!p.doneShownAt) return show('done')
     if (p.finishedAt) toast({ level: 'success', text: t('welcome.finished') })
     navigate('/')
   }
@@ -148,7 +233,8 @@ function WelcomeSteps() {
   const aiConnected = () => run(async () => {
     const p = await useWelcome.getState().update({ step: { id: 'ai', state: 'done' } })
     const s = resumeStep(p, true, computer)
-    if (s) setStep(s)
+    // the AI step is over: its entry becomes the step it held back
+    if (s) show(s, true)
     else await go(p, 'ai')
   })
   useEffect(() => {
@@ -174,29 +260,34 @@ function WelcomeSteps() {
     setBrandNote(brandFailed)
   })
 
+  // a phone's own bar over the steps (computers: none): ‹ · the step · 나중에
+  const bar = (title: string, later: boolean) => (computer ? undefined : <WelcomeBar title={title} onLater={later ? leave : undefined} />)
   if (loadError)
     return (
-      <Page>
+      <Page bar={bar(t('welcome.eyebrow'), true)} scroller={scroller}>
         <ErrorNote onRetry={() => void open()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote>
       </Page>
     )
   if (!step || !progress)
     return (
-      <Page>
+      <Page bar={bar(t('welcome.eyebrow'), true)} scroller={scroller}>
         <Skeleton lines={5} />
       </Page>
     )
   // AI went away after the steps started (a key removed, the trial credit used): the AI step holds back 회사 소개
   const gate = step === 'ai' || (!aiReady && step !== 'done' && needsAi(step))
-  const back = gate || step === 'done' ? null : prevStep(step, computer)
+  // a computer's "← 이전" (a phone's is the bar's ‹, the history's own Back)
+  const back = gate || step === 'done' || !computer ? null : prevStep(step, computer)
   const nextLabel = (from: WelcomeStep) => {
     const n = nextStep(progress, from, computer)
     return t(n === 'files' ? 'welcome.next.files' : n === 'tools' ? 'welcome.next.tools' : n === 'invite' ? 'welcome.next.invite' : 'welcome.next.step')
   }
+  const at = step === 'done' ? null : progressAt(progress, gate ? 'ai' : step, aiReady, computer)
   return (
-    <Page>
-      <h1 className="text-xs font-medium tracking-wide text-accent-text">{t('welcome.eyebrow')}</h1>
-      {step !== 'done' && <Progress progress={progress} step={gate ? 'ai' : step} aiReady={aiReady} />}
+    <Page bar={bar(at ? t('welcome.progress.item', { n: at.n, total: at.total, label: t(STEP_LABEL[at.step]!) }) : t('welcome.eyebrow'), step !== 'done')} scroller={scroller}>
+      {/* a phone's bar says where the steps are: the heading stays for screen readers */}
+      <h1 className="text-xs font-medium tracking-wide text-accent-text max-md:sr-only">{t('welcome.eyebrow')}</h1>
+      {step !== 'done' && <Progress progress={progress} step={gate ? 'ai' : step} aiReady={aiReady} computer={computer} />}
       {back && (
         <div className="mt-5 -ml-2.5">
           <Button size="sm" variant="ghost" onClick={() => { setError(null); setBrandNote(false); setStep(back) }} disabled={busy} data-testid="welcome-back">
@@ -204,8 +295,8 @@ function WelcomeSteps() {
           </Button>
         </div>
       )}
-      <div ref={region} tabIndex={-1} className={back ? 'mt-2 outline-none' : 'mt-8 outline-none'} data-step={gate ? 'ai' : step}>
-        {gate && <AiStep busy={busy} onLater={() => navigate('/')} />}
+      <div ref={region} tabIndex={-1} className={back ? 'mt-2 outline-none' : 'mt-8 outline-none max-md:mt-6'} data-step={gate ? 'ai' : step}>
+        {gate && <AiStep busy={busy} onLater={computer ? leave : undefined} />}
         {!gate && step === 'profile' && <ProfileWizardStep progress={progress} busy={busy} onContinue={(brandFailed) => void leaveProfile('done', brandFailed)} onSkip={() => void leaveProfile('skipped')} />}
         {!gate && step === 'skills' && (
           <SkillsStep nextLabel={nextLabel('skills')} busy={busy}
@@ -215,32 +306,78 @@ function WelcomeSteps() {
         )}
         {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
         {!gate && step === 'tools' && <ToolsStep busy={busy} done={progress.steps.tools === 'done'} nextLabel={nextLabel('tools')} onDone={() => void mark('tools', 'done')} onSkip={() => void mark('tools', 'skipped')} />}
-        {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} onStep={(s) => { setError(null); setStep(s) }} />}
-        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} computer={computer} onStep={(s) => { fromDone.current = true; setError(null); setStep(s) }} />}
+        {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} onStep={(s) => { setError(null); show(s) }} />}
+        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} computer={computer} onStep={(s) => { fromDone.current = true; setError(null); show(s) }} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
     </Page>
   )
 }
 
-/** No frame around the steps: on a phone the page itself is the column. */
-function Page({ children }: { children: ReactNode }) {
+/** No frame around the steps: on a phone the page itself is the column, under its own bar (no tab bar there, so the
+ * column keeps the home indicator's room at its end). */
+function Page({ bar, scroller, children }: { bar?: ReactNode; scroller?: RefObject<HTMLDivElement | null>; children: ReactNode }) {
   return (
-    <div className="flex h-full flex-col overflow-y-auto" data-testid="welcome">
-      <div className="mx-auto w-full max-w-[640px] px-4 pt-6 pb-10 sm:px-6 sm:pt-10">{children}</div>
+    <div className="flex h-full flex-col" data-testid="welcome">
+      {bar}
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[640px] px-4 pt-6 pb-10 sm:px-6 sm:pt-10 max-md:pb-[calc(2.5rem+var(--safe-bottom))]">{children}</div>
+      </div>
     </div>
   )
 }
 
-/** "1/5 회사 소개 · 2/5 내 스킬 · 3/5 팀 파일 · 4/5 도구 연결 · 5/5 팀원 초대" ("1/6 AI 연결 · …" for an owner who needed
- * AI first): filled up to the step on screen. On a phone only the step on screen is named, under the bars (five names
- * do not fit 390 px); the others stay for screen readers. */
-function Progress({ progress, step, aiReady }: { progress: WelcomeProgress; step: WelcomeStep; aiReady: boolean }) {
+/**
+ * A phone's bar over the steps (QA TC-271): ‹ goes back in the history, which is the step before (each step is an
+ * entry), or out of the steps from the first one, named after where it goes ("‹ 회사 소개", "‹ 트리나"); the step in
+ * the middle ("2/4 스킬"); 나중에 on the right leaves the steps (not on the end screen). Every button is 44 px.
+ */
+function WelcomeBar({ title, onLater }: { title: string; onLater?: () => void }) {
   const t = useT()
-  const list = countedSteps(progress, aiReady)
-  // the AI step on screen is on the bar even before it is recorded (gone back to 회사 소개 when AI went away)
+  const back = useGoBack('/')
+  const name = useScreenName()
+  useLocation() // drawn again for each entry: the label reads the history's entry under this one
+  const below = stackNow()?.below?.p ?? null
+  const under = below ? parsePath(below) : null
+  const belowStep = under?.pathname === '/welcome' ? phoneScreen(under.search ?? '') : null
+  const label = belowStep ? t(belowStep === 'done' ? 'welcome.eyebrow' : STEP_LABEL[belowStep]!) : below ? name(below) : null
+  return (
+    <PhonePageBar
+      onBack={back}
+      backLabel={label}
+      title={title}
+      titleHidden
+      backTestId="welcome-bar-back"
+      titleTestId="welcome-bar-title"
+      className="md:hidden"
+      action={onLater && (
+        <button type="button" onClick={onLater} aria-label={t('welcome.leaveLabel')} className="flex h-11 items-center rounded-md px-3 text-sm font-medium text-muted transition hover:bg-hover hover:text-ink" data-testid="welcome-bar-later">
+          {t('welcome.leave')}
+        </button>
+      )}
+    />
+  )
+}
+
+/** The steps the bar counts here and where `step` is among them (n of total, from 1). The AI step on screen is counted
+ * even before it is recorded (gone back to 회사 소개 when AI went away). A phone counts only its own steps. */
+function counting(progress: WelcomeProgress, step: WelcomeStep, aiReady: boolean, computer: boolean) {
+  const list = countedSteps(progress, aiReady, computer)
   const counted = step === 'ai' && !list.includes('ai') ? ['ai' as const, ...list] : list
-  const at = counted.indexOf(step)
+  return { counted, at: counted.indexOf(step) }
+}
+function progressAt(progress: WelcomeProgress, step: WelcomeStep, aiReady: boolean, computer: boolean): { n: number; total: number; step: WelcomeStep } | null {
+  const { counted, at } = counting(progress, step, aiReady, computer)
+  return at < 0 ? null : { n: at + 1, total: counted.length, step }
+}
+
+/** "1/5 회사 소개 · 2/5 내 스킬 · 3/5 팀 파일 · 4/5 도구 연결 · 5/5 팀원 초대" ("1/6 AI 연결 · …" for an owner who needed
+ * AI first): filled up to the step on screen. A phone counts the four it shows ("1/4 회사 소개 · … · 4/4 팀원 초대": 도구
+ * 연결 is a computer's) and names only the step on screen, in its bar (five names do not fit 390 px); the others stay
+ * for screen readers. */
+function Progress({ progress, step, aiReady, computer }: { progress: WelcomeProgress; step: WelcomeStep; aiReady: boolean; computer: boolean }) {
+  const t = useT()
+  const { counted, at } = counting(progress, step, aiReady, computer)
   return (
     <>
       <ol className={clsx('mt-3 grid gap-2', COLS[counted.length] ?? 'grid-cols-5')} aria-label={t('welcome.progress.label')} data-testid="welcome-progress">
@@ -258,11 +395,6 @@ function Progress({ progress, step, aiReady }: { progress: WelcomeProgress; step
           )
         })}
       </ol>
-      {at >= 0 && (
-        <p aria-hidden className="mt-1.5 text-xs font-medium text-ink sm:hidden" data-testid="welcome-progress-phone">
-          {t('welcome.progress.item', { n: at + 1, total: counted.length, label: t(STEP_LABEL[counted[at]!]!) })}
-        </p>
-      )}
     </>
   )
 }
@@ -393,7 +525,7 @@ function ProfileLine({ profile, onSaved }: { profile: CompanyProfile; onSaved: (
       <p className="text-sm break-words text-muted" data-testid="welcome-profile-line">
         <span data-testid="welcome-profile-understood">{line ? t('onboarding.profile.understood', { line }) : t('welcome.profile.savedPlain')}</span>
         <span aria-hidden> · </span>
-        <button type="button" className={quietLink} onClick={() => setOpen(true)} aria-haspopup="dialog" data-testid="welcome-profile-fix">
+        <button type="button" className={clsx(quietLink, 'touch-hit')} onClick={() => setOpen(true)} aria-haspopup="dialog" data-testid="welcome-profile-fix">
           {t('onboarding.profile.edit')}
         </button>
       </p>
@@ -412,13 +544,14 @@ function ProfileLine({ profile, onSaved }: { profile: CompanyProfile; onSaved: (
  * on by themselves (WelcomeSteps). "나중에
  * 하기" leaves the steps: nothing after this works without AI.
  */
-function AiStep({ busy, onLater }: { busy: boolean; onLater: () => void }) {
+function AiStep({ busy, onLater }: { busy: boolean; onLater?: () => void }) {
   const t = useT()
   return (
     <div className="space-y-5" data-testid="welcome-ai">
       <StepHead title={t('welcome.ai.title')} desc={t('welcome.ai.why')} />
       <ConnectAiPanel disabled={busy} />
-      <div className="flex justify-end"><Later onClick={onLater} disabled={busy} /></div>
+      {/* a phone's is the bar's 나중에 (the same: out of the steps) */}
+      {onLater && <div className="flex justify-end"><Later onClick={onLater} disabled={busy} /></div>}
     </div>
   )
 }
@@ -516,7 +649,7 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
       {/* phones pick files, not folders (no webkitdirectory) */}
       <input ref={input} type="file" multiple className="hidden" onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; files.pick(list) }} data-testid="welcome-files-input" />
       <p className="text-sm">
-        <button type="button" className={clsx(quietLink, 'inline-flex items-center gap-1.5')} disabled={disabled} onClick={() => input.current?.click()} data-testid="welcome-files-pick">
+        <button type="button" className={clsx(quietLink, 'inline-flex items-center gap-1.5 max-md:min-h-11')} disabled={disabled} onClick={() => input.current?.click()} data-testid="welcome-files-pick">
           <Paperclip size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.profile.files')}
         </button>
       </p>
@@ -631,7 +764,7 @@ function DoneStep({ progress, aiReady, computer, onStep }: { progress: WelcomePr
           <Button variant="primary" className="max-sm:w-full" onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</Button>
         )}
         {(tryOwn || make || !aiReady) && (
-          <button type="button" className={clsx(quietLink, 'text-sm max-sm:w-full')} onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</button>
+          <button type="button" className={clsx(quietLink, 'text-sm max-sm:w-full max-md:min-h-11')} onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</button>
         )}
       </div>
       {later.length > 0 && (

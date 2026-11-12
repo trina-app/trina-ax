@@ -108,15 +108,19 @@ export function PackRows({ items, checked, onToggle, outcome, disabled, classNam
               {went ? (
                 <CircleCheck size={18} className="mt-px shrink-0 text-ok" aria-hidden />
               ) : (
-                <input
-                  id={id}
-                  type="checkbox"
-                  checked={checked.has(s.name)}
-                  onChange={(e) => onToggle(s.name, e.target.checked)}
-                  disabled={disabled}
-                  className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark]"
-                  data-testid="skill-pack-check"
-                />
+                // a 44 px tap box on phones around the 18 px box (touch-hit on the label: WebKit draws no ::after on an
+                // input, so the box itself could not take it; QA TC-271)
+                <label htmlFor={id} className="touch-hit mt-0.5 flex shrink-0" data-testid="skill-pack-check-box">
+                  <input
+                    id={id}
+                    type="checkbox"
+                    checked={checked.has(s.name)}
+                    onChange={(e) => onToggle(s.name, e.target.checked)}
+                    disabled={disabled}
+                    className="size-4.5 accent-[var(--c-accent)] dark:[color-scheme:dark]"
+                    data-testid="skill-pack-check"
+                  />
+                </label>
               )}
               <label htmlFor={went ? undefined : id} className={clsx('min-w-0 flex-1', !went && 'cursor-pointer')}>
                 <span className="block text-sm font-medium break-words text-ink" data-testid="skill-pack-title">{s.title}</span>
