@@ -1,6 +1,7 @@
-// Slack broker (control plane `src/slack-broker/`): ONE official Slack app ("Trina AX", public distribution) serves every
-// hosted team and every self-installed server the hosting service registered, so no team makes its own Slack app or
-// copies a token by hand. A team server without a connection to the hosting service keeps its own app (docs/SLACK.md).
+// Slack broker (control plane `src/slack-broker/`): ONE official Slack app (named after the product, public
+// distribution) serves every hosted team and every self-installed server the hosting service registered, so no team
+// makes its own Slack app or copies a token by hand. A team server without a connection to the hosting service keeps
+// its own app (docs/SLACK.md).
 // MIT (see LICENSE in this folder).
 //
 // NO imports at all, erasable TypeScript only: the team server and the control plane (Bun) load this file as it is.
