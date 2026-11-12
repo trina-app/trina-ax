@@ -21,7 +21,8 @@ export const PLATFORMS = ['linux-amd64', 'linux-arm64', 'darwin-arm64', 'darwin-
  * office Mac (office-install.sh) */
 export const REQUIRED_PLATFORMS: Record<string, readonly string[]> = {
   'chrome-headless-shell': ['linux-amd64', 'linux-arm64', 'darwin-arm64', 'darwin-amd64'],
-  node: ['linux-amd64', 'linux-arm64'],
+  node: ['linux-amd64', 'linux-arm64', 'darwin-arm64', 'darwin-amd64'],
+  cpython: ['darwin-arm64', 'darwin-amd64'],
   srt: ['any'],
 }
 
@@ -142,7 +143,8 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
       if (f.dir !== undefined && (typeof f.dir !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(f.dir) || f.dir.includes('..'))) p.push(`${pa}: bad dir (a folder name, no ..)`)
     }
   }
-  for (const n of Object.keys(REQUIRED_PLATFORMS)) if (!has(artifacts, n)) p.push(`no artifact ${n}`)
+  // the Linux copy has no Mac-only artifact (linuxList)
+  for (const [n, need] of Object.entries(REQUIRED_PLATFORMS)) if (!has(artifacts, n) && !(opts.linux && need.every((x) => x.startsWith('darwin-')))) p.push(`no artifact ${n}`)
   for (const [n, y] of Object.entries(pythons)) {
     const at = `python ${n}`
     if (!GROUP.test(n)) p.push(`${at}: bad name`)
@@ -243,9 +245,12 @@ const LINUX_ABOUT = ['The Linux copy of scripts/system/packages.json, made by sc
  * of their checkout (scripts/image/build.sh, build-ami.sh). */
 export function linuxList(listText: string): string {
   const l = JSON.parse(listText) as PackageList
+  // a Mac-only artifact (no Linux platform, e.g. cpython of a Mac team server) and the Mac groups (name ends in -mac)
+  // are not in the Linux copy: a Mac-only change changes no root byte of a Linux server
   const artifacts = Object.fromEntries(Object.entries(l.artifacts).map(([n, a]) =>
-    [n, { ...a, platforms: Object.fromEntries(Object.entries(a.platforms).filter(([p]) => LINUX_PLATFORM(p))) }]))
-  return `${JSON.stringify({ ...l, _about: LINUX_ABOUT, artifacts }, null, 2)}\n`
+    [n, { ...a, platforms: Object.fromEntries(Object.entries(a.platforms).filter(([p]) => LINUX_PLATFORM(p))) }] as const).filter(([, a]) => Object.keys(a.platforms).length > 0))
+  const groups = Object.fromEntries(Object.entries(l.groups).filter(([g]) => !g.endsWith('-mac')))
+  return `${JSON.stringify({ ...l, _about: LINUX_ABOUT, groups, artifacts }, null, 2)}\n`
 }
 
 if (import.meta.main) {

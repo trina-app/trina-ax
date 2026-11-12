@@ -6,6 +6,8 @@
 #   install-srt-mac.sh --id ID --base BASE --server-user SRV --prefix PREFIX --slots N [--bun BUN] [--name NAME]
 #
 # What it does:
+#   - Python 3 (the list's pinned python-build-standalone tarball) in /opt/trina/python3-<version>, link
+#     /opt/trina/python3;
 #   - node (the list's pinned tarball for this Mac, scripts/system/packages.json) in /opt/trina/node-v<version>, link
 #     /opt/trina/node; srt (package-lock.json, npm ci --ignore-scripts) in /opt/trina/srt/<version> with full.mjs
 #     (srt-full.mjs) and mac.mjs (srt-mac.mjs); /opt/trina/devenv/run-wrap-mac. All root's; no account can change them.
@@ -82,6 +84,26 @@ if [ ! -x "$NODE_DIR/bin/node" ]; then
 fi
 ln -sfn "node-v$NODE_VERSION" "$OPT/node"
 "$OPT/node/bin/node" -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||a===22&&b>=21?0:1)' || die "node is older than 22.21"
+
+# ---- Python 3 (pinned python-build-standalone tarball): a run installs libraries with pip into the project or its
+# home, never system programs, so the base runtime comes from here ----
+PY_VERSION=$(pk_art cpython "$PLATFORM" version) || die "the list has no cpython for $PLATFORM"
+[[ "$PY_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "the list's cpython version $PY_VERSION is not a version"
+PY_DIR=$OPT/python3-$PY_VERSION
+if [ ! -x "$PY_DIR/bin/python3" ]; then
+  say "python $PY_VERSION"
+  PY_TOP=$(pk_art cpython "$PLATFORM" dir) && [ "$PY_TOP" = python ] || die "the list's cpython has no folder name for $PLATFORM"
+  pk_fetch "$(pk_art cpython "$PLATFORM" url)" "$(pk_art cpython "$PLATFORM" sha256)" "$(pk_art cpython "$PLATFORM" size)" "$TMP/python.tar.gz" \
+    || die "python tarball: not downloaded, or not the one the list pins"
+  mkdir "$TMP/py" && tar -xzf "$TMP/python.tar.gz" -C "$TMP/py"
+  [ -x "$TMP/py/$PY_TOP/bin/python3" ] || die "python tarball: no $PY_TOP/bin/python3 in it"
+  rm -rf "$PY_DIR"; mv "$TMP/py/$PY_TOP" "$PY_DIR"
+  chown -R root:wheel "$PY_DIR"; chmod -R go-w "$PY_DIR"
+fi
+ln -sfn "python3-$PY_VERSION" "$OPT/python3"
+"$OPT/python3/bin/python3" -c 'import ssl, sqlite3, venv, pip' || die "python $PY_VERSION is not complete (ssl, sqlite3, venv, pip)"
+# git, make and cc come from Apple's Command Line Tools (not pinned: Apple's own, updated by Software Update)
+[ -x /Library/Developer/CommandLineTools/usr/bin/git ] || say "warning: no Command Line Tools on this Mac: a run has no git, make or cc (install them: xcode-select --install)"
 
 # ---- srt (pinned lockfile, no install scripts) ----
 if [ ! -f "$SRT_DIR/cli.js" ] || ! cmp -s "$HERE/package-lock.json" "$SRT_DIR/package-lock.json"; then

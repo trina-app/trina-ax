@@ -301,8 +301,10 @@ export function runEnv(i: EnvInput): Record<string, string> {
   const mac = (i.platform ?? devPlatform()) === 'darwin'
   const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
   return {
-    // macOS: Homebrew's programs when the Mac has them (MAC_SYSTEM_READ_PATHS); /usr/local is not readable there
-    PATH: mac ? `${node}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${node}:/usr/local/bin:/usr/bin:/bin`,
+    // macOS: Trina's Python 3 (install-srt-mac.sh), git and make of the Command Line Tools directly (the /usr/bin stubs
+    // run xcrun, which needs the developer folder that xcode-select names), Homebrew's programs when the Mac has them
+    // (MAC_SYSTEM_READ_PATHS); /usr/local is not readable there
+    PATH: mac ? `${node}:/opt/trina/python3/bin:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${node}:/usr/local/bin:/usr/bin:/bin`,
     HOME: home,
     // srt's own temp files (proxy sockets) land here too. A server-only TMPDIR for the srt process was tried (S7,
     // 2026-11-04, Docker suite): srt then binds that folder into the sandbox writable and the allowed-site proxy broke

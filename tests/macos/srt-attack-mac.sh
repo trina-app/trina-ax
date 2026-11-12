@@ -7,7 +7,8 @@
 #
 # The ports are the install's --port, --proxy-port and --tls-port (0 = off).
 #
-# Also checks, as root: the sudoers rule allows nothing else, and a run outlives the end of the launchd job that
+# On a Mac with no bun: build the driver elsewhere (bun build tests/macos/srt-attack-mac.ts --target bun --outfile
+# attack.js) and pass ATTACK_JS=<attack.js>. Also checks, as root: the sudoers rule allows nothing else, and a run outlives the end of the launchd job that
 # started it (a server restart or update keeps the runs).
 set -euo pipefail
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -30,7 +31,9 @@ U_HOME=$(dscl . -read "/Users/$SUDO_USER" NFSHomeDirectory | awk '{print $2}')
 
 OUT=$(mktemp -d /private/tmp/srt-attack.XXXXXX); chmod 755 "$OUT"
 trap 'rm -rf "$OUT"; launchctl bootout "system/$LABEL.attackrestart" >/dev/null 2>&1 || true; rm -f "/Library/LaunchDaemons/$LABEL.attackrestart.plist"' EXIT
-sudo -u "$SUDO_USER" "$U_HOME/.bun/bin/bun" build "$REPO/tests/macos/srt-attack-mac.ts" --target bun --outfile "$OUT/attack.js" >/dev/null
+# the driver: built here with the invoking user's bun, or given prebuilt (ATTACK_JS: a Mac with no bun of its own)
+if [ -n "${ATTACK_JS:-}" ]; then cp "$ATTACK_JS" "$OUT/attack.js"
+else sudo -u "$SUDO_USER" "$U_HOME/.bun/bin/bun" build "$REPO/tests/macos/srt-attack-mac.ts" --target bun --outfile "$OUT/attack.js" >/dev/null; fi
 PROBE=""
 if [ -x /usr/bin/cc ] && sudo -u "$SUDO_USER" /usr/bin/cc -O -o "$OUT/argv-probe" "$REPO/tests/macos/argv-probe.c" 2>/dev/null; then PROBE="$OUT/argv-probe"; fi
 chmod -R a+rX "$OUT"

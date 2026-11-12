@@ -994,9 +994,13 @@ describe('updates carry the list', () => {
     expect(listProblems(l, { linux: true })).toEqual([])
     expect(listProblems(l).join()).toContain('no darwin-arm64')
     // what a Linux server reads is the list's: groups, distros, arches, the linux and "any" downloads
-    expect(l.groups).toEqual(LIST.groups)
+    // (but the Mac groups, name ends in -mac, and the Mac-only artifacts: a Mac team server's Python)
+    expect(l.groups).toEqual(Object.fromEntries(Object.entries(LIST.groups).filter(([g]) => !g.endsWith('-mac'))))
+    expect(Object.keys(LIST.groups).filter((g) => g.endsWith('-mac'))).toEqual(['srt-mac'])
+    expect(l.artifacts.cpython).toBeUndefined()
     expect(l.distros).toEqual(LIST.distros)
     for (const [n, a] of Object.entries(LIST.artifacts)) {
+      if (Object.keys(a.platforms).every((p) => p.startsWith('darwin-'))) continue
       expect(l.artifacts[n]!.version).toBe(a.version)
       for (const [p, f] of Object.entries(a.platforms)) if (!p.startsWith('darwin-')) expect(l.artifacts[n]!.platforms[p]).toEqual(f)
     }

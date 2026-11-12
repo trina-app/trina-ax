@@ -56,7 +56,7 @@ describe('the srt settings file on macOS', () => {
   })
   test('the environment: Homebrew in PATH, a Mac locale, nothing from the server', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null, platform: 'darwin' })
-    expect(e.PATH).toBe('/opt/trina/node/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin')
+    expect(e.PATH).toBe('/opt/trina/node/bin:/opt/trina/python3/bin:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin')
     expect(e.LANG).toBe('en_US.UTF-8')
     expect(Object.keys(e).some((k) => k.startsWith('MYCEL'))).toBe(false)
   })
