@@ -163,6 +163,8 @@ interface ProcText {
   fallbackSay: (how: string) => string
   /** what fills a Hangul form: the HWP plugin, where an admin turns it on */
   hangulOn: string
+  /** a Hangul form whose edit_hwp was there but failed: the plugin is not the reason, so no plugin advice */
+  hangulFailed: string
   /** what fills an Excel or Word form */
   devOn: string
 }
@@ -183,6 +185,7 @@ const PROC: Record<Locale, ProcText> = {
     hangulFallback: '.hwpx, 한글 쓰기가 꺼져 있으면 .docx',
     fallbackSay: (how) => `이때는 꼭 이렇게 말해요: 여기서는 양식 파일 자체를 채울 수 없어서 같은 항목으로 새 파일을 만들었다고, 그리고 ${how} 진짜 양식이 채워진다고.`,
     hangulOn: '관리자에게 관리 › 플러그인에서 한글 문서 미리보기(HWP) 플러그인을 켜 달라고 하면',
+    hangulFailed: '단, edit_hwp가 있었는데 실패했다면 플러그인 얘기는 하지 말고, 양식의 어느 칸을 채우지 못했는지 말해요.',
     devOn: '자기 대화에서 열거나 관리자에게 개발 환경을 켜 달라고 하면',
   },
   en: {
@@ -200,6 +203,7 @@ const PROC: Record<Locale, ProcText> = {
     hangulFallback: 'a .hwpx, or a .docx when Hangul writing is off',
     fallbackSay: (how) => `Then say plainly: the form itself cannot be filled here, so you made a new file with the same fields; ${how} fills the real form.`,
     hangulOn: 'asking an admin to turn on the Hangul document preview (HWP) plugin in Admin › Plugins',
+    hangulFailed: 'But if edit_hwp was there and failed, do not mention the plugin: say which blanks of the form could not be filled.',
     devOn: 'opening this in their own chat (or asking an admin to turn on the dev environment)',
   },
   id: {
@@ -217,6 +221,7 @@ const PROC: Record<Locale, ProcText> = {
     hangulFallback: '.hwpx, atau .docx jika penulisan Hangul mati',
     fallbackSay: (how) => `Lalu katakan dengan jelas: formulirnya sendiri tidak bisa diisi di sini, jadi Anda membuat berkas baru dengan isian yang sama; ${how} akan mengisi formulir yang asli.`,
     hangulOn: 'meminta admin menyalakan plugin Pratinjau dokumen Hangul (HWP) di Admin › Plugin',
+    hangulFailed: 'Tetapi jika edit_hwp ada dan gagal, jangan sebut plugin: katakan isian formulir mana yang tidak bisa diisi.',
     devOn: 'membukanya di obrolan sendiri (atau meminta admin menyalakan lingkungan pengembangan)',
   },
   ja: {
@@ -234,6 +239,7 @@ const PROC: Record<Locale, ProcText> = {
     hangulFallback: '.hwpx、Hangul の書き込みがオフなら .docx',
     fallbackSay: (how) => `そのときははっきり伝えます: ここではテンプレートのファイル自体に記入できないので同じ項目で新しいファイルを作ったこと、${how}本物のテンプレートに記入できること。`,
     hangulOn: '管理者に 管理 › プラグインでハングル文書のプレビュー(HWP)プラグインをオンにしてもらえば',
+    hangulFailed: 'ただし edit_hwp があったのに失敗した場合はプラグインの話はせず、テンプレートのどの欄を記入できなかったかを伝えます。',
     devOn: '自分のチャットで開くか管理者に開発環境をオンにしてもらえば',
   },
   es: {
@@ -251,6 +257,7 @@ const PROC: Record<Locale, ProcText> = {
     hangulFallback: 'un .hwpx, o un .docx si la escritura de Hangul está desactivada',
     fallbackSay: (how) => `Entonces dígalo claramente: aquí no se puede rellenar la propia plantilla, así que creó un archivo nuevo con los mismos campos; ${how} rellena la plantilla real.`,
     hangulOn: 'pedir a un administrador que active el complemento Vista previa de documentos Hangul (HWP) en Administración › Complementos',
+    hangulFailed: 'Pero si edit_hwp estaba disponible y falló, no mencione el complemento: diga qué campos de la plantilla no se pudieron rellenar.',
     devOn: 'abrirlo en su propio chat (o pedir a un administrador que active el entorno de desarrollo)',
   },
 }
@@ -288,7 +295,7 @@ export function formSteps(m: Pick<FormMaterial, 'path' | 'type' | 'like' | 'loca
     `4. ${t.name(kind, ext)}`,
     `5. ${t.save} ${t.saveOnce}`,
     `6. ${t.link}`,
-    `7. ${t.fallback(hangul ? t.hangulFallback : `.${ext}`)} ${t.fallbackOnce} ${t.fallbackSay(hangul ? t.hangulOn : t.devOn)}`,
+    `7. ${t.fallback(hangul ? t.hangulFallback : `.${ext}`)} ${t.fallbackOnce} ${t.fallbackSay(hangul ? t.hangulOn : t.devOn)}${hangul ? ` ${t.hangulFailed}` : ''}`,
   ].join('\n')
 }
 

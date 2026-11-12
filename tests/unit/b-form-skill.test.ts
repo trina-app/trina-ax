@@ -180,6 +180,9 @@ describe('the draft from a form (no server)', () => {
     expect(hwp).toContain('새 파일(.hwpx, 한글 쓰기가 꺼져 있으면 .docx)')
     // a Hangul form is filled once the HWP plugin is on, not the dev environment (QA 2026-11-13)
     expect(hwp).toContain('관리자에게 관리 › 플러그인에서 한글 문서 미리보기(HWP) 플러그인을 켜 달라고 하면 진짜 양식이 채워진다고')
+    // the plugin advice is only for a missing edit_hwp: a failure with the plugin on names the blanks instead (review)
+    expect(hwp).toContain('단, edit_hwp가 있었는데 실패했다면 플러그인 얘기는 하지 말고')
+    expect(xlsx).not.toContain('edit_hwp가 있었는데')
     expect(hwp).not.toContain('개발 환경')
     expect(formSteps(material({ path: 'shared/양식/a.hwpx', type: 'hwpx', like: 'a' }))).toContain('한글 문서 미리보기(HWP) 플러그인')
     expect(docx).toContain('관리자에게 개발 환경을 켜 달라고')
@@ -205,7 +208,7 @@ describe('the draft from a form (no server)', () => {
     const rel = 'skills/general/gyeonjeokseo-mandeulgi/SKILL.md'
     expect(checkSkill(text, rel)).toMatchObject({ ok: true })
     expect(parseSkill(text, rel)).toMatchObject({ name: 'gyeonjeokseo-mandeulgi', title: '견적서 만들기' })
-    expect(text).toContain("`shared/양식/` 폴더에서 이름에 '견적서 양식'가 들어간 가장 최근 파일")
+    expect(text).toContain("`shared/양식/` 폴더에서 이름에 '견적서 양식'이 들어간 가장 최근 파일")
     expect(text).toContain(formSteps(material()))
     expect(text).toContain(FORM_RULES.ko)
     expect(text).not.toContain('파일로 저장해 달라고 할 때만 저장해요')
