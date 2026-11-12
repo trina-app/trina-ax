@@ -6,6 +6,7 @@
 // admin-app-connectors.spec.ts.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const header = (page: Page) => page.getByTestId('connectors-header')
@@ -13,7 +14,7 @@ const header = (page: Page) => page.getByTestId('connectors-header')
 const discover = (page: Page, title = '둘러보기') => expect(page.getByTestId('connector-discover-title')).toHaveText(title)
 const card = (page: Page, id: string) => page.locator(`[data-testid="connector-card"][data-id="${id}"]`)
 
-test('Discover: what can be added now first (Google not set up here: last), the rest behind Show all; a card opens its page with Connect', async ({ page }) => {
+test('Discover: the Google ones first (QA TC-138, also not set up), the rest behind Show all; a card opens its page with Connect', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -24,7 +25,8 @@ test('Discover: what can be added now first (Google not set up here: last), the 
   await discover(page)
   const top = page.getByTestId('connector-list').getByTestId('connector-card')
   await expect(top).toHaveCount(10)
-  await expect(top.first()).toHaveAttribute('data-id', 'notion')
+  await expect(top.first()).toHaveAttribute('data-id', 'google-drive')
+  await expect(top.nth(5)).toHaveAttribute('data-id', 'notion')
   await page.getByTestId('connector-show-all').click()
   await expect(top).not.toHaveCount(10)
 
@@ -96,7 +98,10 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await discover(page, '둘러보기')
   await card(page, 'linear').getByTestId('connector-open').click()
   const detail = page.getByTestId('connector-detail')
+  // the main button connects for the team (QA TC-134); the ⌄ has a template and the admin's own
+  await expect(detail.getByTestId('connector-connect')).toHaveText('팀용으로 연결')
   await detail.getByTestId('integration-add-more').click()
+  await expect(page.getByTestId('connector-connect-mine')).toHaveText('나만 쓰기')
   await page.getByTestId('connector-connect-template').click()
   const dialog = page.getByRole('dialog')
   await dialog.getByTestId('integration-advanced').click()
@@ -172,3 +177,19 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await audit()).toEqual([])
   })
 }
+
+// QA TC-179: a template the team set up (here Notion) is in Your connectors with Connect until the member connects it,
+// and not offered again in Discover
+test('a team template for a listed service shows once: in Your connectors, not again in Discover', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const made = await page.request.post('/api/admin/integration-templates', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth' } })
+  expect(made.status()).toBe(201)
+  await page.context().clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await page.goto('/connectors')
+  await discover(page)
+  await expect(page.getByTestId('connected-apps').getByTestId('template-row').filter({ hasText: 'Notion' })).toHaveCount(1)
+  await page.getByTestId('connector-show-all').click()
+  await expect(card(page, 'notion')).toHaveCount(0)
+})

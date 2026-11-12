@@ -13,7 +13,7 @@ const control = (page: Page, path: string, body: object) => page.request.post(pa
 const googleApps = (page: Page, body: object) => control(page, '/__test/google-apps', body)
 const fakeGoogle = (page: Page) => page.context().route('https://accounts.google.com/**', (r) => r.fulfill({ contentType: 'text/html', body: '<p>Synthetic Google consent</p>' }))
 
-test('the sidebar opens Connectors: Discover lists what can be added first, the Google apps not set up last with Set up; the search filters', async ({ page }) => {
+test('the sidebar opens Connectors: Discover lists the Google ones first (QA TC-138, also not set up, with Set up); the search filters', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -21,14 +21,11 @@ test('the sidebar opens Connectors: Discover lists what can be added first, the 
   await expect(page).toHaveURL(/\/connectors$/)
   await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
   const ids = await page.getByTestId('connector-list').getByTestId('connector-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))
-  // nothing set up on this server: what can be added now comes first, the Google ones after Show all
-  expect(ids[0]).toBe('notion')
+  // the Google ones first, in their order, also when not set up yet; then the listed services
   expect(ids).toHaveLength(10)
-  expect(ids).not.toContain('gmail')
+  expect(ids.slice(0, 6)).toEqual(['google-drive', 'gmail', 'calendar', 'docs', 'sheets', 'notion'])
   await page.getByTestId('connector-show-all').click()
   await expect(page.getByTestId('connector-list').getByTestId('connector-card')).not.toHaveCount(10)
-  const all = await page.getByTestId('connector-list').getByTestId('connector-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))
-  expect(all.slice(-5)).toEqual(['google-drive', 'gmail', 'calendar', 'docs', 'sheets'])
   // the owner gets the way to set them up instead of a +
   await expect(card(page, 'gmail').getByTestId('connector-set-up')).toHaveAttribute('href', '/admin/connectors')
   await expect(card(page, 'gmail').getByTestId('connector-add')).toHaveCount(0)

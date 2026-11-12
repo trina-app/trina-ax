@@ -169,21 +169,22 @@ export function ConnectorsHome() {
       onAdd: () => { open(); if (!inApp) void google.flows[id].start() } }]
   })
   // the listed services: added from their page or with + (the add dialog, filled in); only while members may add their own
-  // (every connection the person can use counts as connected: their own, the team's, the ones made from a template)
-  const urls = (list.data?.items ?? []).map((i) => i.url)
+  // (every connection the person can use counts as connected: their own, the team's, the ones made from a template;
+  // and a template the team set up for them, connected or not, is in Your connectors, never in Discover as well: QA
+  // TC-179)
+  const urls = [...(list.data?.items ?? []).map((i) => i.url), ...fromTeam.urls]
   const listed: Card[] = personalAllowed ? CONNECTORS.map((c) => ({
     id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c),
     state: isConnected(c, urls) ? 'added' as const : 'available' as const,
     onOpen: () => navigate(`/connectors/${c.id}`), onAdd: () => setDialog({ connector: c }),
   })) : []
-  // Discover: only what is not connected yet (connected ones are in Your connectors). One that cannot be connected now
-  // ("off") comes after the ones that can be added now, and only while the team has not set it up yet: an owner or
-  // admin sees "Set up", which goes to Admin, where it is set up; a member sees "Not set up yet" ("Asked" once they
-  // asked), and its page has "Ask admin to add it". One turned off for members is left out (nothing to do there).
+  // Discover: only what is not connected yet (connected ones are in Your connectors). The Google ones first, always in
+  // their order (Drive, Gmail, Calendar, Docs, Sheets: QA TC-138), also one that cannot be connected yet because the
+  // team has not set it up ("off"): an owner or admin sees "Set up", which goes to Admin, where it is set up; a member
+  // sees "Not set up yet" ("Asked" once they asked), and its page has "Ask admin to add it".
   const cards = [...builtIns, ...listed]
     .filter((c) => c.state === 'available' || (c.state === 'off' && c.setUp))
     .filter((c) => fits(q, c.name, c.line))
-    .sort((a, b) => Number(a.state === 'off') - Number(b.state === 'off'))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
 
   // Your connectors: the built-in ones connected (or needing a new sign-in), the person's own connections, and what the
@@ -368,7 +369,7 @@ function ListedPage({ c }: { c: Connector }) {
       <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={() => navigate('/connectors')}
         action={have.length ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
           : list.data?.personalAllowed ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button> : null}
-        description={t('connectors.mcp.about', { name: c.name })} noTools={have.length > 0}>
+        description={t('connectors.mcp.about', { name: c.name })} address={have.length ? undefined : c.url} noTools={have.length > 0}>
         {have.length > 0 && <MineRows items={have} />}
       </ConnectorDetail>
     </McpShell>
@@ -389,7 +390,7 @@ export function CustomConnectorPage() {
   return (
     <McpShell>
       <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name} line={c ? t(`integrations.catalog.${c.id}`) : i.url} official={!!c} onBack={() => navigate('/connectors')}
-        description={t('connectors.mcp.about', { name: i.name })} noTools>
+        description={t(i.scope === 'team' ? 'connectors.mcp.aboutTeam' : 'connectors.mcp.about', { name: i.name })} noTools>
         <MineRows items={[i]} readOnly={i.scope === 'team'} />
       </ConnectorDetail>
     </McpShell>

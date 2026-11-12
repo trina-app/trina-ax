@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 07:25
 - Branch: `fix/connectors-qa-pass` (on top of `feat/admin-connectors-member-ui`, PR #586)
-- Status: in progress
+- Status: done
 - Where: `web/` (Connectors and Admin › Connectors). Why: the web app's own screens (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. Fixes on the Connectors pages; no API, data or migration change.
 
@@ -58,4 +58,7 @@ None on the server. The e2e specs that count Discover cards or read the Connect 
 
 ## Result
 
-Filled in at the end.
+- Built as planned. TC-179 (template urls left out of Discover), TC-138 (no "off last" sort: the Google ones first),
+  TC-266 (AppDetail's name wraps), bug 3 (`connectors.mcp.aboutTeam`), TC-134 ("Connect for the team", ⌄ "As a
+  template" and "Just for me"), TC-132 (the address under the tools line; `connectors.mcp.aboutForTeam` on Admin's page).
+- Not in this PR: TC-133 (server change for asking about listed services) and verified tool lists for TC-132.

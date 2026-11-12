@@ -132,23 +132,20 @@ test('the old addresses lead to Connectors: /settings/drive opens Drive\'s page,
   }
 })
 
-test('a server without a Google client: Drive is last in Discover, an owner sees Set up and a member asks an admin to add it from its page', async ({ page }) => {
+test('a server without a Google client: Drive is first in Discover (QA TC-138), an owner sees Set up and a member asks an admin to add it from its page', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/connectors')
   await discover(page)
-  // last, so behind Show all
-  await expect(driveCard(page)).toHaveCount(0)
-  await page.getByTestId('connector-show-all').click()
+  // first, before Show all
+  await expect(page.getByTestId('connector-card').first()).toHaveAttribute('data-id', 'google-drive')
   await expect(driveCard(page).getByTestId('connector-set-up')).toHaveAttribute('href', '/admin/connectors')
   await expect(driveCard(page).getByTestId('connector-add')).toHaveCount(0)
   await page.context().clearCookies()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/connectors')
   await discover(page)
-  // last, so behind Show all; "not set up" in place of the + that cannot work
-  await expect(driveCard(page)).toHaveCount(0)
-  await page.getByTestId('connector-show-all').click()
+  // first; "not set up" in place of the + that cannot work
   await expect(driveCard(page).getByTestId('connector-off')).toHaveText('아직 설정 안 됨')
   await expect(driveCard(page).getByTestId('connector-add')).toHaveCount(0)
   await expect(driveCard(page).getByTestId('connector-set-up')).toHaveCount(0)
@@ -160,7 +157,6 @@ test('a server without a Google client: Drive is last in Discover, an owner sees
   await expect(detail(page).getByTestId('service-asked')).toHaveAttribute('data-state', 'sent')
   await expect(detail(page).getByTestId('service-asked-note')).toHaveText('Google Drive 준비가 끝나면 알려 드릴게요.')
   await page.goto('/connectors')
-  await page.getByTestId('connector-show-all').click()
   await expect(driveCard(page).getByTestId('connector-off')).toHaveText('요청 보냄')
 })
 

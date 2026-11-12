@@ -126,7 +126,9 @@ export function useFromTeam({ team, latest, version, query, onOpen, onConnected 
       }}
     />
   )
-  return { rows, ready, dialog }
+  // the addresses of the team's templates for this person (connected or not): Discover does not offer them again
+  const urls = items.map((x) => x.url)
+  return { rows, ready, dialog, urls }
 }
 
 /** Admin › MCP, a template's "N connected": who it is for, each with whether they connected it and when, or whether
