@@ -56,7 +56,7 @@ function signedRequest(team: Team, text: string | Uint8Array<ArrayBuffer>, ts: n
   })
 }
 
-interface Call { url: string; method: string; headers: Headers; body: string }
+interface Call { url: string; method: string; headers: Headers; body: string; signal?: AbortSignal | null }
 type Responder = (c: Call, n: number) => Response | Promise<Response>
 
 const json = (status: number, v: unknown) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
@@ -66,7 +66,7 @@ const defaultResponder: Responder = (c) => {
   return new Response(null, { status: 200, headers: { 'apns-id': 'x' } })
 }
 
-function harness(o: { env?: Partial<GatewayEnv>; respond?: Responder; blocked?: Set<string>; replaceEnv?: GatewayEnv } = {}) {
+function harness(o: { env?: Partial<GatewayEnv>; respond?: Responder; blocked?: Set<string>; replaceEnv?: GatewayEnv; fcmTimeoutMs?: number } = {}) {
   const calls: Call[] = []
   const logs: LogLine[] = []
   const clock = { t: T0 }
@@ -74,13 +74,14 @@ function harness(o: { env?: Partial<GatewayEnv>; respond?: Responder; blocked?: 
   const respond = o.respond ?? defaultResponder
   const gw = createGateway(o.replaceEnv ?? { ...ENV, ...o.env }, {
     fetch: async (url, init) => {
-      const c: Call = { url, method: init?.method ?? 'GET', headers: new Headers(init?.headers), body: String(init?.body ?? '') }
+      const c: Call = { url, method: init?.method ?? 'GET', headers: new Headers(init?.headers), body: String(init?.body ?? ''), signal: init?.signal }
       calls.push(c)
       return respond(c, calls.length)
     },
     now: () => clock.t,
     log: (l) => logs.push(l),
     state: mem.state,
+    fcmTimeoutMs: o.fcmTimeoutMs,
   })
   const handle = (req: Request, ip = IP) => gw.handle(req, ip)
   const send = (text: string, team: Team = TEAM, opts?: Parameters<typeof signedRequest>[3]) => handle(signedRequest(team, text, clock.t, opts))
@@ -520,6 +521,34 @@ describe('push gateway: FCM', () => {
     const oauthDown = harness({ respond: (c, n) => (c.url.includes('oauth2') ? json(400, { error: 'invalid_grant' }) : defaultResponder(c, n)) })
     await expectError(await oauthDown.send(android()), 'provider_error')
     expect(oauthDown.calls.filter((c) => c.url.startsWith('https://fcm.')).length).toBe(0)
+  })
+
+  test('a hanging FCM or OAuth call ends within the time limit as 502 and frees the dedupe entry: the retry sends (TC-387)', async () => {
+    // a provider that never answers; only the gateway's abort signal ends the call (like fetch does)
+    const hang = (c: Call) => new Promise<Response>((_, reject) => {
+      if (!c.signal) return // no signal: hangs for ever, the test times out
+      c.signal.addEventListener('abort', () => reject(c.signal!.reason), { once: true })
+    })
+    for (const where of ['https://fcm.', 'https://oauth2.']) {
+      let stuck = true
+      const h = harness({ fcmTimeoutMs: 50, respond: (c, n) => (stuck && c.url.startsWith(where) ? hang(c) : defaultResponder(c, n)) })
+      const started = performance.now()
+      await expectError(await h.send(android()), 'provider_error')
+      expect(performance.now() - started).toBeLessThan(2000)
+      expect(h.calls.every((c) => c.signal instanceof AbortSignal)).toBe(true)
+      // the team server's retry (same notificationId) is sent, not answered as a duplicate
+      stuck = false
+      await expectOk(await h.send(android()))
+      expect(h.calls.filter((c) => c.url.startsWith('https://fcm.')).length).toBe(where === 'https://fcm.' ? 2 : 1)
+      expect(h.logs.map((l) => l.outcome)).toEqual(['provider_error', 'sent'])
+    }
+  })
+
+  test('the default FCM time limit is shorter than the team server\'s 10 s wait', async () => {
+    const { FCM_TIMEOUT_MS } = await import('../../push-gateway/src/fcm.ts')
+    const native = fs.readFileSync(path.resolve(import.meta.dir, '../../server/src/notifications/push-native.ts'), 'utf8')
+    expect(native).toContain("new PushSendError('push_timeout')), 10_000)")
+    expect(FCM_TIMEOUT_MS).toBeLessThan(10_000)
   })
 })
 

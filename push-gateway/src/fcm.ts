@@ -22,6 +22,13 @@ export interface FcmConfig { projectId: string; clientEmail: string; privateKeyP
 
 export const FCM_ORIGIN = 'https://fcm.googleapis.com'
 export const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging'
+/**
+ * One send (the OAuth token call when needed, then the send call) ends after this long, answer read included. It is
+ * shorter than the team server's 10 s wait (server/src/notifications/push-native.ts): when FCM hangs, the team server
+ * gets 502 and its retry sends again. Without a limit the first send was still in flight when the retry came, the retry
+ * got 200 (duplicate) and nothing was sent when the first send then failed (QA TC-387).
+ */
+export const FCM_TIMEOUT_MS = 8_000
 
 /** The service-account JSON (secret FCM_SERVICE_ACCOUNT), or null when a field is missing or odd. */
 export function parseServiceAccount(json: string | undefined): FcmConfig | null {
@@ -40,7 +47,7 @@ export function parseServiceAccount(json: string | undefined): FcmConfig | null 
   return { projectId, clientEmail, privateKeyPem, tokenUri }
 }
 
-export interface FcmDeps { fetch: FetchLike; now(): number; origin?: string }
+export interface FcmDeps { fetch: FetchLike; now(): number; origin?: string; /** tests: default FCM_TIMEOUT_MS */ timeoutMs?: number }
 
 interface FcmError { error?: { status?: unknown; message?: unknown; details?: { errorCode?: unknown }[] } }
 
@@ -48,7 +55,7 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
   let key: Promise<CryptoKey | null> | null = null
   let cached: { token: string; until: number } | null = null
 
-  async function accessToken(): Promise<string | null> {
+  async function accessToken(signal: AbortSignal): Promise<string | null> {
     const now = deps.now()
     if (cached && now < cached.until) return cached.token
     key ??= importRs256(cfg.privateKeyPem)
@@ -58,6 +65,7 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
     const assertion = await signJwt(k, { alg: 'RS256', typ: 'JWT' }, { iss: cfg.clientEmail, scope: FCM_SCOPE, aud: cfg.tokenUri, iat, exp: iat + 3600 })
     const res = await deps.fetch(cfg.tokenUri, {
       method: 'POST',
+      signal,
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }).toString(),
     })
@@ -73,11 +81,13 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
 
   return {
     async send(msg: PushGatewaySend, alert: { title: string; body: string }): Promise<SendOutcome> {
+      const signal = AbortSignal.timeout(deps.timeoutMs ?? FCM_TIMEOUT_MS)
       try {
-        const token = await accessToken()
+        const token = await accessToken(signal)
         if (!token) return 'provider_error'
         const res = await deps.fetch(`${deps.origin ?? FCM_ORIGIN}/v1/projects/${cfg.projectId}/messages:send`, {
           method: 'POST',
+          signal,
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
           body: JSON.stringify({
             message: {
