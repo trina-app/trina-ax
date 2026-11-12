@@ -180,15 +180,18 @@ export function srtSettings(i: SettingsInput) {
   const open = i.network === 'open'
   const domains = open ? mergeSites(DEV_ENV_DEFAULT_DOMAINS, i.extraDomains, i.userDomains ?? []) : []
   const full = open && !!i.full
-  const fixedHidden = [abs(i.teamRoot, 'users'), abs(i.teamRoot, PRODUCT.systemDir)]
+  const fixedHidden = [...hiddenUsers(i.teamRoot, i.userId, platform), abs(i.teamRoot, PRODUCT.systemDir)]
   // srt binds a denied folder's allowed paths back writes first, then reads: a writable folder inside a read-only one
   // (the starting folder inside a folder that Q0 (b) made read-only, for example the team root of an admin) would be
   // read-only. A denyRead landing on the writable folder itself makes srt bind it back again, writable, after the
   // read-only folder above it (srt 0.0.81 linux-sandbox-utils pushReadDenyDirMounts; Docker attack A28c).
-  const writeInRead = i.view.write.filter((w) => i.view.read.some((r) => r !== w && (r === '' || w.startsWith(r + '/'))))
+  // Linux (bwrap) only. On macOS srt's Seatbelt rules are paths, not mounts: a writable folder inside a read-only one is
+  // writable already, and a denyRead on it hides it from the run (srt keeps read-denied paths inside write roots from
+  // being written; Mac mini, 2026-11-12: `ls` and `cp` into the person's own folder failed with EPERM)
+  const writeInRead = platform === 'linux' ? i.view.write.filter((w) => i.view.read.some((r) => r !== w && (r === '' || w.startsWith(r + '/')))) : []
   // the whole base folder, not a list of its folders: a file made later in a hidden folder stays hidden
   const deny = uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...(platform === 'linux' ? serverFilesOutsideBase(i.id) : []), ...host.denied,
-    ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r)),
+    ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.filter((r) => platform === 'linux' || r !== 'users').map((r) => abs(i.teamRoot, r)),
     ...writeInRead.map((w) => abs(i.teamRoot, w))])
   const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [], host.read))
   return {
@@ -213,6 +216,19 @@ export function srtSettings(i: SettingsInput) {
   }
 }
 
+/** The personal folders a run must not see. Linux: users/ as a whole (the person's own folder comes back: the deepest
+ * rule wins in bwrap). macOS: every other person's folder by name. In srt's Seatbelt profile a deny inside an allowed
+ * folder is written after the allows and wins over a deeper allow, so a hidden users/ would also hide the person's own
+ * folder whenever the team root is readable (an admin; Mac mini, 2026-11-12). A folder made in users/ during a run is
+ * empty and is hidden from the next run. */
+export function hiddenUsers(teamRoot: string, userId: string, platform: DevPlatform): string[] {
+  const users = path.join(teamRoot, 'users')
+  if (platform === 'linux') return [users]
+  let names: string[] = []
+  try { names = fs.readdirSync(users) } catch { return [] }
+  return names.filter((n) => n !== userId).map((n) => path.join(users, n))
+}
+
 /** Is `child` the same folder as `parent`, or inside it? */
 const inside = (child: string, parent: string) => child === parent || child.startsWith(parent.endsWith('/') ? parent : parent + '/')
 
@@ -235,7 +251,8 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
   if (!deny.includes(i.base)) out.push('the base folder is not hidden')
   if (!deny.some((d) => inside(i.teamRoot, d))) out.push('the team folder is not hidden')
-  if (!deny.includes(users)) out.push('the personal folders are not hidden')
+  if (platform === 'linux' && !deny.includes(users)) out.push('the personal folders are not hidden')
+  if (platform === 'darwin') for (const u of hiddenUsers(i.teamRoot, i.userId, 'darwin')) if (!deny.includes(u)) out.push(`a personal folder is not hidden: ${u}`)
   if (!deny.includes(system)) out.push('the system folder is not hidden')
   // a base folder from the environment that is not the real one must not show the server's data (fail closed)
   for (const sp of i.serverPaths ?? []) if (!hidden(s, sp)) out.push(`a server path is not hidden: ${sp}`)

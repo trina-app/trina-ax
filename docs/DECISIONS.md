@@ -23604,6 +23604,13 @@ isolation on a Mac. Office mode (no sudo) has no dev environment.
   server account read and write there; srt's settings decide what one run may open. A file the server moves in from
   elsewhere has no inherited entry, so the runner adds the ACL again to the run's writable folders before each run
   (`chmod -R +a` adds nothing that is there).
+- **The person's own folder (Mac mini, 2026-11-12).** srt's Seatbelt profile writes a deny that lies inside an allowed
+  folder after the allows, so it wins over a deeper allow (bwrap: the deepest rule wins). With users/ hidden as a whole,
+  an admin's run (the team root is readable) could not read or write her own `users/<id>`: `ls` and `cp` gave EPERM and
+  a copied file stayed empty. On macOS the settings hide every other person's folder by name instead (a folder made in
+  users/ during a run is empty and hidden from the next run; the names in users/ are visible to an admin's run, as the
+  members list shows them), and the Linux-only `writeInRead` rule (a denyRead on a writable folder inside a read-only one,
+  for bwrap's mounts) is not used: on macOS it hid that folder.
 - **Host lists.** A run reads `/usr`, `/bin`, `/sbin`, `/System`, the dyld cache, the time zones, the Command Line
   Tools, `/opt/homebrew`, `/opt/trina` and a few `/etc` files; `/`, `/Users`, `/Volumes`, `/Library` (the base folder,
   the server's logs), `/private/var`, `/private/etc` and the rest are hidden (`MAC_*` in `config.ts`).
