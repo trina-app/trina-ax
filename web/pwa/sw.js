@@ -176,7 +176,8 @@ self.addEventListener('push', event => {
       const roomId = item.link === 'room' && opaqueId(item.room?.id) ? item.room.id : undefined
       // a reply in a thread opens that thread (its root's id, from the same signed-in fetch)
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
-      // an AI chat's answer opens its chat while the person may still open it (the same signed-in fetch)
+      // an AI chat's answer opens its chat while the person may still open it (the same signed-in fetch); a chat they
+      // can no longer open lands on the start page (the Inbox never lists these notices)
       const chatId = !roomId && payload.code === 'chat.answer_done' && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
@@ -189,7 +190,7 @@ self.addEventListener('push', event => {
       const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
-      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(HOME_CODES.has(payload.code) ? { home: true } : {}) } })
+      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return

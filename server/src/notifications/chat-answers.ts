@@ -31,7 +31,10 @@ export function chatOpenFor(ctx: AppContext, userId: string, chatId: string): bo
   if (!c || c.deleted_at || c.room_id || isInternalChat(ctx.db, c.id)) return false
   if (c.user_id === userId && !isSharedRow(c)) return true
   if (!isSharedRow(c)) return false
-  const p = ctx.db.query('SELECT * FROM projects WHERE id = ?').get(c.project_id!) as Parameters<Audiences['sees']>[1] | null
+  // the project as the chat list reads it (push-badge.ts: rt.store.projectRow); no runtime: no chats to open
+  let rt: ReturnType<typeof getChatRuntime>
+  try { rt = getChatRuntime(ctx) } catch { return false }
+  const p = rt.store.projectRow(c.project_id!)
   return !!p && new Audiences(ctx.db, ctx.files).sees(userId, p)
 }
 

@@ -23823,7 +23823,8 @@ Version impact: **minor** (new route, migration 288).
   cards it opens). A finished answer of a chat whose earlier finished answer was told within 10 minutes, unread and not
   seen since, makes none: a burst of answers is one push.
 - **Tap.** `/c/<chatId>` (the web's chat page; push-events.ts PATH rules, ids only) while the person may still open the
-  chat, else the start page; the service worker opens the chat from the signed-in fetch of the notice.
+  chat, else the start page (also a browser's click: the Inbox never lists these); the service worker opens the chat
+  from the signed-in fetch of the notice.
 - **Lock screen and label (TC-365).** The payload carries ids and the event code only. The iPhone's notification
   extension acts on `room.*` only (the APNs payload is mutable for those alone), so these pushes show the gateway's
   generic line and no chat title; no app build. The gateway gets the line in `EVENT_TEXT`; until it is deployed it shows
