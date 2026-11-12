@@ -177,6 +177,7 @@ export const id: Record<MessageKey, string> = {
 
   'invite.keepAccount': 'Tetap pakai akun ini',
   'invite.invalid': 'Link undangan ini sudah kedaluwarsa atau sudah dipakai. Minta link baru ke orang yang mengundang kamu.',
+  'invite.full': 'Kursi tim sedang penuh. Beri tahu orang yang mengundang kamu.',
   'invite.joinTeam': 'Gabung ke {team}',
   'invite.sub': 'Kamu diundang sebagai {role}. Link berlaku sampai {date}.',
   'invite.accept': 'Buat akun dan gabung',

@@ -177,6 +177,7 @@ export const en: Record<MessageKey, string> = {
 
   'invite.keepAccount': 'Keep using this account',
   'invite.invalid': 'This invite link has expired or was already used. Ask the person who invited you for a new one.',
+  'invite.full': 'The team has no free seats right now. Let the person who invited you know.',
   'invite.joinTeam': 'Join {team}',
   'invite.sub': "You're invited as {role}. The link works until {date}.",
   'invite.accept': 'Create account and join',

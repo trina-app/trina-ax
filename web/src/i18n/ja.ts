@@ -167,6 +167,7 @@ export const ja: Record<MessageKey, string> = {
   'invite.signOutAccept': "サインアウトして招待を受ける",
   'invite.keepAccount': "このアカウントを使い続ける",
   'invite.invalid': "この招待リンクは期限切れか、すでに使用されています。招待した人に新しいリンクを依頼してください。",
+  'invite.full': "チームの人数が上限に達しています。招待してくれた人に伝えてください。",
   'invite.joinTeam': "{team}に参加",
   'invite.sub': "{role}として招待されています。リンクは{date}まで有効です。",
   'invite.accept': "アカウントを作成して参加",
