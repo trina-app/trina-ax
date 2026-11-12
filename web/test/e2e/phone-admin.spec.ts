@@ -187,15 +187,17 @@ test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, a
   expect(await historyLength(page)).toBe(length)
 })
 
-test('a member: /admin says it is for admins and leaves no list behind', async ({ page }) => {
+test('a member: /admin says it is for admins; Back never shows the Admin list', async ({ page }) => {
   await page.getByTestId('tab-me').click()
   await page.getByTestId('settings-logout').click()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/members')
-  // TC-272: the admin-only notice with a way Home, in place of the page (no Admin list put under it)
+  // TC-272: the admin-only notice with a way Home, in place of the page
   await expect(page.getByTestId('admin-only')).toBeVisible()
+  // (a pasted address gets its parents under it, lib/screens.ts: a member finds the same notice there, never the list)
   await page.goBack()
-  await expect(page).not.toHaveURL(/\/admin/)
+  await expect(page.getByTestId('admin-phone-root')).toHaveCount(0)
+  await expect(page.getByTestId('admin-only').or(page.getByTestId('settings-logout'))).toBeVisible()
 })
 
 test('an admin who is not the owner: Slack\'s address goes to the list, one entry', async ({ page }) => {
