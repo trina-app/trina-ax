@@ -64,3 +64,7 @@ Built as planned, PR #540. Decisions on the way:
   a sheet that cannot open copies and says so. Admin › Members' invite card (same panel) gets the same on phones.
 - `share-text-v1` is new in the app: Android gets the share sheet only after an app release (it copies until then);
   the iPhone app uses `navigator.share` today.
+- Review (head ea7af54fd): a finished setup goes Home whatever step the address names; leaving the steps for good (the
+  finish, the end screen's 홈으로 and its skill) takes their entries away, so Back never walks or records them again;
+  Back while a step is saved keeps that step; AI connected writes the steps under the resumed one; a refused share
+  sheet points at the copy button instead of copying without the press. Merged with dev's nav-v1 (#536).
