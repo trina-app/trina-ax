@@ -13,6 +13,7 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { fileShareUrl } from '@mycel/shared/api'
+import { lineEnds, tableTooBig } from './messageMarkdown'
 import { codeOf, remarkFor, hideHtmlComments, urlTransform } from '../components/Markdown'
 import { classifyImage, classifyLink, prepareMarkdown } from './markdown'
 import { baseName } from './paths'
@@ -92,7 +93,7 @@ function copyComponents(origin: string): Components {
 
 /** The React tree of an answer's copy (for the clipboard, or renderToStaticMarkup in tests). */
 export function copyElement(markdown: string, origin: string): ReactElement {
-  const source = prepareMarkdown(markdown)
+  const source = prepareMarkdown(lineEnds(markdown))
   return createElement(ReactMarkdown, { remarkPlugins: remarkFor(source), rehypePlugins: [hideHtmlComments], components: copyComponents(origin), urlTransform }, source)
 }
 
@@ -108,7 +109,9 @@ function renderInPage(el: ReactElement): string {
   }
 }
 
-/** The answer as HTML for the clipboard. */
+/** The answer as HTML for the clipboard. Throws for tables of millions of cells (lib/messageMarkdown.ts tableTooBig:
+ * seconds and hundreds of MB to render): its callers then copy the plain text alone. */
 export function answerHtml(markdown: string, origin = location.origin, render: (el: ReactElement) => string = renderInPage): string {
+  if (tableTooBig(markdown)) throw new Error('answer too big to copy as HTML')
   return render(copyElement(markdown, origin))
 }
