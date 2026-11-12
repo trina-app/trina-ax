@@ -314,7 +314,9 @@ describe('limits, the cap and the switch', () => {
     const input: PromptInput = { user: A.ctx.files.principal('alice'), groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null, fileList: fl.hasListFor(A.ctx.files.principal('alice')) }
     expect(buildTurnPrompt(A.ctx.files, input)).not.toContain(FILE_LIST_RULE)
     expect(fl.start('now')).toBeNull()
-    expect((await A.json('/api/admin/file-list/run', { as: 'carol', method: 'POST' })).status).toBe(409)
+    // a Run now from a screen still showing it on: refused with the reason the web turns into a plain message
+    const refused = await A.json('/api/admin/file-list/run', { as: 'carol', method: 'POST' })
+    expect({ status: refused.status, code: refused.body.error.code, reason: refused.body.error.params?.reason }).toEqual({ status: 409, code: 'conflict', reason: 'off' })
     const on = await A.json('/api/admin/file-list', { as: 'carol', ...jsonBody({ enabled: true }, 'PATCH') })
     expect(on.body.enabled).toBe(true)
     expect(await readList('alice', 'shared/_FILES.md')).toBeNull()

@@ -4300,6 +4300,7 @@ export const en: Record<MessageKey, string> = {
   "fileList.running": "Reading files now…",
   "fileList.runNow": "Run now",
   "fileList.runStarted": "The file list run started.",
+  "fileList.runOff": "The file list is turned off. Turn it on in Team settings to run it.",
   "fileList.offTitle": "Turn off the file list?",
   "fileList.offBody": "The stored lines are deleted and no files are read at night. The AI then finds files by their names and text only. Turned on again, the files are read again over the next nights.",
   "fileList.offConfirm": "Turn off",
