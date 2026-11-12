@@ -2,6 +2,7 @@
 // card is, and what its buttons send to POST /api/turns/:id/connect. A key leaves the card only one way: sealed in
 // this browser for 'integration.secret' (lib/seal.ts) with the team server's sealing key. The plain key is never in a
 // request, the store, a log or an address, and never goes through /answer, whose answers reach the AI.
+import { catalogAt, catalogNamed, type CatalogService } from '@mycel/shared'
 import type { TurnConnectResult, TurnRequest } from '@mycel/shared/api'
 import { api, API } from './api'
 import { sealSecret } from './seal'
@@ -29,6 +30,30 @@ const nameWords = (name: string) => (name.toLowerCase().match(/[\p{L}\p{N}]+/gu)
 export function hostOffName(name: string, host: string): boolean {
   const h = host.toLowerCase()
   return !nameWords(name).some((w) => h.includes(w))
+}
+
+/**
+ * How far the card can vouch for where it connects (shared/src/service-catalog.ts, the app's list of services):
+ * - official: the address is a listed service's official one.
+ * - template: an admin's template (the team chose the address), or a connection the person already has (reconnect).
+ * - not_official: the name is a listed service's ("Notion", "Notion workspace") but the address is not its official one.
+ *   The server never sends this card any more (it uses the official address); an older server may, and then the card
+ *   offers no button.
+ * - unlisted: a service the app does not know; the person checks the address.
+ */
+export type CardTrust =
+  | { kind: 'official'; service: CatalogService }
+  | { kind: 'template' }
+  | { kind: 'not_official'; service: CatalogService }
+  | { kind: 'unlisted' }
+  | { kind: 'none' }
+export function cardTrust(r: ConnectServiceRequest): CardTrust {
+  if (r.target !== 'service' || !r.service) return { kind: 'none' }
+  const at = catalogAt(r.service.url)
+  if (at) return { kind: 'official', service: at }
+  if (r.template || r.reconnect) return { kind: 'template' }
+  const named = catalogNamed(r.name)
+  return named ? { kind: 'not_official', service: named.service } : { kind: 'unlisted' }
 }
 
 /** a personal connection sends no access; a team one says who may use it */

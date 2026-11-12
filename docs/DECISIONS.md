@@ -22937,3 +22937,41 @@ Reverses "Message text from another member is data, shown as plain text in the a
 - Quotes, sending previews, the edit box, notifications, search snippets, list previews and copy stay plain or source
   text. My own questions in an AI chat stay plain.
 - The AI step still treats another member's text as untrusted input.
+
+## The chat's connect card trusts the app's list (fix/connect-card-trust, 2026-11-12, QA TC-135, bugs 2, 4, 5)
+
+Adds to "Connecting a service from a chat". Before, the card showed whatever name and address the AI put in
+`connect_service`: QA got "Sign in to Notion" for `notion-mcp.example.com`, with only the small address line to tell.
+- **One list of known services**, `shared/src/service-catalog.ts` (moved from `web/src/lib/connectors.ts`, which adds
+  the logos): each service's name and official MCP address; all sign in with OAuth. The server and the web read it.
+- **A known service's name means its official address.** In the tool handler (the server builds the card, and the
+  connect endpoint saves only what the card held): a name that is a listed service's ("Notion", "notion",
+  "Notion MCP") gets the list's address, kind, sign-in and spelling, whatever address the AI wrote; the tool result
+  carries a `note` that the AI's address was not used. An address that is a listed service's gets that service's name
+  and sign-in. A name that holds a listed service's among other words ("Notion workspace", "Acme GitLab") at another
+  address gets no card, and the AI is told to use the service's own name or a name without it. A look-alike
+  ("N0tion") is not caught by name: it is an unknown service and gets the warning below.
+  Cost: a known service at another address (a self-hosted GitLab, Stripe's plain HTTP API) cannot be added from a chat
+  under that name; an admin adds it in Admin, or the AI uses another name.
+- **The card says how far it can vouch** (`web/src/lib/connectCard.ts cardTrust`): "Official {name} address" for a
+  listed address; for an unknown service a warning box with the address in bold ("not in this app's list … connect
+  only if you know it belongs to {name}"); a card whose name is a listed service's at another address (only an older
+  server sends one) is titled by its address, says in red that it is not the official address, and has no sign-in,
+  key or connect button. An admin's template and a reconnect card keep their address (the team's or the person's
+  choice) and the host caution as before.
+- **A service the person already uses is not connected twice** (bug 2). Before a template or a new connection, the
+  connections this person uses for the same service (the same address: their own, one
+  made from a template, a team one they may use) are checked: a working one gets "already connected" and no card;
+  their own that needs a sign-in or a key gets a card for that connection (`reconnect: true` on the request): another
+  sign-in or key goes to it, "Not now" never removes it, and the AI is told it is "still not working" if it does not
+  work after. A team one that does not work: no card, an admin fixes it (as before).
+- **Words** (bug 5): a template you sign in to says "Connect your own {name} account" and "You sign in with your own
+  account" (no "key"); the own-key dialog says "{host} is {name}'s official address" for a listed address, and
+  "Signing in lets {host} use your {name} account. Sign in only if {host} really belongs to {name}." otherwise (no
+  "sign-in token").
+- Not changed: the phone app still says "Sign in from a computer" for services other than Google (TC-137; what it
+  would take, a new native purpose and a store release, is in the plan `docs/AGENTS/plan/20261112-0622-connect-card-trust.md`).
+- Tests: `tests/unit/connect-service.test.ts` (made-up address, a name holding a listed one, a listed address under
+  another name, own connection with a template at the same address, working team connection),
+  `web/test/unit/connect-card.test.tsx`, `web/test/unit/connectors.test.ts`.
+- Version impact: **patch** (a security fix and words; one optional field on the card request, no data change).

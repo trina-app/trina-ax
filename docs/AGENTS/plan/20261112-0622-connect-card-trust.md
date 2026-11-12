@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 06:22
 - Branch: `fix/connect-card-trust`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat/connect-service.ts`, `shared/src/`, `web/src/components/chat/ConnectCard.tsx`).
   Why: connecting a service from a chat is core (docs/REPOSITORY-RULES.md: AI connections go in the core first).
 - Version impact: patch. A security fix and wording; the card request gains one optional field, no data change.
@@ -35,16 +35,15 @@ In:
     result says so (`note`), so the AI does not claim it connected the AI's address.
   - An address that is a listed service's gets that service's name, kind and sign-in, whatever name the AI wrote.
   - Anything else is an unlisted service: its name names no listed service, and the card marks it unlisted.
-  - The card request carries `listed: true` only for the list's own address (older servers omit it).
 - **Server, a service this person already has (bug 2):** before the template lookup, the connections this person
-  uses for the same service (same address, as `canonicalService` compares them) are checked. A working one: no card,
+  uses for the same service (the same address) are checked. A working one: no card,
   "already connected". Their own one that needs a sign-in or key: a **reconnect** card bound to that connection
   (`reconnect: true`; the card signs in again or takes a new key for it, never makes a second one, and Not now never
   removes it). A team one that needs attention: no card, an admin fixes it (as before).
 - **Web card:**
   - Listed: a small "Official {name} address" line.
   - Unlisted (not a template): a warning box with the address in bold and plain words: the app does not know this
-    service, check the address belongs to it.
+    service, check the address belongs to it. (The old host caution stays only on template cards: one warning, not two.)
   - A card whose name names a listed service but whose address is not the list's (an older server): the title shows
     the address, a red warning says it is not the official address, and there is no sign-in or connect button.
   - Reconnect: "Sign in to {name} again" / "New key for {name}" title and a line that it is already connected.
@@ -66,7 +65,8 @@ Out:
 1. `shared/src/service-catalog.ts` + export; `web/src/lib/connectors.ts` builds CONNECTORS from it (same exports).
 2. `connect-service.ts`: resolve the listed service before the template lookup; the existing-connection check; the
    reconnect card (kept.integrationId, version, created=false); the `note` in the result.
-3. `shared/src/api/ws.ts` ConnectServiceRequest: optional `listed`, `reconnect`.
+3. `shared/src/api/ws.ts` ConnectServiceRequest: optional `reconnect`. (The web finds a listed address itself from the
+   shared list, so no `listed` field.)
 4. `ConnectCard.tsx` + `lib/connectCard.ts` helpers; i18n keys in en, ko, ja, es, id.
 5. AnswerDialog wording; the mock server's connect card uses the official Notion address.
 6. Tests, checks, plan Result, PR.
@@ -116,4 +116,18 @@ Out:
 
 ## Result
 
-Filled in at the end.
+Built as planned, with these differences:
+
+- No `listed` field on the card request: the web finds a listed address itself from the shared list.
+- The existing-connection check compares whole addresses (as the old same-address check did), not
+  `canonicalService`, which drops the query: two instances of one MCP server that differ only by a query are two
+  services.
+- The old "not on {name}'s own site" caution stays only on template and reconnect cards; an unknown service's card has
+  the new warning box instead (one warning, not two).
+- Korean or other translated names ("노션") are not matched to a listed service: the tool asks the AI for the
+  service's own spelling, and such a card is an unknown service with the warning box.
+
+Tests: server `connect-service` 33/0 (4 new, all 4 fail on the old handler), `connect-continue`,
+`c-template-chat-schedule`, `schedule-connections`, `connected` 74/0 under Bun 1.3.12; web unit 2798/0; e2e
+`connect-continue`, `integration-requests`, `integration-templates`, `connectors`, `connectors-hub`,
+`phone-connectors` 52/0.

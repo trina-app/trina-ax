@@ -24,6 +24,8 @@ import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
+import { templatesOf } from '../../server/src/integrations/connections/templates'
+import { activeUser } from '../../server/src/integrations/connections/store'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { CONNECT_RULE } from '../../server/src/chat/prompt'
 import { DRIVE_TOOL_NAMES } from '../../server/src/tools/drive'
@@ -183,7 +185,7 @@ describe('connect_service without a card', () => {
     )
     const m = await doneOf(t.messageId)
     expect(cards(t.turnId)).toEqual([])
-    for (const words of ['a service needs url', 'an https address', 'private or office network', 'the notes looks like it contains a key', 'Only an admin can add a team connection', 'already exists: "Open", connected', 'authHeader cannot carry a key', 'Google Drive is not set up', 'the url looks like it contains a key'])
+    for (const words of ['a service needs url', 'an https address', 'private or office network', 'the notes looks like it contains a key', 'Only an admin can add a team connection', 'own connection "Open" is already connected', 'authHeader cannot carry a key', 'Google Drive is not set up', 'the url looks like it contains a key'])
       expect(m.content, words).toContain(words)
     // the step never shows the key-looking notes, and says nothing was connected
     expect(m.steps.filter((s) => s.tool === 'connect_service').length).toBe(9)
@@ -600,7 +602,7 @@ describe('what a card may hold', () => {
     const cases = [
       { name: '네이버 웍스', kind: 'http', auth: 'bearer', notes: 'GET /tasks 할 일 목록\nPOST /tasks 할 일 추가' },
       { name: 'チャットワーク', kind: 'mcp', auth: 'none' },
-      { name: '🎬 Higgsfield', kind: 'mcp', auth: 'none' },
+      { name: '🎬 Videostudio', kind: 'mcp', auth: 'none' },
       { name: '👩‍💻 Dev Tools', kind: 'mcp', auth: 'none' },
       { name: '❤️ Love API', kind: 'mcp', auth: 'none' },
     ]
@@ -747,5 +749,88 @@ describe('another key on the same card follows the rules of now', () => {
     expect(r.skipped).toBe(true)
     expect(r.reason).toContain('changed or removed in Connectors or Admin')
     expect(leaksIn([t.turnId])).toEqual([])
+  })
+})
+
+describe('a service in the app\'s list (QA TC-135)', () => {
+  test('"Notion" at a made-up address: the card goes to Notion\'s official address, and the AI is told its address was not used', async () => {
+    const t = await start('erin', { name: 'Notion', kind: 'mcp', url: 'https://notion-mcp.example.com/mcp', auth: 'oauth', why: 'connect Notion' })
+    const card = await cardOf(t.turnId)
+    expect(card).toMatchObject({ name: 'Notion', scope: 'personal', service: { kind: 'mcp', url: 'https://mcp.notion.com/mcp', host: 'mcp.notion.com', auth: 'oauth', authHeader: null } })
+    expect(JSON.stringify(card)).not.toContain('example.com')
+    expect((await post('erin', t.turnId, { action: 'skip', requestId: card.requestId })).body).toMatchObject({ state: 'skipped' })
+    const r = resultOf(await doneOf(t.messageId))
+    expect(r).toMatchObject({ skipped: true })
+    expect(r.note).toContain("not Notion's official address and was not used")
+    expect(rowsAt('https://notion-mcp.example.com/mcp')).toEqual([])
+  })
+
+  test('a name that holds a listed service\'s at another address: no card; a listed service\'s address: its own name and sign-in', async () => {
+    const t = await start('erin',
+      { name: 'Notion workspace', kind: 'mcp', url: 'https://notion-mcp.example.com/mcp', auth: 'oauth' },
+      { name: 'Team wiki', kind: 'mcp', url: 'https://mcp.notion.com/mcp/', auth: 'bearer' },
+    )
+    const card = await cardOf(t.turnId)
+    // the second call's card: the official name, address and sign-in, not the AI's name or key
+    expect(card).toMatchObject({ name: 'Notion', service: { url: 'https://mcp.notion.com/mcp', auth: 'oauth' } })
+    await post('erin', t.turnId, { action: 'skip', requestId: card.requestId })
+    const m = await doneOf(t.messageId)
+    expect(m.content).toContain('contains Notion, a service in this app\'s list')
+    expect(cards(t.turnId)).toHaveLength(1)
+    expect(rowsAt('https://notion-mcp.example.com/mcp')).toEqual([])
+  })
+})
+
+describe('a service the person already has (QA bug 2)', () => {
+  test('their own connection needs a new key and a team template has the same address: the card is for their connection, never a second one', async () => {
+    const url = `${svc.base}/mcp-key`
+    const mine = await h.api('erin').call(API.createIntegration, { body: { kind: 'mcp', name: 'Tasks', url, auth: 'bearer', secret: WRONG, writePolicy: 'ask' } })
+    expect(mine.status).not.toBe('connected')
+    const carol = activeUser(h.ctx.db, 'carol')!
+    const tpl = templatesOf(h.ctx).create(carol, { kind: 'mcp', name: 'Team tasks', url, auth: 'bearer', access: { everyone: false, groups: [], users: ['erin'] } }, 'en')
+    const erinRows = () => rowsAt(url).filter((x) => x.owner_user_id === 'erin')
+    try {
+      // Not now on that card: their connection stays as it was
+      const first = await start('erin', { name: 'Tasks', kind: 'mcp', url, auth: 'bearer' })
+      const c1 = await cardOf(first.turnId)
+      expect(c1.template).toBeUndefined()
+      expect(c1).toMatchObject({ reconnect: true, name: 'Tasks', scope: 'personal', service: { url, auth: 'bearer' } })
+      await post('erin', first.turnId, { action: 'skip', requestId: c1.requestId })
+      await doneOf(first.messageId)
+      expect(erinRows().map((x) => x.id)).toEqual([mine.id])
+      // a new key on the next card fixes that same connection
+      const t = await start('erin', { name: 'Tasks', kind: 'mcp', url, auth: 'bearer' })
+      const card = await cardOf(t.turnId)
+      expect(card).toMatchObject({ reconnect: true })
+      const r = await post('erin', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
+      expect(r.body).toMatchObject({ state: 'connected', integrationId: mine.id })
+      expect(resultOf(await doneOf(t.messageId))).toMatchObject({ connected: true, name: 'Tasks' })
+      expect(erinRows()).toEqual([{ id: mine.id, scope: 'personal', owner_user_id: 'erin', status: 'connected' }])
+      expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM integrations WHERE template_id = ?').get(tpl.id)).toEqual({ n: 0 })
+      // asked again while it works: no card, and it says so
+      const again = await start('erin', { name: 'Tasks', kind: 'mcp', url, auth: 'bearer' })
+      const m = await doneOf(again.messageId)
+      expect(cards(again.turnId)).toEqual([])
+      expect(m.content).toContain('own connection "Tasks" is already connected to this service')
+    } finally {
+      await templatesOf(h.ctx).remove(carol, tpl.id)
+      await integrationsOf(h.ctx).remove(activeUser(h.ctx.db, 'erin')!, mine.id)
+    }
+  })
+
+  test('a working team connection to the same service: no card, it is already connected', async () => {
+    const url = `${svc.base}/mcp-open?everyone=bug2`
+    const carol = activeUser(h.ctx.db, 'carol')!
+    const team = await integrationsOf(h.ctx).create(carol, { kind: 'mcp', name: 'Team board', url, auth: 'none', writePolicy: 'ask', access: { everyone: true, groups: [], users: [] } }, 'team', 'en')
+    try {
+      expect(team.status).toBe('connected')
+      const t = await start('erin', { name: 'Board', kind: 'mcp', url, auth: 'none' })
+      const m = await doneOf(t.messageId)
+      expect(cards(t.turnId)).toEqual([])
+      expect(m.content).toContain('A team connection, "Team board", is already connected')
+      expect(rowsAt(url), JSON.stringify(rowsAt(url))).toHaveLength(1)
+    } finally {
+      await integrationsOf(h.ctx).remove(carol, team.id)
+    }
   })
 })
