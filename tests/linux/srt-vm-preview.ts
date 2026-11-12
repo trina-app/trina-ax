@@ -158,6 +158,20 @@ say('P2b', cross.every((c) => c.status === 403), 'A26: the cookie of one link do
   say('P4b', none, 'no forwarder is left when no dev server runs')
 }
 
+// ---- P5: a dev server with a second port in the background, started 3 times (run 3 once saw it end at once) ----
+for (let i = 1; i <= 3; i++) {
+  const chat = (await h.api('erin').call(API.createChat, { body: {} })).id
+  const t = await shell('erin', chat, { command: server(`MARK-P5-${i}`, [3000, 3001]), background: true, port: 3000, log_name: `p5x${i}` })
+  await Bun.sleep(2500)
+  const r = rowOf('erin')
+  const now = h.ctx.db.query('SELECT state, end_reason, exit_code, log_tail FROM dev_env_runs WHERE id = ?').get(r.id) as Record<string, unknown>
+  const log = (() => { try { return fs.readFileSync(path.join(BASE, `devenv/logs/erin/p5x${i}.log`), 'utf8').slice(-600) } catch (e) { return String(e) } })()
+  let body = ''
+  if (now.state === 'running') { const l = await open('erin', r.id, 3000); body = (await page(l.origin, l.cookie)).body }
+  say(`P5-${i}`, now.state === 'running' && body.includes(`MARK-P5-${i}`), 'a dev server with a second background port runs and opens', { row: now, log, tool: t.slice(0, 160), body: body.slice(0, 40) })
+  await h.api('erin').call(API.stopMyDevEnvRun, { params: { runId: r.id } }).catch(() => {})
+}
+
 say('END', null, 'done', { serverPid: process.pid })
 console.log(`results in ${RESULTS}`)
 // stay up like the other drivers (vm-check.sh reads the results; the unit has Restart=no in this mode)

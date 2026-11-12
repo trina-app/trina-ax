@@ -30,7 +30,7 @@ import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, 
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
-import { safeHref } from '../../lib/safeLinks'
+import { openExternal, safeHref } from '../../lib/safeLinks'
 import { aiName } from '../../lib/tabs'
 import { navigateTo } from '../../lib/nav'
 import { TeamImage } from '../Markdown'
@@ -162,7 +162,7 @@ function PreviewLine({ step }: { step: Step }) {
     try {
       const r = await api.call(API.previewMyDevEnvRun, { params: { runId: run.id }, body: { port: run.port! } })
       if (tab) tab.location.href = r.url
-      else window.open(r.url, '_blank', 'noopener')
+      else openExternal(r.url)
     } catch (e) {
       tab?.close()
       const reason = e instanceof ApiError ? e.body.params?.reason : undefined
