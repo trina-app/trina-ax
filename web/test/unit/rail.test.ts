@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { RAIL_ITEMS, RAIL_ROOT, railOf, railTarget, rememberRail, useRailMemory, type RailItem } from '../../src/lib/rail'
 import { navRailOn } from '../../src/lib/navRail'
+import { clearLocalData } from '../../src/lib/localData'
 import { installDom } from './dom-host'
 
 beforeAll(() => installDom())
@@ -23,7 +24,12 @@ function layoutRoutes(): string[] {
   expect(start).toBeGreaterThan(0)
   const end = src.indexOf('</Route>', start)
   const block = src.slice(start, end)
+  // every <Route …> in the block must be one this reads (a route written another way, or a nested one, fails here
+  // instead of being skipped)
+  expect(block.includes('</Route>')).toBe(false)
   const paths = [...block.matchAll(/<Route\s+(index|path="([^"]*)")/g)].map((m) => (m[1] === 'index' ? '' : m[2]!))
+  // (the block starts with the <Layout /> route itself)
+  expect(paths.length).toBe([...block.matchAll(/<Route\b/g)].length - 1)
   expect(paths.length).toBeGreaterThan(20)
   return paths
 }
@@ -94,6 +100,13 @@ describe('the places', () => {
     expect(railOf('/filesystem')).toBeNull()
     expect(railOf('/settings')).toBeNull()
   })
+
+  test('as the router matches: any letter case and a trailing slash; an address only "not found" shows lights none', () => {
+    expect(railOf('/Rooms')).toBe('chats')
+    expect(railOf('/rooms/')).toBe('chats')
+    expect(railOf('/FILES/view')).toBe('files')
+    for (const p of ['/c', '/files/view/x', '/rooms/a/b/c/d', '/trash/x', '/activity/x']) expect(railOf(p)).toBeNull()
+  })
 })
 
 describe('what each place remembers', () => {
@@ -109,12 +122,23 @@ describe('what each place remembers', () => {
     expect(railTarget('files', 'ai', last)).toBe('/files')
   })
 
-  test('kept for this browser tab (sessionStorage) and dropped on sign-out (reset)', () => {
+  test('a kept address is a path of this app (never //host)', () => {
+    sessionStorage.setItem('mycel.rail.last', JSON.stringify({ ai: '//evil.example/x', chats: '/rooms/r1', files: 3, activity: 'https://x' }))
+    // read again as a new page would
+    return import(`../../src/lib/rail?again=${Date.now()}`).then((m: typeof import('../../src/lib/rail')) => {
+      expect(m.useRailMemory.getState().last).toEqual({ chats: '/rooms/r1' })
+    })
+  })
+
+  test('kept for this browser tab (sessionStorage) and dropped on sign-out (reset, and clearLocalData)', () => {
     rememberRail('/files', '?path=shared')
     expect(JSON.parse(sessionStorage.getItem('mycel.rail.last') ?? '{}')).toEqual({ files: '/files?path=shared' })
     useRailMemory.getState().reset()
     expect(useRailMemory.getState().last).toEqual({})
     expect(sessionStorage.getItem('mycel.rail.last')).toBe('{}')
+    rememberRail('/files')
+    clearLocalData()
+    expect(sessionStorage.getItem('mycel.rail.last')).toBeNull()
   })
 })
 
