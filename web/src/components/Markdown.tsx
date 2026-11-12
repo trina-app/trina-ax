@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
-import { personWords, protectMentions, remarkCapDepth, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
+import { footnotesTooHeavy, personWords, protectMentions, remarkCapDepth, remarkFootnotesAsText, remarkGfmNoFootnotes, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
 import { LinkedText, RoomLink } from './rooms/MessageText'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
@@ -419,6 +419,11 @@ const COMPONENTS_ANSWER: Components = {
 // cjk-friendly: "**마일스톤(◆)**으로" is bold (CommonMark ends emphasis only before punctuation or a space, and Korean
 // particles follow the closing ** directly); remarkCapDepth: nothing nested deeper than lib/messageMarkdown.ts MAX_NEST
 export const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never, remarkCapDepth as never]
+/** REMARK for a text whose footnotes would take seconds to read (lib/messageMarkdown.ts footnotesTooHeavy): GFM
+ * without footnotes, their marks as words. */
+const REMARK_NO_FOOTNOTES = [remarkGfmNoFootnotes as never, remarkCjkFriendly, mathRemark as never, remarkCapDepth as never, remarkFootnotesAsText as never]
+/** The remark steps for an AI's answer (or a file) of this text. */
+export const remarkFor = (text: string) => (footnotesTooHeavy(text) ? REMARK_NO_FOOTNOTES : REMARK)
 
 /** Markdown that fails to draw (whatever the reason) is its plain words, and costs that one text, not the page around
  * it (a message in a room is drawn for everyone who opens the room). `resetKey`: the text; a new one is tried again. */
@@ -536,6 +541,19 @@ export const Markdown = memo(function Markdown({ text, streaming, className, siz
         </AttachedCopies.Provider>
       </OpenableFiles.Provider>
     )
+  return <AnswerMarkdown text={text} streaming={streaming} className={className} size={size} copyQuotes={copyQuotes} />
+})
+
+function AnswerMarkdown({ text, streaming, className, size, copyQuotes }: { text: string; streaming?: boolean; className?: string; size: keyof typeof SIZES; copyQuotes?: boolean }) {
+  // (one element while the text is the same: a new render of the page around it does not read the Markdown again)
+  const body = useMemo(() => {
+    const source = prepareMarkdown(text, streaming)
+    return (
+      <ReactMarkdown remarkPlugins={remarkFor(source)} rehypePlugins={copyQuotes ? REHYPE_ANSWER : REHYPE} components={copyQuotes ? COMPONENTS_ANSWER : COMPONENTS} urlTransform={urlTransform}>
+        {source}
+      </ReactMarkdown>
+    )
+  }, [text, streaming, copyQuotes])
   return (
     <MarkdownBoundary resetKey={text} fallback={<div className={clsx('whitespace-pre-wrap break-words', SIZES[size], className)}>{text}</div>}>
       <div
@@ -545,13 +563,11 @@ export const Markdown = memo(function Markdown({ text, streaming, className, siz
           className,
         )}
       >
-        <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={copyQuotes ? REHYPE_ANSWER : REHYPE} components={copyQuotes ? COMPONENTS_ANSWER : COMPONENTS} urlTransform={urlTransform}>
-          {prepareMarkdown(text, streaming)}
-        </ReactMarkdown>
+        {body}
       </div>
     </MarkdownBoundary>
   )
-})
+}
 
 // ---------------- a person's words ----------------
 /** A person's message in a room, DM or thread (QA TC-072; docs/DECISIONS.md "Markdown in people's messages"): the
@@ -578,15 +594,25 @@ const COMPONENTS_PERSON: Components = {
     return <span className="text-faint">[{alt}]</span>
   },
 }
-const REMARK_PERSON = [[remarkGfm, { singleTilde: false }] as never, remarkCjkFriendly]
+// (no footnotes: lib/messageMarkdown.ts remarkGfmNoFootnotes)
+const REMARK_PERSON = [[remarkGfmNoFootnotes, { singleTilde: false }] as never, remarkCjkFriendly]
 
 /** `mentions`: the names the message mentions (lib/messageMarkdown.ts); `after`: a mark after the words ("edited"),
  * on the last line when that is a paragraph. */
 export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, className, after }: { text: string; mentions: MessageMention[]; className?: string; after?: ReactNode }) {
-  const { source, plugins } = useMemo(() => {
-    const p = protectMentions(text, mentions)
-    return { source: p.source, plugins: [...REMARK_PERSON, [personWords, { found: p.found, origin: origin() }] as never] }
-  }, [text, mentions])
+  // (one element while the words and the names are the same, whatever else changes: a new "edited" mark or a new list
+  // of the same names does not read the Markdown again)
+  const names = JSON.stringify(mentions)
+  const heavy = useMemo(() => tooHeavyForMarkdown(text), [text])
+  const body = useMemo(() => {
+    if (heavy) return null
+    const p = protectMentions(text, JSON.parse(names) as MessageMention[])
+    return (
+      <ReactMarkdown remarkPlugins={[...REMARK_PERSON, [personWords, { found: p.found, origin: origin() }] as never]} components={COMPONENTS_PERSON} urlTransform={urlTransform}>
+        {p.source}
+      </ReactMarkdown>
+    )
+  }, [text, names, heavy])
   // (if it cannot be drawn: its words, as a message being sent shows them)
   const plain = (
     <div className={clsx('whitespace-pre-wrap break-words text-reading leading-reading text-ink', className)} data-testid="message-markdown" data-plain="">
@@ -595,7 +621,7 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
     </div>
   )
   // (text Markdown would read for seconds: its words straight away)
-  if (tooHeavyForMarkdown(text)) return plain
+  if (heavy) return plain
   return (
     <MarkdownBoundary resetKey={text} fallback={plain}>
       <TeamImagesAsLinks.Provider value>
@@ -607,9 +633,7 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
           )}
           data-testid="message-markdown"
         >
-          <ReactMarkdown remarkPlugins={plugins} components={COMPONENTS_PERSON} urlTransform={urlTransform}>
-            {source}
-          </ReactMarkdown>
+          {body}
           {after}
         </div>
       </TeamImagesAsLinks.Provider>

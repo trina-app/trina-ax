@@ -9,6 +9,14 @@
 //   email or "www." rule of its own; an address cut by Korean text stays text);
 // - a line break stays a line break (Markdown would join the lines).
 // No DOM, no network: test/unit/message-markdown.test.ts.
+import { gfmAutolinkLiteralFromMarkdown, gfmAutolinkLiteralToMarkdown } from 'mdast-util-gfm-autolink-literal'
+import { gfmStrikethroughFromMarkdown, gfmStrikethroughToMarkdown } from 'mdast-util-gfm-strikethrough'
+import { gfmTableFromMarkdown, gfmTableToMarkdown } from 'mdast-util-gfm-table'
+import { gfmTaskListItemFromMarkdown, gfmTaskListItemToMarkdown } from 'mdast-util-gfm-task-list-item'
+import { gfmAutolinkLiteral } from 'micromark-extension-gfm-autolink-literal'
+import { gfmStrikethrough } from 'micromark-extension-gfm-strikethrough'
+import { gfmTable } from 'micromark-extension-gfm-table'
+import { gfmTaskListItem } from 'micromark-extension-gfm-task-list-item'
 import { mentionCanStart } from './rooms'
 import { classifyLink } from './markdown'
 import { linkParts } from './textLinks'
@@ -202,41 +210,145 @@ export function capDepth(tree: Node) {
 
 /** How many quote and list signs a line may start with ("> - 1. …") before the text is not read as Markdown at all. */
 export const MAX_LINE_MARKS = 32
-/** How many "[" (links, pictures) or emphasis openers ("*", "_" or "~" before a word) may be open at once, not yet closed by a
+/** How many "[" (links, pictures) or emphasis openers ("*" or "_" before a word) may be open at once, not yet closed by a
  * "]" or a closing "*"/"_", before the same: the parser matches those against each other, which takes seconds when
  * there are thousands ("![![![… ](u)](u)", "*x *x *x … x* x*"). Closed ones ("**a** **b**", "[a](u) [b](u)") cost
  * nothing. */
 export const MAX_OPEN = 400
+/** How many "*", "_" or "~~" marks may stand where they could both open and close emphasis ("a*b*c", "~*~*", ".*.*"), or
+ * close one that was never opened ("x* * x* *"), before the same: the parser looks back over all the marks before each
+ * of those, a fifth of a second for 2,000-5,000 of them. Marks that open and close in pairs ("**a** **b**") cost
+ * little. */
+export const MAX_LOOSE = 1000
+/** How many words may follow a "[" that is not closed in its paragraph ("[x<x<x<…", "[draft" and a long text): GFM
+ * tries a web or e-mail address at each word's start, and each try looks back over the whole paragraph for that "[" (a
+ * fifth of a second for 5,000). */
+export const MAX_AUTOLINK_TRIES = 1000
+const ATEXT = /[A-Za-z\d+\-._]/
+/** How many line breaks a message may have (a 10,000-character message can have 5,000): the parser reads the lines that
+ * continue a quote's or a list's paragraph ("> x" and then thousands of short lines) over again for each new one, and a
+ * list of thousands of items holding lists or quotes ("- - x", "- > x") costs more for each one: a quarter of a second
+ * at 5,000 lines, or 1,700 items, in plain CommonMark too. 1,000 lines is a very long message already. */
+export const MAX_LINES = 1000
 const LONG_RUN = /[*_]{65,}/g
 const SPACE = /\s/
-const WORD = /[\p{L}\p{N}]/u
+const PUNCT = /[\p{P}\p{S}]/u
+
+/** How many characters the parser may read looking for the end of code spans that never end (MAX_CODE_SEARCH). */
+export const MAX_CODE_SEARCH = 2_000_000
+const BLANK_LINE = /\n[ \t]*\n/g
+
+/** Whether the parser would read too far looking for the ends of code spans: each "`" run reads on to the next run of
+ * as many "`" in its paragraph, and to the paragraph's end when there is none ("```x\\" a thousand times: each "\`"
+ * is an escaped "`" and then a "``" that is never closed), a fifth of a second for 10,000 characters. */
+function codeSearchTooLong(text: string): boolean {
+  if (!text.includes('`')) return false
+  const runs: { at: number; len: number }[] = []
+  for (let k = text.indexOf('`'); k >= 0; ) {
+    let j = k
+    while (text[j] === '`') j++
+    runs.push({ at: k, len: j - k })
+    k = text.indexOf('`', j)
+  }
+  // the runs of each length (their numbers in `runs`), and where each paragraph ends
+  const byLen = new Map<number, number[]>()
+  runs.forEach((r, i) => {
+    const list = byLen.get(r.len)
+    if (list) list.push(i)
+    else byLen.set(r.len, [i])
+  })
+  const cursor = new Map<number, number>()
+  const ends = [...text.matchAll(BLANK_LINE)].map((m) => m.index)
+  let end = 0
+  let read = 0
+  for (let r = 0; r < runs.length; ) {
+    const run = runs[r]
+    while (end < ends.length && ends[end] < run.at) end++
+    const stop = ends[end] ?? text.length
+    // (outside code a "\" escapes the first "`" of a run)
+    const len = run.len - (text[run.at - 1] === '\\' ? 1 : 0)
+    const list = len > 0 ? byLen.get(len) : undefined
+    let c = cursor.get(len) ?? 0
+    while (list && c < list.length && list[c] <= r) c++
+    cursor.set(len, c)
+    const next = list?.[c]
+    if (next !== undefined && runs[next].at < stop) {
+      read += runs[next].at - run.at
+      r = next + 1
+    } else {
+      read += stop - run.at
+      r++
+    }
+    if (read > MAX_CODE_SEARCH) return true
+  }
+  return false
+}
+
+/** Where a footnote definition's mark ("[^a]:") that starts at `i` ends (0: none starts there). */
+function footnoteMark(text: string, i: number): number {
+  const m = /^\[\^[^\]\n]*\]:/.exec(text.slice(i, i + 1000))
+  return m ? i + m[0].length : 0
+}
 
 /** Text Markdown could only read slowly (seconds) is shown as its plain words instead: a line that starts with
- * thousands of quote or list signs ("* * * … x", "1. 1. …", ">>>…": capDepth keeps them from drawing deep, but reading
- * them is slow in itself), hundreds of "[" or emphasis openers open at once (MAX_OPEN), or a long run mixing
+ * thousands of quote or list signs ("* * * … x", "1. 1. …", ">>>…", footnote marks "[^a]:" as one: capDepth keeps them from drawing deep, but reading
+ * them is slow in itself), hundreds of "[" or emphasis openers open at once (MAX_OPEN), thousands of lines (MAX_LINES), a thousand emphasis marks that do not pair up (MAX_LOOSE), code spans that never end (MAX_CODE_SEARCH), a thousand words after a "[" that is not closed (MAX_AUTOLINK_TRIES), or a long run mixing
  * "*" and "_". Nothing a person writes on purpose. For people's messages only: an AI's answer or a file is Markdown
  * whatever it holds (capDepth and MarkdownBoundary keep those from taking the page down). */
 export function tooHeavyForMarkdown(text: string): boolean {
+  let lines = 0
+  for (let k = text.indexOf('\n'); k >= 0; k = text.indexOf('\n', k + 1)) if (++lines > MAX_LINES) return true
   for (const run of text.matchAll(LONG_RUN)) if (run[0].includes('*') && run[0].includes('_')) return true
   let open = 0
+  let loose = 0
+  // the "*", "_" and "~~" openers still open; the "[" still open in this paragraph, and the words since
+  const opened = [0, 0, 0]
+  let label = 0
+  let tries = 0
   for (let k = 0; k < text.length; k++) {
     const ch = text[k]
-    if (ch === '[') open++
-    else if (ch === ']') open = Math.max(0, open - 1)
-    else if (ch === '*' || ch === '_' || ch === '~') {
+    // (a blank line ends a paragraph, and with it what the parser looks back over)
+    if (ch === '\n' && /^[ \t]*(\n|$)/.test(text.slice(k + 1, k + 64))) {
+      label = 0
+      tries = 0
+    }
+    if (ch === '[') {
+      open++
+      label++
+    } else if (ch === ']') {
+      open = Math.max(0, open - 1)
+      label = Math.max(0, label - 1)
+    } else if (label > 0 && ATEXT.test(ch) && !ATEXT.test(text[k - 1] ?? ' ')) {
+      if (++tries > MAX_AUTOLINK_TRIES) return true
+    } else if (ch === '*' || ch === '_' || ch === '~') {
       let j = k
       while (text[j + 1] === ch) j++
+      // (CommonMark's rules for a run of them: whether it may open or close emphasis, by what is on either side)
       const before = text[k - 1] ?? ' '
       const after = text[j + 1] ?? ' '
-      const opens = !SPACE.test(after)
-      const closes = !SPACE.test(before)
-      // (an "_" inside a word, snake_case, is neither)
-      if (opens && !closes && !(ch === '_' && WORD.test(before))) open++
-      else if (closes && !opens) open = Math.max(0, open - 1)
+      const left = !SPACE.test(after) && (!PUNCT.test(after) || SPACE.test(before) || PUNCT.test(before))
+      const right = !SPACE.test(before) && (!PUNCT.test(before) || SPACE.test(after) || PUNCT.test(after))
+      // (an "_" inside a word, snake_case, does neither)
+      const opens = ch === '_' ? left && (!right || PUNCT.test(before)) : left
+      const closes = ch === '_' ? right && (!left || PUNCT.test(after)) : right
+      // (a closer only closes an opener of its own sign: "__" does not close "*"; for "~~" strike, open ones cost
+      // little, and one "~" or more than two are words)
+      if (ch !== '~' || j - k === 1) {
+        const own = ch === '*' ? 0 : ch === '_' ? 1 : 2
+        if (opens && !closes) {
+          if (ch !== '~') open++
+          opened[own]++
+        } else if (closes && !opens) {
+          if (opened[own] === 0) loose++
+          else opened[own]--
+          open = Math.max(0, open - 1)
+        } else if (opens && closes) loose++
+      }
       k = j
     }
-    if (open > MAX_OPEN) return true
+    if (open > MAX_OPEN || loose > MAX_LOOSE) return true
   }
+  if (codeSearchTooLong(text)) return true
   let i = 0
   const n = text.length
   while (i < n) {
@@ -246,6 +358,7 @@ export function tooHeavyForMarkdown(text: string): boolean {
       while (text[i] === ' ' || text[i] === '\t') i++
       const ch = text[i]
       if (ch === '>') i++
+      else if (ch === '[' && text[i + 1] === '^' && footnoteMark(text, i) > 0) i = footnoteMark(text, i)
       else if ((ch === '-' || ch === '*' || ch === '+') && (i + 1 >= n || text[i + 1] === ' ' || text[i + 1] === '\t' || text[i + 1] === '\n')) i++
       else {
         let j = i
@@ -265,13 +378,70 @@ export function tooHeavyForMarkdown(text: string): boolean {
 /** The remark step that caps nesting (capDepth), for the AI's answers too. */
 export const remarkCapDepth = () => (tree: Node) => capDepth(tree)
 
+/** remark-gfm (tables, strike, task lists, autolinks) without its footnotes. GFM's footnote syntax is what makes a
+ * message slow to read: "[^a]:" definitions inside each other ("[^a]:\n\n\t" 1,250 times, under 10,000 characters)
+ * took the parser 3-7 s, freezing the room for everyone who opened it; without footnotes the same text reads in
+ * milliseconds. People's messages never show footnotes (they are their words: footnotesAsText), so they are read
+ * without them; an AI's answer only when its text has footnotes of that kind (footnotesTooHeavy). `singleTilde` as
+ * remark-gfm's. The parts are remark-gfm's own (micromark-extension-gfm-*, mdast-util-gfm-*). */
+export function remarkGfmNoFootnotes(this: unknown, options: { singleTilde?: boolean } = {}) {
+  const data = (this as { data(): Record<string, unknown[] | undefined> }).data()
+  ;(data.micromarkExtensions ??= []).push(gfmAutolinkLiteral(), gfmStrikethrough(options), gfmTable(), gfmTaskListItem())
+  ;(data.fromMarkdownExtensions ??= []).push([gfmAutolinkLiteralFromMarkdown(), gfmStrikethroughFromMarkdown(), gfmTableFromMarkdown(), gfmTaskListItemFromMarkdown()])
+  ;(data.toMarkdownExtensions ??= []).push({ extensions: [gfmAutolinkLiteralToMarkdown(), gfmStrikethroughToMarkdown(), gfmTableToMarkdown(), gfmTaskListItemToMarkdown()] })
+}
+
+/** Read without footnotes (remarkGfmNoFootnotes), a footnote's marks are a reference link ("x[^1]") and its definition
+ * ("[^1]: note"), which would make "[^1]" a link to "note" and hide the note: both are their words as written
+ * instead. `src`: the text read (the tree's offsets are into it). */
+export function footnotesAsText(tree: Node, src: string) {
+  const isNote = (n: Node) => (n.type === 'definition' || n.type === 'linkReference' || n.type === 'imageReference') && (n.identifier ?? '').startsWith('^')
+  const asWritten = (n: Node): Node => {
+    const a = n.position?.start.offset
+    const b = n.position?.end.offset
+    const value = a !== undefined && b !== undefined ? src.slice(a, b) : `[${n.label ?? n.identifier ?? ''}]`
+    return n.type === 'definition' ? { type: 'paragraph', children: [{ type: 'text', value }] } : { type: 'text', value }
+  }
+  // (no recursion: capDepth has run, but an answer's tree is walked here too)
+  const work: Node[] = [tree]
+  while (work.length) {
+    const node = work.pop()!
+    if (!node.children) continue
+    if (node.children.some(isNote)) node.children = node.children.map((c) => (isNote(c) ? asWritten(c) : c))
+    for (const c of node.children) work.push(c)
+  }
+}
+
+/** The remark step of footnotesAsText, for an AI's answer read without footnotes. */
+export const remarkFootnotesAsText = () => (tree: Node, file: { value?: unknown }) => footnotesAsText(tree, typeof file.value === 'string' ? file.value : '')
+
+/** How many footnote definitions ("[^1]: …") an AI's answer may have, and how many of them not at a line's start (in a
+ * quote, a list, another definition, after its own words), before it is read without footnotes (remarkGfmNoFootnotes:
+ * their marks are then words). Definitions inside each other are what take the parser seconds; an answer's own
+ * footnotes are a list at its end. */
+export const MAX_FOOTNOTES = 100
+export const MAX_INNER_FOOTNOTES = 2
+const FOOTNOTE_DEF = /\[\^[^\]\n]*\]:/g
+
+/** An answer's text whose footnotes would read slowly (see MAX_FOOTNOTES). */
+export function footnotesTooHeavy(text: string): boolean {
+  if (!text.includes('[^')) return false
+  let all = 0
+  let inner = 0
+  for (const m of text.matchAll(FOOTNOTE_DEF)) {
+    if (++all > MAX_FOOTNOTES) return true
+    if (m.index > 0 && text[m.index - 1] !== '\n' && ++inner > MAX_INNER_FOOTNOTES) return true
+  }
+  return false
+}
+
 /** What one child becomes before its words are read:
  * - raw HTML is words: a block of it a paragraph of text, inline HTML text (its mentions, addresses and line breaks are
  *   kept as in the rest of the message; nothing of it is ever HTML);
  * - GFM's autolink literals ("https://…", "www.…", "a@b.c" with no [ ] or < >) are their text again (textLinks rules);
  * - a reference link is its definition's link (the checks below);
- * - a footnote ("x[^1]", "[^1]: note") is its text: its links and ids would jump out of the room ("/#user-content-fn-1")
- *   and repeat in every message; a link to "#…" the same;
+ * - a link to "#…" is its words (its ids would jump out of the room and repeat in every message; footnotes are not read
+ *   at all: remarkGfmNoFootnotes, footnotesAsText);
  * - a link whose words are another site's address ("[https://bank.com](https://evil.example)"), or look like one,
  *   shows where it really goes: its words, then the real address as a link in brackets; any other link to another
  *   site whose words are not its address, its words (still the link) and then its host in brackets ("(evil.example)",
@@ -283,14 +453,6 @@ function expand(c0: Node, flow: boolean, src: string, found: Found[], defs: Map<
   const def = c0.type === 'linkReference' ? defs.get(c0.identifier ?? '') : undefined
   const c: Node = def ? { type: 'link', url: def.url ?? '', title: def.title ?? null, children: c0.children ?? [], position: c0.position } : c0
   if (c.type === 'html') return [flow ? { type: 'paragraph', children: [text(c.value ?? '')] } : text(c.value ?? '')]
-  if (c.type === 'footnoteReference') return [text(`[^${c.label ?? c.identifier ?? ''}]`)]
-  if (c.type === 'footnoteDefinition') {
-    const kids = [...(c.children ?? [])]
-    const mark = text(`[^${c.label ?? c.identifier ?? ''}]: `)
-    if (kids[0]?.type === 'paragraph') kids[0] = { ...kids[0], children: [mark, ...(kids[0].children ?? [])] }
-    else kids.unshift({ type: 'paragraph', children: [mark] })
-    return kids.flatMap((k) => expand(k, true, src, found, defs, origin))
-  }
   if (c.type !== 'link') return [c]
   const at = c.position?.start.offset
   if ((at !== undefined && src[at] !== '[' && src[at] !== '<') || (c.url ?? '').startsWith('#')) return c.children ?? []
@@ -336,6 +498,7 @@ export function personWords({ found, origin }: { found: Found[]; origin: string 
   return (tree: Node, file: { value?: unknown }) => {
     capDepth(tree)
     const src = typeof file.value === 'string' ? file.value : ''
+    footnotesAsText(tree, src)
     // the definitions of reference links, by their identifier
     const defs = new Map<string, Node>()
     const collect = (n: Node) => {

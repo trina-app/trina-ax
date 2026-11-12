@@ -8,7 +8,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { uuidv7 } from '@mycel/shared/api'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { Markdown, PersonMarkdown } from '../../src/components/Markdown'
-import { capDepth, hiddenAddress, MAX_LINE_MARKS, MAX_NEST, MAX_OPEN, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
+import { capDepth, footnotesTooHeavy, hiddenAddress, MAX_AUTOLINK_TRIES, MAX_FOOTNOTES, MAX_LINE_MARKS, MAX_LINES, MAX_LOOSE, MAX_NEST, MAX_OPEN, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
 import type { PendingSend } from '../../src/store/rooms'
 import { BEN, CY, ME, message } from './rooms-fixtures'
 
@@ -161,6 +161,12 @@ test('footnotes and "#…" links are text (no jump out of the room, no repeated 
   expect(words('[docs][r]\n\n[r]: https://example.com/d')).toMatch(/<a href="https:\/\/example\.com\/d"[^>]*>docs<\/a>/)
   // raw HTML in a footnote's text is a paragraph's words too
   expect(words('[^1]: note\n\n    more\n\nx')).not.toContain('<a ')
+  // read without footnotes, "[^1]" is no link to its "definition", and the definition is not hidden
+  const g = words('x[^1] and [see][^1]\n\n[^1]: note "title"\n[^2]: https://evil.example')
+  expect(g).not.toContain('href="note"')
+  expect(g).toContain('x[^1] and [see][^1]')
+  expect(g).toContain('[^1]: note &quot;title&quot;')
+  expect(g).toMatch(/\[\^2\]: <a href="https:\/\/evil\.example\/"/)
 })
 
 // ---- review of PR #514 (revmd): nesting that blanked the app, links whose words hide where they go ----
@@ -314,3 +320,92 @@ test('a picture inside a link is its words (no link inside a link)', () => {
   expect(h.match(/<a /g)?.length).toBe(1)
   expect(h).toMatch(/<a href="https:\/\/evil\.example\/x"[^>]*>paypal\.com<\/a> <span class="text-muted \[unicode-bidi:isolate\]" data-real-address="">\(evil\.example\)<\/span>/)
 })
+
+// ---- review of PR #514 (round 3): footnote definitions inside each other froze the room for seconds ----
+
+/** the fastest of three renders, in ms (a loaded machine slows one now and then) */
+const fastest = (f: () => unknown) => {
+  let best = Infinity
+  for (let r = 0; r < 3 && best >= 200; r++) {
+    const t = performance.now()
+    f()
+    best = Math.min(best, performance.now() - t)
+  }
+  return best
+}
+const upTo = (unit: string, n = 10_000) => (unit.repeat(Math.ceil(n / unit.length))).slice(0, n - 1) + 'x'
+const FOOTNOTE_BOMBS = ['[^a]:\n\n\t'.repeat(1427) + 'x', upTo('[^a]:\n\t'), upTo('[^1]:\n\t[^2]:\n\t'), upTo('[^a]: \n\t'), upTo('[^a]:\n    '), upTo('[^a]: x\n    '), upTo('- - [^a]:'), upTo('[^a]:- - ')]
+
+test('footnote definitions inside each other read in milliseconds, in messages and in answers', () => {
+  md('warm')
+  answer('warm')
+  for (const body of FOOTNOTE_BOMBS) {
+    const ms = fastest(() => md(body.slice(0, 10_000)))
+    if (ms >= 200) throw new Error(`message ${JSON.stringify(body.slice(0, 12))}: ${Math.round(ms)} ms`)
+    const ma = fastest(() => answer(body.slice(0, 10_000)))
+    if (ma >= 200) throw new Error(`answer ${JSON.stringify(body.slice(0, 12))}: ${Math.round(ma)} ms`)
+    // (an answer's footnote marks are then its words: no hidden definition, no link to one)
+    expect(answer(body.slice(0, 10_000))).not.toContain('user-content-fn')
+  }
+  // an answer's own footnotes are still footnotes
+  expect(answer('Claim[^1] and more[^2]\n\n[^1]: First source\n[^2]: Second source')).toContain('href="/#user-content-fn-1"')
+  expect(footnotesTooHeavy('Claim[^1]\n\n' + Array.from({ length: MAX_FOOTNOTES }, (_, i) => `[^${i}]: note`).join('\n'))).toBe(false)
+  expect(footnotesTooHeavy(Array.from({ length: MAX_FOOTNOTES + 1 }, (_, i) => `[^${i}]: note`).join('\n'))).toBe(true)
+  expect(footnotesTooHeavy('[^a]:\n\n\t[^b]:\n\n\t[^c]:\n\n\t[^d]:\n\n\tx')).toBe(true)
+  // read without them, their marks are words, not a hidden definition
+  const h = answer('Claim[^1]\n\n' + '> [^a]: q\n'.repeat(5) + '\n[^1]: real note')
+  expect(h).toContain('Claim[^1]')
+  expect(h).toContain('[^1]: real note')
+  // a footnote mark at a line's start counts as one of its signs (MAX_LINE_MARKS)
+  expect(tooHeavyForMarkdown('[^a]: '.repeat(MAX_LINE_MARKS + 1) + 'x')).toBe(true)
+  expect(tooHeavyForMarkdown('[^a]: x\n'.repeat(500))).toBe(false)
+}, 60_000)
+
+test('other text the parser reads slowly is its plain words; ordinary messages are not', () => {
+  // each took 0.2-0.5 s to read as Markdown here
+  for (const body of [
+    '> x\n' + 'x\n'.repeat(4998), '- - x\n'.repeat(1666), '- > x\n'.repeat(1666), // lines a quote's or list's paragraph runs on to, lists of lists
+    '*a'.repeat(5000), 'a*'.repeat(5000), '~*'.repeat(5000), '.*'.repeat(5000), '!_'.repeat(5000), 'x* * '.repeat(2000), '__*a'.repeat(2500), '-x_'.repeat(3333), '~~x'.repeat(3333), // marks that do not pair up
+    '```~~x\\'.repeat(1250), // code spans that never end
+    '[' + 'x<'.repeat(4999), '[-<' + '-<<'.repeat(3332), // words after a "[" never closed
+  ]) {
+    expect(tooHeavyForMarkdown(body.slice(0, 10_000))).toBe(true)
+    expect(md(body.slice(0, 10_000))).toContain('data-plain=""')
+  }
+  for (const body of [
+    'line\n'.repeat(MAX_LINES), '* item\n'.repeat(1000), '**x** '.repeat(1600), '*x* '.repeat(2500), '~~x~~ '.repeat(1666), '3~5분 '.repeat(1000), '_x_ '.repeat(2500),
+    'a*b '.repeat(MAX_LOOSE), '`code` '.repeat(1400), 'see `a` and ``b`` '.repeat(500), '[draft ' + 'word '.repeat(MAX_AUTOLINK_TRIES - 1), ('[ ' + 'word '.repeat(500) + '\n\n').repeat(4),
+    '|a|b|\n|-|-|\n' + '|x|y|\n'.repeat(900), 'snake_case_name '.repeat(500), '[a](https://a.b) '.repeat(500),
+  ])
+    expect(tooHeavyForMarkdown(body)).toBe(false)
+  expect(tooHeavyForMarkdown('line\n'.repeat(MAX_LINES + 1))).toBe(true)
+  expect(tooHeavyForMarkdown('a*b '.repeat(MAX_LOOSE + 1))).toBe(true)
+  expect(tooHeavyForMarkdown('[draft ' + 'word '.repeat(MAX_AUTOLINK_TRIES + 1))).toBe(true)
+})
+
+test('fuzz: no message of up to 10,000 characters takes 200 ms to draw', () => {
+  // (a fixed seed: the same cases every run)
+  let seed = 514
+  const rnd = () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)]!
+  const TOK = ['[^x]:', '[^a]: x', '>', '> ', '-', '- ', '*', '* ', '\t', '    ', '|a|b|\n|-|-|\n', '|x|y|\n', '[', ']', '](u)', '`', '```', '\n', '\n\n', ' ', 'x', 'ab', '_', '~~', '~', '(', ')', '!', '<', '#', '1. ', '=', '\\', 'http://a.b', 'www.', '@', '[a]: u\n', '[a]', '*a', 'a*', '.', '**', '__', '~~x', ':', '+ ', '\n=', '\n---', '&amp;', '<a>', '[x]', '- [ ] ', 'a\n', '> x\n']
+  md('warm')
+  for (let c = 0; c < 300; c++) {
+    const len = 1 + Math.floor(rnd() * 10_000)
+    let s = ''
+    if (rnd() < 0.6) {
+      // a few signs over and over (where the slow cases are), after a few others
+      const unit = Array.from({ length: 1 + Math.floor(rnd() * 6) }, () => pick(TOK)).join('')
+      const head = rnd() < 0.3 ? Array.from({ length: 1 + Math.floor(rnd() * 4) }, () => pick(TOK)).join('') : ''
+      s = head + unit.repeat(Math.ceil(len / unit.length))
+    } else while (s.length < len) s += pick(TOK)
+    s = s.slice(0, len)
+    const ms = fastest(() => md(s))
+    if (ms >= 200) throw new Error(`${Math.round(ms)} ms: ${JSON.stringify(s.slice(0, 120))}`)
+  }
+}, 120_000)

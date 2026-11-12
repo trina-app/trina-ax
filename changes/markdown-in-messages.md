@@ -5,3 +5,6 @@
   A link whose words do not show where it goes (`[paypal.com](https://…)`, `[here](…)`, an e-mail address) shows
   the real site or address in brackets next to it. Lists and quotes nest at most 6 deep, and a message Markdown
   cannot draw (or would read only very slowly) shows as plain text instead.
+- A message (or an AI answer) stuffed with footnote marks such as `[^1]:` no longer freezes a room for seconds:
+  people's messages show footnote marks as typed, and so does an answer whose footnotes would read that slowly. Very
+  long messages of very short lines, and other text Markdown would read slowly, show as plain text.
