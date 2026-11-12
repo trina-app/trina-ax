@@ -40,7 +40,7 @@ import { AppMention, BlockActions, EventCallback, ImMessage, type Envelope } fro
 import { BOT_SCOPES, createAppUrl, slackManifest } from './manifest'
 import { SlackSocket, errorCode } from './socket'
 import { SlackBrokerClient, SlackBrokerError, SlackBrokerFeed, challengeOf, slackBrokerFor, type SlackBrokerOptions } from './broker'
-import type { SlackBrokerEvent, SlackBrokerInstallInfo } from '@mycel/shared/cloud-protocol'
+import { parseSlackBrokerLifecycle, type SlackBrokerEvent, type SlackBrokerInstallInfo } from '@mycel/shared/cloud-protocol'
 import { slackAnswer } from './rich-text'
 import { placesText, postCheck } from './post-check'
 import { confidentialChat } from '../../safe-ops/confidential'
@@ -156,6 +156,11 @@ export class SlackConnector {
   private brokerTimer: ReturnType<typeof setInterval> | null = null
   private recovering = false
   private recoveredAt = 0
+  /** "Add to Slack" finished at the hosting service, but Slack could not be asked yet whether the token is that
+   * install's (auth.test unreachable): kept there and checked again here (finishPending), never removed for it. In
+   * memory only: after a restart the owner presses Add to Slack again (the same install comes back). */
+  private pending: { installId: string; actor: string; origin: string | null; until: number; tries: number } | null = null
+  private pendingTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(readonly ctx: AppContext, readonly deps: SlackConnectorDeps = {}) {
     this.api = new SlackApi(deps)
@@ -180,6 +185,8 @@ export class SlackConnector {
     this.feed?.stop(); this.feed = null
     if (this.brokerTimer) clearInterval(this.brokerTimer)
     this.brokerTimer = null
+    if (this.pendingTimer) clearTimeout(this.pendingTimer)
+    this.pendingTimer = null; this.pending = null
     if (this.poller) clearInterval(this.poller)
     this.poller = null
   }
@@ -367,6 +374,8 @@ export class SlackConnector {
   async remove(actor: string): Promise<SlackAdmin> {
     const cfg = this.config()
     let slack: 'removed' | 'unavailable' | null = null
+    // an install still waiting for Slack's check is not taken up after this
+    this.pending = null
     if (cfg?.mode === 'official') {
       this.feed?.stop(); this.feed = null
       slack = this.broker ? await this.broker.uninstall() : 'unavailable'
@@ -420,6 +429,7 @@ export class SlackConnector {
     this.db.query('DELETE FROM slack_events WHERE seen_at < ?').run(iso(now - 86_400_000))
     this.db.query("DELETE FROM slack_requests WHERE state != 'waiting' AND created_at < ?").run(iso(now - KEEP_MS))
     this.db.query('DELETE FROM slack_signin_flows WHERE expires_at < ?').run(iso(now - 86_400_000))
+    this.db.query('DELETE FROM slack_install_flows WHERE expires_at < ?').run(iso(now - 86_400_000))
   }
 
   private tokenRow(token: string) {
@@ -775,17 +785,69 @@ export class SlackConnector {
     try { got = await this.broker.redeem(input.handoff, verifier) } catch (e) {
       const code = e instanceof SlackBrokerError ? e.code : 'unreachable'
       this.log.warn('slack install through the hosting service failed', { reason: code })
-      return fail(code === 'workspace_taken' || code === 'enterprise_install' || code === 'missing_scope' ? code : code === 'invalid_handoff' ? 'install_expired' : code === 'unreachable' ? 'broker_unreachable' : 'install_failed')
+      return fail(code === 'workspace_taken' || code === 'enterprise_install' || code === 'missing_scope' || code === 'not_workspace_admin' ? code : code === 'invalid_handoff' ? 'install_expired' : code === 'unreachable' ? 'broker_unreachable' : 'install_failed')
     }
-    const before = this.config()
     try { await this.saveInstall(f.user_id, got.install, got.botToken, f.link_origin) } catch (e) {
       if (!(e instanceof SlackError)) throw e
-      // not kept here: not left added there either (unless it is this server's working install, added again)
-      if (!(before?.mode === 'official' && before.install_id === got.install.installId && before.secret_enc)) void this.broker.uninstall()
-      return fail(e.reason === 'unreachable' ? 'install_failed' : e.reason)
+      // Slack could not be asked (a brief outage): kept there, checked again here shortly; never removed for that
+      if (e.reason === 'unreachable') {
+        this.pending = { installId: got.install.installId, actor: f.user_id, origin: f.link_origin, until: this.now() + 30 * 60_000, tries: 0 }
+        this.armPending()
+        return fail('install_pending')
+      }
+      // a definite no (another workspace's bot, a missing scope, …): not kept here, not left added there either
+      this.dropInstall(got.install.installId)
+      return fail(e.reason)
     }
     this.db.query("UPDATE slack_install_flows SET state = 'done', reason = NULL WHERE id = ?").run(f.id)
     return out('installed')
+  }
+
+  /** An install of the hosting service that is not kept here: removed there too, unless it is this server's working
+   * install (the same one added again). */
+  private dropInstall(installId: string) {
+    const c = this.config()
+    if (!(c?.mode === 'official' && c.install_id === installId && c.secret_enc) && this.broker) void this.broker.uninstall()
+  }
+
+  private armPending() {
+    if (this.pendingTimer || !this.pending || this.closed) return
+    // 5, 10, 20, 40 s, then every minute (tests: from the short retry step)
+    const wait = Math.min(60_000, (this.deps.retryMs ?? 1000) * 5 * 2 ** Math.min(this.pending.tries, 4))
+    this.pendingTimer = setTimeout(() => { this.pendingTimer = null; void this.finishPending() }, wait)
+    ;(this.pendingTimer as { unref?: () => void }).unref?.()
+  }
+
+  /** The install whose check Slack could not answer: its token again from the hosting service, then the same checks
+   * as at "Add to Slack". Unreachable again: later (30 minutes at most). Another install meanwhile, or none: dropped. */
+  private async finishPending() {
+    const p = this.pending
+    if (!p || !this.broker || this.closed) return
+    if (this.now() > p.until) { this.pending = null; this.log.warn('slack install was not checked in time; add it to Slack again'); return }
+    const c = this.config()
+    if (c?.mode === 'official' && c.install_id === p.installId && c.secret_enc) { this.pending = null; return }
+    if (this.recovering) { this.armPending(); return }
+    p.tries++
+    this.recovering = true
+    try {
+      let got: { install: SlackBrokerInstallInfo; botToken: string }
+      try { got = await this.broker.token() } catch (e) {
+        if (e instanceof SlackBrokerError && (e.code === 'not_installed' || e.code === 'not_hosted')) { if (this.pending === p) this.pending = null; return }
+        this.armPending(); return
+      }
+      if (this.pending !== p) return
+      if (got.install.installId !== p.installId) { this.pending = null; return }
+      try {
+        await this.saveInstall(p.actor, got.install, got.botToken, p.origin)
+        this.pending = null
+        this.log.info('slack install checked with Slack and kept', { installId: p.installId })
+      } catch (e) {
+        if (e instanceof SlackError && e.reason === 'unreachable') { this.armPending(); return }
+        this.pending = null
+        this.log.warn('slack install refused after its check', { installId: p.installId, reason: e instanceof SlackError ? e.reason : 'unknown' })
+        this.dropInstall(p.installId)
+      }
+    } finally { this.recovering = false }
   }
 
   /** Keep an install of the official app and its bot token (after "Add to Slack", or fetched again): Slack itself says
@@ -796,7 +858,8 @@ export class SlackConnector {
     if (before?.mode !== 'official' && before?.secret_enc) throw new SlackError('own_app_saved', 'conflict')
     if (this.brokerAppId && install.appId !== this.brokerAppId) throw new SlackError('install_failed')
     let who: Record<string, unknown> & { scopes: string[] | null }
-    try { who = await this.api.call('auth.test', bot) } catch (e) { throw new SlackError(errorCode(e) === 'unreachable' ? 'unreachable' : 'install_failed', 'unavailable') }
+    // Slack not reachable or asking to wait: no answer yet (checked again), not a refusal
+    try { who = await this.api.call('auth.test', bot) } catch (e) { const c = errorCode(e); throw new SlackError(c === 'unreachable' || c === 'ratelimited' ? 'unreachable' : 'install_failed', 'unavailable') }
     if (who.is_enterprise_install === true) throw new SlackError('enterprise_install')
     if (who.team_id !== install.teamId || who.user_id !== install.botUserId) {
       this.log.warn('slack install does not match its bot token', { installId: install.installId })
@@ -851,8 +914,10 @@ export class SlackConnector {
     // each of the hosting service's events once (it hands one out again until it is acknowledged)
     if (!this.seen(`b:${e.id}`)) return
     if (e.kind === 'lifecycle') {
-      const ev = (e.payload as { event?: unknown } | null)?.event
-      if (ev === 'uninstalled' || ev === 'tokens_revoked' || ev === 'removed') this.removedInSlack(ev)
+      // only about the install held here: a notice of an earlier install (queued while this server did not take it,
+      // and handed out after the app was added again) says nothing about the new one
+      const l = parseSlackBrokerLifecycle(e.payload), cfg = this.config()
+      if (l && cfg?.mode === 'official' && cfg.install_id === l.installId) this.removedInSlack(l.event)
       return
     }
     await this.onEnvelope({ envelope_id: e.id, type: e.kind, payload: e.payload })

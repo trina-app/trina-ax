@@ -196,9 +196,10 @@ describe('Sign in with Slack through the hosting service', () => {
 
 describe('removed, restored and removed by the owner', () => {
   test('removed in Slack: the token is forgotten, the links stay; Add to Slack again keeps them', async () => {
-    // the broker forgets the install and tells its owner
+    // the broker forgets the install and tells its owner (the notice names that install)
+    const held = broker.install!.installId
     broker.install = null
-    const gone = broker.push('lifecycle', { event: 'tokens_revoked' })
+    const gone = broker.push('lifecycle', { event: 'tokens_revoked', installId: held })
     await waitFor(() => !cfg()!.secret_enc)
     expect(cfg()).toMatchObject({ mode: 'official', install_id: null, last_error: 'removed' })
     expect(await admin()).toMatchObject({ mode: 'official', official: true, tokens: false, state: 'off', lastError: 'removed' })
@@ -214,8 +215,13 @@ describe('removed, restored and removed by the owner', () => {
     await waitFor(async () => (await admin()).state === 'connected')
     // the stopped feed acknowledged the event it took; handed out again anyway, it does not undo the new install
     expect(broker.acks).toContain(gone)
-    broker.push('lifecycle', { event: 'tokens_revoked' }, gone)
+    broker.push('lifecycle', { event: 'tokens_revoked', installId: held }, gone)
     await waitFor(() => broker.acks.filter((a) => a === gone).length === 2)
+    expect(cfg()!.secret_enc).toBeTruthy()
+    // a notice without an install, or of another install, removes nothing
+    const vague = broker.push('lifecycle', { event: 'removed' }), other = broker.push('lifecycle', { event: 'removed', installId: crypto.randomUUID() })
+    await waitFor(() => broker.acks.includes(vague) && broker.acks.includes(other))
+    expect(cfg()).toMatchObject({ install_id: broker.install!.installId, last_error: null })
     expect(cfg()!.secret_enc).toBeTruthy()
   })
 
@@ -225,6 +231,28 @@ describe('removed, restored and removed by the owner', () => {
     await waitFor(() => !cfg()!.secret_enc)
     expect(cfg()!.last_error).toBe('removed')
     expect(outcome(await add())).toBe('installed')
+  })
+
+  test('the hosting service\'s "removed" of the earlier install, queued while the feed was stopped, does not undo the one added again', async () => {
+    // a post refused (token_revoked): removed here, the feed stopped; meanwhile the hosting service hears Slack's own
+    // app_uninstalled, forgets that install and queues its notice, which nobody takes now
+    fake.failNext['chat.postEphemeral'] = { error: 'token_revoked' }
+    broker.push('events_api', envelope('U0FRANK'))
+    await waitFor(() => !cfg()!.secret_enc)
+    const earlier = broker.install!.installId
+    broker.install = null
+    const stale = broker.push('lifecycle', { event: 'uninstalled', installId: earlier })
+    await Bun.sleep(200)
+    expect(broker.acks).not.toContain(stale)
+    // the owner adds it again: a new install; the new feed's first poll gets the old notice, and it says nothing about it
+    expect(outcome(await add())).toBe('installed')
+    const fresh = broker.install!.installId
+    expect(fresh).not.toBe(earlier)
+    await waitFor(() => broker.acks.includes(stale))
+    await Bun.sleep(100)
+    expect(cfg()).toMatchObject({ mode: 'official', install_id: fresh, last_error: null })
+    expect(cfg()!.secret_enc).toBeTruthy()
+    await waitFor(async () => (await admin()).state === 'connected')
   })
 
   test('a token that no longer opens here (a restore on a new machine) is fetched again', async () => {
@@ -243,6 +271,40 @@ describe('removed, restored and removed by the owner', () => {
     broker.redeemError = 'workspace_taken'
     expect(outcome(await add())).toBe('workspace_taken')
     expect(cfg()!.bot_user_id).toBe('U0BOT')
+    // the person who allowed it in Slack is not a workspace admin: the hosting service refuses it; said so here
+    broker.redeemError = 'not_workspace_admin'
+    expect(outcome(await add())).toBe('not_workspace_admin')
+    expect(cfg()!.bot_user_id).toBe('U0BOT')
+  })
+
+  test('Slack cannot be asked when the install comes back: kept there (not removed), checked again, then on', async () => {
+    expect((await call('dana', 'DELETE', '/api/admin/slack')).status).toBe(200)
+    const uninstalls = broker.of('uninstall').length
+    // auth.test gets no answer (Slack briefly unreachable)
+    fake.failNext['auth.test'] = { hang: true }
+    expect(outcome(await add())).toBe('install_pending')
+    expect(broker.of('uninstall').length).toBe(uninstalls)
+    expect(broker.install).not.toBeNull()
+    // checked again shortly: Slack answers, the install is kept and on
+    await waitFor(() => !!cfg()?.secret_enc, { timeoutMs: 8000 })
+    expect(cfg()).toMatchObject({ mode: 'official', install_id: broker.install!.installId, bot_user_id: 'U0BOT', last_error: null })
+    expect(broker.of('token').length).toBeGreaterThan(0)
+    expect(broker.of('uninstall').length).toBe(uninstalls)
+    await waitFor(async () => (await admin()).state === 'connected')
+    // a definite no after the check (another workspace's bot) removes it there
+    expect((await call('dana', 'DELETE', '/api/admin/slack')).status).toBe(200)
+    fake.failNext['auth.test'] = { hang: true }
+    expect(outcome(await add())).toBe('install_pending')
+    broker.install = { ...broker.install!, botUserId: 'U0SOMEONEELSE' }
+    await waitFor(() => broker.of('uninstall').length === uninstalls + 2, { timeoutMs: 8000 })
+    expect(cfg()?.secret_enc ?? null).toBeNull()
+    broker.nextInstall = {}
+    expect(outcome(await add())).toBe('installed')
+    await waitFor(async () => (await admin()).state === 'connected')
+    // install flows a day past their time are swept
+    h.ctx.db.query("UPDATE slack_install_flows SET expires_at = '2000-01-01T00:00:00.000Z'").run()
+    ;(slackOf(h.ctx) as unknown as { sweep(): void }).sweep()
+    expect((h.ctx.db.query('SELECT count(*) n FROM slack_install_flows').get() as { n: number }).n).toBe(0)
   })
 
   test('the hosting service down or not serving: Admin › Slack says so, and it comes back by itself', async () => {
