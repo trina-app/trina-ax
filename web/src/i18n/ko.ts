@@ -385,6 +385,7 @@ export const ko = {
   "chat.notFoundManage": "내가 멤버가 아닌 프로젝트의 채팅이면 {projects}에서 열고 나를 멤버로 추가할 수 있어요.",
   "chat.queued": "대기 중 · 현재 예상 순서 {n}",
   "chat.queueHint": "진행 상황에 따라 순서가 바뀔 수 있어요.",
+  "chat.providerBusy": "AI 서비스가 바빠요. 계속 시도하고 있어요…",
   'chat.thinking': '생각 중…',
   'chat.answering': '답변을 만드는 중',
   'chat.answerDone': '답변 완료',

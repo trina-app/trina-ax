@@ -386,6 +386,7 @@ export const id: Record<MessageKey, string> = {
   "chat.notFoundManage": "Jika ini chat di proyek yang tidak kamu ikuti, kamu bisa membuka proyeknya di {projects} lalu menambahkan dirimu sebagai anggota.",
   "chat.queued": "Menunggu · perkiraan urutan {n}",
   "chat.queueHint": "Urutan dapat berubah selama pekerjaan berlangsung.",
+  "chat.providerBusy": "Layanan AI sedang sibuk. Masih mencoba…",
   'chat.thinking': 'Berpikir…',
   'chat.answering': 'Sedang menulis jawaban',
   'chat.answerDone': 'Jawaban selesai',

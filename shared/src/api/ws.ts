@@ -226,6 +226,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('message.step', z.object({ chatId: Uuid7, messageId: Uuid7, step: Step })),
   /** finished: done / error / stopped; the full final message (content, steps, file summary, usage) */
   ev('message.done', z.object({ chatId: Uuid7, messageId: Uuid7, status: MessageStatus, message: Message })),
+  /** the AI provider is busy (a short 429 or a 529) and the engine is trying again: busy true; false when the provider
+   * answers again. The web app also clears it when text or a step of that answer arrives, or the answer ends. */
+  ev('turn.busy', z.object({ chatId: Uuid7, messageId: Uuid7, turnId: Uuid7, busy: z.boolean() })),
   ev('queue.position', z.object({ chatId: Uuid7, messageId: Uuid7, turnId: Uuid7, position: z.number().int().nonnegative(), epoch: z.string().optional(), revision: z.number().int().nonnegative().optional() })),
   /** artifact being written (status writing, content so far, throttled) or saved (status done, summary) */
   ev('artifact.updated', z.object({

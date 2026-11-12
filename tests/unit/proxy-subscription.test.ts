@@ -181,7 +181,18 @@ describe('subscription connection behind the proxy', () => {
     mode = '429short'; events.length = 0
     let r = await call(tok)
     expect(r.status).toBe(429); expect(r.headers.get('retry-after')).toBe('7')
-    expect(events).toEqual([])
+    // the engine tries again by itself; the turn shows "busy" once (QA TC-388), and "over" when an answer comes
+    expect(events).toEqual([{ type: 'busy', on: true }])
+    r = await call(tok)
+    expect(r.status).toBe(429)
+    expect(events.length).toBe(1)
+    mode = 'ok'
+    r = await call(tok)
+    expect(r.status).toBe(200); await r.arrayBuffer()
+    expect(events).toEqual([{ type: 'busy', on: true }, { type: 'busy', on: false }])
+    r = await call(tok); await r.arrayBuffer()
+    expect(events.length).toBe(2) // nothing more while not busy
+    events.length = 0
     mode = '429long'
     r = await call(tok)
     expect(r.status).toBe(403)

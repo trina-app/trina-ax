@@ -3186,6 +3186,25 @@ only themselves. The owner chose the safest defaults for the open questions:
   back to waiting and reloads the chat; any other failure shows on the sent message as "not sent [send again]".
 - Limit: per device. A message queued on the phone is not shown on the desktop, and goes when the phone app runs again.
 
+## "The AI service is busy" while the engine retries a 429 (fix/ai-busy-line, 2026-11-12, QA TC-388)
+
+- **Problem.** A short 429 (rate limit) or a 529 (overloaded) from the AI provider goes back to Claude Code unchanged,
+  and the engine retries by itself. In TC-388, 30 people asked while the provider answered 429 for 120 s. All 30
+  answers came at the end, but for about two minutes people saw only the thinking dots and no reason.
+- **Decision.** The model proxy (Anthropic path, `server/src/proxy/model-proxy.ts`) tells the turn
+  `{ type: 'busy', on: true }` on a short 429 or a 529, and `on: false` on the next 2xx of that turn, only after an
+  "on". The turn sends the realtime frame `turn.busy` { chatId, messageId, turnId, busy } to the person's windows when
+  the state changes. The web app shows "The AI service is busy. Still trying…" under that running answer, in all five
+  languages (`chat.providerBusy`). It clears the line on the first text, a step, the end of the answer, or a
+  `busy: false` frame. A late frame for an answer that ended is ignored.
+- **Why a frame, not a step or a notice.** A step stays in the answer's record after the wait is over. A notice is a
+  toast for the whole app and does not belong to one chat. The frame is optional: an older web app ignores it.
+- **Not covered.** Room answers have their own run status and do not get the line. The Codex path waits out a short 429
+  inside the proxy, so the engine sees no 429.
+- Tests: `tests/unit/proxy-subscription.test.ts` (busy once on a short 429, off on the next answer, nothing more),
+  `web/test/unit/busy-store.test.ts`.
+- Version impact: **patch**.
+
 ## Continue after the per-answer limit (feat/chat-continuity, 2026-10-30)
 
 - The limits stay as they are: 50 tool rounds (Claude Code `--max-turns`; 150 and an admin setting since 2026-10-31,

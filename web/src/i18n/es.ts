@@ -371,6 +371,7 @@ export const es: Record<MessageKey, string> = {
   "chat.notFoundManage": "Si es un chat de un proyecto del que no es miembro, puede abrir ese proyecto en {projects} y añadirse como miembro.",
   'chat.queued': "En espera · posición estimada {n}",
   'chat.queueHint': "El orden puede cambiar a medida que avanza el trabajo.",
+  'chat.providerBusy': "El servicio de IA está ocupado. Seguimos intentándolo…",
   'chat.thinking': "Pensando…",
   'chat.answering': "Redactando una respuesta",
   'chat.answerDone': "Respuesta completada",
