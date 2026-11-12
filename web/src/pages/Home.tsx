@@ -83,8 +83,9 @@ function HomePage() {
   const phone = useMediaQuery('(max-width: 767.98px)')
   // a phone opened on Home while the app opens on another tab (lib/tabs.ts START_TAB): that tab's list instead
   const elsewhere = phone && isLanding(location) && landingPath(true) !== '/'
-  // the owner who left the welcome steps unfinished lands on them, once per tab session (never a link elsewhere)
-  const resuming = useResumeOnLanding(isLanding(location) && !elsewhere)
+  // the owner who left the welcome steps unfinished lands on them, once per tab session (never a link elsewhere); not
+  // while the lead link's card waits here (QA TC-477): that comes first
+  const resuming = useResumeOnLanding(isLanding(location) && !elsewhere, true)
   // `waits`: the line under the box while it holds only `text` (a request that needs the person's own text after it)
   const [preset, setPreset] = useState<{ text: string; n: number; waits?: string } | null>(() => (prompt ? { text: prompt, n: 0 } : null))
 
