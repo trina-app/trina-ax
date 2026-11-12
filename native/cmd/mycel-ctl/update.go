@@ -187,6 +187,10 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	if updateTestHook != nil {
 		updateTestHook(u)
 	}
+	// a hold of the release that runs here and answers is over (QA TC-334): neither the timer nor this run waits for it
+	if _, note := readHold(e, in); note != "" {
+		res.Notes = append(res.Notes, note)
+	}
 	if u.scheduled {
 		// the window and a quiet moment first, without the lock: an administrator's `mycel-ctl update` meanwhile is not
 		// "busy", and nothing is downloaded while answers run

@@ -50,7 +50,7 @@ describe('wording', () => {
     'subscriptionRejected', 'modelProxy', 'modelProxyOk', 'modelProxyPortInUse', 'modelProxyNotStarted', 'engineCodexLogin', 'engineCheckFailed', 'queue', 'queueDetail', 'queueLong',
     'firewall', 'firewallOk', 'firewallMissing', 'firewallStale', 'firewallOff', 'sandbox', 'sandboxOk', 'sandboxMissing', 'cronDeny', 'cronDenyOk', 'cronDenyMissing',
     'launcher', 'launcherOk', 'launcherDown', 'launcherNotRunning', 'launcherDenied', 'launcherTimeout', 'sockets', 'socketsOk', 'socketsTooLong', 'lan', 'lanOk', 'lanFailed',
-    'backups', 'backupNone', 'backupOld', 'backupOk', 'backupFailed', 'backupNoSpace', 'restoreFailed', 'restoreFolderRules', 'update', 'updateOk', 'updateRolledBack', 'releaseSig', 'releaseUnsigned', 'releaseSigned',
+    'backups', 'backupNone', 'backupOld', 'backupOk', 'backupFailed', 'backupNoSpace', 'restoreFailed', 'restoreFolderRules', 'update', 'updateOk', 'updateRolledBack', 'goBackBounced', 'releaseSig', 'releaseUnsigned', 'releaseSigned',
     'exitAddress', 'exitAddressKnown', 'exitAddressKnownRelay', 'exitAddressUnknown', 'exitAddressOff']
   for (const host of ['linux', 'hosted'] as const) {
     test(`${host}: no Mac, launchctl, pbpaste or /Library in what it can show`, () => {

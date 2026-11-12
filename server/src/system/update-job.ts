@@ -2,6 +2,7 @@
 // (system/ops.ts autoUpdateTick): wait for running answers (up to 10 minutes; what still runs then is interrupted),
 // back up the DB, bring the version in, switch app/current and restart. The bootstrap health-checks the new version
 // and rolls back to the previous one when it does not come up (native/cmd/mycel-bootstrap). Component G.
+import type { Database } from 'bun:sqlite'
 import { TeamSettings, type Locale } from '@mycel/shared/api'
 import type { UpdateHistoryEntry } from '@mycel/shared/install'
 import type { BackupManager } from './backup'
@@ -131,4 +132,47 @@ export function autoUpdateDecision(o: {
   if (!inWindow(o.window, o.now, o.tz)) return { go: false, why: 'outside_window' }
   if (o.running > 0) return { go: false, why: 'busy' }
   return { go: true, version: f.version }
+}
+
+// ---------------- an update job whose version did not stay (QA TC-336) ----------------
+type Msg = Record<Locale, string>
+const UPDATE_NOT_KEPT = {
+  goBack: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 되돌리지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not go back to ${to}; still on ${cur}.`, id: `Tidak bisa kembali ke ${to}; masih memakai ${cur}.`, ja: `${to}に戻せませんでした。現在も${cur}で動いています。`, es: `No se pudo volver a ${to}; sigue en ${cur}.` }),
+  update: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 업데이트하지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not update to ${to}; still on ${cur}.`, id: `Tidak bisa memperbarui ke ${to}; masih memakai ${cur}.`, ja: `${to}に更新できませんでした。現在も${cur}で動いています。`, es: `No se pudo actualizar a ${to}; sigue en ${cur}.` }),
+  cannotRead: (to: string, cur: string): Msg => ({ ko: `${to}은(는) ${cur}이(가) 이미 바꾼 데이터베이스를 읽지 못해요. 잃은 데이터는 없어요. ${to}(으)로 돌아가려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).`, en: `${to} cannot read the database that ${cur} has already updated. Nothing was lost. To return to ${to}, the backup made before the update has to be restored (see the backup and restore guide).`, id: `${to} tidak dapat membaca basis data yang sudah diperbarui ${cur}. Tidak ada yang hilang. Untuk kembali ke ${to}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).`, ja: `${to}は、${cur}がすでに更新したデータベースを読み込めません。失われたデータはありません。${to}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。`, es: `${to} no puede leer la base de datos que ${cur} ya actualizó. No se perdió nada. Para volver a ${to}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).` }),
+  why: (detail: string): Msg => ({ ko: `이유: ${detail}`, en: `Reason: ${detail}`, id: `Alasan: ${detail}`, ja: `理由：${detail}`, es: `Motivo: ${detail}` }),
+}
+
+/**
+ * An update job is "done" once it has switched app/current and asked for the restart: the bootstrap tries the version
+ * after that, and may send app/current back (a version that does not come up, or one that cannot read the database:
+ * exit 75). At the next start, the newest update job, finished within a day, that started from the version running
+ * again and named another one did not stay: it becomes `failed` with what happened ("Could not go back to 0.4.0; still
+ * on 0.5.0" and why), so a client that reads the job after the restart is told the truth. QA TC-336: a Go back to 0.4.0
+ * bounced and the job said rolledBack to 0.4.0. Returns the job id it changed (null: none).
+ */
+export function settleUpdateJob(o: {
+  db: Database; running: string; history: History; now: Date
+  /** can this staged version open the database as it is now (UpdateManager.canRead) */
+  canRead: (version: string) => boolean
+  locale: (userId: string | null) => Locale
+}): string | null {
+  type Row = { id: string; user_id: string | null; status: string; result: string | null; finished_at: string | null }
+  let row: Row | null
+  try {
+    row = o.db.query("SELECT id, user_id, status, result, finished_at FROM jobs WHERE kind = 'update' ORDER BY created_at DESC, id DESC LIMIT 1").get() as Row | null
+  } catch { return null }
+  if (!row || row.status !== 'done' || !row.result || !row.finished_at || o.now.getTime() - Date.parse(row.finished_at) > 86_400_000) return null
+  let r: { fromVersion?: unknown; toVersion?: unknown; rolledBack?: unknown }
+  try { r = JSON.parse(row.result) } catch { return null }
+  if (typeof r.toVersion !== 'string' || typeof r.fromVersion !== 'string' || r.toVersion === o.running || r.fromVersion !== o.running) return null
+  const to = r.toVersion, finished = row.finished_at
+  const l = o.locale(row.user_id)
+  const head = (r.rolledBack === true ? UPDATE_NOT_KEPT.goBack : UPDATE_NOT_KEPT.update)(to, o.running)[l]
+  // why: the reader levels say it best; else the bootstrap's own line about that version (rolled_back <to> -> <running>)
+  const h = [...o.history].reverse().find((x) => x.result !== 'ok' && x.from === to && Date.parse(x.at) >= Date.parse(finished) - 60_000)
+  const reason = !o.canRead(to) ? UPDATE_NOT_KEPT.cannotRead(to, o.running)[l] : h?.detail ? UPDATE_NOT_KEPT.why(h.detail)[l] : ''
+  const err = { code: 'conflict', message: reason ? `${head} ${reason}` : head }
+  o.db.query("UPDATE jobs SET status = 'failed', error = ? WHERE id = ? AND status = 'done'").run(JSON.stringify(err), row.id)
+  return row.id
 }

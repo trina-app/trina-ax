@@ -199,6 +199,15 @@ export function checkReadable(db: Database, readerLevel: number) {
   if (row && row.r > readerLevel) throw new SchemaTooNewError(row.r, readerLevel, row.name)
 }
 
+/** The reader level this database needs: the highest min_compatible_reader of its applied migrations (1 when none
+ * says more). A build whose SCHEMA_READER_LEVEL is below it refuses to start on it (exit 75). */
+export function requiredReaderLevel(db: Database): number {
+  try {
+    const r = db.query('SELECT MAX(min_compatible_reader) AS r FROM schema_migrations').get() as { r: number | null } | null
+    return Math.max(1, r?.r ?? 1)
+  } catch { return 1 }
+}
+
 export function schemaInfo(db: Database): { applied: number; maxVersion: number } {
   const r = db.query('SELECT COUNT(*) AS n, COALESCE(MAX(version), 0) AS v FROM schema_migrations').get() as { n: number; v: number }
   return { applied: r.n, maxVersion: r.v }

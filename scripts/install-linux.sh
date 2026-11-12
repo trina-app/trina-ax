@@ -93,6 +93,14 @@ die() { echo "install: $*" >&2; exit 1; }
 say() { echo "install: $*"; }
 warn() { WARNINGS+=("$*"); echo "install: warning: $*" >&2; }
 val() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
+# reader_level <version folder>: the highest `-- min_compatible_reader: N` in the first lines of its migrations (1 when
+# none says more), the level that version reads (server/src/system/update.ts bundleReaderLevel)
+reader_level() {
+  local l
+  l=$(awk 'FNR <= 10 && /^--[ \t]*min_compatible_reader:[ \t]*[0-9]+[ \t]*$/ { gsub(/[^0-9]/, ""); if ($0 + 0 > m) m = $0 + 0 } END { print (m > 1 ? m : 1) }' "$1"/server/migrations/*.sql 2>/dev/null)
+  case "$l" in '' | *[!0-9]*) l=1 ;; esac
+  echo "$l"
+}
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) val "$@"; FROM=$2; shift 2 ;;
@@ -1270,7 +1278,14 @@ case "$ACTION" in
   repair) RUNNING=$CUR ;;
   older)
     RUNNING=$CUR
-    warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running; $VERSION is staged in app/versions"
+    # an older image tag (Docker) or kit: say plainly whether that version could run at all. A version below the reader
+    # level of the running one's migrations cannot open the database it updated (exit 75), so neither Go back nor this
+    # kit brings it back; only the backup made before the update does (QA TC-336)
+    if [ "$(reader_level "$BASE/app/versions/$VERSION")" -lt "$(reader_level "$BASE/app/versions/$CUR")" ]; then
+      warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running. $VERSION cannot read the database $CUR has updated: to go back to it, restore the backup made before the update (docs/BACKUP-RESTORE.md, \"Going back to an older version\"); otherwise use the $CUR kit or image"
+    else
+      warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running; $VERSION is staged in app/versions"
+    fi
     ;;
   *) die "unexpected plan: $ACTION" ;;
 esac

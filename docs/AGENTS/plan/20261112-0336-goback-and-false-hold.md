@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 03:36
 - Branch: `fix/goback-and-false-hold`
-- Status: in progress
+- Status: done
 - Where: core (`server/src/system`, `server/src/routes/system.ts`, `web/src/pages/admin`, `native/cmd/mycel-ctl`,
   `native/cmd/mycel-bootstrap`, `scripts/install-linux.sh`, docs). Why: update and roll-back are Team AX core
   (docs/REPOSITORY-RULES.md).
@@ -58,3 +58,13 @@ Out: changing 0.4.0's mycel-ctl; restoring a backup automatically when going bac
 - The web's wait after an update job polls `/api/health` for at most a few minutes; on a timeout it says the server is
   still restarting instead of "finished".
 - Five languages for every new string.
+
+## Result
+
+Built as planned. mycel-ctl drops a hold of the version that runs and answers (root files in, nothing pending or
+stopped) in status, update and the timer, with one note line; the server ignores it too. `UpdateStatus` has
+`previousNeedsRestore`; Admin › System shows no Go back then and says why, the route and `admin.js rollback` refuse it.
+`settleUpdateJob` marks an update job whose version did not stay as failed at the next start, and the web waits for
+`/api/health` before it says "finished". The bootstrap rolls a pending version that exits 75 back at once with a plain
+reason. The installer's older-kit warning and docs/INSTALL-DOCKER.md point to the new restore steps in
+docs/BACKUP-RESTORE.md. Not run here: the real Ubuntu VM and Docker passes of TC-334 / TC-336 (QA).

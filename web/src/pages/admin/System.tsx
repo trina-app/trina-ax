@@ -21,6 +21,7 @@ import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
+import { goBackOffered } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
@@ -644,15 +645,25 @@ function Update() {
                 </Row>
               )}
               {u.previous && !u.managed && (
+                // no Go back to a version that cannot read the database this one migrated: it would only bounce back
+                // (QA TC-336); the row says how to go back instead
                 <Row
                   label={t('system.row.previous')}
+                  long={!!u.previousNeedsRestore}
                   action={
-                    <Button size="sm" variant="ghost" disabled={!!install.jobId} onClick={() => setAsk('rollback')}>
-                      <RotateCcw size={14} aria-hidden /> {t('system.rollbackShort')}
-                    </Button>
+                    !goBackOffered(u) ? undefined : (
+                      <Button size="sm" variant="ghost" disabled={!!install.jobId} onClick={() => setAsk('rollback')}>
+                        <RotateCcw size={14} aria-hidden /> {t('system.rollbackShort')}
+                      </Button>
+                    )
                   }
                 >
                   {u.previous}
+                  {u.previousNeedsRestore && (
+                    <span className="mt-1 block text-xs text-muted" data-testid="previous-needs-restore">
+                      {t('system.previousNeedsRestore', { version: u.previous })}
+                    </span>
+                  )}
                 </Row>
               )}
             </Rows>

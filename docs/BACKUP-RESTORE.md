@@ -55,6 +55,29 @@ Before any replacement, make a current backup, pause team use and preserve the c
 - File recovery: `trina_admin restore-team --backup ID --to /var/lib/mycel/data/recovered-team`. The target must be new. Compare files, then restore only selected files through the app with appropriate permissions. This avoids replacing unrelated work.
 - Encrypted archive drill: `trina_admin restore-archive --in /var/lib/mycel/data/off-host.tar.zst.age --to /var/lib/mycel/data/recovery-drill --password-stdin`. Verify the resulting DB and team tree; extraction alone does not start a server.
 
+## Going back to an older version
+
+An update can change the database so that the version before it cannot read it any more (for example 0.4 after the
+update to 0.5). Admin › System › Updates then shows the previous version without **Go back** and says that going back
+needs this restore. The older version refuses that database at start; the server goes back to the newer version by
+itself, and nothing is lost, but it also does not go back. Going back means putting back the database as it was before
+the update, then switching to the older version. Everything changed since the update (chats, settings, new accounts)
+is lost; team files stay as they are.
+
+Linux (default install; `trina_admin` as above):
+
+1. `trina_admin list-backups`: take the `pre-update` backup made just before the update to the newer version (its
+   `createdAt` is the time you updated). A `pre-update` backup made later, by a Go back that did not work, already holds
+   the changed database.
+2. `trina_admin stage-restore --backup ID`
+3. `trina_admin switch <older version> --restart` (the older version must still be in `app/versions`; Admin › System
+   lists it as the previous version). It swaps the restored database in when it starts.
+4. Check Admin › System: the older version, and the restore line under Backups. Everyone signs in again.
+
+Docker: the same commands inside the container (`docker compose exec`), or restore a copy of the whole volume made
+before the update and start it with the older image tag. If the older version is not in `app/versions` any more, ask
+for help before you change anything.
+
 ## Office replacement and a new machine
 
 On a dedicated replacement Mac, install a compatible verified office ZIP and keep it private. Restore with `~/TeamAX/teamax restore-archive /path/to/trina.tar.zst.age`. It refuses a configured team unless `--replace` is explicitly supplied; that option replaces the active team's state and keeps old files beside it. The wrapper stops/restarts the office server. Reapply deployment settings and authorized AI connections. A new office CA requires clients to verify/trust the new fingerprint. Reconnect tunnels and clients to the intended address.

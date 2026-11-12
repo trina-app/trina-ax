@@ -440,6 +440,45 @@ func clearFailed(e *env) {
 	_ = os.Remove(e.root("update-failed.json"))
 }
 
+// reachedHold: the hold's version is what runs here and is healthy, so the update it holds did go through (QA TC-334:
+// 0.4.0's updater reported rolled_back while the bootstrap went forward to 0.5.0 again, which 0.4.0's code knows
+// nothing about, and held 0.5.0 for 20 hours while it ran fine). All of: app/current is that version or newer,
+// state.json neither has it pending nor stopped (blocked), the root files are that version or newer (a hold of a
+// root update that failed before its root files went in stays), and /api/health answers ok with the running version.
+func reachedHold(e *env, in *Install, f *failedUpdate) bool {
+	cur := currentVersion(e.base)
+	if f == nil || cur == "" || compareVersions(cur, f.Version) < 0 || compareVersions(rootVersion(e), f.Version) < 0 {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(e.base, "app", "state.json"))
+	if err != nil {
+		return false
+	}
+	var st struct {
+		Pending *string         `json:"pending"`
+		Blocked json.RawMessage `json:"blocked"`
+	}
+	if json.Unmarshal(b, &st) != nil || st.Pending != nil && *st.Pending != "" || len(st.Blocked) > 0 && string(st.Blocked) != "null" {
+		return false
+	}
+	h := health(in.Port, 3*time.Second)
+	return h["ok"] == true && h["version"] == cur
+}
+
+// readHold is readFailed without a hold the running version has reached (reachedHold): that file is removed (as root;
+// a reader without root just leaves it) and note says so in one plain line for the command's output ("" when nothing
+// was dropped).
+func readHold(e *env, in *Install) (h *failedUpdate, note string) {
+	f := readFailed(e)
+	if f == nil || !reachedHold(e, in, f) {
+		return f, ""
+	}
+	clearFailed(e)
+	note = fmt.Sprintf("release %s runs here and answers; an earlier update run reported it as %s at %s (it did not see the server go forward to %s again), so that hold is over",
+		f.Version, strings.ReplaceAll(f.Result, "_", " "), f.At.UTC().Format(time.RFC3339), f.Version)
+	return nil, note
+}
+
 // clearFailedUpTo ends a hold of version or an older one (an update reached it; a newer release came).
 func clearFailedUpTo(e *env, version string) {
 	if f := readFailed(e); f != nil && version != "" && compareVersions(version, f.Version) >= 0 {
