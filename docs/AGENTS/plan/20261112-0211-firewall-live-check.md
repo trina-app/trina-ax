@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:11
 - Branch: `fix/firewall-live-check`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`native/internal/fwprobe`, `native/cmd/mycel-launcher`, `native/cmd/mycel-ctl`,
   `scripts/linux/systemd/firewall.timer.in`; `shared/src/engine.ts`, `shared/src/api/errors.ts`;
   `server/src/chat/turn.ts`, `server/src/system/ops.ts`, `server/src/system/messages*.ts`; tests). Why: the Linux
@@ -62,4 +62,6 @@ for the diagnostics and chat errors, the Docker Linux attack suite (`tests/linux
 
 ## Result
 
-Filled in at the end.
+Built as planned. The two remote probes run at the same time (the worst case waits one timeout, not two). The Docker
+attack suite flushes the ruleset with a fresh status file: the next turn is refused with `firewall_off`, the launcher
+reports `firewall.live: false`, and after `firewall apply` turns run and `live` is true again.
