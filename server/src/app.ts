@@ -2,13 +2,14 @@
 // Callers: main.ts (Bun.serve / TLS listener), the relay client (in-process app.fetch with the real client IP),
 // tests (app.fetch with via 'test').
 import { Hono } from 'hono'
-import { DEFAULT_LOCALE } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, SERVER_DISK_FULL } from '@mycel/shared/api'
 import type { AppContext } from './context'
 import type { AppEnv } from './http/env'
 import { HttpError } from './http/errors'
 import { csrf, hostCheck, loggablePath, requestContext, securityHeaders, session } from './http/middleware'
 import { RouteKit } from './http/route'
 import { ROUTE_MODULES, type RouteModule } from './routes'
+import { isDiskFullError } from './system/storage'
 
 export async function buildApp(ctx: AppContext, modules: readonly RouteModule[] = ROUTE_MODULES): Promise<Hono<AppEnv>> {
   const app = new Hono<AppEnv>()
@@ -25,6 +26,11 @@ export async function buildApp(ctx: AppContext, modules: readonly RouteModule[] 
     if (err instanceof HttpError) {
       if (err.retryAfter !== undefined) c.header('Retry-After', String(err.retryAfter))
       return c.json({ error: err.body(locale, rid) }, err.status as 400)
+    }
+    // the server's disk is full (ENOSPC, SQLite full): say that, not "서버 오류" (sign-in, sending, any write; QA TC-209)
+    if (isDiskFullError(err)) {
+      ;(c.get('log') ?? ctx.log).error('disk full', { err, method: c.req.method, path: loggablePath(c.req.path) })
+      return c.json({ error: new HttpError('storage_full', SERVER_DISK_FULL[locale], { params: { reason: 'server_disk_full' } }).body(locale, rid) }, 507)
     }
     ;(c.get('log') ?? ctx.log).error('unhandled error', { err, method: c.req.method, path: loggablePath(c.req.path) })
     return c.json({ error: new HttpError('internal').body(locale, rid) }, 500)

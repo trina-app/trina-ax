@@ -18,26 +18,26 @@ import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
-import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
+import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { useStickToBottom } from '../lib/stickToBottom'
+import { CHAT_ROW, holdPlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
-import { canChooseEngine, useMeStrict } from '../store/session'
-import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
+import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
+import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
@@ -57,6 +57,10 @@ import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
 import { AiMark } from '../components/rooms/AiFace'
+import { useFolderWords } from '../lib/folderLabels'
+
+/** Where a link goes inside a translated sentence ({projects} in chat.notFoundManage): split there. */
+const SLOT = '\u0000'
 
 export default function ChatPage() {
   const { chatId } = useParams()
@@ -67,6 +71,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
+  const folderWords = useFolderWords()
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
   // session markers: this chat is on screen in this window (store/sessionMarkers.ts marks it seen while the window is
@@ -160,6 +165,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const question = useChats((s) => composerQuestion(s.requests, chatId))
   const choosing = useChats((s) => choiceWaiting(s.requests, chatId))
   const busy = !!running || messages.some((m) => m.local?.state === 'sending')
+  const rowsBusy = rowButtonsWait(messages, { readOnly, othersTurn })
   /** who asked the question an answer answers (a shared chat: edit, regenerate and "send to a room" are for one's own) */
   const askedBy = (m: { parentId: string | null }) => messages.find((x) => x.id === m.parentId)?.author?.id
   const mine = (id: string | undefined) => !shared || id === me.user.id
@@ -205,11 +211,10 @@ function ChatView({ chatId }: { chatId: string }) {
     list.onScroll()
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
-      const before = el.scrollHeight
+      // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
+      const keep = holdPlace(el, CHAT_ROW)
       await loadOlder(chatId).catch(() => {})
-      requestAnimationFrame(() => {
-        if (scroller.current) scroller.current.scrollTop += scroller.current.scrollHeight - before
-      })
+      requestAnimationFrame(keep)
       setOlderBusy(false)
     }
   }
@@ -322,15 +327,35 @@ function ChatView({ chatId }: { chatId: string }) {
     }
   }
 
+  // the person's own words: the place in words (전사 공유 › 영업 › 보고서.md) and "my folder", which the AI is told is
+  // users/<their id> (server/src/chat/prompt.ts); no raw path or id in their message
   const askOwnFolder = (path: string) => {
     if (busy) return
-    composer.current?.prepareDraft(t(path ? 'files.summary.askOwnFolderPrompt' : 'files.summary.askOwnFolderHiddenPrompt', { path, folder: `users/${me.user.id}` }))
+    composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPrompt', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPrompt'))
   }
 
   if (loadError && isApiError(loadError, 'not_found'))
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
         <EmptyState title={t('chat.notFound')}>
+          {/* the owner and admins: a chat of a project they are not in is "not found" too (its contents are its members',
+              docs/DECISIONS.md "Project contents only for members"); the same line for every missing chat, so it tells
+              nothing about this one */}
+          {isAdmin(me) && (
+            <p className="mb-1" data-testid="chat-not-found-manage">
+              {/* "Projects" is the way there (a phone has no back button here) */}
+              {t('chat.notFoundManage', { projects: SLOT }).split(SLOT).map((part, i) => (
+                <Fragment key={i}>
+                  {i > 0 && (
+                    <Link to="/projects" className="font-medium text-accent-text underline" data-testid="chat-not-found-projects">
+                      {t('projects.title')}
+                    </Link>
+                  )}
+                  {part}
+                </Fragment>
+              ))}
+            </p>
+          )}
           <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
             {t('sidebar.askAi', { name: aiName(t) })}
           </Link>
@@ -378,23 +403,26 @@ function ChatView({ chatId }: { chatId: string }) {
           {loadError && !loading ? <LoadError error={loadError} onRetry={load} what="chat" /> : null}
           {/* the chat's pictures (attachments and answers' pictures, this branch): ← → in the image viewer walks through
               these; each says who sent it and when */}
+          {/* the message box below answers the AI's open question (not when it is not shown: a trashed or read-only chat) */}
+          <BoxAnswers.Provider value={chat?.deletedAt || readOnly ? null : (question?.request.requestId ?? null)}>
           <ImageGroup>
             {messages.map((m, i) => {
               if (m.role === 'user')
                 return (
                   <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
-                    <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
+                    <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
                   </ViewerMeta>
                 )
               const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
               const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
               return (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
                 </ViewerMeta>
               )
             })}
           </ImageGroup>
+          </BoxAnswers.Provider>
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>
@@ -405,6 +433,8 @@ function ChatView({ chatId }: { chatId: string }) {
           <SharedReadOnly />
         ) : (
           <>
+          {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
+          {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
           {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
@@ -425,7 +455,8 @@ function ChatView({ chatId }: { chatId: string }) {
             placeholder={t('chat.reply')}
             footer={t('chat.footerAi')}
             who={who}
-            hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
+            hold={chat?.ending ? t('chat.endingEarlier') : othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false } : undefined}
             projectId={chat?.projectId ?? null}

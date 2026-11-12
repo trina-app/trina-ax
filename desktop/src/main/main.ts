@@ -11,6 +11,8 @@
  *                                    the checks see them as DNS names answering with this computer's address
  *   MYCEL_DESKTOP_UPDATE_TEST  auto-install | notice | off: the updater's mode in an unpacked app (./updater.ts);
  *                              MYCEL_DESKTOP_UPDATE_FIRST_MS the first check's delay
+ *   MYCEL_DESKTOP_UPDATE_UNVERIFIED  1: an unpacked app installs an update without the signed-release check
+ *                              (../common/update-verify.ts verificationRequired; a packaged app always checks)
  *   MYCEL_DESKTOP_TEST_FILE_CHOOSER  1: answer the team page's file input with the app's own dialog, as the Mac App
  *                              Store build does (common/file-chooser.ts)
  */
@@ -93,13 +95,18 @@ if (resolverRules.length) app.commandLine.appendSwitch('host-resolver-rules', re
 
 protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false } }])
 
-if (!app.requestSingleInstanceLock()) app.quit()
+// One app at a time (audit row 38): a second start (on Windows and Linux every trina-ax:// link) hands its command line
+// to the first one ('second-instance' below) and exits at once. app.quit() did not: will-quit holds the first quit back
+// to write cookies, so the second app could still reach whenReady, open a window, start the updater and write
+// teams.json next to the first one. app.exit skips will-quit; and the second app sets up nothing (`primary`).
+const primary = app.requestSingleInstanceLock()
+if (!primary) app.exit(0)
 
 // Links from outside (`trina-ax://open?url=<team link>`, the web's "앱에서 열기"; docs/DECISIONS.md "First run, phase 2"):
 // the packaged app answers the scheme (the dmg, Mac App Store and Microsoft Store builds also declare it in their
 // manifests: electron-builder.config.ts protocols). A development run does not take it over unless asked.
-if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)
-else if (process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
+if (primary && app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)
+else if (primary && process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
 /** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
 let launchLink: string | null = linkFromArgv(process.argv)
 /** Every link goes to screen ④ (AppWindow.offerLink), never straight to a team. */
@@ -114,7 +121,7 @@ function onLink(url: string) {
   win.win.focus()
 }
 // macOS hands links over here, also the one that launched the app (before ready)
-app.on('open-url', (e, url) => {
+if (primary) app.on('open-url', (e, url) => {
   e.preventDefault()
   onLink(url)
 })
@@ -182,7 +189,7 @@ const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
   Boolean(
     win &&
       isTrustedAppSender(
-        e.senderFrame ? { url: e.senderFrame.url, isTop: e.senderFrame.parent === null, isAppView: e.sender === win.app?.webContents } : null,
+        e.senderFrame ? { url: e.senderFrame.url, origin: e.senderFrame.origin, isTop: e.senderFrame.parent === null, isAppView: e.sender === win.app?.webContents } : null,
         win.allowedOrigins(),
       ),
   )
@@ -226,7 +233,13 @@ function registerIpc() {
     win!.pane?.answer(String(a.id), a.decision === 'always' ? 'always' : a.decision === 'once' ? 'once' : 'deny')
   })
   ipcMain.on('ui:pane-toolbar-height', (e, h: number) => fromChrome(e) && Number.isFinite(h) && win!.pane?.setToolbarHeight(h))
-  ipcMain.on('ui:pane-resize', (e, screenX: number) => fromChrome(e) && Number.isFinite(screenX) && win!.setPaneFromScreenX(screenX))
+  // the edge handle between the team page and the browser (AppWindow.paneDrag / paneKey)
+  ipcMain.handle('ui:pane-width', (e) => (fromChrome(e) ? win!.paneWidth() : null))
+  ipcMain.on('ui:pane-drag', (e, phase: unknown, edgeX: unknown) => {
+    if (!fromChrome(e) || (phase !== 'start' && phase !== 'move' && phase !== 'end' && phase !== 'reset')) return
+    win!.paneDrag(phase, typeof edgeX === 'number' && Number.isFinite(edgeX) ? edgeX : undefined)
+  })
+  ipcMain.on('ui:pane-resize-key', (e, key: unknown, shift: unknown) => fromChrome(e) && typeof key === 'string' && win!.paneKey(key.slice(0, 20), shift === true))
   ipcMain.handle('ui:pane-sites', (e) => (fromChrome(e) ? (win!.pane?.siteSettings() ?? { always: [], privateAlways: [], siteAccess: 'ask', teamAllowsAll: true }) : null))
   // the person's own setting, in the desktop's own screen (the pane toolbar). The team page has its own narrow channels
   // below (Settings > Browser), where "all" needs the person's click on the app's own dialog. Either way the team's
@@ -277,6 +290,9 @@ function registerIpc() {
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
+  // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
+  // app out of it (a word, never the error's text)
+  ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
 
   // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go
   // back to asking, remove one always-allowed site, clear them all. Nothing here makes the browser more open: "all" is
@@ -387,54 +403,59 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(async () => {
-  const uiSes = session.fromPartition('mycel-ui')
-  uiSes.protocol.handle(UI_SCHEME, serveUi)
-  for (const s of [uiSes, session.defaultSession]) {
-    s.setPermissionRequestHandler((_wc, _p, done) => done(false))
-    s.setPermissionCheckHandler(() => false)
-  }
-  // nothing in this app may create <webview> or open windows on its own
-  app.on('web-contents-created', (_e, wc) => {
-    wc.on('will-attach-webview', (ev) => ev.preventDefault())
-  })
-  registerIpc()
-  await createWindow()
-  updater.start()
-})
-
-app.on('second-instance', (_e, argv) => {
-  if (win && !win.win.isDestroyed()) {
-    if (win.win.isMinimized()) win.win.restore()
-    win.win.focus()
-  }
-  // Windows and Linux: a link opens a second instance with the link as an argument
-  const link = linkFromArgv(argv)
-  if (link) onLink(link)
-})
-app.on('activate', () => {
-  if (!win) void createWindow()
-})
 // write cookies of the open team (page and browser) to disk before quitting. The window is already closed by
 // will-quit (Cmd+Q, Quit, the last window on Windows), so the team is the one it showed last (lastTeam).
 let flushed = false
 let lastTeam: string | undefined
-app.on('before-quit', () => debug('before-quit'))
-app.on('will-quit', (e) => {
-  debug('will-quit', flushed)
-  if (flushed) return
-  e.preventDefault()
-  const id = win?.team?.id ?? lastTeam
-  const sessions = id ? [session.fromPartition(partitionFor(id, 'app')), session.fromPartition(partitionFor(id, 'browser'))] : []
-  debug('flushing cookies of', id ?? 'no team')
-  void Promise.race([Promise.all(sessions.map((s) => s.cookies.flushStore().catch(() => {}))), new Promise((r) => setTimeout(r, 2000))]).finally(() => {
-    flushed = true
-    // quit again from a new task: a quit asked while Electron still handles the one just held back is ignored (the
-    // first Cmd+Q only closed the window)
-    setTimeout(() => app.quit(), 0)
-  })
-})
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
+// only the app that holds the lock
+if (primary) {
+  app.whenReady().then(async () => {
+    const uiSes = session.fromPartition('mycel-ui')
+    uiSes.protocol.handle(UI_SCHEME, serveUi)
+    for (const s of [uiSes, session.defaultSession]) {
+      s.setPermissionRequestHandler((_wc, _p, done) => done(false))
+      s.setPermissionCheckHandler(() => false)
+    }
+    // nothing in this app may create <webview> or open windows on its own
+    app.on('web-contents-created', (_e, wc) => {
+      wc.on('will-attach-webview', (ev) => ev.preventDefault())
+    })
+    registerIpc()
+    await createWindow()
+    updater.start()
+  })
+
+  app.on('second-instance', (_e, argv) => {
+    if (win && !win.win.isDestroyed()) {
+      if (win.win.isMinimized()) win.win.restore()
+      win.win.focus()
+    }
+    // Windows and Linux: a link opens a second instance with the link as an argument
+    const link = linkFromArgv(argv)
+    if (link) onLink(link)
+  })
+  app.on('activate', () => {
+    if (!win) void createWindow()
+  })
+  // write cookies of the open team (page and browser) to disk before quitting (lastTeam, flushed: above)
+  app.on('before-quit', () => debug('before-quit'))
+  app.on('will-quit', (e) => {
+    debug('will-quit', flushed)
+    if (flushed) return
+    e.preventDefault()
+    const id = win?.team?.id ?? lastTeam
+    const sessions = id ? [session.fromPartition(partitionFor(id, 'app')), session.fromPartition(partitionFor(id, 'browser'))] : []
+    debug('flushing cookies of', id ?? 'no team')
+    void Promise.race([Promise.all(sessions.map((s) => s.cookies.flushStore().catch(() => {}))), new Promise((r) => setTimeout(r, 2000))]).finally(() => {
+      flushed = true
+      // quit again from a new task: a quit asked while Electron still handles the one just held back is ignored (the
+      // first Cmd+Q only closed the window)
+      setTimeout(() => app.quit(), 0)
+    })
+  })
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit()
+  })
+}

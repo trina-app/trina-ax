@@ -87,8 +87,9 @@ describe('POST /api/projects/:id/share', () => {
     expect((await A.json(`/api/projects/${pid}`, { as: 'erin' })).status).toBe(404)
     const marketing = [{ subjectType: 'group', subjectId: 'marketing' }]
     const dry = await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ participants: marketing, dryRun: true }) })
-    // erin only: a member's dry run leaves the owner and admins out (it never tells who is an admin; adminsApart)
-    expect(dry.body).toEqual({ viewersAdded: 1, adminsApart: true })
+    // erin only: the owner and admins see a team project only as members (docs/DECISIONS.md "Project contents only for
+    // members"), so there is nobody to leave out (no adminsApart; it never tells who is an admin)
+    expect(dry.body).toEqual({ viewersAdded: 1 })
     const r = await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ participants: marketing }) })
     expect(r.status).toBe(200)
     expect(r.body.folderPath).toBe('projects/launch-notes')
@@ -98,6 +99,11 @@ describe('POST /api/projects/:id/share', () => {
     expect(fs.existsSync(path.join(A.team, 'projects/launch-notes/bob-link.md'))).toBe(false) // links are not copied
     expect(fs.existsSync(path.join(dir, 'notes.md'))).toBe(true) // the personal folder stays
     expect((await A.json(`/api/projects/${pid}`, { as: 'bob' })).status).toBe(404)
+    // nor the owner or an admin, who are not its members
+    for (const who of ['carol', 'dana'] as const) {
+      expect((await A.json(`/api/projects/${pid}`, { as: who })).status).toBe(404)
+      expect((await read(who, 'projects/launch-notes/notes.md')).status).toBe(404)
+    }
   })
 
   test('only a personal project, only its owner, only into projects/; 413 past the limits, nothing left behind', async () => {

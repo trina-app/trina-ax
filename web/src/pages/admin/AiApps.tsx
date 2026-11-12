@@ -28,7 +28,7 @@ export default function AdminAiApps() {
             <div className="space-y-3" data-testid="admin-ai-apps" data-on={String(remote.configured)}>
               <p className="flex flex-wrap items-center gap-2 text-sm">
                 <Badge tone={remote.configured ? 'ok' : 'neutral'}>{t(remote.configured ? 'appConnectors.on' : 'appConnectors.off')}</Badge>
-                <a href={CONNECTOR_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-accent-text hover:underline" data-testid="admin-ai-apps-guide">
+                <a href={CONNECTOR_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-accent-text hover:underline max-md:min-h-11" data-testid="admin-ai-apps-guide">
                   {t('appConnectors.guide')}<ExternalLink size={12} aria-hidden />
                 </a>
               </p>
@@ -38,7 +38,7 @@ export default function AdminAiApps() {
               {remote.items.length > 0 && (
                 <p className="text-xs text-muted" data-testid="admin-ai-apps-mine">
                   {t('aiApps.mineSummary', { n: remote.items.length, names: [...new Set(remote.items.map((x) => x.clientName))].join(', ') })}{' '}
-                  <Link to="/settings/ai-apps" className="text-accent-text hover:underline" data-testid="admin-ai-apps-manage">{t('aiApps.manage')}</Link>
+                  <Link to="/settings/ai-apps" className="text-accent-text hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="admin-ai-apps-manage">{t('aiApps.manage')}</Link>
                 </p>
               )}
               {openApp && remote.resource && <AiAppDialog app={openApp} resource={remote.resource} known={remote.items.map((x) => x.id)} onClose={() => setOpenApp(null)} />}

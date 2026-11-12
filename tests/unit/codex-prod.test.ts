@@ -523,7 +523,7 @@ describe('managed Codex turns (fake Codex through the real launcher and the mode
       const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'never' }))
       expect(r.done.status).toBe('error')
       expect(r.done.error?.code).toBe('engine_unavailable')
-      expect(r.done.error?.message).toMatch(/no AI connection/i)
+      expect(r.done.error?.message).toMatch(/no AI account/i)
       expect(r.done.content).toBe('')
     } finally { h.ctx.db.query('UPDATE engine_credentials SET disabled = 0').run() }
   })

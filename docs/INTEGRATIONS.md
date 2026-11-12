@@ -183,6 +183,36 @@ after 7 days) and can withdraw a waiting request; the admin never sees the key o
 `331_c_integration_requests.sql`. Decisions: [DECISIONS.md](DECISIONS.md) "Asking a member to connect a service as
 their own".
 
+## A member asks for an app
+
+The other direction: a member who opens an app the team has not set up (Google Drive, Gmail, Google Calendar, Google
+Docs, Google Sheets: the apps an admin sets up once for everyone) taps **Ask admin to add it** on its page, like an app
+request in Slack. It takes the place of the Connect button that could not work and of the "not set up" line; afterwards
+the page says "Request sent", opened again "Already asked", and the app's card says "Asked".
+
+- Only those five ids, only while the app is not set up (`POST /api/integrations/service-requests {service}`). The
+  server refuses any other name (400 `unknown_service`: no free text from a member reaches an admin), an app the member
+  can connect already (409 `can_connect`), one an admin turned off for members or this computer cannot run (409
+  `not_requestable`; also a setup that is not the admins' to make: a hosted team's, an operator's file), and owners
+  and admins (403: they set it up themselves). Listed MCP services are not asked for: a member adds those with their
+  own account.
+- One open request per member and app; asking again while it is open answers `already` and sends nothing. At most 10
+  new requests per member a day (429). Audited `service_request.ask`.
+- The owner and the admins get one notice per app in Activity (`service.request`, table `service_request_notices`),
+  armed again (unread, on top) by each new ask: "Alice asked to add Gmail", "Erin and 2 others asked to add Gmail". Its
+  row opens the app's setup in Admin › Connected apps. The names are read when the inbox is shown. The 30-second check
+  keeps these notices with whoever is an owner or admin now: someone who no longer is loses them, someone who became one
+  gets those of the apps asked for now.
+- Once members can connect the app (an admin set it up, or turned the members' switch on after that; also a setup made
+  elsewhere, checked every 30 seconds; not while the hosting service's Google review lets only its test users in), the
+  requests close, the admins' notice counts as read and says "Added", and each
+  member who asked gets one notice that it is ready (`service.ready`), which opens its page. Inbox only, never an OS
+  push. Requests also close after 30 days, or when their member leaves or becomes an owner or admin; then they may ask
+  again.
+- Nothing a member gets names an admin. Code: `server/src/integrations/service-requests.ts`,
+  `service-request-notices.ts`, migration `343_c_service_requests.sql`; web `components/integrations/AskAdmin.tsx`.
+  Decisions: [DECISIONS.md](DECISIONS.md) "A member asks an admin to add an app".
+
 ## Connecting from a chat
 
 A person says in a chat "connect Higgsfield" (or Notion, Linear, GitHub, any MCP server or HTTP API, or their Google
@@ -249,9 +279,27 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
 - **Where it is not offered.** Scheduled runs have nobody to finish a card: the tool answers "skipped" at once.
   Sub-agents never get the tool (`PARENT_ONLY_TOOLS`). Confidential chats (Safe operations) do not offer it: it is not a
   local tool, and connected services are not offered there either.
-- **A new connection's tools come with the next message.** A turn's tools are fixed when it starts (the engines'
-  tool lists and the model proxy's names for the turn), so the AI says it is connected and can use it from the
-  person's next message.
+- **The same answer goes on with the new connection** (owner decision 2026-11-12). A person asks "summarize my Notion
+  page about the launch" without Notion connected: the AI shows the card, the person connects it, and the AI goes on
+  with the same answer, using Notion, without the question being sent again. A running engine's tools are fixed (the
+  engines' tool lists, the model proxy's names, the lockdown check), so the turn goes on in a new step
+  (`chat/turn.ts`):
+  - Claude: the tool's result tells the AI to end its step; when that attempt ends normally, the turn builds its tool
+    set again (`buildToolSet`, the same person and chat, so the same filters as at the start) and resumes the same
+    engine session with the turn context (connections as they are now) and a server note as the message
+    (`continueAfterConnect`: the connection, its new tools or, when no name is new, `find_tools` / `call_tool` /
+    `api_request`, go on with the request in this answer). A new proxy token, lockdown and sub-agent list come from the
+    new set; the text goes on in the same answer message. At most `CONTINUE_MAX` (2) times per answer: a third card's
+    result says "from the next message". Each continuation gets only the tool rounds the answer has left; with fewer
+    than two the answer pauses at the round limit (`tool_limit`, "continue" goes on). The budget, the answer's time and
+    Stop apply as to any attempt (`launch`); an error, a stop or a refusal: no continuation. A retry that starts a
+    fresh session after a connect gets the new tool set from its start.
+  - The API engine (in the server): the tool set is built again before its next round and listed again.
+  - Codex (its runs start fresh, without the answer so far): unchanged, the tools come with the person's next message.
+  - Google Drive's tools are always offered, so a Drive connect never needs this.
+  The result says which (`next`); "Not now", a card whose time runs out or a stopped answer make no continuation. Only
+  the turn's person can finish the card (the route checks the owner), and the tools the answer goes on with are that
+  person's own: a room's answer (where `connect_service` is not offered) keeps only the asker's own Google apps.
 - If the person pastes a key into the chat anyway, the AI tells them not to, that it should be revoked and replaced
   at the service, and offers the card (the instructions' rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
   before sending text that almost surely holds a key, with "Send anyway" and "Edit" (`SecretWarning`), in every box

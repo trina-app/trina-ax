@@ -76,6 +76,8 @@ export function ViewerColumn({ place, state, onAsk, onThread, onHide, sheet = fa
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId) ?? null)
   const roomTitle = room ? title(room) : ''
   const roomMembers = useRooms((s) => s.members[roomId]) ?? NO_MEMBERS
+  // the room may not be open (a file opened from elsewhere, or its list dropped by a resync): read it when missing
+  useEffect(() => { void useRooms.getState().loadMembers(roomId) }, [roomId])
   const members = useMemo(() => roomMembers.map((m) => m.user), [roomMembers])
   const meId = useMe()?.user.id ?? null
   const name = aiName(t)

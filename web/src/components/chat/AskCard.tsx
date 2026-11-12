@@ -11,9 +11,10 @@
 // choices.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react'
 import { errorText } from '../../lib/api'
-import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
+import { BoxAnswers, forgetPicks, rememberPicks } from '../../lib/askAnswer'
+import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
@@ -34,6 +35,8 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const answer = onAnswer ?? storeAnswer
   const [picked, setPicked] = useState<string[]>([])
   const [text, setText] = useState('')
+  /** typed in the card's own box once: it keeps that box (see inBox) */
+  const [typedHere, setTypedHere] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const name = useId()
@@ -41,6 +44,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const secret = useSecretHold(text)
   const textRef = useRef<HTMLTextAreaElement>(null)
   const r = req.request
+  const boxAnswers = useContext(BoxAnswers)
   useEffect(() => rememberPicks(r.requestId, picked), [r.requestId, picked])
   useEffect(() => () => forgetPicks(r.requestId), [r.requestId])
 
@@ -113,12 +117,17 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   if (r.kind === 'connect_service') return null
 
   const options = r.options ?? []
-  const allowText = r.allowText ?? options.length === 0
+  const fromServer = r.origin === 'server'
+  // the message box under the chat answers this question (lib/askAnswer.ts, docs/DECISIONS.md "The message box answers
+  // the AI's open question"): typing goes there only, so the card has no second text box and no second secrets line,
+  // just a line saying where to type (TRINA-24). Text already typed here (the card became the box's question later,
+  // when an older one closed) keeps its box.
+  const inBox = !fromServer && !onAnswer && boxAnswers === r.requestId && !typedHere
+  const allowText = (r.allowText ?? options.length === 0) && !inBox
   const value: string | string[] | null = r.multiple ? [...picked, ...(text.trim() ? [text.trim()] : [])] : (picked[0] ?? (text.trim() || null))
   const ready = Array.isArray(value) ? value.length > 0 : !!value
   const toggle = (v: string) => setPicked((p) => (r.multiple ? (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]) : [v]))
 
-  const fromServer = r.origin === 'server'
   // the server's yes/no (a change in a room, saving where more people see it, a team skill, an address, a send): two
   // buttons, "no" neutral and "yes" primary, like Claude Code's permission prompt. The first option is the yes. A
   // question with more choices keeps its radios and [답하기].
@@ -225,12 +234,19 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
               value={text}
               onChange={(e) => {
                 setText(e.target.value)
+                setTypedHere(true)
                 if (!r.multiple && e.target.value) setPicked([])
               }}
               data-testid="ask-text"
             />
           )}
-          {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always there under it */}
+          {inBox && (
+            <p className="text-xs text-muted" data-testid="ask-in-box">
+              {t(options.length ? 'ask.inBoxOr' : 'ask.inBox')}
+            </p>
+          )}
+          {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always under the box it is typed in (here, or
+              the message box's own when that answers: inBox) */}
           {allowText && (
             <p id={`${name}-secrets`} className="text-xs text-faint" data-testid="ask-no-secrets">
               {t('ask.noSecrets')}
@@ -257,9 +273,12 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'ask_user', answer: null })}>
           {t('ask.skip')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy} data-testid="ask-send">
-          {t('ask.send')}
-        </Button>
+        {/* nothing to pick and the typing is in the message box: its own button sends the answer */}
+        {(options.length > 0 || allowText) && (
+          <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy} data-testid="ask-send">
+            {t('ask.send')}
+          </Button>
+        )}
       </div>
     </form>
   )
@@ -291,13 +310,15 @@ function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choi
 /** What the AI is about to save under skills/ (team skills and rules every teammate's AI follows): the diff. */
 function SkillPreview({ p }: { p: SkillWritePreview }) {
   const t = useT()
+  const words = useFolderWords()
   const lines = p.diff.split('\n')
   const isDiff = lines[0]?.startsWith('@@')
   return (
     <div className="mb-2 overflow-hidden rounded-lg border border-line" data-testid="skill-preview">
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
-        <span className="min-w-0 flex-1 truncate font-mono" title={p.path}>
-          {p.path}
+        {/* the file in words (팀 스킬 › 회의록 › SKILL.md), its path on hover */}
+        <span className="min-w-0 flex-1 truncate" title={p.path} data-testid="skill-preview-path">
+          {words.path(p.path, ' › ')}
         </span>
         <span className="text-faint">{p.isNew ? t('ask.skillNew') : t('ask.skillChange')}</span>
         {isDiff && (
@@ -329,8 +350,10 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
 }
 
 /** What a server check is about to let out, every character of it (a connected service's write with where it goes, a
- * scheduled task's instruction and its addresses): scrollable, with its size; long random-looking parts highlighted.
- * `plain` (a yes/no card): no boxes, the fields as name–value lines and the text under its label with a rule beside it. */
+ * scheduled task's instruction and its addresses): scrollable, with its size; long random-looking parts highlighted, in
+ * the fields too. `plain` (a yes/no card): no boxes, the fields as name–value lines and the text under its label with a
+ * rule beside it. `exact` (a connected service's call, docs/DECISIONS.md "Plain words in errors, cards and steps"): the
+ * fields already show every value, so the text (its exact JSON) is one click away, "보내는 내용 그대로 보기". */
 function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) {
   const t = useT()
   if (plain)
@@ -340,27 +363,33 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
           <div key={i} className="space-y-1.5 text-sm" data-testid="ask-detail">
             {d.fields?.length ? (
               <div role="group" aria-label={d.label} data-testid="ask-detail-fields">
-                {/* the names' column as wide as the longest one ("파일", "고칠 수 있게 돼요"), at least 3.5rem */}
-                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                {/* the names' column as wide as the longest one ("파일", "고칠 수 있게 돼요"), at least 3.5rem and at most
+                    40%: a long name wraps and never squeezes the values off the card; marks show in names too */}
+                <dl className="grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-3 gap-y-1">
                   {d.fields.map((f, j) => (
                     <div key={j} className="contents">
-                      <dt className="min-w-14 text-faint">{f.name}</dt>
-                      <dd className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</dd>
+                      <dt className="min-w-14 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></dt>
+                      {/* a long value scrolls in place, so the next name stays near; the marks are highlighted here too */}
+                      <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
+                        <Marked text={f.value} marks={d.marks} />
+                      </dd>
                     </div>
                   ))}
                 </dl>
               </div>
             ) : null}
             {d.text && (
-              <div>
-                <p className="flex items-baseline gap-2 text-xs text-faint">
-                  <span className="min-w-0 flex-1">{d.label}</span>
-                  {!d.noSize && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
-                </p>
-                <div className="mt-1 border-l-2 border-line">
-                  <DetailText d={d} plain />
+              <Exact d={d} plain>
+                <div>
+                  <p className="flex items-baseline gap-2 text-xs text-faint">
+                    <span className="min-w-0 flex-1">{d.label}</span>
+                    {!d.noSize && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
+                  </p>
+                  <div className="mt-1 border-l-2 border-line">
+                    <DetailText d={d} plain />
+                  </div>
                 </div>
-              </div>
+              </Exact>
             )}
           </div>
         ))}
@@ -388,16 +417,40 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
             >
               {d.fields.map((f, j) => (
                 <div key={j} className="flex gap-3">
-                  <span className="shrink-0 text-faint">{f.name}</span>
-                  <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</span>
+                  <span className="max-w-[40%] shrink-0 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></span>
+                  <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
                 </div>
               ))}
             </div>
           ) : null}
           {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
-          {d.text && <DetailText d={d} />}
+          {d.text && <Exact d={d}><DetailText d={d} /></Exact>}
         </div>
       ))}
+    </div>
+  )
+}
+
+/** A detail's text as it is, behind "보내는 내용 그대로 보기" when the fields above show every value of it (`exact`), with
+ * its size on the button while closed; else as it is. Open, it shows what it shows today (its label, size and marks). */
+function Exact({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; children: ReactNode }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  if (!d.exact) return <>{children}</>
+  return (
+    <div className={plain ? undefined : 'border-t border-line'}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={clsx('flex items-baseline gap-2 text-left text-xs font-medium text-muted hover:text-ink', plain ? 'rounded py-1 underline-offset-2 hover:underline' : 'w-full px-3 py-1.5 hover:bg-hover')}
+        data-testid="ask-detail-exact"
+      >
+        <span>{open ? t('ask.exactHide') : t('ask.exactShow')}</span>
+        {/* open, the size shows beside the text's label (once) */}
+        {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.text.length })}</span>}
+      </button>
+      {open && <div className={plain ? 'mt-1' : 'border-t border-line'}>{children}</div>}
     </div>
   )
 }

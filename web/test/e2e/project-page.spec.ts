@@ -1,6 +1,8 @@
 // A project's page, like Claude's: the name with its few actions in a menu, a box that starts a chat in the project,
 // the person's chats in it, and Instructions / Files as short lines that open in place. No dev environment line, also
-// on a server that has it (the team setting is in Team settings, admin-dev-env.spec.ts).
+// on a server that has it (the team setting is in Team settings, admin-dev-env.spec.ts). The owner or an admin on a
+// team project they are not in (docs/DECISIONS.md "Project contents only for members"): one quiet block with Add me, its
+// members, their own chats; after Add me the page is a member's, and taking themselves out closes it again.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -105,7 +107,7 @@ test('a person who cannot edit the project sees no menu and no edit action', asy
   await reset(page)
   await signIn(page)
   const id = await newProject(page)
-  await page.route(`**/api/projects/${id}`, async (r) => {
+  await page.route((u) => u.pathname === `/api/projects/${id}`, async (r) => {
     const res = await r.fetch()
     await r.fulfill({ response: res, json: { ...(await res.json()), canEdit: false } })
   })
@@ -149,4 +151,100 @@ test('at phone width the page fits: the box first, then the lines, then the chat
   expect(await top('composer-input')).toBeLessThan(await top('project-instructions'))
   expect(await top('project-files')).toBeLessThan(await top('project-chats'))
   await audit(page, 'project (phone)')
+})
+
+for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: '390', size: { width: 390, height: 844 } }]) {
+  test(`the owner on a team project she is not in: the block, Add me, its files after; taking herself out closes it again (${vp.name})`, async ({ page }) => {
+    await page.setViewportSize(vp.size)
+    await reset(page)
+    await signIn(page)
+    // Bob's project, with a file and a chat of the owner from before (her own chats stay hers)
+    const made = await page.request.post('/__test/project', { data: { name: 'Falcon', by: 'bob', instructions: '# Falcon\n\nContracts only.', files: { 'plan.md': 'plan' }, chats: [['olga', 'My old notes']] } })
+    const { id } = (await made.json()) as { id: string }
+    // the list: her card, no "not a member" tag
+    await page.goto('/projects')
+    await expect(page.getByTestId('project-card').filter({ hasText: 'Falcon' })).toBeVisible()
+    await page.getByTestId('project-card').filter({ hasText: 'Falcon' }).getByRole('link').click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
+    const block = page.getByTestId('project-members-only')
+    await expect(block).toContainText('멤버만 이 프로젝트를 열 수 있어요. 나를 멤버로 추가하면 파일을 볼 수 있어요.')
+    for (const testId of ['composer-input', 'project-instructions', 'project-files', 'project-summary']) await expect(page.getByTestId(testId)).toHaveCount(0)
+    await expect(page.getByTestId('project-members')).toContainText('1명')
+    await expect(page.getByTestId('project-chats')).toContainText('My old notes')
+    await expect(page.getByText('plan.md')).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await audit(page, `not a member (${vp.name})`)
+    // Add me: the app's confirm first
+    await page.getByTestId('project-add-me').click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading')).toHaveText("'Falcon'에 나를 추가할까요?")
+    await expect(dialog).toContainText('멤버들에게 내가 들어왔다고 알려요.')
+    await expect(dialog.getByTestId('dialog-confirm')).toHaveText('나를 멤버로 추가')
+    await audit(page, `Add me confirm (${vp.name})`)
+    await dialog.getByTestId('dialog-confirm').click()
+    // a member's page now: the box, the instructions, the files
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await expect(block).toHaveCount(0)
+    await expect(page.getByTestId('project-summary')).toHaveText('Contracts only.')
+    await page.getByTestId('project-files-toggle').click()
+    await expect(page.getByTestId('project-files').getByRole('button', { name: 'plan.md' })).toBeVisible()
+    await expect(page.getByTestId('project-members')).toContainText('2명')
+    // in its members now, as anyone added is
+    const bob = await page.request.get(`/api/projects/${id}/access`)
+    expect(((await bob.json()) as { participants: { subjectId: string }[] }).participants.map((x) => x.subjectId)).toEqual(['bob', 'olga'])
+    // taking herself out in the members dialog: the page closes again
+    await page.getByTestId('project-members-manage').click()
+    await page.getByTestId('participant-remove-user-olga').click()
+    await page.getByTestId('project-members-save').click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(block).toBeVisible()
+    await expect(page.getByTestId('composer-input')).toHaveCount(0)
+    await expect(page.getByTestId('project-files')).toHaveCount(0)
+  })
+}
+
+test('a project in the trash: its note with Restore and Delete for good, no name menu; a shared chat link of a project I am not in tells an owner she can add herself, with the way to Projects', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const made = await page.request.post('/__test/project', { data: { name: 'Falcon', by: 'bob', files: { 'plan.md': 'plan' } } })
+  const { id } = (await made.json()) as { id: string }
+  await page.goto(`/projects/${id}`)
+  await page.getByTestId('project-menu').click()
+  await expect(page.getByRole('menuitem')).toHaveText(['이름 바꾸기', '삭제'])
+  await page.getByTestId('project-delete').click()
+  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon'을(를) 휴지통으로 옮길까요?")
+  // only what happens: no "its files and chats go with it" (her own chats there stay hers)
+  await expect(page.getByRole('dialog')).toContainText('팀장이나 관리자가 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
+  await page.getByTestId('dialog-confirm').click()
+  // still here, in the trash; the note has Restore and Delete for good, and there is no name menu beside them
+  await expect(page.getByTestId('project-in-trash')).toContainText('이 프로젝트는 휴지통에 있어요.')
+  await expect(page.getByTestId('project-members-only')).toHaveCount(0)
+  await expect(page.getByTestId('project-menu')).toHaveCount(0)
+  await expect(page.getByTestId('project-topline')).toContainText('Falcon')
+  await page.getByTestId('project-restore').click()
+  await expect(page.getByTestId('project-in-trash')).toHaveCount(0)
+  await expect(page.getByTestId('project-members-only')).toBeVisible()
+  // again to the trash, then its folder purged: Restore says why it cannot, Delete for good ends it
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('project-delete').click()
+  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByTestId('project-in-trash')).toBeVisible()
+  await page.request.post('/__test/project-purge', { data: { id } })
+  await page.getByTestId('project-restore').click()
+  await expect(page.getByText('이 프로젝트의 폴더는 완전히 지워져서 되돌릴 수 없어요. 프로젝트를 삭제할 수 있어요.')).toBeVisible()
+  // Restore goes (it would only say the same again); Delete for good stays
+  await expect(page.getByTestId('project-restore')).toHaveCount(0)
+  await page.getByTestId('project-delete-for-good').click()
+  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon'을(를) 완전히 삭제할까요?")
+  await expect(page.getByRole('dialog')).toContainText('파일도 함께 지워지고 되돌릴 수 없어요.')
+  await page.getByTestId('dialog-confirm').click()
+  await expect(page).toHaveURL(/\/projects$/)
+  expect((await page.request.get(`/api/projects/${id}?manage=1`)).status()).toBe(404)
+  // a chat that is not there: the owner's extra line (the same for every missing chat)
+  await page.goto('/c/01900000-0000-7000-8000-00000000dead')
+  await expect(page.getByTestId('chat-not-found')).toBeVisible()
+  await expect(page.getByTestId('chat-not-found-manage')).toHaveText('내가 멤버가 아닌 프로젝트의 채팅이면 프로젝트에서 열고 나를 멤버로 추가할 수 있어요.')
+  // "프로젝트" is the way there (a phone has no back button on this page)
+  await page.getByTestId('chat-not-found-projects').click()
+  await expect(page).toHaveURL(/\/projects$/)
 })

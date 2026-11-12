@@ -69,8 +69,10 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'integration.request': return true
     // a member without AI asks the owner (shown always: the member cannot work until it is answered)
     case 'onboarding.ai_request': return true
-    // someone joined through the team invite link (shown always, Notifications.teamJoined)
+    // someone joined the team, whichever way (shown always, Notifications.teamJoined)
     case 'team.joined': return true
+    // someone started to see a project the person is in (shown always, Notifications.projectJoined)
+    case 'project.joined': return true
     // a message, an @mention or a followed thread's reply in a room: each room's level decides, per message and person,
     // whether there is a notice at all (rooms/service.ts notify, shared room-alerts.ts), and the push checks it again
     // (rooms/alerts.ts noticeWanted); a person's default 'none' is 'off' for every room without a level of its own
@@ -83,5 +85,9 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'credential.change': return true
     // 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (also pushed), a transfer, a locked password check
     case 'owner.lead_joined': case 'owner.transferred': case 'owner.reauth_locked': return true
+    // a member asks to add an app (shown always, Notifications.serviceRequested), and its answer to them
+    case 'service.request': case 'service.ready': return true
+    // a password reset link was made for the person (shown always, Notifications.resetLinkMade)
+    case 'account.reset_link': return true
   }
 }

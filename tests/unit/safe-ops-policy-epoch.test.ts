@@ -17,7 +17,7 @@ const policy: Record<string, string> = {
   users: 'id username password_hash role status must_change_password deleted_at temp_password_expires_at',
   groups: 'id folder_id', group_members: 'group_id user_id', folders: 'id path',
   folder_rules: 'id folder_id subject_type subject_id access',
-  integrations: 'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version google_app',
+  integrations: 'id scope owner_user_id kind slug url auth auth_header account write_policy tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version google_app',
   integration_access: 'integration_id subject_type subject_id', connected_folders: 'id name source',
   // connection templates (336): where a member's key goes, and who the template is for
   integration_templates: 'id kind url auth auth_header version oauth_client oauth_client_enc oauth_client_key_version', integration_template_access: 'template_id subject_type subject_id',
@@ -29,7 +29,9 @@ const bookkeeping: Record<string, string> = {
   groups: 'name description', group_members: '', folders: 'created_at', folder_rules: 'updated_by updated_at',
   // tools_total, tools_total_more: how many tools the service offers (a count for Settings and the instructions;
   // tools_json is the policy); tools_rev: moves on with tools_json (the parsed lists in memory, store.ts savedTools)
-  integrations: 'created_by name notes last_error tools_updated_at tools_total tools_total_more tools_rev last_used_at created_at updated_at',
+  // secret_enc, key_version: the sealed key or tokens (a refresh rotates them); status: whether the last call worked.
+  // A new key, sign-in or sign-out also moves version, which is policy (344_c_policy_token_refresh.sql)
+  integrations: 'secret_enc key_version status created_by name notes last_error tools_updated_at tools_total tools_total_more tools_rev last_used_at created_at updated_at',
   integration_access: '', connected_folders: 'created_by created_at last_sync_at last_status last_error files bytes',
   // a template's name and note change no one's access
   integration_templates: 'created_by name notes created_at updated_at', integration_template_access: '',

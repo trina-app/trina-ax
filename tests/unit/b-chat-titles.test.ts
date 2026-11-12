@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, SIDE_CHAT_QUICK, sideQuickOf, sideQuoteOf, threadRefToken, type Step } from '@mycel/shared/api'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
-import { AI_TITLE_MAX, PLACEHOLDER_MAX, TITLE_SCAN_KEY, cleanAiTitle, graphemes, hideTitle, maskStoredTitles, placeholderTitle } from '../../server/src/chat/title'
+import { AI_TITLE_MAX, PLACEHOLDER_MAX, TITLE_SCAN_KEY, cleanAiTitle, graphemes, hideTitle, maskStoredTitles, placeholderTitle, skillPlaceholderTitle } from '../../server/src/chat/title'
 import { HIDDEN } from '../../server/src/integrations/connections/hide'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { WORK } from '../lib/env'
@@ -178,6 +178,36 @@ describe('existing chats', () => {
   })
 })
 
+describe('a chat started from a skill (owner 2026-11-11)', () => {
+  test("the slash placeholder becomes the skill's name people read; anything else stays", () => {
+    const db = openDb(':memory:')
+    try {
+      db.query("INSERT INTO users (id, username, name, role) VALUES ('alice','alice','Alice','member')").run()
+      const chat = (id: string, title: string, source = 'auto') => db.query("INSERT INTO chats (id, user_id, title, title_source) VALUES (?, 'alice', ?, ?)").run(id, title, source)
+      const title = (id: string) => (db.query('SELECT title FROM chats WHERE id = ?').get(id) as { title: string }).title
+      const promo = { name: 'card-news', title: 'Promo cards' }
+      chat('alone', '/card-news')
+      chat('words', '/card-news autumn sale for the shop')
+      chat('cut', '/card-news ' + 'x'.repeat(10) + '…')
+      chat('alias', '/promo-folder autumn')
+      chat('other', 'Plan for /card-news')
+      chat('renamed', '/card-news', 'user')
+      chat('named', '/card-news', 'ai')
+      chat('untitled', '/quote-maker')
+      expect(skillPlaceholderTitle(db, 'alone', promo)).toBe('Promo cards')
+      expect(skillPlaceholderTitle(db, 'words', promo)).toBe('Promo cards')
+      expect(skillPlaceholderTitle(db, 'cut', promo)).toBe('Promo cards')
+      expect(skillPlaceholderTitle(db, 'alias', promo, 'promo-folder')).toBe('Promo cards')
+      for (const id of ['other', 'renamed', 'named']) expect(skillPlaceholderTitle(db, id, promo)).toBeNull()
+      // no metadata title: the folder name as words, never "/quote-maker"
+      expect(skillPlaceholderTitle(db, 'untitled', { name: 'quote-maker', title: 'quote-maker' })).toBe('quote maker')
+      expect([title('alone'), title('words'), title('other'), title('renamed'), title('named')]).toEqual(['Promo cards', 'Promo cards', 'Plan for /card-news', '/card-news', '/card-news'])
+      // twice: the second finds nothing to change
+      expect(skillPlaceholderTitle(db, 'alone', promo)).toBeNull()
+    } finally { db.close() }
+  })
+})
+
 describe('set_title in real turns', () => {
   let h: Harness
   let alice: TestSocket
@@ -260,6 +290,17 @@ describe('set_title in real turns', () => {
     expect(JSON.parse(r.done.content)).toEqual({ ok: true, title: 'Quarterly numbers review' })
     expect((r.done.steps as Step[]).some((s) => s.tool === 'set_title')).toBe(false)
     expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).title).toBe('Quarterly numbers review')
+  })
+
+  test("a chat started with \"/card-news\" is called by the skill's name live, not its slash name", async () => {
+    fs.mkdirSync(path.join(h.team, 'skills/card-news'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'skills/card-news/SKILL.md'), '---\nname: card-news\ndescription: Promo cards for social posts\nmetadata:\n  title: Promo cards\n---\nMake cards.\n')
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const sent = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: '/card-news autumn sale\n' + fake({ say: 'ok' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    await alice.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.chat?.title === 'Promo cards', 20_000)
+    await alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 20_000)
+    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).title).toBe('Promo cards')
+    expect(source(chat.id)).toBe('auto')
   })
 
   test('a scheduled run is not offered set_title and keeps its title', async () => {

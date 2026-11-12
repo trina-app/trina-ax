@@ -228,6 +228,28 @@ func TestStatusShowsDeferredUpdate(t *testing.T) {
 	}
 }
 
+// the bootstrap stopped starting the server (no version can read the database): status says so, --detail --json too
+func TestStatusShowsServerStopped(t *testing.T) {
+	tb, _ := switchBase(t, true)
+	st := `{"format":1,"current":"0.2.18","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[],` +
+		`"blocked":{"version":"0.2.19","since":"2026-11-11T08:00:00Z","detail":"stopped: 0.2.18 cannot read the database"}}`
+	must(t, os.WriteFile(filepath.Join(tb.base, "app/state.json"), []byte(st+"\n"), 0o640))
+	code, out, _ := tb.ctl("", "status")
+	if code != 0 || !strings.Contains(out, "SERVER STOPPED at 0.2.19 since 2026-11-11T08:00:00Z: stopped: 0.2.18 cannot read the database") {
+		t.Fatalf("%d\n%s", code, out)
+	}
+	code, out, _ = tb.ctl("", "status", "--detail", "--json")
+	var s Status
+	var b struct{ Version string }
+	if code != 0 || json.Unmarshal([]byte(out), &s) != nil || json.Unmarshal(s.ServerStopped, &b) != nil || b.Version != "0.2.19" {
+		t.Fatalf("json: %d %s", code, out)
+	}
+	must(t, os.WriteFile(filepath.Join(tb.base, "app/state.json"), []byte(`{"format":1,"current":"0.2.18","history":[],"blocked":null}`+"\n"), 0o640))
+	if _, out, _ := tb.ctl("", "status"); strings.Contains(out, "STOPPED") {
+		t.Fatalf("shown without blocked:\n%s", out)
+	}
+}
+
 // a release the update timer holds after it failed here is shown while the hold lasts (0.2.19 review S1)
 func TestStatusShowsHeldUpdate(t *testing.T) {
 	tb, _ := switchBase(t, true)

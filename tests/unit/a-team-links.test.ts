@@ -251,6 +251,9 @@ describe('joining', () => {
       const item = inbox.items.find((x: any) => x.code === 'team.joined' && x.sourceId === r.body.me.user.id)
       expect(item).toMatchObject({ eventType: 'team.joined', link: null, joined: { name: 'Joy Joiner' } })
     }
+    // the rest of the team sees one line in the everyone room, written as the new member
+    const room = ((await owner.call('GET', '/api/rooms')).items as any[]).find((x) => x.kind === 'all')
+    expect(((await owner.call('GET', `/api/rooms/${room.id}/messages`)).items as any[]).at(-1)).toMatchObject({ event: { type: 'joined' }, author: { id: r.body.me.user.id } })
     // the person who joined gets nothing about it
     const self = h.client({ ip: '10.9.3.3' })
     await self.login(r.body.me.user.username, PW)

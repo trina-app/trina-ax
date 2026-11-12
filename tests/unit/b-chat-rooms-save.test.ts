@@ -19,6 +19,10 @@ import { roomFilesOf } from '../../server/src/rooms/files'
 import { ROOMS_RULE } from '../../server/src/chat/prompt'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS } from '../../server/src/rooms/ai-tools'
+import { labeledPath } from '@mycel/shared'
+
+// a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
+const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -138,13 +142,13 @@ describe('saving a room file from my own chat', () => {
     expect(c.options?.map((o) => o.value)).toEqual(['save', 'skip'])
     expect(c.question).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first. ')
     expect(c.question).toContain(`messages of the room '${name}'`)
-    expect(c.question).toContain(`shared/company/${file.name}`)
+    expect(c.question).toContain(W(`shared/company/${file.name}`))
     const fields = c.details?.[0]?.fields ?? []
     expect(fields.map((f) => f.name)).toEqual(['Action', 'File', 'Save as'])
     expect(fields[0]!.value).toBe('Save conversation file')
     // the file by its name, its room as alice sees it, who sent it, when and how big; never its id
     expect(fields[1]!.value).toMatch(new RegExp(`^${file.name.replace('.', '\\.')} \\(#${name}, Erin Yoo, \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}, \\d+ KB\\)$`))
-    expect(fields[2]!.value).toBe('shared/company/')
+    expect(fields[2]!.value).toBe(W('shared/company'))
     expect(JSON.stringify(c.details)).not.toContain(file.id)
     // the same bytes, in a new folder; the room file stays
     const saved = `shared/company/${file.name}`
@@ -297,7 +301,7 @@ describe('saving a room file from my own chat', () => {
     const chat = await newChat('alice')
     const r = await run('alice', chat, `방 요약해줘\n${fake({ tool: 'room_read', args: { room: roomId }, followResult: true }, { say: 'summary' })}`)
     expect(r.cards).toHaveLength(1)
-    expect(r.cards[0]!.question).toContain(`shared/${file.name}`)
+    expect(r.cards[0]!.question).toContain(W(`shared/${file.name}`))
     expect(fs.existsSync(at(`shared/${file.name}`))).toBe(false)
     expect(ws.erin!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === r.turnId)).toBe(false)
   })

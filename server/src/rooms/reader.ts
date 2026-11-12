@@ -108,6 +108,11 @@ export function titleOf(r: Pick<Room, 'kind' | 'name' | 'peers' | 'memberCount'>
 }
 const KIND_WORDS: Record<RoomKind, string> = { team: 'team room', all: "the team's room for everyone", dm: '1:1 chat with', group: 'group chat' }
 const kindLine = (kind: RoomKind, title: string) => (kind === 'dm' ? `${KIND_WORDS.dm} ${title}` : kind === 'all' ? `${KIND_WORDS.all} ("${title}")` : `${KIND_WORDS[kind]} "${title}"`)
+/** The room in a sentence, with "the" once: "the team room "X"", "the team's room for everyone ("X")" (its words already
+ * start with "the": QA found "The the team's room for everyone" at the top of room_read). */
+const theRoom = (kind: RoomKind, title: string) => { const k = kindLine(kind, title); return /^the /i.test(k) ? k : `the ${k}` }
+/** theRoom at the start of a sentence */
+const TheRoom = (kind: RoomKind, title: string) => `The${theRoom(kind, title).slice(3)}`
 
 type Found = { one: Mine & { view: Room } } | { many: (Mine & { view: Room })[] } | null
 
@@ -198,6 +203,7 @@ function eventText(m: RoomMessage): string {
     case 'renamed': return e.name ? `${who} renamed the room to "${attr(e.name, 80)}"` : `${who} gave the room back its usual name`
     case 'added': return `${who} invited ${listNames(e.users.map((u) => u.name))}`
     case 'left': return `${who} left`
+    case 'joined': return `${who} joined the team`
     case 'removed': return `${who} removed ${e.user ? attr(e.user.name, 80) : 'someone'}`
     default: return "The room's details changed"
   }
@@ -446,8 +452,8 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   const what = root ? 'the first message of a thread and its replies' : 'messages'
   const range = [since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : ''].filter(Boolean).join(' ')
   const head = used.length
-    ? `${root ? `A thread in the ${kindLine(room.kind, attr(title, 120))}` : `The ${kindLine(room.kind, attr(title, 120))}`} (${memberLine(db, room.id, userId, o.memberIds, tz)}). The ${used.length} newest ${what === 'messages' ? 'messages' : 'replies'} the user can see${range ? ` ${range}` : ''}, oldest first. Times are in the team's time zone.`
-    : `${root ? `A thread in the ${kindLine(room.kind, attr(title, 120))}` : `The ${kindLine(room.kind, attr(title, 120))}`} (${memberLine(db, room.id, userId, o.memberIds, tz)}): no ${root ? 'replies' : 'messages'} the user can see${range ? ` ${range}` : ''}.`
+    ? `${root ? `A thread in ${theRoom(room.kind, attr(title, 120))}` : TheRoom(room.kind, attr(title, 120))} (${memberLine(db, room.id, userId, o.memberIds, tz)}). The ${used.length} newest ${what === 'messages' ? 'messages' : 'replies'} the user can see${range ? ` ${range}` : ''}, oldest first. Times are in the team's time zone.`
+    : `${root ? `A thread in ${theRoom(room.kind, attr(title, 120))}` : TheRoom(room.kind, attr(title, 120))} (${memberLine(db, room.id, userId, o.memberIds, tz)}): no ${root ? 'replies' : 'messages'} the user can see${range ? ` ${range}` : ''}.`
   const tail = more || full
     ? `Older ${root ? 'replies' : 'messages'} are not shown: read them with until="${oldest ? oldest.created_at : ''}".`
     : used.length ? `This is the start of the ${root ? 'thread' : 'room'} as the user can see it${range ? ' in that time' : ''}.` : ''

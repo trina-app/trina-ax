@@ -10,7 +10,9 @@ import { PRODUCT, TEMPLATES_FOLDER } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
-import { atLeast, RuleSet, type Principal } from '../policy/access'
+import { atLeast, RuleSet, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
+import { projectJoins } from '../chat/project-joins'
+import { insideProject, inZone } from '../policy/zone'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { parseInput, walk } from '../policy/resolve'
@@ -40,7 +42,7 @@ const isUsersPath = (p: string) => p === 'users' || p.startsWith('users/')
  */
 export function resolveFolderPath(ctx: AppContext, rel: string, o: { create: boolean; locale: Locale }): { path: string; created: boolean } {
   if (isUsersPath(rel)) fail('validation', msg('rulesInUsers', o.locale), { fields: { 'body.path': 'users/ cannot carry rules' } })
-  const owner: Principal = { id: '\u0000system', name: 'system', role: 'owner', groups: [] }
+  const owner = SYSTEM_PRINCIPAL
   let r
   try {
     r = authorize(ctx.files.fx, ctx.files.rules(), owner, rel, 'write', { mustExist: !o.create, createDirs: true })
@@ -125,9 +127,20 @@ export function dropProjectMarker(db: Database, p: string): void {
   dropFolderRow(db, f.id)
 }
 
-/** projects/<name>: a team project folder whose participants its edit screen manages (one name below projects/;
- * chat/project-access.ts). */
-export const isProjectsFolder = (p: string): boolean => { const s = p.split('/'); return s.length === 2 && s[0] === 'projects' && !!s[1] }
+/**
+ * Admin › Folder permissions never writes, previews or answers about a folder at or under projects/<name> (docs/
+ * DECISIONS.md "Project contents only for members"): a project's members are changed on its page, where they show and
+ * are told. Checked first, on the path as typed (letter case and Unicode form folded), before anything is looked up on
+ * disk, with one answer whether the path is there or not (security review M3, M6).
+ */
+export function assertNotInProject(rel: unknown, locale: Locale, field = 'body.path'): void {
+  if (typeof rel !== 'string') return
+  if (inZone(rel.replace(/\\/g, '/').trim())) fail('conflict', msg('projectMembersOnly', locale), { fields: { [field]: 'project_members_only' }, params: { reason: 'project_members_only' } })
+}
+
+/** projects/<name>: a team project folder whose participants its edit screen manages (one name below projects/, in any
+ * letter case as the members-only zone compares it: policy/access.ts inProjectZone; chat/project-access.ts). */
+export const isProjectsFolder = (p: string): boolean => { const s = p.split('/'); return s.length === 2 && s[0].normalize('NFC').toLowerCase() === 'projects' && !!s[1] }
 
 /** The folders that hold a rule of this subject (for keepProjectFloors). */
 export const foldersWithRuleOf = (db: Database, subjectType: 'user' | 'group', id: string): string[] =>
@@ -234,7 +247,8 @@ export function groupOfFolder(db: Database, folderId: string): string | null {
 
 /** Folders that carry rules (and folders rows without rules, e.g. after all rules were removed by a group delete). */
 export function listFolders(ctx: AppContext): Folder[] {
-  return (ctx.db.query('SELECT id, path, created_at FROM folders ORDER BY path').all() as FolderRow[]).filter((f) => !isParkedRow(f.path)).map((f) => toFolder(ctx, f))
+  // nothing inside a team project: its folder is one row (docs/DECISIONS.md "Project contents only for members")
+  return (ctx.db.query('SELECT id, path, created_at FROM folders ORDER BY path').all() as FolderRow[]).filter((f) => !isParkedRow(f.path) && !insideProject(f.path)).map((f) => toFolder(ctx, f))
 }
 
 // ---------------- effective access: snapshots, diffs, preview ----------------
@@ -342,6 +356,8 @@ export function chatsWithEngineSession(db: Database, userId: string): number {
  */
 export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[]; via?: string; seen?: SeenStates }): { userId: string; paths: string[]; chatsReset: number }[] {
   const after = captureState(ctx.db)
+  // who started to see a team project: audited and told to its members (chat/project-joins.ts)
+  projectJoins(ctx, before, after, { actor: by.actor, via: by.via ?? 'access' })
   if (by.seen) { by.seen.before = before; by.seen.after = after }
   const losses = readLosses(before, after)
   const out: { userId: string; paths: string[]; chatsReset: number }[] = []
@@ -421,7 +437,8 @@ export function previewRules(ctx: AppContext, changes: readonly { path: string; 
   })
   for (const p of proposed.keys()) { folders.push(row(p)); listed.add(p) }
   // rule folders below a changed folder whose effective access changes for someone (inherited rules)
-  const below = [...new Set([...before.rules.ruleFolders(), ...after.rules.ruleFolders()])].filter((q) => !listed.has(q) && !isUsersPath(q) && [...proposed.keys()].some((p) => p === '' || q.startsWith(p + '/'))).sort()
+  // (never one inside a team project: its names are its members' to know)
+  const below = [...new Set([...before.rules.ruleFolders(), ...after.rules.ruleFolders()])].filter((q) => !listed.has(q) && !isUsersPath(q) && !insideProject(q) && [...proposed.keys()].some((p) => p === '' || q.startsWith(p + '/'))).sort()
   for (const q of below) {
     const r = row(q)
     if (r.users.some((u) => u.before !== u.after)) folders.push(r)

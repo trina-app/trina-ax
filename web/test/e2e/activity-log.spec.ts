@@ -1,5 +1,5 @@
 // Admin > Activity log (pages/admin/Audit.tsx, lib/activity.ts): the title and the filters stay at the top while the list
-// scrolls; the filters are one compact row kept in the address; the list is grouped by day, reads as sentences, folds
+// scrolls (a phone: the search and one Filters button); the filters are one compact row kept in the address; the list is grouped by day, reads as sentences, folds
 // repeats into one row that opens, and shows each row's details on a click. The mock's rows: test/mock/server.ts auditRows.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
@@ -29,8 +29,11 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
     await box.evaluate((el) => el.scrollTo(0, el.scrollHeight))
     await expect.poll(() => box.evaluate((el) => el.scrollTop)).toBeGreaterThan(200)
     await expect.poll(async () => Math.abs((await header.boundingBox())!.y - (await box.boundingBox())!.y)).toBeLessThanOrEqual(1)
-    await expect(header.getByRole('heading', { name: t['admin.audit'] })).toBeInViewport()
-    await expect(page.getByTestId('activity-kinds')).toBeInViewport()
+    // a phone: the bar says the page's name (the title is for screen readers), and the search with one Filters button
+    // is what stays
+    if (name === 'phone') await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.audit'])
+    else await expect(header.getByRole('heading', { name: t['admin.audit'] })).toBeInViewport()
+    await expect(page.getByTestId(name === 'phone' ? 'activity-search' : 'activity-kinds')).toBeInViewport()
     // the page itself never scrolls, and the row is filled with the page's own colour (nothing shows through)
     expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0)
     expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await page.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
@@ -38,14 +41,15 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
     const label = page.getByTestId('activity-day').last().getByRole('heading')
     await expect(label).toBeInViewport()
     if (name === 'phone') {
-      // the kind stays in view; the person, the time and the search are behind "Filters"
+      // the search stays in view; the kind, the person and the time are behind "Filters" (components/PhoneFilters.tsx)
+      await expect(page.getByTestId('activity-kinds')).toBeHidden()
       await expect(page.getByTestId('activity-who')).toBeHidden()
-      await page.getByTestId('activity-more').click()
+      await page.getByTestId('activity-more-toggle').click()
+      await expect(page.getByTestId('activity-kinds')).toBeVisible()
       await expect(page.getByTestId('activity-who')).toBeVisible()
-      await expect(page.getByTestId('activity-search')).toBeVisible()
       expect(await page.evaluate(() => document.scrollingElement!.scrollWidth - innerWidth)).toBeLessThanOrEqual(0)
     } else {
-      await expect(page.getByTestId('activity-more')).toBeHidden()
+      await expect(page.getByTestId('activity-more-toggle')).toHaveCount(0)
       await expect(page.getByTestId('activity-search')).toBeInViewport()
     }
   })

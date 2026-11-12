@@ -233,7 +233,7 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(welcome).toContain('const LINK_READY_MS = 650')
     expect(welcome).toContain('disabled: busy || !linkReady,')
     // a development run never takes the scheme over by itself
-    expect(main).toContain("if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
+    expect(main).toContain("if (primary && app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
   })
   test('the dmg, Mac App Store and Microsoft Store builds declare the scheme', async () => {
     const base = (await import('../../desktop/electron-builder.config')).default as { protocols?: { name: string; schemes: string[] }[] }
@@ -569,13 +569,22 @@ describe('key input and URL redaction', () => {
 describe('bridge senders', () => {
   const origins = ['https://acme.treesoop.com', 'https://127.0.0.1:8443']
   test('only the top frame of the app view at a team origin is trusted', () => {
-    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/chats/1', isTop: true, isAppView: true }, origins)).toBe(true)
-    expect(isTrustedAppSender({ url: 'https://127.0.0.1:8443/', isTop: true, isAppView: true }, origins)).toBe(true)
-    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', isTop: false, isAppView: true }, origins)).toBe(false)
-    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', isTop: true, isAppView: false }, origins)).toBe(false)
-    expect(isTrustedAppSender({ url: 'https://evil.treesoop.com/', isTop: true, isAppView: true }, origins)).toBe(false)
-    expect(isTrustedAppSender({ url: 'about:srcdoc', isTop: true, isAppView: true }, origins)).toBe(false)
+    const acme = 'https://acme.treesoop.com'
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/chats/1', origin: acme, isTop: true, isAppView: true }, origins)).toBe(true)
+    expect(isTrustedAppSender({ url: 'https://127.0.0.1:8443/', origin: 'https://127.0.0.1:8443', isTop: true, isAppView: true }, origins)).toBe(true)
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', origin: acme, isTop: false, isAppView: true }, origins)).toBe(false)
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', origin: acme, isTop: true, isAppView: false }, origins)).toBe(false)
+    expect(isTrustedAppSender({ url: 'https://evil.treesoop.com/', origin: 'https://evil.treesoop.com', isTop: true, isAppView: true }, origins)).toBe(false)
+    expect(isTrustedAppSender({ url: 'about:srcdoc', origin: acme, isTop: true, isAppView: true }, origins)).toBe(false)
     expect(isTrustedAppSender(null, origins)).toBe(false)
+  })
+
+  test('a page at the team address whose document has an opaque origin (a sandbox CSP: /sandbox/frame as the whole page) is not trusted (QA TC-220)', () => {
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/sandbox/frame', origin: 'null', isTop: true, isAppView: true }, origins)).toBe(false)
+    // the URL and the document must agree; an unknown or empty document origin fails closed
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', origin: 'https://127.0.0.1:8443', isTop: true, isAppView: true }, origins)).toBe(false)
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', origin: '', isTop: true, isAppView: true }, origins)).toBe(false)
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', origin: '://', isTop: true, isAppView: true }, origins)).toBe(false)
   })
 
   test('own screens are recognised by scheme and host', () => {

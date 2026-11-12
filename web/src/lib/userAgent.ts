@@ -47,3 +47,12 @@ export function deviceLabel(client: 'web' | 'desktop' | 'mobile', ua: string | n
   if (!app || !d.os) return d.browser ?? t(`client.${client}`)
   return t('settings.deviceOn', { app, os: d.os })
 }
+
+/** What kind of device a session is, for its icon: the phone app or a browser on an iPhone or an Android phone is a
+ * phone, an iPad (or an Android tablet) a tablet, the desktop app a laptop, any other browser a computer. */
+export function deviceKind(client: 'web' | 'desktop' | 'mobile', ua: string | null | undefined): 'phone' | 'tablet' | 'laptop' | 'computer' {
+  const os = parseUserAgent(ua, client !== 'web').os
+  if (os === 'iPad' || (os === 'Android' && !/\bMobile\b/.test(ua ?? '') && client !== 'mobile')) return 'tablet'
+  if (client === 'mobile' || os === 'iPhone' || os === 'Android') return 'phone'
+  return client === 'desktop' ? 'laptop' : 'computer'
+}

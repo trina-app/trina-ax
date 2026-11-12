@@ -1,0 +1,2 @@
+- Admin › Home lists only what an admin can act on: an untested AI engine version, a failed engine lockdown test and server internals such as socket paths are shown in Admin › System › Diagnostics only. Admin › Providers shows such an engine as Connected, without the version detail.
+- Settings › Browser is in the desktop app only. On the web and phones it is there only while your own "Allow all websites" is on, so you can turn it off.

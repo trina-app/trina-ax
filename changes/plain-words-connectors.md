@@ -1,0 +1,4 @@
+- Admin › Google Drive lists its tools in words ("Google Drive 검색", "폴더 보기", "파일 읽기"), not as code names.
+- The connector dialog's closed 고급 line no longer says "MCP 서버" or "(OAuth)": it reads "로그인 · 매번 묻기".
+- Google apps the team's server cannot offer yet say "이 팀 서버에서는 아직 못 써요" instead of blaming your computer.
+- The activity log names the outside app (Claude, ChatGPT…) that was connected or disconnected, instead of an id.

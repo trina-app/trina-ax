@@ -259,7 +259,9 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     // made from an admin's template: the bare address even to its member (a query there is the admin's, never theirs)
     id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage && !row.template_id ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
-    lastError: reasonText(row.last_error, locale),
+    // in words this reader can act on: a member on a team connection, or on the address of one made from a team template
+    // (an admin changes it there), is told to tell an admin (QA TC-235)
+    lastError: reasonText(row.last_error, locale, { address: manage && (!row.template_id || isAdmin(viewer.role)), key: manage }),
     tools: ((off) => savedTools(db, row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),
     ...toolsTotalOf(db, row),
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,

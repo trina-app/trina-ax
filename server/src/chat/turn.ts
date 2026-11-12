@@ -8,7 +8,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -16,6 +16,7 @@ import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser, hitList } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
+import { fileListPromptOn } from '../file-list/service'
 import { CodexEventParser } from '../engine/codex-parse'
 import { SEARCH_ASKS_MAX, takeSearchAsk, unnamedSearchKind, type SearchAsk } from './codex-search-step'
 import { audit } from '../admin/audit'
@@ -37,22 +38,26 @@ import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
+import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
 import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
+import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf } from '../notifications/service'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
+import { DISK_FULL_TEXT, diskAlmostFull, isDiskFullError } from '../system/storage'
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
+import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, devEnvRunner, mayUseBox, mayUseDevEnv } from '../devenv/setting'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
@@ -139,7 +144,8 @@ export interface TurnSpec extends QueueTiming {
  * that failed (chat/turn.ts sharedReadText). */
 type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
-interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null }
+/** openedAt: when the tool call asked (performance.now()), for the engine's tool timeout (ChatRuntime.slotWaitMaxMs) */
+interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number }
 /** A card's answer and, with none, why there was none (policy/refusal.ts CardEnd): a refusal then says the real reason. */
 export interface CardAnswer { value: unknown; missing: Exclude<CardEnd, 'declined'> | null }
 
@@ -177,6 +183,24 @@ const FILE_TIMELINE_MAX = 1000
 const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
 const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
+
+/** how many times one answer goes on after a connect (each needs another card the person finished) */
+export const CONTINUE_MAX = 2
+/** the start of the server's note that continues an answer after a connect (the fake engine looks for it) */
+export const CONTINUE_NOTE_START = '[The connect card is finished'
+/** The message of the resumed session that goes on with the same answer after a service was connected on its card
+ * (owner decision 2026-11-12, docs/INTEGRATIONS.md "Connecting from a chat"). The service names are what the card
+ * showed (connect-service.ts refuses hidden characters); the tool names are the turn's own. The message puts the turn
+ * context (with "Connected services" as it is now, tags neutralized as for any resumed turn: buildTurnContext) before it. */
+export function continueAfterConnect(names: string[], added: string[]): string {
+  const quoted = names.map((n) => `"${neutralizeTags(n).replace(/[\r\n]+/g, ' ').slice(0, 120)}"`).join(', ')
+  const tools = added.length
+    ? `these tools are offered to you from here on: ${added.slice(0, 60).join(', ')}${added.length > 60 ? ', …' : ''}`
+    : 'its tools are reached as "Connected services" in the turn context above says (find_tools and call_tool, or api_request)'
+  return `${CONTINUE_NOTE_START}: ${quoted} ${names.length === 1 ? 'is' : 'are'} connected now, and ${tools}. ` +
+    'Go on with the person\'s request from before the card, in this same answer: use the new tools now where the request needs them. ' +
+    'Do not ask the person to send the question again and do not repeat what you already wrote.]'
+}
 
 export class TurnExec {
   content = ''
@@ -276,6 +300,10 @@ export class TurnExec {
   private error: ApiErrorBody | null = null
   /** unknown: a usage without a cost and without a list price (API engine); ids: the provider's request ids */
   private usage = { i: 0, o: 0, c: 0, seen: false, unknown: false, ids: [] as string[] }
+  /** tokens of the model calls of the run under way (Claude Code's running usage), until its own total replaces them */
+  private runningUsage = { i: 0, o: 0 }
+  /** the person's "block" budget ran out during this answer: the answer ends with this (the budget message) */
+  private budgetHit: ApiErrorBody | null = null
   private dirty = false
   private saver: ReturnType<typeof setInterval> | null = null
   private clock: ReturnType<typeof setInterval> | null = null
@@ -285,9 +313,17 @@ export class TurnExec {
   private activeCore: Running | null = null
   private terminationUnconfirmed = false
   private quarantined = false
+  /** the process group of the latest engine launch (the launcher's started event); null: none reported */
+  private enginePgid: number | null = null
+  private quarantinedAt = 0
+  /** a quarantined turn still waiting on its launcher past the release time: stop reading it (abandonOverdue) */
+  private readonly abandon = new AbortController()
   private timeoutSource: 'active' | 'wall' | null = null
   private activeMs = 0
   private humanWaits = 0
+  /** card answers held back until the turn has a queue slot again (ChatRuntime.turnResuming): the turn gave its slot
+   * back while it waited for the person, and its engine goes on only once it holds one */
+  private heldAnswers: { requestId: string; value: unknown; resolve: (v: unknown) => void; openedAt: number }[] = []
   private requests = new Map<string, OpenRequest>()
   /** what the server keeps beside an open connect_service card (chat/connect-service.ts), by its request id: the
    * connection the card made, so another key after a failed check goes to that same connection, and the connect still
@@ -318,6 +354,13 @@ export class TurnExec {
   private lastCredential: string | null = null
   /** this turn's tools (step labels of per-person tools) */
   private toolSet: ChatToolSet | null = null
+  /** how a service connected on a connect_service card during this answer reaches the AI (owner decision 2026-11-12,
+   * docs/INTEGRATIONS.md "Connecting from a chat"): 'step' (Claude) the attempt ends and the same answer goes on in its
+   * resumed session with the tool set built again; 'round' (the API engine) from its next round; null (Codex, a demo
+   * replay, a fallback answer) from the person's next message. Set by the engine that runs now. */
+  private continueMode: 'step' | 'round' | null = null
+  /** the services connected on this answer's cards since the tool set was last built (their names, for the note) */
+  private connectedSince: string[] = []
   /** what this Claude attempt was started with (the init check, docs/DECISIONS.md "Sub-agents") */
   private lockdown: { webSearch: boolean; subagents: boolean; team?: ReadonlySet<string> } = { webSearch: true, subagents: false }
   /** the folder of the chat's project (loose files saved there get no placement note), null: none */
@@ -362,6 +405,23 @@ export class TurnExec {
     return this.principal
   }
   get waitingForPerson() { return this.humanWaits > 0 }
+  /** a person answered, and the turn waits for a queue slot to go on (its time limit stays paused meanwhile) */
+  get waitingForSlot() { return this.heldAnswers.length > 0 }
+  /** how long ago the oldest held answer's card opened (its tool call started then), ms; 0: none held */
+  heldSinceMs(): number {
+    if (!this.heldAnswers.length) return 0
+    return performance.now() - Math.min(...this.heldAnswers.map((a) => a.openedAt))
+  }
+  /** The turn holds a slot again (ChatRuntime.grantResumes): the held answers reach the engine. */
+  resumeAnswers() {
+    for (const a of this.heldAnswers.splice(0)) a.resolve(a.value)
+  }
+  /** The turn stops or ends while answers wait for a slot: none of them reaches a tool (like a card the end closed). */
+  private dropHeldAnswers() {
+    if (!this.heldAnswers?.length) return
+    for (const a of this.heldAnswers.splice(0)) { this.cardMissing.set(a.requestId, 'ended'); a.resolve(null) }
+    try { this.rt.turnStopsWaiting(this) } catch (e) { this.rt.log.warn('leaving the slot queue failed', { err: e, turn: this.id }) }
+  }
 
   // ---------------- lifecycle ----------------
   async run() {
@@ -375,11 +435,11 @@ export class TurnExec {
     } catch (e) {
       if (!this.error) {
         if (e instanceof CoreUnavailableError) this.error = { ...engineError('engine_missing', this.spec.locale) }
-        else { this.rt.log.error('turn failed', { err: e, turn: this.id }); this.error = engineError('crash', this.spec.locale) }
+        else { this.rt.log.error('turn failed', { err: e, turn: this.id }); this.error = this.crashOrFullDisk(e) }
       }
     } finally {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
-      if (this.spec.engine === 'claude-code') guardOfficeClaudeJson(this.rt.ctx, 'turn')
+      if (this.spec.engine === 'claude-code') { try { guardOfficeClaudeJson(this.rt.ctx, 'turn') } catch (e) { this.rt.log.error('claude.json guard failed', { err: e, turn: this.id }) } }
       await this.finish()
       // a seeded past chat of the demo (demo/replay.ts) says when it was
       if (this.replayDaysAgo) { try { backdateChat(this.rt.db, this.spec.chatId, this.replayDaysAgo) } catch (e) { this.rt.log.warn('demo backdate failed', { err: e, turn: this.id }) } }
@@ -390,13 +450,25 @@ export class TurnExec {
   stop(reason: 'stopped' | 'timeout' | 'shutdown' = 'stopped') {
     if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
+    this.halt(reason)
+  }
+
+  /** What every stop of the answer does (Stop, a time limit, shutdown: `reason`; a used-up budget: none, checkBudget),
+   * in one place so they never drift apart. */
+  private halt(reason?: 'stopped' | 'timeout' | 'shutdown') {
+    // a turn that waited for a person holds a slot again while its engine ends (ChatRuntime.turnEngineEnding)
+    try { this.rt.turnEngineEnding(this) } catch (e) { this.rt.log.warn('taking the slot back for the stop failed', { err: e, turn: this.id }) }
     this.runningAtStop = new Set(this.steps.filter((s) => s.status === 'running').map((s) => s.id))
     this.abort.abort()
     // Stop authorizing tools/model requests immediately, even if process termination takes longer.
     this.activeCore?.turns.invalidate(this.id, reason)
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
+    // answers held for a slot never reach their tool (a card the person answered before the stop)
+    this.dropHeldAnswers()
     try { this.handle?.kill() } catch { this.quarantine() }
+    // a later stop after a budget stop: one grace timer, the latest
+    if (this.stopGrace) clearTimeout(this.stopGrace)
     this.stopGrace = setTimeout(() => {
       if (this.status !== 'finished') this.quarantine()
     }, TURN_STOP_GRACE_MS)
@@ -412,12 +484,29 @@ export class TurnExec {
   private quarantine() {
     if (this.quarantined) return
     this.quarantined = true
+    this.quarantinedAt = performance.now()
     this.rt.log.error('turn termination unconfirmed; execution slot retained', { turn: this.id })
     this.rt.turnQuarantined(this)
   }
 
+  /** A turn that ended while its engine's end is unconfirmed (its slot is quarantined): the engine's process group to
+   * look for, and when the runtime may give the slot back without that proof (performance.now() time). null: not
+   * ended, or not quarantined. */
+  quarantineState(): { pgid: number | null; releaseAt: number } | null {
+    if (!this.quarantined || this.status !== 'finished') return null
+    return { pgid: this.enginePgid, releaseAt: this.quarantineReleaseAt() }
+  }
+  private quarantineReleaseAt() { return Math.max(this.wallEndsAt, this.quarantinedAt) + this.rt.quarantineReleaseGraceMs }
+  /** A quarantined turn that has not ended (its launcher stays connected but never confirms the end) past the release
+   * time: stop waiting for the launcher, so the turn ends (as failed) and its slot follows the probe. True if it did. */
+  abandonOverdue(): boolean {
+    if (!this.quarantined || this.status === 'finished' || this.abandon.signal.aborted || performance.now() < this.quarantineReleaseAt()) return false
+    this.abandon.abort()
+    return true
+  }
+
   private tick() {
-    if (this.humanWaits > 0 || this.status !== 'running') return
+    if (this.humanWaits > 0 || this.heldAnswers?.length || this.status !== 'running') return
     this.activeMs += 1000
     if (this.activeMs >= this.rt.turnTimeoutMs && !this.stopReason) {
       this.timeoutSource = 'active'
@@ -509,7 +598,8 @@ export class TurnExec {
     }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
-    const extraTools = toolSet.list().map((t) => t.name)
+    // let: a service connected on a card during the answer builds the set again (refreshTools, continueAfterConnect)
+    let extraTools = toolSet.list().map((t) => t.name)
 
     // engine session: resume only when the session ends exactly where this turn continues (same branch)
     let sid = chat.engine_session_id ?? ''
@@ -630,15 +720,19 @@ export class TurnExec {
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나") or of a shared project chat
       memories: this.room || this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
+      browserInDesktopApp: !this.browser && !this.restricted && !this.room && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
       history: fresh ? rt.history(userMsg.parent_id, !!this.room, this.shared || othersWrote ? { runner: spec.userId, withheld: this.sharedWithheld } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
+      // the file lists (file-list/service.ts): only while the feature is on and this person has one
+      fileList: fileListPromptOn(rt.ctx, this.principal!),
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
-    const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
-    const childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
+    let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
+    let childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
     const subagentLaunch = () => subagents
       ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
       : undefined
@@ -680,6 +774,8 @@ export class TurnExec {
     }
     if (this.stopReason) return
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
+    // a chat started from a skill is called by the skill's name people read, not "/card-news" (title.ts)
+    if (invoked && skillPlaceholderTitle(rt.db, spec.chatId, invoked.skill, skillAlias(invoked.skill.path))) rt.publishChat(spec.userId, spec.chatId, 'updated')
     // a project's skill: anyone who writes the project's folder may have written it (outside content, as project
     // instructions are: chat/runtime.ts projectTaints)
     if (invoked?.skill.project) this.taint()
@@ -788,9 +884,37 @@ export class TurnExec {
       // one moves the turn to the next (at most 2 switches, counted apart from the attempts below)
       const managed = !!(claude.modelProxy && core.proxy)
       const exclude = new Set<string>()
-      // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts
+      // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts; a
+      // continuation after a connect gets only what the answer has left
       const maxTurns = rt.maxEngineTurns
+      let turnsLeft = maxTurns
+      // the same answer going on after a service was connected on its card (owner decision 2026-11-12): the server's
+      // note is the resumed session's message, at most CONTINUE_MAX times per answer
+      let continueNote: string | null = null
+      let continuations = 0
+      this.continueMode = 'step'
+      /** a continuation keeps what the answer's first attempt recorded about its history (prompt() sets it per attempt) */
+      const continuePrompt = (fresh: boolean, sessionId: string) => {
+        const trimmed = this.historyTrimmed
+        const sys = prompt(fresh, true, sessionId)
+        if (continueNote) this.historyTrimmed = trimmed
+        return sys
+      }
+      /** the tool lists of the attempts from the turn's tool set as it is now */
+      const toolsNow = () => {
+        extraTools = toolSet.list().map((t) => t.name)
+        turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
+        childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
+      }
       for (let attempt = 0; attempt < 4 && !this.stopReason; attempt++) {
+        // a retry that starts a fresh session answers the person's message again, never the note; a service connected
+        // in the attempt it replaces is offered to it from the start
+        if (!resume) {
+          continueNote = null
+          if (this.connectedSince.length) { this.refreshTools(); toolsNow() }
+        }
+        // a third card in one answer: its tools come with the next message (connect-service.ts CONNECTED_NEXT)
+        this.continueMode = continuations < CONTINUE_MAX ? 'step' : null
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
@@ -818,8 +942,8 @@ export class TurnExec {
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
         this.files.subagents ||= subagents
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
-          turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume, true, sid), message: claudeMessage(resume, sid), sessionId: sid, resume,
-          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
+          turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
+          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
@@ -854,12 +978,37 @@ export class TurnExec {
         const crashed = !err && (exit?.ev === 'error' || (exit?.code && !parser.result))
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-        if (err) this.error = engineError(err.code, spec.locale)
-        else if (crashed) this.error = engineError('crash', spec.locale)
+        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
+        else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
         if (!this.writtenText && !this.error && parser.text) this.appendText(parser.text)
+        // a service connected on this answer's card: the same answer goes on in this session with the new tools
+        // (the AI was told so only while continueMode was 'step': continuations < CONTINUE_MAX)
+        if (!err && !crashed && !parser.refused && !this.error && this.connectedSince.length && continuations < CONTINUE_MAX && !this.limitReason && !this.stopReason && !this.budgetHit) {
+          const names = [...new Set(this.connectedSince)]
+          const used = typeof parser.result?.num_turns === 'number' ? parser.result.num_turns : 1
+          // a call and an answer after it: at least two rounds left, else the answer pauses at the limit as at any
+          // other one (the person's "continue" goes on, continuationBlock)
+          // built again even when no tool name is new: a connection reached through find_tools / call_tool or
+          // api_request is in the set's index and its "Connected services" section. Too few rounds left, no session
+          // to go on with or a set that could not be built: the answer pauses as at the round limit ("continue" goes
+          // on with the new tools), never a silent end after the AI was told it goes on
+          const added = turnsLeft - used >= 2 && exit?.session?.b64 ? this.refreshTools() : null
+          if (!added) { this.connectedSince = []; if (!this.stopReason && !this.budgetHit) this.limitReason = 'tool_limit'; break }
+          continuations++
+          turnsLeft -= used
+          toolsNow()
+          continueNote = `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null })}\n\n${continueAfterConnect(names, added)}`
+          resume = true
+          rt.log.info('answer goes on after a connect', { turn: this.id, tools: added.length, continuations })
+          if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
+          attempt--
+          continue
+        }
         break
       }
+      this.continueMode = null
+      this.connectedSince = []
     } else if (codex) {
       const model = chosenModel && rt.engines.get().codexModels.includes(chosenModel) ? chosenModel : undefined
       await this.runCodex(core, codex, { chatDir, token, systemPrompt: prompt(true), message, extraTools, model })
@@ -874,8 +1023,12 @@ export class TurnExec {
       // stopped on the credit (used, ended) is the answer's error
       const stopped: { reason: 'used' | 'ended' | null } = { reason: null }
       const meter = trial ? createTrialMeter(credentialsOf(rt.ctx), (r) => { stopped.reason ??= r }) : undefined
-      await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins,
-        ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
+      // a service connected on a card during the answer: its tools from the next round (toolsChanged)
+      this.continueMode = 'round'
+      try {
+        await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins,
+          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
+      } finally { this.continueMode = null; this.connectedSince = [] }
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
       if (stopped.reason && !this.stopReason) this.error = engineError(stopped.reason === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
@@ -886,7 +1039,7 @@ export class TurnExec {
     }
     // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
     // limit, never for budgets, refusals or crashes
-    if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
+    if (claude && !this.stopReason && !this.budgetHit && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
   }
 
   /** The AI connection for this attempt (credentials/resolve.ts), or null with the turn's error set: none for this
@@ -913,7 +1066,7 @@ export class TurnExec {
   private switchCredential(engine: CredEngine, exclude: Set<string>): boolean {
     const { rt, spec } = this
     const f = this.credentialFailure
-    if (!f || this.stopReason || this.switches >= 2) return false
+    if (!f || this.stopReason || this.budgetHit || this.switches >= 2) return false
     exclude.add(f.id)
     const next = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
     if (!next.ok) return false
@@ -989,8 +1142,8 @@ export class TurnExec {
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-        if (err) this.error = engineError(err.code, spec.locale)
-        else if (crashed) this.error = engineError('crash', spec.locale)
+        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
+        else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         break
       }
     } finally {
@@ -1078,6 +1231,72 @@ export class TurnExec {
     if (ev.type !== 'auth') this.handle?.kill()
   }
 
+  /** A run's tokens that its total never replaced (it crashed or was killed) count as they are. */
+  private foldRunningUsage() {
+    this.usage.i += this.runningUsage.i; this.usage.o += this.runningUsage.o
+    this.runningUsage = { i: 0, o: 0 }
+  }
+
+  /**
+   * The engine's usage so far on the turn row, at once (not only at the end): a budget sums the turn rows, so this
+   * person's other answers see it, and a turn cut off by a crash keeps what it used. Once the model proxy counted a
+   * request of this turn its numbers stand (authoritative, usage_source 'proxy': credentials/broker.ts replaces the
+   * engine's on its first count); the engine's only fill in a turn the proxy counted nothing of. 'engine_unpriced':
+   * the provider gave no cost for some request and the model has no list price, so the amount is the known part only
+   * (the usage page says "price unknown"; never shown as free).
+   */
+  private recordUsage() {
+    const u = this.usage, r = this.runningUsage
+    try {
+      this.rt.db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = ? WHERE id = ? AND (usage_source IS NULL OR usage_source <> 'proxy')")
+        .run(u.i + r.i, u.o + r.o, u.c, u.unknown ? 'engine_unpriced' : 'engine', this.id)
+    } catch (e) { this.rt.log.warn('recording the usage failed', { err: e, turn: this.id }) }
+  }
+
+  /** connect_service connected a service on its card (chat/connect-service.ts): noted for the engine that runs now;
+   * returns how its tools reach the AI (continueMode). Only this answer's own card calls it, and only for its person's
+   * connection: nothing is built here (refreshTools builds the person's tool set again, as at the start). */
+  noteConnected(name: string): 'step' | 'round' | null {
+    if (this.continueMode) this.connectedSince.push(name)
+    return this.continueMode
+  }
+
+  /** After a connect: the turn's tool set built again for the same person and chat (the same filters as at the start),
+   * in place, so the MCP handler, the core's turn and this turn all use the new one. Returns the tool names it did not
+   * have before; null: not built (stopped, budget used up, or the build failed: the old set stays). */
+  private refreshTools(): string[] | null {
+    const set = this.toolSet
+    this.connectedSince = []
+    if (!set || this.stopReason || this.budgetHit) return null
+    const before = new Set(set.list().map((t) => t.name))
+    let next: ChatToolSet
+    try { next = buildToolSet(this) } catch (e) { this.rt.log.warn('tool set refresh failed', { err: e, turn: this.id }); return null }
+    Object.assign(set, next)
+    return set.list().map((t) => t.name).filter((n) => !before.has(n))
+  }
+
+  /** the API engine's hook before each round: a service connected meanwhile is offered from this round on */
+  private toolsChanged(): boolean { return this.connectedSince.length > 0 && this.refreshTools() !== null }
+
+  /**
+   * The person's "block" budget during the answer (admin/budgets.ts budgetBlock, the check before a turn starts): used
+   * up, the answer stops like Stop does (halt: the slot taken back, tools and model requests refused at once, open
+   * cards closed and answers held for a slot dropped, the engine ended, quarantined if it does not end in time; the API
+   * engine sees the turn's abort), but without a stop reason: the
+   * answer ends as an error with the budget message. The model proxy refuses its own requests at the budget already
+   * (onProxyEvent).
+   */
+  private checkBudget() {
+    if (this.budgetHit || this.stopReason || this.status === 'finished') return
+    let b: ReturnType<typeof budgetBlock> = null
+    try { b = budgetBlock(this.rt.db, this.spec.userId, this.spec.locale) } catch (e) { this.rt.log.warn('budget check failed', { err: e, turn: this.id }); return }
+    if (!b) return
+    this.budgetHit = { code: 'budget_exceeded', message: b.message }
+    this.proxyError ??= this.budgetHit
+    this.rt.log.info('answer stopped: budget used up', { turn: this.id, budget: b.budget.id })
+    this.halt()
+  }
+
   /** The engine started with (init check) or asked the model for (model proxy, M1) a tool outside the lockdown: the
    * answer stops with the lockdown error at once, never retried (the same engine would do it again). */
   private stopAtLockdown(reason: string, source: 'init' | 'proxy') {
@@ -1103,11 +1322,16 @@ export class TurnExec {
   /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn */
   private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void) {
     if (this.remainingWallMs() <= 0) this.expireWall()
-    if (this.stopReason) return { exit: null, stderr: '', notes: [] as string[] }
+    // a run that ended without its total (crash, kill): its calls' tokens stay counted; then the budget once more
+    // (other answers of this person may have used it up since the last attempt)
+    this.foldRunningUsage()
+    this.checkBudget()
+    if (this.stopReason || this.budgetHit) return { exit: null, stderr: '', notes: [] as string[] }
     if (!core.launcher) throw new CoreUnavailableError('engine launcher not running')
     lr = { ...lr, timeoutMs: Math.min(lr.timeoutMs ?? LAUNCHER_BACKSTOP_MS, this.remainingWallMs()) }
     const h = core.launcher.launch(lr)
     this.handle = h
+    this.enginePgid = null
     this.terminationUnconfirmed = true
     if (this.stopReason) h.kill()
     // stdout chunks are cut wherever the pipe read stopped: decode as one stream so split characters stay whole
@@ -1116,8 +1340,17 @@ export class TurnExec {
     const notes: string[] = []
     let exit: any = null
     try {
-    for await (const e of h.events) {
-      if (e.ev === 'started') core.turns.bind(this.id, e.pgid)
+    const it = h.events[Symbol.asyncIterator]()
+    const abandoned = new Promise<'abandoned'>((r) => {
+      if (this.abandon.signal.aborted) r('abandoned')
+      else this.abandon.signal.addEventListener('abort', () => r('abandoned'), { once: true })
+    })
+    for (;;) {
+      const next = await Promise.race([it.next(), abandoned])
+      if (next === 'abandoned') { try { h.close?.() } catch {} throw new Error('engine end not confirmed by the release time; turn abandoned') }
+      if (next.done) break
+      const e = next.value
+      if (e.ev === 'started') { this.enginePgid = e.pgid; core.turns.bind(this.id, e.pgid) }
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') {
@@ -1232,9 +1465,18 @@ export class TurnExec {
         this.subtaskProgress(e.id, e.stats)
         return
       case 'usage':
-        this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0; this.usage.seen = true
+        // a running usage is one model call of the run under way; the run's total replaces those estimates
+        if (e.running) { this.runningUsage.i += e.inputTokens; this.runningUsage.o += e.outputTokens }
+        else { this.runningUsage = { i: 0, o: 0 }; this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0 }
+        this.usage.seen = true
         if (e.costUnknown) this.usage.unknown = true
         if (e.requestId && this.usage.ids.length < 50) this.usage.ids.push(e.requestId)
+        // counted at once, so this person's other answers see it. The budget is checked again only where the answer
+        // goes on after this call (Claude Code or the API engine asked for a tool, a sub-agent called the model); a
+        // run's total and the answer's last call never turn an answer that is complete into a budget error: the next
+        // answer is refused before it starts instead
+        this.recordUsage()
+        if (e.continues) this.checkBudget()
         return
       case 'error':
         errors.push(e)
@@ -1745,8 +1987,22 @@ export class TurnExec {
   /** ...that may go without the room card: a read by the service's own mark, not api_request's GET (ChatToolSet.readsFree) */
   readsFree(name: string, args: unknown): boolean { return this.toolSet?.readsFree(name, args) ?? false }
   /** what the room card shows of a call, in words (roomChangeDetails), with stored secrets hidden */
-  roomCardDetails(tool: string, input: unknown): ConfirmDetailT[] {
-    return roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room)).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
+  /** A team path as this person's cards say it ("전사 공유 › 영업 › 보고서.pptx", place-words.ts). */
+  place(path: string): string { return placeWords(this.rt.db, path, this.spec.locale, this.spec.userId) }
+
+  roomCardDetails(tool: string, input: unknown, own: ToolCard | null = this.toolCard(tool, input)): ConfirmDetailT[] {
+    // a tool's own words (a connection's HTTP API call: "Read from Tasks", its address, the exact request one click away)
+    // in place of its raw arguments one per line (QA TC-233)
+    const raw: ConfirmDetailT[] = own?.details ?? roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId)
+    return raw.map((d) => ({
+      ...d, text: this.redact(d.text),
+      ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}),
+      ...(d.marks ? { marks: d.marks.map((m) => this.redact(m)) } : {}),
+    }))
+  }
+  /** a tool's own words for the room card (TurnTool.card), or null for the shared ones */
+  toolCard(tool: string, input: unknown): ToolCard | null {
+    return this.toolSet?.card?.(tool, input, this.spec.locale) ?? null
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
@@ -1964,10 +2220,12 @@ export class TurnExec {
       }
     }
     const L = this.spec.locale
-    const what = this.redact(this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, this.cardInput(tool, input), L, BROWSER_TOOL_NAMES))
+    // a tool's own words (TurnTool.card: a connection's HTTP API call), else the shared ones
+    const words = this.toolCard(tool, input)
+    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, this.cardInput(tool, input), L, BROWSER_TOOL_NAMES))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
-    const details = this.roomCardDetails(tool, input)
+    const details = this.roomCardDetails(tool, input, words)
     // why every change here waits for a card, and what the AI does instead (docs/DECISIONS.md "Refusals say why, who and
     // what next": a scheduled run that read a room was told "the user did not allow this" for a card nobody saw)
     const roomWhy = own
@@ -1998,9 +2256,12 @@ export class TurnExec {
     const always = coverOnce && !!grantRoom
     // anyone who joins the room from now on lapses a grant this card makes (rooms/ai-grants.ts members_since)
     const askedAt = new Date().toISOString()
-    // the person's own chat: why it asks first (the room card's words after it for a new team file)
+    // the person's own chat: why it asks first (the room card's words after it for a new team file). A read from a
+    // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
+    const reads = mine && this.readsOnly(tool, input)
     const question = target
-      ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: target.segs.slice(0, -1).join('/'), file: target.segs.at(-1)! })
+      ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
+      : reads ? tr(own ? 'roomsSeenConfirmRead' : 'roomAiConfirmRead', L, { what, ai: aiCalled(L) })
       : own ? tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
       : tr('roomAiConfirm', L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({
@@ -2457,7 +2718,7 @@ export class TurnExec {
   private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
-    const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true })))]
+    const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
     const scheduled = this.spec.clientKind === 'schedule'
     const { value: answer, missing: none } = await this.askPerson({
@@ -2674,11 +2935,13 @@ export class TurnExec {
     // server's name only (any member of a group chat may set its own name)
     // a shared chat's read scope also holds what other people's turns read there (also once it stopped being shared: a
     // deleted project's chat, the rollback guard): a place this person cannot see themselves is not named to them
-    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true } : {}))
+    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
     const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
     const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
     const { value: answer, missing } = await this.askPerson({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: need.segs.join('/'), n: String(need.viewers) }) + (o.extra ?? '') + (o.binding ? '\nSHA-256: ' + JSON.parse(o.binding).hash : ''),
+      // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
+      // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers) }) + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
@@ -2795,7 +3058,8 @@ export class TurnExec {
     const { value: answer, missing } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
-      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: r.rel, what }) : st('confirmProjectNone', L, { folder: project.folder, path: r.rel, what })) : group ? st('confirmGroup', L, { group: group.name, path: r.rel, what }) : st('confirm', L, { path: r.rel, what }),
+      // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
+      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -2909,7 +3173,9 @@ export class TurnExec {
   private exclusiveCard: Promise<void> | null = null
 
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
-  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<unknown> {
+  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean; askedAt?: number }): Promise<unknown> {
+    // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
+    o = { ...o, askedAt: o.askedAt ?? performance.now() }
     if (this.remainingWallMs() <= 0) this.expireWall()
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
@@ -2925,14 +3191,16 @@ export class TurnExec {
     }
     return shown
   }
-  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
+  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number; askedAt?: number }): Promise<unknown> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.remainingWallMs() <= 0) this.expireWall()
         this.closeRequest(request.requestId, null, 'timeout')
       }, Math.min(o.timeoutMs, this.remainingWallMs()))
-      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null })
+      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now() })
       this.humanWaits++
+      // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
+      if (this.humanWaits === 1) { try { this.rt.turnWaiting(this) } catch (e) { this.rt.log.warn('giving the slot back while waiting failed', { err: e, turn: this.id }) } }
       const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request } }
       if (o.window) this.rt.hub.publishTo(this.spec.userId, o.window, ev)
       else this.rt.hub.publish(this.spec.userId, ev)
@@ -2998,6 +3266,21 @@ export class TurnExec {
     else this.rt.hub.publish(this.spec.userId, ev)
     this.cardsChanged(r.window, false)
     if (reason !== 'answered') this.cardMissing.set(requestId, reason === 'timeout' ? 'timeout' : 'ended')
+    // A card of a turn that holds no slot closed (answered or timed out): its answer reaches the engine only once the
+    // turn has a slot again. Another card still open: the answer waits with the turn. The last one: the turn takes the
+    // next free slot, first in line (ChatRuntime.turnResuming). A card the turn's end closed needs none.
+    if (reason !== 'turn_ended' && this.status === 'running' && !this.stopReason) {
+      let parked = false
+      try { parked = this.rt.isParked(this) } catch (e) { this.rt.log.warn('reading the slot state failed', { err: e, turn: this.id }) }
+      if (parked) {
+        // held first: a grant (now, or later by grantResumes) hands it on with resumeAnswers
+        this.heldAnswers.push({ requestId, value, resolve: r.resolve, openedAt: r.openedAt })
+        if (this.humanWaits === 0) {
+          try { this.rt.turnResuming(this) } catch (e) { this.rt.log.warn('taking a slot back failed', { err: e, turn: this.id }); this.resumeAnswers() }
+        }
+        return
+      }
+    }
     r.resolve(value)
   }
 
@@ -3077,29 +3360,73 @@ export class TurnExec {
     } catch (e) { this.rt.log.error('saving the answer failed', { err: e, turn: this.id }); this.dirty = true }
   }
 
+  /** The end of every turn. Whatever fails in here, the slot is given back (or quarantined), the turn and its answer
+   * get an end state and `done` resolves: a throw must never hold a slot or a chat for good. */
   private async finish() {
     // the cards it closes below change nothing on their own: the end of the turn sends the chat once
     this.finishing = true
     if (this.saver) clearInterval(this.saver)
-    this.flushText()
+    if (this.clock) clearInterval(this.clock)
+    if (this.wallClock) clearTimeout(this.wallClock)
+    if (this.stopGrace) clearTimeout(this.stopGrace)
+    let status: MessageStatus = 'error'
+    try { status = this.finishState() } catch (e) {
+      this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
+      this.endAfterFailure()
+    }
+    this.status = 'finished'
+    try {
+      if (this.terminationUnconfirmed) this.quarantine()
+      else this.rt.turnFinished(this)
+    } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
+    try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
+    finally { this.resolveDone() }
+  }
+
+  /** An engine that stopped, or a turn that threw: on a full disk say so (the error is ENOSPC / SQLite full, the engine's
+   * output says "no space left on device", or the server's disk has almost nothing left now), else the crash words.
+   * QA TC-209: a full disk read as "the AI stopped unexpectedly", and only an admin can fix it. */
+  private crashOrFullDisk(e?: unknown, output = ''): ApiErrorBody {
+    const cfg = this.rt.ctx.config
+    const full = isDiskFullError(e) || DISK_FULL_TEXT.test(output) || diskAlmostFull([cfg.dataDir, cfg.teamRoot])
+    return engineError(full ? 'storage_full' : 'crash', this.spec.locale)
+  }
+
+  /** finish() could not record the end: the rows still get one (never left running or streaming) */
+  private endAfterFailure() {
+    this.error ??= engineError('crash', this.spec.locale)
+    const now = new Date().toISOString()
+    try { if (this.registered) this.activeCore?.turns.revoke(this.id, 'error', this.error.message) } catch {}
+    try {
+      this.rt.db.query("UPDATE turns SET status = 'error', ended_at = ?, error = ? WHERE id = ? AND status IN ('queued','running')").run(now, this.error.message, this.id)
+      this.rt.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(this.error), now, this.spec.assistantId)
+    } catch (e) { this.rt.log.error('recording the failed turn end failed', { err: e, turn: this.id }) }
+  }
+
+  /** Each step of the end on its own: one failing (a card, the relay, a step's audit) does not skip the others. */
+  private finishStep(what: string, f: () => void) {
+    try { f() } catch (e) { this.rt.log.error('a turn end step failed', { err: e, turn: this.id, step: what }) }
+  }
+
+  /** The end state in the DB; returns the answer's status. */
+  private finishState(): MessageStatus {
+    this.finishStep('text', () => this.flushText())
+    this.finishStep('held answers', () => this.dropHeldAnswers())
     // a room session: every read of this turn is in the read scope before the room decides where the answer goes
     if (this.room) { try { this.noteReads() } catch (e) { this.rt.log.warn('room read scope failed', { err: e, turn: this.id }) } }
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
     // carries the saved answer, which the apps show in place of the streamed one)
     this.redactorNow = null
     this.content = this.redact(this.content)
-    if (this.clock) clearInterval(this.clock)
-    if (this.wallClock) clearTimeout(this.wallClock)
-    if (this.stopGrace) clearTimeout(this.stopGrace)
-    for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
-    this.rt.relay.cancelTurn(this.id)
-    this.proxyUnsubscribe?.()
+    for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
+    this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
     const cut = new Set(this.runningAtStop)
-    for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
+    for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason || this.budgetHit ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
-    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false) }
+    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.finishStep('subtask', () => this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false)) }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
     // stands and the person may continue; it is not an error. With nothing to continue from (the engine never started
     // or said nothing in all that time) it stays the error it was before 2026-10-30, with "retry".
@@ -3108,6 +3435,9 @@ export class TurnExec {
       else this.error = this.timeoutSource === 'wall' ? engineError('wall_timeout', this.spec.locale) : engineError('timeout', this.spec.locale)
     }
     if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
+    // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
+    // (a broken lockdown stays what the person reads: it says more than the budget)
+    else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const stopReason = status === 'done' ? this.limitReason : null
@@ -3117,13 +3447,17 @@ export class TurnExec {
     if (stopReason) for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.paused = true
     // the same for a step the person's Stop cut off: stopped, like Claude Code's "Interrupted" (Step.stopped)
     if (status === 'stopped') for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.stopped = true
-    const files = this.fileSummary()
+    /** the answer's end state was not written (message.done then says error, as endAfterFailure saved it) */
+    let messageSaved = false
+    let files: ReturnType<TurnExec['fileSummary']> = null
+    try { files = this.fileSummary() } catch (e) { this.rt.log.warn('the answer\'s file summary failed', { err: e, turn: this.id }) }
     const db = this.rt.db
     try {
       this.afterTool()
       db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
         stopReason, this.historyTrimmed ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
+      messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // the answer's "참고한 파일" (files/sources.ts): what every agent of the turn read or saw passages of. A failure
       // here loses the list only, never the turn's own end state below
@@ -3155,32 +3489,33 @@ export class TurnExec {
       if (core) core.turns.revoke(this.id, turnStatus, this.error?.message)
       else db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(turnStatus, new Date().toISOString(), this.error?.message ?? null, this.id)
       if (this.usage.seen) {
-        // in company-key mode the model proxy already counted (authoritative); engine numbers only fill in otherwise
-        // 'engine_unpriced': the provider gave no cost for some request and the model has no list price, so the amount
-        // is the known part only (the usage page says "price unknown"; never shown as free)
-        db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = ? WHERE id = ? AND input_tokens = 0 AND output_tokens = 0")
-          .run(this.usage.i, this.usage.o, this.usage.c, this.usage.unknown ? 'engine_unpriced' : 'engine', this.id)
+        this.foldRunningUsage()
+        this.recordUsage()
         if (this.usage.ids.length) this.rt.log.info('provider request ids', { turn: this.id, requestIds: this.usage.ids })
       }
       this.rt.store.touchChat(this.spec.chatId)
     } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
+      this.endAfterFailure()
     }
-    if (this.spec.clientKind === 'schedule') notificationsOf(this.rt.ctx).afterTurn(this.id)
+    if (this.spec.clientKind === 'schedule') this.finishStep('notifications', () => notificationsOf(this.rt.ctx).afterTurn(this.id))
     // the 7-day team goal: a member's first successful run of a team skill tells the owners (never throws)
     if (turnStatus === 'done') noteGoalRun(this.rt.ctx, this.id)
     // budget notices (80% / 100%) once the turn's usage is in (admin/budget-watch.ts)
     try { if (this.registered) afterUsage(db, this.spec.userId, credentialsOf(this.rt.ctx).notify) } catch (e) { this.rt.log.warn('budget notices failed', { err: e }) }
-    this.status = 'finished'
-    if (this.terminationUnconfirmed) this.quarantine()
-    else this.rt.turnFinished(this)
-    const row = this.rt.store.messageRow(this.spec.assistantId)
+    return messageSaved ? status : 'error'
+  }
+
+  /** message.done (or the room's end) and the chat's update, after the slot is given back */
+  private announceEnd(status: MessageStatus) {
     if (this.room) this.rt.roomEnded(this.id)
-    else if (row) {
+    else this.finishStep('message.done', () => {
+      const row = this.rt.store.messageRow(this.spec.assistantId)
+      if (!row) return
       const chatRow = this.rt.store.chatRow(this.spec.chatId)
       const message = chatRow ? messageFor(this.rt, chatRow, row, this.spec.userId, this.spec.locale) : this.rt.store.toMessage(row)
       this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message } })
-    }
+    })
     // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
     // run or a question from Slack (this.tells)
@@ -3189,7 +3524,6 @@ export class TurnExec {
     // every Slack thread); a card it raised still shows its "?" (Chat.waiting) until it is answered in the app
     if (this.spec.clientKind === 'slack') { try { this.rt.store.markSeen(this.spec.chatId) } catch (e) { this.rt.log.warn('marking a Slack chat seen failed', { err: e, turn: this.id }) } }
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
-    this.resolveDone()
   }
 }
 
@@ -3412,13 +3746,15 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
+function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = ''): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
   const full = (t: string) => (t.length > ROOM_CHANGE_FULL ? `${t.slice(0, ROOM_CHANGE_FULL - 1).trimEnd()}…\n${tr('roomAiChangeCut', L, { n: String(t.length) })}` : t)
-  const verb = FILE_STEP_VERB[tool]?.[L] ?? tool
+  const verb = FILE_STEP_VERB[tool]?.[L] ?? (readableToolName(tool) || STEP_WORDS_OTHER[L])
   const field = (name: Parameters<typeof tr>[0], value: string) => ({ name: tr(name, L), value })
+  // a team path in words (전사 공유 › 영업 › 보고서.md); '' stays '' (no field)
+  const at = (v: string) => (v ? place(v) : v)
   // targets: where it writes; an instruction file among them shows the text in full from the start
   // noSize: the text is a list of paths, not what is written (no "26 characters" for a path, QA TC-091)
   const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = [], noSize = false) => [{
@@ -3431,23 +3767,23 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       if (!Array.isArray(a.file_paths)) break
       const files = a.file_paths.map(String)
       return [
-        { label: tr('roomAiConfirmFiles', L), text: files.join('\n'), noSize: true },
+        { label: tr('roomAiConfirmFiles', L), text: files.map(at).join('\n'), noSize: true },
         { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }) },
       ]
     }
     case 'write':
       // an empty file: said as a field, so the card's size (of the text) is not that of the words "(빈 내용)"
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.content) ? [] : [field('roomAiChangeContent', tr('roomAiChangeEmpty', L))])], str(a.content), [str(a.file_path)])
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(str(a.content) ? [] : [field('roomAiChangeContent', tr('roomAiChangeEmpty', L))])], str(a.content), [str(a.file_path)])
     case 'edit':
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.new_string) ? [] : [field('roomAiChangeNewText', tr('roomAiChangeEmpty', L))])], `${str(a.old_string)}\n→\n${str(a.new_string)}`, [str(a.file_path)])
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(str(a.new_string) ? [] : [field('roomAiChangeNewText', tr('roomAiChangeEmpty', L))])], `${str(a.old_string)}\n→\n${str(a.new_string)}`, [str(a.file_path)])
     case 'make_file': {
       // made from a file (a source, a template, pictures): what those hold is not on the card, and the card says so
       const from = [str(a.source), str(a.template), ...(Array.isArray(a.images) ? a.images.filter((x): x is string => typeof x === 'string') : [])].filter(Boolean)
-      const notShown = from.length ? tr('roomAiChangeNotShown', L, { from: from.join(', ') }) : ''
+      const notShown = from.length ? tr('roomAiChangeNotShown', L, { from: from.map(at).join(', ') }) : ''
       return detail([
-        field('roomAiChangeFile', str(a.output)),
-        ...(str(a.source) ? [field('roomAiChangeSource', str(a.source))] : []),
-        ...(str(a.template) ? [field('roomAiChangeTemplate', str(a.template))] : []),
+        field('roomAiChangeFile', at(str(a.output))),
+        ...(str(a.source) ? [field('roomAiChangeSource', at(str(a.source)))] : []),
+        ...(str(a.template) ? [field('roomAiChangeTemplate', at(str(a.template)))] : []),
       ], [notShown, str(a.content)].filter(Boolean).join('\n\n'), [str(a.output)])
     }
     case 'edit_hwp': {
@@ -3456,21 +3792,22 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       // saved as a new file: the rest of the document it copies is not on the card
       // an output whenever one is given (an empty one too): where the tool puts it (hwpOutputPath, tools/edit-hwp.ts)
       const out = typeof a.output === 'string' ? hwpOutputPath(a.output, str(a.file_path)) : ''
-      const notShown = out ? tr('roomAiChangeNotShown', L, { from: str(a.file_path) }) : ''
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(out ? [field('roomAiChangeSaveAs', out)] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), out])
+      const notShown = out ? tr('roomAiChangeNotShown', L, { from: at(str(a.file_path)) }) : ''
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(out ? [field('roomAiChangeSaveAs', at(out))] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), out])
     }
     case 'move_files':
     case 'copy_files':
-      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'), [str(a.to_folder)], true)
+      return detail([field('roomAiChangeFolder', place(str(a.to_folder)))], paths(a.paths).map(at).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
-      return detail([field('roomAiChangeFile', str(a.path)), field('roomAiChangeNewName', str(a.new_name))], '')
+      return detail([field('roomAiChangeFile', at(str(a.path))), field('roomAiChangeNewName', str(a.new_name))], '')
     case 'save_url':
-      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
+      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', at(str(a.save_as)))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
     case 'save_room_file': {
       // the file by the name the person sees (only a file of this room, or in the person's own chat of the room the call
       // names, that they may see; an id alone says nothing)
       const name = roomFile(str(a.file), str(a.room) || undefined) ?? (isUuid7(str(a.file).trim().replace(/^file_id=/, '')) ? '' : str(a.file))
-      return detail([...(name ? [field('roomAiChangeFile', name)] : []), field('roomAiChangeSaveAs', str(a.save_as) || 'users/…/downloads/')], '', [str(a.save_as)])
+      // no save_as: the person's own downloads folder (room-tools.ts save_room_file)
+      return detail([...(name ? [field('roomAiChangeFile', name)] : []), field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], '', [str(a.save_as)])
     }
   }
   // any other change (a tool added later): its arguments one per line

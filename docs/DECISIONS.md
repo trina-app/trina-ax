@@ -21,6 +21,7 @@
 
 - **경로 단계 맞추기: 정확히 같은 이름 → 같은 이름의 다른 유니코드 정규화(NFC/NFD) → (대소문자 무시 파일 시스템에서만) 대소문자만 다른 이름.** 후보가 둘 이상이면 "애매한 이름"으로 거부. 권한은 이렇게 찾은 실제 이름으로 비교하고 절대 접어서 비교하지 않는다. 리눅스에서 `Marketing/`은 `marketing/`과 다른 폴더로 취급된다(옛 버그 재현 케이스가 퍼저에 들어 있음).
 - **새로 만드는 이름의 충돌 검사는 NFKC + 소문자 키로 한다.** 대소문자·NFC/NFD·전각만 다른 형제가 있으면 쓰기·폴더 만들기를 거부한다(`ｔｏｄｏ.md` 같은 전각 흉내도 막음).
+- **사람이 친 이름으로 서버가 만드는 이름은 NFC로 저장한다**(QA TC-225, 2026-11-11): 새 폴더, 이름 바꾸기·옮기기의 대상, 새 글 파일, `ensureFolder`. 맥은 한글을 풀어 쓴 NFD로 보내고, 그대로 두면 윈도에서 자모가 흩어져 보였다(업로드는 이미 NFC). 가는 길의 기존 폴더는 어느 형태로 쳐도 찾으므로(위 단계 맞추기) 전에 NFD로 저장된 이름은 그대로 쓰이고, 같은 이름으로 바꾸면 NFC가 된다. 디스크의 이름을 저절로 바꾸지는 않는다(규칙·버전·프로젝트가 경로로 저장됨). 다운로드 파일 이름(Content-Disposition)은 늘 NFC.
 - **충돌한 형제가 나에게 안 보이는 것이면 이름을 말하지 않고 "없음/권한 없음"과 똑같이 거부한다**(보안 r1, 2026-10-21). 전에는 `ⓢalaries`(U+24E2는 NFKC에서 s)나 리눅스의 `SALARIES`로 폴더 만들기·저장·업로드·이동을 하면 409와 함께 `error.fields.path`와 도구 결과(AI)에 숨긴 폴더의 실제 이름 `'salaries' already exists…`가 나갔다. 이제 보이는 형제(트리·list 도구와 같은 기준, `siblingVisible`)와 충돌할 때만 그 이름을 알려 주고, 숨은 형제와만 충돌하면 `not found or no access: '<내가 친 경로>'`(HTTP 404, fields 없음)로 만들지 않는다. 그 이름 옆에 흉내 이름이 생기지도 않는다. HTTP의 near-duplicate 응답은 정책 문구를 fields에 복사하지 않고 고정 문구만 넣는다. 사람이 고른 이름의 자동 이름 짓기(업로드·이동의 rename, 휴지통 복원의 " (복원됨)")도 보이는 형제만 피한다: 숨은 항목이 다음 이름을 쥐고 있으면 "(3)"으로 건너뛰어 존재를 드러내지 않고 같은 404가 된다(드문 경우의 불편보다 안전 쪽). 남는 것: 숨은 항목이 그 이름(또는 접으면 같은 이름)을 쓰고 있다는 사실 자체는 정확한 이름으로 만들어 볼 때와 똑같이 "만들 수 없음"으로 알 수 있다(한 폴더 안의 이름 공간을 나눠 쓰는 한 피할 수 없음). 철자는 나가지 않는다. 서버가 짓는 이름(충돌 사본, 첨부)은 저장이 실패하지 않도록 지금처럼 모든 형제를 피한다. NFKC≠NFC인 이름을 전부 막는 안은 `㈜`, `①` 같은 정상 이름까지 막아서 하지 않았다.
 - **이름 규칙은 모든 OS에서, 읽기에도 적용한다.** 윈도우 예약 이름(CON/NUL/COM1…), `:`(대체 데이터 스트림), 8.3 짧은 이름(`ABC~1`), 끝 점·공백, 제어·방향·폭 없는 문자, 흉내 슬래시(`／ ∕ ⁄`), `< > " | ? * \`를 거부한다. 규칙에 걸리는 기존 파일은 도구에서 보이지 않는다(실패하면 닫히는 쪽). 팀 폴더를 다른 OS 서버로 옮겨도 안전하게.
 - **"권한 없음"과 "없는 파일"은 같은 문구를 쓴다**(`not found or no access`). 숨긴 폴더의 존재가 드러나지 않게.
@@ -33,10 +34,19 @@
 - **기존 파일을 `write`로 덮어쓸 때도 그 턴에 먼저 `read`해야 한다**(Claude Code와 같음). 새 파일은 바로 만들 수 있고, 없는 상위 폴더도 이름 규칙·충돌 검사를 거쳐 만든다.
 - **`edit` 충돌 사본**: 읽은 뒤 누가 바꿨으면, `old_string`이 지금 파일에 그대로 적용될 때만 "지금 파일 + 이 수정"을 충돌 사본으로 저장한다. 적용이 안 되면 사본 없이 "다시 읽어라" 오류를 주고 `file_events`에 `conflict`를 남긴다(읽을 때의 내용 전체를 턴마다 들고 있지 않으려고).
 - **충돌 사본 이름은 설계서의 한국어 형식 그대로**: `이름 (충돌 사본 - 사람 날짜 HH.mm).확장자`. 이름 규칙상 `:`를 쓸 수 없어 시각은 `HH.mm`.
+- **충돌 사본 알림은 한 사람에게 한 번**(QA TC-230, 2026-11-11): 저장한 사람은 1인칭("내 내용은 사본으로 따로 저장했어요"), 다른 사람은 저장한 사람 이름으로, 자리는 파일 화면의 말(전사 공유 › Notes)로 알린다. 디스크 경로는 쓰지 않는다. 파일 패널에서 저장한 창은 자기 알림을 보이고 같은 저장의 실시간 `files.conflict`는 그 창에서 다시 보이지 않는다(`web/src/lib/conflictNotice.ts`). 전에는 저장한 사람에게 경로가 든 알림 두 개가 갔고 하나는 자기를 3인칭으로 불렀다.
 - **충돌 알림**: 서버 안 이벤트(`FileService.events`의 `'conflict'`)와 `file_events`에 더해, 실시간 `files.conflict {path, copyPath, by}`를 저장한 사람과 먼저 바꾼 사람 두 명에게 보낸다(4번 탭 PUT content "두 사람에게 알린다"). 보내기 직전에 그 사람이 원본과 사본을 둘 다 읽을 수 있는지 다시 확인하고(사본 이름에 저장한 사람 이름이 들어 있다), 내용은 싣지 않는다. 웹은 '사본 열기'가 달린 알림을 띄운다. PUT /api/files/content는 설계의 409 + conflictCopyPath 대신 지금처럼 200 `{conflict:true, path:<사본>}`을 돌려준다(편집기가 저장 결과로 다루기 쉬워서, 보안 검토 r1에서 기록).
 - **턴당 쓰기 한도 50MB·200파일**(디스크 채우기 방지, 7번 탭).
 - **오피스 파일은 `write`로 쓸 수 없다**(`make_file`은 나중). 사람의 파일 화면 저장(`humanSave`)은 같은 규칙(해시 기준 충돌)을 쓴다.
 - **AI의 삭제는 `delete_files` 하나, 휴지통으로만**(2026-11-09, 아래 "AI가 휴지통으로 옮기기"). 파일 화면의 삭제와 같은 `TeamFiles.remove`를 부르고(`FileService.deleteFile`은 쓰지 않는다: 30일 고정, 관리 폴더 확인·알림·세션 정리 없음), 사람이 서버 카드에서 "예"를 눌러야 하며 그 "예"는 카드가 보여 준 목록(디스크의 각 항목, 볼 수 있는 사람, 휴지통 보관 일수)에 묶인다. 사람의 개인 채팅에서만, 한 번에 200개(폴더 안까지 센다)까지, 최상위·관리·스킬·남의 폴더와 첨부·플러그인·업로드 링크 대상은 관리자에게도 막는다.
+
+- **Upload chunks pass a server-wide gate (2026-11-11 stress test)**: at most 3 chunks are read at once, 64 more wait
+  with their bodies unread, and a new chunk gets 503 `unavailable` (retryAfter 5 s, the web client retries) while the
+  server process is above 35 % of the machine's memory (at least 768 MB) after one forced collection. After each chunk
+  a light `Bun.gc(false)`. Why: chunks are written straight to disk, but Bun keeps request buffers until a collection
+  that does not count their size; three 200 MB uploads at once took the server from 0.19 GB to 3.1 GB on a 4 GB
+  machine and other pages to 8-12 s. Per-person limits (10 sessions) did not help: the pressure is whole-server.
+  `server/src/uploads/chunk-gate.ts`.
 
 ## grep / glob
 
@@ -151,13 +161,15 @@
 - **휴지통에 간 폴더는 폴더 규칙을 가지고 간다**: 규칙은 경로로 저장되므로, 지울 때 그 폴더와 하위의 `folders` 행을 휴지통 경로(`.system/trash/<월>/<id>/…`)로 옮겨 두고, 되돌릴 때 되돌린 경로(" (복원됨)" 이름이어도)로 다시 옮긴다. 휴지통·버전 열람 권한은 옮겨 둔 규칙을 원래 자리에 있는 것처럼 읽는다. 영구 삭제하면 그 규칙과 그 아래에서 저장된 버전도 같이 지운다. (전에는 규칙이 원래 경로에 남아 같은 이름으로 새로 만든 폴더가 규칙을 물려받고, 다른 이름으로 되돌린 비밀 폴더는 규칙 없이 돌아왔다.)
 - **make_file이 기존 파일을 만나면**: 이 턴에 그 버전을 read했으면 덮어쓰고(이전 내용은 버전), 아니면 충돌 사본 이름으로 저장한다(설계 "있으면 충돌 사본").
 - **web_fetch는 Bun fetch·node:http를 쓰지 않고 net/tls 소켓 위의 작은 HTTP/1.1 GET**이다. 둘 다 `HTTP(S)_PROXY` 환경 변수를 따르고 끌 수 없으며(실측), IP를 고정할 수 없다. 한 번 푼 주소(전역 유니캐스트 허용 목록, IPv4-mapped는 안의 IPv4로 검사, 서버 자신의 주소 거부)로 직접 연결하고 Host·SNI는 원래 이름. 이름 규칙: localhost·*.local·*.internal·*.home.arpa·*.lan·한 단어 이름 거부. 압축 해제는 스트리밍으로 5MB에서 끊는다(Bun 1.3.12의 `gunzipSync({maxOutputLength})` 경로가 테스트 중 프로세스를 죽였다). 결과는 `<external_data>`로 감싸고 tool_events에 URL 전체를 남긴다. 성공하면 `ctx.files.events`에 `'external'`을 내보낸다(B의 remember 보호용).
-- **Bun 1.3.12 함정 두 개와 대응**: ① Hono의 `c.header()`는 끝난 응답을 `new Response(res.body, res)`로 다시 감싼다 → 파일 응답이 JS 스트림이 되어 배압 없이 메모리에 쌓인다. 기반 미들웨어를 헤더 직접 설정으로 고쳤다. ② `Bun.file().slice()` 본문을 스트림으로 읽으면 끝을 무시하고 파일 끝까지 나오고, `slice().stream()`은 끝나지 않는다. 그래서 전체 파일은 `Bun.file`(sendfile), Range는 우리 pull 스트림으로 한 응답에 최대 8MB(Content-Range로 알림, 미디어·PDF 뷰어는 다음 부분을 다시 요청). 중계(F)가 `res.body`를 읽어도 정확하고 메모리는 요청당 8MB 이하.
+- **Bun 1.3.12 함정 두 개와 대응**: ① Hono의 `c.header()`는 끝난 응답을 `new Response(res.body, res)`로 다시 감싼다 → 파일 응답이 JS 스트림이 되어 배압 없이 메모리에 쌓인다. 기반 미들웨어를 헤더 직접 설정으로 고쳤다. ② `Bun.file().slice()` 본문을 스트림으로 읽으면 끝을 무시하고 파일 끝까지 나오고, `slice().stream()`은 끝나지 않는다. 그래서 전체 파일은 `Bun.file`(sendfile), Range는 우리 pull 스트림으로 한 응답에 최대 8MB(Content-Range로 알림, 미디어·PDF 뷰어는 다음 부분을 다시 요청). 중계(F)가 `res.body`를 읽어도 정확하고 메모리는 요청당 8MB 이하. ③ (QA TC-222, 2026-11-11) macOS의 sendfile은 소켓의 논블로킹 표시를 보기 전에 버퍼를 M_WAIT로 잡고 파일을 읽는다 → 메모리에 없는 파일을 느린 클라이언트가 받으면 서버의 하나뿐인 JS 스레드가 커널에 묶여 팀 전체가 멈췄다(352초 무응답, 중계도 오프라인). 그래서 sendfile은 리눅스에서만 쓰고, 그 밖(오피스 맥)에서는 256MB까지 스레드 풀에서 통째로 읽어 보내고(본문이 메모리에 있어야 Content-Length가 남는다: Bun 1.3.12는 스트림 본문의 Content-Length를 지우고 chunked로 보낸다. TLS 리스너에서 Bun이 원래 하던 방식), 더 큰 파일은 우리 pull 스트림(`team-files/download.ts` `fileBody`; `/downloads/*`도 같음). 대가: 배압이 없어 느린 클라이언트가 아직 안 받은 만큼(최대 파일 크기)은 받기가 끝날 때까지 메모리에 남는다. 두 가지로 줄인다(#419 검토): 팀 주소(중계)로 온 요청은 중계 클라이언트가 본문을 256KB씩 직접 읽으므로(소켓이 없어 sendfile도 없음) 예전처럼 `Bun.file`을 게으르게 읽고, 통째로 읽는 본문은 모두 합쳐 768MB(`HELD_CAP`)까지만이고 넘으면 스트림으로 보낸다. Bun.serve는 본문이 다 나간 때를 알려 주지 않아서, 한 본문은 클라이언트가 떠날 때(req.signal)나 2MB/s로 보냈을 시간(최소 10초) 중 먼저 오는 때까지 센다. Bun 1.4는 macOS에서 sendfile을 쓰지 않고 스트림 본문에 배압을 건다(oven-sh/bun#33728, #32553) → 올리면 이 대가가 없어진다.
 - **휴지통 목록은 원래 경로에 쓰기 권한이 있는 항목만**(4번 탭; 계약 요약도 그렇게 고침). 영구 삭제 `DELETE /api/files/trash/:id`(admin 이상)를 계약에 더했다. 폴더 삭제는 폴더째 `.system/trash/`로 rename(읽지 않음), 되돌리기도 폴더째.
 - **버전·휴지통의 folder_id·path_at_save는 트리거로 채운다**(stage 1 도구 쓰기도 같이). `file_versions.path`는 *지금* 경로(이동 API가 고침), `path_at_save`는 그대로. 열람은 folder_id 폴더의 지금 경로와 파일의 지금 경로 둘 다 읽기 권한(폴더 행이 없으면 path_at_save) — 비밀 폴더에서 공용으로 옮긴 파일의 옛 버전은 계속 숨는다(시험 있음).
+- **휴지통에 간 폴더 안 파일의 버전은 폴더가 돌아온 뒤에 되돌린다**(QA TC-229, 2026-11-11): 규칙 폴더는 `folder_id`로 알고(보안 4회차), 규칙 없는 폴더는 `folders` 행이 없어 "파일의 폴더가 지금 없고 그 위의 폴더가 휴지통(`trash_items`, 되돌리지 않음)에 있음"으로 안다. 전에는 되돌리기가 그 폴더를 휴지통 밖에 다시 만들어, 휴지통의 되돌리기가 "(복원됨)" 이름이 됐다. 같은 이름의 폴더를 새로 만들었으면 거기로 되돌릴 수 있다. 기록 응답은 `restoreBlocked: 'folderInTrash'`로 이유를 알리고(그 자리에 쓸 수 있는 사람에게만) 버전 기록 창이 그 문구를 보인다.
 - **폴더 이동·삭제는 그 안의 규칙 폴더 전부에 쓰기 권한이 있어야 한다.** 아니면 users/<나>/ 아래로 옮겨(규칙 무시 구역) 숨은 하위 폴더를 손에 넣을 수 있다. 루트·users/·users/<id>/·.system/은 옮기거나 지울 수 없다. 대소문자만 바꾸는 이름 변경은 대소문자 무시 볼륨에서 그대로 된다.
 - **그 자리나 아래에 관리되는 폴더(규칙 폴더, 그룹 폴더, shared/, skills/, 프로젝트가 쓰는 폴더; 보안 r2부터 프로젝트가 더 쓰지 않는 규칙 없는 행은 빠짐)가 있는 폴더는 admin·owner만 옮기고 이름을 바꾸고 휴지통에 넣는다(아니면 403 forbidden). 그런 폴더를 users/ 아래로 옮기는 것은 owner도 못 한다(400 validation, `fields.to`에 `invalid_path`).** 4번 탭 move 그대로. (보안 검토 r1: 전에는 그 폴더에 쓰기 권한만 있으면 팀원이 그룹·프로젝트 폴더를 users/<나>/로 옮겨 자기만 보는 폴더로 만들 수 있었고, owner·admin은 남의 users/를 볼 수 없어 되돌리지도 못했다. 팀원이 그룹 폴더나 shared/를 통째로 휴지통에 넣을 수도 있었다.) ErrorCode에 `invalid_path`가 없어 다른 API(관리자 폴더 규칙의 users/ 거부)처럼 validation + fields로 표시한다.
 - **일반 항목을 users/<나>/로 옮길 때 지금 읽을 수 있는 다른 사람이 있으면 confirm:true 없이 409 conflict, `error.params = {reason:'audience_narrowed', lostViewers}`.** lostViewers는 사람 수만(이름은 주지 않음). 오류 본문에 기계가 읽는 `params`를 더했다(`ApiErrorBody.params`). 확인 뒤 옮기면 file_events create의 detail에 `audienceNarrowed`를 남긴다. 파일 화면은 '개인 폴더로 옮기면 n명이 더 이상 볼 수 없어요' 확인 뒤 다시 보낸다.
 - **조각 업로드**: 조각은 희소 파일 `<data>/uploads/<id>.part`의 제자리(offset)에 바로 쓴다(조립 단계 없음). 조각이 순서대로 오면 sha256을 오는 길에 계산(Hash.copy로 실패한 조각은 버림)해 complete가 즉시 끝난다. complete 재시도는 같은 답(`upload_sessions.result`). sha 불일치면 받은 조각 목록을 비운다. 열린 세션은 사람당 10개, 디스크 여유(크기+1GB) 확인. 대상 폴더는 미리 있어야 한다.
+- **끝난 업로드는 끝낸 한도를 말한다**(QA TC-230): 24시간 동안 조각이 안 오면 `expired`, 시작하고 7일이 지나면 `expiredMax`, 조각 파일이 없어졌으면(복원한 DB가 세션을 되살림 등) `uploadLost`. 전에는 모두 "만료됐어요(24시간)"라서 7일 한도에 걸린 업로드가 방금 조각을 보냈는데도 24시간이라고 들었다.
 - **첨부**: `attachments` 테이블(id로 찾음, B는 `componentC(ctx).attachments.byIds()`), 썸네일은 격리된 ffmpeg(sips는 사용자 임시 폴더에 써야 해서 샌드박스 안에서 실패), ffmpeg가 없으면 2MB 이하 png/jpg/gif/webp 원본.
 - **작업은 본인 것만 본다**(4번 탭 "본인 작업만"): 받아쓰기 결과는 그 사람의 말이라 owner도 남의 작업은 404. 사람이 없는 작업(user_id NULL: 시스템 백업·업데이트)만 owner가 본다. 영구 삭제도 휴지통 열람과 같은 조건(원래 경로 쓰기 권한)을 더 요구한다: admin이라도 남의 users/<id>/ 휴지통 항목은 못 지운다.
 - **조각 업로드 complete가 겹치면**(큰 파일 해시 중 클라이언트가 시간 초과로 다시 부름) 두 번째는 첫 번째 결과를 기다려 같은 답을 받는다. 그동안 조각·취소는 409. 디스크 여유 확인은 끝나지 않은 세션들이 앞으로 쓸 크기까지 더한다(희소 파일).
@@ -279,6 +291,8 @@
 - **번들 형식은 tar.gz 대신 tar.zst**(우리 스트리밍 tar + node:zlib zstd, 설치·업데이트 모두 우리 코드로 푼다). 서버는 `bun build`로 한 파일(`server/src/main.js`)과 관리 CLI(`admin.js`), 버전은 빌드 때 넣는다.
 - **백업**: DB는 VACUUM INTO(자식 bun 프로세스에서, 서버 이벤트 루프를 막지 않게) → `data/backups/<id>.sqlite`, 팀 폴더는 `.system/backups/<id>/team.tar.zst` + manifest + deleted 목록 + 폴더 목록(`dirs.json`). 7일마다 전체, 그 사이는 크기·수정 시각이 바뀐 파일만(폴더 항목은 매번 모두 넣는다: 빈 새 폴더가 복원에서 빠지지 않게. 복원은 `dirs.json`에 없는 폴더를 지우고 있어야 할 폴더가 없으면 실패). 14일 보관, 남는 백업이 기대는 이전 백업은 지우지 않는다. 설계서의 "날짜별 cp -c 사본" 대신 이 방식을 쓴 이유: 작업 지시(목록 비교 tar+zstd)와 스파이크 B 결과, APFS가 아닌 볼륨에서도 같은 동작.
 - **API 복원은 DB만**(설계 6번 탭). 확인한 사본을 `data/restore-staged.db`에 두고 서버가 다음 시작 때 DB를 열기 전에 바꾼다(`main.ts`의 `applyPendingRestore`). 이전 DB는 `data/backups/before-restore-*`에 남긴다. (2026-11-11) 백업과 같은 보관 기간이 지나면 지운다. 가장 최근 것과 `restore-result.json`이 가리키는 것은 남기고, 복원이 대기 중(`restore-pending.json`)이면 하나도 지우지 않는다. 다른 맥으로 옮기기·외장 디스크 보관은 관리 CLI의 암호 걸린 archive(age) → `restore-archive`(임시 폴더에 풀고 전부 성공했을 때만 새 폴더로).
+- **복원 결과를 남긴다**(2026-11-11, QA TC-208). 복원을 적용(또는 실패)한 시작이 DB를 연 뒤 활동 기록에 `backup.restore`(요청한 사람, 대상 = 백업 id, detail: `ok`, `backupCreatedAt`, `requestedAt`, 실패면 `error`)를 쓴다(`recordRestore`, 복원된 DB에 들어가 다시 시작한 뒤에 보인다). 백업 시각은 복원을 요청할 때 `restore-pending.json`의 `backupCreatedAt`(선택 필드)에 적어 둔다. `GET /api/admin/backups`의 선택 필드 `lastRestore`가 그 행을 읽고, 관리자 › 시스템 › 백업이 한 줄로 말한다("{시각}에 {이름}님이 {백업 시각}에 만든 백업으로 되돌렸어요", 실패면 데이터를 그대로 두었다고). 전에는 다시 시작한 뒤 아무 데도 남지 않았다(`restore-result.json`은 실패일 때 점검만 읽었음).
+- **DB만 복원해도 폴더 권한은 지금 그대로**(2026-11-11, QA TC-195). 폴더 권한(`folders`·`folder_rules`)은 경로에 걸리는데 DB만 복원하면 파일은 지금 것, 규칙은 백업 때 것이 되어, 백업 뒤에 만들고 닫은 폴더(shared/HR, everyone: none)는 규칙이 없어 shared/를 따라 모든 구성원이 읽었고 백업 뒤에 닫은 폴더도 다시 열렸다. 이제 `applyPendingRestore`가 바꿔 넣기 전에 `keepFolderAccess(live, staged)`로 지금 DB의 `folders` 행과 규칙을 모두 복원본에 넣는다: 모든 경로의 규칙이 복원 직전과 같다. 지금 DB에 없는(id·경로 둘 다) 백업의 행은 규칙 없이 남기고(버전·휴지통 항목·그룹이 가리킬 수 있음), 휴지통에 들어 있던 행(`.system/…`)만 백업 때 규칙을 지킨다(그 휴지통 항목과 버전을 누가 보는지만 정함). 같은 경로를 다른 폴더가 차지했으면 백업의 행은 지우고 그 행을 쓰던 그룹은 폴더 없음. 실패하면 복원을 멈춘다(지금 DB 그대로). 지금 DB가 없거나 못 읽으면(망가진 DB에서 돌아오는 길) 백업의 규칙으로 복원하고 `restore-result.json`의 `folderRules: "backup"`, 시스템 점검이 7일 동안 폴더 권한을 확인하라고 경고한다. 대가: 복원으로 폴더 규칙 변경을 되돌리지 않는다(관리자 › 폴더 권한에서 직접), 백업 뒤 지운 그룹은 돌아와도 그 폴더 규칙은 없다. 사람 쪽(백업 뒤 그룹에서 뺀 사람·끈 계정·관리자에서 내린 사람이 복원으로 돌아옴)은 이번에 바꾸지 않았다(계획서의 선택지, 대표 결정). 시험: `tests/unit/g-restore-folder-rules.test.ts`.
 - **내보내기**: 대화·메모리는 요청한 owner 본인 것만(관리자도 남의 대화를 볼 수 없다는 원칙), 파일은 팀 폴더에서 `.system/`·이전 내보내기·**다른 사람의 `users/<id>/`**를 뺀 것(6번 탭 '내보내기'; owner 본인 폴더는 넣는다). 항목은 쓰는 동안 하나씩 만들어 대화가 많아도 메모리에 한꺼번에 올리지 않는다. 결과 위치는 공유 계약(`shared/src/api/system.ts`)대로 `users/<owner>/exports/`이다(설계서는 `data/exports/<jobId>.zip` + 24시간 삭제 + `GET /api/jobs/:id/download`; C의 다운로드 엔드포인트가 생기면 옮긴다).
 - **진단 문구는 ko/en/id**(요청자 언어). 메뉴바용 `status/status.json`은 30초마다 쓰고 개인정보(이름·대화)를 넣지 않는다. 엔진 로그인 확인은 local-login이면 `claude auth status`·`codex login status`(이메일은 버림), 역할 계정 모드면 `secrets/claude-oauth-token` 유무.
 - **로그 폴더**: `/Library/Logs/<id>`와 `crash/`는 root:wheel 755(launchd·newsyslog가 root로 일하는 경로에 역할 계정 소유 폴더가 끼면 링크를 심어 root 쓰기를 돌릴 수 있다; 755인 이유는 실행기의 launchd 출력 파일을 엔진 계정 권한으로 열기 때문, 750이면 EX_CONFIG). 서버 로그와 update.log는 `server/`(server:admin 750). 메뉴바 앱은 로그 폴더를 status.json이 아니라 고정 경로로 Finder에 보여 준다(열지 않는다).
@@ -290,7 +304,7 @@
 # D web (웹 클라이언트, 2026-10-21)
 
 - **Saram `web/`(d315378)과 chat-proto에서 코드를 복사해 가져왔다**(마크다운 보정·KaTeX·Mermaid, 아티팩트 패널, 파일 미리보기, 녹음, 브라우저 패널). Supabase·Saram 팀 기능(업무·회의·승인·코드 변경 모드)은 버렸고, 문구는 모두 번역 키(ko 원본, en, id)로 옮겼다. 상태 관리는 zustand.
-- **아티팩트·HTML/SVG 미리보기는 설계서대로 `sandbox="allow-scripts"` 프레임이 팀 서버의 고정 받개 문서 `GET /sandbox/frame?v=<빌드>`를 연다**(srcdoc·blob: 아님: 둘 다 앱 CSP를 물려받아 앱 CSP를 풀어야 했다). 받개 응답 CSP는 `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' data: blob: <서버>/vendor/; … connect-src 'none'; … frame-ancestors <서버>`이고 `<서버>`는 요청의 Host(https·http 둘 다 적음: TLS가 서버 앞에서 끝날 수 있음). 받개는 "ready"를 보내고 부모(event.source === parent)가 postMessage로 넘긴 문서 하나를 `document.open/write`로 자기 위에 쓴다(문서는 응답 CSP를 그대로 가짐). 부모도 그 프레임 창에서 온 메시지만 받는다. 화면이 AI가 쓴 문서를 통째로 다시 감싸서(`<!doctype><html><head>CSP…</head><body>원문`) 같은 정책의 meta CSP가 두 번째 겹으로 맨 앞에 오고, AI의 `<head>`·CSP·`<base>`는 body 안으로 밀려나 무시된다. 모든 페이지에 붙는 `X-Frame-Options: DENY`(기반 미들웨어)는 `frame-ancestors`가 있으면 브라우저가 무시한다(Chromium·WebKit에서 확인, e2e 목 서버도 같은 헤더를 붙임). React 아티팩트는 부모 화면에서 sucrase로 변환하고 `data:` 모듈로 실행('unsafe-eval' 없음). 라이브러리는 `web/scripts/build-vendor.ts`가 `dist/vendor/`에 번들(React 하나를 모든 항목이 공유)하고 서버가 `/vendor/`에서 CORS `*`로 준다(불투명 출처 프레임의 모듈 스크립트는 CORS가 필요). XML 미리보기는 문서로 그리지 않고 색칠한 텍스트로만 보인다(더 안전).
+- **아티팩트·HTML/SVG 미리보기는 설계서대로 `sandbox="allow-scripts"` 프레임이 팀 서버의 고정 받개 문서 `GET /sandbox/frame?v=<빌드>`를 연다**(srcdoc·blob: 아님: 둘 다 앱 CSP를 물려받아 앱 CSP를 풀어야 했다). 받개 응답 CSP는 `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' data: blob: <서버>/vendor/; … connect-src 'none'; … frame-ancestors <서버>`이고 `<서버>`는 요청의 Host(https·http 둘 다 적음: TLS가 서버 앞에서 끝날 수 있음). 받개는 "ready"를 보내고 부모(event.source === parent)가 postMessage로 넘긴 문서 하나를 `document.open/write`로 자기 위에 쓴다(문서는 응답 CSP를 그대로 가짐). 쓰는 때는 받개 자신의 load가 끝난 뒤다(QA TC-218, 2026-11-11): 받개가 아직 불러오는 중에 쓰면 Chromium이 두 load를 하나로 합쳐, load 수로 문서가 떠난 것을 아는 화면(SandboxFrame, 예상 2번)이 차단된 이동의 오류 페이지를 놓쳤다(빈 회색 칸, 안내 없음). 불투명 출처 문서에서는 Navigation API의 navigate 이벤트가 오지 않고 location을 감쌀 수 없으며 Chromium은 차단된 이동 자리에 오류 페이지를 넣으므로, 아티팩트를 제자리에 두지는 못하고 안내를 늘 보인다. 부모도 그 프레임 창에서 온 메시지만 받는다. 화면이 AI가 쓴 문서를 통째로 다시 감싸서(`<!doctype><html><head>CSP…</head><body>원문`) 같은 정책의 meta CSP가 두 번째 겹으로 맨 앞에 오고, AI의 `<head>`·CSP·`<base>`는 body 안으로 밀려나 무시된다. 모든 페이지에 붙는 `X-Frame-Options: DENY`(기반 미들웨어)는 `frame-ancestors`가 있으면 브라우저가 무시한다(Chromium·WebKit에서 확인, e2e 목 서버도 같은 헤더를 붙임). React 아티팩트는 부모 화면에서 sucrase로 변환하고 `data:` 모듈로 실행('unsafe-eval' 없음). 라이브러리는 `web/scripts/build-vendor.ts`가 `dist/vendor/`에 번들(React 하나를 모든 항목이 공유)하고 서버가 `/vendor/`에서 CORS `*`로 준다(불투명 출처 프레임의 모듈 스크립트는 CORS가 필요). XML 미리보기는 문서로 그리지 않고 색칠한 텍스트로만 보인다(더 안전).
 - **앱 화면 CSP는 설계서대로 `script-src 'self'`(+ `'wasm-unsafe-eval'`)**: 인라인·data:·blob: 스크립트와 eval 없음, `frame-src 'self'`, `worker-src 'self'`, `base-uri 'none'`. 답변·파일 이름·Office 미리보기가 그려지는 본 화면의 XSS 마지막 방어선이다. `'wasm-unsafe-eval'`은 큰 업로드의 sha256(hash-wasm, JavaScript eval은 아님), `connect-src blob:`은 pdf.js 워커가 미리보기 blob을 읽는 데 필요(둘 다 e2e에서 CSP 위반으로 발견). `img-src 'self' data: blob:`이라 답변 속 외부 이미지는 브라우저 수준에서도 막히고, 화면은 "외부 이미지 · 호스트" 카드(누르면 새 탭)로 보인다. 프레임이 다른 곳으로 이동하면(`frame-src 'self'`가 막음) 세 번째 load 또는 쓰인 문서의 pagehide "leaving" 신호로 알아채 about:blank로 되돌리고 안내한다.
 - **Office 미리보기는 본 화면에 그려지므로**: docx-preview의 `renderAltChunks`를 끈다(기본값은 문서 속 HTML 조각을 sandbox 없는 srcdoc iframe으로 그려 같은 출처에서 스크립트가 돈다). 그려진 문서(docx·pptx·xlsx) 안의 링크는 절대 http(s)만 남기고(javascript:·data:·상대 경로는 링크에서 뺌, `#책갈피`는 미리보기 안에서 스크롤) 누르면 묻고 새 창(noopener)으로 연다(`web/src/lib/safeLinks.ts`, 라이브러리가 나중에 그리는 것도 MutationObserver로). 웹 검색 결과 출처도 http(s)만 링크로 만든다. 미리보기 한도는 PDF·Office 50MB, 이미지 20MB, 텍스트류는 앞 2MB만 읽는다(Content-Length가 없어도 읽는 도중 끊음).
 - **정적 제공 코드는 `server/src/routes/web-static.ts`로 분리**(라우트 모듈 `web.ts`가 다시 내보냄). 웹 목 서버가 서버 컨텍스트 없이 같은 함수로 빌드를 제공해, e2e가 실제 운영 헤더(CSP 등)로 돈다. `<data>/downloads/`(index.json + 설치 파일)를 `/downloads/`로 제공한다(설정 > 앱의 데스크톱 앱 내려받기). 2026-10-21부터 로그인한 사람만(세션 필요, 임시 비밀번호는 바꾼 뒤): 키트 설치 파일에는 팀 주소가 들어 있고 인터넷 주소로 열려 있으므로 나머지 앱과 같은 규칙. `Cache-Control: private`라 Cloudflare가 .exe/.dmg를 저장해 남에게 주지 않는다(`server/src/routes/downloads.ts`). index.json에 적힌 파일만, 링크가 아닌 보통 파일(O_NOFOLLOW, 링크 수 1)일 때만 준다. 사무실 모드 `teamax desktop add`(`server/src/office/desktop.ts`)는 NSIS/UDIF 머리와 그 머리에 적힌 길이까지 확인하고(잘린 파일 거절), `signed`는 실제 검사(osslsigncode, Gatekeeper `spctl`)가 통과할 때만 참이다(인증서 표가 있기만 하거나 ad-hoc 서명이면 'unverified', 화면은 SmartScreen·Gatekeeper 단계를 그대로 보임). office-install.sh는 zip 옆 폴더의 설치 파일만 저절로 올리고 `~/Downloads`는 그 플랫폼이 없을 때 물어본 뒤에만, `--with-desktop` zip은 `desktop.sha256`에 적힌 파일만 올린다(보안 검토: 엉뚱한 파일이 모두의 앱이 되지 않게). 계약 밖 경로는 모두 `GET *` 안에서 처리하므로 레지스트리 규칙은 그대로다.
@@ -298,7 +312,7 @@
 - **버전 불일치**: 계약의 `hello`에 `webBuild`·`bootId`가 아직 없어서, 처음 받은 `serverVersion`과 다른 값이 오면 "새 버전이 준비됐어요 [새로 고침]"을 띄우고, 스트리밍·업로드·녹음·입력 중인 글이 없을 때 60초마다 확인해 스스로 새로 고친다. epoch가 바뀌면 `after`를 믿지 않고 REST로 다시 불러온다.
 - **WebSocket 클라이언트**: `hello` 전에는 열림으로 치지 않고, 끊긴 동안 보낸 `browser.ack/result`는 보관했다 다시 보낸다. 20초마다 앱 수준 ping, 10초 안에 pong이 없으면 죽은 연결로 보고 다시 붙는다(중계 연결이 조용히 멈추는 경우). 4409(같은 창 id가 다른 곳에서 연결: 탭 복제 시 sessionStorage가 복사됨)는 새 창 id로 다시 붙는다.
 - **보내기**: 메시지를 바로 "보내는 중"으로 보이고, 보이는 마지막 메시지를 parentId로 보낸다(아직 불러오지 않은 채팅이면 parentId를 빼서 서버의 활성 끝에 붙인다. null은 맨 위 새 대화). 네트워크 오류면 같은 `clientMessageId`로 30초까지 다시 보낸다(서버가 중복을 막음). 실패하면 "보내지 못했어요 [다시 보내기]". POST 응답보다 먼저 온 `message.delta/step/done`은 보관했다가 메시지가 생기면 적용한다(이 경우 대기열 위치는 표시하지 않음). 보관은 메시지 50개·메시지당 2000개까지, 넘으면 REST로 다시 불러온다. 끊긴 동안 쌓는 WebSocket 프레임도 200개·16MB까지.
-- **이 브라우저에 남기는 것**: 보내지 않은 글(사람별 키 `mycel.draft:<user>:<채팅>`, 같은 컴퓨터의 다음 사람에게 보이지 않음), 끝나지 않은 조각 업로드 세션(최대 50개). 로그아웃하면 둘 다 지운다.
+- **이 브라우저에 남기는 것**: 보내지 않은 글(사람별 키 `mycel.draft:<user>:<채팅>`, 같은 컴퓨터의 다음 사람에게 보이지 않음), 끝나지 않은 조각 업로드 세션(최대 50개). 로그아웃하면 둘 다 지운다. 2026-11-12부터 대화방도 같은 접두어로 남긴다(QA TC-374/375): 입력창 초안과 멘션 `mycel.draft:<user>:room:<placeKey>`, 보내는 중이거나 보내지 못한 메시지 `mycel.draft:<user>:roomUnsent:<room>`(앱을 닫았다 열면 "보내지 못했어요"로 돌아오고, 다시 시도는 같은 `clientMessageId`라 서버가 받은 것이면 그 메시지 하나). 돌아온 메시지는 "보냈는지 확인하지 못했어요"(`rooms.notConfirmed`)로 보인다. 기기에 남긴 목록은 이 페이지가 그 방의 보내기를 처음 바꿀 때(또는 방을 열 때) 먼저 합친 뒤에만 쓰므로, 복원 전에 새로 보내도 지워지지 않는다. 같은 사람의 다른 탭과는 `storage` 이벤트로 맞춘다: 쓸 때 다른 탭의 항목을 지우지 않고, 이 페이지가 끝난 것으로 본 항목(보냄·지움·확인됨)은 다시 쓰지 않으며, 다른 탭이 지운 실패 항목은 여기서도 지운다(보내는 중인 것은 남김, 저절로 다시 보내지 않음). 30일이 지난 것, 방 목록에 없는 방(나간 방)의 것은 지운다. 팀마다 주소가 달라 저장소도 팀별이고, 로그아웃·다른 사람 로그인 때 함께 지운다(`web/src/store/rooms.ts`).
 - **첨부는 고르는 즉시 올린다**(새 채팅이면 그때 채팅을 만든다). 8MB 이하는 한 번에, 넘으면 조각 업로드(8MB, 브라우저에서 sha256을 조각씩 계산). 조각 세션은 파일 지문(이름·크기·수정 시각·대상)으로 localStorage에 기억해 새로 고침 뒤 같은 파일을 다시 고르면 서버에 없는 조각부터 이어 보낸다. 5xx·네트워크 오류는 재시도하고, 네트워크가 끊겼던 조각은 다시 보내기 전에 서버에 받았는지 묻는다.
 - **계약에 없는 기능은 계약으로 대신했다**: 채팅 검색은 `GET /api/chats?q=`(설계서의 `/api/search` 없음), 아티팩트 "팀 폴더에 저장"은 `PUT /api/files/content`(baseSha256 null → 같은 파일이 있으면 서버가 충돌 사본), "이 파일로 채팅 시작"은 새 채팅 입력창에 `` `경로` 파일을 읽고 `` 를 미리 채움(팀 파일을 첨부로 넘기는 필드가 없음). 모델 목록은 관리자만 볼 수 있는 `/api/admin/engines`에서만 오므로 팀원은 엔진만 고르고 모델은 기본값.
 - **데스크톱 다리(component E와의 약속)**: `window.mycelDesktop = { version, pane: {...}, browser: { call(chatId, tool, input, callId), cancel(callId), endTurn(chatId) } }`(Saram `saramDesktop`과 같은 모양 + callId·cancel). 웹은 `browser.call`을 받으면 `browser.ack`를 보내고 이 함수로 실행해 `browser.result`를 돌려준다. 앱 안 브라우저가 없는 창(웹·PWA)은 바로 "이 창에는 앱 안 브라우저가 없다" 오류 결과를 돌려줘 턴이 시간 초과까지 기다리지 않게 한다. 형식은 `web/src/lib/desktop.ts`.
@@ -601,6 +615,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **`POST /api/connect-info/lan-failure {code}`** → 204. 세션마다 1시간에 한 번만 세고 24시간 메모리에만 둔다(재시작하면 비움). 진단 '사무실 직접 연결'이 횟수·인증서 불일치 수·방화벽 안내를 보인다. 데스크톱 앱은 설계의 'Bonjour로 같은 teamId를 찾았는데 실패'를 Bonjour 없이 이렇게 대신한다: 서버 맥의 `.local` 이름이 이 네트워크에서 풀릴 때만(mDNS는 같은 링크에서만 답함) 알린다. 인증서 불일치도 같다: 집에서는 같은 사설 IP에 다른 기기(공유기·NAS의 8443)가 있을 수 있어, 늘 알리면 진단이 '다른 기기가 서버인 척'이라고 잘못 경고했다(리뷰에서 고침). 루프백 주소는 이 맥 자신이므로 사무실로 본다. 앱도 팀·코드마다 1시간에 한 번. 탐침은 시간 초과(`timeout`)와 연결 실패(`unreachable`)를 나눈다.
 - **연결 방식 화면**: `ConnectionStatus`에 `availableModes`·`teamName`(선택 필드). Team AX 중계는 설정 `relay.officialAvailable`(기본 false, 환경 변수 `MYCEL_RELAY_OFFICIAL=1`)일 때만 목록에 있고 서버도 409로 거부한다. Cloudflare·Tailscale은 목록에서 뺐다(원래 409). 중계 연결(자체·Team AX)은 팀 이름이 필요하다: `RelayTeamName`(소문자·숫자·가운데 하이픈 2–40자), 주지 않으면 server.json의 기존 값, 둘 다 없으면 400 `body.teamName`. `relay.teamName`을 server.json에 같이 쓴다.
 - **비밀번호 재설정 링크 버튼**(관리자 > 팀원): 이미 있던 `POST /api/admin/users/:id/reset-link`을 화면에 붙였다. 확인 → 링크(24시간·1회·새 링크가 이전 링크를 무효화) 복사, 메일 없음. owner 행에는 버튼이 없다(owner는 서버 맥의 CLI로만). 임시 비밀번호 버튼은 그대로 둔다.
+- **재설정 링크는 그 계정 주인에게 알린다**(2026-11-11, QA TC-202): 서버 CLI(`mycel-account`·`mycel-ctl reset-link`)나 owner·관리자가 링크를 만들면, 그 계정 주인의 활동에 알림 `account.reset_link`(표 `reset_link_notices`, 마이그레이션 119; 출처는 링크 행 id, 토큰은 없음)가 항상 생긴다. 누가 만들었는지(서버 / 이름)와, 링크가 아직 살아 있으면(안 쓰고·안 바뀌고·안 지남, 읽을 때 계산) "내가 부탁한 게 아니면 보안·기기에서 비밀번호를 바꾸면 바로 막혀요"를 보여 주고 그 화면으로 연다. 전에는 활동 기록 한 줄뿐이었다. 휴대폰 푸시는 아직 없다.
 - **버전 기록 되돌리기**: 저장된 버전은 모두 '바뀌기 전 내용'이라 가장 새 버전도 지금 파일과 다르다. 화면이 맨 위 버전을 '지금 파일'로 여겨 되돌리기를 숨기던 것을 고쳤다. `GET /api/files/history`가 `currentSha256`(지금 파일)과 `canRestore`(그 경로 쓰기 권한, 되돌리기 API와 같은 규칙)를 준다. 지금 파일과 같은 버전만 '지금 내용과 같음'으로 표시하고, 쓰기 권한이 없으면 내려받기만. 권한 규칙은 바꾸지 않았다.
 
 ## 사무실 모드 (feat/office-mode, 2026-10-21)
@@ -745,6 +760,26 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   through the relay: the desktop and phone apps' address check only parse the shape, the bootstrap, installers,
   `mycel-ctl` and the Docker health check ask `127.0.0.1`, and the sign-in page's source-code link then names no version
   (as on the office internet address).
+- **A full disk is said as one (2026-11-11, QA TC-209).** Where the Mac's absolute floor (max(10 GB, 5%), not a Linux
+  production install) decides the disk check, the storage card's level is `full` under it too, so the card and the
+  check never disagree on a small disk. A backup refused for room (`disk_space`, `plan_space`) is told in the person's
+  language. Any request that fails on a full disk (ENOSPC / EDQUOT, SQLite "database or disk is full", also as a cause)
+  answers 507 `storage_full` with `SERVER_DISK_FULL` ("서버 저장 공간이 가득 차서 지금은 할 수 없어요. 관리자가 공간을 비워야 해요.",
+  `params.reason: server_disk_full`) instead of 500, and a chat turn that failed on one (the error, the engine's or the
+  launcher's "no space left on device", or under 64 MiB left on the data or team disk when it stopped) ends with the
+  chat reason `storage_full`; the owner and admins read where to look (Admin › System).
+- **One visitor can't fill a team's relay streams (2026-11-11, QA TC-199, audit #3).** 1,100 connections from one machine
+  that asked for a big file and never read the answer took all 1,024 streams of a team in 12 s, the answers of everyone
+  else waited behind theirs, and the relay never closed them. Now one visitor (IPv4 address; IPv6 by /64, one line gets
+  a whole /64) has at most `RELAY_MAX_STREAMS_PER_IP` HTTP streams open to a team (default half of one control
+  connection, 256): over it the relay answers 503 `team_busy` at once and closes that connection, before waiting for a
+  stream and again after. WebSockets are not counted (the team server must accept them; realtime of an office behind
+  one address stays open). An answer with bytes waiting for a visitor whose socket took no chunk for
+  `RELAY_CLIENT_STALL_MS` (30 s) is cut: RST CANCEL to the team server, socket closed. Progress is per written chunk
+  (at most 64 KB), so a slow line that keeps reading is never cut. Counters only (`/metrics`
+  `relay_http_requests_total{outcome="capped"}`, `relay_client_stalls_total`); no address is logged. The cap counts the
+  address the relay already believes (`--trusted-proxies`), so a relay behind a local tunnel without that setting would
+  cap everyone together.
 
 ## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 
@@ -1062,6 +1097,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **링크가 아니라 복사**: 팀 폴더는 모든 곳에서 기호 링크를 거부하고, 복사본이면 read·grep·search·OCR·한글·미리보기·폴더 규칙이 그대로 된다. 한 방향(원본 → 팀 폴더), 10분마다와 "지금 맞추기". 팀 쪽 수정은 원본으로 가지 않는다.
 - **사람의 파일은 건드리지 않는다**: 동기화는 자기가 쓴 파일(connected_files: 팀 쪽 크기·mtime, 원본 크기·mtime)만 바꾸거나 지운다. 누가 거기 넣거나 고친 파일은 덮어쓰지도 지우지도 않는다(그 파일은 목록에서 빠져 사람 것이 됨). 연결을 끊으면 비춘 파일만 지우고, 비어 버린 폴더와 그 규칙 행도 지운다.
 - **무엇을 연결할 수 있나**: owner만, 비밀번호를 다시 넣고(owner-reauth). `/Volumes/…`, `~/Library/CloudStorage/…`, `/Users/Shared`, 홈 안의 보이는 폴더(홈 자체·숨김·`~/Library`는 안 됨), 팀 폴더·서버 데이터와 겹치면 안 됨. 기본 규칙 "모두: 읽기"(폴더 권한에서 바꿈). 숨김 파일·기호 링크·팀 폴더가 받지 않는 이름·100 MB 넘는 파일은 건너뜀. 한 번에 2000개·2 GB까지, 나머지는 다음 번(partial). 복사는 비동기로 50개마다 이벤트 루프에 양보.
+- **원본은 동기화마다 다시 확인한다**(fix/connected-sync-links, 2026-11-12): 공유 폴더에 쓸 수 있는 사람이 연결한 뒤에 원본이나 그 안의 파일·폴더를 서버 데이터·닫힌 폴더를 가리키는 링크로 바꿀 수 있었다. 이제 동기화마다 원본이 링크가 아닌 진짜 폴더이고 연결할 때 확인한 경로와 같으며 `checkSource` 규칙을 여전히 지키는지 본다(아니면 오류 `moved`, 아무것도 복사하지 않음). 목록은 폴더마다 링크가 아닌지 보고 들어간다. 파일은 `O_NOFOLLOW|O_NONBLOCK`으로 열고, 열린 파일의 실제 경로(Linux `/proc/self/fd`, macOS `/dev/fd`: Bun이 `F_GETPATH`로 풀어 줌)가 원본 안이어야 복사한다(목록과 복사 사이에 길의 폴더를 링크로 바꾸는 경쟁도 막음). 경로를 알 수 없으면 건너뛴다.
 - **macOS 개인정보 보호**: 사무실 모드의 서버(LaunchAgent)는 네트워크 볼륨·클라우드 폴더를 읽을 때 허락 창을 띄울 수 없다. 거부되면 상태가 오류이고 "시스템 설정 › 개인정보 보호 및 보안 › 전체 디스크 접근 권한에서 bun 허용" 안내가 나온다. 실제 NAS·구글 드라이브로는 아직 시험하지 않았다(이 맥에 없음).
 
 ## AI 엔진·모델은 관리자가 정한다 (feat/admin-engine-choice, 2026-10-21)
@@ -2388,6 +2424,20 @@ check read `codex-cli 0.162.0-alpha.3` as `0.162.0`, and a `0.164.0-alpha.1` bui
 R4 integration review also found the separate System diagnostics/menubar lookup in `system/ops.ts`. It now
 uses the same resolver in development and only the configured executable for every production install,
 including same-account installs. Extend the same synthetic selection tests to cover this fourth caller.
+
+## Google Drive setup: the Google Cloud steps in the dialog (fix/drive-setup-steps, 2026-11-12, QA TC-197)
+
+- **Problem.** Admin › 연결한 서비스 › Google Drive › 한 번 설정하기 showed only the redirect URI with Copy and the client
+  file (or ID and secret): an admin had to know the Google Cloud part already (about five pages and eight actions).
+- **Decision (the simplest option that meets the row).** The dialog lists the Google Cloud steps first, numbered, each
+  with a link that opens its Google Cloud page in a new tab: a project (`/projectcreate`), the Drive API
+  (`/apis/library/drive.googleapis.com`), the consent screen (`/apis/credentials/consent`: app name and support email,
+  "Internal" for a company's own Workspace accounts, else "External" with the people as test users), a web client
+  (`/apis/credentials/oauthclient`: type "Web application", the shown address under "Authorized redirect URIs"), and its
+  JSON file to upload below. Google's own labels are quoted as Google shows them in each language; our field labels say
+  what they are for ("the address to put under 'Authorized redirect URIs'", "Upload the JSON file you downloaded").
+  The Google apps' dialogs share the field labels, not the Drive steps.
+- **Not done.** Doing the Google Cloud part for the admin.
 
 ## Linux installer: public host, app connectors and the Google Drive client (feat/installer-public-host, 2026-10-29)
 
@@ -4948,6 +4998,18 @@ Changed 2026-11-07: the hours depend on the plan (Starter 50, Team 100, Business
   `tests/security` (`createMemory` self, `updateMemory` only alice's own); `web/test/e2e/app.spec.ts` (add with the
   limit and the count, correct with Enter, Esc cancels, the first memory from the empty state).
 
+## Memories the AI does not get now are marked (fix/memories-in-use, 2026-11-12, QA TC-213)
+
+- **Problem.** Every memory was kept and listed, but a turn reads the newest 100 and the memory block holds only what
+  fits in 4,096 characters (with short memories about 85, with long ones fewer). The older ones were never given to the
+  AI and nothing said so: the AI forgot silently.
+- **Decision (the simplest option that meets the row).** Keep what the AI gets as it is, and say it where the memories
+  are: Settings › 메모리 shows "AI는 최근 메모리 N개만 써요. 그보다 오래된 M개는 지금 쓰지 않아요…" above the list and
+  marks each memory not used ("쓰지 않음", its text dimmed). `GET /api/memories` says it (`inUse`, `total` on the page,
+  `unused: true` on such items), worked out with the same function as the AI's block (`prompt.ts` `memoryLines`), so
+  the two never disagree.
+- **Not done.** A cap on how many can be kept, larger limits, and saying it in the chat when the AI remembers more.
+
 ## Scheduled tasks: run now, edit, pause (feat/small-batch-11-01, 2026-11-01)
 
 - **Run now** (`POST /api/schedules/:id/run`, `chat/schedules.ts runNow`): one run now through the same `start()` as a
@@ -5775,7 +5837,7 @@ A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with 
 - **A folder of the same name is used, not renamed.** A person who uploads a folder a second time expects one folder. Files keep the single-file rule (`rename`), so that upload makes copies.
 - **The stop has two codes.** 507 comes from the storage rule. 413 comes from the real-disk check of session create, which keeps 1 GiB and runs after the storage rule, so a server with no plan file sees 413 first for large files. The client checks the file size first, so a 413 there is not about the file.
 - **507 no longer retries.** `retryable` took every status of 500 and more, so a large file waited about 15 seconds for an answer that does not change.
-- **Names go up in NFC.** macOS gives NFD, and the server keeps a new folder's name as sent. Only the file name is normalized in `placeUpload`.
+- **Names go up in NFC.** macOS gives NFD. The server stores every new name in NFC too since QA TC-225 (2026-11-11: `mkdir`, move/rename, save), and the file name in `placeUpload`.
 - **Links.** No browser API marks a link. From what we know of Chromium (not tested in a browser here), it leaves links out of a dropped folder, and the picker gives the content of the target. The client skips entries that are not a file or a folder and stops at 64 levels, the server's limit. The server writes file content only, so no link reaches the team folder.
 - **The runs live outside the page,** so an upload goes on when the person opens another page and the row is there when they come back. A closed tab ends the upload. The same folder picked again goes on from the remembered sessions and sends the finished files again as copies.
 
@@ -7433,6 +7495,31 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Not done**: the mobile app's address box (`mobile/src/address.ts`) still accepts only `/invite/<token>` links, not `/join#t=`; a list of who joined through which link beyond the audit log; single-use invites keep their token in the path (`/invite/<token>`, unchanged, already masked in logs).
 - Tests: `tests/unit/a-team-links.test.ts` (make, show again, replace, revoke; sealed and hashed at rest; members only with a role in the request; groups; taken username, weak password, unknown token; max uses with three joins at once for two uses; expiry; the per-link limit across addresses, and joins that work not counting; a maker disabled, enabled again or demoted; the use-time check; a restored copy; the owners' and the maker's inbox; seats: default, cap, full; the skill deep link and the folder rules; no path or query parameter and nothing logged with the token), `web/test/unit/team-link.test.tsx` (the fragment, the next page, the message in five languages, the panel's states, the join form without a second password, `/join` sending the token only in POST bodies, every "no longer works" message, InviteStep and its soft dialog), `web/test/e2e/team-link.spec.ts` (the whole flow in a real browser against the mock: make, copy the message, join, land on the skill, no request URL with the token, revoke).
 
+## A new member is told to the team (feat/member-joined-notice, 2026-11-11, QA)
+
+- **Problem.** On potenlab, a member who joined with a single-use invite (qa-d) was told to nobody: no line in the
+  everyone room, nothing in Activity. A join with the team link already told the owners and the link's maker
+  (`team.joined`), but not the rest of the team.
+- **Rule.**
+  - Both kinds of join (an invite: `auth/accounts.ts acceptInvite`; the team link: `auth/team-links.ts`) put one event
+    line in the everyone room, written as the new member: `{type: 'joined'}`, shown as "{name} joined the team". An
+    event line is never unread and does not move the room in the lists, so nobody gets a badge, a notice or a push;
+    the team sees it when they open the room and can say hello. The new member is put in the room first and sees it
+    too.
+  - An invite join now also sends `team.joined` to the owners and the invite's maker (Activity, no push), as the team
+    link does. Its text no longer names the team link ("{name} joined the team").
+  - Names only: no email, no role, no inviter in the room line.
+- **Not done.** An account an admin adds directly (Admin › Members › Add directly) writes no line: the admin made it,
+  and the person may not have signed in yet. No push for joins. (Changed by "A welcome for invited people",
+  feat/member-welcome, owner's decision: for "Add directly" the line and the owners' notice come at the person's first
+  successful sign-in, once, not when the account is made; an account disabled or deleted before that is never
+  announced.)
+- **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
+  `tests/unit/a-team-links.test.ts` (team link join: the line).
+||||||| 2be3f4b09
+||||||| 1565b39f1
+||||||| 626c5fbfd
+
 ## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
 
 Onboarding wave 2, stream W. Placement: Team AX core (skills, files and the first chat; nothing about plans, billing
@@ -8223,7 +8310,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   `group` (tables are never rebuilt, so a later step can add such rooms without a new table); no code writes one, the
   contract's `RoomKind` does not list it, and `POST /api/rooms` takes `dm` only. Team rooms
   and the everyone room are made by the server only (`POST /api/rooms` opens DMs only).
-- **Rooms follow groups and accounts.** `Rooms.sync()` makes a team room for every group and the everyone room, and
+- **Rooms follow groups and accounts.** `Rooms.sync()` makes a team room for every group (except the welcome team group:
+  "One room for the whole team") and the everyone room, and
   sets their members from `group_members` and the active accounts. It runs at start, at the end of every
   `afterAccessChange` (group create, edit, delete, a person's role or groups), when a person's rooms are out of step on
   their `GET /api/rooms` (a new account from an invite or the team link), and once a minute. A disabled or deleted
@@ -8717,8 +8805,13 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
   re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
   cannot misread it as Web Push). `POST /api/push/devices` / `DELETE /api/push/devices/:id`; `GET /api/push` adds
-  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it,
-  also for another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
+  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it
+  when that is the same person, or when the session that had it is over (expired, the account removed or switched
+  off). Another person's live session keeps it: registration answers 409 "another account gets this phone's
+  notifications; sign out there first" (QA TC-201, fix/push-token-takeover, 2026-11-11). A phone that changes hands
+  loses its row first: logout removes it with the session, a team switch with the removal key, and after a reinstall
+  the iPhone app signs the kept session out (Android gets a new FCM token), so the old "another account replaces it"
+  only let a member who knew a colleague's token take over their notifications.
 - **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
   hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
   store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
@@ -11157,6 +11250,23 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   every folder after the start and each night. The 2026-11-01 semantic-index lesson (1.9 GB, most cores) is why CodeGraph
   runs with two parse workers (~0.7 GB on 673 files) and pauses as long as each run between folders.
 
+## Google Drive without a public address: who does what next (fix/drive-no-public-address, 2026-11-12, QA TC-196)
+
+- **Problem.** On a self-installed server without a public https address (`tunnel.host`), Google Drive was a dead end:
+  Admin › 연결한 서비스 › Google Drive said only "먼저 이 서버의 공개 주소가 필요해요." with no button, link or who; and in
+  연결한 서비스 the owner read "관리자가 먼저 켜야 해요", although the owner is the one who has to act.
+- **Decision (the simplest option that meets the row).** No new setting: the public address stays where it is set
+  today, on the server computer by whoever installed it (`--public-host` of the Linux installer, `teamax public-address
+  set` on the office Mac); the app only says so, by role.
+  - Admin › 연결한 서비스 › Google Drive with `blocked: 'public_host'`: what the address is for, then for the owner who
+    turns it on (the person who installed the server, the owner if they did) and where it shows (a link to Admin ›
+    시스템, 연결 방식); for an admin, to ask the owner (System's connection settings are the owner's).
+  - 연결한 서비스, Drive not set up: an owner or admin reads "Google Drive를 아직 설정하지 않았어요…" with
+    **설정하러 가기** to Admin › 연결한 서비스 › Google Drive (`/admin/connectors?drive=1`); a member still reads that an
+    admin must turn it on.
+- **Not done.** Setting the public address from the app. Sign-in through the hosting service for registered
+  self-installed servers (feat/google-one-library) takes away the need on those servers.
+
 ## Google Drive on hosted teams: sign-in through the hosting service (feat/drive-broker, 2026-11-06)
 
 넣을 곳: Trina AX core (`server/src/integrations/google-drive/broker.ts`, contract `shared/src/cloud-protocol/drive-broker.ts`)
@@ -13018,6 +13128,17 @@ middle of a word on a phone.
   always opens, and a message still being sent (no menu) opens on any press.
 - **Not in this change:** link previews (an unfurl needs the server to fetch the page, with SSRF rules), links in the
   room list's last-message line (the row is one link already), Markdown in people's messages.
+## 대화방의 트리나: an answer cut by a restart tells the asker (fix/room-ai-restart-error, 2026-11-12, QA TC-241)
+
+- **Problem.** With room AI mentions on, a question answered while the server restarted ended `error` on the server
+  ("서버가 다시 시작되어 답변이 중단됐어요."), but its `room.ai.run` went out while nobody was connected, and
+  `GET /api/rooms/:id/ai` listed only working runs: the asker saw nothing, page open or reloaded.
+- **Decision (the simplest option that meets the row).** `GET /api/rooms/:id/ai` also lists the asker's runs that ended
+  in an error in the last 24 hours (not stopped ones), so the existing line under the question ("트리나가 답하지 못했어요.
+  …", `EndedRun`) shows after a reconnect or a reload. Closing it is remembered in that browser for the person
+  (`localStorage`, the last 200), so a reload does not bring it back; nothing new on the server.
+- **Not done.** An Activity notice, a retry for the person, failures older than a day.
+
 ## 대화방의 트리나가 스레드도 본다 — the room's AI sees threads (feat/room-ai-threads, 2026-11-07, product owner)
 
 넣을 곳: trina-ax `server/src/rooms` (ai.ts, ai-context.ts, ai-tools.ts), `server/src/chat` (room-tools.ts, prompt.ts,
@@ -14795,7 +14916,9 @@ new button or card.
   (a shared chat, or mine with several authors), from that chat's messages read once with each word's `LIKE` once a
   message: a word counts through the title, a person's message, or an answer not hidden from me, never through a hidden
   one. Team file names (`team-files/find.ts`, also the chat's team-file picker): every word in the name, any case (the
-  follow-up). The palette marks the first match of every word, and puts first the chats whose title has every word.
+  follow-up). The palette also asks for folders (`folders=1`, QA TC-230): the folders the file screen shows the person
+  (`siblingVisible`), found by a walk of folders only (at most 20,000), listed before the files; the picker attaches
+  files only and does not ask. The palette marks the first match of every word, and puts first the chats whose title has every word.
 - **Chat search with a common word (the follow-up, fix/search-followups).** #349 read the messages holding any word in
   one pass over `messages_fts` (each word's `LIKE` twice a row, a join of `messages` and an object per row): on a word in
   most messages (one letter: ⌘K asks from the first) it was slower than before, and bun:sqlite holds the server for
@@ -15161,6 +15284,15 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
   ~/Library and app data under it), and the app cannot narrow what is readable inside a pick: every read through a
   handle is checked against the picked folder itself. Folders inside home (a .claude or .codex folder) are no blocked
   root and stay pickable.
+- **A refused folder is said (2026-11-11, QA TC-219).** The page cannot tell a refusal from Cancel (both `AbortError`), so
+  picking the home folder did nothing, without a word. Now, when the team page's own pick (top frame, allowed origin, a
+  folder) is refused, the team window says why in the app's language (`refusedFolderReason`: "the whole home folder
+  can't be picked; pick a folder inside it, such as Documents or Downloads" for home or a folder holding it, "this
+  folder holds system files" for the rest of Chromium's blocklist) with **Pick another folder** (Electron's `tryAgain`:
+  the folder window opens again) and **Cancel** (`deny`: the page's `AbortError`, as before). Any other refusal stays
+  silent, so no other page can raise the app's dialogs. Nothing about what may be picked changed. The page's drops use
+  `webkitGetAsEntry` and never reach this; a drop through `getAsFileSystemHandle` would get the same box, its
+  `tryAgain` ending as a refusal. Tests: tests/unit/e-desktop-folder-window.test.ts, desktop/e2e/folder-window.spec.ts.
 - **Home under another name (security review must-fix).** A root can be home, or above it: Windows lets people move
   Documents, Desktop or Downloads to `C:\Users\<name>` or `C:\`, and on macOS ~/Desktop can be a link to ~. So both
   the restricted folder and the request refuse a path that is home or holds it (`opensHome`): as written and with its
@@ -15194,6 +15326,17 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
   (`bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`): it pins Electron behaviour these rules rely on,
   and CI does not run the desktop e2e.
 - Version impact: **patch** (a desktop fix; no API, database or setting change).
+
+## W6 follow-up: the end screen names the steps put off (fix/onboarding-put-off-steps, 2026-11-12, QA TC-206)
+
+- **Problem.** With steps put off ("나중에 하기" on 2/5–5/5) the end screen said only "준비 끝났어요" + 홈으로, the setup
+  finished, the sidebar's setup row went and /welcome went Home: nothing said what was left or where to do it.
+- **Decision (the simplest option that meets the row).** W6 stays: put off counts as answered, so the setup still
+  finishes. The end screen lists the counted steps put off (offered on this device: not 도구 연결 on a phone) under its
+  buttons, each with **지금 하기** (not a primary): the step opens right there, and once it is answered (or put off again)
+  the page comes back to the end screen, which lists what is still put off. One line under the list says each can be done
+  later from its own place (관리자 › 팀 설정 › 회사 소개, 스킬, 파일, 연결한 서비스, 팀 메뉴의 팀원 초대).
+- **Not done.** Bringing back the setup row or /welcome after the setup finished.
 
 ## W6 — Onboarding v6: 팀 파일 recommendations (feat/onb6-files, 2026-11-08, product owner)
 
@@ -17250,7 +17393,8 @@ what each one is for.
   one when shared/ has a templates folder under any language's name (NFC, any letter case). Existing teams are not
   touched (nothing runs it for them). No department folders.
 - **The company start in shared/.** The team's start (`setupWelcomeTeam`) still makes the team group (the invite link
-  puts joiners in it; its team room), but the meeting notes and brand folders go to `shared/회의록/` and `shared/브랜드/`
+  puts joiners in it; no team room since "One room for the whole team"), but the meeting notes and brand folders go
+  to `shared/회의록/` and `shared/브랜드/`
   (with `이미지/`), and the welcome row records `teamGroup.home: 'shared'` (`TeamGroupRef.home`, optional; `teamHome()`).
   회사 소개's brand action writes 회사 소개.md and the website's pictures there; 팀 파일 uploads into `shared/<picked
   folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
@@ -20244,6 +20388,272 @@ overruled the review's MUST 1 and three of its SHOULDs:
   - the permission matrix and `security-route-coverage.test.ts`;
   - the web and desktop unit tests for Settings › Browser and the desktop's follow-off.
 
+## Plain words in errors, cards and steps — 오류·확인 카드·작업 단계를 쉬운 말로 (fix/plain-words-errors-cards, 2026-11-11, product owner)
+
+The owner (2026-11-11): Trina AX is used by office workers, almost never developers; every screen must make sense to a
+non-developer in a few seconds. The plain-words audit (2026-11-10) found the developer words concentrated in what the
+server sends: chat errors naming engines, proxies, API addresses, "(HTTP 502)" and admin menus that no longer exist;
+confirmation cards with `create_task`, a JSON dump, raw paths and a SHA-256; step lines with snake_case ids, raw ids,
+engine names, model ids and an English " (job)". The owner approved the audit's top 15; this is PR 2 of that work
+(items 3, 5, 6 and the server-sent parts of 11 and 15). Plan: `docs/AGENTS/plan/20261111-0044-plain-words-errors-cards.md`.
+
+- **Chat errors say what happened and who to tell** (`shared/src/api/errors.ts` CHAT_ERROR_MESSAGES, the generic
+  `engine_unavailable`): "지금은 AI가 답할 수 없어요. 팀장에게 알려 주세요.", "답하다가 멈췄어요. 다시 해 주세요.", "쓸 수
+  있는 AI 계정이 없어요. 관리자에게 알려 주세요." No engine, proxy, API or HTTP code in any language
+  (`tests/unit/chat-errors-plain.test.ts` checks every one). The server no longer adds " (HTTP 502)" to the text
+  (`chat/i18n.ts engineError`); the status stays in `params.status` for diagnostics.
+- **Where to fix it, for those who can** (`web/src/lib/chatErrors.ts`): the owner and admins read their own words with
+  the admin menu path, built from the menu's labels (`admin.title` › `admin.providers`, or › `admin.system` ›
+  `system.health`), so the path follows the menu when it is renamed (the other plain-words PR renamed 제공자 to AI 계정). The health
+  page is the owner's only (admins see the storage there), so `engine_missing` and `proxy_down` name it to the owner and
+  an admin reads the member's words. A member never sees a menu path. The "no AI" words with the connect button
+  (`aiConnect.error.*`) keep winning while no AI answers the owner or an admin; `credential_unusable` there now names
+  the real menu too (it said "관리 › AI 연결").
+- **Old stored errors still follow the language**: errors saved without `params.reason` are matched by their exact
+  text, so every earlier wording (all five languages) stays in `LEGACY_CHAT_ERRORS` / `LEGACY_ERROR_MESSAGES`, for
+  matching only. The engine and safe-operations refusals ("어떤 AI로 답할지는 관리자가 정해요. 그냥 보내면 팀 기본 AI가
+  답해요.", "이 팀의 보안 설정 때문에 …") have no stored form to keep.
+- **The connected-service card** (`integrations/connections/card-lines.ts`, `tools.ts gate`). It is a safety net, so
+  what the person needs to decide stays on it, and approve / deny do exactly what they did:
+  - The question names the tool by its MCP `title`, else its id in words ("AI가 Tasks에 이 내용을 보내려고 해요: 할 일
+    만들기"). The title is the service's text like the id: made one line, at most 80 characters, invisible and
+    direction-changing characters dropped, so it cannot add lines to the card. A service that would mislead with its
+    title could already mark the tool read-only and never be asked at all (`mcp.ts toolOf`), so the title widens nothing.
+  - Every value of the call is a labelled line (받는 사람, 제목, 마감일 …; a name not in `FIELD_WORDS` as its own words,
+    "page_id" → "Page id"), recipients first, **every text exactly as it is sent** (only a Windows line break read as a
+    line break; a long value scrolls in place). Two values whose names read the same get the name as sent after the
+    words ("내용 (html)"). A name with a long random-looking part stays as it is; names and values are highlighted alike.
+    The names' column takes at most 40% of the card and wraps, so a name never pushes the values out of sight.
+  - The exact JSON is one click away, "보내는 내용 그대로 보기" (`ConfirmDetail.exact`), with its size; open, it is what
+    the card showed before. A client that does not know `exact` shows the JSON open.
+  - Lines are made only when they can show all of it, else no lines and the JSON open as before, the recipients first
+    in words: more than 40 values, nested deeper than 4, over 20,000 characters; a name over 40 characters; an
+    invisible character in a name or a value (control, format, default-ignorable ones such as Unicode tags and
+    variation selectors, private use; an emoji's own joiners, selectors and skin tones are allowed); or spacing a line
+    would not show as sent (two spaces, a tab or another kind of space, a space at a line's end or start, more than one
+    empty line, white space at either end), which can carry data too (the review's finding: collapsing it hid it).
+  - The card now also highlights long random-looking parts (`opaqueParts`), in the lines and in the JSON. It had none.
+  - The size limit (`MAX_CARD_PAYLOAD`) is counted as before, on the JSON and the recipients.
+  - An HTTP API call is a request: "AI가 Tasks에 이 요청을 보내려고 해요: 지우기" (보내기, 바꾸기, 고치기, 지우기 for the
+    method), and the address it calls comes first as "보내는 곳", a word no argument gets; a JSON body as lines, a text
+    body open.
+- **Steps never show the AI's arguments.** A connection's step is "Notion · Create page" (`stepOf`), an HTTP API's
+  "Tasks · 보내기", a `call_tool` whose name matches no tool "작업" (that name is the AI's own text). This amends the 0.2.19 review's "a short look at the arguments" (`argsPreview`, S8): a price check
+  and the paid run it was for no longer read differently in the steps; both are on the activity log and the paid one
+  asked on its card. With no arguments there is nothing to hide, so `argsPreview`, `secretArg`, `hideSecretsInText`
+  and their test are gone.
+- **Step lines** (`shared/src/step-labels.ts`): a tool without words of its own reads as its id in words
+  (`readableToolName`: "TodoWrite" → "Todo write"; nothing left → 작업; cut to 200 characters first, with linear
+  patterns: an AI's long text cannot stall the server); no schedule or Drive ids (the verb alone);
+  no engine names or model ids ("AI가 답하지 않아 다른 AI로 다시 답해요", "고른 AI를 지금 쓸 수 없어 팀 기본 AI로
+  답해요"); " (job)" / " (background)" in the language on screen; verbs 화면 만들기, 자료 지도에서 찾기, 페이지에서 동작
+  실행, 페이지 오류 보기, 페이지 통신 보기, 쓸 수 있는 기능 찾기. Stored steps with the earlier templates or verbs are
+  redrawn in today's words (`LEGACY`, `LEGACY_VERBS`; a model id or engine name they held is dropped).
+- **Places in words on cards** (`chat/place-words.ts`): the Files screen's words for the top folders (`labeledPath`:
+  전사 공유, 부서, 프로젝트, 팀 스킬), 내 폴더 and 첨부한 파일 (`placeName`), another person's folder by their name, the
+  team folder's top as "팀 폴더 맨 위". Not `placeName` alone: it says a group's brand folder and the company's both as
+  "브랜드 폴더", and a card is where the person decides, so two places must never read the same. Two people of the same
+  name are told apart by their user name ("김민수 (kms)님의 폴더"); a folder at the top named like a place ("내 폴더",
+  "전사 공유") reads "팀 폴더 맨 위 › 내 폴더". A path with `.` or `..` is shown as given. Left as is: the person's own
+  attachments read "첨부한 파일 › 사진.jpg" whichever chat they came from (placeName; only their own). Used by the wider-audience card (target and sources), the shared-read card, the room change card's
+  question and fields, move/copy, the trash card's list, the team-skill save card (and the web preview's path, on hover
+  as a path) and save_room_file's default. What the AI reads, refusals and the activity log keep the disk path.
+- **The wider-audience card has no SHA-256 line.** A safe-operations PowerPoint's approval is still bound to those bytes
+  on the server (`safe-ops/publication.ts` binding, checked again before the link); the hash stays in
+  `safe_ops_publications` and the file event of the activity log.
+- **The person's own draft**: "내 폴더에 저장할 요청 준비" writes "…같은 내용을 내 폴더에 저장해 줘." with the place in words,
+  no `users/<id>`; the AI is told which folder 내 폴더 is (`chat/prompt.ts`).
+- **A connection's sign-in failure** is said in words (`integrations.signIn.reason.*`), not its stored code (denied,
+  invalid, changed, superseded). Merged with "A sign-in that did not finish says why" (#381), which did the same:
+  its `flowReasonKey` (`lib/integrations.ts`) and its words are kept, and they also cover `client` and `exchange`.
+- **Left for later**: the Google Drive routes' error codes (the web already words them where they show), background
+  job exception text, the English-only dev-environment card and errors, the in-app browser's "사내망 주소" card, the
+  skill-move card's path box, the schedule template's run message, and every web-only item of the audit (the other
+  plain-words PRs).
+- Tests: `tests/unit/chat-errors-plain.test.ts`, `c-integrations-card-lines.test.ts`, `step-labels-plain.test.ts`,
+  `place-words.test.ts`, `c-integrations-slow-list.test.ts` (no arguments in a step); web unit `chat-error-words`,
+  `ask-card-exact`; e2e `chat.spec.ts` (the error box as a member and as the owner), `safety-cards.spec.ts` (the lines,
+  the exact JSON, the fallback), `plain-steps.spec.ts`, `exfil-followups.spec.ts`.
+- Version impact: **patch** (new wording, one optional card field, no data change).
+
+## 열 수 있는 사람, 드라이브 공유 창처럼 — Who can open it, like Drive's Share (feat/drive-like-access, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`web/src/components/FolderAccess.tsx`, `web/src/pages/admin/FolderSharing.tsx`,
+`web/src/pages/admin/useRulesDraft.ts`, `web/src/lib/folder-sharing.ts`, `server/src/admin/access-edit.ts`), 이유:
+files and permissions are core. Plan: `docs/AGENTS/plan/20261110-1715-drive-like-access.md` (Google Drive's and
+Notion's help pages, two reviews of two rounds). Amends "폴더를 볼 수 있는 사람, 그 자리에서" (#306/#307): its admin part
+and "not a second editor in Files".
+
+The owner, after #306/#307: "It still looks much harder than Google Drive. Is there no way around that?" and then: our
+users are office workers, not developers; the panel must make sense in a few seconds, like Drive's.
+
+- **The admin's panel is Drive's Share dialog in our words.** Title "Who can open it" (열 수 있는 사람; the ⋯ entry too),
+  the folder's own name under it, never a path. One add field ("Add people or groups"), then one row per person or
+  group set here (a group stays one row, "Group · 5 people") with a select **Can view / Can edit** and ✕; a person in a
+  group set here with another setting says "In Sales, but can only view here" (the person's own setting wins here).
+  People and groups that a folder above lets in come after them, greyed, "From the Sales folder · Change there ›": the
+  whole row opens that folder's panel in place, with "Back to Quotes". **General access** is one select with Admin's
+  four basic choices in plain words: "Same as the {folder} folder", "Only people added here", "Everyone at {team} · Can
+  view / Can edit", and one line under it that is true for what is on screen. Then one quiet line, "Owner and admins
+  can always open team folders.", and "2 folders inside are shared differently · Open in Folder permissions".
+- **Removed from the panel:** the rows of people who cannot open it ("Name only", "on the way to"), the reason under
+  each person, a row per admin, the counts line, the headline, the red "folders inside have their own rules" line,
+  [Set rules] and the trip to Admin's editor for everyday changes. Admin › Folder permissions stays the full view
+  (setting someone to "No access", why one person can open something, every folder at once).
+- **Deepest wins, said before Save** (the owner chose to keep it): a setting here can give less than a folder above, and
+  adding a group can lower someone who could edit through a folder above (Drive and Notion only add up). While
+  something is changed, "What will happen" names the people from the server's answer for exactly the draft on screen:
+  "Erin will be able to open it", "Bob will only be able to view it", "Carol will no longer be able to open it" (three
+  names, then "and N others"; in `skills/` losing edit is "…no longer be able to change the team's skills").
+- **One save path.** The draft, the server's preview, the rules hash it started from, the save (PUT
+  `/api/admin/folders/:id/rules`, or POST `/api/admin/folders` with `create: false`), 409 handling and "load theirs"
+  moved out of Admin's editor into one hook (`useRulesDraft`) both use; Admin's editor did not change. The panel always
+  sends the hash; the server's checks are the same as for Admin's editor (admin only, not in `users/`, `shared/` and
+  `skills/` keep a rule, subjects that exist once, the hash, the audit row, the after-change effects).
+- **Keyed per folder.** The panel's body is mounted per folder (`key`), and an answer is kept by its folder and its
+  rules, so a draft or an answer of one folder never counts for another ("Change there" asks first when something
+  changed).
+- **Save asks the server again, and asks before more access.** Save asks the preview again at once for the draft; if the
+  answer differs from what was shown (someone changed a folder above, a group, a role), the new one shows and Save needs
+  another click ("This changed just now. Check the list and save again."). Whether to ask comes only from that answer:
+  someone in the team gains access here or in a folder inside (`changes`, exact for everyone counted), or the rules give
+  more to someone the head count cannot see (`latentMore`: a person switched off, whoever joins the team or a group the
+  rules name, an "everyone" that names nobody today). A guess in the web from the settings themselves was tried and
+  dropped in review: it asked "Give more access?" for a change that only lowered someone. The title says it ("Let 1
+  more person open it?", "Let 2 people edit it?", "Give more access?"), the body names the folder and who (losses in
+  the warning colour; who gains that no head count sees, by name: "Gina (switched off) will be able to open or edit it
+  when switched back on.", "People added to Design later will …", "People who join Acme later will …"; the preview's
+  `latent` says who), and its button asks the server once more before the write. Taking the team's own files or
+  skills from members asks in its own words ("Take access away?", "Their AI won't be able to open Company-wide
+  either.", "Save anyway"). Anything else that only narrows saves straight, "What will happen" having named who.
+  Leaving the panel (close, another folder, a link) while Save is on its way stops that Save at its next step; two
+  clicks are one Save.
+- **A team project's folder and everything inside it** are shown, not changed, and no admin endpoint is asked there
+  (the chip's tree ask too): the count (#341's split for the owner and admins, without its role line: the footer says
+  the owner and admins can always open it), the project's lines and [Members], or inside it "Open in Folder
+  permissions". The owner chose project contents members-only (`feat/project-members-only`,
+  which refuses admin rule writes and answers there); until it lands Admin › Folder permissions still edits inside a
+  project. A project made before outside `projects/` keeps the panel's editing, with its lines on top.
+- **Members learn nothing new.** Their panel says what #306 said, with the panel's one verb: "6 people can open it
+  (owner and admins included)", "Everyone at Acme can open it", "An admin changes who can open it.", their own folder,
+  a project's lines. No list, no Can view / Can edit (whether everyone can edit was never told), no "same as". The
+  admin part is a chunk loaded only for admins, and every admin read and write is refused to members by the server.
+- **The chip stays the count** (#341's rule: "3명" for the owner and admins, the total for members).
+- **Outcomes kept apart, in the panel and in Admin's editor** (hands-on QA): read & write → read is "can no longer
+  edit", not losing access. The panel's line says "Erin will no longer be able to edit it"; Admin's Save button and the
+  summary of a change say "Save (2 can no longer open it · 1 can no longer edit · 3 can now open it · 2 can now edit)"
+  (`outcomesOf`, `outcomeWords` in `web/src/lib/access-edit.ts`, from the server's `changes`); their lists' headings
+  say "can do less / can do more", and the folders below "{n} can do less / more" (the server counts those without the
+  kind). "Save (folders inside change)" when only folders below change.
+- **Server:** the edit preview says what the folder above gives everyone in one field, `everyoneAbove: { access, folder
+  }` (the permission function for a member nobody names, the folder's own rules left out; null at the team root): the
+  grouped `above` shows nobody when every member is named by a group rule. And `latentMore`: the permission function,
+  before and after, at the folder and its rule folders below, for every switched-off person, a member nobody names, one
+  made-up member per group the rules name, one per pair of the groups named on the way to the folder and below it
+  (group rules take the widest, so two groups together can differ from either alone) and one in all of them. A Save
+  whose fresh answer comes while the "Discard your changes?" question is open does not write. `POST /api/admin/folders` takes at most 200
+  rules (as PUT), and a rule row made meanwhile is a 409 with `params.reason: 'folder_exists'`.
+- **Phones:** the same panel in the app's bottom sheet, 44 px selects and ✕, a row's second line wrapping (never cut),
+  Save and "What will happen" in the sheet's own footer (the Modal's footer slot, on computers too), the confirm over
+  the sheet, "Change there" swapping the sheet's content. #339's shared phone rows were not on
+  dev yet; the rows use the same sizes and move to `CompactRow` when it lands.
+- Words: English first, then ko, id, ja, es; no "rule", "inherited", "grant" or path on screen.
+- Tests: `tests/security/folder-sharing.test.ts` (a member is refused every admin read and write of the panel and gets
+  the same audience answer; the save's server checks; the confirm decision on the real server's answers, including
+  people switched off on the server, empty groups and the count-0 "everyone"); `tests/unit/access-edit-everyone-above.test.ts` (against the permission function on
+  random worlds); web unit `folder-sharing.test.ts` (rows from above, names, when Save asks, the answer asked again),
+  `folder-sharing-panel.test.tsx` (per-folder drafts, the fresh ask, the confirm, 409), `folder-access.test.ts`; e2e
+  `folder-access.spec.ts` (add, change, remove, general access, rows from above read only, the names who lose access, a
+  project folder read only, members, phones), `access-edit.spec.ts`.
+- Version impact: **minor** (admins change who can open a folder in the Files page; one optional field on an admin
+  answer; no migration).
+
+## AI가 브라우저를 쓰는 동안 — the AI-control signal in the in-app browser, calm but unmistakable (fix/desktop-browser-pane, 2026-11-11, product owner)
+
+- **Why:** the owner: "the orange is really bad". While the AI ran a browser call, the desktop app's browser toolbar
+  showed a full-width orange bar ("● AI가 브라우저를 사용 중" + 멈추기) and the toolbar view painted its whole body in the accent
+  colour, which showed as a 3 px orange frame around the page (the tab view was inset by 3 px for it) and, before the
+  first tab was on screen (the site question of a turn's first page, the moment the tab was being made), as a pane of
+  solid orange. This is a safety indicator ("the AI is in control of this browser right now"), so its look is recorded
+  here.
+- **The signal now** (`desktop/src/ui/pane.ts`, `ui.css`): one row in the toolbar on the toolbar's own surface (light or
+  dark): a small accent dot that pulses (a ring that grows and fades, 1.6 s), the words "트리나가 브라우저를 쓰는 중" / "Trina is
+  using the browser" (id, ja, es likewise; the AI by its name, as the web app's "트리나가 답하는 중"), the AI's latest action in
+  this call in muted text as before, and **멈추기** as a solid ink pill with a stop square: it stands out by its shape and
+  contrast, not by a colour wash. A **2 px accent line** runs along the top of the page (inside the toolbar's bottom
+  edge, so the page's size does not change). No frame: the page keeps its full width while the AI drives.
+- **Same rules as before for when it shows:** while a browser call runs (`driving`), in the desktop's own toolbar (a
+  page cannot draw, hide or fake it); gone when the call ends or the person presses 멈추기 (stop cancels every running call
+  and denies open questions). The row still takes its place in the toolbar while it shows (the page moves down by it),
+  as the site question and the notice line do.
+- **Kept unmistakable:** text that names who is in control, motion (the pulsing dot; static under "reduce motion"), an
+  accent line across the whole top of the page (the only one there; the edge handle's accent line shows only under the
+  pointer or the keyboard), and the strongest button in the pane. The site question card keeps its accent border: it is
+  a question to the person, not this signal.
+- **No solid colour before the first paint:** the toolbar view's body is never the accent colour. Under the toolbar,
+  where the page goes, it shows the theme's canvas (`--bg`); while the tab's page loads, one quiet line "페이지를 여는 중…"
+  with a small spinner; with no tab and the AI not at work, the old one-line hint. A tab is put on screen (`setVisible`)
+  only once its first real page commits (`did-navigate` to anything but about:blank) or fails with an error page: an
+  empty tab (about:blank, white in dark mode too) is never shown, and its tab is called "새 탭", not "about:blank". Left
+  as is: from the commit to the site's first paint the tab shows its own white base for a moment, as any browser does
+  (showing it later, at its first paint, is not possible while it is hidden: a hidden page does not paint). It stays
+  attached with its size, so the AI's page reads and clicks see the same viewport as before; a screenshot of a
+  still-empty tab draws it first. The window's own colour (behind the views before they draw) follows the system's light
+  or dark look (`nativeTheme`), in place of a fixed light grey.
+- **Rejected:** keeping the orange bar in a softer tint (still a wash of colour on every call); a coloured frame of 1 px
+  (it narrowed the page and every call resized it); moving the signal into the team page (a page served through the
+  relay must not be able to fake or hide it, see "사이트 허용·사내망 확인 창, "AI가 사용 중" 표시는 데스크톱 자체 화면").
+- Tests: `tests/unit/e-pane-width.test.ts` ("wiring": no accent body or bar, no inset, the 2 px line, tabs drawn on
+  their first page, the words in five languages, the window's colour), e2e `desktop/e2e/pane-look.spec.ts` (the signal
+  shows with its words and Stop, the computed colours and a pixel of the pane before the first page draws are the
+  canvas, not the accent; the tab hidden while its first page loads and shown after; the page's width unchanged while
+  the AI drives; Stop and a call's own end take the signal away; the window's colour in dark; with `SHOTS_DIR`, the
+  whole window in light and dark, asking, loading, the AI in control, idle, dragged narrow and wide).
+- Version impact: **minor** (a visible change in the desktop app; no API, bridge or data change). Ships with the next
+  desktop release.
+
+## 브라우저 너비는 끌어서 — the in-app browser's width is set by dragging its edge (fix/desktop-browser-pane, 2026-11-11, product owner)
+
+- **Why:** the owner: "it'd be nice to make the browser wider and narrower", as the thread panel and the file view can
+  be (`web/src/components/PanelDivider.tsx`). The desktop had a splitter, but it was only the toolbar's left 6 px (the
+  tab view covered the rest), not reachable by keyboard, and the width was only written when the window closed.
+- **The edge** (`desktop/src/common/pane-width.ts`, `main/app-window.ts`, `main/pane/pane.ts`, `ui/pane.ts`): the
+  browser toolbar's view reaches 6 px to the left over the team page's right edge; that strip is transparent (the view's
+  own background is `#00000000`, its page paints only the pane) and is the handle, full height: a 1 px line, the
+  `col-resize` cursor, a 2 px accent line on hover, focus and while dragging, as `PanelDivider`. The toolbar view is
+  kept above the team page and the host strip for it. Cost, accepted: the team page's last 6 px take no clicks or wheel
+  of their own (a scrollbar shown all the time there is 6 px narrower to grab), as the web's divider takes 5 px of its
+  panel; the strip cannot sit over the browser's page instead, because the page's view is above the toolbar's. Drag it;
+  double-click for the default width (45% of the window, forgotten); focus it (Tab in the toolbar) and use ←/→ (24 px,
+  Shift 96 px), Home and End. It is a `separator` with its width and limits as aria values.
+- **Limits and memory, as the web's panels:** the team page keeps 360 px and the browser 400 px (the window's minimum
+  width, 900 px, leaves room for both; where a window is narrower the browser's minimum wins). The width is kept as a
+  share of the window in `window.json` (`paneFraction`; absent: the default), written when a drag ends, a moment after
+  the keys stop and on a double-click as well as when the window closes, so a window resize keeps the share within the
+  limits and a restart brings it back. A press without a 3 px move changes nothing.
+- **Layout:** the edge's page sends the edge's screen position once per animation frame while dragging (the views move
+  under the pointer, so not its own coordinates); the main process lays out the team page, the host strip, the toolbar
+  and the tab in the same turn.
+- **Focus (#327, "창으로 돌아오면 키보드는 보던 곳으로"):** a press on the edge lands in the toolbar's view, and the system gives that
+  view the keyboard; the press does not move the focus inside the toolbar (the address bar keeps it). When the drag ends
+  (or a click without a drag), the keyboard goes back to the view that had it before the press, if the toolbar still has
+  it, that view is still on screen and no dialog or menu of the app is open; the team page's own element (the message
+  box, its draft and caret) is kept by focusing the view. The press does not count as "the person's last action was in
+  the in-app browser" (that is set back when the drag starts), so a page load there during or after the drag does not
+  keep the keyboard (`keyboardTaken`: a load there gives it straight back to the toolbar, and the release then to the
+  view before the press). Giving it back during the drag was rejected: the pointer capture of a drag in a view that lost
+  the focus is not something to rely on across systems.
+- **Rejected:** a gutter of a few px between the two pages (always visible, narrows the browser); a separate view for
+  the handle (not reachable by Tab from the toolbar); remembering px (overflows a smaller window).
+- Tests: `tests/unit/e-pane-width.test.ts` (limits, the default, a window resize, reading `window.json`, settling a
+  width, the edge from screen coordinates, keys, the grab strip; the channels answer only the toolbar), e2e
+  `desktop/e2e/pane-resize.spec.ts` (a drag moves both views' bounds; the limits; a press without a move; a smaller and
+  a bigger window; the width after a restart; keys, Shift, Home, End and their aria values; a double-click; the message
+  box keeps the keyboard, its draft and caret across a drag, typing goes on there, also when the AI loads a page in the
+  browser during the drag; the address bar keeps it).
+- Version impact: **minor** (new desktop behaviour; no API, bridge or data change; `window.json` keeps its field). Ships
+  with the next desktop release.
+
 ## A sign-in that did not finish says why — 로그인 실패는 이유를 말한다 (fix/activity-tabs-oauth-errors, 2026-11-11, QA TC-020)
 
 - **Never a code.** A failed sign-in at a service (MCP OAuth, an own app) used to show its stored reason as is: the row
@@ -20358,6 +20768,58 @@ that it is trying again, and the content back by itself.
   light and dark).
 - Version impact: **patch** (how existing failures look and behave, and a few words; no API or data change).
 
+## QA 11-11 polish — 다시 연결되면 저절로, 보기만 주면 "열 수 있게", 쉬운 말 카드 (fix/qa-1111-polish, 2026-11-11, QA TC-231..TC-235)
+
+- **After a dropped connection, a page part comes back by itself** (TC-231, `components/ChunkErrorBoundary.tsx`). A lazy
+  page part (a route such as Files) that could not load while the server was out of reach used to say "Reload to get
+  the current version" and wait for a click. Now, while out of reach, it says it loads by itself once the connection is
+  back ("연결이 끊겨서 이 부분을 불러오지 못했어요. 다시 연결되면 저절로 불러와요.") and, when the live connection is open
+  again, asks the same reload as before (`reloadForChunkError`): never while something would be lost (an upload, a
+  recording, a draft, a message not sent, an answer still streaming) and at most once per 5 minutes in a tab. Held back
+  by something that would be lost, it asks again every 3 seconds while connected, as the update watcher does (an answer
+  that was streaming when the connection dropped ends a moment after it is back); the line promises "by itself" only
+  when nothing has to be finished first and the 5-minute guard allows it, else the Reload button stays, as before. A
+  reload, not a second import: browsers may keep a failed module import, so trying the import again is not reliable.
+  A reply typed in a room's box now counts as a draft too, also when its box is no longer on screen (`RoomComposer`
+  marks it busy; `reloadWouldLose` counts every non-empty `roomDrafts` entry, which lives only in this tab's memory),
+  for this reload and the one after a server update.
+- **Home's goal card reads the goal again after a connection failure** (TC-231, `HomeGoal`): the same `useAutoRetry` as
+  `LoadError` (backoff, and at once when the live connection is back). A read that fails keeps the card on screen; a
+  refusal or a missing goal still shows nothing.
+- **Who gains later: "open" or "open or edit" by what they get** (TC-232). `FolderEditPreview.latent.edit` (optional)
+  says for whoever joins the team, people switched off and whoever joins the groups whether one of them would get edit
+  somewhere (at the folder or a rule folder inside), from the same before/after permission checks as `latentMore`. The
+  confirm says "열 수 있게 돼요" for view and keeps "열거나 고칠 수 있게 돼요" for edit, and for an answer without the field.
+  Korean lines of the panel no longer put "이(가)", "은(는)", "(으)로" or "을(를)" after a name, in one pattern: "열 수
+  있게 되는 사람: Dan", "더 이상 열 수 없게 되는 사람: Dan", "사용 중지가 풀리면 열 수 있게 되는 사람: Dan", "'영업' 폴더로
+  돌아가기". One line per kind: when one of its groups (or people switched off) gets edit, the line says "열거나 고칠 수"
+  for all of them (the safe side).
+- **A tool may give the room card its own words** (TC-233, `TurnTool.card`, `ChatToolSet.card`, `TurnExec.toolCard`).
+  Words only: whether the card is asked and what yes allows are unchanged. `api_request` after a room read: "{service}에서
+  읽어 오기" for GET and HEAD, "{service}에서 무언가 바꾸기" otherwise, the address it calls ("주소" for a read, "보내는
+  곳" for a change), a JSON body as lines, and the exact request (`GET https://…`) behind "보내는 내용 그대로 보기". The
+  address is the one the person may see (`shownUrl`): their own connection's in full, a team's or a template's without a
+  query its admin set, as the connections list and the AI's tool list show it; the connection's own card now does the
+  same (it showed the admin's query to members). With a query left out the request is not "exactly what is sent" and
+  stays open. The connection's key name (`team_x`) and the AI's
+  arguments are not on the card. The room card's lead line ("…바꾸기 전에 먼저 물어봐요") stays: some APIs change
+  something on a GET, which is why a read asks here at all.
+- **A switched-off AI, for the owner and admins** (TC-234, `engineOffAdmin`): "이 AI는 팀에서 꺼져 있어요. 관리자 › AI
+  계정에서 켜거나 다른 AI를 골라 주세요." Only when it is Admin's switch that is off (not an AI this installation lacks
+  or the API AI without its settings). Members keep "관리자가 이 AI를 꺼 두었어요."
+- **A broken connection's reason for someone who cannot fix it** (TC-235, `reasonText(code, locale, can)`): a member on
+  a team connection, or anyone but an admin on the address of a connection made from a team template, reads "서비스에
+  연결하지 못했어요. 관리자에게 알려 주세요." for an address problem and "이 서비스에 쓰는 팀의 키나 로그인이 안 돼요.
+  관리자에게 알려 주세요." for a key or sign-in problem on a team connection. No admin is named.
+- **"All websites" in the words of the line beside it**: "알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 묻지만, 눈에
+  띄는 것만 걸러요." (the card and the two Settings hints, five languages); no "토큰" or "긴 문자열". The risk sentence and
+  its version are unchanged.
+- Tests: web unit `chunk-reload` (offline line, one reload when the connection is back, none while something would be
+  lost or after leaving), `goal-card` (the card back after the connection), `folder-sharing` (latent lines, Korean
+  particles); unit `access-edit-everyone-above` (latent edit), `c-integrations-tools` and `b-chat-rooms` (api_request's
+  card), `engine-choice`, `c-integrations-api` (member reasons), `web-allow-all`.
+- Version impact: **patch** (words and recovery; one optional field in the edit preview).
+
 ## Project cards: one height, and who sees it instead of the folder — 프로젝트 카드는 같은 높이로, 폴더 대신 누가 보는지 (fix/projects-even-cards, 2026-11-11, product owner)
 
 The owner saw the Projects list with a project that had no instructions: its card was much shorter than its
@@ -20385,6 +20847,1439 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   plain-words follow-up decides those.
 - Tests: e2e `project-list-menu` (the cards of a row are one height at 1440, also beside a name that wraps; one card
   per row at 390; the who line and the empty line). Version impact: **patch** (layout and words on one page; no API or data change).
+
+## Another person signs in over a session (fix/web-reset-user-switch, 2026-11-11)
+
+- **A change of the signed-in person in one window is a sign-out and a sign-in.** A password reset link completed while
+  someone else is signed in (a shared computer) used to keep the first person's stores and live connection: only
+  "signed in" → "signed out" emptied them. Now `useSession.signedIn()` (web/src/store/session.ts), when the person
+  changes, first does what a sign-out does in this window, before the new status is shown: it forgets what the tab kept
+  (`forgetPersonInTab`, as `signedOut`) and runs the hook App.tsx sets (`setBeforePersonSwitch`): close the live
+  connection, empty every per-person store (also the AI picker's list, the unread Inbox count, job cards and the chat counted as
+  on screen, emptied at a plain sign-out too), and remove this browser's drafts, send queue and
+  uploads as the account menu's sign-out does (`clearLocalData`). Done there and not in an effect so that no screen of
+  the new person mounts on the last person's data (child effects run before Gate's). `useSessionLifecycle` then opens
+  the new person's connection and loads the page again; the screens are also keyed by the person.
+- Why the reload too: it drops every module's own cache and any answer to a request the last person had on its way,
+  which no list of stores can promise; the in-place sign-out makes the window right at once and stays right when the
+  reload is held back (a "leave this page?" prompt).
+- The AI picker's list (`store/engines.ts`) has `reset()`; a failed read is asked again by the next `load()` (it was
+  kept as "loaded, empty" until a reload). An answer to a request made before a reset is dropped.
+- Left for the server: the reset ends the new person's other sessions, not the session of the person whose cookie it
+  replaced in this browser (that one stays valid until it expires).
+- Tests: web unit `person-switch` (A's stores and socket, reset completed as B: nothing of A, a new socket, a reload).
+- Version impact: **patch** (no API or data change).
+
+## 브라우저 정리가 멈춰도 트리나는 계속 — a stuck storage clear never stops the in-app browser or team removal (fix/desktop-clear-storage-hang, 2026-11-11)
+
+- **Why:** testing PR #360 on macOS 26.6 (Electron 44.7.2), `session.clearStorageData()` with no list never settled.
+  The in-app browser runs that clear when another person signs in to the team or the person signs out
+  (`BrowserPane.resetForNewPerson`, `AppWindow.checkBrowserOwner`, "In-app browser data belongs to one person" above),
+  and every AI browser call waits for that identity check (`ensureBrowserOwner` shares the pending read), so every
+  later browser call of the AI waited forever; removing a team (`removeTeam`) awaited the same clear and never
+  finished. Reproduced on the same Mac with a bare Electron app (no Trina code) and with a copy under another bundle
+  id: with no list (and `{}`), `clearData()` and `clearData({ dataTypes: ['cache'] })` hung; each of the seven named
+  storage types, the seven together, `clearCache()` and `clearAuthCache()` settled in 1-2 s and removed cookies,
+  localStorage, IndexedDB, Cache Storage and service workers. Earlier the same day, on the same Mac, everything settled.
+  What differed: the Mac was overloaded (load average ~230 on 10 cores): a process started at background priority
+  (`taskpolicy -c background`) had not run after 9 minutes while one at default priority ran at once, and the hung
+  app had threads stuck while starting at background priority. The likely reason: with no list Electron asks Chromium
+  for every data type (`REMOVE_DATA_MASK_ALL`), some of the extra subtasks run on Chromium's background-priority
+  threads, macOS runs those only on free efficiency cores, and the promise settles only when the last subtask reports
+  back. (Quitting was slow on that Mac too, but for every Electron app: a bare one that cleared nothing was still
+  running a minute after `app.exit`, so that is not from the clear.) No matching Electron
+  issue was found (electron/electron issues and pull requests for `clearStorageData` and `clearData`). A packaged
+  build runs the same Electron, so it is very likely affected on a Mac that busy; how often customers' Macs get there
+  is not known.
+- **The rule** (`desktop/src/main/clear-session.ts` `clearSessionData`): every clear of a session in the desktop app
+  names its storage types (`cookies`, `localstorage`, `indexdb`, `filesystem`, `serviceworkers`, `cachestorage`,
+  `shadercache`; session storage goes with local storage) and clears the HTTP cache and HTTP logins beside it. Each of
+  the three has a 10 s limit. One that runs out of time is logged (`[desktop] clearing … did not finish`, on the
+  console only: the desktop app has no log file) and the caller goes on: the pane still closes its tabs and forgets
+  allowed sites, the identity check still records the new person, the team is still removed. Chromium starts all
+  subtasks at once, so the other types are cleared even when one does not report back; a clear that finishes late
+  also removes what the next person stored meanwhile (they sign in again). One that fails (rejects or throws) is
+  handled as before the limit: the new person is not recorded, that identity check and the AI call waiting for it
+  fail, and the next check clears again.
+- **Team removal:** the team leaves the list at once (it can no longer be opened or removed twice while its data
+  goes), then both partitions are cleared side by side (at most one limit, not two), then its files go. Before, the
+  team stayed in the list until the clears were done.
+- **Left out:** the types only a no-list clear asks for: media licences, interest groups, shared storage, attribution
+  and performance-observer data, and device-bound sessions. Sites keep sign-ins in cookies and site storage, which the
+  list covers. Device-bound sessions can issue a sign-in cookie again after it is deleted, but they need a signing
+  key service that Electron 44 does not give the network service (electron/electron#54074 adds one behind a fuse that
+  is off by default); recheck this list when that lands. A clear that runs out of time is not tried again.
+- Tests: `tests/unit/e-clear-session.test.ts` (the time limit, the list, side by side, a throwing or rejecting clear,
+  `clearFailed`, no other clear call in `desktop/src`, the three call sites, a failed clear not recording the new
+  person, the removal order), `desktop/e2e/clear-storage.spec.ts` (a no-list clear that never settles put into the
+  real app: sign-out, the next person's AI call at once and nothing of the first person's cookie, localStorage,
+  IndexedDB, Cache Storage or service worker left, team removal finishing; every clear stuck: the call goes on after
+  the limit, the next person is asked again, team removal still finishes). The first fails on the code before this
+  change (times out). On the overloaded Mac, where `person.spec.ts` failed on dev, it passed with this change.
+- Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
+
+## QA follow-ups: no admin named to members, a schedule card's rooms are read only, no stale template row (fix/qa-final-followups, 2026-11-11, QA on dev 1565b39f1)
+
+- **Templates and requests never name the admin to a member.** "Admins are never named" (above, review of #273) now
+  covers connections an admin sets up for members too. A template's connect dialog read "최관리님이 팀을 위해 준비한
+  서비스예요"; it reads "A service your team set up for you" / "팀에서 준비한 서비스예요". A request to a member reads
+  "An admin asked you to connect …" in the live banner (`requestNotice`, server text), "Asked by an admin · until …" in
+  its line and "An admin asked you to connect this service with your own account." in its dialog (the inbox already said
+  "An admin"). The server does not send the name either: `MyIntegrationTemplate.createdBy` is always null
+  (`templates.ts listMine`), and a member's own request (`requests.ts view(…, forMember)`: list, one, decline) has
+  `requestedBy` null. Both fields stay in the contract so older clients still read the lists. Admin views keep the
+  name (Admin › Connectors' templates, "Requests to members", the activity log), and a project's creator stays named
+  where the projects decisions allow it. Key `integrations.template.yourTeam` is gone.
+- **A schedule card's rooms are what a run may read, not where it may send.** With no save folder the card listed rooms
+  as "읽고 보내도 되는 대화" (may read and send). A run never posts to a room (`post_to_room` refuses in a scheduled run,
+  "Scheduled tasks: saving and sending allowed on the card"), and no other tool posts there; a room on the card lets a
+  run read it, and after reading it send only to the person's own connections the card pinned, which the "Where it may
+  send" line already says. The line is now "읽을 수 있는 대화: …" / "Conversations it may read: …" in all five
+  languages. Words only: what a run may do is unchanged.
+- **A dropped template connection leaves no stale row.** When an admin changes a template's address, sign-in method,
+  header or app, deletes it, or its rule leaves a member out, the members' connections made from it are dropped
+  (`service.ts dropFromTemplate`). A member whose Connectors page was open still saw the old row, and its "다시 시도"
+  said "찾을 수 없거나 접근 권한이 없어요" until a reload. Now (1) `dropFromTemplate` sends each member whose connection
+  went one quiet notice, `integrations_changed` (no text, like `profile_changed`; the inbox notice says what to do), and
+  the Connectors page reads its lists again (`store/live.ts integrationsChanged`, as `reloadAsked`); (2) an action on a
+  row that comes back 404 (check again, sign in, a tool switch, delete; `IntegrationRow.tsx useIntegrationActions`,
+  `useSignIn(…, onGone)`) reads the lists again with "This connection is no longer here, so the list was updated."
+  instead of keeping a failed state on a row that is gone, as FromTeam's connect already reloads on 409.
+- Tests: `tests/unit/c-integration-templates.test.ts` ("QA follow-ups": no maker's name in a member's list; the notice
+  to the member whose connection went, once, nobody else), `tests/unit/c-integration-requests.test.ts` (banner and the
+  member's views without the admin's name; the admin's list keeps it), `tests/unit/schedule-card-rooms-line.test.ts`
+  (the rooms line in five languages, no word of sending), web unit `integration-gone` (404 on check again, sign in, a
+  tool switch: lists again, no failed state; the notice reaches the page without a toast).
+- Version impact: **patch** (words; two fields always null for members; one new notice code an older web shows as an
+  empty toast at most). Needed in the core too (potenlab/team-ax): everything here.
+
+## File list — 파일 목록; the AI greps a `_FILES.md` that says what each file is (feat/file-list, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`server/src/file-list/`, the AI's file tools in `files/service.ts` and `files/search.ts`,
+`chat/prompt.ts`, Admin › Team settings), 이유: files, the AI and its engines are core. Plan:
+`docs/AGENTS/plan/20261111-0630-file-list.md`. Replaces the knowledge graph's job of finding files by what they are.
+
+- **Why.** On a made-up 2,238-file folder, 184 find questions with Claude Code: 172 right with no list, 181 with an
+  English list (180 English + Korean); the line "grep the _FILES.md files first" raised list use from 48% to 92% and cut
+  mean tool calls from 6.0 to 4.3. Haiku read the 2,238 files for USD 0.33 (about 880 tokens per file).
+- **The lists are virtual** (independent review of the plan). Nothing is written into the team folder. The server keeps
+  one line per file in its sidecar (`<data>/file-list/state.db`); the AI's `list`, `glob`, `grep` and `read` (chat
+  engines through MCP and the remote connector, all `FileService.call`) show a `_FILES.md` per access folder rendered
+  for the person asking: a line only for a file that passes `visiblePath` for them now and still has the size, mtime and
+  inode that were read, under the rule chain it was read with, and only when every file of the model call that wrote it
+  passes too (a line may hold a call-mate's text). A rule change or a move that splits a call re-reads all its files. Access is checked at the question, as for search; stale, moved, deleted and hidden files simply do not
+  show. Rejected: real files on disk (they needed a reserved name in `authorize()`, hiding in Files, rewrites on every
+  access change, and could be forged, mirrored or left behind by connected folders and dev environments).
+- **Where.** One list per access unit: `shared`, every other top folder, `projects|groups|connected/<name>`, and every
+  folder with a rule of its own (the deepest), so a list's own path has the access of its files (`file-list/units.ts`).
+  Grep searches the lists first with the same ripgrep (a per-call copy in the data folder) and prints their lines like a
+  real file's. A real `_FILES.md` on disk stays a normal file; the AI's tools show the virtual one in its place where the
+  person has one, and the AI cannot write over it. Reading a list counts as reading its folder (read scope), never as an
+  answer's source.
+- **The line.** `path — type; names as written; date or period; what it is`, English. Validated in code: one line; no
+  control characters, `#`, `<>`, backticks, addresses, `@` or paths; `what` at most 120 characters; a text file's names
+  must be in its text word for word; a cleanup scrubber removes amounts, ID, account, phone and card numbers, emails,
+  passwords and 6+ digit runs outside the date field; personal records keep type, names and date only.
+- **The reader.** The team's engine through the launcher, the model proxy and the sandbox like a chat turn, with no tools
+  and one answer; Claude Code on `haiku` (a gateway's haiku model; none: no run), Codex on a nano or mini model (none: no
+  run), text only. **Team-wide AI accounts only**, never a person's own or assigned one, never the hosted trial; each
+  call is a turn of the owner (`turns.chat_id = 'file-list'`) so Admin › Usage counts it and block budgets stop it.
+  Calls hold files of one access unit only and are read back by their ids; the server's converters extract the text
+  (and reuse the search's fresh text cache); images only when the team sends images to the AI; camera photos without
+  OCR text get a metadata line.
+- **When.** Nightly 02:00–05:00 team time, at least every 30 h; a new server waits for its first night. Only new or
+  changed files (size, mtime, sha256); moves keep their line. A cap per run (1,500 files, 1,500,000 tokens; `server.json`
+  can change it), documents first and newest first; never while a person's chat turn waits or runs; a lease row keeps
+  one run at a time. Admins can start a run now (same cap).
+- **Owner's open questions, as constants** (`file-list/policy.ts`): personal folders are not read; Codex reads text
+  only; switching it off deletes the stored lines.
+- **Measured** on a local dev server (Claude Code, this Mac's sign-in): 323 made-up files uploaded, 231 read in one run
+  (23 calls, 170,669 input and 17,729 output tokens, USD 0.039, 3 min 35 s); 5 of 5 misplaced questions right (a scan
+  named `임시.pdf`, a bank-book photo `IMG_2031.jpg`, scans `스캔_0398.pdf` and `scan_0019.pdf`, `IMG_8812.jpg`) with 3
+  tool calls each, found by a team-wide grep that hit the list lines.
+- Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
+  to its own AI provider from the first night after the update (`changes/file-list.md` says so).
+
+## Get the app: a phone without the app gets a store button on the join pages (feat/invite-get-the-app, 2026-11-11, product owner)
+
+Builds on "First run, phase 2". Plan: `docs/AGENTS/plan/20261111-1058-invite-get-the-app.md`. Owner: "If it isn't
+installed, shouldn't it open the App Store?" A tapped invite or team link opens the app when it is installed (verified
+universal links / app links); without it, the phone's browser lands on the join page.
+
+- **Who sees it**: a web browser on an iPhone or Android (`getAppHref`, `web/src/lib/team-link.ts`); never on a
+  computer, never inside our desktop or phone app (`clientKind()`), never in a build whose `APP_DOWNLOADS` names no
+  listing and no page. Computers keep the form and "앱에서 열기" as before.
+- **One button, then the form behind a link**: "Copy invite & get the app" / "초대 링크 복사하고 앱 받기", one line
+  "After installing, paste the link in the app's first screen.", and "Continue in the browser" shows the join form;
+  "Already joined? Sign in" stays. iPhone: the App Store listing (`APP_DOWNLOADS.iphone`, id 6829192435). Android: the
+  Google Play listing (`APP_DOWNLOADS.android`, live 2026-11-11, set in `editions/trina/branding/apps.json` with
+  `bun scripts/edition-apps.ts … --apply`); a build without one falls back to its download page (`APP_DOWNLOADS.page`;
+  never an .apk itself). Android's "앱에서 열기" intent gains `S.browser_fallback_url=<that address>`.
+- **The token crosses the install only by the person's own copy** (owner's call, 2026-11-11): the button copies this
+  page's link (the team link's token from memory) on the tap, never on load, shows "Link copied", then opens the store.
+  The app's first-run box already takes a pasted invite or team link as it is (`parseTeamInput`, both copies; tested).
+  The app never reads the clipboard by itself (no paste on launch: iOS 16+ "Allow Paste" prompts, and it would read
+  whatever else is there); no fingerprinting, no deferred deep link service. The clipboard copy is the person's own,
+  for their own paste.
+- **The copy runs inside the tap, and a failed copy never reaches the store** (review, 2026-11-11): the button is a real
+  `<a href={store}>`, so the store opens as the tap's own navigation (no scripted navigation after an await, which
+  Safari and iOS web views treat differently). In the tap the Clipboard API write starts (not awaited) and a hidden
+  read-only textarea + `execCommand('copy')` answers at once (`copyInTap`, `web/src/lib/copy-in-tap.ts`). Copied: the
+  link goes ahead. Not known to be copied (in-app browsers such as KakaoTalk, Instagram or Line often have no
+  `navigator.clipboard` or refuse it): the page stays; when the Clipboard API then says yes, "Link copied" and a plain
+  "Go to the App Store" link; otherwise the warning, the link in a read-only field with a "Copy" button, and the same
+  separate store link (Android: "Go to Google Play", or "Go to the download page" in a build without a Play listing). The banner page is kept in memory until index.html
+  changes.
+- **Apple's Smart App Banner** (`<meta name="apple-itunes-app" content="app-id=…">`) is added by the server
+  (`serveWeb`, `server/src/routes/web-static.ts`; `smartAppBanner`, `shared/src/app-links.ts`) to the HTML of
+  `/invite/<token>` and `/join` only, and only for an iPhone/iPad/iPod user agent (`Vary: User-Agent`); Safari reads it
+  at load, so it is not added by script. **No `app-argument`**: an invite's token is in its path, and the team link's
+  token is in the fragment, which the server never sees (the address without it tells the app nothing). WKWebView (our
+  iPhone app) never shows the banner.
+- **The token never reaches a store**: the store addresses are fixed edition values with nothing of the page added;
+  the intent's fallback is the same fixed page; `Referrer-Policy: same-origin` (the header from `securityHeaders` and
+  index.html's `<meta name="referrer">`) sends no Referer cross-origin, and the button adds `rel="noreferrer"`; these
+  pages make no analytics call. The e2e test checks the store request has no Referer and no token.
+- Tests: `web/test/unit/get-the-app.test.ts`, `tests/unit/app-links.test.ts` (the banner), `web/test/e2e/get-the-app.spec.ts`
+  (390, iPhone and Android user agents, light and dark), `web/test/e2e/first-run.spec.ts`.
+
+## Usage limits: a true USD hint, no empty chat after a refused send, midnight in 24-hour time (fix/usage-limit-words, 2026-11-11, QA TC-215)
+
+- **The USD hint says what really adds up.** Admin › 팀 설정 › 사용 한도's hint under 금액 한도 (USD) said amounts
+  build up only with API key connections. Answers through a login count too: the engine reports an estimated amount,
+  which the turn keeps (`usage.costNote` says so already), and a USD block limit refuses on it. The hint now says the
+  amount is an estimate of the same use through the API and that answers through a login can add up too.
+- **No new chat while a block limit is used up.** `POST /api/chats` answers the same `budget_exceeded` (429, the
+  person's words) as sending, editing and regenerating. A first question from Home made the chat before the send was
+  refused, and the empty chat stayed in the list. Now Home's composer keeps the text and shows the refusal, and no
+  chat is made. Attaching a file on Home (which makes the chat first) is refused the same way.
+- **When a limit is free again, in 24-hour time.** A day's or a month's limit ends at the team's midnight, and
+  "오전 12:00" / "12:00 AM" can read as noon. `limitResetText` (shared) says "11월 12일 0시", "Nov 12 at 00:00",
+  "11月12日 00:00", in the team's time zone, for the refusal (`budgetBlock`) and for Settings › 사용량.
+
+
+## Project contents only for members — 프로젝트 내용은 멤버만 (feat/project-members-only, 2026-11-11, product owner)
+
+넣을 곳: trina-ax core (`server/src/policy/access.ts`, `policy/zone.ts`, `chat/projects.ts`, `chat/shared.ts`,
+`chat/project-access.ts`, `chat/project-members.ts`, `chat/project-joins.ts`, `chat/members-only-once.ts`,
+`routes/chats.ts`, `routes/admin.ts`, `admin/*`, `team-files/service.ts`, `files/search.ts`, `devenv/srt/access.ts`,
+`chat/read-scope.ts`, `skills/changes.ts`, `system/export.ts`, migration 284, the
+project, files and admin screens), 이유: permissions, files, projects and chats are core. Plan:
+`docs/AGENTS/plan/20261110-1648-project-members-only.md` (a security and a product review before building).
+
+The owner chose option B (2026-11-10): **a project's contents are visible only to its members.** A project shared
+only with the group "leads" (3 people) said "5 people see it": the owner and an admin were counted by role, because
+`RuleSet.decide()` gave them write on every path outside `users/`. Ordinary team folders do not change.
+
+- **The rule.** Every path at or below `projects/<name>/` (`projects` compared after NFC and lower-casing) is the
+  members-only zone. Inside it the owner and admins are judged as a member with the same groups, by the rules at or
+  below `projects/<name>` only: a role rule for admins never applies there, and rules on `projects/` or the root never
+  reach in for them (else an admin's own rule on the root would open every project without a floor of its own).
+  Members are judged as before. The server's own principal carries `system: true`; nothing is inferred from a role.
+  `hasVisibleDescendant`, `listing()` and `navigator()` follow the same rule. Code that assumed access changes only at
+  a rule folder (search roots, the srt sandbox's lists, read sources) treats every `projects/<name>` as a boundary.
+- **Two checks.** `canSeeProject` means "reads its contents" (instructions, chats, files, skills, dev environment);
+  while its folder is in the trash or purged nobody reads them, admins included. `mayManageProject` (the owner and
+  admins for any team project; the creator while they may edit it) covers what admins keep: the project in the list
+  (`GET /api/projects?manage=1`: `member: false`, no instructions), its members (also adding themselves), rename,
+  delete, restore (`POST /api/projects/:id/restore`). Without `manage` the lists are "projects I read", so pickers and
+  older apps are unchanged. Instructions and chat sharing need membership; repointing a detached project needs an
+  admin who reads what it held.
+- **No way in that does not show.** Admin › Folder permissions never writes, previews or answers at or under
+  `projects/<name>` (409 `project_members_only`, one answer for present and missing paths) and shows a project folder
+  as one row, "Members only". `projects/` itself never moves, is never renamed or trashed, and a project's folder never
+  leaves it. Whoever starts to read a project by any path (Add me, the members dialog, the AI's card, a group they were
+  added to, a new account in one of its groups) leaves a `project.member_gained` audit row (`self` when they did it)
+  and its members a quiet inbox notice ("{who} joined '{name}'", migration 284 `project_notices`).
+- **What admins no longer see:** paths inside a project they do not read are cut to `projects/<name>/…` in the
+  activity log (also tool summaries, instructions changes and dev environment commands), skill changes and their
+  notices and every admin answer that names folders; the owner's export leaves them out.
+  Version history, timelines, the trash and the #278 rescue have no owner/admin fallback inside the zone.
+- **Once, at the first start** (`chat/members-only-once.ts`): owner and admin ids leave the stored audiences of shared
+  answers; role rules for admins inside the zone go; schedules with a save folder or source under `projects/` lapse
+  once and ask again; owner and admin AI sessions start fresh. (Folders without a project: when an admin opens
+  Projects, below.)
+- **Counts.** Project counts, the members dialog and the dry runs count members only; a new project's dry run never
+  counts admins unless chosen (no `adminsApart`). #341's split keeps its folder chip; for projects its role part is 0.
+- **Defaults, owner may change** (recommended in the plan's review; the coordinator applied them):
+  1. Deleting a team project always moves it to the trash with its folder; Restore brings both back, "Delete for good"
+     removes them. The "also move the folder" checkbox is gone.
+  2. Projects made before 2026-11-09 outside `projects/` stay visible to the owner and admins, with a line saying so.
+     (Not counted on the team servers: no read-only way from the code or fixtures.)
+  3. No "transfer project" when a creator leaves: admins manage its members without joining.
+  4. No notice at the upgrade, only the changelog.
+- **The deep review of the built code** (it tried every path as a non-member owner and admin) found three ways in, all
+  closed and tested in `tests/security/project-members-only.test.ts`: (1) trash the project, join one of its groups,
+  restore it: joins are now judged against a trashed project's own rules too, so they are recorded when they happen;
+  (2) a rule on a folder inside a project (an older build's, or a group folder moved in) gave an admin part of it with
+  no trace: the owner and admins now read anything inside a project only once they read its folder (are members),
+  while members of the team keep such partial access as before; (3) the activity log missed names with `'` or `` ` ``:
+  file rows are judged by their path, and text by every `projects/<name>/` in it. Also taken: the connector's group
+  answers name only project folders; a moved or copied project skill's name is left out of the log for non-members;
+  `projects` in any letter case is the project folder everywhere; a folder in `projects/` that no project uses becomes
+  a project of its own (named after the folder, no creator, audited `project.adopted`) when the owner or an admin opens
+  the projects they manage, so they can manage or delete it (not at start: a new team may make its folders before
+  their projects); a member who made an older project on an admin's folder cannot delete it (it would trash the
+  admin's folder): an admin does. Files and the AI's `skill_files` can no longer rename or move a project's folder
+  (rename the project on its page); a new entry directly in `projects/` is refused with one plain sentence, the same
+  whether the name is there or not. The dev environment's "a folder of its own" for a project on the team root makes
+  `projects/<name>` as the system, with the admin who turns it on as a member by name.
+- **Screen review** (a non-developer's read of every new screen): Admin › Folder permissions said the owner and admins
+  see every folder; its notes and reasons now leave out projects they are not in, and a person's reason on a project
+  folder is "Member" or "Not a member". Its answers for an older project folder with no settings of its own came from
+  `projects/` or the root, where the owner and admins read everything: the deciding folder never goes above
+  `projects/<name>` now (`ruleFolderOf`), as in the permission function. Also: the trash confirm says what members
+  lose, a missing folder's line no longer points at Folder permissions, the members dialog's other settings are
+  "Others who can see it", a project row in Files says "Members only" to a non-member admin, and the chat-not-found
+  line links to Projects.
+- **Adversarial review of the built PR** (read paths clean; three ways around the trail):
+  (1) an account enabled again never ran the join check (captureState counts active accounts only), so a person or an
+  admin disabled, put in a project's group meanwhile and enabled with `{status: 'active'}` read the project with no
+  `project.member_gained` row and no notice: enabling an account now runs afterAccessChange (via `account`), and a
+  disabled account joins no new group (`checkMembers` and a person's own groups refuse it, 400 `account_disabled`; a
+  group keeps one already in it; enabling it in the same change may), as `checkParticipants` already did for a project's
+  people; Admin › Groups offers disabled people only to take them out. (2) Taking an other setting out of a project
+  (the members dialog's ×) is refused when it would let anyone open or change the project or a folder inside it with
+  settings of its own (409 `remove_widens`, the dry run and the save), compared with the same change keeping it, so a
+  "no access" taken out for someone named as a member in the same change is that choice: the code now does what the
+  plan said. (3) Saved versions of a project deleted for good stay under its old path, and a new project on that path
+  would let its members read them: a new project's folder never takes a `projects/<name>` that saved versions name
+  (`takenProjectPaths`; it gets "Name-2"), the smaller change than purging versions with every way a folder can go.
+  Known limit, unchanged: a dev environment job running when a project is made treats the new project's folder like
+  its parent for up to 10 seconds, until it reads its folder lists again (`devenv/srt/runner.ts` `personView`).
+- **Not closed by this:** the server's backups and disk hold everything; an admin who resets a member's password or
+  makes an account can sign in as them (noisy and recorded). Past room posts and exports stay.
+- **Plain words** (owner, 2026-11-11): no "role", "rule" or paths in the new screens. "Only members can open this
+  project. Add yourself to see its files." / "Members will see that you joined" / "Members only".
+- Tests: `tests/security/project-members-only.test.ts` (every checklist path as a non-member owner and admin, then what
+  they keep and the ways in that show), the permission matrix with "Team plan" canaries (the owner and admin must see
+  none of them on any route) and `projects/falcon` no longer theirs, the matrix case for restore; the unit suites of the
+  touched areas; web unit and e2e of the project, files, admin and shared-chat screens.
+- Version impact: **minor** (the owner and admins lose a kind of access; delete changes; new optional fields, a route
+  and migration 284 add-only).
+
+## Home: what my group often asks — 우리 부서에서 자주 묻는 질문 (feat/group-often-asks, 2026-11-11, product owner)
+
+넣을 곳: trina-ax `server/src/chat/often-asked*.ts`, `server/src/file-list/` (the reader takes other instructions),
+`shared/src/api`, `web/src` (Home, TeamPrepared, Admin › Team settings), 이유: chat, the AI and Home are core. Plan:
+`docs/AGENTS/plan/20261111-0950-group-often-asks.md`. Amends "New-chat home shows frequently used skills (B-W7-7)" and
+W6.3's note on 「자주 쓰는 스킬」.
+
+The owner on the new chat screen (2026-11-11): the framed "Frequently used skills" card showed skill slugs, AI-facing
+descriptions and "3 uses · 2 people". "Just show simply what prompts the team types, and More shows more. Can an admin
+turn it off?" and "Especially what people in the same group type!" The owner then took every recommendation of the
+reviewed plan ("끝까지 ㄱ"), with the floor at 5.
+
+- **Home.** "Frequently used skills" and "My frequent questions" leave Home (one list; skills stay in the `+` menu and
+  on the Skills page, which still reads `GET /api/skills/popular`; `GET /api/questions/frequent` stays, unread, for a
+  later cleanup). Under the box, no frame: a small heading and 3 one-line questions; "Show more" opens up to 10 in
+  place, "Show less" closes them; a click fills the box and never sends. One block at a time in one place: "팀에 준비된
+  것" while it shows anything, else this list. W6.3 changes: its skill rows end once the person ran a team skill **or has
+  5 chats** (a member who never runs one would never see the list). Phones: 44px rows, the slot after the recent chats.
+- **Headings** (English first): "People in {group} often ask" (one group with a list), "People in your groups often ask"
+  (several, taking turns, the same sentence once), "Your team often asks" (no group of mine has one). Nothing at all
+  when there is nothing: no heading, no empty state.
+- **What counts.** Only what a person typed in the app (every turn of the message from the web, desktop or phone app)
+  in their own AI chat, on its active branch, in the last 30 days, **and only since the switch was turned on** (this
+  build's first start; turning it on again starts again). Never: project chats (own or shared; #355 makes their contents
+  members-only; a chat moved out of a project, or freed when its project was deleted, counts only what came after:
+  `chat_project_left`, kept by a trigger), room AI sessions, side chats (they quote other people's room messages), Slack threads, confidential
+  chats (and nothing while safe operations are on), scheduled runs and server-made requests (a skill merge), auto-sent
+  messages, skill runs ("/name …"), the app's own prompts (one list of templates in five languages, checked against
+  web/src/i18n), a sentence already on a list, deleted chats, disabled accounts. Only the first line that is not a quote,
+  at most 200 characters (longer: pasted text). Masked before the AI sees it: links, emails, digit runs, secrets, `@`
+  mentions, people's names (full and written together, "이서연" for "이 서연"; every part of 2+ letters, so a Korean or
+  Japanese given name or surname alone, "민수", "田中"; Latin parts as whole words, 2-letter ones as written, accents
+  ignored; a one-letter surname with a title, "김 과장"), project names, group chat names. A name part that is also a
+  plain verb or function word (a given name 수정; Will, Dan, Al) is not masked everywhere, or every "수정해 줘" would be
+  dropped: only where it stands for a person (followed by 한테, 에게, 께, 랑, a title, さん; in Latin script capitalized
+  past the start of a sentence: "email to Dan"), and such a sentence is rejected, also before 의, 과, 와, 하고 or 도
+  ("수정과 회의"); as a sentence word it is always a topic, so 3 people must have typed it. Project and group chat
+  names are masked whole, plain word or not. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
+  line, at most 40 a person and 600 in all (taken in turns), in random order with meaningless ids; never who wrote it.
+- **The AI.** Once a day (from 05:00 team time, 20 h after the last; 28 h after it at any hour; a try waits 3 h), one
+  call of the file list's reader (file-list/engine-reader.ts, `ReadOptions`): no tools, Haiku or Codex's nano/mini, a
+  **team-wide AI account only** (never a person's own or assigned one, never the hosted trial), a turn of the owner
+  (`turns.chat_id = 'often-asked'`: Admin › Usage, budgets). **No chat is made**: no message, no realtime event, nothing a
+  route can open. A failed call logs its kind only. It groups the lines and writes one sentence per group in the team's
+  language, reusing a sentence shown now when it still fits; the answer is read defensively (known ids, strings).
+- **The server's checks** decide everything else, per audience (the team, each group), and drop a sentence rather than
+  repair it: (1) one line, at most 80 characters, letters, spaces and plain punctuation only (no digit, link, email,
+  `@`, `#`, path, file name, bracket, symbol, emoji or invisible character) and none of the masked names; (2) it has at
+  least one topic word: every word that is not a function word or a plain verb or manner word (fixed lists in five
+  languages, never a noun: "report", "resume", "회의록" are topics); (3) **3 or more different people** of the audience
+  typed **every** topic word of it in their own lines of the item (Korean and Japanese: the word, or without a known
+  ending, as it stands in their line; other languages: the word, its plural, or a longer word of theirs that starts
+  with it, never a shorter one: "Williams" never comes from "will", "Salesforce" never from "sales"), so a name one or
+  two people typed, a transliteration, a translation or a longer form never passes, and people who only share a verb
+  never back someone else's topic; (4) those people are not all inside **one circle that leaves someone of the
+  audience out** (a group, a team project's people by rule, a group chat of 3+): three people of Sales make no item for
+  the whole team. The AI's grouping is a candidate only; it is told to use only nouns every grouped line has.
+- **Enough people.** A group or the team has a list only when **5 or more of its members asked something** in the
+  window (the review proposed 10; the owner chose 5); a list shows only with 3 or more items. A group counts a person's
+  questions only from the day they joined (`group_member_since`, kept by triggers on `group_members`; one edit of a
+  group, which deletes and adds everyone at once, keeps the dates; someone added back later starts again), and nothing
+  from before its last real change of people (`group_count_from`): someone added (not one edit's delete-and-add-back
+  within 10 seconds), disabled, enabled again or deleted (a trigger on `users`), or taken out. Growing, shrinking or
+  disabling a group around one person cannot single out what they asked before. The price: after such a change a
+  group's list goes quiet (past the 3-day hold) until 5 of its people asked something again.
+- **Lists change slowly.** An item that stops passing stays 3 days, then goes; that is also the longest a deleted chat
+  or a person who left stays behind, and a list no run renewed for 3 days is gone. Order: the item's place on the day
+  it last passed (most people first), a held item keeping its own, so the order does not show which ones are fading.
+  Switched off and on while the AI wrote: nothing is stored from that call. Stored: the sentence, its audience, its place and when it last passed; never a person, a
+  count or the material.
+- **Who sees which.** Read at request time: only a group's current members get its list; owners and admins get what
+  they would get as members; no admin view of the lists or the lines. Not on a project's new chat, the demo screen or
+  while no AI answers the person.
+- **The switch.** Admin › Team settings › Members and AI, "Show what the team often asks" (ko "팀이 자주 묻는 질문 보여
+  주기"), on by default. Off: every list deleted at once, the route answers nothing, no call, and what is sent while
+  off never counts. **No personal switch**: nothing anyone typed is shown, and a switch on every person's screen would
+  suggest it is.
+- **Known limits.** People who agree to ask the same thing can still learn about the others. In a group of exactly 5
+  askers, 4 who agree can learn **exactly** what the fifth asks from then on (two of them type a question and watch
+  whether it shows); with more people it is only "someone else". Any "3 or more" rule allows this; the floor, the hold,
+  join dates and a group's count restarting on every change of its people stop it from reaching back, and group
+  changes are in the activity log. Given names that are everyday words other than verbs (지원, 하늘) are masked
+  everywhere, so a team with such a name gets fewer suggestions with that word. The checks cannot read
+  meaning: a sentence of words 3+ people share can still name a shared topic, and personal topics are left out by the
+  instructions, not by a check. People who share something outside any group, project or group chat are not a circle.
+  Everyone sees the sentences in the team's language.
+- **Compared:** ChatGPT, Gemini and Claude.ai show the same starters to everyone; Notion AI and Slack a short
+  "suggested" list with a small heading, which the look follows. None mines co-workers' prompts (Microsoft 365 Copilot
+  shares a prompt only when someone shares it), hence the stricter rules.
+- Tests: `tests/unit/b-often-asked.test.ts` (what counts, the masks, every check, circles, the floor, join dates, the
+  hold, who gets which, the switch, and every attack of the security review: longer words, one person's topic with
+  others' verbs, given names and names written together, invisible characters, chats that left a project, a shrunk
+  group, the switch flipped mid-call), `b-often-asked-run.test.ts` (what the call is given, the answer, no chat, the
+  route, the admin switch), `b-often-asked-words.test.ts` (the app's prompts against web/src/i18n, how words are read);
+  the route in the P4 matrix; web unit `home-no-ai`, `often-asked`, `team-prepared`; e2e `often-asked.spec.ts`.
+- Version impact: **minor** (a Home section, a team setting on by default, migration 285, two Home sections removed).
+
+## Admin and Settings on phones: a list you tap into (feat/phone-admin-list, 2026-11-10, product owner)
+
+넣을 곳: Team AX core (`web/src/pages/admin/`, `web/src/components/settings/SettingsDialog.tsx`, `web/src/components/phone/`,
+`web/src/lib/backStack.ts`), 이유: the phone app is the web app in a web view, so its navigation is the web app's.
+
+The owner, with a screenshot of Admin on a phone: "Usually it's like iPhone Settings: a vertical scroll, and you tap
+into pages, no?" Below 768 px Admin was a sideways strip of 13 links (1,634 px wide, most of them off screen) above
+Home's cards; Settings already opened on a list, but its rows replaced the history, so the phone's own Back from a
+section left Settings. Plan: `docs/AGENTS/plan/20261110-1336-phone-admin-list.md` (the audit of every page at 390 px,
+the references, the review). This is the first part (navigation); the page patterns follow in their own PRs.
+
+- **Phones (below 768 px):** `/admin` is a list (`PhoneRoot.tsx`): the team's logo and "<team> admin", the scope line,
+  the "needs attention" rows (Home's), the owner's setup steps folded into one row ("Before you start · 2 left", opens in
+  place), then the menu's groups as rows with an icon, a short value ("2", "Claude Code", "$0.47", "5 min ago") or a
+  "N to fix" badge, and a chevron. Values are what Home reads already (`overview.tsx`, one hook for both; no new
+  request); a badge counts the attention rows that open that page, so the two never disagree; a source that failed
+  shows "—". Removed on phones: the strip, Home's cards and headings, the Home row, "Nothing needs attention".
+- **One phone list and one bar** (`components/phone/PhoneList.tsx`, `PhonePageBar.tsx`): Admin's list and the 나 list
+  (Settings) use the same rows (48 px, chevrons, values on the right, hairlines from the name); every phone page with ‹
+  uses the same bar (Admin's, Settings' sections, the top bar's pages under a tab). The phone top bar steps aside for
+  `/admin`, which draws the bar itself.
+- **‹ and its label.** ‹ is `useGoBack` as everywhere (lib/back.ts: back in history, else the list in place of the
+  entry). Its label names where Back goes: "‹ Admin", "‹ Settings", the admin page that opened this one ("‹ Usage"
+  over Team settings' limits); ‹ alone when Back goes somewhere without a name here (Admin opened from ☰ › Search) or to
+  the same page. It is shown only when it fits beside the centred title.
+- **The list is always under a page** (`lib/backStack.ts`). A page entered from outside its list's area (an Inbox
+  notice, a link in a chat or in Settings, a push opening the phone app, a pasted address) gets its entry replaced by
+  the list and is pushed again, keeping `?query` and `#hash`, so Back goes page → list → where you were (Android's
+  "synthetic back stack"). What is under each entry is noted once, when the app first shows it (App.tsx, before the
+  pages render), and used only for this and for the label: Back itself is still the router's history, as "Phone
+  navigation: four tabs" decided. Never on Back/Forward or a reload (except the document's first entry, which the router
+  also reports as POP), never for a page change inside the area, never on a resize or a computer, and only once the page
+  is final (after the old-address redirects and the owner-only check; a member's `/admin/...` still goes home). It runs
+  after the page shows (the router listens to the history only after its first render), which changes nothing on screen.
+- **Scroll:** a page pushed from the list starts at the top (Admin's layout stays mounted, so it carried the list's
+  place); Back to the list or a page puts its place back (trying for up to 2 s while the page reads its data again,
+  until the person scrolls); a replace (filters), a `#hash` or a query the page scrolls to itself (`?member=`,
+  `?focus=`, `?folder=`) is left to the page. Admin's overview is kept in memory for the session, so the list draws at
+  once on Back and does not jump; on Back the owner's server checks are not asked again within a minute (any other
+  opening, Home on a computer included, asks; Admin › System's own read forgets the kept ones).
+- **Settings on phones:** the same list (the Inbox count as a badge on its row; the Connections group shows Providers,
+  Connectors and AI apps instead of a lone "More" row), rows that push (computers keep replacing, so closing the dialog
+  still steps back once), the phone bar ("‹ Settings" and the section's name), the list under a section opened from a
+  link, both kept in place for Back. Since #364 (the Inbox as its own Activity page) the Inbox row opens `/activity`
+  and 알림 (the notification settings) is a row in its group like the others (batch PR "phone settings").
+- **Folder permissions:** on a phone, By folder ↔ By person replaces its entry (a view of one page adds no history).
+- **From 768 px** (the owner's decision): Admin is the menu column and a page, so tablets (768 to 1023 px) no longer
+  show the cut-off strip. Between 768 and 1023 px the column is a narrow rail, each page's name small under its icon
+  (not in a tip: a finger has no hover): beside the app's own 280 px sidebar, a column of the full width left the page
+  280 to 330 px. From 1024 px it is the named sidebar as before.
+- **Not checked yet:** the iPhone app's edge swipe over a page whose list was put under it (the list entry was never
+  drawn, so the swipe's preview may show the page itself). It needs a device; if it looks wrong, the list draws once
+  before the page is pushed again.
+- Tests: `web/test/unit/back-stack.test.tsx` (what is under an entry, when the list goes under a page, Back to a first
+  entry, the label, the scroll, the list's values and badges, the hook in a router, a resize), `phone-nav.test.tsx`,
+  `phone-me-files.test.tsx` (a phone's row pushes, a computer's replaces), `web/test/e2e/phone-admin.spec.ts` (the
+  list, row → page → Back with the place kept, a pasted address with its query used once, an in-app link, a page
+  opening another, Folder permissions' views, Settings' Back, a member, an admin who is not the owner, no page wider than
+  the screen in English and Spanish, 820 and 1440 px).
+- Version impact: **minor** (a visible change on phones and tablets; no API, data or permission change).
+
+### The page patterns (feat/phone-page-patterns, 2026-11-10)
+
+The owner, with Admin › Members & invites at 390 px: "All of the mobile settings are a problem": three buttons on two
+rows, the line under them, a search on its own row and "Role All" on another, rows of three lines, a 266 px header that
+stayed on screen. Shared parts, so every page gets them (the remaining pages move onto them in their own PRs):
+
+- **The page header** (`admin/common.tsx` `AdminPageHeader`, and the pages that draw their own: Connectors in Admin and
+  Settings, Settings › AI apps): below 768 px the bar says the page's name, so the title is for screen readers only;
+  the line keeps one line (More) with the page's buttons at its end (the plan put them at the end of the search row;
+  the line has more room for them, and a page without a search has them there too); only the search and filters row
+  stays at the top (one row of 44 px controls; Connectors' about 64 px). Computers and tablets: as before.
+- **`PageActions`** (`components/PageActions.tsx`): one main button; on a phone the other ways go under its ⌄ (the
+  split button Connectors had, moved here as `SplitAction` / `ActionMenu`). Members: "Invite to team" ⌄ "Add
+  directly", "Team invite link". Computers: every button, the main one last.
+- **`PhoneFilters`** (`components/PhoneFilters.tsx`): on a phone a "Filters" button with the number turned on sits at
+  the end of the search row and opens the filters under it (Activity log's way). A view choice (Group by) is not a
+  filter and is not passed to it.
+- **`CompactRow`** (`components/CompactRow.tsx`): the name, its chip on the right and ⋯ on one line; a second line only
+  when it adds something. Members: the role on the right (the owner's member ↔ admin stays a select there, drawn as
+  words and an arrow, 44 px tall); the username only when it is not the name; the email when the search matched it
+  only; the badges that need a look. The first member now shows about 280 px down a 844 px screen (about 450 before).
+- Removed on phones: the visible page title and its count (the bar says the name; the title, count included, stays
+  for screen readers), the secondary buttons (under ⌄), the filter's own row, the role's own line.
+- Folder permissions' detail column sticks under the part of the header that sticks (its controls row on a phone),
+  measured again when the width crosses 768 px.
+- Tests: `web/test/e2e/phone-page-patterns.spec.ts` (the bar's name and the hidden title, the ⌄ menu, search and
+  Filters on one row with the count, compact rows (one line, the username line, the email line, an admin's read-only
+  roles), only the search row sticky while the list scrolls, the other pages' buttons still there, Connectors and AI
+  apps named once, 768 and 1440 px unchanged), `people-console.spec.ts`.
+- Version impact: **minor** (a visible change on phones; no API, data or permission change).
+
+### The list pages (feat/phone-list-pages, 2026-11-10)
+
+PR 2 of the plan: the list-style Admin and Settings pages on the shared parts above, from the audit's fix for each.
+Below 768 px only; computers and tablets are unchanged (the 1440 px screenshots match the ones before, clock times
+aside).
+
+- **Groups:** one `CompactRow` per group: the name, "N members" on the right and ⋯, the description under it only when
+  there is one. Removed on phones: the faces and the members' names (they are in the group's dialog). The row's ⋯
+  (`RowMenu`, Members' too) is 44 px on a phone: it is the only way to Edit and Delete.
+- **Folder permissions:** By folder / By person stays a segmented control; "Only folders with rules" goes under a
+  `PhoneFilters` button on the same row.
+- **Providers (Admin):** one row per engine: its name (a 44 px target), its state, check again (44 px) and the switch,
+  and under it only what is missing (a problem's fix, "Not set up"). Its accounts with Add account, and the dim line (how
+  it signs in, its models, when it was checked; the details say the same) open with the rest when the name is tapped. An
+  account that needs a look (`CREDENTIAL_PROBLEMS`, Home's own list) keeps the accounts in sight.
+- **Connectors (Admin and Settings):** Discover's tiles are rows with hairlines, the line cut to one, no "by <maker>"
+  (the service's page says it), and a 44 px +. Since #366 Settings › Connectors leads to the Connectors page
+  (`/connectors`, its own design), so this and the header above hold for Admin › Connectors only (batch PR "phone
+  settings").
+- **AI apps (Admin and Settings):** Copy, Connect, Disconnect, Setup guide and Manage are 44 px tall.
+- **Plugins:** the sections without frames (`Card flat`); one line per plugin: its name (it opens what it does, who made
+  it and its permissions), its state and its main button (Install, Turn on / off). A trust warning and why it cannot be
+  installed stay in sight; the install prompt shows the permissions again before anything is installed. "No plugins
+  are installed yet" is one line, not a block. Replaced before it shipped: #388 made Admin › Plugins cards and a page
+  per plugin, like Connectors, and the batch PR "phone settings" keeps #388's page (this part and its tests dropped).
+- **Slack:** the cards without frames; Turn on / off, Replace tokens and Remove are 44 px tall.
+- **Usage (Admin):** "Usage limits" with Download CSV under its ⌄ (`PageActions`; a menu item can now be `disabled`,
+  CSV until the report is in); the range stays beside one Filters button with Group, Person, Engine, Model, AI connection
+  and Clear; Group by is a view choice and sits beside the breakdown's heading ("Breakdown", so it is not said twice).
+  The numbers, the chart and the breakdown stand without frames: `StatCards` is the plan's stat grid (no frames on a
+  phone, three to a row when there are three, one size down so a nine-digit total keeps one line), not a second
+  component. With Group by on Skill, its note sits under the breakdown's heading too.
+- **Activity log:** the title is for screen readers (the bar says it); the search and one Filters button are the only
+  part that stays at the top (60 px, was 145); the kind, the person, the time and Clear open under it. The kinds wrap
+  there, so Spanish no longer needs 550 px. Activity log's own phone filters are gone.
+- **Settings › Providers:** the bar says "Providers" (it said "Settings"), and the card has no frame and no second title.
+- **Settings › Usage:** the title is for screen readers; the period and Refresh (44 px) go under the line, which was
+  squeezed to four lines; the numbers share one row (answers and the estimate since #347 left out the tokens; three
+  before); the limits and the by-model list have no frames.
+- `Card flat` has no hairline after the page's last card. `SplitAction`'s main button is 44 px on a phone like its ⌄ (a
+  height: its max-md min-height lost to the Button's own max-sm one, so Usage limits stood 40 px beside a 44 px ⌄).
+- New strings: `common.moreActions` ("More actions", Usage's ⌄) and `usage.breakdownTitle` ("Breakdown").
+- Tests: `web/test/e2e/phone-list-pages.spec.ts` (every page in English and Spanish: nothing wider than the screen, the
+  main button on the first screen, the Filters open; then each page's own fix; a computer unchanged);
+  `activity-log.spec.ts`'s phone case follows the new filters.
+
+### The form pages, and Team settings in groups (feat/phone-form-pages, 2026-11-10)
+
+Admin › Team settings was one page of about 6,700 px at 390 px, each of ~25 switches under its text, and a save bar that
+Back could leave behind; System put every value under its label; buttons on these pages were 32 to 36 px. The owner
+decided that Team settings splits into pages on phones and stays one page on computers.
+
+- **Team settings on a phone** (`pages/admin/teamSettingsGroups.ts`): `/admin/settings` is a list of its groups, each a
+  page at `/admin/settings/<group>` under "‹ Team settings" (the same `PhoneList`, bar and Back as Admin's list). The
+  groups are the page's own sections in the page's order, small ones together: General (name, language, logo, time zone,
+  update window), Keeping data, Members and AI, Voice input, AI engine (AI defaults, who picks the engine, members' own
+  accounts; one new name, "AI engine"), Usage limits, File list (#391's, saves on its own like the AI groups), Company
+  profile, and Dev environment where the server has it. 8 or 9 rows, all on the first screen. (A Knowledge graph group
+  went with the knowledge graph itself, "Knowledge graph removed" above; batch PR "phone settings".)
+- **Links into it.** On a phone a `#part` of the page opens its group in place of the link (`#ai-limits` → Usage limits,
+  `#speech` → Voice input, `#ai`, `#ts-time`, the old Providers tab's addresses), keeping the
+  `#hash`. Entered from outside Admin (an Inbox notice, a pasted address), both lists go under it, so Back walks group →
+  Team settings → Admin → where you were (`useListUnderPage` takes the lists outermost first); from inside Admin (Usage's
+  "Usage limits") nothing goes under it and "‹ Usage" goes back to Usage, as for Admin's own pages. A computer opening
+  `/admin/settings/<group>` gets the one page at that group (`#anchor`), and the page now scrolls to any of its parts'
+  `#hash` (only `#ai` and `#ai-limits` did), again while the parts above it load, for up to 2 s, until the person
+  scrolls. A window resized across 768 px moves between the two (the redirect says what is under the entry, so a resize
+  never builds a back stack).
+- **One form, kept.** The groups are drawn by the one Team settings page, which stays while the list and its groups
+  change, so a change in General is still there on the list and in Keeping data; the save bar shows on the list and on
+  the groups whose fields it saves (not on the ones that save on their own), sticky at the bottom. Leaving Team settings
+  with unsaved changes on a phone keeps the changed fields in memory (`lib/keptDraft.ts`, for the same person and
+  session, until the app reloads): put back over what is saved when it opens again, so nobody else's later change is
+  undone. The parts that save with their own button (AI defaults, who picks the engine, the dev environment) keep
+  their drafts the same way when their group is left, put back only while what is saved is still what they were
+  edited from. ‹ does not ask first, since nothing is lost. "Go to the field" from the list opens General at that field.
+  Computers: as before (nothing kept).
+- **Rows** (`admin/common.tsx`): `SettingRow` `inline` keeps a switch or a short number on the right of its name below
+  768 px, the line under the name (as Settings › Notifications' `PrefRow`); a select or a text field still goes under
+  the line, full width. A section or card whose name the phone bar shows keeps it for screen readers only
+  (`BarTitleProvider`). System's rows put the value on the right of the label (`text-right`), and a long one (the
+  connection, an address, the update state) under the label. Settings › Profile: username and role on the right.
+  The rows that switched at 640 px (`SettingRow`, Settings' `Row`, System's `Row`) switch at 768 px.
+- **44 px buttons** (`components/ui.tsx` `PhoneTargets`): inside it, below 768 px, `Button` and `IconButton` are at
+  least 44 px and a `Switch` takes taps from a 44 px box (`touch-hit`). Team settings, System and Settings' own sections
+  (Profile, Security & devices, Browser, Memory, Allowed for the AI, Notifications, About) use it; other pages keep their
+  sizes. Language and theme choices and System's "Show details" are 44 px; small icon buttons inside a line keep their
+  look with a 44 px box (`touch-hit`).
+- Removed on phones: Team settings' 6,700 px page (its groups' pages instead), a group's name repeated under the bar
+  (Dev environment keeps its title, which carries the Experiment badge), the frames around the lists in Memory, Allowed
+  for the AI and Browser (plain rows, as Security's devices).
+- Not changed: the keyboard's sheets (#336), the list pages (Groups, Folder permissions, Providers, Connectors, AI apps,
+  Plugins, Slack, Usage, Activity log: their own PR; the account menu of "Members' own accounts" is Providers' and keeps
+  its rows), Settings › Apps (its QR code shows only on a computer's browser already: a phone's browser and the phone
+  app know they are one).
+- Tests: `web/test/e2e/phone-form-pages.spec.ts` (list → group → ‹ and Back; the save bar on the list, kept after
+  leaving, saved; AI defaults' draft kept; "Go to the field" from the list; `#ai-limits`, `#speech`, `#ts-time` and the
+  old Providers address open their group, Back walks the lists; the dev environment's group only where the server has
+  it; switches on the right with the line under the name; System's values on the right and 44 px buttons; Profile's
+  44 px choices; no page wider than the screen in English and Spanish; a computer's one page and a group's address
+  there), `phone-admin.spec.ts` (Usage → Usage limits under "‹ Usage"), web unit `kept-draft.test.ts` (kept once, for
+  the same person and session, never over a newer saved value) and `back-stack.test.tsx` (two lists under a group).
+- Version impact: **minor** (a visible change on phones; no API, data or permission change).
+
+## Follow-ups 11-12 — 한 가지 말로 "볼 수 있음 / 고칠 수 있음", Mac App Store 먼저, 읽기 카드는 읽는다고 (fix/followups-1112, 2026-11-12, QA TC-281..TC-285, TC-287)
+
+- **Shared chats say "멤버"** (TC-281, after "Project contents only for members"). Sharing a chat, the shared chat's
+  lines, the copied link, a file saved into the project folder from a shared chat, the read and skill cards of a shared
+  chat and the server's refusals said "프로젝트 사람" ("people in the project") where the project's own screens say
+  "멤버": now "멤버 3명이 볼 수 있어요", "프로젝트 멤버와 공유", "Share with project members" in all five languages.
+  The count is the same number as before (who can see the chat); for a project made outside Projects that number also
+  holds the owner and admins, who see it there.
+- **`GET /api/questions/frequent` is removed** with `chat/frequent-questions.ts` and its schema: "My frequent
+  questions" left Home in "Home: what my group often asks" and nothing read it. The route coverage lists and the API
+  reference no longer name it; a request now gets 404 like any unknown address.
+
+- **Admin › Folder permissions speaks the panel's words** (TC-282). The access levels are "볼 수 있음 / 고칠 수 있음 /
+  열 수 없음" ("Can view / Can edit / No access"), as in the Files page's "Who can open it" (#346), wherever Admin shows a
+  level: the tree's "who sees it", the rules and the person-by-person reasons, the edit panel's choices and its before →
+  after lines, the remove preview, By person and the project members dialog (`access.*`, five languages); someone who
+  cannot open a folder reads "열 수 없음" ("Cannot open", as the counts line), not "못 봄". The basic
+  access choices say "모두 볼 수 있음 / 모두 고칠 수 있음", the counts line "열 수 있음 · 고칠 수 있음 · 열 수 없음", the
+  sentences that said "write" say "edit" ("그중 2개를 고칠 수 있어요"), and the server's "keep a rule" message quotes the
+  new "모두: 열 수 없음". Only words change: the page, its sections and what each choice saves are the same. The user
+  guide's folder permission and team skill parts and the docs site use the same words.
+- **The user guide's Mac install: the Mac App Store first** (TC-283, `docs/guide/guide.html`), as Settings › Apps does
+  since #343: the store link (`editions/trina/branding/apps.json`), open the app, paste the invite link or team address,
+  "들어가기"; it updates there and shows no warning. The operator's .dmg is the second way, with its Gatekeeper steps and
+  the "damaged" warning box. The two are different apps, so switching signs in again.
+- **Who gains later, group by group** (TC-284). `FolderEditPreview.latent.groups[].edit` (optional): whether whoever
+  joins that group gets edit, from the same before/after permission checks. Someone who joins two groups counts for
+  them only when that gains more than either group gives alone (then it is said of both, as the most they get: the
+  confirm says more, never less); before, a pair named both groups for one group's gain, and one group's edit made the
+  line say "열거나 고칠 수" for all of them. The confirm says the groups whose new people can edit in one line ("열거나
+  고칠 수 있게 돼요") and the ones whose new people only open it in another ("열 수 있게 돼요"). An answer without the field
+  (an older server) is said as before. `latentMore` and when Save asks are unchanged.
+- **The ask-first card for a read says it reads** (TC-285, `roomsSeenConfirmRead`, `roomAiConfirmRead`, `readsLabel`).
+  After the AI read a conversation, a read from a connected service that asks first (an HTTP API's GET or HEAD, or a
+  read whose words carry an address) says "여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 다른 서비스에서 읽어 오기
+  전에도 먼저 물어봐요. 트리나가 무언가를 읽어 오려고 해요: AI PM에서 읽어 오기. 허용할까요?", and its request is
+  "읽어 올 내용", not "보낼 내용". Writes keep "무언가를 바꾸기 전에 먼저 물어봐요" and "보낼 내용". Words only: when the
+  card is asked and what yes allows are unchanged.
+- **Save after Cancel › Discard** (TC-287, `FolderSharing.tsx`). Discard marked the panel as left, which stops a Save on
+  its way, so every later Save stopped too until the panel was opened again. Now a discard is counted (`dropped`): the
+  Save that began before it stops at its next step, a later one saves, and the dropped Save's answer from the server is
+  not kept for the list on screen (it could leave the list greyed). Leaving the panel (close, another folder, a link)
+  still stops a Save for good. A Save whose answer comes while the leave question is open stops too: its "Give access?"
+  would have taken that question's place without answering it, which also left every later Save stopped (found in
+  review). Cancel is off while the save is being written; that save lands.
+- **The panel's list is busy until its first answer** (`aria-busy`), so the rows from the folders above, which come with
+  the answer, are not missing from a "done loading" list. The `folder-sharing-panel` web unit test waited on that
+  attribute and went on early under load (it failed in about 3 of 5 full runs); it also read the panel with `get` while a
+  new folder's panel was still loading, and a failed test left its panel mounted into the next one.
+- Tests: unit `access-edit-everyone-above` (per-group edit, a pair), `b-chat-rooms` and `c-integrations-tools` (the read
+  card), `a-folders-keep`; web unit `folder-sharing` (group lines), `folder-sharing-panel` (Discard then Save, a Discard
+  during Save's ask, Cancel during Save's ask then kept), `access-view`; e2e `folder-access` (two groups, Discard then Save) and the specs that read the
+  access words.
+- Version impact: **patch** (words, a fix, one optional field in the admin edit preview; no data change).
+
+## A welcome for invited people — 초대받은 사람의 첫 5분 (feat/member-welcome, 2026-11-11, product owner)
+
+A walk of the member flow on dev (a local test team, four new accounts, desktop and phone) found that an invited person
+lands on a bare Home: no one says who invited them or what the team is, the team does not hear they joined (since fixed
+on dev by "A new member is told to the team" for invites and team links), the first Activity item is a connection
+template ("connect it with your own key"), ✦ in rooms is explained only by the box's placeholder, and Files calls the
+person's own area read-only. Eight reference products (Slack, Teams, Notion, Linear, Discord, Figma, Claude Team,
+ChatGPT Business) agree: ask almost nothing, people are already in their rooms, say who invited them, one first action
+inside the real screen, and the team welcomes them. The owner approved one Home card and small fixes (no wizard, no
+page, no tooltip tour); decided 2026-11-11: the last row asks Trina "what can I do here" (not "try a team skill": a
+quote skill needs real input), the joined line and the owner's notice for every way of joining (dev's mechanism,
+extended to "Add directly"), no admin-written welcome message yet, the photo row in. Placement: Team AX core (Home,
+rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-welcome.md`.
+
+- **Who gets the card.** Someone who joined with a team link, a single-use invite or an admin's "Add directly"
+  (`member_welcome`, migration 286: invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at, added_by,
+  announced_at), written at
+  the join (`onboarding/member-welcome.ts recordJoin`). Admins who were invited get it too: they are new people as well.
+  Never the team's creator (their start is the welcome steps) and nobody who joined before this release. Never an
+  owner: someone invited who is handed the team (a lead invite, then the handover) gets the owner's own Home again;
+  `transferOwnership` hides the new owner's row for good, and `welcomeOf` answers null for any owner. It shows for
+  14 days after joining (`MEMBER_WELCOME_DAYS`), until hidden or done; an add-directly account that first signs in
+  later has the rest of its days.
+- **The card** (web/src/components/onboarding/MemberWelcome.tsx; `GET`/`PATCH /api/me/welcome`, `auth: 'user'`, the
+  caller's own row only, no id in the address, a strict body): "Welcome to {team}, {first name}", "{inviter} invited you
+  · {n} people are here" (no inviter, "Add directly": the second half alone), "Get started · {done} of {total}", Hide.
+  Rows, each a done circle:
+  a. "You're in Everyone and # Sales" (the everyone room, then the team rooms; done from the start; Open → Conversations);
+  b. "Say hi to the team": "👋 Hi, I'm {first name}" posts that in the everyone room as them (the room's own send); done
+     once they wrote any message in a room since joining it (worked out on the server, so a hi typed in the room counts);
+     then Open → that room;
+  c. "Add your photo" (optional, not counted): the profile photo picker in place (Settings' own square crop), saved at
+     once; done with a photo;
+  d. "Ask Trina what you can do here": one tap starts a normal chat with a fixed question in the person's language ("the
+     team skills I can use and what each needs from me, the team folders I can open, the conversations I'm in, only what
+     I can use"); the chat runs with their permissions like any other, so it can only name what they can reach. Done once
+     started (`asked_at`).
+  Total 3 (a, b, d). All three done: "You're all set" with Close, for 10 minutes after the last one (`ALL_SET_MS`), then
+  gone for good. First names: the first word of a spaced name in a script that writes given names first; Korean,
+  Japanese and Chinese names and names without spaces stay whole.
+- **No AI for the person** (owner's refinement, "AI가 연결이 안되어있으면 어카지?"): row d becomes the existing no-AI way out
+  (ConnectAi.tsx): "Connect your AI so Trina can help you" with Connect my AI (or the team's for an admin who may), or
+  "Trina isn't ready for you yet" with "Tell {owner}" (the onboarding.ai_request notice, once; "Told them" after); the
+  trial credit's line when that is why. Rows a–c work the same. Once AI answers, row d is the question again (not done).
+- **One thing at the top.** While the card shows it takes the place of the no-AI card, the goal card / setup row and
+  "Ready in your team" (no second list of skills); Home waits for its answer so nothing flashes first. The lead card
+  ("W6") still comes first. Phones: the same card under the box like Home's other "one thing", no frame, 44 px targets,
+  the row's button under its words when they need the width.
+- **The joined line and the owners' notice are dev's** ("A new member is told to the team" above, 997f87f4f:
+  `RoomsService.memberJoined`, the `joined` event line, `team.joined` to the owners and the invite's or link's maker).
+  This branch adds no event kind, text or notice of its own. It adds the one case that entry left out, an admin's
+  "Add directly", the way the owner decided: the account is made with its `member_welcome` row (`recordJoin`, with
+  `added_by`), but the person has not joined until they are here, so `memberJoined` and `notifyTeamJoined` (the active
+  owners, except the owner who added them) run at their **first successful sign-in**, once
+  (`onboarding/member-welcome.ts firstSignIn`, called from `auth/service.ts signIn`; `announced_at` is claimed in the
+  same statement). A second sign-in, or the password change after the temporary one, says nothing again. An account
+  disabled or deleted before its first sign-in is never announced. Its 14 days (the card and the held template
+  notices) count from that first sign-in (`joined_at` is set then), not from when the account was made.
+  The line is an event, not a message: it does not mark "Say hi" (row b) done; only a message the person writes does.
+- **The join pages name the inviter**: "{inviter} invited you to {team}" (`inviterName` on both info answers, only while
+  the link or invite works), else "Join {team}" as before.
+- **No connection template notice at join.** The three join paths no longer call `notifyTemplateOffers`; the template
+  backstop (`offerTemplates`) skips, for a person in their welcome days who has not opened Connected apps, the templates
+  that were there when they joined. Opening Connected apps (`GET /api/integration-templates`) records those as offered
+  without a notice (they are listed there). A template made after they joined is news and is told as before; one never
+  opened is told when the 14 days are over.
+- **The ✦ line in rooms** (for everyone, owners and long-time members too: ✦ is hard to find for all; only while the AI
+  can answer the person, `aiAccess` usable, so it waits while they have no AI): the first time a person opens a room,
+  one line under the header: "✦ Ask Trina about this room. Only you see it." The line opens the side chat; ✕ closes it.
+  Closed or ✦ used: never again, on any device (`prefs.roomAskHint: 'seen'` through `PATCH /api/me`; no migration). Not
+  a tour: one line, once.
+- **Small fixes.** A team link opened while signed in: Home with "You're already in {team}" (the single-use invite has
+  its own page since #387). Files › Personal (users/, where a member sees only their own folder): "Your own folder is
+  inside" instead of "Read-only folder", and no lock on its row. Greyed New folder / Upload on a computer get one line:
+  "You can add files in folders you can edit" (on Personal: "Add your files in My folder"); phones hide those buttons.
+- Not built: an admin-written welcome message (next time), a wizard or a tooltip tour, asking role or purpose, the
+  notification permission in the card (the web's one-line ask and the phone app's own question stay).
+- i18n: `memberWelcome.*`, `rooms.askHint`, `invite.invitedBy`, `teamLink.alreadyIn`,
+  `files.personalInside`, `files.addHere`, `files.addInMyFolder` in the five languages (`rooms.event.joined` and the `teamLink.joinedNotice` wording are dev's).
+- Tests: `tests/unit/b-member-welcome.test.ts` (the three ways, with dev's line and notice: unread unchanged, no room notice, who is told; "Add directly": nothing at
+  creation, the line and notice at the first sign-in once, never for an account disabled or deleted before it;
+  the inviter on the info pages and the card; no template notice at join; the card's rows, all set and gone, the photo
+  optional, Hide, the days, the caller's own only), `c-integration-templates` (held at join, offered silently on
+  Connected apps, told after the days, a later template told at once), the permission matrix cases, web
+  `member-welcome.test.tsx` (the rows and done states, the inviter line with and without, say hi, ask, all set, Hide,
+  a phone, no AI: tell the owner once, connect my own, the row back when AI answers; first names; the join title; the ✦
+  line once).
+- Version impact: **minor** (a new endpoint, migration 286 and a visible change on an invited person's first screen).
+
+## A project card I am not in says only members see inside — 멤버만 내용을 볼 수 있어요 (fix/project-card-members-only, 2026-11-12, QA TC-303)
+
+- Since "Project contents only for members", the owner or an admin who is not a member gets a team project without its
+  instructions (`Project.member: false`, `instructions: ''`). The Projects list card (#374) read that empty field as
+  "지침이 없어요." ("No instructions."), which was untrue for a project that has instructions. Now such a card shows a
+  small lock (as "나만 봐요" under a chat's box) and "멤버만 내용을 볼 수 있어요." ("Only members can see what's inside.")
+  in the same faint two lines' room, so the card stays as tall as the others. The line comes from `member: false`
+  alone: nothing more is sent.
+- In the trash (`inTrash`, also `member: false` for everyone): that line stays empty. Nobody sees its contents then,
+  members included, and the card's line above already says it is in the trash.
+- Unchanged: members' cards, "지침이 없어요." on a project I see that has no instructions, and the project page (its one
+  quiet block for a non-member).
+- i18n: `projects.cardMembersOnly` in the five languages.
+- Tests: web unit `project-list-menu.test.tsx` (the lock and the line on a card I am not in, empty in the trash, "지침이
+  없어요." on mine), e2e `project-list-menu.spec.ts` (an admin who is not in a project with instructions: the line and
+  the lock, not its instructions, as tall as her own card, axe; `SHOTS_DIR` takes the pictures at 1440 and 390).
+- Version impact: **patch** (words on a card; no API, data or permission change).
+
+## A member asks an admin to add an app — 멤버가 관리자에게 앱 추가를 요청한다 (feat/ask-admin-service, 2026-11-11, product owner, QA TC-286)
+
+- **What.** The owner said yes ("그래 ㄱㄱ") to a member asking for an app the team has not set up. Before, a member
+  on such an app's page saw "Your admin hasn't set up Gmail yet." and a Connect button that did nothing. Now **Ask admin
+  to add it** takes the place of both; afterwards "Request sent", opened again "Already asked", and the card in the list
+  says "Asked". Slack's app requests are the model: one button, the admins hear about it, the member hears back.
+- **Which apps.** Only the five an admin sets up once for everyone: Google Drive, Gmail, Google Calendar, Google Docs
+  and Google Sheets, and only while not set up. The server holds the list (`REQUESTABLE_SERVICES`) and refuses any other
+  name, so no free text from a member reaches an admin. Left out on purpose: the listed MCP services (a member adds
+  those with their own account, and asking for something you can add yourself is refused too); "Not listed?" (it names
+  no app in the list, so its line stays); an app an admin turned **off** for members (that was the admin's choice: no
+  button, the reason stays as before); when the team turned personal connections off (members see no listed services,
+  and asking for a team connection there is a bigger change); a setup that is not the admins' to make (a hosted team's
+  comes from the hosting service, an operator's file from the server: nobody here could answer it, so the server
+  refuses it). Owners and admins cannot ask (they set it up).
+- **One notice per app, not per ask.** Each owner and admin has one Activity row per app ("Alice asked to add Gmail",
+  "Erin and 2 others asked to add Gmail", newest asker first); a new ask makes it unread again and moves it up. The row
+  opens the app's setup in Admin › Connected apps, with a small "Set up Gmail" button inside it. Names are read when the
+  inbox is shown, never stored with the notice. A 30-second check keeps the notices with whoever is an owner or admin
+  now: someone demoted loses them, someone promoted gets those of the apps asked for now.
+- **Closing.** When members can connect the app (an admin set it up, or turned the members' switch on after that; a
+  setup made elsewhere is caught by a 30-second check), its requests close, the admins' notice is marked read and says
+  "Added", and each asker gets one quiet notice ("Gmail is ready. You can connect it now.", inbox only, never an OS
+  push) that opens its page. Set up but off for members does not close them (the member still cannot connect it; the
+  notice's page has the members' switch), nor does a hosting service's Google review that lets only its test users in.
+  Requests also close after the inbox's 30 days, or when their member leaves or becomes an owner or admin.
+- **Limits.** One open request per member and app (a partial unique index; "already" sends nothing), at most 10 new
+  requests per member a day. Nothing a member gets names an admin ("Admins are never named", above).
+- **Data.** Migration 343 (342 is taken by an open PR): `service_requests` and `service_request_notices` (the notices'
+  own table, as the others: notification_inbox has a fixed event list). Additive, reader 1.
+- Tests: `tests/unit/c-service-requests.test.ts`, web unit `service-requests`, e2e `integrations.spec.ts` (member asks,
+  owner sets it up from the notice, member hears it is ready; phone width), `google-apps.spec.ts` and `drive.spec.ts`
+  (the button in place of the disabled Connect).
+- Version impact: **minor** (a new API, two inbox events, one migration). Needed in the core too (potenlab/team-ax).
+
+## Uploads wait for the connection; one's own upload sent again is kept once (fix/uploads-wait-for-connection, 2026-11-12, QA TC-223)
+
+- **Waiting, not failing.** An upload whose request gets no answer at all (the browsers' own network-failure words:
+  "Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource.", lib/xhr.ts's "Network request
+  failed"; any TypeError while the browser says it is offline) or the relay's 502 / 504 waits for the connection: a
+  pause of up to 10 s that the browser's `online` event ends at once, no request while offline, for up to 10 minutes,
+  then it fails with 다시 시도. Another TypeError is a fault in the page and is not retried. A server error keeps its
+  tries (5 for a chunk, 1 for a small file). A small file for a team folder is sent again too; attachments and voice are
+  sent once (a second one would be a second attachment or transcription).
+- **No "(2)" of one's own upload sent again.** `POST /api/files/upload` and an upload session to a path, with
+  `onExists: 'rename'`, keep a file already at the name or at one of its renamed forms ("name (2)" … "(20)", up to the
+  first free one) and answer with it, only when it is **this person's own upload of this very content in the last 24
+  hours**: a file_events `upload` row of theirs for that path with that sha256, and the file is still that content. That
+  is what a resumed upload and photos picked again after a dropped connection are. The same content uploaded by someone
+  else, made another way (the AI, a copy), or longer ago gets "(2)" as before: someone uploading a team template again to
+  get their own copy gets the copy, never the shared original back (which they would then edit). Hidden or unreadable
+  names are never looked at.
+- Tests: `tests/unit/c-uploads-same.test.ts`, `web/test/unit/upload-wait.test.ts`, `web/test/unit/file-upload-retry.test.tsx`.
+
+## Docker install builds with the latest stable — Docker 설치는 최신 정식 버전으로 (fix/docker-install-versions, 2026-11-11)
+
+- **The image builds with any release, not only 0.5.0-beta.1 and later.** The Dockerfile used to need the kit's
+  `root/packages.json`, which only kits from 0.5.0-beta.1 have, so the latest stable (0.4.0) stopped the build with
+  "this Dockerfile needs a kit …". Now a kit without the list installs the packages from its own signed
+  `app/<v>/deps.txt` plus the docker group (procps, passwd, python3; allowed with a reason in the package-list test).
+  The 0.5 path is unchanged. HTML to PDF (`TRINA_AX_PACKAGE_GROUPS`) with an old kit stops with a plain message.
+- **`--minimal` only when the kit knows it.** The entrypoint passes `--minimal` only when the kit has
+  `root/packages.json`; the 0.3.0 and 0.4.0 installers refuse it (`unknown option --minimal`).
+- **The restart loop stops.** The nftables and bubblewrap host checks print their message once and then wait
+  (`docker stop` still ends it at once), instead of exiting and restarting again and again (seen on Colima, an Ubuntu
+  24.04 VM). Transient failures still exit and are retried. `docker/test.sh` stops early when the container reports a
+  host problem.
+- **One version everywhere.** README, `docker/env.example`, the guide, `test.sh` and the Dockerfile name the latest
+  stable release (0.4.0) or say "latest stable" without a number; before, they named 0.3.0, 0.4.0-beta.2 and
+  0.4.0-beta.10. When stable 0.5.0 is tagged, `TRINA_AX_VERSION=0.4.0` in `docker/env.example` (and the example in the
+  Dockerfile header comment) moves up. Merged with #377: its Ubuntu 24.04 host setting and test results stay; its
+  0.5.0-beta.1 minimum goes, because the fallback builds 0.3.0 and 0.4.0.
+- **A host table in INSTALL-DOCKER.md** says what was actually run: OrbStack on a Mac works (2026-11-04, 0.3.0 and
+  0.4.0-beta.2); Colima does not work as installed (2026-11-11, 0.4.0: the image builds, the container stops at the
+  bubblewrap check; the Ubuntu host setting inside the VM should fix it, not tested); an Ubuntu 24.04 server works with
+  the host setting (2026-11-11, 0.5.0-beta.1 and a kit from `dev`); Docker Desktop and Debian 13 are not tested. A full
+  start of 0.4.0 still needs an OrbStack or Debian host.
+- The AI connection page is called by the name the app shows, Admin › Connections › AI accounts (관리자 › 연결 › AI 계정; it was "Providers" before), in the install guides
+  and in the messages that point to it (`admin/engines.ts`, `system/messages.ts`, 5 languages).
+- Tests: `tests/unit/system-packages.test.ts` (the fallback package list), a real image build with 0.4.0 through
+  `docker/test.sh` on Colima.
+- Version impact: **patch** (Docker install files, docs and two server messages; no API or data change).
+
+## Turn slots always come back (fix/turn-slot-leaks, 2026-11-11)
+
+- **A quarantined slot is probed, not kept forever.** A turn whose engine end is unconfirmed (the launcher connection
+  broke: `launcher: …` transport error, or a kill that failed) still holds its execution slot and its chat, so nothing
+  new runs beside an engine that may still write. Before, nothing ever released it: the chat said running until the
+  server restarted, sends got 409, and three such turns (the default concurrency) stopped the whole team.
+  `ChatRuntime.probeQuarantined` (every `QUARANTINE_PROBE_MS`, 2 s, from the capacity watcher; Stop on such a chat
+  probes at once) looks at each quarantined turn that already ended: the slot comes back when the engine's process
+  group (the launcher's `started` pgid) no longer exists (`kill(-pgid, 0)` = ESRCH; EPERM, the engine account's normal
+  answer, counts as alive), or, with no group known, when the launcher reports no live engine at all (`liveTurns: 0`,
+  the same trust as startup recovery). Without that proof it comes back at the turn's wall deadline plus
+  `QUARANTINE_RELEASE_GRACE_MS` (5 min): the launcher was told to end the engine by the wall deadline
+  (`LaunchRequest.timeoutMs`) and, while it lives, ends its groups when the connection closes, so this is a bounded
+  wait. The answer is already saved as failed (`error`) by then; the release is logged at error level. A turn
+  quarantined before it ended (the launcher stays connected but never confirms the end) stops reading the launcher at
+  that same time (`TurnExec.abandonOverdue`, on the next probe; it drops the launcher connection, which the launcher
+  takes as a kill), ends as failed, and its slot follows the same rules.
+- `liveTurns: 0` from a launcher that restarted says nothing about engines its earlier process left behind (on macOS
+  nothing kills them when the launcher dies; on Linux `Pdeathsig` does). It is trusted only when no process group was
+  reported, i.e. the engine most likely never started.
+- **A dispatch failure fails one turn.** A throw from `QueueStore.claim` rolled its transaction back, so the turn stays
+  queued and is claimed again after a pause of `MEMORY_RECHECK_MS` (`CLAIM_TRIES`, 3 in all); after that, or for a throw after a committed claim
+  (the `TurnExec` constructor), that turn ends with the crash error (turn and answer `error`, its queue ticket settled,
+  `message.done`), is never claimed again, and the loop goes on. A throw elsewhere in `schedule()` is logged and the capacity watcher tries
+  again; it no longer latches `closing` (every later send was 503 `draining` until a restart).
+- **`finish()` always ends.** Each part of a turn's end (text, cards, relay, proxy, sub-agent audit, file summary,
+  `message.done`) is guarded on its own; if the end state itself fails, the turn and answer still get `error`; the slot
+  is given back (or quarantined) and `done` resolves whatever failed.
+- Tests: `tests/unit/turn-slot-leaks.test.ts` (a broken launcher connection with the group gone, still alive until the
+  deadline, no group known with the launcher busy or idle, a launcher that never confirms the end; an injected claim
+  failure once and every time; injected failures in the end).
+
+## Retention and the update channel are owner-only — 보관 기간과 업데이트 채널은 팀장만 (fix/owner-only-retention-settings, 2026-11-11)
+
+An audit found that an admin could set the audit log to 7 days, file history and both trashes to 1 day, and the update
+channel to beta, after which the nightly sweep (`auth/sweeper.ts`, `admin/audit.ts`, `team-files/service.ts`) erased
+the audit trail and old file versions; the owner was left with one `settings.update` row. Team settings stay the
+admins' otherwise; these join the team name as the owner's own: `OWNER_ONLY_SETTINGS` in `shared/src/api/admin.ts`
+(`auditRetentionDays`, `fileHistoryRetentionDays`, `trashRetentionDays`, `chatTrashRetentionDays`, `updateChannel`).
+PATCH /api/admin/settings refuses an admin's change of any of them with 403 (`fields["body.<key>"] = "owner only"`) and
+saves nothing of that request; sending the value it already has is fine, so the contract does not change. Admin › Team
+settings shows an admin the four retention fields read-only with "Only the team owner can change this." The update
+channel has no field there (it is the installation's own). Periods an admin already shortened stay until the owner
+changes them.
+
+- Out of scope: an admin can still delete one trashed item for good (`DELETE /api/files/trash/:id`, purgeTrash), which
+  also drops that item's file versions. That is the trash's own design and is audited (`trash.purge`); the audit
+  retention that keeps that row is now the owner's.
+- Version impact: **patch** (an admin's change of five settings is refused; no response or data change).
+
+## The Windows app installs only what the signed release names — Windows 앱은 서명된 릴리스에 있는 업데이트만 설치 (fix/windows-update-verify-signature, 2026-11-11, product owner)
+
+- **Why.** The Windows app (unsigned NSIS installer, electron-updater on `<team>/downloads/`) checked only the sha512 in
+  `latest.yml`, which comes from the same team server as the installer. Whoever controls a team server, or its disk,
+  could push any program to every desk.
+- **Decision (owner):** the app installs a downloaded update only when the product's Ed25519-signed office manifest
+  names it, checked with the existing release keys (`RELEASE_CHANNEL.keys`, edition-branded at build time). Checked in
+  `desktop/src/common/update-verify.ts`: the signature, the product, the channel, `windows.version` equal to the
+  downloaded version and newer than the running app, and `windows.installer.sha256` equal to the SHA-256 of the
+  downloaded file. The signature check is one copy, `shared/src/release-manifest.ts`; the server's `verifyRelease` uses
+  it too (same messages).
+- **No code-signing certificate yet.** Authenticode and the SmartScreen warning are not part of this; macOS (notice
+  only) and store builds are unchanged.
+- **Where the manifest comes from.** Team servers (office Mac and Linux, `offerWindows` → `placeSignedManifest`) put the
+  signed manifest next to the installer as `/downloads/<channel>.json`, written before `latest.yml` names a new
+  installer and also for an installer already offered; the downloads route serves it. So an office without internet
+  still updates. Otherwise the app asks the release feed (`<feed>/office/<version>/<channel>.json`, then the head).
+- **The updater.** electron-updater's auto-download, install-on-quit and web installer are off. The app downloads
+  itself, never while a download is being checked, and re-hashes the file right before installing (restart and quit).
+  A contradicted download is deleted, logged and not downloaded again in that run; the person sees once: "This update
+  couldn't be checked, so it wasn't installed." (5 languages). Nothing readable at all (server down, no internet) keeps
+  the download for the next check. Unpacked dev runs may skip (`MYCEL_DESKTOP_UPDATE_UNVERIFIED=1` or no keys); a
+  packaged app always checks.
+- Tests: `office-update-desktop.test.ts` (good signature, wrong key, tampered payload, broken signature, hash mismatch,
+  wrong channel, version or product, downgrade, sources, dev skip, server placement),
+  `office-update-desktop-updater.test.ts` (ready only after a match; delete, one notice, no second download; unreadable
+  keeps the file; no download during a check; a file swapped after its check is never installed). A real Windows
+  install was not run: QA TC-166.
+- Version impact: **patch** (a security fix; one new notice; no API change beyond the new served file).
+
+## W7 — Onboarding: no own skills in the setup (fix/onboarding-no-own-skills, 2026-11-11, product owner)
+
+- **Decision (owner, final):** the setup's skills step shows only the skills Trina prepared (the kept catalog, W6). The
+  "bring my own skills" part is gone from it: the folder pick (`.claude`, `.codex`, `.agents`), the hidden-folder hint
+  (⌘ ⇧ .), the Claude Code / Codex one-line block, the polling for a proposal, the embedded share list and the phone's
+  "add them on a computer" line. Why: office workers almost never have a `.claude` folder, and asking them to find a
+  hidden one confused them. "Bring my skills" stays on Team skills (`BringSkillsSheet`, which now owns `useSkillPick`;
+  `lib/skillScan.ts`, `lib/codexToml.ts`, `FolderHint`, the Mac App Store app's window at `.claude` and
+  `/skills/share/:id` are unchanged).
+- **The step stays** (step id `skills`, "2/5"): it still has something to choose. Nothing about stored progress changes,
+  so a half-done setup resumes on a valid step. When every prepared skill is already in the team, one line says so and
+  the primary goes on (records the step done); there is no 나중에 하기 beside it then. The progress bar calls it
+  **Skills** / **스킬** (was "My skills" / "내 스킬"): the step no longer has the person's own skills.
+- **Removed with it:** `SkillShareReview`'s embedded mode (`embedded`, `onState`, `handle`, `earlier`, `onApplied`),
+  `PackNotes`' `failedText`, and the 17 i18n keys only the step used (`welcome.skills.cc.*`, `ccFold*`, `bring`,
+  `checking`, `partOwn`, `phoneOwn`, `putMore`). The server is unchanged: a share applied elsewhere during the setup still
+  records the step done, and old rows with `skillsLater` read as before.
+- Tests: web unit `onb6-skills` (no own part on a computer or a phone, every skill in → one line and 다음),
+  `skill-share` (was `skills-step`: the picker, the list and the 30-second end now on the Team skills sheet and
+  `/skills/share/:id`), `welcome`; e2e `welcome-skills` (the setup walk with prepared skills only, and Bring my skills
+  reading only known places), `onb6-skills`, `welcome-notes`, `welcome-tools`.
+- Version impact: **patch** (a step shows less; no API or data change).
+
+## One room for the whole team — 팀 대화방은 하나 (fix/one-default-room, 2026-11-11, product owner)
+
+- **The welcome steps' team group gets no team room.** `setupWelcomeTeam` makes the team group (the team link and the
+  lead invite put joiners in it, so its room had the same people as the everyone room: two rooms for one team, a side
+  effect of "rooms follow groups", never a choice). The everyone room (`kind 'all'`) is the team's one room. The group
+  itself stays (the welcome steps, the team link and the handover read `teamGroup`).
+- How: `createGroupAs(…, { room: false })` writes the group's team room row archived, in the group's own transaction
+  (`noTeamRoom`, audited `room.archive` reason `team_group`), so the sync that runs at the end (`afterAccessChange`)
+  never makes a live one. `Rooms.sync()` also skips the group the welcome row records (`welcomeTeamGroupId`).
+- **A team from before:** at every sync, the recorded team group's live room is archived while it has no message
+  (event lines do not count). Archived = the existing mechanism: row kept, members removed, nobody can read it; never
+  deleted. A room somebody wrote in is left alone; messages are never removed, so this settles once. No migration.
+- Other groups still get their team rooms as before.
+- Tests: server unit `b-rooms-one-room` (a new team: only the everyone room, other groups keep rooms; an older team: an
+  empty room archived once, a written one kept).
+- Version impact: **patch** (one room fewer for new teams; no API or schema change).
+
+## A signed relay call is accepted once (fix/relay-replay-cache, 2026-11-11, QA TC-170)
+
+- **One replay check, on the signed message.** The relay remembers a signed call by its signer and the SHA-256 of the
+  signed message (`relay/src/replay.ts`), never by the signature's text: base64 has several spellings of the same
+  bytes, so a copied operator call could be sent again with a re-spelled signature. The operator API and the
+  team-signed registry calls (`GET`/`PATCH`/`DELETE /teams/:id`, the heartbeat, `Registry.verifyApi`, which had no
+  replay check at all) both use it and answer a call sent again with 409 `replayed`. It is checked only after the
+  signature verifies.
+- A call is remembered for the whole clock window (2 × the allowed clock skew + 1 ms), so it is refused even in the
+  last millisecond the clock check accepts it.
+- **Room per signer.** Each team has room for 1,000 calls and each operator key for 10,000; a signer that floods drops
+  only its own oldest entries, so one team cannot push out another team's entries and replay its call. When the whole
+  cache is full of live entries, new calls are refused (429 for a team, 503 for an operator) instead of forgetting
+  anyone. Accepted: a signer that sends more than its own room in two minutes can make its own oldest calls replayable.
+- Operator keys are kept per public key, in one spelling. The signed string does not name the key id, so an
+  `operator-keys.json` that lists one public key under two ids is refused, and all operator calls stop until it is
+  fixed.
+- The team server's registry client signs with a strictly increasing `ts`, so two identical calls in one millisecond
+  stay distinct (Ed25519 is deterministic).
+- Tests: `tests/unit/f-*.test.ts` (re-spelled operator replay, team-signed replay, per-signer room, a key under two
+  ids).
+- Version impact: **patch** (a call sent again is refused; no API change for a first call).
+
+## An update roll-back goes forward again when the old version cannot read the database (fix/update-rollback-schema-too-new, 2026-11-11, QA TC-167)
+
+- **Why.** A new version migrates the database and then fails its health check; `mycel-bootstrap` rolls back. When the
+  migration raised `min_compatible_reader` above the old build's `SCHEMA_READER_LEVEL`, the old build exits 75
+  (`SchemaTooNewError`) on every start, and the bootstrap restarted it forever. No version ran and the owner had no
+  screen to fix it from.
+- **Go forward, not restore.** Exit 75 right after a roll-back (the last history entry is `rolled_back <new> ->
+  <this>`) sends `app/current` back to the newer version, which already migrated the database. It is watched like an
+  update but never rolled back; when healthy, history records `ok <old> -> <new>` ("started again after <old> could
+  not read the database…") and `previous` is cleared. Restoring a `pre-migrate-*.db` is not done by the bootstrap: it
+  would have to pick the right file and swap SQLite files from outside the server, and a wrong pick loses data.
+  Restoring stays the owner's choice, and the stop message names it.
+- **No endless loop.** A forwarded version that dies `--max-attempts` times or exits 75, or an exit 75 with nothing to
+  go forward to, stops the bootstrap: `state.json` gets `blocked {version, since, detail}` and history a `rolled_back
+  <v> -> <v>` whose detail starts with "stopped:" (the existing result value, because older servers parse `result` as
+  a strict enum). It stays stopped across bootstrap restarts, even when `state.json` cannot be written, and starts
+  again when `app/current` changes, `blocked` is removed, or on SIGHUP (one more watched try).
+- `mycel-ctl status` prints `SERVER STOPPED at …` (`serverStopped` in `--detail --json`). `mycel-ctl update` reports
+  `rolled_back` only after the roll-back has lasted 20 s and not while `state.json` `forward` names the new version.
+- `shared/src/install.ts` `AppState` gains optional `forward` and `blocked`; older readers drop them.
+- The bootstrap is a root file, so the release that carries this is a root update.
+- Tests: bootstrap Go tests with fake versions (roll-back → 75 → forward → healthy; forward keeps dying → stop, SIGHUP,
+  restarted bootstrap; forwarded 75; 75 with no roll-back; `state.json` not writable), ctl `TestStatusShowsServerStopped`
+  and `TestUpdateRollBackThenForwardIsOk`.
+- Version impact: **patch** (root update; two optional `AppState` fields).
+
+## Plugins: trust is checked again under the current settings; skills are never placed through a link (fix/plugin-trust-recheck, 2026-11-11, QA TC-169)
+
+- **Trust is not only an install-time check.** A plugin's stored trust and key id are checked again against the trust
+  settings in effect now: an unsigned package needs unsigned packages to be allowed, and a key must still be in
+  `PLUGIN_TRUST`, allowed for this publisher and id, and still an official key for a package recorded as official.
+  Release-pinned official builds (HWP) stay trusted; a withdrawn build is still `revoked`. So a pack taken in while
+  `MYCEL_PLUGINS_ALLOW_UNSIGNED` or `MYCEL_PLUGINS_TEST_KEYS` was on, or signed with a key later dropped, stops being
+  usable.
+- New reason `untrusted`: Admin › Plugins says it in plain words (5 languages); enable and roll back refuse
+  (`signature` for unsigned, `untrusted` for a key); at start such a plugin is turned off and its skills removed (audit
+  `plugin.untrust`), one plugin at a time so one failure never blocks the others; the HWP "turn it on" to-do stays
+  quiet for it.
+- **No link is followed in the team folder.** Placing skills checks every path part with lstat before anything is
+  saved and refuses links, non-folders and files with another hard link (and a FIFO swapped in) as `skills_conflict`;
+  folders are made one level at a time and files opened with `O_NOFOLLOW` and `O_NONBLOCK`. Removal never goes through
+  a link.
+- Tests: `tests/unit/plugins-trust-recheck.test.ts`.
+- Version impact: **patch** (an untrusted plugin is turned off; no API change beyond the new reason).
+
+## A join link survives a weak connection; a temporary password keeps `?next=` (fix/join-link-retry-next, 2026-11-11, QA TC-171)
+
+- **Join link.** `/join#t=…` still takes the token out of the address bar at once, but the tab keeps it in
+  sessionStorage (`mycel.joinToken`) until the person joined or the server says the link does not work (invalid, or
+  the server's own `not_found`). A failed load (no connection, a server error, a 404 without the server's JSON answer)
+  shows the error and one **Try again**, never "link invalid".
+- **`?next=` through the forced password change.** Login, the Gate's must-change branch and ForcedPassword carry
+  `?next=` to `/password` and go there after the change. One check for all of them, `safeNext`
+  (`web/src/lib/nav.ts`): same-site paths only and no control characters. Addresses that hold a token (`/invite/…`,
+  `/reset-password/…`, `/join`) are never carried into `?next=`.
+- Tests: web unit team-link, forced-password-next, team-link-skill-form; e2e `auth.spec.ts`, `team-link.spec.ts`,
+  `first-run.spec.ts`.
+- Version impact: **patch** (web only).
+
+## Connector OAuth: limits a flood cannot fill (fix/connector-oauth-limits, 2026-11-11, QA TC-168)
+
+- **Why.** The connector's own OAuth server (remote MCP "AI apps") refused every new app at 2,000 registered clients
+  and every sign-in at 2,000 pending requests, and one server-wide bucket counted every request, authenticated tool
+  calls included, before the per-address bucket. One address could stop new Claude or ChatGPT connections for a month
+  and make connected people's tool calls 429.
+- **Tables make room.** A registered app with no grant and no sign-in in progress is removed a week after its last use
+  (one registration is often shared by a team whose members connect days later). A full table evicts the longest-idle
+  apps without a grant and without a sign-in a person has opened (unopened requests go with them); 503 only if nothing
+  can go. The pending table makes room from the oldest unopened requests. A sign-in link of a removed app shows a short
+  page that says to start again.
+- **Per address** (`OAUTH_LIMITS`): register 12 a minute and 240 an hour; authorize 180 a minute and 200 per 10
+  minutes; 50 sign-ins per app and address per 10 minutes (app ids are public, so nothing is limited per app alone).
+  IPv6 counts by /64 (`ipKey`). The address comes only from the socket, the relay or the office tunnel, never a
+  client header.
+- **Order:** a full shared bucket refuses before anything is written; then the address's own buckets (an address over
+  its limit does not spend the shared one); then the shared one.
+- **Outside the anonymous bucket:** `/mcp` calls with a live access token (300 a minute per grant), token requests
+  with a live code or refresh token of a live grant of the named app (they also skip the app's token bucket; failures
+  are charged to the shared bucket afterwards), and live upload links without a foreign Origin.
+- The two scanning housekeeping deletes run at most every 10 s. Kept: PKCE S256, state, redirect and resource checks,
+  hashed storage, no raw IPs in the database, per-person tool limits.
+- Accepted: a sign-in nobody has opened yet can be dropped by a flood above the pending cap (they start again); anyone
+  can spend the registration budget of Claude's or ChatGPT's own address on this server. The busy-minute share is in
+  "Connector sign-in: a busy minute slows only the flooding networks" below.
+- Tests: `tests/unit/remote-mcp-*.test.ts`.
+- Version impact: **patch** (limits only; no API change).
+
+## Home and Getting started polish (fix/home-onboarding-polish, 2026-11-11, product owner, QA TC-181..TC-184)
+
+**Home and Getting started polish (owner, 2026-11-11, final).**
+1. The Getting started invite step has no "This person will be the owner" checkbox. One team link invites many people,
+   so ownership is handed over after people join, from Admin › Members (a person's "…"). The owner link remains in
+   Admin › Members' invite dialog, and the server API is unchanged. This supersedes the welcome-step part of "W6 —
+   easy owner handover".
+2. When voice input can't be used on this server, nobody sees a mic, owners and admins included. There is no
+   crossed-out mic hint. The composer's AI picker shows only when there is more than one choice.
+3. The 7-day goal card's title invites people to make documents with colleagues. It names up to three of the team's
+   own skills: the goal's skill first, never the intro deck. The count and days follow it in small type. This
+   supersedes the "7일 안에 3명이 … 써 보기" title in "G" and "W5".
+4. A chat started from a skill is called by the skill's display name, never its slash name. The title stays automatic,
+   so the AI may refine it, and a rename by the person wins.
+
+## "Trina isn't ready yet": the chat error by role (fix/ai-not-ready-by-role, 2026-11-11, product owner)
+
+**"Trina isn't ready yet": the chat error by role (owner, 2026-11-11).** When the AI cannot start (`engine_missing`),
+a member reads "Trina isn't ready yet." with one button, [Tell an admin]. It sends each owner and admin an Inbox notice
+("<name> tried to use Trina but it isn't set up yet", opening Admin › AI accounts) and then reads "Told". The server
+sends at most one such notice per member per hour (`POST /api/me/ai-not-ready/tell`; the notice re-arms after the hour
+instead of adding a row). The owner and admins read "Trina isn't ready yet. Connect an AI so it can answer." with one
+button, [Connect AI], to Admin › AI accounts. Try again stays. No engine or Diagnostics words in either. The notice
+shares `onboarding_notices` under the source `not-ready:<member id>`, separate from the member's ask for an AI
+connection, and is never settled.
+
+## Admin in plain words; Browser settings on the desktop app (fix/admin-ui-plain, 2026-11-11, product owner, QA TC-185..TC-187)
+
+**Admin in plain words (owner, 2026-11-11).** Admin › Home lists only what an admin can act on, in plain words ("No AI
+is connected", a service to sign in again, storage, backups, a failed update, an engine sign-in).
+- Server internals are shown in Admin › System › Diagnostics only: an engine version other than the pinned or
+  lockdown-tested one, a failed lockdown test, socket paths, sandbox, launcher, relay, queue, managed files and the
+  like.
+- An engine in such a state still answers. Providers, Home and the owner checklist treat it as connected.
+- The allowlist is `web/src/pages/admin/plain.ts` `homeCheck`. A new server check stays in Diagnostics unless it is
+  added there.
+
+**Browser settings on the desktop app (owner, 2026-11-11).** Settings › Browser is in the desktop app, the only client
+whose AI has the browser.
+- On the web and phones it shows only while the person's own "Allow all websites" for web reads is on, so it can be
+  turned off where it was turned on.
+- This narrows the Settings › Browser part of "Allow all websites covers the AI's web reads" (it was on every client).
+
+## Mac users get the App Store only; the relay does not say whether setup is done (fix/mac-store-setup-hidden, 2026-11-11, product owner, QA TC-193, TC-194)
+
+**Mac: the App Store only (owner, 2026-11-11, TC-193).** With the edition's Mac App Store listing, Settings › Apps
+offers Mac users only the App Store, everywhere: browsers, the iPhone app, and the desktop app installed from a team
+server `.dmg` (its own row is "This app" with the App Store link). The team server's unsigned installer is no longer
+offered there, not even folded under the row. This replaces the 11-10 "App Store first, installer folded" entry (#343).
+A build without a Mac App Store listing still offers the server's installer. Windows, iPhone and Android are
+unchanged.
+
+**The relay does not say whether setup is done (owner, 2026-11-11, TC-194).** `GET /api/setup` from the internet,
+signed out, does not tell whether first-run setup is finished:
+- The office tunnel always says `needed: false`.
+- The relay says `needed: true` only to a caller with the right setup token in `x-mycel-setup-token`. The setup link's
+  page sends it, and the tab keeps it in `sessionStorage` until the team is made. Wrong tokens count on the same per-IP
+  token limit as `POST /api/setup`. Through the relay, `POST /api/setup` checks the token before the team's state, so a
+  wrong token gets the same 403 before and after setup.
+- This server and the office network see the real answer.
+
+This is the same line as #369 for `/api/health`.
+
+## Budget during an answer: usage counted as it comes, the answer stops at a used-up block budget (fix/budget-mid-answer, 2026-11-11)
+
+- **Usage is counted as it comes.** The engine's usage goes on the turn row on every usage event (Claude Code's running
+  per-call usage, the API engine's per-round usage), so one person's parallel answers see each other's spend. The model
+  proxy's count stays authoritative: its first count replaces the engine's numbers. A run that is cut off keeps the
+  tokens of its finished model calls.
+- **A used-up block budget stops the answer while it works.** The budget is checked again after a usage event of a
+  model call the answer goes on from (Claude Code or the API engine asked for a tool, a sub-agent's call: the
+  `continues` flag), before every engine launch and between the API engine's rounds. A used-up budget ends the answer
+  like Stop, as an error with the existing budget message; the API engine's round that used it up runs none of its
+  tool calls.
+- **A finished answer is never turned into a budget error.** A run's total or the answer's last call is recorded only;
+  the next answer is refused before it starts. A Codex sign-in reports its use only when its answer ends, and a
+  dollar-only limit on a Claude Code sign-in is priced only then, so for those the next attempt or question is refused.
+- **One teardown.** `stop()` and `checkBudget()` share one `halt()`: the slot is taken back for the ending engine and
+  answers held for a slot are dropped (as for Stop since "Answers waiting for a person hold no slot"), so a held card
+  answer never reaches its tool after a budget stop.
+- Tests: `tests/unit/b-budget-mid-answer.test.ts`, `tests/unit/turn-waiting-slots.test.ts`.
+- Version impact: **patch** (an answer can stop earlier at a used-up limit; no API change).
+
+## Answers waiting for a person hold no slot; a chat still ending says so (fix/turn-waiting-slots, 2026-11-11, QA TC-190, TC-191)
+
+**Answers waiting for a person hold no slot (2026-11-11, TC-190).** The concurrency limit protects CPU and engine
+processes doing work. A turn with an open card is idle: its engine waits on the tool call. So the slot goes to the next
+answer while any card of the turn is open. The turn stays the chat's running turn: the chat stays busy, Stop works, and
+its card timeout and the 45-minute wall limit still run. A card answered meanwhile reaches its tool only once the turn
+holds a slot again. The turn takes the next free slot, before any queued answer, oldest answer first. It is never
+starved, and the answers holding a slot never go over the limit. Meanwhile the chat says "Waiting for a free place".
+Three exceptions: a lowered limit never stops answers already running, an engine that is ending (Stop, the wall limit,
+a quarantine) holds a slot again even if it was waiting on a card, because it may be working; and an answered turn
+whose tool call would time out (25 min after its card opened) goes on over the limit.
+
+**The engine stays up while it waits; it is not suspended.** Ending the engine and resuming its session later would
+lose the tool call in progress and its state. It would also cost a full engine start for each answer, often more than
+the wait itself. The wait is bounded by the card timeout (at most 15 min) and the wall limit. An idle engine uses
+memory but no CPU. So the number of engines up is capped at twice the limit on every platform, waiting ones included;
+past that, answers stay queued. On Linux, memory admission also reads the machine's real free memory, so idle engines
+count there too. On a Mac and in office mode it is off, and the cap is the only guard. Accepted edge case: a non-card
+tool the AI runs in parallel with an open card runs without a slot. This is the same rule the active clock already
+used.
+
+**A chat still ending says so (TC-191).** While an earlier answer's engine end is unconfirmed (a quarantined slot, at
+most the answer's wall deadline + 5 min), the chat shows one plain line: "Waiting for the earlier answer to finish.
+Other chats work as usual." A send there gets the same words (409, reason `earlier_answer_ending`).
+
+## An update waits for a long database migration (fix/large-db-update, 2026-11-12, QA TC-278)
+
+Update with a long database migration (QA TC-278, 2026-11-12): a server that must migrate a database with data answers
+`/api/health` 503 `status: "migrating"` (with its version) while the pre-migrate copy and the migrations run in a child
+process. mycel-bootstrap and `mycel-ctl update` keep waiting while it says so: each answer gives `--health-timeout`
+from then, and if it is still migrating after `--migrate-timeout` (60 min) the update is rolled back. Attempts and
+roll-back rules are unchanged. A new pre-migrate copy replaces older copies of the same schema (but not those from
+before the last restore), and staging folders of dead processes are removed.
+
+## Linux installer: download and build before the server stops (fix/update-packages-before-stop, 2026-11-11, QA TC-279)
+
+The Linux installer does every download and build (headless browser, Python venvs, `--engine` binaries; apt already
+did) before it stops the team server. After the stop it only switches `current` links and the app version.
+packages.sh has prepare/switch pairs for the browser and for Python programs for this.
+
+## changelog:check compares the release PR with dev (fix/release-pr-changelog, 2026-11-11)
+
+`changelog:check` compares the dev → main release PR with dev, not main. The rule "a PR does not add lines under
+`## Unreleased`" is enforced where PRs land (dev). Other PRs into main still compare with main.
+
+Version impact: none (CI/tooling only).
+
+## A stopped bootstrap keeps `current` at the version that ran (fix/update-plugin-followups, 2026-11-11, QA TC-167, TC-169)
+
+While the bootstrap is stopped after an update, state.json `current` stays the version before the update (the last
+version that ran) and `blocked.version` names the stopped one. `current` only follows app/current when an
+administrator switches to another version.
+
+## A token refresh is not a team policy change (fix/audit-small-server-1, 2026-11-11, audit row 18)
+
+The safe-operations policy generation no longer counts a connection's sealed secret (`secret_enc`, `key_version`) or
+health (`status`). A key, sign-in, sign-out or new address still counts through `version`, which every such change
+moves. Rule for new code: a path that changes where a key goes or who may use a connection must bump
+`integrations.version`.
+
+## File versions under their own hash; the spent setup code goes (fix/audit-small-server-2, 2026-11-11, audit rows 33, 120)
+
+Replacing a team file (upload, copy onto it, restore) keeps the current file as a version and installs the new one in
+the same synchronous step as the check that the hashed file is still the one on disk. A version's blob always hashes to
+its `sha256`. On Linux, the installer deletes `setup/code` once the team has its owner.
+
+## Mermaid follows the app's look (fix/phone-polish-small, 2026-11-11, QA TC-265)
+
+- Mermaid diagrams in answers follow the app's look (dark theme in the dark look). This replaces the old code comment
+  "always the light theme".
+
+Version impact: patch (look and wording fixes on existing screens).
+
+## Rooms: read only what was shown; a reply from a search result lands at the newest (fix/room-read-visible, 2026-11-11)
+
+A room's timeline is marked read only up to the newest message that was loaded and came into sight. Nothing is marked
+read while a page is loading, or while unread messages are older than the loaded pages. A send or "최근 메시지로" from a
+window around an older message lands at the newest messages, at the bottom, and drops `?m=`.
+
+Version impact: patch (web bug fix, no API or data change).
+
+## A failed settings save goes back to what the server has (fix/settings-save-rollbacks, 2026-11-11)
+
+A setting saved from the web app that fails to save goes back to what the server has (its last answer, else the value
+in use before), never to a snapshot from before the save, and only if no later change is still being saved. The error
+is shown. Switches that save in turn are off while one of their saves runs.
+
+## One chat row menu (fix/project-chat-row-menu, 2026-11-11, QA TC-248)
+
+**One chat row menu.** A project page's chat row "···" has the same items as the sidebar's chat row, built by one hook
+(`components/chat/chatMenuItems.tsx`) with the same rights (`sharedRights`): pin, copy link, rename (creator), move
+(not for a shared chat), delete (creator or project editor). A row's menu button is centred with flex, never a
+transform, because a transform would hold the phone's fixed bottom sheet inside the button's box.
+
+## The office Mac's update waits for a large database too (fix/office-update-migrating, 2026-11-12, QA TC-278)
+
+- The office Mac's update waits for a version that reports "migrating" with the same rule and bound as a Linux
+  server's bootstrap. The office `install` started by the updater waits up to 4 min itself (for updates run by an older
+  updater), then hands the wait to the updater. `mycel-ctl update` reads `--migrate-timeout` from the bootstrap's
+  loaded ExecStart (`native/internal/bootflags`), never its own constant (QA TC-278 follow-up, 2026-11-12).
+
+## The notice index is for signed-in people when the caller comes from the internet (fix/licenses-version-signed-out, 2026-11-11, QA TC-160)
+
+**The notice index is for signed-in people when the caller comes from the internet.**
+- Signed out, through the relay or the office internet address, `/licenses/manifest.json` and `/licenses/README.txt`
+  answer 404, like `/api/health` gives such callers no version.
+- LICENSE, NOTICE, the package notice files and the source-code offer stay public.
+- Trade-off (owner to confirm): the package notice paths carry `name@version-hash`, so without the index a signed-out
+  visitor from the internet has no list of them. Any index would reveal the versions.
+- Alternative, if notices must be listable signed out: write a version-free web copy, e.g. package names + licence
+  texts under stable paths. That changes the release-notices layout and the verifier.
+
+## Codex lockdown: `.codex` cannot be renamed, every lock file goes each turn; a second desktop start exits at once (fix/desktop-small-audit, 2026-11-11, audit rows 37, 38)
+
+Codex lockdown (audit row 37): the engine sandbox refuses writes to `<chat>/.codex` itself (rename, remove, replace)
+as well as to the lock files: `config.toml`, `models_cache.json`, `catalog.json`, `AGENTS.md`, `AGENTS.override.md`,
+`hooks.json`, `.env`, `skills/`, `plugins/`, `rules/`, `prompts/`. The Linux launcher binds the same names read-only.
+The macOS sandbox compares names the way the disk does, so other spellings need no extra rules (tested). The server
+also removes every lock file before and after each turn (`CODEX_LOCK_FILES`). The `.codex` folder is not wiped,
+because the turn's sessions and state stay. Desktop (audit row 38): a second app start exits with `app.exit(0)` and
+sets nothing up; only the instance holding the single-instance lock registers handlers.
+
+## A chat's version is switched only between answers (fix/branch-switch-while-answering, 2026-11-11)
+
+A chat's version (branch) is switched only between answers: while an answer runs or waits in the chat, whoever asked
+it, `selectBranch` answers 409 `branch_while_answering` and the web app turns the version arrows off (in a shared chat
+also during another member's answer, whose live text is not on the viewer's screen).
+
+## Connector sign-in: a busy minute slows only the flooding networks (fix/connector-signin-flood, 2026-11-11, QA TC-168)
+
+**Connector sign-in: a busy minute slows only the flooding networks.**
+- Past 2,400 anonymous OAuth requests in a minute, each IPv4 /24 or IPv6 /48 gets 30 more that minute. 30,000 a minute
+  is only a last-resort cap.
+- Trade-off: during a busy minute, Claude's or ChatGPT's servers get about 6 new connections a minute per egress
+  network. Connected apps are not affected.
+- Owner to decide: whether to add a coarser IPv6 level (e.g. per /32), so that one large IPv6 block cannot fill the
+  30,000 cap.
+
+## A resync drops every cached room member list (fix/rooms-small-audit, 2026-11-11, audit rows 71, 76, 77)
+
+- A resync drops every cached room member list. Rooms on screen read theirs again at once; other rooms read theirs on
+  their next open.
+
+## Job progress: step labels are never throttled away; a queued job says it waits (fix/voice-queue-labels, 2026-11-11)
+
+Job progress throttling applies only within one step: a change of a job's step label is always delivered right away,
+and the last throttled update is delivered when the throttle window closes. A job announces its start (`job.progress`
+with null progress/message) when it goes from queued to running, so clients can tell waiting from running.
+
+## Phone sign-in and join pages (fix/phone-signin-join, 2026-11-11, QA TC-272)
+
+- Phone auth pages: the form's button stays above the keyboard (a sticky bar in the page's own scroll box), and the
+  password eye sits inside the field. Inside the phone app, the auth pages show no website footer (source link,
+  language select). The app's Settings › About has the source offer.
+- A member opening an /admin address sees an "Only admins can see this" notice instead of a silent redirect.
+- The setup secret is called a "setup code" on screen and in its error.
+
+## Phone previews fit the screen (fix/phone-previews-fit, 2026-11-11, QA TC-259)
+
+Phone file previews (narrow and touch only; computers unchanged): an HTML file wider than its preview is fitted to the
+width by default (CSS zoom inside the frame, with a "실제 크기" toggle). Document viewers (PDF, HTML page) handle pinch
+and double tap themselves and hold back the browser's page zoom on their element only; the rest of the app keeps the
+browser's zoom (accessibility). On phones only prose (.md / .txt) is offered for editing, from the ⋯ sheet.
+
+Version impact: patch (the same files are shown better on phones; no API, data or migration change).
+
+## A backup is complete only with its record; a new version is synced before the switch (fix/update-backup-durability, 2026-11-11)
+
+A local backup is complete only when its `data/backups/<id>.json` exists, and that file is written last and fsynced.
+Anything else of that id that has not changed for 6 h is removed after a backup and at start. The one exception fails
+closed: a team-folder archive with its own `meta.json` is never removed this way, and nothing is removed when
+`data/backups` is missing or cannot be listed. Version folders (installer and in-app update) are synced before they get
+their final name, and `app/current` is switched only by renaming a new link.
+
+## Files search finds files by name first (fix/files-search-names-first, 2026-11-11, QA TC-260)
+
+The Files search box searches names and contents: files and folders whose name holds every word come first (the ⌘K
+name search, with the same permission checks), then the lines that contain the text. An HTML file's line is shown as
+its plain text, and a line is left out only when the match is in its markup alone (tags, attributes, comments,
+scripts, styles); a title or hidden text is still found.
+
+Version impact: patch (a fix of the file screen's search; no API change).
+
+## Phones: one place to type an ask answer; side chat long press like the room (fix/phone-polish-2, 2026-11-11, QA TC-265)
+
+- Amends "The message box answers the AI's open question": while the message box on screen answers an AI question,
+  that card has no text box or secrets line of its own. It says to type below. The secrets line is the box's: the full
+  chat and now the side chat too, which also has the secret hold and the length check. Other cards keep their box (see
+  above). This applies on every screen size, since the duplicate boxes were on every size.
+- Amends "Trina side chat": in the side chat panel on a phone, a message's actions open with a long press as a sheet,
+  as in a room. The send-here button stays in sight under each finished answer.
+
+## Spread engine launches through a start gate (fix/spread-engine-starts, 2026-11-11)
+
+- To spread answer starts, delay only the engine launch, never the queue claim. A turn is claimed, holds its slot and
+  counts as running at once. Its `TurnExec.run` waits in a FIFO start gate (3 per 200 ms).
+- So the queue's order, fairness and limits never depend on the spread.
+
+Version impact: patch (a performance fix; no API, setting or data change).
+
+Supersedes #463.
+
+## Phone-app wording (fix/phone-app-wording, 2026-11-11, QA TC-264)
+
+**Phone-app wording.** Copy that names the browser ("browser settings", "new tab") is picked by where the page runs.
+Inside the phone app (`mobileApp()` is set), it names the phone's Settings for the app (per the bridge's `platform`)
+or "your browser" for links that leave the app. When the bridge offers `push-permission-v1`, a permission problem gets
+an "Open Settings" button (`openAppSettings`). The choices are pure functions in `web/src/lib/appWording.ts`, so they
+can be unit tested.
+
+## Phones edit only .md and .txt; no 다시 시도 when the HWP preview cannot work here (fix/phone-edit-and-hwp-retry, 2026-11-11)
+
+- On a phone, a file can be edited from the ⋯ sheet only when it is Markdown (`.md`, `.markdown`) or `.txt`. This is
+  decided by file extension, not by preview kind. Computers keep the pencil for every editable kind.
+- The HWP preview offers 다시 시도 only when trying again can change the answer. A final server reason (`engine`,
+  `isolation`, `unsupported`, `locked`, `distribution`, `damaged`, `limit`, `loss`) shows the download only. Transient
+  reasons, `disabled` and `missing`, and failures without the server's answer keep the retry.
+
+## Phones: 44 px targets and 16 px fields (fix/phone-tap-16px, 2026-11-11, the owner, QA TC-189)
+
+Below 768 px every control takes taps from at least 44 × 44 px (Apple HIG 44 pt; Material 48 dp), and text fields show
+at least 16 px text, because iOS Safari zooms in on a smaller one.
+- This is done in the shared parts, not per screen: `Button`, `IconButton`, `MenuButton`, `CopyButton`, `Tabs`' tabs
+  and `inputCls` fields are 44 px; `Switch` takes taps from a 44 px box; the 16 px field rule in index.css matches
+  phone widths as well as touch screens.
+- This replaces "44 px buttons (`components/ui.tsx` `PhoneTargets`)" under "Admin and Settings on phones": the context
+  is gone, and every page now gets what the form pages had.
+- A control in a chip or a row whose height it must not change takes `compact`: it keeps its size and takes taps from
+  a 44 px box (`touch-hit`). A one-off control uses `touch-hit` where nothing is drawn over its box.
+- Computers and tablets (768 px and wider) keep their sizes.
+- `web/test/e2e/phone-targets.spec.ts` measures the main phone screens.
+
+Version impact: patch (phone sizes only; no API, data or migration change).
+
+## A PDF pinch keeps the place under the fingers (fix/pdf-pinch-anchor, 2026-11-11, QA TC-259)
+
+No new design: this is a fix inside the existing pinch (a live transform, then drawing again at the new width). While
+a pinch's live `scale(k)` is on the page column, positions are measured from its layout top (`layoutTop` in
+`lib/pdfPages.ts`), never from the scaled box, so the zoom keeps the place under the fingers. The live transform
+stays until the fingers lift. The double tap and the toolbar buttons are unchanged.
+
+Version impact: patch (a phone viewer fix; no API or data change).
+
+## The invite pages name who invited you, before sign-in (fix/dev-tests-1112, 2026-11-12, the owner)
+
+Since #430 ("A welcome for invited people") the team link's and the single-use invite's info answers
+(`POST /api/team-link/info`, `GET /api/invites/:token`) carry `inviterName` for anyone who holds the link, signed out
+too. The permission matrix said a link's maker must never show there, so it failed on dev. The owner decided to show
+it, like Slack's "X invited you": the join page says "{inviter} invited you to {team}".
+- **The display name only** (`users.name`, the name the team sees). Never the maker's id, username, email, role or
+  photo, and no object about them. The routes already sent only that.
+- **Only while the link or invite works.** A revoked, expired or used link or invite, a team link while every seat is
+  taken, or a maker who is disabled, deleted or no longer allowed to make it answers `inviterName: null`. A wrong
+  token is a 404 with nothing about the team or anyone in it, as before.
+- **One trim:** an invite while every seat is taken answered `valid: true` with the name, but accepting it is refused
+  (409). It now names nobody there, like the team link's `full`. `valid` stays as it was, so the page does not say
+  "expired or used" for a team that only needs a seat.
+- This replaces "never its … maker" in the matrix case's comment (`tests/security/lib/misc-cases.ts teamLinkInfo`).
+  The invite's case (`tests/security/lib/cases.ts inviteInfo`) gets the same check. `tests/unit/b-member-welcome.test.ts`
+  "the join pages name the inviter" checks two things. First, a maker with an email and a photo gives only the allowed
+  fields. Second, the name goes in each case above: revoked, expired, used, seats taken, and a maker disabled, demoted
+  or deleted.
+
+Also here: `tests/unit/b-chat.test.ts` expected no "## Browser" section in a person's own web chat. #460 (QA TC-242)
+added one on purpose: `NO_BROWSER_RULE`, which tells the AI that the desktop app has the browser. The test now expects
+that line and not the desktop app's browser rules. `tests/unit/b-browser.test.ts` checks the line is never in a
+confidential chat, a room or a shared chat, and only comes with the web-or-phone flag.
+
+Version impact: patch (tests, and the invite page on a full team no longer names the inviter; no API shape or data
+change).
+
 ## Self-installed servers sign in to Google through the hosting service (feat/google-one-library, 2026-11-11)
 
 - **Problem.** Only hosted teams could use the hosting service's Google sign-in (`driveBrokerFor` checked

@@ -27,7 +27,7 @@ export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<
 /** The words of an event line (lib, not React: the component passes t). `person` puts a language's honorific after a
  * name ("{name}님"), `quote` puts a room name in the language's quotes. */
 export interface EventWords {
-  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
+  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
   nameOf: (u: UserRef | null) => string
 }
 /** "가나님이 다라님, 마바님을 초대했어요": every name but the last gets the language's honorific here, the last one the
@@ -47,6 +47,8 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
       return e.name ? w.t('rooms.event.renamed', { actor, name: w.t('rooms.event.quoted', { name: e.name }) }) : w.t('rooms.event.renamedBack', { actor })
     case 'left':
       return w.t('rooms.event.left', { actor })
+    case 'joined':
+      return w.t('rooms.event.joined', { actor })
     case 'removed':
       return w.t('rooms.event.removed', { actor, name: w.nameOf(e.user) })
     case 'unknown':
@@ -209,6 +211,27 @@ export function mentionParts(body: string, mentioned: { id: string; name: string
  * is in sight. */
 export function newestSeq(messages: RoomMessage[]): number {
   return messages.at(-1)?.seq ?? 0
+}
+
+/** How far the room is read as it is on screen now (0: nothing to mark). The read position covers every message up to
+ * it, so it only moves over messages that were loaded and came into sight (QA TC-155):
+ * - nothing while a page is on its way or failed: the list may hold only messages that came meanwhile (a room opened
+ *   from a notice, its first page still loading), with the unread ones before them not shown yet;
+ * - nothing while unread messages are older than the pages loaded (more unread than one page): marking the newest
+ *   would read the ones never loaded too. Scrolling up to them loads them, and then it reads;
+ *   (a seq the timeline never lists, a reply kept in its thread, right after the read position at a page's edge waits
+ *   the same way: the safe side);
+ * - else the newest message whose top has come into sight (`inSight`), so a reader scrolled up reads up to there.
+ * A window around an older message (a search result) reads nothing: its newest is not the room's. */
+export function readUpTo(th: { messages: RoomMessage[]; nextCursor: string | null; newerCursor?: string | null; loading: boolean; error: unknown }, lastReadSeq: number, inSight: (m: RoomMessage) => boolean): number {
+  if (th.loading || th.error || th.newerCursor || !th.messages.length) return 0
+  if (th.nextCursor && th.messages[0]!.seq > lastReadSeq + 1) return 0
+  for (let i = th.messages.length - 1; i >= 0; i--) {
+    const m = th.messages[i]!
+    if (m.seq <= lastReadSeq) return 0
+    if (inSight(m)) return m.seq
+  }
+  return 0
 }
 
 /** A room's count for me: its unread messages, and the threads I follow there with replies I have not read (each one

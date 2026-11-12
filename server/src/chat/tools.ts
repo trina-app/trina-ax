@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
 import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
-import type { TurnTool, TurnToolContext } from '../services'
+import type { ToolCard, TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
@@ -24,6 +24,7 @@ import { authorize } from '../policy/authorize'
 import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
+import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
@@ -80,7 +81,7 @@ export const B_TOOL_DESCRIPTIONS = {
   remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
   ask_user: 'Ask the user a question and wait for the answer. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
-  connect_service: 'Connect a service for the user (an MCP server or an HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). Its tools are offered from the user\'s next message, not in this answer.',
+  connect_service: 'Connect a service for the user (an MCP server or an HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). The result says when its tools are offered: in most chats this same answer goes on with them (then do what the request needed them for), else from the user\'s next message.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
@@ -103,6 +104,8 @@ export interface ChatToolSet extends TurnToolSet {
   readsFree(name: string, input: unknown): boolean
   /** in a team chat room's session: one of the asker's own Google apps' tools (the only connection tools a room gets) */
   roomConnection?(name: string): boolean
+  /** a per-person tool's own words for the room card (TurnTool.card), or null for the shared ones */
+  card?(name: string, input: unknown, locale: Locale): ToolCard | null
 }
 
 /** box_shell's waiting state on its step (Step.devEnvRun). The first write of a call finds the call's step through
@@ -131,6 +134,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
   const tools = new Map<string, Tool>()
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
+  const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
   const roomConnections = new Set<string>()
@@ -221,6 +225,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.room) roomConnections.add(t.name)
       if (!add(wrapRegistered(exec, t))) continue
       if (t.label) labels.set(t.name, t.label.bind(t))
+      if (t.card) cards.set(t.name, t.card.bind(t))
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
     }
     if (built.prompt) prompt.push(built.prompt)
@@ -236,6 +241,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     prompt,
     context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
+    card(name, input, locale) { try { return cards.get(name)?.(input, locale) ?? null } catch { return null } },
     connection: (name) => connections.has(name),
     readsOnly: (name, input) => readsOnly(name, input),
     readsFree: (name, input) => connections.get(name)?.card === false && readsOnly(name, input),
@@ -806,16 +812,29 @@ function bTools(exec: TurnExec): Tool[] {
         if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
         const value = clean.text
         let source: 'ai' | 'user' = 'ai'
+        // the step's final words: patched onto it once (patchToolStep), or, when its card already changed it, onto the
+        // same step again by its id
+        let settle = (p: Partial<StoredStep>) => exec.patchToolStep('remember', () => p)
         // this conversation has seen outside content, or has read rooms (chat/read-rooms.ts: a room read, kept for the
         // rest of the chat; a side chat; another person's message quoted): the person confirms before anything is
         // kept (tab 3)
         if (exec.tainted || readRooms(exec)) {
-          const answer = await exec.waitForPerson({
-            kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
-            options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
-          } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+          // while the card waits, the step says so (not "remembered" yet). The step may not have started when the
+          // answer comes: then its one queued patch brings the final words.
+          let stepId: string | null = null, final: Partial<StoredStep> | null = null
+          exec.patchToolStep('remember', (st) => { stepId = st.id; return final ?? { label: tr('rememberAsking', L, { text: value }).slice(0, 500) } })
+          settle = (p) => { final = p; if (stepId) exec.updateStep(stepId, p) }
+          const notKept = (answered: boolean) => settle({ label: tr('notRemembered', L, { text: value }).slice(0, 500), ...(answered ? {} : { detail: tr('notAnswered', L) }) })
+          let answer: unknown
+          try {
+            answer = await exec.waitForPerson({
+              kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
+              options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
+            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+          } catch (e) { notKept(false); throw e }
           if (answer !== 'yes' && !(Array.isArray(answer) && answer[0] === 'yes')) {
-            exec.patchToolStep('remember', () => ({ label: tr('notRemembered', L, { text: value }).slice(0, 500), detail: tr('notAnswered', L) }))
+            // "답하지 않음" only when the card ran out; a "no" is an answer
+            notKept(answer !== null && answer !== undefined)
             return { ...text('The user did not confirm, so nothing was remembered. Do not try again unless the user asks.'), summary: 'remember -> not confirmed' }
           }
           source = 'user'
@@ -825,7 +844,7 @@ function bTools(exec: TurnExec): Tool[] {
           .run(id, spec.userId, value, spec.chatId, source, spec.turnId, new Date().toISOString())
         const row = rt.db.query('SELECT id, text, source_chat_id, created_at FROM memories WHERE id = ?').get(id) as { id: string; text: string; source_chat_id: string | null; created_at: string }
         rt.hub.publish(spec.userId, { type: 'memory.changed', data: { change: 'created', memory: rt.store.toMemory(row) } })
-        exec.patchToolStep('remember', () => ({ label: tr('remembered', L, { text: value }).slice(0, 500), detail: `memory:${id}` }))
+        settle({ label: tr('remembered', L, { text: value }).slice(0, 500), detail: `memory:${id}` })
         return { ...text(JSON.stringify({ id })), summary: `remember -> ${id} (${source})` }
       },
     },

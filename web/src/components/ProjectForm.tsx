@@ -5,7 +5,7 @@
 // A new team project: its members (components/ProjectParticipants.tsx) and how many people will see it. An existing
 // one's members are changed in their own dialog (components/ProjectMembersDialog.tsx, docs/DECISIONS.md "Project
 // members in one panel"), not here; a project on another folder, made before, says on its page where. Editing a team
-// project: "이 프로젝트의 채팅을 프로젝트 사람들과 공유" (shared project chats) with what turning it on or off does. A
+// project: "이 프로젝트의 채팅을 프로젝트 멤버와 공유" (shared project chats) with what turning it on or off does. A
 // project whose folder is in the trash: admins may point it at an existing projects/<name>. One PATCH saves the edit.
 import { useEffect, useId, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -17,6 +17,7 @@ import { isAdmin, useMe } from '../store/session'
 import FolderPicker from './FolderPicker'
 import { refusalKey } from '../lib/sharedChat'
 import { byRoleLine } from '../lib/whoByRole'
+import { isProjectsFolder } from '../lib/projectFolders'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { Button, Field, Modal, Switch, confirmDialog, inputCls } from './ui'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from './ProjectParticipants'
@@ -171,7 +172,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
             <Switch checked={shareChats} onChange={setShareChats} label={t('projects.shareChats')} disabled={safeOps} testId="project-share-chats-toggle" describedBy={shareHint} />
             {/* what flipping it does now; under safe operations why it cannot (the switch's own width + gap: under its words) */}
             <p id={shareHint} className="mt-1 pl-11 text-xs leading-5 break-keep text-faint" data-testid="project-share-chats-hint">
-              {safeOps ? t('projects.shareChatsSafeOps') : project?.shareChats ? t('projects.shareChatsOn') : project?.audienceSplit && byRoleLine(t, project.audienceSplit.byRole, 'project') ? t('projects.shareChatsOffApart', { n: project.audienceSplit.direct, m: project.audienceSplit.byRole }) : t('projects.shareChatsOff', { n: project?.audience ?? 0 })}
+              {safeOps ? t('projects.shareChatsSafeOps') : project?.shareChats ? t('projects.shareChatsOn') : project?.audienceSplit && !isProjectsFolder(project.folderPath) && byRoleLine(t, project.audienceSplit.byRole) ? t('projects.shareChatsOffApart', { n: project.audienceSplit.direct, m: project.audienceSplit.byRole }) : t('projects.shareChatsOff', { n: project?.audience ?? 0 })}
             </p>
           </div>
         )}

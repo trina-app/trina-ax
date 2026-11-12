@@ -215,7 +215,8 @@ export const IntegrationRequest = z.object({
   notes: z.string().nullable(),
   /** the member asked to connect it */
   user: Person,
-  /** the admin who asked (null: that account is gone) */
+  /** the admin who asked, in an admin's list only (null: that account is gone, or the member's own view, which never
+   * names an admin: docs/DECISIONS.md "Admins are never named") */
   requestedBy: Person.nullable(),
   state: IntegrationRequestState,
   createdAt: IsoTime,
@@ -330,6 +331,8 @@ export const MyIntegrationTemplate = z.object({
   auth: z.enum(['bearer', 'header', 'oauth']),
   authHeader: z.string().nullable(),
   notes: z.string().nullable(),
+  /** always null: a member is never told which admin made it (docs/DECISIONS.md "Admins are never named"); kept so
+   * older clients still read the list */
   createdBy: Person.nullable(),
   connection: Integration.nullable(),
 })

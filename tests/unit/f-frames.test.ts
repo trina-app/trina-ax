@@ -138,8 +138,8 @@ describe('JSON payloads', () => {
 describe('team names', () => {
   test('rules', () => {
     for (const ok of ['acme-co', 'team-7', 'a1b', 'abc-def-ghi', 'x'.repeat(40)]) expect(checkTeamName(ok)).toBeNull()
-    // the first-run screens' example name and the product's own names are never a real team
-    for (const reserved of ['acme', 'trina', 'trina-ax']) expect(checkTeamName(reserved)).toBe('reserved')
+    // the first-run screens' example name, the product's own names and the push gateway (push.<domain>) are never a real team
+    for (const reserved of ['acme', 'trina', 'trina-ax', 'push', 'push-gateway']) expect(checkTeamName(reserved)).toBe('reserved')
     expect(checkTeamName('ab')).toBe('too_short')
     expect(checkTeamName('x'.repeat(41))).toBe('too_long')
     for (const bad of ['Acme', '-acme', 'acme-', 'ac_me', 'ac.me', '한글팀', 'xn--abc', 'ab--c', 'acme ']) expect(checkTeamName(bad)).toBe('invalid')

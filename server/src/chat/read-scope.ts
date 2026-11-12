@@ -34,7 +34,8 @@
 // list holds. "대화방에 보내기" (chat/answer-share.ts) goes by the source list's files for the others (each with its
 // sha256). A scope without v (written before) has every source counted as it is.
 import type { Database } from 'bun:sqlite'
-import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { atLeast, inProjectZone, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { newId } from '../db'
 import { getRow, usersOf } from '../integrations/connections/store'
 import { shareRow, shareUsers } from '../integrations/google-drive/shares'
 
@@ -51,11 +52,24 @@ export function sourceOf(db: Database, rules: RuleSet, rel: string): ReadSource 
   const segs = rel.split('/').filter(Boolean)
   if (segs[0] === 'users' && segs.length >= 2) return { type: 'user', id: segs[1]! }
   const ruled = new Set(rules.ruleFolders())
-  for (let len = segs.length; len >= 0; len--) {
+  // in the members-only zone the owner's and admins' access changes at projects/<name> too (docs/DECISIONS.md "Project
+  // contents only for members"): a read there is never keyed to projects/ or the root, where admins read everything
+  const zone = inProjectZone(segs)
+  for (let len = segs.length; len >= (zone ? 2 : 0); len--) {
     const p = segs.slice(0, len).join('/')
     if (!ruled.has(p)) continue
     const row = db.query('SELECT id FROM folders WHERE path = ?').get(p) as { id: string } | null
     if (row) return { type: 'folder', id: row.id }
+  }
+  if (zone) {
+    // the project's folder (a row with no rules: an older build made the folder without one)
+    const top = segs.slice(0, 2).join('/')
+    const row = db.query('SELECT id FROM folders WHERE path = ?').get(top) as { id: string } | null
+    if (row) return { type: 'folder', id: row.id }
+    const id = newId()
+    db.query('INSERT OR IGNORE INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(id, top, new Date().toISOString())
+    const made = db.query('SELECT id FROM folders WHERE path = ?').get(top) as { id: string } | null
+    return made ? { type: 'folder', id: made.id } : { type: 'folder', id }
   }
   return { type: 'root' }
 }
@@ -234,16 +248,18 @@ export function roomWidening(db: Database, roomId: string, sources: ReadSource[]
 
 /** Where a source is, for the confirmation card. `ownNames`: a room by the name its members gave it (the card, shown to
  * the person as text); without it by the server's name only (anything the AI reads back: any member of a group chat may
- * set its own name). */
-export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string }, o: { ownNames?: boolean } = {}): string {
+ * set its own name). `place`: a team path in the person's words (the card: chat/place-words.ts, "전사 공유 › 영업",
+ * another person's folder by their name); without it the path (what the AI reads). */
+export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string }, o: { ownNames?: boolean; place?: (path: string) => string } = {}): string {
+  const at = (path: string) => (o.place ? o.place(path) : path + '/')
   if (s.type === 'root') return text.root
   if (s.type === 'room') return (text.room ?? 'room {name}').replace('{name}', roomName(db, s.id, !!o.ownNames))
-  if (s.type === 'user') return s.id === me ? text.mine : `users/${s.id}/`
-  if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? segs.join('/') : text.root }
+  if (s.type === 'user') return s.id === me ? text.mine : at(`users/${s.id}`)
+  if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? (o.place ? o.place(segs.join('/')) : segs.join('/')) : text.root }
   if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'
   if (s.type === 'drive_share') return shareRow(db, s.id)?.name ?? 'Google Drive'
   const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
-  return row ? (row.path === '' ? text.root : row.path + '/') : '?'
+  return row ? (row.path === '' ? text.root : at(row.path)) : '?'
 }
 
 /** A room as a card names it: its own name when it has one and `own` (to the person, shown as text; never for the AI),

@@ -195,7 +195,7 @@ describe('the note in a chat turn', () => {
     const sent2 = await h.api('alice').call(API.sendMessage, { params: { id: c2 }, body: { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: fake(
       { tool: 'move_files', args: { paths: ['users/alice/견적/acme2/quote.html'], to_folder: 'shared/Sales/Quotes/acme2' }, sayResult: true }) } })
     const card2 = await socks.alice!.next('turn.request', (f) => f.data.turnId === sent2.turnId)
-    expect((card2.data.request as { question: string }).question).toMatch(/새로 만들 shared\/Sales\/Quotes\/acme2 폴더|shared\/Sales\/Quotes\/acme2, a new folder/)
+    expect((card2.data.request as { question: string }).question).toMatch(/새로 만들 전사 공유 › Sales › Quotes › acme2 폴더|Company-wide › Sales › Quotes › acme2, a new folder/)
     await h.api('alice').call(API.answerTurn, { params: { id: sent2.turnId }, body: { kind: 'ask_user', requestId: card2.data.request.requestId, answer: 'allow' } })
     const done2 = await socks.alice!.next('message.done', (f) => f.data.messageId === sent2.assistantMessage.id, 30_000)
     expect(done2.data.message.content).toContain('Made the new folder shared/Sales/Quotes/acme2.')
@@ -218,9 +218,13 @@ describe('the note in a chat turn', () => {
     expect(named).toContain('"shared"')
     for (const no of ['"users"', '"groups"', '"projects"', '"skills"', '".system"']) expect(named).not.toContain(no)
 
-    // directly in projects/, beside the project folders (docs/DECISIONS.md "Team folder basics")
+    // directly in projects/, beside the project folders (docs/DECISIONS.md "Team folder basics"): every entry there is a
+    // project's, members only, so nobody saves there by their role, the owner neither (docs/DECISIONS.md "Project
+    // contents only for members"): refused, nothing saved, no note
     const pr = await ask(h, socks.dana!, 'dana', await chat('dana'), fake(write('projects/loose-plan.md')))
-    expect(pr.done.content).toContain(`${NOTE} "projects/loose-plan.md" was saved directly in "projects/"`)
+    expect(pr.done.content).toContain("Access denied: not found or no access: 'projects/loose-plan.md'")
+    expect(pr.done.content).not.toContain(NOTE)
+    expect(has('projects/loose-plan.md')).toBe(false)
   })
 
   test('a sub-agent\'s loose file: the note goes with the sub-agent\'s own call (the main AI\'s next call has none)', async () => {

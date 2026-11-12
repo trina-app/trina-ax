@@ -119,8 +119,8 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'desktop/src/main/pane/page-script.js': { why: 'Korean synonyms the AI\'s "find" understands on Korean pages (not screen text)', also: /./ },
   'relay/src/pages.ts': { why: 'relay page texts (ko next to en/id/ja/es)', also: /if \(lang === 'ko'\)/ },
   'shared/src/api/common.ts': { why: 'the name 한국어 in language pickers', also: /ko: '한국어'/ },
-  'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$/ },
-  'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$/ },
+  'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
+  'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
   'shared/src/honorific.ts': { why: 'the honorifics a name may already end with (님, 씨) and the Korean particles after them (grammar, not screen text)', also: /^const (HONORIFICS|RO|PARTICLES)\b/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
@@ -211,6 +211,8 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },
   'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
   'server/src/chat/project-members.ts': { why: 'the members card\'s words (ko next to en/id/ja/es), and the Korean particles that may follow a name in the person\'s own words (a word list the red mark\'s check matches, not screen text), the honorifics and group words a name given may end with (word lists the name match strips, not screen text)', also: /^const (PARTICLE|HONORIFICS|GROUP_WORDS) = / },
+  'server/src/chat/often-asked.ts': { why: '"what my group often asks": the Korean titles and particles after a name that make a plain word stand for a person (patterns the name check matches, not screen text)', also: /^const KO_TITLES = |\(\?:한테\|에게\|께서\||\(\?:의\|과\|와\|하고\|도\)\)/ },
+  'server/src/chat/often-asked-words.ts': { why: '"what my group often asks": the Korean function words, plain verbs and endings a sentence is read with (word lists, not screen text), and the Korean first lines of the app\'s own box prompts (matched, checked against web/src/i18n by b-often-asked-words.test.ts)', also: /^ {2}[가-힣 ]+$|^ {4}"(?:[^"\\]|\\.)*",$/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

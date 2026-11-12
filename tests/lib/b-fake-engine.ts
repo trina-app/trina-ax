@@ -8,6 +8,12 @@
 //   @fake {"tool": …, "followResult": true}  also run the "@fake {…}" directives found in the result (an AI that follows
 //                                            an instruction planted in what a tool returned)
 //   @fake {"sleep": 300}                     wait
+//   @fake {"afterContinue": [{…}, …]}        nothing now; the directives of the run that continues this answer after a
+//                                            connect (resumed with the server's note, chat/turn.ts continueAfterConnect).
+//                                            A second one is for the second continuation
+//   @fake {"callUsage": {"input": 9, "output": 3}}  (Claude) one model call's tokens in the stream (message_start /
+//                                            message_delta), like Claude Code's partial messages, before the run's total;
+//                                            "last": true: the call ends the answer (end_turn), else it asked for a tool
 //   @fake {"toolStarted": "read", "args": {...}}  report a call of one of our tools that never finishes (a long
 //                                            download, a slow page): the step stays running until the turn ends
 //   @fake {"saySplit": "한글"}               one text delta whose stdout line is written in two pieces, cut inside
@@ -16,6 +22,7 @@
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
 //   @fake {"claudeFail": "usage limit"}     the same, as Claude only (Codex goes on: the limit fallback)
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
+//   @fake {"diskFull": true}                 exit 1 with Node's "ENOSPC: no space left on device" on stderr (every time)
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
 //   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
 //   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
@@ -169,7 +176,9 @@ function rpc(method: string, params: unknown): Promise<any> {
 
 // ---------------- output helpers ----------------
 let answer = ''
-let toolN = 0
+// like Claude's tool_use ids, unique within a session: a resumed run (another run of the same answer after a connect
+// too) numbers on from where its history left off
+let toolN = resumed ? 1000 * history.filter((h) => h.role === 'user').length : 0
 if (codex) out({ type: 'thread.started', thread_id: sessionId })
 else {
   const init = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => { try { return JSON.parse(l.slice(6)) } catch { return {} } }).find((d) => d.init)?.init
@@ -250,7 +259,7 @@ function finish(o: { error?: string; refused?: boolean; maxTurns?: boolean } = {
   } else {
     if (o.refused) out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'refusal' } } })
     if (o.maxTurns) out({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: turnsUsed + 1, session_id: sessionId, usage: { input_tokens: 100, output_tokens: 20 }, total_cost_usd: 0.001 })
-    else out({ type: 'result', subtype: o.error ? 'error_during_execution' : 'success', is_error: !!o.error, result: o.error ?? answer, session_id: sessionId,
+    else out({ type: 'result', subtype: o.error ? 'error_during_execution' : 'success', is_error: !!o.error, result: o.error ?? answer, session_id: sessionId, num_turns: turnsUsed + 1,
       stop_reason: o.refused ? 'refusal' : 'end_turn', usage: { input_tokens: 100, output_tokens: 20 }, total_cost_usd: 0.001 })
   }
   stopped = true
@@ -460,7 +469,16 @@ async function runAgents(agents: any[], lateAgentLine = 0) {
 }
 
 // ---------------- run the directives ----------------
-const directives = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => JSON.parse(l.slice(6)))
+let directives = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => JSON.parse(l.slice(6)))
+// the server's note that continues an answer after a connect (chat/turn.ts continueAfterConnect): the person's message
+// in the session carries what this run does, {"afterContinue": [...]} (the n-th continuation runs the n-th such
+// directive). Ignored on any other run.
+if (!directives.length && resumed && message.includes('\n[The connect card is finished')) {
+  const asked = [...history].reverse().find((h) => h.role === 'user' && !h.text.includes('\n[The connect card is finished'))
+  const notes = history.slice(history.lastIndexOf(asked!) + 1).filter((h) => h.role === 'user').length
+  const plan = (asked?.text ?? '').split('\n').filter((l) => l.startsWith('@fake ')).map((l) => { try { return JSON.parse(l.slice(6)) } catch { return {} } }).filter((d) => d.afterContinue)
+  directives = plan[notes]?.afterContinue ?? []
+}
 if (!directives.length) await say('echo: ' + (message.split('\n')[0] ?? ''))
 for (const d of directives) {
   if (stopped) break
@@ -487,10 +505,17 @@ for (const d of directives) {
       message: { content: [{ type: 'tool_result', tool_use_id: id, content: `Web search results for query: "${q}"\n\nLinks: ${JSON.stringify(d.webSearch.textLinks ?? d.webSearch.hits ?? [])}\n\n${d.webSearch.wrote ?? ''}` }] } })
     await Bun.sleep(Number(d.webSearch.pause ?? 150))
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
+  // (Claude) one model call ends, with its tokens in the stream (message_start / message_delta), before the run's total
+  else if (d.callUsage && !codex) {
+    closeBlock()
+    out({ type: 'stream_event', event: { type: 'message_start', message: { usage: { input_tokens: Number(d.callUsage.input ?? 0), output_tokens: 1 } } } })
+    out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: d.callUsage.last ? 'end_turn' : 'tool_use' }, usage: { output_tokens: Number(d.callUsage.output ?? 0) } } })
+  }
   else if (d.saySplit !== undefined) await saySplit(String(d.saySplit))
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
   else if (d.fail) finish({ error: String(d.fail) })
   else if (d.claudeFail) { if (!codex) finish({ error: String(d.claudeFail) }) }
+  else if (d.diskFull) { process.stderr.write("Error: ENOSPC: no space left on device, write\n"); process.exit(1) }
   else if (d.crashOnce) {
     const marker = path.join(process.cwd(), '.crashed-once')
     if (!fs.existsSync(marker)) { fs.writeFileSync(marker, '1'); process.exit(3) }

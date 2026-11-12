@@ -77,11 +77,11 @@ export const TEXT = {
   allow: { ko: '받기', en: 'Download', id: 'Unduh', ja: 'ダウンロード', es: 'Descargar' },
   deny: { ko: '그만두기', en: 'Stop', id: 'Batalkan', ja: 'やめる', es: 'Cancelar' },
   redirectEcho: {
-    ko: 'AI가 저장하려는 주소가 다른 주소로 넘어가요. 그런데 넘어가는 주소(또는 그 일부)가 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 짧은 주소 서비스처럼 서비스가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The address the AI is saving from redirects to another one, and that address (or part of it) matches what the AI had sent to a tool earlier in this conversation. A service may have kept what it was sent and given it back (like a link shortener), so check the whole address:\n\n{url}',
-    id: 'Alamat yang ingin disimpan AI dialihkan ke alamat lain, dan alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Layanan mungkin menyimpan apa yang dikirim kepadanya lalu mengembalikannya (seperti pemendek tautan), jadi periksa seluruh alamatnya:\n\n{url}',
-    ja: 'AIが保存しようとしているアドレスは別のアドレスに転送されます。転送先のアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。短縮URLサービスのように、サービスが受け取った内容を返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
-    es: 'La dirección desde la que la IA quiere guardar redirige a otra, y esa dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. Un servicio puede haber guardado lo que recibió y devolverlo (como un acortador de enlaces); revise la dirección completa:\n\n{url}',
+    ko: "AI가 저장하려는 주소가 다른 주소로 넘어가는데, 넘어가는 주소에 AI가 이 대화에서 앞서 보낸 내용이 들어 있어요. 내 정보가 새어 나가지 않는지 확인해 주세요.\n\n{url}",
+    en: "The address the AI is saving from sends it on to another one, and that address contains something the AI sent earlier in this chat. Check that it doesn't leak your information.\n\n{url}",
+    id: "Alamat yang ingin disimpan AI meneruskannya ke alamat lain, dan alamat itu memuat sesuatu yang dikirim AI sebelumnya di obrolan ini. Pastikan informasi Anda tidak bocor.\n\n{url}",
+    ja: "AIが保存しようとしているアドレスは別のアドレスに転送されます。転送先のアドレスには、この会話でAIが先に送った内容が含まれています。あなたの情報が漏れないか確認してください。\n\n{url}",
+    es: "La dirección desde la que la IA quiere guardar lleva a otra, y esa dirección contiene algo que la IA envió antes en este chat. Compruebe que no se filtre su información.\n\n{url}",
   },
   diskFull: {
     ko: '서버 디스크 여유가 {free}밖에 없어요. 이 파일{size}을 받으면 디스크에 꼭 남겨 둬야 하는 {reserve}보다 적게 남아서 받지 않았어요. 파일이나 휴지통을 정리한 뒤 다시 해 주세요.',

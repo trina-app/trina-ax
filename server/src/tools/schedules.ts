@@ -175,10 +175,12 @@ export const TEXT = {
     ja: '新しいファイルの保存先：{folder}（今{n}人が見られます）。',
     es: 'Guarda archivos nuevos en: {folder} (ahora lo pueden ver {n} personas).',
   } satisfies L5,
-  /** rooms a run may have read before it sends (no save folder) */
+  /** rooms a run may read (no save folder). Read only: a run never posts to a room (post_to_room refuses in a scheduled
+   * run, chat/post-to-room.ts), so the line says nothing of sending; a send after reading one goes only to the person's
+   * own connections the sendsLine pins (QA on dev 1565b39f1: "읽고 보내도 되는" promised a post to the room) */
   roomsLine: {
-    ko: '읽고 보내도 되는 대화: {rooms}', en: 'Conversations it may read before sending: {rooms}', id: 'Percakapan yang boleh dibaca sebelum mengirim: {rooms}',
-    ja: '読んでから送信してよいトーク：{rooms}', es: 'Conversaciones que puede leer antes de enviar: {rooms}',
+    ko: '읽을 수 있는 대화: {rooms}', en: 'Conversations it may read: {rooms}', id: 'Percakapan yang boleh dibaca: {rooms}',
+    ja: '読んでよいトーク：{rooms}', es: 'Conversaciones que puede leer: {rooms}',
   } satisfies L5,
   /** the person's own connections and the recipients the card pins */
   sendsLine: { ko: '보낼 수 있는 곳: {list}', en: 'Where it may send: {list}', id: 'Tempat yang boleh dikirimi: {list}', ja: '送信してよい先：{list}', es: 'Adónde puede enviar: {list}' } satisfies L5,
@@ -208,7 +210,7 @@ export const TEXT = {
 export type CardMode = 'create' | 'review' | 'edit' | 'recheck'
 
 /** What the card says about saving and sending, in words (chat/schedule-scope.ts): the save folder with how many can
- * read it now and the places whose content may go there; the rooms a run may read before it sends (no save folder);
+ * read it now and the places whose content may go there; the rooms a run may read (no save folder; never a post to them);
  * the person's own connections with the recipients they are pinned to. */
 export interface CardScope { save?: { folder: string; readers: number; sources: string[] } | null; rooms?: string[]; sends?: { name: string; pins: string[] }[] }
 

@@ -209,7 +209,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
           }}
           placeholder={path ? t('picker.searchIn', { folder: folderName(path) }) : t('picker.search')}
           aria-label={path ? t('picker.searchIn', { folder: folderName(path) }) : t('picker.search')}
-          className={clsx(inputCls, 'pr-9 pl-9')}
+          className={clsx(inputCls, 'pr-9 pl-9 max-md:pr-11')}
           data-testid="picker-search"
           data-own-clear
           // the dialog puts focus here when it opens (mouse and keyboard; phones would open the keyboard over the list)
@@ -217,7 +217,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
         />
         {query && (
           <Tooltip label={t('picker.clearSearch')}>
-            <button type="button" className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:bg-hover" aria-label={t('picker.clearSearch')} onClick={() => { setQuery(''); searchRef.current?.focus() }}>
+            <button type="button" className="touch-hit-placed absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:bg-hover" aria-label={t('picker.clearSearch')} onClick={() => { setQuery(''); searchRef.current?.focus() }}>
               <X size={14} />
             </button>
           </Tooltip>
@@ -225,13 +225,13 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
       </div>
       <p className="mb-2 text-xs text-muted">{t('picker.hint')}</p>
       <nav aria-label={t('files.breadcrumb')} className="mb-2 flex flex-wrap items-center gap-1 text-sm">
-        <button type="button" className="inline-flex items-center gap-1 rounded px-1.5 py-1 hover:bg-hover" onClick={() => setPath('')} data-testid="picker-crumb-root">
+        <button type="button" className="inline-flex items-center gap-1 rounded px-1.5 py-1 hover:bg-hover max-md:min-h-11" onClick={() => setPath('')} data-testid="picker-crumb-root">
           <Home size={14} aria-hidden /> {t('files.root')}
         </button>
         {crumbs(path).map((c) => (
           <span key={c.path} className="inline-flex items-center gap-1">
             <ChevronRight size={13} className="text-faint" aria-hidden />
-            <button type="button" className="rounded px-1.5 py-1 hover:bg-hover" onClick={() => setPath(c.path)}>
+            <button type="button" className="rounded px-1.5 py-1 hover:bg-hover max-md:inline-flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-center" onClick={() => setPath(c.path)}>
               {folderName(c.path)}
             </button>
           </span>
@@ -277,7 +277,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
                   <li key={f.path}>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-3 border-b border-line px-3 py-2.5 text-left text-sm last:border-0 hover:bg-hover sm:py-2"
+                      className="flex w-full items-center gap-3 border-b border-line px-3 py-2.5 text-left text-sm last:border-0 hover:bg-hover sm:py-2 max-md:min-h-11"
                       onClick={() => setPath(f.path)}
                       aria-label={t('picker.open', { name: folderName(f.path) })}
                       data-testid="picker-folder"

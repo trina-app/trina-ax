@@ -33,3 +33,23 @@ export async function oldProject(h: { ctx: { db: Database }; team: string; api(u
   const id = legacyProject(h.ctx.db, h.team, by, o)
   return h.api(by).call(API.getProject, { params: { id } })
 }
+
+export interface OldFolderRule { subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: string | null; access: 'none' | 'read' | 'write' }
+
+/**
+ * A folder at or inside projects/<name> with its rules, as builds before "Project contents only for members" let an
+ * admin make one in Admin › Folder permissions (that screen refuses it now: a project's members change on its page).
+ * The folder is made on disk when missing; the rules replace the folder's own. Returns the folders row id.
+ */
+export function legacyProjectFolder(db: Database, team: string, folderPath: string, rules: readonly OldFolderRule[], by: string | null = null): string {
+  fs.mkdirSync(path.join(team, ...folderPath.split('/')), { recursive: true, mode: 0o700 })
+  const now = new Date().toISOString()
+  let row = db.query('SELECT id FROM folders WHERE path = ?').get(folderPath) as { id: string } | null
+  db.transaction(() => {
+    if (!row) { row = { id: uuidv7() }; db.query('INSERT INTO folders (id, path, created_at) VALUES (?,?,?)').run(row.id, folderPath, now) }
+    db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(row.id)
+    const ins = db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?,?,?,?,?,?,?)')
+    for (const r of rules) ins.run(uuidv7(), row!.id, r.subjectType, r.subjectId, r.access, by, now)
+  })()
+  return row!.id
+}

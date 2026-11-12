@@ -175,7 +175,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
         )}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           {versions.length > 1 && !writing && (
-            <span className="mr-1 flex items-center text-xs text-muted">
+            <span className="mr-1 flex shrink-0 items-center text-xs whitespace-nowrap text-muted tabular-nums">
               <IconButton label={t('artifact.prevVersion')} disabled={index <= 0} onClick={() => setPicked(versions[index - 1]!.id)}>
                 <ChevronLeft size={14} />
               </IconButton>

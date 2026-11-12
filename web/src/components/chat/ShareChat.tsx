@@ -1,4 +1,4 @@
-// "프로젝트 사람들과 공유" (shared/src/api/chats.ts shareChat; docs/DECISIONS.md "Shared project chats", "An existing chat
+// "프로젝트 멤버와 공유" (shared/src/api/chats.ts shareChat; docs/DECISIONS.md "Shared project chats", "An existing chat
 // shared"): my private chat in a team project that shares its chats becomes a shared chat. The flow starts from the
 // move dialog's switch (components/chat/ChatProject.tsx) or the title menu (components/chat/ChatTitleMenu.tsx). The
 // server checks what the chat used, every branch: when nothing is narrower than the project's people, it is shared at

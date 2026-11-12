@@ -2,7 +2,7 @@
 // hwp_render and schedule_create showed as "hwp_render" / "schedule_create"). The web app redraws a stored label in the
 // language on screen (localizeStep), so an answer run in Korean reads in English after a switch.
 import { describe, expect, test } from 'bun:test'
-import { COVER_STEP_KEYS, FILE_TOOLS, FILE_STEP_VERB, localizeStep, placeName, STEP_TEXT, stepLabel, stepPlace } from '@mycel/shared'
+import { COVER_STEP_KEYS, FILE_TOOLS, FILE_STEP_VERB, localizeStep, placeName, STEP_TEXT, stepLabel, stepPlace, unansweredStep } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { C_TOOL_NAMES } from '../../server/src/tools/index'
 import { FILE_MOVE_TOOL_NAMES } from '../../server/src/tools/file-moves'
@@ -66,23 +66,26 @@ describe('step labels of the built-in tools', () => {
     expect(stepLabel('find_skills', INPUT.find_skills, 'en', NONE)).toBe('Find skills "견적"')
     expect(localizeStep({ kind: 'tool', tool: 'skill', label: '스킬 사용 · 견적서 작성' }, 'en').label).toBe('Use skill · 견적서 작성')
     // connected services' tools to look up: the words searched (call_tool's step is the tool's own label)
-    expect(stepLabel('find_tools', INPUT.find_tools, 'ko', NONE)).toBe('도구 찾기 "upscale video"')
-    expect(localizeStep({ kind: 'tool', tool: 'find_tools', label: '도구 찾기 "upscale video"' }, 'ja').label).toBe('ツールを探す "upscale video"')
+    expect(stepLabel('find_tools', INPUT.find_tools, 'ko', NONE)).toBe('쓸 수 있는 기능 찾기 "upscale video"')
+    // a step saved with the earlier verb ("도구 찾기") reads in today's words
+    expect(localizeStep({ kind: 'tool', tool: 'find_tools', label: '도구 찾기 "upscale video"' }, 'ja').label).toBe('使える機能を探す "upscale video"')
   })
 
   test('the new ones: words, then what the AI touched', () => {
     expect(stepLabel('hwp_render', INPUT.hwp_render, 'ko', NONE)).toBe('한글 문서 쪽 보기 · qa-hwp/report.hwpx #2')
-    expect(stepLabel('hwp_render', INPUT.hwp_render, 'en', NONE)).toBe('View HWP page · qa-hwp/report.hwpx #2')
+    expect(stepLabel('hwp_render', INPUT.hwp_render, 'en', NONE)).toBe('View Hangul document page · qa-hwp/report.hwpx #2')
     expect(stepLabel('schedule_create', INPUT.schedule_create, 'ko', NONE)).toBe('예약 작업 만들기 · Weekly digest')
     expect(stepLabel('schedule_create', INPUT.schedule_create, 'ja', NONE)).toBe('定期タスクを作成 · Weekly digest')
     expect(stepLabel('schedule_list', {}, 'es', NONE)).toBe('Listar tareas programadas')
-    expect(stepLabel('schedule_delete', INPUT.schedule_delete, 'id', NONE)).toBe('Hapus tugas terjadwal · sch-1')
+    // an id means nothing to the person: the words alone (docs/DECISIONS.md "Plain words in errors, cards and steps")
+    expect(stepLabel('schedule_delete', INPUT.schedule_delete, 'id', NONE)).toBe('Hapus tugas terjadwal')
     expect(stepLabel('search', INPUT.search, 'en', NONE)).toBe('Search by meaning "견적 회신" · shared')
     // the removed knowledge graph's tool: an older chat's step still reads in every language
-    expect(stepLabel('knowledge_explore', INPUT.knowledge_explore, 'en', NONE)).toBe('Search knowledge graph "환불 정책" · shared/policies')
-    expect(localizeStep({ kind: 'tool', tool: 'knowledge_explore', label: '지식 그래프 검색 "환불 정책" · shared/policies' }, 'es').label).toBe('Buscar en el grafo de conocimiento "환불 정책" · shared/policies')
+    // (in plain words: "the file map", not "knowledge graph"; a step saved with the earlier verb reads in today's)
+    expect(stepLabel('knowledge_explore', INPUT.knowledge_explore, 'en', NONE)).toBe('Search the file map "환불 정책" · shared/policies')
+    expect(localizeStep({ kind: 'tool', tool: 'knowledge_explore', label: '지식 그래프 검색 "환불 정책" · shared/policies' }, 'es').label).toBe('Buscar en el mapa de archivos "환불 정책" · shared/policies')
     expect(stepLabel('drive_list', {}, 'en', NONE)).toBe('List Google Drive folder')
-    expect(stepLabel('drive_list', INPUT.drive_list, 'en', NONE)).toBe('List Google Drive folder · 1AbC')
+    expect(stepLabel('drive_list', INPUT.drive_list, 'en', NONE)).toBe('List Google Drive folder')
   })
 
   test('a stored label follows the language on screen', () => {
@@ -120,7 +123,7 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
     expect(shown('read', 'Read · shared/fruit.md', 'id').label).toBe('Baca berkas · Seluruh perusahaan › fruit.md')
     expect(shown('read', 'Read · shared/fruit.md', 'ko').label).toBe('파일 읽기 · 전사 공유 › fruit.md')
     expect(shown('edit_files', 'Edit files · shared/a.md +29', 'en')).toEqual({ label: 'Edit files · Company-wide › a.md +29', path: 'shared/a.md' })
-    expect(shown('hwp_render', 'View HWP page · groups/Acme/brief.hwpx #2', 'en').label).toBe('View HWP page · Acme folder › brief.hwpx #2')
+    expect(shown('hwp_render', 'View HWP page · groups/Acme/brief.hwpx #2', 'en').label).toBe('View Hangul document page · Acme folder › brief.hwpx #2')
     expect(shown('grep', 'Search "fee · 2%" · shared/', 'en').label).toBe('Search "fee · 2%" · Company-wide')
   })
 
@@ -141,6 +144,18 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
     // a file whose own name looks like the why is still a path; a memory's own words are not the why
     expect(shown('write', 'Save · shared/allowed once in this answer', 'en').label).toBe('Save · Company-wide › allowed once in this answer')
     expect(localizeStep({ kind: 'tool', tool: 'remember', label: `Remembered: lunch · ${STEP_TEXT.roomOnceStep.en}` }, 'ko').label).toBe(`기억함: lunch · ${STEP_TEXT.roomOnceStep.en}`)
+  })
+
+  test('remember while its card waits, in the language on screen; a card that ran out (QA TC-214)', () => {
+    expect(localizeStep({ kind: 'tool', tool: 'remember', label: 'Asking whether to remember: lunch at 12' }, 'ko').label).toBe('기억할지 묻는 중: lunch at 12')
+    expect(localizeStep({ kind: 'tool', tool: 'remember', label: '기억할지 묻는 중: lunch at 12' }, 'ja').label).toBe('記憶するか確認中：lunch at 12')
+    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      expect(unansweredStep({ tool: 'ask_user', detail: STEP_TEXT.notAnswered[l] })).toBe(true)
+      expect(unansweredStep({ tool: 'remember', detail: STEP_TEXT.notAnswered[l] })).toBe(true)
+    }
+    expect(unansweredStep({ tool: 'ask_user', detail: 'blue' })).toBe(false)
+    expect(unansweredStep({ tool: 'ask_user' })).toBe(false)
+    expect(unansweredStep({ tool: 'read', detail: STEP_TEXT.notAnswered.en })).toBe(false)
   })
 
   test('anything else stays as it is, without a path', () => {
@@ -175,10 +190,11 @@ describe('connect_service steps', () => {
 
 describe('engine steps saved with the Korean wording before 0.2.16 (합니다체)', () => {
   test('still follow the language on screen', () => {
+    // in today's words: the model id and the engine names they held are left out
     expect(localizeStep({ kind: 'tool', tool: 'refusal', label: 'AI가 답하지 않아 다른 모델(claude-opus)로 다시 답합니다' }, 'en').label)
-      .toBe('The AI declined; answering again with another model (claude-opus)')
+      .toBe('The AI declined; trying again with another AI')
     expect(localizeStep({ kind: 'tool', tool: 'engine', label: 'Codex 사용 한도에 닿아 Claude 엔진으로 이어서 답합니다' }, 'ko').label)
-      .toBe('Codex 사용 한도에 닿아 Claude 엔진으로 이어서 답해요')
+      .toBe('사용 한도에 닿아 다른 AI로 이어서 답해요')
     expect(localizeStep({ kind: 'tool', tool: 'engine', label: 'AI 연결이 거절되어 다른 연결로 이어서 답합니다' }, 'ja').label)
       .toBe(localizeStep({ kind: 'tool', tool: 'engine', label: 'AI 연결이 거절되어 다른 연결로 이어서 답해요' }, 'ja').label)
   })

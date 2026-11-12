@@ -1,6 +1,6 @@
 // API errors: throw HttpError anywhere in a handler; the app turns it into { error: { code, message } } with the
 // status from ErrorStatus and the message in the caller's language.
-import { ErrorStatus, errorMessage, type ApiErrorBody, type ErrorCode, type Locale } from '@mycel/shared/api'
+import { ErrorStatus, errorMessage, fieldMessage, type ApiErrorBody, type ErrorCode, type Locale } from '@mycel/shared/api'
 
 export class HttpError extends Error {
   constructor(
@@ -17,7 +17,8 @@ export class HttpError extends Error {
   body(locale: Locale, requestId?: string): ApiErrorBody {
     return {
       code: this.code,
-      message: this.userMessage ?? errorMessage(this.code, locale),
+      // a refused field with plain words of its own (a name with a line break) says them, else the code's default
+      message: this.userMessage ?? (this.code === 'validation' ? fieldMessage(this.extra.fields, locale) : null) ?? errorMessage(this.code, locale),
       ...(this.extra.fields ? { fields: this.extra.fields } : {}),
       ...(this.extra.params ? { params: this.extra.params } : {}),
       ...(this.extra.retryAfter !== undefined ? { retryAfter: this.extra.retryAfter } : {}),

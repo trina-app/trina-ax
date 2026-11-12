@@ -137,6 +137,7 @@ test('links open the app only through screen ④ (phase 2): the hosted domain\'s
   expect(app).toContain('const on = setTimeout(() => setReady(true), 650)')
   expect(app).toContain('disabled={busy || !ready}')
   expect(app).toMatch(/if \(r\.renamed\) \{ setMoved\(\{ origin: r\.origin, entryPath: o\.entryPath \}\); return \}/)
-  expect(app).toMatch(/const o = gate\.answer\(true, offer\.host, Date\.now\(\)\)\n\s*if \(!o\) return\n[\s\S]{0,80}const r = await checkTeam\(o\.origin, service\.teamDomain\)/)
+  // the link comes only from the gate: a fresh yes, or [다시 시도] with the link that yes confirmed (LinkGate.retry)
+  expect(app).toMatch(/const o = again \? gate\.retry\(offer\.host\) : gate\.answer\(true, offer\.host, Date\.now\(\)\)\n\s*if \(!o\) return\n[\s\S]{0,80}const r = await checkTeam\(o\.origin, service\.teamDomain\)/)
   expect(app.match(/Linking\.(getInitialURL|addEventListener)\(/g)?.length).toBe(2)
 })

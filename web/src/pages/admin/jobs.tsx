@@ -7,7 +7,7 @@ import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { useJobs, waitForJob } from '../../store/jobs'
 import { toast } from '../../store/ui'
-import { ReauthDialog, useAction } from './common'
+import { ReauthDialog, useReauthCall } from './common'
 
 /** Progress line of a running job. */
 export function JobLine({ jobId }: { jobId: string }) {
@@ -49,7 +49,7 @@ export function useJobRunner() {
  * / `ask('rollback')` opens the dialog; render `dialog` once and `jobId` with JobLine. */
 export function useUpdateInstall(o: { version?: string; previous?: string | null; onDone: () => void }) {
   const t = useT()
-  const act = useAction()
+  const reauth = useReauthCall()
   const runner = useJobRunner()
   const [ask, setAsk] = useState<'update' | 'rollback' | null>(null)
   const dialog = ask && (
@@ -59,10 +59,13 @@ export function useUpdateInstall(o: { version?: string; previous?: string | null
       confirm={t('common.continue')}
       onClose={() => setAsk(null)}
       onConfirm={async (password) => {
-        const kind = ask
+        // a wrong password stays in the dialog, under the field (QA TC-221); it closes once the install started
+        const r = await reauth(() => api.call(API.startUpdate, { body: ask === 'rollback' ? { password, rollback: true } : { password, version: o.version } }))
+        if (r && 'refused' in r) return r.refused
         setAsk(null)
+        if (!r) return
         await runner.run(
-          () => act(() => api.call(API.startUpdate, { body: kind === 'rollback' ? { password, rollback: true } : { password, version: o.version } })),
+          async () => r.value,
           () => {
             toast({ level: 'success', text: t('system.updateDone') })
             o.onDone()

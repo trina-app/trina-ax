@@ -241,7 +241,8 @@ export class ConnectionTemplates {
       const mine = this.db.query(`${selectRows(this.db)} WHERE template_id = ? AND owner_user_id = ?`).get(t.id, viewer.id) as Row | null
       return {
         id: t.id, version: t.version, kind: t.kind, name: t.name, url: bareUrl(t.url), auth: t.auth, authHeader: t.auth_header, notes: t.notes,
-        createdBy: this.person(t.created_by), connection: mine ? view(this.db, mine, viewer, L) : null,
+        // never who made it: admins are never named to members (docs/DECISIONS.md "Admins are never named")
+        createdBy: null, connection: mine ? view(this.db, mine, viewer, L) : null,
       }
     })
   }

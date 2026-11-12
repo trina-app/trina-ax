@@ -22,11 +22,35 @@ import { useLocale, useT } from '../../i18n'
 import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
 import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
+import { useKeptDraft } from '../../lib/keptDraft'
+import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 
 type EnginesData = EnginesResponse
 
-/** The AI groups of Team settings; `#ai` and `#ai-limits` in the address bring their group into view. */
-export default function TeamAiSettings() {
+/** Whether an engine may be the team default, as the server decides (routes/admin.ts updateEngines): switched on, and
+ * there on this installation (Codex turned off by office mode and the API engine without its settings are
+ * "not_installed"; a check that failed or timed out is "error" and keeps it), and not Codex while it is labelled beta
+ * (never the team default). */
+const canBeDefault = (e: EnginesData['engines'][number]) => e.enabled && !e.beta && (e.id === 'claude-code' || e.status !== 'not_installed')
+
+/** The "Default engine" list: only the engines that can be the default, by the AI's own name (the composer's
+ * ENGINE_LABEL: Claude, ChatGPT). The saved default stays in the list when it can no longer be one (switched off since,
+ * or turned off by the installation), marked off with a line under it, so the screen shows what is saved instead of
+ * quietly showing another engine; the data stays as it is until the admin picks another (the server refuses to save an
+ * engine that is off as the default, so any save of this group needs that pick) (QA TC-182). */
+export function defaultEngineChoices(engines: EnginesData['engines'], saved: EngineId): { id: EngineId; off: boolean }[] {
+  return engines.filter((e) => canBeDefault(e) || e.id === saved).map((e) => ({ id: e.id, off: !canBeDefault(e) }))
+}
+
+/** The AI groups of Team settings; `#ai` and `#ai-limits` in the address bring their group into view. `part`: a phone's
+ * group of Team settings (teamSettingsGroups.ts): the engine's groups, or the usage limits alone. */
+export default function TeamAiSettings({ part }: { part?: 'engine' | 'limits' }) {
+  const { hash } = useLocation()
+  if (part === 'limits') return <div data-testid="team-ai-settings"><Budgets openHere={hash === '#ai-limits'} /></div>
+  return <EngineGroups limits={part !== 'engine'} />
+}
+
+function EngineGroups({ limits }: { limits: boolean }) {
   const { hash } = useLocation()
   const state = useLoad(() => api.call(API.engines))
   const tc = useTeamCredentials()
@@ -45,7 +69,7 @@ export default function TeamAiSettings() {
             <Defaults data={d} onSaved={(r) => state.setData(r)} headingRef={top} />
             <MemberChoice data={d} onSaved={(r) => state.setData(r)} />
             <MemberAccounts tc={tc} />
-            <Budgets openHere={hash === '#ai-limits'} />
+            {limits && <Budgets openHere={hash === '#ai-limits'} />}
           </>
         )}
       </Loadable>
@@ -80,8 +104,12 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   useEffect(() => {
     setF({ defaultEngine: data.defaultEngine, defaultModel: data.defaultModel, concurrency: data.concurrency })
   }, [data.defaultEngine, data.defaultModel, data.concurrency])
+  // a phone's group page: the draft stays when the page is left (lib/keptDraft.ts)
+  useKeptDraft('ai-defaults', saved, f, setF)
   const dirty = f.defaultEngine !== saved.defaultEngine || f.defaultModel !== saved.defaultModel || f.concurrency !== saved.concurrency
   const max = data.concurrencyMax ?? 16
+  const choices = defaultEngineChoices(data.engines, data.defaultEngine)
+  const engineOff = choices.some((c) => c.id === f.defaultEngine && c.off)
   const save = async () => {
     setBusy(true)
     const r = await act(() => api.call(API.updateEngines, { body: f }), t('common.saved'))
@@ -91,18 +119,19 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   return (
     <SettingsSection title={t('teamAi.defaults')} desc={t('engines.defaultsDesc')} id="ai" testId="engine-defaults" headingRef={headingRef}>
       <SettingRow id="ai-engine" title={t('engines.defaultEngine')}
+        below={engineOff && <p className="mt-1 text-xs text-warn" id="ai-engine-off" data-testid="default-engine-off">{t('engines.defaultEngineOff')}</p>}
         control={
-          <select id="ai-engine" className={clsx(inputCls, 'sm:w-64')} value={f.defaultEngine} onChange={(e) => setF({ ...f, defaultEngine: e.target.value as EngineId, defaultModel: null })}>
-            {data.engines.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.label}
+          <select id="ai-engine" aria-describedby={engineOff ? 'ai-engine-off' : undefined} className={clsx(inputCls, 'md:w-64')} value={f.defaultEngine} onChange={(e) => setF({ ...f, defaultEngine: e.target.value as EngineId, defaultModel: null })}>
+            {choices.map((c) => (
+              <option key={c.id} value={c.id} disabled={c.off}>
+                {c.off ? t('engines.defaultEngineOffOption', { engine: ENGINE_LABEL[c.id] }) : ENGINE_LABEL[c.id]}
               </option>
             ))}
           </select>
         } />
       <SettingRow id="ai-model" title={t('engines.defaultModel')}
         control={
-          <select id="ai-model" className={clsx(inputCls, 'sm:w-64')} value={f.defaultModel ?? ''} onChange={(e) => setF({ ...f, defaultModel: e.target.value || null })}>
+          <select id="ai-model" className={clsx(inputCls, 'md:w-64')} value={f.defaultModel ?? ''} onChange={(e) => setF({ ...f, defaultModel: e.target.value || null })}>
             <option value="">{t('composer.defaultModel')}</option>
             {data.engines
               .find((e) => e.id === f.defaultEngine)
@@ -113,7 +142,7 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
               ))}
           </select>
         } />
-      <SettingRow id="ai-concurrency" title={t('engines.concurrency')} desc={t('engines.concurrencyHint')}
+      <SettingRow id="ai-concurrency" inline title={t('engines.concurrency')} desc={t('engines.concurrencyHint')}
         below={data.concurrencyMax !== undefined && data.concurrencyMax < 16 && <p className="mt-1 text-xs text-faint">{t('engines.concurrencyPlan', { max: data.concurrencyMax })}</p>}
         control={
           // the plan's maximum on the hosted cloud (concurrencyMax; older servers: 16)
@@ -134,10 +163,14 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
   const [choice, setChoice] = useState<MemberEngineChoice>(data.memberChoice)
   const [fallback, setFallback] = useState(data.limitFallback)
   const [busy, setBusy] = useState(false)
+  // back to the saved choice only when it really changed: saving the AI defaults above replaces `data` with a new
+  // object holding the same choice, and keying on the object threw away ticks not saved yet (QA TC-217)
+  const savedChoice = JSON.stringify(data.memberChoice)
   useEffect(() => {
-    setChoice(data.memberChoice)
+    setChoice(JSON.parse(savedChoice) as MemberEngineChoice)
     setFallback(data.limitFallback)
-  }, [data.memberChoice, data.limitFallback])
+  }, [savedChoice, data.limitFallback])
+  useKeptDraft('ai-choice', { choice: data.memberChoice, fallback: data.limitFallback }, { choice, fallback }, (d) => { setChoice(d.choice); setFallback(d.fallback) })
   const toggleIn = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id))
   // owner and admins always pick: only members are listed
   const members = (users.data ?? []).filter((u) => u.role === 'member' && u.status === 'active')
@@ -162,7 +195,7 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
                   role="radio"
                   aria-checked={choice.mode === mode}
                   onClick={() => setChoice({ ...choice, mode })}
-                  className={clsx('rounded-md px-3 py-1.5 text-sm', choice.mode === mode ? 'bg-surface font-medium text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink')}
+                  className={clsx('rounded-md px-3 py-1.5 text-sm max-md:min-h-11', choice.mode === mode ? 'bg-surface font-medium text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink')}
                   data-testid={`engine-choice-${mode}`}
                 >
                   {t(`engines.choice.${mode}`)}
@@ -194,7 +227,7 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
             )}
           </>
         } />
-      <SettingRow id="ai-fallback" title={t('engines.fallback')}
+      <SettingRow id="ai-fallback" inline title={t('engines.fallback')}
         desc={data.limitFallbackAvailable ? t('engines.fallbackDesc') : t('engines.fallbackUnavailable')}
         more={data.limitFallbackAvailable ? t('engines.fallbackHint2') : undefined}
         below={fallbackOn && (
@@ -210,29 +243,38 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
 
 /** Members' own AI accounts: whether members may add their own Claude or Codex account, whether a subscription may be
  * shared with the team (it warns first), and the accounts members connected. The switches are the owner's and the admins'. */
-function MemberAccounts({ tc }: { tc: TeamCredentials }) {
+export function MemberAccounts({ tc }: { tc: TeamCredentials }) {
   const t = useT()
+  // one save at a time, the switches off until its answer: two quick changes would otherwise both go and their answers
+  // (and the list read after one) could come back the other way round, the screen ending on what the server did not keep
+  const [saving, setSaving] = useState(false)
   const d = tc.state.data
   if (!d) return null
   return (
     <SettingsSection title={t('providers.memberAccounts')} testId="member-accounts">
-      <SettingRow id="ai-member-own" title={t('credentials.memberOwn')} desc={t('credentials.memberOwnHint')}
+      <SettingRow id="ai-member-own" inline title={t('credentials.memberOwn')} desc={t('credentials.memberOwnHint')}
         control={
-          <Switch id="ai-member-own" external describedBy="ai-member-own-desc" checked={d.memberOwn} disabled={!tc.owner} label={t('credentials.memberOwn')} testId="member-own-switch" onChange={async (v) => {
-            const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { memberOwn: v } }))
-            if (r) tc.state.setData({ ...d, memberOwn: r.memberOwn })
+          <Switch id="ai-member-own" external describedBy="ai-member-own-desc" checked={d.memberOwn} disabled={!tc.owner || saving} label={t('credentials.memberOwn')} testId="member-own-switch" onChange={async (v) => {
+            setSaving(true)
+            try {
+              const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { memberOwn: v } }))
+              if (r) tc.state.setData((cur) => cur && { ...cur, memberOwn: r.memberOwn })
+            } finally { setSaving(false) }
           }} />
         } />
-      <SettingRow id="ai-shared-subscriptions" title={t('credentials.sharedSubscriptions')}
+      <SettingRow id="ai-shared-subscriptions" inline title={t('credentials.sharedSubscriptions')}
         desc={<span className={d.sharedSubscriptions ? 'text-warn' : undefined}>{t('teamAi.sharedTermsShort')}</span>}
         more={t('credentials.sharedRiskWarning')}
         testId="shared-subscriptions-row"
         control={
           <div data-testid="shared-subscriptions-setting">
-            <Switch id="ai-shared-subscriptions" external describedBy="ai-shared-subscriptions-desc" checked={d.sharedSubscriptions} disabled={!tc.owner} label={t('credentials.sharedSubscriptions')} onChange={async (v) => {
+            <Switch id="ai-shared-subscriptions" external describedBy="ai-shared-subscriptions-desc" checked={d.sharedSubscriptions} disabled={!tc.owner || saving} label={t('credentials.sharedSubscriptions')} testId="shared-subscriptions-switch" onChange={async (v) => {
               if (v && !(await confirmDialog({ title: t('credentials.sharedRiskTitle'), body: t('credentials.sharedRiskWarning'), confirm: t('credentials.sharedRiskConfirm'), danger: true }))) return
-              const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { sharedSubscriptions: v, ...(v ? { acknowledgedSharedSubscriptionRisk: true } : {}) } }))
-              if (r) void tc.state.reload()
+              setSaving(true)
+              try {
+                const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { sharedSubscriptions: v, ...(v ? { acknowledgedSharedSubscriptionRisk: true } : {}) } }))
+                if (r) await tc.state.reload()
+              } finally { setSaving(false) }
             }} />
           </div>
         } />

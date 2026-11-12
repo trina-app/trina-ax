@@ -5,12 +5,13 @@
 // 2026-11-08. On the box runner each project has its own setting (PUT /api/projects/:id/dev-env, no screen any more),
 // so only the extra sites are here. Its own Save: the page's Save sends the other team settings to another endpoint.
 import { TerminalSquare } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DevEnvTeamResponse, Group } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
 import { clampLimit, draftOf, limitMax, LIMIT_RANGE, needsWarning, teamBody, type DevEnvTeamDraft, type LimitKey } from '../../lib/dev-env-team'
 import { useT } from '../../i18n'
-import { Badge, Button, Field, inputCls, Switch } from '../../components/ui'
+import { Badge, Button, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
+import { keepDraft, takeDraft, useDraftOwner } from '../../lib/keptDraft'
 import { useMeStrict } from '../../store/session'
 import { Card, useAction } from './common'
 import { GroupChecks } from './people-choices'
@@ -30,9 +31,20 @@ function DevEnvTeamForm() {
   const [groups, setGroups] = useState<Group[]>([])
   const [accept, setAccept] = useState(false)
   const [busy, setBusy] = useState(false)
+  // a phone's group page: an unsaved draft stays when the page is left and comes back over the same saved setting
+  // (lib/keptDraft.ts; the warning is accepted again)
+  const who = useDraftOwner()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const latest = useRef({ r, d, who, phone })
+  latest.current = { r, d, who, phone }
   useEffect(() => {
-    api.call(API.devEnvTeam).then((x) => { setR(x); setD(draftOf(x.setting)) }, (e) => { if (isApiError(e, 'not_found')) setHidden(true) })
+    api.call(API.devEnvTeam).then((x) => { setR(x); setD(takeDraft<DevEnvTeamDraft>('dev-env', who, draftOf(x.setting)) ?? draftOf(x.setting)) }, (e) => { if (isApiError(e, 'not_found')) setHidden(true) })
     api.call(API.listGroups).then((x) => setGroups(x.items), () => setGroups([]))
+    return () => {
+      const l = latest.current
+      if (l.phone && l.r && l.d) keepDraft('dev-env', l.who, draftOf(l.r.setting), l.d)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   if (hidden || !r || !d) return null
   const srt = r.runner === 'srt'
@@ -53,7 +65,7 @@ function DevEnvTeamForm() {
   )
   const planOffline = !!r.plan && r.plan.network !== 'open'
   return (
-    <Card title={<span className="inline-flex items-center gap-2"><TerminalSquare size={16} aria-hidden /> {t('devEnv.title')} <Badge tone="warn">{t('devEnv.experiment')}</Badge></span>}
+    <Card id="dev-env" title={<span className="inline-flex items-center gap-2"><TerminalSquare size={16} aria-hidden /> {t('devEnv.title')} <Badge tone="warn">{t('devEnv.experiment')}</Badge></span>}
       desc={t(srt ? 'devEnvTeam.desc' : 'devEnvTeam.descBox')}>
       {/* disabled while a save runs: the form takes the saved setting from the answer, which would erase an edit made
           before the answer came */}

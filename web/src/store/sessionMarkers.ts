@@ -43,6 +43,8 @@ interface SessionMarkersState {
   /** this window is visible: the tab is, and in the desktop app the window is focused */
   visible: boolean
   setOnScreen: (chatId: string | null) => void
+  /** signed out, or another person signed in in this window: no chat of the last person's counts as on screen */
+  reset: () => void
 }
 
 const pageVisible = () => typeof document !== 'undefined' && document.visibilityState === 'visible'
@@ -58,6 +60,10 @@ export const useSessionMarkers = create<SessionMarkersState>((set, get) => ({
     set({ onScreen: chatId })
     asked.clear()
     recheck()
+  },
+  reset() {
+    asked.clear()
+    set({ onScreen: null })
   },
 }))
 

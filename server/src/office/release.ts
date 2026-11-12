@@ -15,6 +15,7 @@ import crypto from 'node:crypto'
 import { z } from 'zod'
 import { compareVersions, keyId } from '../system/update'
 import { PRODUCT, RELEASE_CHANNEL } from '@mycel/shared'
+import { openSignedManifest } from '@mycel/shared/release-manifest'
 import { RELEASE_KEYS } from '../system/release-keys'
 import { FeedRollout } from '../system/rollout'
 
@@ -69,12 +70,6 @@ export type SignedManifest = z.infer<typeof SignedManifest>
 
 export class ReleaseError extends Error { name = 'ReleaseError' }
 
-function publicKey(b64: string): crypto.KeyObject {
-  const raw = Buffer.from(b64, 'base64')
-  if (raw.length !== 32) throw new ReleaseError('release key must be 32 bytes')
-  return crypto.createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), raw]), format: 'der', type: 'spki' })
-}
-
 /** raw base64 public key of an Ed25519 private key (PKCS#8 PEM) */
 export function publicKeyOf(privatePem: string): string {
   const der = crypto.createPublicKey(crypto.createPrivateKey(privatePem)).export({ format: 'der', type: 'spki' }) as Buffer
@@ -108,12 +103,8 @@ export interface VerifyContext {
  * its URL. Throws ReleaseError saying why not; returns the release.
  */
 export function verifyRelease(text: string, o: VerifyContext): OfficeRelease {
-  if (!o.keys.length) throw new ReleaseError('no release key in this build')
-  let env: SignedManifest
-  try { env = SignedManifest.parse(JSON.parse(text)) } catch { throw new ReleaseError('the release manifest is not a signed manifest') }
-  const k = o.keys.find((x) => keyId(Buffer.from(x, 'base64')) === env.keyId)
-  if (!k) throw new ReleaseError(`the release manifest is signed with an unknown key (${env.keyId})`)
-  if (!crypto.verify(null, Buffer.from(env.payload, 'utf8'), publicKey(k), Buffer.from(env.sig, 'base64'))) throw new ReleaseError('the release manifest signature does not verify')
+  const env = openSignedManifest(text, o.keys) // shared/src/release-manifest.ts: the desktop app checks it the same way
+  if (!env.ok) throw new ReleaseError(env.reason)
   let r: OfficeRelease
   try { r = OfficeRelease.parse(JSON.parse(env.payload)) } catch (e) { throw new ReleaseError(`the release manifest is signed but not readable by this version: ${(e as Error).message.slice(0, 300)}`) }
   if (r.channel !== o.channel) throw new ReleaseError(`the ${o.channel} manifest is a ${r.channel} release`)

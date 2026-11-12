@@ -2,9 +2,10 @@
 // shorter or taller (a phone's keyboard); a reader who scrolled up keeps the message in sight where it was. A scroll
 // event in the same frame as the list's own size change is the browser's, not the reader's (the iPhone app's WebView
 // moves the list 22 px up as the keyboard opens). followsAfterScroll: the scroll event of the list's own jump to the
-// bottom, coming after a card was added, does not read as the reader scrolling up.
+// bottom, coming after a card was added, does not read as the reader scrolling up. holdPlace: older messages put above
+// keep the message in sight where it is, whether the engine anchors the scroll itself or not (QA TC-237).
 import { expect, test } from 'bun:test'
-import { followsAfterScroll, jumpToBottom, onListScroll, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
+import { followsAfterScroll, holdPlace, jumpToBottom, onListScroll, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
 
 /** a ResizeObserver whose callbacks the test runs, as the browser would after a layout */
 class FakeRO {
@@ -274,4 +275,71 @@ test('the size watcher remembers where it left the list; not following, a conten
   ro.fire()
   expect(el.scrollTop).toBe(1000)
   expect(st.lastTop.current).toBe(1000)
+})
+
+/** A list of message rows 100 px tall, its top 50 px down the page: rows are put above (older messages) or below (a new
+ * one), and an engine with scroll anchoring moves the list down by what came above while anchoring is on, as Chromium
+ * and current Safari do (an older iPhone does not). */
+class Rows {
+  scrollTop = 0
+  style = { overflowAnchor: '' }
+  list: { id: string; y: number; isConnected: boolean; getBoundingClientRect: () => { top: number; bottom: number } }[] = []
+  constructor(n: number, readonly anchors: boolean) { this.add('m', n, 'end') }
+  getBoundingClientRect() { return { top: 50, bottom: 650 } }
+  querySelectorAll() { return this.list }
+  add(prefix: string, n: number, where: 'start' | 'end') {
+    const made = Array.from({ length: n }, (_, i) => {
+      const row = { id: `${prefix}${i}`, y: 0, isConnected: true, getBoundingClientRect: () => ({ top: 50 + row.y - this.scrollTop, bottom: 50 + row.y + 100 - this.scrollTop }) }
+      return row
+    })
+    this.list = where === 'start' ? [...made, ...this.list] : [...this.list, ...made]
+    this.list.forEach((r, i) => { r.y = i * 100 })
+    if (where === 'start' && this.anchors && this.style.overflowAnchor !== 'none') this.scrollTop += n * 100
+  }
+  /** the first row in sight */
+  first() { return this.list.find((r) => r.getBoundingClientRect().bottom > 50)!.id }
+}
+
+for (const anchors of [true, false]) {
+  test(`older messages put above keep the message in sight where it is (engine ${anchors ? 'with' : 'without'} scroll anchoring)`, () => {
+    const el = new Rows(50, anchors)
+    el.scrollTop = 150 // near the top: m1 in sight, half of it
+    const keep = holdPlace(el, '[data-message-id]')
+    expect(el.style.overflowAnchor).toBe('none')
+    el.add('old', 50, 'start')
+    keep()
+    expect(el.first()).toBe('m1')
+    expect(el.scrollTop).toBe(150 + 5000)
+    expect(el.style.overflowAnchor).toBe('')
+  })
+}
+
+test('what grows below (a streaming answer, a new message) and what the reader scrolls meanwhile are not undone or counted', () => {
+  const el = new Rows(50, true)
+  el.scrollTop = 150
+  const keep = holdPlace(el, '[data-message-id]')
+  el.add('new', 3, 'end')
+  el.scrollTop -= 40 // the reader goes on scrolling up while it loads
+  el.add('old', 20, 'start')
+  keep()
+  expect(el.scrollTop).toBe(110 + 2000)
+})
+
+test('a list at the very top, nothing on screen, or the row gone by then: nothing jumps', () => {
+  const top = new Rows(5, false)
+  const keep = holdPlace(top, '[data-message-id]')
+  top.add('old', 2, 'start')
+  keep()
+  expect(top.first()).toBe('m0')
+  const empty = new Rows(0, true)
+  const none = holdPlace(empty, '[data-message-id]')
+  none()
+  expect([empty.scrollTop, empty.style.overflowAnchor]).toEqual([0, ''])
+  const gone = new Rows(10, false)
+  gone.scrollTop = 300
+  const back = holdPlace(gone, '[data-message-id]')
+  gone.list[3]!.isConnected = false
+  gone.add('old', 4, 'start')
+  back()
+  expect([gone.scrollTop, gone.style.overflowAnchor]).toEqual([300, ''])
 })

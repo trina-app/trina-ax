@@ -181,7 +181,7 @@ test('"…" › 팀장 넘기기: only for someone who signed in and changed the
   expect(realErrors(errors).filter((e) => !/status of 40[39]/.test(e))).toEqual([])
 })
 
-test("the welcome steps' invite step: tick, say for whom, make the owner link; an unsent one is revoked on untick, a copied one stays; a second flag replaces it", async ({ page }) => {
+test("the welcome steps' invite step has no owner flag (one link invites many people); Admin › Members' invite dialog keeps it, and a second flag replaces the first", async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -194,40 +194,25 @@ test("the welcome steps' invite step: tick, say for whom, make the owner link; a
   await expect(page.getByTestId('welcome-tools')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
-  // unticked: the team link's message as before
   await expect(page.getByTestId('team-link-message')).toBeVisible()
-  const flag = page.getByTestId('lead-flag-check')
-  await flag.check()
-  await expect(page.getByTestId('team-link-message')).toHaveCount(0)
-  await expect(page.getByTestId('lead-create')).toBeDisabled()
-  await page.getByTestId('lead-for').fill('김팀장 대표님')
-  await page.getByTestId('lead-create').click()
-  await expect(page.getByTestId('lead-message')).toContainText('Olga님이 Trina AX에 팀을 만들어 두었어요. 들어오면 Olga님이 팀장을 넘겨 드려요: ')
-  await expect(page.getByTestId('lead-facts')).toContainText('받는 사람: 김팀장 대표님 · ')
+  await expect(page.getByTestId('lead-flag')).toHaveCount(0)
   const leads = async () => ((await (await page.request.get('/api/admin/invites')).json()).items as { leadFor?: string | null }[]).filter((i) => i.leadFor).length
-  expect(await leads()).toBe(1)
-  // never sent: unticking revokes it, and the team link's message is back
-  await flag.uncheck()
-  await expect(page.getByTestId('team-link-message')).toBeVisible()
-  await expect.poll(leads).toBe(0)
-  // ticking again keeps the words; this one is copied, so it stays after unticking (Admin › Members lists it)
-  await flag.check()
-  await expect(page.getByTestId('lead-for')).toHaveValue('김팀장 대표님')
-  await page.getByTestId('lead-create').click()
-  await page.getByTestId('lead-copy-link').click()
-  await flag.uncheck()
-  await expect(page.getByTestId('lead-open')).toContainText('김팀장 대표님에게 보낸 팀장 링크가 ')
-  expect(await leads()).toBe(1)
-  await flag.check()
-  await expect(page.getByTestId('lead-message')).toBeVisible()
 
-  // a second flag elsewhere replaces it: the form says the one sent before stopped working
   await page.goto('/admin/members')
-  await page.getByTestId('invite-new').click()
-  await page.getByRole('dialog').getByTestId('lead-flag-check').check()
-  await page.getByRole('dialog').getByTestId('lead-for').fill('Acme')
-  await page.getByRole('dialog').getByTestId('invite-create').click()
-  const made = page.getByRole('dialog', { name: ko('handover.linkTitle') })
+  const flagOne = async (leadFor: string) => {
+    await page.getByTestId('invite-new').click()
+    await page.getByRole('dialog').getByTestId('lead-flag-check').check()
+    await page.getByRole('dialog').getByTestId('lead-for').fill(leadFor)
+    await page.getByRole('dialog').getByTestId('invite-create').click()
+    return page.getByRole('dialog', { name: ko('handover.linkTitle') })
+  }
+  let made = await flagOne('김팀장 대표님')
+  await expect(made.getByTestId('lead-message')).toContainText('Olga님이 Trina AX에 팀을 만들어 두었어요. 들어오면 Olga님이 팀장을 넘겨 드려요: ')
+  await expect(made.getByTestId('lead-facts')).toContainText('받는 사람: 김팀장 대표님 · ')
+  expect(await leads()).toBe(1)
+  await made.getByRole('button', { name: '완료' }).click()
+  // a second flag replaces it: the form says the one sent before stopped working
+  made = await flagOne('Acme')
   await expect(made.getByTestId('lead-replaced')).toHaveText(ko('handover.replaced'))
   await expect(made.getByTestId('lead-facts')).toContainText('받는 사람: Acme · ')
   expect(await leads()).toBe(1)

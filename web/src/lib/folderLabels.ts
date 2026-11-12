@@ -2,7 +2,7 @@
 // instructions: shared/src/folder-labels.ts). Only what is shown changes: links, API calls, drag and drop and tooltips
 // that show a path keep the disk path.
 import { folderLabel, labeledPath, TOP_FOLDERS } from '@mycel/shared'
-import { useLocale } from '../i18n'
+import { useLocale, useT } from '../i18n'
 import { useMe } from '../store/session'
 
 export interface FolderWords {
@@ -24,6 +24,13 @@ export function useFolderWords(): FolderWords {
   const locale = useLocale()
   const me = useMe()?.user.id
   return folderWords(locale, me)
+}
+
+/** A folder's own name in these words ("Company-wide", "Quotes"), never a path; the team root is the team folder. */
+export function useFolderName(): (path: string) => string {
+  const words = useFolderWords()
+  const t = useT()
+  return (p) => (p === '' ? t('files.root') : words.name(p, p.slice(p.lastIndexOf('/') + 1)))
 }
 
 /**

@@ -63,7 +63,7 @@ test('the address is the app\'s own chat route on the given origin', () => {
 })
 
 test('the words: the same two sentences in every language, the shared one with the number of people', () => {
-  expect(ko('chat.linkCopiedShared', { n: 4 })).toBe('링크를 복사했어요 · 프로젝트 사람 4명이 열 수 있어요')
+  expect(ko('chat.linkCopiedShared', { n: 4 })).toBe('링크를 복사했어요 · 멤버 4명이 열 수 있어요')
   expect(ko('chat.linkCopiedPrivate')).toBe('링크를 복사했어요 · 나만 열 수 있어요')
   for (const l of ['en', 'es', 'id', 'ja'] as const) {
     expect(translate(l, 'chat.linkCopiedShared', { n: 4 })).toContain('4')
@@ -105,7 +105,8 @@ for (const shared of [true, false]) {
       expect(m.get('project-chat').getAttribute('href')).toBe(`/c/${ID}`)
       await m.click(more)
       const items = (m.container.querySelectorAll('[role="menuitem"]') as unknown as FakeElement[]).map((e) => [e.getAttribute('data-testid'), e.textContent?.trim()])
-      expect(items).toEqual([['project-chat-copy-link', ko('rooms.menu.copyLink')]])
+      // with the sidebar row's other items (test/unit/project-chat-row-menu.test.tsx)
+      expect(items).toContainEqual(['project-chat-copy-link', ko('rooms.menu.copyLink')])
       await m.click('project-chat-copy-link')
       await m.until(() => copied.length, 'the copy')
       expect(copied).toEqual([`${ORIGIN}/c/${ID}`])

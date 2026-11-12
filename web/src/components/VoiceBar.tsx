@@ -4,19 +4,18 @@
 //   for a clicked recording on a computer, that Space can be held), the input level, the time (the time left in the
 //   last 30 seconds), ✓ (the words go to the box).
 // - VoiceMic: the mic (a click toggles; on touch screens a finger held on it talks), a spinner on it while
-//   transcribing; for admins while voice input is off, the way to Admin › Team settings; nothing for members then.
+//   transcribing; nothing while voice input can't be used on this server (lib/voice.ts micState).
 // - VoiceLive: the polite live region (녹음 중, 텍스트로 바꾸는 중, 텍스트를 넣었어요). Always there, so a change is read.
 // - VoiceProgress: the job's own label (a model download, a conversion) over a box that has text; an empty box shows it
 //   as its placeholder.
 // Ping and level movement only without reduced motion.
 import clsx from 'clsx'
-import { Check, Loader2, Mic, MicOff, X } from 'lucide-react'
+import { Check, Loader2, Mic, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useT } from '../i18n'
 import { fmtDuration } from '../lib/format'
-import { navigateTo } from '../lib/nav'
 import type { VoiceInputState } from '../lib/useVoiceInput'
-import { SPEECH_SETTINGS_PATH, type MicState } from '../lib/voice'
+import type { MicState } from '../lib/voice'
 import { Tooltip } from './Tooltip'
 import { IconButton } from './ui'
 
@@ -32,7 +31,7 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
   return (
     // nothing in it is selected or opens a callout under a finger held where the mic was
     <div className={clsx('flex min-w-0 items-center gap-3 select-none [-webkit-touch-callout:none]', className ?? 'px-3 py-3')} role="group" aria-label={t('voice.recording')} data-testid="voice-bar" data-mode={voice.mode ?? undefined}>
-      <IconButton label={t('voice.cancel')} onClick={voice.cancel} className="touch-hit shrink-0" data-testid="voice-cancel">
+      <IconButton label={t('voice.cancel')} onClick={voice.cancel} compact className="shrink-0" data-testid="voice-cancel">
         <X size={18} />
       </IconButton>
       <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
@@ -53,7 +52,7 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
         {voice.left !== null ? t('voice.left', { time: fmtDuration(voice.left) }) : fmtDuration(voice.seconds)}
       </span>
       <Tooltip label={t('voice.done')}>
-        <button ref={done} type="button" onClick={voice.finish} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
+        <button ref={done} type="button" onClick={voice.finish} className="touch-hit flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
           <Check size={18} />
         </button>
       </Tooltip>
@@ -64,15 +63,12 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
 export function VoiceMic({ voice, mic, disabled = false, tip = false, className }: { voice: VoiceInputState; mic: MicState; disabled?: boolean; tip?: boolean; className?: string }) {
   const t = useT()
   if (mic === 'hidden') return null
-  if (mic === 'adminHint')
-    return (
-      <IconButton tip={tip} label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className={clsx('text-faint max-md:hidden', className)} data-testid="voice-off-hint">
-        <MicOff size={18} />
-      </IconButton>
-    )
   return (
     <IconButton
       tip={tip}
+      // in a message box: its size beside the text, taps from a 44 px box (a phone: 4 px more before send, so the two
+      // boxes do not overlap)
+      compact
       // computers: how to talk without the mouse
       label={t(voice.holdCapable ? 'voice.startHold' : 'voice.start')}
       onClick={voice.mic.onClick}
@@ -82,7 +78,7 @@ export function VoiceMic({ voice, mic, disabled = false, tip = false, className 
       disabled={disabled || voice.transcribing || voice.busyElsewhere}
       aria-disabled={voice.recording || undefined}
       aria-busy={voice.transcribing || undefined}
-      className={clsx('touch-hit touch-none select-none [-webkit-touch-callout:none] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent', className)}
+      className={clsx('touch-none select-none max-md:mr-1 [-webkit-touch-callout:none] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent', className)}
       data-testid="voice-button"
     >
       {voice.transcribing ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Mic size={18} aria-hidden />}

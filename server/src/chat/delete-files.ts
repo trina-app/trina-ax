@@ -10,6 +10,7 @@
 // trash setting. The yes is bound to the plan (TeamFiles.planAiTrash: every entry on disk, who reads and writes
 // it, the trash setting), checked again around the move itself. No earlier answer, room grant or "always allow" covers
 // it; at most two such cards per answer, none after a "no", one card open at a time. One audit row per call.
+import { placeWords } from './place-words'
 import { DeleteFilesInput, uuidv7 } from '@mycel/shared'
 import type { Locale, TurnRequest } from '@mycel/shared/api'
 import { fillPlurals } from '@mycel/shared/plural'
@@ -103,7 +104,7 @@ const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-
 const result = (text: string, summary: string, isError = true) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}), summary: `${DELETE_FILES_TOOL} -> ${summary}` })
 
 /** The card: what goes (every path in full, what each folder holds), whose files they are, who loses them, until when. */
-export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now = Date.now()): { question: string; details: { label: string; text: string; collapsedAt?: number; noSize?: boolean }[] } {
+export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now = Date.now(), place: (path: string) => string = (p) => p): { question: string; details: { label: string; text: string; collapsedAt?: number; noSize?: boolean }[] } {
   const count = plan.items.length
   const files = plan.items.reduce((n, i) => n + (i.kind === 'folder' ? i.files : 1), 0)
   const date = new Intl.DateTimeFormat(L, { dateStyle: 'long', timeZone }).format(new Date(now + plan.retentionDays * DAY))
@@ -119,8 +120,9 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
     fill(DELETE_TEXT.until[L], { date }, L),
     fill(DELETE_TEXT.confirm[L], { count }, L),
   ].filter(Boolean).join(' ')
-  const line = (i: AiTrashPlan['items'][number]) => i.kind === 'file' ? i.rel
-    : `${i.rel}/ (${[fill(DELETE_TEXT.files[L], { n: i.files }, L), i.folders ? fill(DELETE_TEXT.folders[L], { n: i.folders }, L) : ''].filter(Boolean).join(', ')})`
+  // each item in full, in words (내 폴더 › 메모.txt; a folder with what it holds): place, chat/place-words.ts
+  const line = (i: AiTrashPlan['items'][number]) => i.kind === 'file' ? place(i.rel)
+    : `${place(i.rel)} (${[fill(DELETE_TEXT.files[L], { n: i.files }, L), i.folders ? fill(DELETE_TEXT.folders[L], { n: i.folders }, L) : ''].filter(Boolean).join(', ')})`
   const list = plan.items.map(line).join('\n')
   return {
     question,
@@ -207,7 +209,7 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     }
     const plan = planned.plan
     const L = spec.locale
-    const card = deleteCard(plan, L, teamTimeZone(rt.db))
+    const card = deleteCard(plan, L, teamTimeZone(rt.db), Date.now(), (p) => placeWords(rt.db, p, L, spec.userId))
     const requestId = uuidv7()
     // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
     s.shown++

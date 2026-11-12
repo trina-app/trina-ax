@@ -1,3 +1,6 @@
+// "My frequent questions" left Home (docs/DECISIONS.md "Home: what my group often asks") and its endpoint is removed
+// (fix/followups-1112): nobody reads anyone's repeated questions through it any more. Popular skills (the Skills page)
+// still need a sign-in.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { ChatStore } from '../../server/src/chat/store'
@@ -11,16 +14,13 @@ beforeAll(async () => {
   let parent: string | null = null
   for (let i = 0; i < 2; i++) parent = store.insertMessage({ chatId: c, parentId: parent, role: 'user', authorId: 'alice', content: 'ALICE_PRIVATE_QUESTION', status: 'done' })
   a.ctx.db.query('UPDATE chats SET active_leaf_id=? WHERE id=?').run(parent, c)
-  a.ctx.db.query('UPDATE messages SET created_at=? WHERE chat_id=?').run(new Date(Date.now() - 1000).toISOString(), c)
 })
 afterAll(async () => { await a?.close() })
-test('question endpoint binds the authenticated user even when another user is requested; admins cannot query other prompts', async () => {
-  expect((await a.json('/api/questions/frequent', { as: 'alice' })).body.items[0]?.question).toBe('ALICE_PRIVATE_QUESTION')
-  for (const user of ['bob', 'carol', 'dana'] as const) {
+test('GET /api/questions/frequent is gone, for the person and for anyone else; popular skills still need a sign-in', async () => {
+  for (const user of ['alice', 'bob', 'dana'] as const) {
     const r = await a.json('/api/questions/frequent?userId=alice', { as: user })
-    expect(r.status).toBe(200)
+    expect(r.status, user).toBe(404)
     expect(JSON.stringify(r.body)).not.toContain('ALICE_PRIVATE_QUESTION')
   }
-  expect((await a.req('/api/questions/frequent')).status).toBe(401)
   expect((await a.req('/api/skills/popular')).status).toBe(401)
 })

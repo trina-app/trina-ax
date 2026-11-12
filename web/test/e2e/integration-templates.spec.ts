@@ -65,6 +65,9 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await tpl.getByTestId('template-connect').click()
   const d = modal(page)
   await expect(d.getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()
+  // the admin who made it is never named to a member (docs/DECISIONS.md "Admins are never named")
+  await expect(d).toContainText('A service your team set up for you.')
+  await expect(d).not.toContainText('Olga')
   // where the key goes is said plainly before the key field
   await expect(page.getByTestId('integration-answer-host-warning')).toContainText('mcp.tasks.example')
   await expect(page.getByTestId('integration-answer-decline')).toHaveCount(0)

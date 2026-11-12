@@ -6,26 +6,34 @@
 // 768 px) leave out the checkboxes and the header row: a long press on a row selects it, the checkboxes come back while
 // something is selected, and a tap on a row then adds or takes it away instead of opening it. Phones also leave out
 // refresh, and new folder / upload where the folder takes no new files.
+// Phones also get one app bar in place of the title, the Team folder / Trash pills, the toolbar and the breadcrumbs: ‹ to
+// the folder above (named), the folder's name, and ⊕ with New folder / Upload as a sheet. The search box and the
+// folder's notes are the top of the list (they scroll away), rows have two lines (name; date · size), the trash is a
+// place (a row at the end of the team folder), and the selection's actions sit at the bottom, above the tab bar. Each
+// row's ⋯ is the app's menu (rooms/MenuButton.tsx: a sheet on phones), with "Select" on phones.
 // Drag and drop, like a file manager: a row dragged onto a folder row or a breadcrumb moves there (the selection when
 // that row is selected), with the selection's "move" rules and toast; computer files dropped on a folder row are
 // uploaded into it. The "move" action stays the keyboard way to do the same.
 // A whole folder goes up from the picker or a drop, with its subfolders (lib/folderUpload.ts, components/FolderUploads.tsx).
 // A project is a folder with instructions: a folder's menu opens its project (lib/projectFolders.ts). New projects are made
-// on the Projects page, in a new projects/<name> (docs/DECISIONS.md "Projects live only in projects/").
+// on the Projects page, in a new projects/<name> (docs/DECISIONS.md "Projects live only in projects/"): the projects
+// folder itself offers no new folder or upload. A project's folder is its members' (docs/DECISIONS.md "Project contents
+// only for members"): the owner or an admin who manages a project without being a member, sent to its folder, goes to
+// the project's page instead (there they can add themselves), not to "folder not found".
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Signpost, Sparkles, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { folderGeneration } from '../lib/folderRuns'
-import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
+import { topFoldersFirst, useFolderName, useFolderWords } from '../lib/folderLabels'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
-import { folderProjectAction, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
+import { folderProjectAction, isProjectsFolder, isProjectsTop, projectFolderOf, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
 import { openTeamFile, panelExpandedNow, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
@@ -35,7 +43,7 @@ import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
-import { contentQueryReady, FileContentResults } from '../components/FileContentSearch'
+import { contentQueryReady, FileContentResults, FileNameResults } from '../components/FileContentSearch'
 import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../components/FolderAccess'
@@ -44,8 +52,11 @@ import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
-import { useMeStrict } from '../store/session'
+import { chatItemKey } from '../lib/appWording'
+import { isAdmin, useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
+import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 
@@ -90,6 +101,8 @@ export default function Files() {
   const locale = useLocale()
   // the top folders and the person's own folder in words (전사 공유, 부서, 내 폴더 …): what is shown, never the paths used
   const words = useFolderWords()
+  /** a folder's own name ("leads", 부서), for the phone's bar and its ‹ */
+  const folderName = useFolderName()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
@@ -185,6 +198,22 @@ export default function Files() {
 
   const go = useCallback((p: string, sel?: string) => setParams(sel ? { path: p, select: sel } : p ? { path: p } : {}), [setParams])
 
+  /** A folder at or under projects/<name> that the owner or an admin cannot open: the project they manage there
+   * without being a member (GET /api/projects?manage=1, by its folder), whose page they go to instead (true then). */
+  const toProjectPage = async (at: string): Promise<boolean> => {
+    const folder = projectFolderOf(at)
+    if (!folder || !isAdmin(me)) return false
+    const key = (p: string) => p.normalize('NFC').toLowerCase()
+    try {
+      const p = (await api.call(API.listProjects, { query: { manage: '1' } })).items.find((x) => key(x.folderPath) === key(folder) && x.member === false)
+      if (!p) return false
+      navigate(`/projects/${p.id}`, { replace: true })
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /** the folder the table last showed: a not_found for it means access changed while it was open (tab 5 "권한 회수") */
   const shown = useRef<string | null>(null)
   /** only the latest listing request may set the table: an older answer arriving last (the first listing of a slow
@@ -201,6 +230,9 @@ export default function Files() {
     } catch (e) {
       if (mine !== loads.current) return
       if (isApiError(e, 'not_found') && path) {
+        // a project's folder (or a folder in it) the owner or an admin manages without being a member: its page
+        if (await toProjectPage(path)) return
+        if (mine !== loads.current) return
         // gone or not visible: climb to the nearest folder we can see, then say so once (not once per level)
         const wasShown = shown.current === path
         let up = parentPath(path)
@@ -251,20 +283,39 @@ export default function Files() {
     }
   }, [path, load, loadProjects])
 
+  // 더 보기 belongs to the listing on screen when it was pressed: another folder opened (or a reload) before the next
+  // page came back, that page is dropped. Added anyway, a subfolder showed its own files plus the parent's next 200
+  // (QA TC-240), and those rows pointed at another folder
+  const mores = useRef(0)
+  useEffect(() => {
+    mores.current++
+    setLoadingMore(false)
+  }, [path])
   const more = async () => {
     if (!tree?.nextCursor) return
+    const ask = ++mores.current
+    const listing = loads.current
+    const from = tree.path
+    const current = () => listing === loads.current
     setLoadingMore(true)
     try {
       const r = await api.call(API.tree, { query: { path, limit: 200, cursor: tree.nextCursor } })
-      setTree((cur) => (cur ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : r))
+      if (!current()) return
+      setTree((cur) => (cur && cur.path === from ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : cur))
     } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      if (current()) toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
-      setLoadingMore(false)
+      if (ask === mores.current) setLoadingMore(false)
     }
   }
 
   const canWrite = tree?.access === 'write'
+  // the projects folder itself: its folders are projects, made on the Projects page (the server refuses anything else
+  // there, 409 projects_root): no new folder or upload
+  const projectsTop = isProjectsTop(path)
+  const canAdd = canWrite && !projectsTop
+  // Personal (users/), where a member sees only their own folder
+  const personal = tree?.path === 'users'
   const errText = (e: unknown) => errorText(e, locale, t('error.network'))
   const fail = (e: unknown) => toast({ level: 'error', text: errText(e) })
 
@@ -285,6 +336,8 @@ export default function Files() {
   }, [order])
   const chosen = useMemo(() => tree?.entries.filter((e) => checked.has(e.path)) ?? [], [tree, checked])
   const movable = chosen.filter(canChange)
+  /** selected folders the person may write but not move or trash (a group's folder for a member, QA TC-224) */
+  const fixedChosen = chosen.filter(isFixed).length
   const shareable = chosen.filter(canShare)
   const allState = selectionState(checked, order)
   useEffect(() => {
@@ -342,7 +395,9 @@ export default function Files() {
    * people; one toast. `select`: as reportBatch. */
   const moveItems = async (items: readonly FileEntry[], folder: string, select = true) => {
     const ok = items.filter(canChange)
-    const skipped = items.length - ok.length
+    const fixed = items.filter(isFixed).length
+    const skipped = items.length - ok.length - fixed
+    const skipWords = [skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null, fixed ? t('files.bulk.skipFixed', { n: fixed }) : null].filter(Boolean).join(' ')
     setRunning('move')
     try {
       const r = await moveMany(ok, folder, {
@@ -356,7 +411,7 @@ export default function Files() {
         {
           done: (n) => t('files.bulk.moved', { n, path: words.path(folder) || t('files.root') }),
           failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
-          skipped: skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null,
+          skipped: skipWords || null,
         },
         undefined,
         select,
@@ -398,8 +453,8 @@ export default function Files() {
   const bulkDelete = async () => {
     const items = movable
     if (!items.length) return
-    const skipped = chosen.length - items.length
-    const body = skipped ? `${t('files.deleteBody')} ${t('files.bulk.readOnlyLeft', { n: skipped })}` : t('files.deleteBody')
+    const skipped = chosen.length - items.length - fixedChosen
+    const body = [t('files.deleteBody'), skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
     if (!(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
     setRunning('delete')
     try {
@@ -427,28 +482,35 @@ export default function Files() {
     // "read-only folder" for a folder the person can write and dropped the file (e2e mobile upload on a slow server).
     if (into === undefined && tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
     const folder = into ?? path
-    for (const file of list) {
-      const item = addFileUpload(file.name, folder)
-      const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
-      // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
-      const release = markBusy('upload')
-      uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
-        () => {
-          patchFileUpload(item.id, { status: 'done' })
-          setTimeout(() => dropFileUpload(item.id), 4000)
-          if (onScreen.current?.path === folder) void onScreen.current.load()
-        },
-        (e) => {
-          if (item.abort.signal.aborted) {
-            // cancelled: drop the server's half-received session too (it holds disk space and counts against the
-            // person's open uploads for a day otherwise)
-            if (item.abort.signal.reason !== SIGNED_OUT) void cancelUpload(file, target, api)
-            return dropFileUpload(item.id)
-          }
-          patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
-        },
-      )
-    }
+    for (const file of list) sendFile(file, folder, addFileUpload(file.name, folder))
+  }
+  /** One file of startUploads, and its 다시 시도 after a failure: the same file to the same name (a large one goes on
+   * from the chunks the server has; a small one that did arrive is kept by the server, no "(2)"; QA TC-223). */
+  const sendFile = (file: File, folder: string, item: { id: number; abort: AbortController }) => {
+    const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
+    // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
+    const release = markBusy('upload')
+    uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
+      () => {
+        patchFileUpload(item.id, { status: 'done' })
+        setTimeout(() => dropFileUpload(item.id), 4000)
+        if (onScreen.current?.path === folder) void onScreen.current.load()
+      },
+      (e) => {
+        if (item.abort.signal.aborted) {
+          // cancelled: drop the server's half-received session too (it holds disk space and counts against the
+          // person's open uploads for a day otherwise)
+          if (item.abort.signal.reason !== SIGNED_OUT) void cancelUpload(file, target, api)
+          return dropFileUpload(item.id)
+        }
+        const retry = () => {
+          const again = { id: item.id, abort: new AbortController() }
+          patchFileUpload(item.id, { status: 'uploading', error: undefined, progress: null, abort: again.abort, retry: undefined })
+          sendFile(file, folder, again)
+        }
+        patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')), retry })
+      },
+    )
   }
 
   /** Upload a read folder into this folder, or into `into`, with the same check for write access as for a file. */
@@ -684,6 +746,56 @@ export default function Files() {
   const crumbDrop = (p: string) => (over?.path === p && over.kind === 'move' ? (over.refusal ? 'no' : 'ok') : undefined)
   const selectionMovable = movable.length > 0
 
+  /** file content search: in the toolbar on a computer; on a phone the top of the list, so it scrolls away (44 px tall,
+   * 16 px text: iOS zooms into a smaller field) */
+  const searchField = (
+    <label className={clsx('flex min-w-0 items-center gap-1.5 rounded-lg border border-field-border bg-surface focus-within:border-accent focus-within:ring-1 focus-within:ring-accent', phone ? 'mx-1 mt-2 mb-1 h-11 px-3' : 'h-8 @max-2xl:flex-1 px-2')}>
+      <Search size={phone ? 16 : 14} className="shrink-0 text-faint" aria-hidden />
+      <span className="sr-only">{t('files.search.label')}</span>
+      <input
+        type="search"
+        value={q}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && q) {
+            e.preventDefault()
+            setQuery('')
+          }
+        }}
+        placeholder={t('files.search.placeholder')}
+        maxLength={200}
+        className={clsx('w-full min-w-0 bg-transparent outline-none placeholder:text-faint', phone ? 'text-base' : 'text-sm @2xl:w-48')}
+        data-testid="content-search-input"
+        data-own-clear
+      />
+      {q && (
+        <Tooltip label={t('files.search.clear')}>
+          <button type="button" className="touch-hit text-faint hover:text-ink max-md:-mr-2 max-md:inline-flex max-md:w-11 max-md:justify-center max-md:self-stretch max-md:items-center" onClick={() => setQuery('')} aria-label={t('files.search.clear')}>
+            <X size={14} aria-hidden />
+          </button>
+        </Tooltip>
+      )}
+    </label>
+  )
+  /** who else sees this folder and what the person may do in it: after the breadcrumbs on a computer, under the search
+   * on a phone */
+  const folderNotes = tree && (
+    <>
+      {/* who else sees this folder: a count where a member can write, their own folder, a project's folder;
+          everything for admins (nothing at the top folders and the root) */}
+      <FolderAccessChip key={tree.path} path={tree.path} access={tree.access} project={byFolder.get(tree.path.normalize('NFC')) ?? null} onOpen={() => setAccessFor({ path: tree.path, access: tree.access })} />
+      {/* Personal (users/): what a member can do there is open their own folder inside, so it is not called
+          read-only (docs/DECISIONS.md "A welcome for invited people") */}
+      {tree.access !== 'write' && (personal ? (
+        <Badge className={clsx(!phone && 'ml-2')} data-testid="files-personal-badge">{t('files.personalInside')}</Badge>
+      ) : (
+        <Badge tone="warn" className={clsx(!phone && 'ml-2')}>
+          <Lock size={11} aria-hidden /> {t(tree.access === 'read' ? 'files.readOnlyFolder' : 'files.navigationOnly')}
+        </Badge>
+      ))}
+    </>
+  )
+
   return (
     // @container: the toolbar and the columns follow the page's own width, which an open file panel makes narrow on a
     // desktop screen too (the sm: breakpoints only know the window)
@@ -710,6 +822,34 @@ export default function Files() {
         if (view === 'files') dropUpload(e.dataTransfer)
       }}
     >
+      {phone ? (
+        // phones: one bar, as on the app's other pages. ‹ goes to the folder above (go(): Back to it, lib/screenHistory.ts),
+        // from the trash to the folder it was opened from; ⊕ only where the folder takes new files
+        <PhonePageBar
+          onBack={view === 'trash' ? () => setView('files') : path ? () => go(parentPath(path)) : undefined}
+          backLabel={view === 'trash' ? (path ? folderName(path) : t('files.title')) : path ? (parentPath(path) ? folderName(parentPath(path)) : t('files.title')) : null}
+          title={view === 'trash' ? t('files.trash') : path ? folderName(path) : t('files.title')}
+          heading
+          action={
+            view === 'files' && canAdd && !anyChecked ? (
+              <MenuButton
+                label={t('files.add')}
+                icon={<Plus size={22} aria-hidden />}
+                muted
+                buttonClassName="size-11"
+                testId="files-add"
+                items={[
+                  { label: t('files.newFolder'), icon: <FolderPlus size={16} className="shrink-0" aria-hidden />, onSelect: () => void mkdir(), testId: 'files-add-folder' },
+                  // no folder upload: a phone has no folder picker (the attribute can be there and do nothing)
+                  { label: t('files.upload'), icon: <Upload size={16} className="shrink-0" aria-hidden />, onSelect: () => fileInput.current?.click(), testId: 'files-add-upload' },
+                ]}
+              />
+            ) : null
+          }
+          backTestId="files-back"
+          titleTestId="files-title"
+        />
+      ) : (
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
         <h1 className="mr-2 text-lg font-semibold">{t('files.title')}</h1>
         <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
@@ -717,94 +857,78 @@ export default function Files() {
           // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
           // only their icons, and the search box takes the width they leave
           <div className="ml-auto flex items-center gap-1 @max-2xl:w-full">
-            <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg @max-2xl:flex-1 border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
-              <Search size={14} className="shrink-0 text-faint" aria-hidden />
-              <span className="sr-only">{t('files.search.label')}</span>
-              <input
-                type="search"
-                value={q}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape' && q) {
-                    e.preventDefault()
-                    setQuery('')
-                  }
-                }}
-                placeholder={t('files.search.placeholder')}
-                maxLength={200}
-                className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-faint @2xl:w-48"
-                data-testid="content-search-input"
-                data-own-clear
-              />
-              {q && (
-                <Tooltip label={t('files.search.clear')}>
-                  <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')}>
-                    <X size={14} aria-hidden />
-                  </button>
-                </Tooltip>
-              )}
-            </label>
+            {searchField}
             {/* phones: no refresh (the list follows changes on its own), and no new folder / upload where they are off */}
             <IconButton label={t('common.refresh')} className="max-md:hidden" onClick={() => void load()}>
               <RefreshCw size={16} />
             </IconButton>
+            {!projectsTop && (
             <Tooltip label={t('files.newFolder')}>
-              <Button size="sm" variant="ghost" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')}>
+              <Button size="sm" variant="ghost" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} data-testid="new-folder-button">
                 <FolderPlus size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.newFolder')}</span>
               </Button>
             </Tooltip>
-            {canPickFolder && (
+            )}
+            {canPickFolder && !projectsTop && (
               <>
                 <Tooltip label={t('files.uploadFolder')}>
                   <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} aria-label={t('files.uploadFolder')} data-testid="folder-upload-button">
                     <FolderUp size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.uploadFolder')}</span>
                   </Button>
                 </Tooltip>
-                <input
-                  ref={folderInput}
-                  type="file"
-                  hidden
-                  // not in React's types
-                  {...{ webkitdirectory: '' }}
-                  data-testid="folder-input"
-                  onChange={(e) => {
-                    startFolder(planFromInput(Array.from(e.target.files ?? [])))
-                    e.target.value = ''
-                  }}
-                />
               </>
             )}
+            {!projectsTop && (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
                 <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
               </Button>
             </Tooltip>
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              hidden
-              data-testid="files-input"
-              onChange={(e) => {
-                startUploads(Array.from(e.target.files ?? []))
-                e.target.value = ''
-              }}
-            />
+            )}
           </div>
         )}
       </div>
+      )}
+      {/* the pickers New folder / Upload open (the computer's toolbar, the phone's ⊕ sheet, an empty folder's button) */}
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        hidden
+        data-testid="files-input"
+        onChange={(e) => {
+          startUploads(Array.from(e.target.files ?? []))
+          e.target.value = ''
+        }}
+      />
+      {canPickFolder && (
+        <input
+          ref={folderInput}
+          type="file"
+          hidden
+          // not in React's types
+          {...{ webkitdirectory: '' }}
+          data-testid="folder-input"
+          onChange={(e) => {
+            startFolder(planFromInput(Array.from(e.target.files ?? [])))
+            e.target.value = ''
+          }}
+        />
+      )}
 
       {/* the chosen tab's content: a flex column like the page, so the list below still fills and scrolls */}
-      <TabPanel base={viewTabs} value={view} className="flex min-h-0 flex-1 flex-col">
+      <TabPanel base={phone ? null : viewTabs} value={view} className="flex min-h-0 flex-1 flex-col">
       {view === 'trash' ? (
         <TrashView />
       ) : (
         <>
-          {/* while rows are dragged the breadcrumbs come back: a drop there moves them up */}
-          {anyChecked && !dragging ? (
+          {/* while rows are dragged the breadcrumbs come back: a drop there moves them up. Phones: the bar above says
+              where this is, and the selection's actions are at the bottom */}
+          {phone ? null : anyChecked && !dragging ? (
             <BulkBar
               count={chosen.length}
-              readOnly={chosen.length - movable.length}
+              readOnly={chosen.length - movable.length - fixedChosen}
+              fixed={fixedChosen}
               canMove={movable.length > 0}
               canShare={shareable.length > 0}
               running={running}
@@ -815,25 +939,22 @@ export default function Files() {
             />
           ) : (
             // phones at the top folder: no lone "팀 폴더" under the tab of the same name (only a read-only note, if any)
-            <nav aria-label={t('files.breadcrumb')} className={clsx('flex flex-wrap items-center gap-1 px-4 py-2 text-sm sm:px-6', !path && (!tree || tree.access === 'write') && 'max-md:hidden')}>
-              <button type="button" className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover', !path && 'max-md:hidden', crumbDrop('') === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go('')} {...crumbTarget('')} data-drop={crumbDrop('')} data-testid="crumb">
+            <nav aria-label={t('files.breadcrumb')} className={clsx('flex flex-wrap items-center gap-1 px-4 py-2 text-sm max-md:gap-y-2.5 max-md:pt-0 max-md:pb-2.5 sm:px-6', !path && (!tree || tree.access === 'write') && 'max-md:hidden')}>
+              <button type="button" className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover max-md:min-h-11', !path && 'max-md:hidden', crumbDrop('') === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go('')} {...crumbTarget('')} data-drop={crumbDrop('')} data-testid="crumb">
                 <Home size={14} aria-hidden /> {t('files.root')}
               </button>
               {crumbs(path).map((c) => (
                 <span key={c.path} className="inline-flex items-center gap-1">
                   <ChevronRight size={13} className="text-faint" aria-hidden />
-                  <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
+                  <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover max-md:min-h-11', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
                     {words.name(c.path, c.name)}
                   </button>
                 </span>
               ))}
-              {/* who else sees this folder: a count where a member can write, their own folder, a project's folder;
-                  everything for admins (nothing at the top folders and the root) */}
-              {tree && <FolderAccessChip key={tree.path} path={tree.path} access={tree.access} project={byFolder.get(tree.path.normalize('NFC')) ?? null} onOpen={() => setAccessFor({ path: tree.path, access: tree.access })} />}
-              {tree && tree.access !== 'write' && (
-                <Badge tone="warn" className={clsx('ml-2', !path && 'max-md:ml-0')}>
-                  <Lock size={11} aria-hidden /> {t(tree.access === 'read' ? 'files.readOnlyFolder' : 'files.navigationOnly')}
-                </Badge>
+              {folderNotes}
+              {/* why New folder and Upload are off here (computers: phones hide them) */}
+              {tree && !canWrite && (
+                <span className="ml-2 text-xs text-muted max-md:hidden" data-testid="files-cannot-add">{t(personal ? 'files.addInMyFolder' : 'files.addHere')}</span>
               )}
             </nav>
           )}
@@ -843,8 +964,20 @@ export default function Files() {
           <TeamFilesEntry here={path} />
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
+            {phone && (
+              <>
+                {searchField}
+                <div className="flex flex-wrap items-center gap-2 px-1 py-1 empty:hidden" data-testid="files-notes">
+                  {folderNotes}
+                </div>
+              </>
+            )}
             {searching ? (
-              <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
+              // files by name first (QA TC-260), then the lines that contain the text
+              <>
+                <FileNameResults q={q} path={path} onFolder={(p) => go(p)} />
+                <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
+              </>
             ) : (
               <>
                 {!!error && (
@@ -854,8 +987,8 @@ export default function Files() {
                 )}
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
-                  <EmptyState icon={<Upload size={28} />} title={canWrite ? t('files.emptyDrop') : t('files.emptyReadOnly')}>
-                    {canWrite && (
+                  <EmptyState icon={<Upload size={28} />} title={canAdd ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
+                    {canAdd && (
                       <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
                         {t('files.upload')}
                       </Button>
@@ -882,9 +1015,10 @@ export default function Files() {
                           />
                         </th>
                         <th className="px-2 py-2 font-medium">{t('files.name')}</th>
-                        {/* Modified only on a wide page: next to an open file panel the name keeps the room */}
-                        <th className="hidden whitespace-nowrap px-2 py-2 font-medium @xl:table-cell">{t('files.modified')}</th>
-                        <th className="hidden whitespace-nowrap px-2 py-2 text-right font-medium sm:table-cell">{t('files.size')}</th>
+                        {/* Modified only on a wide page: next to an open file panel the name keeps the room. Phones: both
+                            under the name instead (FileRow) */}
+                        <th className="hidden whitespace-nowrap px-2 py-2 font-medium md:@xl:table-cell">{t('files.modified')}</th>
+                        <th className="hidden whitespace-nowrap px-2 py-2 text-right font-medium md:table-cell">{t('files.size')}</th>
                         <th className="w-10 px-2 py-2">
                           <span className="sr-only">{t('files.actions')}</span>
                         </th>
@@ -919,6 +1053,9 @@ export default function Files() {
                           onDelete={() => void remove(e)}
                           onHistory={() => setHistory(e.path)}
                           project={folderProjectAction(e, byFolder)}
+                          // a team project's folder the owner or an admin is not a member of: a click opens its page
+                          // (toProjectPage), so it says "Members only", as Folder permissions does, not "pass-through"
+                          membersOnly={e.type === 'folder' && e.access === 'none' && isAdmin(me) && isProjectsFolder(e.path)}
                           onProject={(a) => navigate(`/projects/${a.project.id}`)}
                           onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
                           onAccess={e.type === 'folder' && offersFolderAccess(e.path, e.access, me.user.id, byFolder.get(e.path.normalize('NFC')) ?? null) ? () => setAccessFor({ path: e.path, access: e.access }) : null}
@@ -934,9 +1071,33 @@ export default function Files() {
                     </Button>
                   </div>
                 )}
+                {/* phones: the trash is a place, after the team folder's own folders (the computer's is a tab) */}
+                {phone && !path && tree && (
+                  <button type="button" onClick={() => setView('trash')} className="mt-1 flex min-h-12 w-full items-center gap-2.5 border-t border-line px-3 text-left text-sm" data-testid="files-open-trash">
+                    <Trash2 size={17} className="shrink-0 text-muted" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate">{t('files.trash')}</span>
+                    <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+                  </button>
+                )}
               </>
             )}
           </div>
+          {/* phones: what to do with the selection, at the bottom where the thumb is (above the tab bar) */}
+          {phone && anyChecked && (
+            <BulkBar
+              count={chosen.length}
+              readOnly={chosen.length - movable.length - fixedChosen}
+              fixed={fixedChosen}
+              canMove={movable.length > 0}
+              canShare={shareable.length > 0}
+              running={running}
+              onMove={() => setBulkPick('move')}
+              onShare={() => setBulkPick('share')}
+              onDelete={() => void bulkDelete()}
+              onClear={clearChecked}
+              bottom
+            />
+          )}
         </>
       )}
       </TabPanel>
@@ -961,19 +1122,20 @@ export default function Files() {
           onRestored={() => void load()}
         />
       )}
-      <FolderAccessPanel target={accessFor} project={accessFor ? (byFolder.get(accessFor.path.normalize('NFC')) ?? null) : null} onClose={() => setAccessFor(null)} />
+      <FolderAccessPanel target={accessFor} project={accessFor ? (byFolder.get(accessFor.path.normalize('NFC')) ?? null) : null} projectOf={(p) => byFolder.get(p.normalize('NFC')) ?? null} onClose={() => setAccessFor(null)} />
       {suggesting && <SuggestSkillDialog source={{ kind: 'file', path: suggesting }} initialName={baseName(suggesting).replace(/\.(md|txt)$/i, '')} onClose={() => setSuggesting(null)} />}
     </div>
   )
 }
 
-/** The selection's actions, in place of the breadcrumbs while something is selected. */
-function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare, onDelete, onClear }: { count: number; readOnly: number; canMove: boolean; canShare: boolean; running: 'move' | 'share' | 'delete' | null; onMove: () => void; onShare: () => void; onDelete: () => void; onClear: () => void }) {
+/** The selection's actions, in place of the breadcrumbs while something is selected; `bottom`: a phone's, under the
+ * list (above the tab bar). */
+function BulkBar({ count, readOnly, fixed, canMove, canShare, running, onMove, onShare, onDelete, onClear, bottom }: { count: number; readOnly: number; fixed: number; canMove: boolean; canShare: boolean; running: 'move' | 'share' | 'delete' | null; onMove: () => void; onShare: () => void; onDelete: () => void; onClear: () => void; bottom?: boolean }) {
   const t = useT()
   return (
     // a narrow page (a phone, or a desktop with the file panel open): line 1 has the count, the read-only badge and ×,
     // line 2 has the buttons. Only CSS `order` moves × to the end of line 1, so the tab order stays count, buttons, ×.
-    <div role="region" aria-label={t('files.bulk.label')} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-4 py-1 sm:px-6" data-testid="bulk-bar">
+    <div role="region" aria-label={t('files.bulk.label')} className={clsx('flex flex-wrap items-center gap-x-2 gap-y-1.5 px-4 sm:px-6', bottom ? 'shrink-0 border-t border-line bg-surface py-2' : 'py-1')} data-testid="bulk-bar">
       <span className="text-sm font-medium" aria-live="polite" data-testid="bulk-count">
         {t('files.bulk.count', { n: count })}
       </span>
@@ -981,6 +1143,12 @@ function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare,
       {readOnly > 0 && (
         <Badge tone="warn">
           <Lock size={11} aria-hidden /> {t('files.bulk.readOnlyIn', { n: readOnly })}
+        </Badge>
+      )}
+      {/* writable folders that only an admin (or nobody) may move: a group's or a project's folder (QA TC-224) */}
+      {fixed > 0 && (
+        <Badge tone="warn">
+          <Lock size={11} aria-hidden /> {t('files.bulk.fixedIn', { n: fixed })}
         </Badge>
       )}
       <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 @max-2xl:order-last @max-2xl:ml-0 @max-2xl:basis-full @max-2xl:justify-start">
@@ -1006,7 +1174,7 @@ function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare,
 function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }: { checked: boolean; disabled?: boolean; label: string; title?: string; onCheck: (shift: boolean) => void; inputRef?: React.Ref<HTMLInputElement>; testId: string }) {
   return (
     <label
-      className={clsx('flex items-center justify-center rounded p-1.5 max-sm:p-2.5', disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-hover')}
+      className={clsx('touch-hit max-md:isolate flex items-center justify-center rounded p-1.5 max-sm:p-2.5', disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-hover')}
       title={title}
       onMouseDown={(ev) => {
         if (!ev.shiftKey) return
@@ -1017,7 +1185,8 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
       <input
         ref={inputRef}
         type="checkbox"
-        className="h-4 w-4 accent-[var(--c-accent)] disabled:opacity-40 dark:[color-scheme:dark]"
+        // above the label's 44 px tap box (touch-hit's ::after), so a tap on the box itself lands on it
+        className="h-4 w-4 accent-[var(--c-accent)] disabled:opacity-40 dark:[color-scheme:dark] max-md:relative max-md:z-10"
         checked={checked}
         disabled={disabled}
         aria-label={label}
@@ -1028,21 +1197,39 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
   )
 }
 
-function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, onProject, onSuggest, onAccess }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null }) {
+/** A row's name and badges; on a phone with `meta` (date · size) on a second line. On a computer the children as they
+ * are (one line, the columns beside it). */
+function TwoLines({ phone, meta, children }: { phone: boolean; meta: string; children: React.ReactNode }) {
+  if (!phone) return <>{children}</>
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="flex min-w-0 items-center gap-2">{children}</span>
+      {meta && <span className="truncate text-xs text-muted" data-testid="file-row-meta">{meta}</span>}
+    </span>
+  )
+}
+
+function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
-  const [menu, setMenu] = useState(false)
   const ref = useRef<HTMLTableRowElement>(null)
-  const menuTrigger = useRef<HTMLButtonElement>(null)
+  const menuTrigger = useRef<HTMLButtonElement | null>(null)
   const folder = e.type === 'folder'
   // a folder that is a project the person can see shows the project icon (and says so to screen readers)
   const Icon = project?.kind === 'open' ? FolderKanban : ICONS[iconKind(e.name, folder)]
   const dim = e.access === 'none'
+  // what a dimmed row says: "Members only" on a team project's folder that opens its page, else that it is only passed
+  // through
+  const dimTitle = membersOnly ? t('projects.membersOnly') : t('files.navigationOnly')
   const writable = e.access === 'write'
+  // rename, move and trash: off on a folder the server marks fixed, with the reason under them (QA TC-224: a member
+  // pressed them on their group's folder only to read "only an admin can")
+  const changeable = writable && !e.fixed
   const menuId = useId()
   // phones (`pressSelect`): a long press selects the row (or takes it out of the selection), and the click that ends it
-  // does not open it; while something is selected (`selecting`) a tap does the same instead of opening
+  // does not open it; while something is selected (`selecting`) a tap does the same instead of opening. Phones also show
+  // the row in two lines (the name; date · size) and offer "Select" in its ⋯
   const press = useRef<{ timer: number; x: number; y: number } | null>(null)
   const pressed = useRef(false)
   const endPress = () => {
@@ -1053,16 +1240,43 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'center' })
   }, [selected])
-  useEffect(() => {
-    if (!menu) return
-    const h = (ev: MouseEvent) => !ref.current?.contains(ev.target as Node) && setMenu(false)
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [menu])
-  const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover disabled:opacity-40'
   // a download-only (quarantined) file: the AI cannot read it, so "Ask AI" and "add to chat" could only fail; they stay
   // in the menu, turned off, with the reason (like the file panel)
   const aiOff = !folder && !!e.downloadOnly
+  // the ⋯ menu (rooms/MenuButton.tsx: arrow keys, Esc; a bottom sheet on phones, so it never runs under the tab bar). An
+  // item gives the keyboard to ⋯ before it runs, so a dialog it opens hands it back there (the menu is gone by then)
+  const run = (f: () => void) => () => {
+    menuTrigger.current?.focus()
+    f()
+  }
+  const icon = (I: typeof FileIcon) => <I size={14} className="shrink-0" aria-hidden />
+  const fixedWhy = writable && e.fixed ? `${menuId}-fixed` : undefined
+  const aiWhy = aiOff ? `${menuId}-ai-off` : undefined
+  const items: MenuItem[] = [
+    ...(pressSelect && !selecting && !dim ? [{ label: t('files.selectRow'), icon: icon(SquareCheck), onSelect: () => onCheck(false), testId: 'file-select' }] : []),
+    ...(!folder && previewKind(e.name) ? [{ label: t('common.preview'), icon: icon(Eye), onSelect: run(onOpen), testId: 'file-preview' }] : []),
+    ...(!folder ? [{ label: t('common.download'), icon: icon(Download), onSelect: run(() => startDownload(fileUrl(e.path), e.name)), testId: 'file-download' }] : []),
+    { label: t(chatItemKey(folder)), icon: icon(folder ? MessageSquarePlus : Sparkles), onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
+    ...(!folder && onAddToChat ? [{ label: t('files.addToChatNamed', { title: chatTitle }), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
+    ...(project ? [{ label: t('files.openProject'), icon: icon(FolderKanban), onSelect: run(() => onProject(project)), testId: 'open-project' }] : []),
+    ...(onAccess ? [{ label: t('folderAccess.menu'), icon: icon(Users), onSelect: run(onAccess), testId: 'folder-access-menu' }] : []),
+    ...(!folder ? [{ label: t('files.history'), icon: icon(History), onSelect: run(onHistory), testId: 'file-history' }] : []),
+    ...(onSuggest ? [{ label: t('suggest.button'), icon: icon(BookmarkPlus), onSelect: run(onSuggest), testId: 'suggest-skill-file' }] : []),
+    ...(!folder ? [{ label: t('files.share'), icon: icon(Copy), onSelect: run(onShare), testId: 'share-file' }] : []),
+    // rename, move and trash: off on a fixed folder, with the reason under the items (QA TC-224)
+    { label: t('files.rename'), icon: icon(Pencil), onSelect: run(onRename), disabled: !changeable, describedBy: fixedWhy, testId: 'file-rename' },
+    { label: t('files.move'), icon: icon(FolderInput), onSelect: run(onMove), disabled: !changeable, describedBy: fixedWhy, testId: 'file-move' },
+    { label: t('files.moveToTrash'), icon: icon(Trash2), onSelect: run(onDelete), danger: true, disabled: !changeable, describedBy: fixedWhy, testId: 'file-trash' },
+  ]
+  const why = 'px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:text-sm'
+  const footer = (aiWhy || fixedWhy) && (
+    <>
+      {aiWhy && <p id={aiWhy} className={why} data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly')}</p>}
+      {fixedWhy && <p id={fixedWhy} className={why} data-testid="file-fixed-reason">{t(e.fixed === 'admin' ? 'files.fixedAdmin' : 'files.fixedAlways')}</p>}
+    </>
+  )
+  // phones: the second line of the row
+  const meta = [formatDateTime(e.mtime, locale), folder ? null : formatSize(e.size, locale)].filter(Boolean).join(' · ')
   // a drag over this folder: taken (moved or uploaded here) or refused with the reason; nothing over the dragged
   // folder itself or while a move is still running
   const dropOk = !!drop && !drop.refusal
@@ -1081,7 +1295,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
       {/* phones: seen only while something is selected (a long press starts it); until then the box is still there for
           a screen reader, and shows when the keyboard reaches it */}
       <td className={clsx('w-0 py-1 pr-0 pl-1', !selecting && 'max-md:sr-only max-md:focus-within:not-sr-only')}>
-        <CheckBox checked={checked} disabled={dim} label={t('files.select', { name: e.name })} title={dim ? t('files.navigationOnly') : undefined} onCheck={onCheck} testId="file-check" />
+        <CheckBox checked={checked} disabled={dim} label={t('files.select', { name: e.name })} title={dim ? dimTitle : undefined} onCheck={onCheck} testId="file-check" />
       </td>
       {/* w-full + max-w-0: the name column takes the room that is left and a long name ends in "…" instead of
           pushing the table wider than the screen (phones) or the space beside an open file panel */}
@@ -1116,9 +1330,9 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           onPointerLeave={endPress}
           // a phone's own long-press menu (Android) does not open over the selection
           onContextMenu={(ev) => (press.current || pressed.current) && ev.preventDefault()}
-          // phones: a 44px row to tap, and a long press selects the row, not its text
-          className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline max-md:min-h-11 max-md:select-none max-md:[-webkit-touch-callout:none]"
-          title={dim ? t('files.navigationOnly') : undefined}
+          // phones: a row of 48px or more to tap, and a long press selects the row, not its text
+          className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline max-md:min-h-12 max-md:gap-3 max-md:py-1.5 max-md:select-none max-md:hover:no-underline max-md:[-webkit-touch-callout:none]"
+          title={dim ? dimTitle : undefined}
           aria-current={open ? 'true' : undefined}
           // dragged onto a folder row or a breadcrumb: moved there (with the selection when this row is selected); a
           // file the AI may read can also be dragged into a chat's message box (attached as a team file)
@@ -1126,15 +1340,17 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
+          <Icon size={pressSelect ? 20 : 17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
           {project?.kind === 'open' && <span className="sr-only">({t('files.isProject', { name: project.project.name })})</span>}
+          {/* phones: the name and its badges on line 1, date · size on line 2 */}
+          <TwoLines phone={pressSelect} meta={meta}>
           <span className="min-w-0 truncate" title={e.name}>
             {words.name(e.path, e.name)}
           </span>
           {/* a folder the person can only pass through: a visible badge (a hover title alone does not reach phones);
               screen readers get the full sentence in place of the short badge text. Phones show the row greyed out
               only (next to the folder's own "이동만" badge it read as the same thing twice); inside, that badge says it */}
-          {dim && (
+          {dim && !membersOnly && (
             <span className="shrink-0 max-md:sr-only" data-testid="pass-through">
               <Badge>
                 <Signpost size={11} aria-hidden /> <span aria-hidden>{t('files.passThroughShort')}</span>
@@ -1142,13 +1358,22 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
               </Badge>
             </span>
           )}
+          {/* a team project's folder the owner or an admin is not a member of: the words of Folder permissions, on
+              phones too (there is no other sign that it opens the project's page) */}
+          {dim && membersOnly && (
+            <span className="shrink-0" data-testid="members-only">
+              <Badge>{t('accessTree.membersOnly')}</Badge>
+            </span>
+          )}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {aiOff && <span className="shrink-0" data-testid="file-download-only"><Badge>{t('files.downloadOnly')}</Badge></span>}
-          {e.access === 'read' && (
+          {/* not on Personal: the person's own folder inside is theirs to change */}
+          {e.access === 'read' && e.path !== 'users' && (
             <Tooltip label={t('files.readOnlyTip')} description>
               <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />
             </Tooltip>
           )}
+          </TwoLines>
           {/* only while something is dragged over it (the pointer's job; the toast says what happened) */}
           {(dropOk || dropNo) && (
             <span className="ml-auto shrink-0" aria-hidden data-testid="drop-hint">
@@ -1163,72 +1388,22 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           )}
         </button>
       </td>
-      <td className="hidden px-2 py-1.5 text-xs whitespace-nowrap text-muted @xl:table-cell">{formatDateTime(e.mtime, locale)}</td>
-      <td className="hidden px-2 py-1.5 text-right text-xs whitespace-nowrap text-muted sm:table-cell">{folder ? '' : formatSize(e.size, locale)}</td>
-      <td className="relative px-2 py-1.5 text-right">
+      <td className="hidden px-2 py-1.5 text-xs whitespace-nowrap text-muted md:@xl:table-cell">{formatDateTime(e.mtime, locale)}</td>
+      <td className="hidden px-2 py-1.5 text-right text-xs whitespace-nowrap text-muted md:table-cell">{folder ? '' : formatSize(e.size, locale)}</td>
+      <td className="relative px-2 py-1.5 text-right max-md:py-0 max-md:pr-0 max-md:pl-1">
+        {/* where a pointer can hover, ⋯ shows on the row's hover or focus; a touch screen (a phone, a tablet) always shows
+            it (FILES-21: from 640 px a tablet never saw it). 44 px on phones */}
         {!dim && (
-          <IconButton label={t('files.actionsFor', { name: e.name })} aria-expanded={menu} onClick={(ev) => { menuTrigger.current = ev.currentTarget; setMenu((v) => !v) }} className="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" data-testid="file-menu">
-            <MoreHorizontal size={16} />
-          </IconButton>
-        )}
-        {menu && (
-          <div role="menu" className="absolute top-9 right-2 z-30 w-56 rounded-lg border border-line bg-surface p-1 text-left shadow-lg"
-            // Anchor dialog return focus before the item's handler runs and this menu unmounts.
-            onClickCapture={() => menuTrigger.current?.focus()} onClick={() => setMenu(false)}>
-            {!folder && previewKind(e.name) && (
-              <button role="menuitem" type="button" className={item} onClick={onOpen}>
-                <Eye size={14} aria-hidden /> {t('common.preview')}
-              </button>
-            )}
-            {!folder && (
-              <button role="menuitem" type="button" className={item} onClick={() => startDownload(fileUrl(e.path), e.name)}>
-                <Download size={14} aria-hidden /> {t('common.download')}
-              </button>
-            )}
-            <button role="menuitem" type="button" className={item} onClick={onChat} disabled={aiOff} aria-describedby={aiOff ? `${menuId}-ai-off` : undefined} data-testid="chat-with-file">
-              {folder ? <MessageSquarePlus size={14} aria-hidden /> : <Sparkles size={14} aria-hidden />} {t(folder ? 'files.chatWith' : 'files.askAi')}
-            </button>
-            {!folder && onAddToChat && (
-              <button role="menuitem" type="button" className={item} onClick={onAddToChat} disabled={aiOff} aria-describedby={aiOff ? `${menuId}-ai-off` : undefined} data-testid="add-to-chat">
-                <Paperclip size={14} aria-hidden /> <span className="min-w-0 truncate">{t('files.addToChatNamed', { title: chatTitle })}</span>
-              </button>
-            )}
-            {aiOff && <p id={`${menuId}-ai-off`} className="px-2 pb-1.5 text-xs text-muted" data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly')}</p>}
-            {project && (
-              <button role="menuitem" type="button" className={item} onClick={() => onProject(project)} data-testid="open-project">
-                <FolderKanban size={14} aria-hidden /> <span className="min-w-0 truncate">{t('files.openProject')}</span>
-              </button>
-            )}
-            {onAccess && (
-              <button role="menuitem" type="button" className={item} onClick={onAccess} data-testid="folder-access-menu">
-                <Users size={14} aria-hidden /> <span className="min-w-0 truncate">{t('folderAccess.menu')}</span>
-              </button>
-            )}
-            {!folder && (
-              <button role="menuitem" type="button" className={item} onClick={onHistory}>
-                <History size={14} aria-hidden /> {t('files.history')}
-              </button>
-            )}
-            {onSuggest && (
-              <button role="menuitem" type="button" className={item} onClick={onSuggest} data-testid="suggest-skill-file">
-                <BookmarkPlus size={14} aria-hidden /> {t('suggest.button')}
-              </button>
-            )}
-            {!folder && (
-              <button role="menuitem" type="button" className={item} onClick={onShare} data-testid="share-file">
-                <Copy size={14} aria-hidden /> {t('files.share')}
-              </button>
-            )}
-            <button role="menuitem" type="button" className={item} disabled={!writable} onClick={onRename}>
-              <Pencil size={14} aria-hidden /> {t('files.rename')}
-            </button>
-            <button role="menuitem" type="button" className={item} disabled={!writable} onClick={onMove}>
-              <FolderInput size={14} aria-hidden /> {t('files.move')}
-            </button>
-            <button role="menuitem" type="button" className={clsx(item, 'text-danger')} disabled={!writable} onClick={onDelete}>
-              <Trash2 size={14} aria-hidden /> {t('files.moveToTrash')}
-            </button>
-          </div>
+          <MenuButton
+            label={t('files.actionsFor', { name: e.name })}
+            items={items}
+            footer={footer}
+            muted
+            buttonRef={menuTrigger}
+            buttonClassName="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:size-11"
+            sheetTitle={words.name(e.path, e.name)}
+            testId="file-menu"
+          />
         )}
       </td>
     </tr>
@@ -1242,6 +1417,8 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
   // every stored version is an earlier content of the file (the newest one is what it was before the last change),
   // so each can be restored by whoever may write the file; only one identical to the file as it is now is not offered
   const [current, setCurrent] = useState<{ sha256: string | null; canRestore: boolean }>({ sha256: null, canRestore: true })
+  // why there is no 되돌리기: the file's folder is in the trash (it comes back first; QA TC-229)
+  const [blocked, setBlocked] = useState<HistoryResponse['restoreBlocked']>(null)
   // the content as it is now with the person who saved it, and the changes (created / edited / moved / ...)
   const [now, setNow] = useState<NonNullable<HistoryResponse['current']> | null>(null)
   const [events, setEvents] = useState<FileHistoryEvent[]>([])
@@ -1254,6 +1431,7 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
         if (!live) return
         setItems([...r.items].sort((a, b) => b.version - a.version))
         setCurrent({ sha256: r.currentSha256 ?? null, canRestore: r.canRestore ?? true })
+        setBlocked(r.restoreBlocked ?? null)
         setNow(r.current ?? null)
         setEvents(r.events ?? [])
       },
@@ -1282,6 +1460,12 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     <Modal open onClose={onClose} title={t('files.historyOf', { name: baseName(path) })} width={600}>
       {error && <ErrorNote>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={4} />}
+      {blocked === 'folderInTrash' && (
+        <p className="mb-2 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-sm text-muted" data-testid="history-folder-in-trash">
+          <Trash2 size={14} className="mt-0.5 shrink-0" aria-hidden />
+          {t('files.versionsFolderInTrash')}
+        </p>
+      )}
       {items && !items.length && !now && !events.length && <p className="text-sm text-muted">{t('files.noHistory')}</p>}
       {items && (items.length > 0 || now) && (
         <ul className="divide-y divide-line" data-testid="history-list">
@@ -1366,9 +1550,14 @@ function eventText(e: FileHistoryEvent, t: ReturnType<typeof useT>): string {
   }
 }
 
+/** The trash: what was deleted, by whom and when it goes for good, each with Restore. Phones: the name, then the folder
+ * it was in, in words (전사 공유 › 양식, never `shared/양식`), then when, under a one-line note; Restore's toast names
+ * that folder in words too. */
 function TrashView() {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const [items, setItems] = useState<TrashItem[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -1392,7 +1581,8 @@ function TrashView() {
     setBusy(it.id)
     try {
       const r = await api.call(API.restoreTrash, { params: { id: it.id } })
-      toast({ level: 'success', text: t('files.restoredTo', { path: r.entry.path }) })
+      // phones: the folder it went back to, in words (short, no storage path)
+      toast({ level: 'success', text: t('files.restoredTo', { path: phone ? words.path(parentPath(r.entry.path), ' › ') || t('files.root') : r.entry.path }) })
       setItems((cur) => cur?.filter((x) => x.id !== it.id) ?? null)
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
@@ -1403,20 +1593,31 @@ function TrashView() {
   const sorted = useMemo(() => items ?? [], [items])
   return (
     <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
-      <p className="mb-3 text-xs text-faint">{t('files.trashNote')}</p>
+      <p className="mb-3 text-xs text-faint" data-testid="trash-note">{t(phone ? 'files.trashNoteShort' : 'files.trashNote')}</p>
       {error && <ErrorNote onRetry={() => void load(false)}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={5} />}
       {items && !items.length && <EmptyState icon={<Trash2 size={28} />} title={t('files.trashEmpty')} />}
       <ul className="divide-y divide-line" data-testid="trash-list">
         {sorted.map((it) => (
-          <li key={it.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
+          <li key={it.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm max-md:flex-nowrap" data-testid="trash-item">
+            {phone && (() => {
+              const Icon = ICONS[iconKind(baseName(it.originalPath), it.type === 'folder')]
+              return <Icon size={20} className={clsx('shrink-0', it.type === 'folder' ? 'text-accent-text' : 'text-muted')} aria-hidden />
+            })()}
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{it.originalPath}</span>
+              {phone ? (
+                <>
+                  <span className="block truncate font-medium" data-testid="trash-name">{baseName(it.originalPath)}</span>
+                  <span className="block truncate text-xs text-muted" data-testid="trash-where">{words.path(parentPath(it.originalPath), ' › ') || t('files.root')}</span>
+                </>
+              ) : (
+                <span className="block truncate font-medium">{it.originalPath}</span>
+              )}
               <span className="block text-xs text-faint">
                 {t('files.deletedBy', { who: it.deletedBy?.name ?? t('files.byAi'), date: formatDateTime(it.deletedAt, locale) })} · {t('files.purgeAt', { date: formatDateTime(it.purgeAt, locale) })}
               </span>
             </span>
-            <Button size="sm" busy={busy === it.id} onClick={() => restore(it)}>
+            <Button size="sm" busy={busy === it.id} onClick={() => restore(it)} className="shrink-0" data-testid="trash-restore">
               <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
             </Button>
           </li>

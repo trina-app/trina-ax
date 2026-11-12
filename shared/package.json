@@ -25,6 +25,7 @@
     "./product": "./src/product.ts",
     "./team-link": "./src/team-link.ts",
     "./app-links": "./src/app-links.ts",
-    "./skill-roots": "./src/skill-roots.ts"
+    "./skill-roots": "./src/skill-roots.ts",
+    "./release-manifest": "./src/release-manifest.ts"
   }
 }

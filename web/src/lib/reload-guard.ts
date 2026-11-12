@@ -6,16 +6,19 @@ import { isBusy } from './busy'
 import { mergeDraft } from './composerDraft'
 import { readDraft, writeDraft } from './localData'
 import { useChats } from '../store/chats'
+import { keepRoomDrafts, roomDrafts } from '../store/rooms'
 import { useSession } from '../store/session'
 import { useUi } from '../store/ui'
 
 /**
  * A reload now would lose something: an upload, a non-empty draft or a recording (lib/busy.ts), an answer still
- * streaming on screen, or a message still being sent or marked "not sent" (it lives only in this tab's memory, chats
- * store `local`).
+ * streaming on screen, a message still being sent or marked "not sent" (it lives only in this tab's memory, chats
+ * store `local`), or a reply typed in a room's box, also one whose box is not on screen now (store/rooms.ts roomDrafts;
+ * kept on this device too, but a reload by itself would still take the box away under the person's hands).
  */
 export function reloadWouldLose(): boolean {
   if (isBusy()) return true
+  if ([...roomDrafts.values()].some((d) => d.trim())) return true
   return Object.values(useChats.getState().threads).some((th) => th.messages.some((m) => m.status === 'streaming' || !!m.local))
 }
 
@@ -29,7 +32,9 @@ export function unfinishedWork(): boolean {
 
 /** Before a reload the person asked for: the text of each message still being sent or not sent goes into its chat's
  * draft (lib/localData.ts, which the chat's composer starts from), after what is there and only once. Attachments are
- * not kept. A message that was delivered after all only leaves its text in the input box. */
+ * not kept. A message that was delivered after all only leaves its text in the input box. Each room box's draft is
+ * kept on this device as it is now (store/rooms.ts keepRoomDrafts; its box starts from it once, QA TC-375); a room's
+ * sends not sent are kept there already and come back as not sent. */
 export function keepUnsentAsDrafts(s?: Parameters<typeof writeDraft>[3]) {
   const st = useSession.getState().status
   if (st.kind !== 'signed-in') return
@@ -40,6 +45,7 @@ export function keepUnsentAsDrafts(s?: Parameters<typeof writeDraft>[3]) {
       writeDraft(userId, chatId, mergeDraft(readDraft(userId, chatId, s), m.content), s)
     }
   }
+  keepRoomDrafts(s)
 }
 
 /** The server cannot be reached now (the browser is offline, the live connection is down): a reload would land on the

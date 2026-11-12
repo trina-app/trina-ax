@@ -31,6 +31,9 @@ import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transpo
 import { workspaceLibraryOf } from '../google-apps/library'
 
 export const MAX_PERSONAL = 20
+/** to a member whose connection made from a template was dropped: their Connectors page reads its lists again (no text:
+ * the inbox notice says what to do, notifyTemplateReconnect) */
+export const INTEGRATIONS_CHANGED = { type: 'notice', data: { level: 'info', code: 'integrations_changed', message: '' } } as const
 export const MAX_TEAM = 50
 const FLOW_TTL = 10 * 60_000
 const FLOWS_PER_HOUR = 20
@@ -369,10 +372,12 @@ export class Integrations {
    * own connection without its name, address, template or member. */
   async dropFromTemplate(rows: Row[], actor: string | null, why: 'template_moved' | 'template_deleted' | 'not_covered', wait = true): Promise<void> {
     const olds: Secret[] = []
+    const owners = new Set<string>()
     for (const row of rows) {
       if (!row.template_id) continue
       const old = row.secret_enc ? this.tryOpen(row) : null
       if (!this.db.query('DELETE FROM integrations WHERE id = ? AND template_id = ?').run(row.id, row.template_id).changes) continue
+      if (row.owner_user_id) owners.add(row.owner_user_id)
       this.dropClient(row.id)
       this.recent.delete(row.id)
       toolListsOf(this.db).drop(row.id)
@@ -384,6 +389,11 @@ export class Integrations {
         const t = this.db.query('SELECT version FROM integration_templates WHERE id = ?').get(row.template_id) as { version: number } | null
         if (t) notifyTemplateReconnect(this.ctx, row.owner_user_id, row.template_id, t.version)
       }
+    }
+    // a member's page open now still shows the connection: it reads its lists again (a quiet notice, no text; QA on dev
+    // 1565b39f1: the old row's "try again" said "not found" until a reload)
+    for (const id of owners) {
+      try { this.ctx.services.realtime.publish(id, INTEGRATIONS_CHANGED) } catch (err) { this.ctx.log.warn('connections notice failed', { err }) }
     }
     const revoking = Promise.all(olds.map((o) => this.revokeTokens(o).catch(() => false)))
     if (wait) await revoking
@@ -578,27 +588,45 @@ export class Integrations {
     const fresh = s.tokens.expiresAt === null || s.tokens.expiresAt > this.now() + 60_000
     const late = deadline !== undefined && Date.now() + (this.net.timeoutMs ?? TIMEOUT_MS) > deadline && s.tokens.expiresAt !== null && s.tokens.expiresAt > this.now()
     if ((fresh || late) && s.tokens.accessToken !== rejected) return s.tokens.accessToken
-    const pending = this.refreshes.get(row.id)
-    if (pending) return pending
-    if (!s.tokens.refreshToken) { this.setStatus(row, 'needs_auth', 'sign_in'); throw new NeedsAuth('sign_in') }
-    const task = (async () => {
-      try {
-        // a Google app: the card's client as set up now, or the hosting service (google-apps/tokens.ts)
-        const tokens = row.google_app
-          ? await refreshGoogleApp(this.ctx, s, this.now())
-          : await tokenRequest(s, { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now(), s.tokens)
-        const cur = getRow(this.db, row.id)
-        if (!cur || cur.version !== row.version) throw new CallError('the connection changed while this ran; try again', 'changed')
-        const sealed = this.box.seal(connectionAad(cur), { ...s, tokens } satisfies OAuthSecret)
-        this.db.query('UPDATE integrations SET secret_enc=?, key_version=? WHERE id=? AND version=?').run(sealed.enc, sealed.keyVersion, row.id, row.version)
-        return tokens.accessToken
-      } catch (e) {
-        if (e instanceof GrantError) { this.setStatus(row, 'needs_auth', 'sign_in'); throw new NeedsAuth('sign_in') }
-        throw e
-      }
-    })()
-    this.refreshes.set(row.id, task)
-    try { return await task } finally { if (this.refreshes.get(row.id) === task) this.refreshes.delete(row.id) }
+    let task = this.refreshes.get(row.id)
+    if (!task) {
+      if (!s.tokens.refreshToken) { this.setStatus(row, 'needs_auth', 'sign_in'); throw new NeedsAuth('sign_in') }
+      const started = (async () => {
+        try {
+          // a Google app: the card's client as set up now, or the hosting service (google-apps/tokens.ts)
+          const tokens = row.google_app
+            ? await refreshGoogleApp(this.ctx, s, this.now())
+            : await tokenRequest(s, { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now(), s.tokens)
+          this.keepTokens(row.id, s.tokens.refreshToken!, tokens)
+          return tokens.accessToken
+        } catch (e) {
+          if (e instanceof GrantError) { this.setStatus(row, 'needs_auth', 'sign_in'); throw new NeedsAuth('sign_in') }
+          throw e
+        }
+      })()
+      this.refreshes.set(row.id, started)
+      task = started
+    }
+    let token: string
+    try { token = await task } finally { if (this.refreshes.get(row.id) === task) this.refreshes.delete(row.id) }
+    // the connection changed while the token was fetched (a tool switched off, a write now to be asked, another
+    // address): this call stops and is tried again; the new tokens are kept (keepTokens) when the sign-in is the same
+    const cur = getRow(this.db, row.id)
+    if (!cur || cur.version !== row.version) throw new CallError('the connection changed while this ran; try again', 'changed')
+    return token
+  }
+
+  /** Stores tokens a refresh got, onto the stored sign-in it refreshed: only while that sign-in is still there (its
+   * refresh token is the one sent), whatever else of the connection changed meanwhile. A service that rotates refresh
+   * tokens has made the old one unusable, so dropping the new ones would leave the connection asking to sign in again.
+   * A sign-in that went or was replaced (signed out, signed in again, another address) gets nothing. */
+  private keepTokens(id: string, used: string, tokens: OAuthTokens): void {
+    const cur = getRow(this.db, id)
+    if (!cur?.secret_enc) return
+    const stored = this.tryOpen(cur)
+    if (stored?.type !== 'oauth' || stored.tokens.refreshToken !== used) return
+    const sealed = this.box.seal(connectionAad(cur), { ...stored, tokens } satisfies OAuthSecret)
+    this.db.query('UPDATE integrations SET secret_enc=?, key_version=? WHERE id=? AND secret_enc=?').run(sealed.enc, sealed.keyVersion, id, cur.secret_enc)
   }
 
   /** Every value of a connection's secret this server knows: as `row` holds it, as stored now (a refresh during a call

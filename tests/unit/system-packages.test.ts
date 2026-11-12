@@ -486,6 +486,30 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     expect(s).toMatch(/if pk_browser_switch "\$BROWSER_DIR"/)
   })
 
+  test('install-linux.sh downloads and builds before it stops the server; after the stop it only switches', () => {
+    const s = read('scripts/install-linux.sh')
+    const stop = s.indexOf('\nstop_units\nkill_accounts\n')
+    expect(stop).toBeGreaterThan(0)
+    // inside the update lock (a mycel-ctl update that runs finishes first)
+    expect(s.indexOf('# ---- 6b)')).toBeGreaterThan(s.indexOf('flock -n 9'))
+    // the distribution packages, the browser, the Python programs and the engine downloads: before the stop
+    for (const step of ['pk_apt_install -- "${PKGS[@]}"', 'pk_browser_prepare "$PK_OPT/chrome-headless-shell"',
+      'pk_python_prepare "$PK_OPT/python/$PY" "$PY" || PY_NOT_READY+="$PY "', 'download "$url" "$sha" "$size" "$stage"',
+      'download "$url" "$sha" "$size" "$DL_WORK/codex.tar.gz"']) {
+      expect(`${step}: ${s.indexOf(step) > 0 && s.indexOf(step) < stop}`).toBe(`${step}: true`)
+      expect(`${step}: ${s.indexOf(step, stop)}`).toBe(`${step}: -1`)
+    }
+    // after it: the switches, and no download
+    expect(s.indexOf('pk_browser_switch "$PK_OPT/chrome-headless-shell"')).toBeGreaterThan(stop)
+    expect(s.indexOf('PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY")')).toBeGreaterThan(stop)
+    expect(s.indexOf('mv "$DL_WORK/engine-$name" "$stage"')).toBeGreaterThan(stop)
+    expect(s.slice(stop)).not.toMatch(/curl --proto|pk_fetch|apt-get|from_cache /)
+    // a venv that failed before the stop is not built again while the server is stopped
+    expect(s).toContain('if [[ "$PY_NOT_READY" != *" $PY "* ]] && PYPATH=$(pk_python_install')
+    // prepare runs in the installer's shell, not a subshell (pk_python_install then knows what it built)
+    expect(s).not.toMatch(/\$\(pk_python_prepare/)
+  })
+
   test('python programs: the readers, the requirements pip gets, the pin', () => {
     const r = lib('pk_load; pk_pythons default; pk_pythons minimal; pk_py workspace-mcp version; pk_py workspace-mcp python; pk_py workspace-mcp program; pk_py nosuch version || echo none', { PK_BUN: process.execPath })
     expect(r.err).toBe('')
@@ -517,7 +541,7 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
       '#!/bin/bash', `R="${d}"`, 'v=$(cd "$(dirname "$0")/.." && pwd)',
       'printf \'%s\\n\' "$*" >> "$R/pip-calls"', '[ ! -e "$R/pip-fails" ] || exit 1',
       'while [ $# -gt 0 ]; do [ "$1" = -r ] && cp "$2" "$v/got-requirements"; shift; done',
-      'printf \'#!/bin/sh\\n[ ! -e "%s/broken" ]\\n\' "$R" > "$v/bin/workspace-mcp"; chmod 755 "$v/bin/workspace-mcp"', '',
+      'printf \'#!/bin/sh\\necho x >> "%s/starts"\\n[ ! -e "%s/broken" ]\\n\' "$R" "$R" > "$v/bin/workspace-mcp"; chmod 755 "$v/bin/workspace-mcp"', '',
     ].join('\n'))
     fs.writeFileSync(path.join(bin, 'python3'), [
       '#!/bin/bash', `R="${d}"`,
@@ -569,6 +593,42 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     expect(names()).toEqual(['.previous', 'current', pyKey(l2), pyKey(l3)].sort())
     fs.rmSync(p.d, { recursive: true, force: true })
    }, 120_000)
+
+  test('python programs: prepare builds the venv and leaves current; install in the same run only switches', () => {
+    const p = fakePython()
+    const starts = () => fs.existsSync(path.join(p.d, 'starts')) ? fs.readFileSync(path.join(p.d, 'starts'), 'utf8').trim().split('\n').length : 0
+    expect(lib(`pk_load; pk_python_install "${p.dest}" workspace-mcp >/dev/null`, p.env).code).toBe(0)
+    const key = pyKey(LIST), l2 = withWheel('extra-wheel==1.0', 'b')
+    fs.writeFileSync(path.join(p.d, 'l2.json'), JSON.stringify(l2))
+    // prepare: the new venv is built and started once, current still names the one in use, nothing printed
+    let r = lib(`pk_load "${p.d}/l2.json"; pk_python_prepare "${p.dest}" workspace-mcp; echo "rc=$?"; readlink "${p.dest}/current"`, p.env)
+    expect(r.out.trim().split('\n')).toEqual(['rc=0', key])
+    expect(fs.readFileSync(path.join(p.dest, pyKey(l2), '.sha256'), 'utf8').trim()).toBe(reqSha(l2))
+    expect(p.calls().length).toBe(2)
+    // prepare, then install in one shell (install-linux.sh: before and after the stop): no second pip, no second start
+    fs.rmSync(path.join(p.dest, pyKey(l2)), { recursive: true })
+    const before = starts()
+    r = lib(`pk_load "${p.d}/l2.json"; pk_python_prepare "${p.dest}" workspace-mcp && readlink "${p.dest}/current" && pk_python_install "${p.dest}" workspace-mcp`, p.env)
+    expect(r.err).toBe('')
+    expect(r.out.trim().split('\n')).toEqual([key, path.join(p.dest, 'current', 'bin', 'workspace-mcp')])
+    expect(fs.readlinkSync(path.join(p.dest, 'current'))).toBe(pyKey(l2))
+    expect(p.calls().length).toBe(3)
+    expect(starts() - before).toBe(1)
+    // what prepare built changed before the install (another pin's .sha256): built again, not trusted
+    r = lib(`pk_load "${p.d}/l2.json"; pk_python_prepare "${p.dest}" workspace-mcp && echo stale > "${p.dest}/${pyKey(l2)}/.sha256" && pk_python_install "${p.dest}" workspace-mcp >/dev/null`, p.env)
+    expect(r.code).toBe(0)
+    expect(p.calls().length).toBe(4)
+    expect(fs.readFileSync(path.join(p.dest, pyKey(l2), '.sha256'), 'utf8').trim()).toBe(reqSha(l2))
+    // a failed prepare touches nothing: current stays, no folder is left
+    fs.writeFileSync(path.join(p.d, 'pip-fails'), '')
+    const l3 = withWheel('extra-wheel==2.0', 'c')
+    fs.writeFileSync(path.join(p.d, 'l3.json'), JSON.stringify(l3))
+    r = lib(`pk_load "${p.d}/l3.json"; pk_python_prepare "${p.dest}" workspace-mcp || echo failed`, p.env)
+    expect(r.out.trim()).toBe('failed')
+    expect(fs.readlinkSync(path.join(p.dest, 'current'))).toBe(pyKey(l2))
+    expect(fs.existsSync(path.join(p.dest, pyKey(l3)))).toBe(false)
+    fs.rmSync(p.d, { recursive: true, force: true })
+  }, 120_000)
 
   test('python programs: pip fails, the program does not start, Python is too old: nothing new, current stays', () => {
     const p = fakePython()
@@ -631,6 +691,7 @@ describe('every install path reads the list', () => {
     'tests/linux/Dockerfile.srt': { why: 'the srt attack test container', lines: ['apt-get install -y --no-install-recommends bubblewrap socat'] },
     'tests/linux/Dockerfile.safe-ops': { why: 'the safe operations test container', lines: ['apt-get install -y --no-install-recommends libheif-examples'] },
     'tests/linux/Dockerfile.html-pdf': { why: 'the HTML to PDF test container', lines: ['apt-get install -y --no-install-recommends bubblewrap chromium'] },
+    'docker/Dockerfile': { why: 'kits before 0.5.0-beta.1 have no packages.json: their own deps.txt plus the docker group (procps passwd python3)', lines: ['$deps procps passwd python3'] },
     'tests/install/linux/Dockerfile': { why: 'the install test\'s systemd container (what an installer fetches, cached)', lines: ['apt-get install -y --no-install-recommends systemd systemd-sysv'] },
   }
   // and these commands may carry a sha256 or a download address of their own, each for a reason
@@ -759,9 +820,33 @@ describe('every install path reads the list', () => {
     expect(d).toContain('if pk_groups google-apps >/dev/null 2>&1; then groups="$groups google-apps"; fi')
     expect(d).toContain('for p in $(pk_pythons $groups); do pk_python_install "/opt/trina/python/$p" "$p" >/dev/null; done')
     expect(pythonsFor(LIST, ['minimal', 'docker', 'google-apps'])).toEqual(['workspace-mcp'])
-    expect(read('docker/entrypoint.sh')).toContain('--skip-apt --no-auto-update --minimal')
+    // --minimal only for a kit that has the list: the installers of 0.3.0 and 0.4.0 stop at an unknown option
+    const e = read('docker/entrypoint.sh')
+    expect(e).toContain('ARGS=(--from "$KIT" --no-systemd --skip-apt --no-auto-update)\n')
+    expect(e).toContain('if compgen -G "$KIT/app/*/root/packages.json" >/dev/null; then ARGS+=(--minimal); fi')
     // by default no browser group: what the always and docker groups install has no browser library of its own
     expect(groupsFor(LIST, ['minimal', 'docker'])).not.toContain('browser')
+  })
+
+  test('the Docker image builds from a kit without the list (0.3.0, 0.4.0): the kit\'s deps.txt and the docker group', () => {
+    const d = read('docker/Dockerfile')
+    const legacy = d.indexOf('if [ ! -f "$root/packages.sh" ]; then'), source = d.indexOf('. "$root/packages.sh"')
+    expect(legacy).toBeGreaterThan(0)
+    expect(legacy).toBeLessThan(source)
+    expect(d).not.toContain('this Dockerfile needs a kit with root/packages.json')
+    expect(d).toContain('"$root/../deps.txt"')
+    // the three packages it names are the docker group's; each is one the image installs from the list today
+    const imageNames = groupsFor(LIST, ['minimal', 'docker']).flatMap((g) => Object.keys(LIST.groups[g]!.packages ?? {}))
+    for (const n of ['procps', 'passwd', 'python3']) expect(imageNames).toContain(n)
+    for (const n of Object.keys(LIST.groups.docker!.packages ?? {})) expect(['procps', 'passwd', 'python3']).toContain(n)
+    // the fallback reads deps.txt lines ("package" or "package>=version", comments) into bare names
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deps-')), f = path.join(dir, 'deps.txt')
+    fs.writeFileSync(f, '# floors\nbubblewrap>=0.8.0\n\nffmpeg>=7:5.1  # media\n  curl\n')
+    const sedLine = d.match(/deps=\$\((sed [^\n]*?) "\$root\/\.\.\/deps\.txt" \| grep -v '\^\$'\)/)
+    expect(sedLine).not.toBeNull()
+    const r = Bun.spawnSync(['bash', '-c', `${sedLine![1]} "$1" | grep -v '^$'`, 'x', f])
+    fs.rmSync(dir, { recursive: true, force: true })
+    expect(r.stdout.toString().split('\n').filter(Boolean)).toEqual(['bubblewrap', 'ffmpeg', 'curl'])
   })
 
   test('a test container that pins node pins the list\'s', () => {
@@ -825,7 +910,8 @@ describe('every install path reads the list', () => {
     expect(inst).toContain('pk_packages "$DISTRO" "$ARCH" "$PROFILE"')
     expect(inst).toContain('pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell')
     expect(inst).toContain('for PY in $(pk_pythons "$PROFILE"); do')
-    expect(inst).toContain('if PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY"); then')
+    expect(inst).toContain('PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY"); then')
+    expect(inst).toContain('pk_python_prepare "$PK_OPT/python/$PY" "$PY"')
     expect(read('scripts/system/packages.sh')).toContain('if path=$(pk_python_install "$PK_OPT/python/$p" "$p"); then')
     // install-srt.sh (the image with --srt, and a server that turns the dev environment on) installs default groups only
     const srtGroups = /^PKG_GROUPS="([^"]*)"$/m.exec(read('scripts/dev-env/srt/install-srt.sh'))![1]!.split(' ')

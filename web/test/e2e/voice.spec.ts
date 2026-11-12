@@ -232,6 +232,26 @@ test('while the job runs its own label shows (a first recording downloads the sp
   await expect(page.getByTestId('voice-progress')).toHaveCount(0)
 })
 
+test('a recording that waits for its turn says it waits, then the job\'s own label once it starts (TC-154 F1)', async ({ page }) => {
+  await reset(page)
+  // another voice input holds the one transcription slot for 1.5 s
+  await page.request.post('/__test/transcribe-progress', { data: { message: '받아쓰는 중', progress: null, ms: 3500, queuedMs: 1500 } })
+  await signIn(page)
+  const box = page.getByTestId('composer-input')
+  await box.click()
+  await holdSpace(page)
+  await expect(box).toHaveAttribute('placeholder', '다른 받아쓰기가 끝나길 기다리는 중…')
+  await expect(box).toHaveAttribute('aria-busy', 'true')
+  await expect(box).toHaveAttribute('placeholder', '받아쓰는 중')
+  await expect(box).toHaveValue('받아쓴 문장입니다')
+  // a box with text: the waiting shows over it too
+  await box.fill('회의 메모')
+  await holdSpace(page)
+  await expect(page.getByTestId('voice-progress')).toHaveText('다른 받아쓰기가 끝나길 기다리는 중…')
+  await expect(page.getByTestId('voice-progress')).toHaveText('받아쓰는 중')
+  await expect(box).toHaveValue('회의 메모 받아쓴 문장입니다')
+})
+
 test.describe('rooms', () => {
   // the room's answers come through page.route, which does not see what the app's service worker fetches
   test.use({ serviceWorkers: 'block' })
@@ -304,23 +324,23 @@ test.describe('rooms', () => {
 
   // docs/DECISIONS.md "Voice input on a team's own server: the key turns it on": "this server" without ffmpeg (an office
   // Mac) turns voice input off, so the mic no longer shows and then fails every recording, in the AI chat and in rooms
-  test('"this server" without ffmpeg: the owner gets the hint to the setting; a member has no mic and Space stays a Space', async ({ page }) => {
+  test('"this server" without ffmpeg: no mic for the owner nor a member, and Space stays a Space', async ({ page }) => {
     await reset(page)
     await speech(page, 'local')
     expect((await page.request.post('/__test/speech-host', { data: { localMissing: ['ffmpeg'] } })).ok()).toBeTruthy()
     await routeRoom(page, { members: [{ id: 'sora', name: '소라님' }], messages: [ROOT] })
     await signIn(page)
-    await expect(page.getByTestId('voice-off-hint')).toBeVisible()
+    await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByRole('button', { name: MIC })).toHaveCount(0)
     await page.goto(`/rooms/${ROOM_ID}`)
-    await expect(page.getByTestId('room-composer').getByTestId('voice-off-hint')).toBeVisible()
+    await expect(page.getByTestId('room-input')).toBeVisible()
+    await expect(page.getByRole('button', { name: MIC })).toHaveCount(0)
     await page.context().clearCookies()
     await signIn(page, { username: 'bob', password: 'bob password 1' })
     for (const [where, box] of [['/', 'composer-input'], [`/rooms/${ROOM_ID}`, 'room-input']] as const) {
       if (where !== '/') await page.goto(where)
       await expect(page.getByTestId(box)).toBeVisible()
       await expect(page.getByRole('button', { name: MIC })).toHaveCount(0)
-      await expect(page.getByTestId('voice-off-hint')).toHaveCount(0)
       await page.getByTestId(box).click()
       await page.keyboard.down('Space')
       await page.waitForTimeout(700)

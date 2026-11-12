@@ -4,8 +4,8 @@
 // (`prepare`) the link is made as the step opens, so the message is there at once (docs/DECISIONS.md "W2"). Skipping
 // asks once, softly, whether to invite one or two people first, because a team skill is only a team's once others use it.
 // A team with no skills and no documents yet gets one quiet line above the message (docs/DECISIONS.md "W6.3"): "지금
-// 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일 넣기"; it never blocks, and it is gone while "이 사람이 팀장이에요" is
-// ticked (the lead is the one who will set up).
+// 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일 넣기"; it never blocks. No "이 사람이 팀장이에요" here: one link
+// invites many people, so the owner hands the role over after people join (Admin › Members, a person's "…").
 import clsx from 'clsx'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -19,7 +19,6 @@ import { Button, Modal } from '../ui'
 import { TeamLinkPanel } from './TeamLinkPanel'
 import { quietLink } from './SkillShareReview'
 import { useTeamPrepared } from './TeamPrepared'
-import { LeadInvite } from '../handover/LeadInvite'
 
 /** The skills the owner shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK"): the one the link opens, which "바꾸기"
  * changes among them. The message names that one only (docs/DECISIONS.md "W5"). */
@@ -73,13 +72,9 @@ export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare,
         {title !== null && <h2 className="mb-1 text-lg font-semibold">{title ?? t('teamLink.stepTitle')}</h2>}
         <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
-      {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here).
-          The welcome steps (prepare): the owner may tick "이 사람이 팀장이에요" above it, and the one-person lead link's
-          message takes its place (components/handover/LeadInvite.tsx, docs/DECISIONS.md "W6") */}
-      <LeadInvite enabled={!!prepare}>
-        <EmptyTeamLine steps={steps} />
-        <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded />
-      </LeadInvite>
+      {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
+      <EmptyTeamLine steps={steps} />
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">

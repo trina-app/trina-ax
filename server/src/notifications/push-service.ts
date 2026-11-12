@@ -9,7 +9,7 @@ import { HttpError } from '../http/errors'
 import { Vault } from '../credentials/vault'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { pushMessages, TEXT } from './text'
+import { PHONE_TAKEN, pushMessages, TEXT } from './text'
 import { eventEnabled, getPreferences } from './preferences'
 import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
 import { noticeWanted } from '../rooms/alerts'
@@ -66,6 +66,8 @@ export class PushService {
   }
   private iso(ms=this.o.now()){return new Date(ms).toISOString()}
   private session(userId:string,sessionId:string){return !!this.ctx.db.query(`SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.expires_at>? AND u.status='active' AND u.deleted_at IS NULL AND u.must_change_password=0 AND s.temp_login=0`).get(sessionId,userId,this.iso())}
+  /** a login session that still holds its push rows: not ended or expired, its person neither removed nor switched off */
+  private live(userId:string,sessionId:string){return !!this.ctx.db.query(`SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.expires_at>? AND u.status='active' AND u.deleted_at IS NULL`).get(sessionId,userId,this.iso())}
   private requireSession(userId:string,sessionId:string){if(!this.session(userId,sessionId))throw new HttpError('unauthorized')}
   private enabled(userId:string){return !!this.ctx.db.query('SELECT 1 FROM push_preferences WHERE user_id=? AND enabled=1').get(userId)}
   /** config keys rows must carry to be delivered now: the current VAPID key and/or the current gateway address */
@@ -112,9 +114,12 @@ export class PushService {
       return{id}
     })()
   }
-  /** The phone app's device token for this login session (the OS permission prompt was the person's consent). A token
-   * belongs to whoever signed in on that phone last: a row of another session with the same token is replaced, so a
-   * reinstalled app never keeps delivering the previous account's notifications. */
+  /** The phone app's device token for this login session (the OS permission prompt was the person's consent). A row of
+   * another session with the same token is replaced when it is the same person's (a second sign-in, their own
+   * reinstall) or its session is over (expired, the account removed or switched off). Another person's live session
+   * keeps it (conflict): a phone that changes hands loses its row first, as logout removes it with the session, a team
+   * switch removes it with the removal key and the iPhone app signs the kept session out after a reinstall
+   * (mobile/src/install.ts), so this is someone using a token that is not theirs (QA TC-201). */
   registerDevice(userId:string,sessionId:string,input:z.infer<typeof PushDeviceInput>){
     this.requireSession(userId,sessionId);if(input.consent!==true)throw new HttpError('validation')
     const config=this.o.native();if(!config)throw new HttpError('unavailable')
@@ -127,6 +132,7 @@ export class PushService {
     const labelHash=device.platform==='ios'&&input.labelHash&&/^[0-9a-f]{64}$/.test(input.labelHash)?input.labelHash:null
     const result=this.ctx.db.transaction(()=>{
       const other=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE endpoint_hash=?').get(tokenHash) as Subscription|null
+      if(other&&other.user_id!==userId&&this.live(other.user_id,other.session_id))throw new HttpError('conflict',PHONE_TAKEN[getUser(this.ctx.db,userId)?.locale??teamDefaultLocale(this.ctx.db)])
       if(other&&other.kind==='native'&&other.user_id===userId&&other.session_id===sessionId&&other.config_key===configKey){
         const old=this.vault.decrypt(`${userId}|${sessionId}|${other.id}`,'native-push',other.secret_enc,other.key_version) as NativeDevice
         // the same device again: a fresh removal key (the app keeps only the latest)

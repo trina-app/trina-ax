@@ -102,7 +102,7 @@ describe('the card and the allowance', () => {
     expect(asked).toHaveLength(1)
     expect(asked[0]!.options!.map((o) => o.value)).toEqual(['allow', 'site', 'deny'])
     expect(asked[0]!.options![1]!.label).toBe('Allow this site in this conversation (example.co.kr)')
-    expect(asked[0]!.question).toContain('other addresses on example.co.kr open without asking, in this conversation only')
+    expect(asked[0]!.question).toContain('other addresses on example.co.kr open without asking, in this chat only')
     expect(sites(chat)).toEqual([{ user_id: 'alice', site: 'example.co.kr' }])
     const no = person(null, asked)
     for (const u of ['https://www.example.co.kr/second', 'https://m.example.co.kr/a/b', 'http://example.co.kr/']) expect(await gate(chat, u, no)).toBe('site')
@@ -174,7 +174,7 @@ describe('the card and the allowance', () => {
     expect(asked.at(-1)!.extra!.details![0]!.text).toBe('https://leaky.example/�fdp/c2fsyxj5ltk4nzy1ndmy')
     const long = 'https://leaky.example/q?d=' + 'a-b-'.repeat(60)
     await expect(gate(chat, long, person(null, asked))).rejects.toThrow(/did not allow/)
-    expect(asked.at(-1)!.question).toContain('carries a long query')
+    expect(asked.at(-1)!.question).toContain('has a lot of text at the end')
     expect(asked.at(-1)!.options).toBeUndefined()
     await expect(gate(chat, 'https://leaky.example/plain', person(null, asked), { egressKnown: false })).rejects.toThrow(/did not allow/)
     expect(asked.at(-1)!.options).toBeUndefined()
@@ -192,7 +192,7 @@ describe('the card and the allowance', () => {
       const asked: Asked[] = []
       await expect(gate(chat, `https://${name}.names.example/`, person(null, asked))).rejects.toThrow(/did not allow/)
       expect(asked).toHaveLength(1)
-      expect(asked[0]!.question).toContain('The part of the name before the site is long (highlighted)')
+      expect(asked[0]!.question).toContain('The part before the site name is long (highlighted)')
       expect(asked[0]!.question).not.toContain('long strings that are hard to read')
       expect(asked[0]!.extra!.details![0]).toMatchObject({ text: `https://${name}.names.example/`, marks: [name] })
       // no site choice on such a card (an AI's first try to send data out raises it): open once or not

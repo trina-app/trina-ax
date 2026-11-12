@@ -15,6 +15,10 @@ import { ask as askChat, startHarness, type Harness, type TestSocket } from '../
 import { createGrant, grantFor, listGrants, ROOM_GRANT_DAYS, type GrantRow } from '../../server/src/rooms/ai-grants'
 import { wouldSeeFrom } from '../../server/src/rooms/history'
 import { makePng } from '../lib/images'
+import { labeledPath } from '@mycel/shared'
+
+// a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
+const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -134,7 +138,7 @@ describe('the room card', () => {
     const c = r.cards[0]!
     expect(c).toMatchObject({ origin: 'server', buttons: true, note: 'Applies only when you call it, to new files in this folder.' })
     expect(c.options).toEqual([{ label: 'Allow once', value: 'allow' }, { label: 'Always allow in this room', value: 'always' }, { label: "Don't allow", value: 'skip' }])
-    expect(c.question).toMatch(new RegExp(`^(Trina|The AI) wants to save a new file in ${dir}: 견적서_A사\\.md\\. Changed files can be restored from their history\\.$`))
+    expect(c.question).toMatch(new RegExp(`^(Trina|The AI) wants to save a new file in ${W(dir)}: 견적서_A사\\.md\\. Changed files can be restored from their history\\.$`))
     expect(c.question).not.toContain("other people's messages")
     expect(c.details?.[0]?.text).toBe('quote\n')
     expect(read(`${dir}/견적서_A사.md`)).toBe('quote\n')
@@ -338,7 +342,7 @@ describe('one card per call', () => {
     const c = r.cards[0]!
     expect(values(c)).toEqual(['save', 'skip'])
     expect(c.buttons).toBeUndefined()
-    expect(c.details?.[0]).toMatchObject({ fields: [{ value: 'Save' }, { value: `${dir}/summary.md` }], text: 'falcon summary\n' })
+    expect(c.details?.[0]).toMatchObject({ fields: [{ value: 'Save' }, { value: W(`${dir}/summary.md`) }], text: 'falcon summary\n' })
     expect(read(`${dir}/summary.md`)).toBe('falcon summary\n')
     // its "no" is the room's no too: nothing written, one card
     const no = await ask('alice', roomId, [{ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, write(`${dir}/summary-2.md`)], () => 'skip')

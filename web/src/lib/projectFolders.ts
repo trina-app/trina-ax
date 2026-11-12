@@ -5,6 +5,23 @@ import type { FileEntry, Project } from '@mycel/shared/api'
 /** The last name of a folder path ('' for the team root). */
 export const folderName = (p: string) => p.split('/').filter(Boolean).pop() ?? ''
 
+/** The top folder `projects` (any letter case or Unicode form, as the server compares it): its folders are projects,
+ * so nothing else is made there. */
+export const isProjectsTop = (p: string) => p.normalize('NFC').toLowerCase() === 'projects'
+
+/** A team project's own folder, projects/<name> (docs/DECISIONS.md "Project contents only for members"): its contents
+ * are its members' only, the owner and admins included only as members. A project made before outside projects/ is not. */
+export const isProjectsFolder = (p: string) => {
+  const s = p.split('/')
+  return s.length === 2 && isProjectsTop(s[0]!) && !!s[1]
+}
+
+/** At or below a team project's folder (projects/<name>/…), the folder of the project it is in; null elsewhere. */
+export function projectFolderOf(p: string): string | null {
+  const s = p.split('/').filter(Boolean)
+  return s.length >= 2 && isProjectsTop(s[0]!) ? `${s[0]}/${s[1]}` : null
+}
+
 /** The server's limit on a project's name, counted as JavaScript counts a string's length (UTF-16 units, as zod's
  * max(100) and the input's maxLength do). */
 export const PROJECT_NAME_MAX = 100

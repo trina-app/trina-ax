@@ -1,0 +1,2 @@
+- Pressing **Stop** while your message is still sending now stops the answer as soon as it starts. Before, the stop was lost and the answer ran anyway.
+- If **Undo** after deleting a chat fails, a message now says so (the chat is still in Deleted history). Before, nothing happened.

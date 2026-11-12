@@ -1,7 +1,10 @@
 // Long-running work (tab 4 "오래 걸리는 작업"): the starting request answers 202 { jobId } at once; the job runs in
 // the background and reports over WebSocket (job.progress, job.done); GET /api/jobs/:id has the result.
 // - one job of a kind at a time for CPU / disk heavy kinds (transcribe, backup, restore, update, export)
-// - progress is throttled (DB + event at most every 500 ms; the final state always goes out)
+// - progress is throttled (DB + event at most every 500 ms; a new step label and the final state always go out, and the
+//   last update held back goes out when the 500 ms are over)
+// - a job that starts running says so at once (job.progress with no progress and no label): until then it waits for its
+//   turn, and the person sees that it waits (the one transcription slot)
 // - cancel: queued -> canceled at once; running -> the job's AbortSignal fires, the job settles as canceled
 // - server start: queued / running jobs of the previous process become failed ("서버가 다시 시작되어 중단됨")
 // - finished jobs are deleted after 7 days (with their work folder <data>/jobs/<id>)
@@ -49,6 +52,10 @@ export class JobServiceImpl implements JobService {
   private queue: Running[] = []
   private active = new Map<string, Running>()
   private lastProgress = new Map<string, number>()
+  /** the step label last written (a new one is never held back) */
+  private lastMessage = new Map<string, string | null>()
+  /** an update held back by the throttle, written when its 500 ms are over */
+  private pending = new Map<string, { p: number | null; message: string | null; timer: ReturnType<typeof setTimeout> }>()
   /** resolves when a job settles (tests, shutdown) */
   private settled = new Map<string, Promise<void>>()
 
@@ -104,6 +111,8 @@ export class JobServiceImpl implements JobService {
   private async execute(r: Running) {
     const db = this.ctx.db
     db.query("UPDATE jobs SET status = 'running' WHERE id = ?").run(r.id)
+    // it no longer waits for its turn (the person's box goes from "waiting" to "transcribing")
+    if (r.userId) this.ctx.services.realtime.publish(r.userId, { type: 'job.progress', data: { jobId: r.id, kind: r.kind, progress: null, message: null } })
     const handle: JobHandle = {
       id: r.id,
       signal: r.abort.signal,
@@ -133,7 +142,9 @@ export class JobServiceImpl implements JobService {
     db.query('UPDATE jobs SET status = ?, progress = ?, result = ?, error = ?, finished_at = ? WHERE id = ?')
       .run(status, status === 'done' ? 1 : null, result === null || result === undefined ? null : JSON.stringify(result), error ? JSON.stringify(error) : null, new Date().toISOString(), r.id)
     this.active.delete(r.id)
+    this.dropPending(r.id)
     this.lastProgress.delete(r.id)
+    this.lastMessage.delete(r.id)
     fs.rmSync(this.dir(r.id), { recursive: true, force: true })
     const job = this.get(r.id)
     if (job && r.userId) this.ctx.services.realtime.publish(r.userId, { type: 'job.done', data: { job } })
@@ -142,10 +153,37 @@ export class JobServiceImpl implements JobService {
   }
 
   private progress(r: Running, p: number | null, message: string | null) {
+    if (!this.active.has(r.id)) return // settled: a late update must not overwrite the final state
     const now = Date.now()
     const last = this.lastProgress.get(r.id) ?? 0
-    if (now - last < PROGRESS_EVERY_MS && p !== 1) return
+    const newStep = !this.lastMessage.has(r.id) || this.lastMessage.get(r.id) !== message
+    if (now - last < PROGRESS_EVERY_MS && p !== 1 && !newStep) {
+      // held back, not dropped: the latest one goes out when the 500 ms are over (a stalled download keeps its step)
+      const held = this.pending.get(r.id)
+      if (held) Object.assign(held, { p, message })
+      else this.pending.set(r.id, { p, message, timer: setTimeout(() => this.flush(r), last + PROGRESS_EVERY_MS - now) })
+      return
+    }
+    this.dropPending(r.id)
+    this.write(r, p, message, now)
+  }
+
+  private flush(r: Running) {
+    const held = this.pending.get(r.id)
+    if (!held) return
+    this.pending.delete(r.id)
+    if (this.active.has(r.id)) this.write(r, held.p, held.message, Date.now())
+  }
+
+  private dropPending(id: string) {
+    const held = this.pending.get(id)
+    if (held) clearTimeout(held.timer)
+    this.pending.delete(id)
+  }
+
+  private write(r: Running, p: number | null, message: string | null, now: number) {
     this.lastProgress.set(r.id, now)
+    this.lastMessage.set(r.id, message)
     const v = p === null ? null : Math.max(0, Math.min(1, p))
     this.ctx.db.query('UPDATE jobs SET progress = ?, message = ? WHERE id = ?').run(v, message, r.id)
     if (r.userId) this.ctx.services.realtime.publish(r.userId, { type: 'job.progress', data: { jobId: r.id, kind: r.kind, progress: v, message } })

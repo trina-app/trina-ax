@@ -14,7 +14,7 @@ export const SKILL_TEXT = {
   whatSkill: t('팀 스킬 "{name}" 수정', 'changes the team skill "{name}"', 'mengubah skill tim "{name}"', "チームスキル\"{name}\"を変更", "modifica la habilidad del equipo \"{name}\""),
   whatNewRule: t('새 팀 규칙: 모든 대화에 들어가요', 'new team rule: goes into every conversation', 'aturan tim baru: masuk ke setiap percakapan', "新しいチームルール：すべての会話に適用", "nueva regla del equipo: se incluye en todas las conversaciones"),
   whatRule: t('팀 규칙 수정: 모든 대화에 들어가요', 'changes a team rule: goes into every conversation', 'mengubah aturan tim: masuk ke setiap percakapan', "チームルールを変更：すべての会話に適用", "modifica una regla del equipo: se incluye en todas las conversaciones"),
-  whatFile: t('skills/ 안의 파일', 'a file in skills/', 'berkas di skills/', "skills/内のファイル", "un archivo en skills/"),
+  whatFile: t("팀 스킬 폴더 안의 파일", "a file in the team skills folder", "berkas di folder skill tim", "チームスキルフォルダー内のファイル", "un archivo de la carpeta de habilidades del equipo"),
   // a group's skills folder (docs/DECISIONS.md "Group skills")
   confirmGroup: t('부서 "{group}"의 스킬로 저장할까요? 이 부서 멤버의 AI가 따라요.\n\n{path} ({what})',
     'Save this as a skill of the group "{group}"? The AI of every member of this group will follow it.\n\n{path} ({what})',
@@ -52,10 +52,10 @@ export const SKILL_TEXT = {
   changed: t('팀 스킬이 바뀌었어요: {path} ({who}{ai})', 'A team skill changed: {path} ({who}{ai})', 'Skill tim berubah: {path} ({who}{ai})', "チームスキルが変更されました：{path}（{who}{ai}）", "Cambió una habilidad del equipo: {path} ({who}{ai})"),
   viaAi: t(', AI가 저장', ', saved by the AI', ', disimpan oleh AI', "、AIが保存", ", guardado por la IA"),
   suggested: t('{who} 님이 스킬을 제안했어요: {name} → {folder}', '{who} suggested a skill: {name} → {folder}', '{who} mengusulkan skill: {name} → {folder}', "{who}がスキルを提案しました：{name} → {folder}", "{who} sugirió una habilidad: {name} → {folder}"),
-  approved: t('제안한 스킬이 등록됐어요: {name} ({path})', 'Your suggested skill was registered: {name} ({path})', 'Skill yang Anda usulkan sudah didaftarkan: {name} ({path})', "提案したスキルが登録されました：{name}（{path}）", "Se registró su habilidad sugerida: {name} ({path})"),
+  approved: t("제안한 스킬이 등록됐어요: {name}", "Your suggested skill was registered: {name}", "Skill yang Anda usulkan sudah didaftarkan: {name}", "提案したスキルが登録されました：{name}", "Se registró su habilidad sugerida: {name}"),
   rejected: t('제안한 스킬이 거절됐어요: {name}{note}', 'Your suggested skill was turned down: {name}{note}', 'Skill yang Anda usulkan ditolak: {name}{note}', "提案したスキルは却下されました：{name}{note}", "Se rechazó su habilidad sugerida: {name}{note}"),
   // errors (HTTP)
-  sourceNotYours: t('내 채팅의 답변이나 내 폴더(users/{me}/)의 파일만 스킬로 제안할 수 있어요.', 'Only an answer in your own chat or a file in your own folder (users/{me}/) can be suggested as a skill.', 'Hanya jawaban di chat Anda atau berkas di folder Anda (users/{me}/) yang bisa diusulkan sebagai skill.', "スキルとして提案できるのは、自分のチャットの回答または自分のフォルダー（users/{me}/）内のファイルのみです。", "Solo puede sugerir como habilidad una respuesta de su propio chat o un archivo de su carpeta (users/{me}/)."),
+  sourceNotYours: t("내 채팅의 답변이나 내 폴더의 파일만 스킬로 제안할 수 있어요.", "Only an answer in your own chat or a file in your own folder can be suggested as a skill.", "Hanya jawaban di chat Anda atau berkas di folder Anda yang bisa diusulkan sebagai skill.", "スキルとして提案できるのは、自分のチャットの回答または自分のフォルダー内のファイルのみです。", "Solo puede sugerir como habilidad una respuesta de su propio chat o un archivo de su carpeta."),
   folderNotSkills: t('skills/ 안의 볼 수 있는 폴더를 골라 주세요.', 'Pick a folder inside skills/ that you can see.', 'Pilih folder di dalam skills/ yang bisa Anda lihat.', "skills/内の閲覧できるフォルダーを選んでください。", "Elija una carpeta dentro de skills/ que pueda ver."),
   notManager: t('이 폴더의 팀 스킬을 관리할 권한이 없어요.', 'You do not manage the team skills of this folder.', 'Anda tidak mengelola skill tim di folder ini.', "このフォルダーのチームスキルを管理する権限がありません。", "No administra las habilidades del equipo de esta carpeta."),
   alreadyReviewed: t('이미 처리된 제안이에요.', 'This suggestion was already handled.', 'Usulan ini sudah ditangani.', "この提案は処理済みです。", "Esta sugerencia ya se procesó."),

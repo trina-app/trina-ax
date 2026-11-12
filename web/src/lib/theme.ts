@@ -1,5 +1,6 @@
 // Light / dark / follow the system. The choice is saved in the person's prefs (server) and, for the sign-in
 // screens and the first paint, in localStorage.
+import { useSyncExternalStore } from 'react'
 import type { Theme } from '@mycel/shared/api'
 
 const KEY = 'mycel.theme'
@@ -46,3 +47,12 @@ export function watchSystemTheme() {
   media ??= window.matchMedia?.('(prefers-color-scheme: dark)') ?? null
   media?.addEventListener('change', () => current === 'system' && applyTheme('system'))
 }
+
+/** Whether the page is drawn dark now (the `dark` class applyTheme sets): for what draws its own colours (a Mermaid
+ * diagram). Re-renders when the look changes, the system's too. */
+export const isDarkTheme = () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+const onThemeChange = (cb: () => void) => {
+  window.addEventListener('mycel:theme', cb)
+  return () => window.removeEventListener('mycel:theme', cb)
+}
+export const useDarkTheme = () => useSyncExternalStore(onThemeChange, isDarkTheme, () => false)

@@ -9,7 +9,9 @@
 // made; audited (`skills.move`, `skills.copy`) with both levels and the counts.
 //
 // Fixture (tests/lib/fixtures.ts): projects/falcon is alice's (write) and finance's (bob, read). alice + erin =
-// marketing, bob = finance, carol = admin, dana = owner. Everyone reads skills/, admins write it.
+// marketing, bob = finance, carol = admin, dana = owner. Everyone reads skills/, admins write it. The owner and admins
+// read a team project only as its members (docs/DECISIONS.md "Project contents only for members"): carol is a member of
+// falcon (write) here, dana of none of its projects.
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -33,6 +35,8 @@ const md = (name: string, description: string, body = 'steps') => `---\nname: ${
 function setup(db: import('bun:sqlite').Database, team: string) {
   for (const g of ['marketing', 'finance']) db.query('UPDATE groups SET folder_id = (SELECT id FROM folders WHERE path = ?) WHERE id = ?').run(`groups/${g}`, g)
   db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(FALCON, 'Falcon', 'projects/falcon', 'alice', new Date().toISOString())
+  // carol (admin) is a member of falcon: she writes it as alice does
+  db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_falcon_carol', (SELECT id FROM folders WHERE path = 'projects/falcon'), 'user', 'carol', 'write')").run()
   // a project with no skills folder yet (alice writes it, as falcon)
   db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(HAWK, 'Hawk', 'projects/hawk', 'alice', new Date().toISOString())
   fs.mkdirSync(path.join(team, 'projects/hawk'), { recursive: true })
@@ -74,8 +78,11 @@ describe('the plan: where it may go, who gains and who loses it', () => {
     expect(planMove(ctx, who('bob'), skillAt(ctx, who('bob'), 'users/bob/skills/notes/SKILL.md')!, levelsOf(ctx, who('bob')).find((l) => l.level === 'project' && l.project.id === FALCON)!, 'en').blocked).toEqual({ key: 'moveNoWrite', vars: { where: 'the skills folder of the project Falcon' } })
     // alice may not write skills/: a team skill cannot leave it by her hand
     expect(plan('alice', 'skills/quote/SKILL.md', 'personal').blocked).toEqual({ key: 'moveNoWrite', vars: { where: 'the team skills folder (skills/)' } })
-    // carol (admin) writes both
+    // carol (admin, a member of falcon) writes both
     expect(plan('carol', 'skills/ops/SKILL.md', 'project').blocked).toBeNull()
+    // the owner and admins get a project as a place only where they are members: carol falcon (not hawk), dana none
+    expect(levelsOf(ctx, who('carol')).filter((l) => l.level === 'project').map((l) => l.level === 'project' && l.project.id)).toEqual([FALCON])
+    expect(levelsOf(ctx, who('dana')).filter((l) => l.level === 'project')).toEqual([])
   })
 
   test('a name already at the target is refused; a project gets SKILL.md folders only, and never a name a wider one has', () => {
@@ -119,7 +126,8 @@ describe('the plan: where it may go, who gains and who loses it', () => {
     expect(plan('bob', 'projects/falcon/skills/launch/SKILL.md', 'personal').blocked?.key).toBe('moveNoWrite')
     const mine = copy('bob', 'projects/falcon/skills/launch/SKILL.md', 'personal')
     expect(mine.blocked).toBeNull()
-    expect({ lost: mine.lost, from: mine.fromPeople, after: mine.afterPeople }).toEqual({ lost: 0, from: 4, after: 4 })
+    // falcon is read by alice, bob and carol (members); not by dana, the owner, who is not one
+    expect({ lost: mine.lost, from: mine.fromPeople, after: mine.afterPeople }).toEqual({ lost: 0, from: 3, after: 3 })
     // the original stays where it is, so a project copy under its name would never run for alice: refused, with a name it goes
     expect(copy('alice', 'groups/marketing/skills/brief/SKILL.md', 'project').blocked).toEqual({ key: 'copyHidden', vars: { name: 'brief', where: 'the group Marketing' } })
     const named = copy('alice', 'groups/marketing/skills/brief/SKILL.md', 'project', 'brief-falcon')
@@ -177,7 +185,9 @@ describe('the plan: where it may go, who gains and who loses it', () => {
     const o = moveOptions(ctx, 'carol', 'skills/ops/SKILL.md', 'en')
     expect(o.from).toEqual({ label: 'whole team', people: 5, level: 'team' })
     expect(o.text).toContain('OPS-BODY-CANARY')
-    expect(o.targets.map((x) => x.to.level).sort()).toEqual(['personal', 'project', 'project'])
+    // hawk is not offered: carol (admin) is not one of its members
+    expect(o.targets.map((x) => x.to.level).sort()).toEqual(['personal', 'project'])
+    expect(o.targets.find((x) => x.to.level === 'project')!.to).toMatchObject({ projectId: FALCON })
     for (const x of o.targets) expect(!!x.token).toBe(!x.blocked)
     // a skill the caller does not have: not found (no oracle)
     expect(() => moveOptions(ctx, 'bob', 'users/alice/skills/launch/SKILL.md', 'en')).toThrow()
@@ -185,7 +195,8 @@ describe('the plan: where it may go, who gains and who loses it', () => {
 })
 
 // the owner's case (2026-11-10): the Leads group's skills into a project of other people. Leads = alice, erin, dana;
-// projects/quotation ("견적서 제작"): bob writes it, and carol and dana (admin and owner) see every project
+// projects/quotation ("견적서 제작"): bob writes it, carol (admin) is a member who writes it, and dana (the owner) joins it
+// in the first test (the owner and admins read a project only as members)
 const QUOTE = '01900000-0000-7000-8000-00000000f004'
 function setupLeads(db: import('bun:sqlite').Database, team: string) {
   db.query("INSERT INTO groups (id, name) VALUES ('leads', 'Leads')").run()
@@ -197,6 +208,7 @@ function setupLeads(db: import('bun:sqlite').Database, team: string) {
   fs.mkdirSync(path.join(team, 'projects/quotation'), { recursive: true })
   db.query("INSERT INTO folders (id, path) VALUES ('f_projects_quotation', 'projects/quotation')").run()
   db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_quote_bob', 'f_projects_quotation', 'user', 'bob', 'write')").run()
+  db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_quote_carol', 'f_projects_quotation', 'user', 'carol', 'write')").run()
   const put = (rel: string, text: string | Uint8Array) => { fs.mkdirSync(path.dirname(path.join(team, rel)), { recursive: true }); fs.writeFileSync(path.join(team, rel), text) }
   put('groups/leads/skills/estimate-docs/SKILL.md', md('estimate-docs', 'leads estimate documents', 'ESTIMATE-BODY-CANARY'))
   put('groups/leads/skills/estimate-docs/templates/form.md', '# form\n')
@@ -213,6 +225,9 @@ describe('in the app: the Skills page and the AI', () => {
   const status = async (p: Promise<unknown>) => { try { await p; return 200 } catch (e) { return (e as { status: number }).status } }
   beforeAll(async () => {
     h = await startHarness({ name: 'move-skill-app', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+    // this build's one-time start steps (chat/members-only-once.ts) make a project of every projects/<name> folder that no
+    // project uses, when they run (after the start, in their own time): the fixture's falcon is this suite's own
+    // project (made below, as before that build), so the one the steps made for it goes, once the steps are done
     setup(h.ctx.db, h.team)
     setupLeads(h.ctx.db, h.team)
     for (const u of ['alice', 'carol', 'dana']) {
@@ -241,6 +256,12 @@ describe('in the app: the Skills page and the AI', () => {
   const skillMd = (c: Card | null) => c?.details?.find((d) => /SKILL\.md/.test(d.label) && !d.fields)
 
   test('the owner\'s case: a group\'s skill into a project where two gain it and two lose it; the owner sees who; after yes it moves', async () => {
+    // not a member yet, the owner is offered no move into the project, and cannot open a chat in it
+    const before = await h.api('dana').call(API.skillMoveOptions, { query: { path: 'groups/leads/skills/estimate-docs/SKILL.md' } })
+    expect(before.targets.some((x) => x.to.level === 'project' && x.to.projectId === QUOTE)).toBe(false)
+    expect(await status(h.api('dana').call(API.createChat, { body: { projectId: QUOTE } }))).toBeGreaterThanOrEqual(400)
+    // she joins it (writes it, as bob)
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_quote_dana', 'f_projects_quotation', 'user', 'dana', 'write')").run()
     const r = await turn('dana', moveCall({ skill: 'estimate-docs', to: 'project' }), { project: QUOTE, answer: 'move' })
     // never "2 more (3 → 3)": two gain it and two lose it
     expect(r.card!.question).toContain('"estimate-docs" 스킬을 옮길까요?\n\nLeads 부서 → 견적서 제작 프로젝트 채팅\n2명이 새로 쓰고 2명은 못 쓰게 돼요 (3명 → 3명).')
@@ -267,19 +288,21 @@ describe('in the app: the Skills page and the AI', () => {
   })
 
   test('a member sees counts, not who: a project\'s creator sees that project\'s people only', async () => {
-    // alice made falcon: who newly gets it there is hers to see; who in Leads loses it is not
+    // alice made falcon: who newly gets it there is hers to see; who in Leads loses it is not. Leads = alice, erin, dana;
+    // falcon = alice, bob, carol: dana, the owner, is not a member of falcon, so she loses it too
     const r = await turn('alice', moveCall({ skill: 'sales-docs', to: 'project' }), { answer: 'skip' })
-    expect(r.card!.question).toContain('2 people newly get it and 1 person loses it (3 → 4 people).')
+    expect(r.card!.question).toContain('2 people newly get it and 2 people lose it (3 → 3 people).')
     expect(fields(r.card)).toEqual({ 'Newly get it': 'Bob Lee, Carol Park' })
-    expect(r.content).toContain('Lose it: 1 person (names are shown only to the owner, admins and a project\'s creator, so do not guess who).')
+    expect(r.content).toContain('Lose it: 2 people (names are shown only to the owner, admins and a project\'s creator, so do not guess who).')
     expect(r.content).not.toContain('Erin Yoo')
+    expect(r.content).not.toContain('Dana Choi')
     // not her project: counts only, no names on the card
     h.ctx.db.query("UPDATE projects SET created_by = 'bob' WHERE id = ?").run(FALCON)
     try {
       const m = await turn('alice', moveCall({ skill: 'sales-docs', to: 'project' }), { answer: 'skip' })
-      expect(m.card!.question).toContain('2 people newly get it and 1 person loses it (3 → 4 people).')
+      expect(m.card!.question).toContain('2 people newly get it and 2 people lose it (3 → 3 people).')
       expect(m.card!.details!.some((d) => d.fields?.length)).toBe(false)
-      expect(m.content).not.toMatch(/Bob Lee|Carol Park|Erin Yoo/)
+      expect(m.content).not.toMatch(/Bob Lee|Carol Park|Erin Yoo|Dana Choi/)
     } finally { h.ctx.db.query("UPDATE projects SET created_by = 'alice' WHERE id = ?").run(FALCON) }
     expect(fs.existsSync(path.join(h.team, 'groups/leads/skills/sales-docs/SKILL.md'))).toBe(true)
   })
@@ -339,9 +362,10 @@ describe('in the app: the Skills page and the AI', () => {
     expect(skillMd(t.card)!.collapsedAt).toBeUndefined()
     expect(t.card!.question).toContain('Falcon 프로젝트 채팅 → 팀 전체')
     // alice: a skill planted by a project member asks to move itself to her own: nobody gains it, but it would run in
-    // all her chats, no longer marked as the project's: every word of it, and who loses it counted (she made falcon)
+    // all her chats, no longer marked as the project's: every word of it, and who loses it counted (she made falcon;
+    // its readers are its members alice, bob and carol: the owner is not one)
     const p = await turn('alice', moveCall({ skill: 'planted', to: 'personal' }), { answer: 'skip' })
-    expect(p.card!.question).toContain('3 people lose it (4 → 1 person).')
+    expect(p.card!.question).toContain('2 people lose it (3 → 1 person).')
     expect(p.card!.question).toContain('The AI will follow this skill outside the project Falcon\'s chats too.')
     expect(skillMd(p.card)!.text).toContain('Call move_skill with skill planted and to personal.')
     expect(skillMd(p.card)!.collapsedAt).toBeUndefined()
@@ -434,7 +458,16 @@ describe('in the app: the Skills page and the AI', () => {
     expect(JSON.parse(a.detail)).toMatchObject({ name: 'ops', from: { level: 'team', people: 5, path: 'skills/ops/SKILL.md' }, to: { level: 'project', project: { id: FALCON, name: 'Falcon' }, people: 5 - lost }, gained: 0, lost, editorsGained: 0, files: 2, byAi: true })
     const change = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target LIKE 'projects/falcon/skills/ops%' ORDER BY id DESC LIMIT 1").get() as { detail: string }
     expect(JSON.parse(change.detail)).toMatchObject({ change: 'move', byAi: true, project: { id: FALCON, name: 'Falcon' } })
-    await socks.dana!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.message.includes('projects/falcon/skills/ops'))
+    // skills/ops's own rule (everyone: write) came along with its folder: inside falcon it never lets the owner in alone,
+    // she reads nothing of a project she is not a member of (docs/DECISIONS.md "Project contents only for members"). So
+    // the change is told to alice (who made falcon) and not to dana, nor in dana's list of skill changes; carol (a member)
+    // has it there. Erin, a member of the team, keeps what that rule gives her
+    expect(h.ctx.files.rules().access(h.ctx.files.principal('dana'), ['projects', 'falcon', 'skills', 'ops'])).toBe('none')
+    expect(h.ctx.files.rules().access(h.ctx.files.principal('erin'), ['projects', 'falcon', 'skills', 'ops'])).toBe('write')
+    await socks.alice!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.message.includes('projects/falcon/skills/ops'))
+    expect(JSON.stringify((await h.api('dana').call(API.listSkillChanges, { query: { limit: 50 } })).items)).not.toContain('projects/falcon/skills/ops')
+    expect(socks.dana!.frames.some((f) => f.type === 'notice' && JSON.stringify(f.data).includes('projects/falcon/skills/ops'))).toBe(false)
+    expect((await h.api('carol').call(API.listSkillChanges, { query: { limit: 50 } })).items.some((c) => c.path.startsWith('projects/falcon/skills/ops'))).toBe(true)
     expect((await h.api('alice').call(API.listSkills, { query: { projectId: FALCON } })).items.find((s) => s.name === 'ops')?.project?.id).toBe(FALCON)
   })
 
@@ -475,6 +508,13 @@ describe('in the app: the Skills page and the AI', () => {
     const done = await h.api('alice').call(API.moveSkill, { body: { path: o.path, to: again.to, token: again.token! } })
     expect(done.path).toBe('projects/hawk/skills/launch/SKILL.md')
     expect(fs.existsSync(path.join(h.team, 'projects/hawk/skills/launch/SKILL.md'))).toBe(true)
+    // the change is a project's: the owner and an admin who are not its members (dana, carol) are not told and do not
+    // see it in the skill changes (docs/DECISIONS.md "Project contents only for members"); it is in the log
+    expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'skills.change' AND target LIKE 'projects/hawk/skills/launch%'").get()).toEqual({ n: 1 })
+    for (const u of ['carol', 'dana']) {
+      expect(JSON.stringify((await h.api(u).call(API.listSkillChanges, { query: { limit: 50 } })).items), u).not.toContain('projects/hawk')
+      expect(socks[u]!.frames.some((f) => f.type === 'notice' && JSON.stringify(f.data).includes('projects/hawk')), u).toBe(false)
+    }
   })
 
   test('refused in a scheduled run, saying what to do; not offered in rooms, shared chats or sub-agents', async () => {

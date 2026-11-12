@@ -4,7 +4,7 @@
 # It does not install the server at build time: the entrypoint runs scripts/install-linux.sh from the kit at container
 # start, into the named volume on /var/lib/mycel, and then starts `mycel-ctl supervise` (no systemd in the container).
 #
-#   docker build --build-arg TRINA_AX_VERSION=0.3.0 -t trina-ax:0.3.0 docker/
+#   docker build --build-arg TRINA_AX_VERSION=0.4.0 -t trina-ax:0.4.0 docker/
 #
 # HTML to PDF (CJK fonts and the pinned headless browser): add --build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser".
 #
@@ -53,10 +53,21 @@ COPY --from=kit /kit /opt/trina-ax/kit
 # Gmail, Google Calendar, Docs and Sheets are in the default image: the google-apps group (python3 and its venv module)
 # and the list's Python program in /opt/trina/python/workspace-mcp (root's; the server finds it there). A kit from
 # before that group has none.
+# Kits before 0.5.0-beta.1 (0.3.0, 0.4.0) have no root/packages.json. For them the image installs what their installer
+# checks with --skip-apt, read from the kit's own deps.txt, plus the docker group's three packages (those kits have no
+# list of them), and the entrypoint runs their installer without --minimal, which they do not know. HTML to PDF in the
+# image (TRINA_AX_PACKAGE_GROUPS) needs a 0.5 kit.
 SHELL ["/bin/bash", "-c"]
 ARG TRINA_AX_PACKAGE_GROUPS=""
 RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
-    test -f "$root/packages.sh" || { echo "this Dockerfile needs a kit of release 0.5.0-beta.1 or later (it has root/packages.json, the one list of packages)" >&2; exit 1; }; \
+    if [ ! -f "$root/packages.sh" ]; then \
+      [ -z "$TRINA_AX_PACKAGE_GROUPS" ] || { echo "TRINA_AX_PACKAGE_GROUPS (HTML to PDF) needs a kit 0.5.0-beta.1 or newer; this kit is $(cat /opt/trina-ax/kit/VERSION)" >&2; exit 1; }; \
+      [ -f "$root/../deps.txt" ] || { echo "this kit has neither root/packages.json nor deps.txt" >&2; exit 1; }; \
+      deps=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' -e 's/>=.*//' "$root/../deps.txt" | grep -v '^$'); \
+      apt-get update -qq; \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $deps procps passwd python3 >/dev/null; \
+      rm -rf /var/lib/apt/lists/*; exit 0; \
+    fi; \
     groups="minimal docker"; \
     for g in $TRINA_AX_PACKAGE_GROUPS; do \
       case "$g" in fonts|browser) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here (fonts, browser)" >&2; exit 1 ;; esac; \

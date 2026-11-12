@@ -222,7 +222,8 @@ function InstalledMenu({ p, a, update, onRemoved }: { p: InstalledPlugin; a: Ret
   return (
     <CardMenu label={t('appConnectors.more', { name: p.name })} testId="plugin-more" items={[
       ...(update ? [{ label: t('plugins.update', { version: update.version }), onSelect: update.run, disabled: a.busy, testId: 'plugin-update' }] : []),
-      ...(p.previousVersion ? [{ label: t('plugins.rollback', { version: p.previousVersion }), onSelect: () => void a.rollback(p), disabled: a.busy, testId: 'plugin-rollback' }] : []),
+      // a build this server no longer trusts (or withdrawn) would only be refused: not offered
+      ...(p.previousVersion && p.previousTrusted ? [{ label: t('plugins.rollback', { version: p.previousVersion }), onSelect: () => void a.rollback(p), disabled: a.busy, testId: 'plugin-rollback' }] : []),
       { label: t('plugins.remove'), onSelect: () => void a.remove(p).then((gone) => { if (gone) onRemoved?.() }), danger: true, disabled: a.busy, testId: 'plugin-remove' },
     ]} />
   )

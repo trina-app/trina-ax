@@ -9,6 +9,8 @@ import { EventEmitter } from 'node:events'
 import type https from 'node:https'
 import { addMember, harness, withOwner, OWNER_PW, type Harness } from './a-lib'
 import { PushService, type PushOptions } from '../../server/src/notifications/push-service'
+import { PHONE_TAKEN } from '../../server/src/notifications/text'
+import { HttpError } from '../../server/src/http/errors'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { registerPushPath } from '../../server/src/notifications/push-events'
 import { createNativeTransport, signedGatewayRequest, validGatewayUrl, type NativeSend } from '../../server/src/notifications/push-native'
@@ -112,7 +114,7 @@ test('turning push off removes the phone too and is remembered; a new gateway ad
   expect(p.settings('olga', sid).native).toEqual({ available: true, deviceId: null, gateway: 'push2.example.test' })
 })
 
-test('a token belongs to the latest session that registered it, also across accounts on a reinstalled phone', async () => {
+test('a token belongs to the latest session of the same person; another person gets it only once that session is over', async () => {
   const sid = await setup()
   const shared = device(); p.registerDevice('olga', sid, shared)
   const c2 = h.client(); await c2.login('olga', OWNER_PW)
@@ -121,12 +123,54 @@ test('a token belongs to the latest session that registered it, also across acco
   const second = p.registerDevice('olga', sid2, shared)
   expect(h.ctx.db.query('SELECT id,session_id FROM push_subscriptions').all()).toEqual([{ id: second.id, session_id: sid2 }])
   const mia = await addMember(h, c2, { username: 'mia' })
+  // olga is still signed in on that phone: not mia's to take (QA TC-201)
+  expect(() => p.registerDevice(mia.id, sessionOf(mia.id), shared)).toThrow(PHONE_TAKEN.ko)
+  // signed out there (a phone handed on): the row went with the session, so mia registers it
+  h.auth.revokeSession(sid2)
   const miaReg = p.registerDevice(mia.id, sessionOf(mia.id), shared)
   expect(h.ctx.db.query('SELECT id,user_id FROM push_subscriptions').all()).toEqual([{ id: miaReg.id, user_id: mia.id }])
   expect(() => p.unsubscribe(mia.id, sessionOf(mia.id), miaReg.id, 'web')).toThrow()
-  expect(() => p.unsubscribe('olga', sid2, miaReg.id, 'native')).toThrow()
+  expect(() => p.unsubscribe('olga', sid, miaReg.id, 'native')).toThrow()
   p.unsubscribe(mia.id, sessionOf(mia.id), miaReg.id, 'native')
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions').get()).toEqual({ n: 0 })
+})
+
+test('another member registering someone\'s phone token is refused: the owner keeps their pushes, none of the member\'s go to that phone (QA TC-201)', async () => {
+  const sent: NativeSend[] = []
+  const sid = await setup({ nativeTransport: async i => { sent.push(i); return { statusCode: 200 } } })
+  const owner = h.client(); await owner.login('olga', OWNER_PW)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const olgas = device(), reg = p.registerDevice('olga', sid, olgas)
+  let refused: unknown
+  try { p.registerDevice(mia.id, sessionOf(mia.id), olgas) } catch (e) { refused = e }
+  expect(refused).toBeInstanceOf(HttpError)
+  expect((refused as HttpError).status).toBe(409)
+  // in mia's language, and never whose phone it is
+  h.ctx.db.query("UPDATE users SET locale='en' WHERE id=?").run(mia.id)
+  expect(() => p.registerDevice(mia.id, sessionOf(mia.id), olgas)).toThrow(PHONE_TAKEN.en)
+  expect(PHONE_TAKEN.en).not.toContain('olga')
+  expect(h.ctx.db.query('SELECT id,user_id FROM push_subscriptions').all()).toEqual([{ id: reg.id, user_id: 'olga' }])
+  now += 10; event('for-olga'); event('for-mia', mia.id); await p.tick(); await p.tick(); await p.tick()
+  expect(sent.map(s => s.device.token)).toEqual([olgas.token])
+  expect(sent[0]!.payload.tag).toBe(reg.id)
+})
+
+test('a phone token of a session that is over (expired, or the account switched off) is taken by the next person', async () => {
+  const sid = await setup()
+  const owner = h.client(); await owner.login('olga', OWNER_PW)
+  const mia = await addMember(h, owner, { username: 'mia' }), noah = await addMember(h, owner, { username: 'noah' })
+  const shared = device()
+  const miaReg = p.registerDevice(mia.id, sessionOf(mia.id), shared)
+  // mia's session ran out (the hourly sweep has not deleted it yet)
+  h.ctx.db.query('UPDATE sessions SET expires_at=? WHERE id=?').run(new Date(now - 1000).toISOString(), sessionOf(mia.id))
+  const olgaReg = p.registerDevice('olga', sid, shared)
+  expect(h.ctx.db.query('SELECT id,user_id FROM push_subscriptions').all()).toEqual([{ id: olgaReg.id, user_id: 'olga' }])
+  expect(olgaReg.id).not.toBe(miaReg.id)
+  // olga's account switched off: noah may take it
+  const other = device(); p.registerDevice('olga', sid, other)
+  h.ctx.db.query("UPDATE users SET status='disabled' WHERE id='olga'").run()
+  const noahReg = p.registerDevice(noah.id, sessionOf(noah.id), other)
+  expect(h.ctx.db.query('SELECT user_id FROM push_subscriptions WHERE id=?').get(noahReg.id)).toEqual({ user_id: noah.id })
 })
 
 test('the HTTP routes need the session and answer 503 while this server has no gateway', async () => {

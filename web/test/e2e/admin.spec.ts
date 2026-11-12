@@ -113,8 +113,8 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
   await panel.getByTestId('edit-save').click()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 읽기')
-  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
+  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 볼 수 있음')
+  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 볼 수 있음')
 
   // engines: what is missing, in plain words
   await page.getByTestId('admin-menu').getByRole('link', { name: 'AI 계정', exact: true }).click()
@@ -230,7 +230,11 @@ test('members cannot open admin screens', async ({ page }) => {
   // no team menu either: a member's header is the team's name only
   await expect(page.getByTestId('team-header')).toBeVisible()
   await expect(page.getByTestId('team-menu')).toHaveCount(0)
+  // an /admin link says the page is for admins, with a way Home (QA TC-272), not a silent Home
   await page.goto('/admin/members')
+  await expect(page.getByTestId('admin-only')).toContainText('관리자만 볼 수 있어요')
+  await expect(page).toHaveURL(/\/admin\/members$/)
+  await page.getByTestId('admin-only-home').click()
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/)
   // and the API itself refuses (the hidden screens are only a convenience)
   expect((await page.request.get('/api/admin/users')).status()).toBe(403)
@@ -879,7 +883,8 @@ test('the focus ring of the admin and settings menus is not cut off by the scrol
   }
   for (const size of [{ width: 1360, height: 860 }, { width: 390, height: 780 }]) {
     await page.setViewportSize(size)
-    await page.goto('/admin/folders')
+    // a phone: Admin's list (its rows are the menu there)
+    await page.goto(size.width < 768 ? '/admin' : '/admin/folders')
     await inside('폴더 권한')
     await page.screenshot({ path: process.env.RING_SHOTS ? `${process.env.RING_SHOTS}/admin-${size.width}.png` : undefined })
     // Settings is a dialog: its list is beside the section on a wide screen, on its own on a phone (/settings)

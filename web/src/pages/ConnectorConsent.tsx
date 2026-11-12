@@ -59,7 +59,10 @@ export default function ConnectorConsent() {
     } catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
     finally { if (generation === life.current) { writing.current = false; setBusy(false) } }
   }
-  return <section className="mx-auto max-w-2xl space-y-5 p-6" data-testid="connector-consent">
+  // its own scroll inside the app shell (which does not scroll), with Allow / Deny kept in view at the bottom: the page
+  // is longer than a 1280x720 window or a phone (QA TC-168)
+  return <div className="flex h-full flex-col overflow-y-auto [scroll-padding-bottom:6rem]" data-testid="connector-consent-scroll">
+  <section className="mx-auto w-full max-w-2xl space-y-5 p-6 pb-0" data-testid="connector-consent">
     <div><h1 className="text-xl font-semibold">{t('connectors.consentTitle')}</h1><p className="mt-2 text-sm text-muted">{t('connectors.consentDescription')}</p></div>
     {error && <ErrorNote>{error}</ErrorNote>}
     {!request && !error && <Skeleton lines={4} />}
@@ -84,7 +87,9 @@ export default function ConnectorConsent() {
       </fieldset>}
       {request.admin && <p className="text-sm" data-testid="connector-admin">{t('connectors.adminIncluded')}</p>}
       <p className="text-sm text-muted">{t('connectors.sessionBound')}</p><p className="text-sm text-muted">{t('connectors.scopeLimit')}</p>
-      <div className="flex gap-3"><Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="connector-allow">{t('connectors.allow')}</Button><Button disabled={busy} onClick={() => void decide(false)} data-testid="connector-deny">{t('connectors.deny')}</Button></div>
+      <div className="sticky bottom-0 z-20 -mx-6 flex gap-3 border-t border-line bg-[var(--sticky-bg)] px-6 py-4" data-testid="connector-actions"><Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="connector-allow">{t('connectors.allow')}</Button><Button disabled={busy} onClick={() => void decide(false)} data-testid="connector-deny">{t('connectors.deny')}</Button></div>
     </>}
+    {!request && <div className="pb-6" />}
   </section>
+  </div>
 }

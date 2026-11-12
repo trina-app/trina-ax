@@ -1,7 +1,7 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { ApiError, errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
@@ -11,12 +11,20 @@ import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
+import { useMemberWelcome } from './store/memberWelcome'
 import { useHandover } from './store/handover'
 import { useRooms } from './store/rooms'
 import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
-import { useSession } from './store/session'
+import { useEngines } from './store/engines'
+import { resetInbox } from './store/inbox'
+import { useJobs } from './store/jobs'
+import { useSessionMarkers } from './store/sessionMarkers'
+import { setBeforePersonSwitch, useSession } from './store/session'
+import { clearLocalData } from './lib/localData'
+import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
+import { screenHistory } from './lib/screenHistory'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { StatusDialogHost } from './components/StatusMessage'
@@ -25,7 +33,10 @@ import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
-import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { noteLocation } from './lib/backStack'
+import { safeNext } from './lib/nav'
+import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
@@ -73,6 +84,9 @@ function useSettingsOverlay() {
   const page = useRef<Location | null>(null)
   const depth = useRef(0)
   const open = isSettings(location.pathname)
+  // the phone's back stack notes what is under each entry the first time it shows, before any page renders and reads
+  // it (lib/backStack.ts: the list under a page opened from a link, and the ‹ button's label)
+  noteLocation(location, navType)
   useEffect(() => {
     if (!open) {
       page.current = location
@@ -91,29 +105,60 @@ function useSettingsOverlay() {
   return { open, under, close, real }
 }
 
+/** Everything one person's window keeps in memory of their own: chats, the messages waiting to be sent, the projects
+ * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards and the
+ * chat counted as on screen. */
+function dropPersonStores() {
+  useChats.getState().reset()
+  useDeckBuilds.getState().reset()
+  useSendQueue.getState().reset()
+  useProjects.getState().reset()
+  useAiAccess.getState().reset()
+  useWelcome.getState().reset()
+  useMemberWelcome.getState().reset()
+  useHandover.getState().reset()
+  useRooms.getState().reset()
+  usePeople.getState().reset()
+  useEngines.getState().reset()
+  resetInbox()
+  useJobs.getState().reset()
+  useSessionMarkers.getState().reset()
+}
+
+// Another person signing in over a signed-in one in this window (a password reset link on a shared computer,
+// docs/DECISIONS.md "Another person signs in over a session") is a sign-out first, before the new person's screens
+// mount: the live connection closes, the stores are emptied and this browser's drafts, queue and uploads go, as at the
+// account menu's sign-out (lib/logout.ts). useSessionLifecycle then opens the new person's connection and reloads.
+setBeforePersonSwitch(() => {
+  stopLive()
+  dropPersonStores()
+  clearLocalData()
+  forgetStepsSeen()
+})
+
+/** The page load after another person signed in over the signed-in one (tests replace it). */
+export const personSwitch = { reload: () => location.reload() }
+
 /** The session's side effects (Gate): live updates while signed in; when signed out, nothing one person's window kept
- * stays for the next (chats, the messages waiting to be sent, the projects seen, rooms and people). Returns whether
- * signed in. */
+ * stays for the next. After another person signed in over a signed-in one (emptied by the sign-out above, at that
+ * moment) the new person's connection opens and the page loads again, so that no module's own copy of the last
+ * person's data stays either. Returns whether signed in. */
 export function useSessionLifecycle(): boolean {
   const status = useSession((s) => s.status)
   const signedIn = status.kind === 'signed-in' && !status.me.user.mustChangePassword
+  const userId = status.kind === 'signed-in' ? status.me.user.id : null
+  /** the person this window last had signed in (also while changing a forced password) */
+  const lastUser = useRef<string | null>(null)
   useEffect(() => {
+    const before = lastUser.current
+    if (status.kind === 'signed-in' || status.kind === 'signed-out') lastUser.current = userId
     if (signedIn) startLive()
     else {
       stopLive()
-      if (status.kind !== 'loading') {
-        useChats.getState().reset()
-        useDeckBuilds.getState().reset()
-        useSendQueue.getState().reset()
-        useProjects.getState().reset()
-        useAiAccess.getState().reset()
-        useWelcome.getState().reset()
-        useHandover.getState().reset()
-        useRooms.getState().reset()
-        usePeople.getState().reset()
-      }
+      if (status.kind !== 'loading') dropPersonStores()
     }
-  }, [signedIn, status.kind])
+    if (before && userId && before !== userId) personSwitch.reload()
+  }, [signedIn, status.kind, userId])
   return signedIn
 }
 
@@ -175,20 +220,26 @@ function Gate() {
       </Routes>
     )
   }
-  if (status.me.user.mustChangePassword)
+  if (status.me.user.mustChangePassword) {
+    // where the person was heading goes along (?next=), so the new password leads there instead of Home
+    // (never an address that holds a token: an invite or reset link would only move it into the query)
+    const tokenPage = /^\/(invite|reset-password|join)(\/|$)/.test(location.pathname)
+    const heading = location.pathname === '/login' ? safeNext(location.search) : location.pathname !== '/' && !tokenPage ? location.pathname + location.search : null
     return (
       <Routes>
         <Route path="/password" element={<ForcedPassword />} />
-        <Route path="*" element={<Navigate to="/password" replace />} />
+        <Route path="*" element={<Navigate to={`/password${heading ? `?next=${encodeURIComponent(heading)}` : ''}`} replace />} />
       </Routes>
     )
+  }
   return (
     // a lazy route that is gone after a server update: reload once instead of a blank page (lib/chunk-reload.ts)
     <ChunkErrorBoundary>
     <Suspense fallback={<Splash />}>
       {/* under Settings: the page it was opened from (Settings itself is the dialog below), out of reach while it is open */}
       <RealPath.Provider value={settings.real}>
-      <div className="h-full" inert={settings.open} aria-hidden={settings.open || undefined}>
+      {/* keyed by the person: another person signed in over this one starts every screen afresh (useSessionLifecycle) */}
+      <div key={status.me.user.id} className="h-full" inert={settings.open} aria-hidden={settings.open || undefined}>
       <Routes location={settings.under}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
@@ -205,6 +256,8 @@ function Gate() {
           <Route path="projects/:projectId" element={<ProjectHome />} />
           <Route path="admin" element={<AdminLayout />} />
           <Route path="admin/:section" element={<AdminLayout />} />
+          {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}
+          <Route path="admin/:section/:sub" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
           <Route path="skills" element={<Skills />} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
@@ -249,6 +302,9 @@ function Gate() {
           <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
           {/* the account deletion request, a page under the profile (components/settings/AccountDeletion.tsx) */}
           <Route path="/settings/account/delete" element={<SettingsDialog onClose={settings.close} page="account-delete" />} />
+          {/* a phone's 보안·기기 opens the password form and every signed-in device as pages under it */}
+          <Route path="/settings/security/password" element={<SettingsDialog onClose={settings.close} page="security-password" />} />
+          <Route path="/settings/security/devices" element={<SettingsDialog onClose={settings.close} page="security-devices" />} />
           <Route path="/settings/:tab?" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}
@@ -259,7 +315,8 @@ function Gate() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    // the browser's history as React Router keeps it; on a phone, each tab's stack of screens (lib/screenHistory.ts)
+    <HistoryRouter history={screenHistory()}>
       <AnnounceProvider>
         <Gate />
         <DialogHost />
@@ -267,14 +324,25 @@ export default function App() {
         <ImageViewerHost />
         <Toaster />
       </AnnounceProvider>
-    </BrowserRouter>
+    </HistoryRouter>
   )
 }
 
-/** Signed in while on /join: the page the team link sent the new member to (lib/team-link.ts), else Home. */
-function AfterJoin() {
-  useEffect(() => () => clearAfterJoin(), [])
-  return <Navigate to={afterJoinTarget()} replace />
+/** Signed in while on /join: the page the team link sent the new member to (lib/team-link.ts), else Home. A team link
+ * opened while already signed in (nothing was joined here): Home, saying "You're already in {team}" (docs/DECISIONS.md
+ * "A welcome for invited people"; single-use invites have their own page, InviteWhileSignedIn). */
+export function AfterJoin() {
+  const t = useT()
+  const team = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.team.name : ''))
+  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet() }))
+  const told = useRef(false)
+  useEffect(() => {
+    if (!target.joined && team && !told.current) { told.current = true; toast({ level: 'info', text: t('teamLink.alreadyIn', { team }) }) }
+    return () => clearAfterJoin()
+    // once, on arriving
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return <Navigate to={target.to} replace />
 }
 
 /** Signed in while on /setup: the welcome steps right after the team was made (lib/welcome.ts), else Home. */
@@ -291,7 +359,7 @@ function NotFound() {
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center" data-testid="not-found">
       <h1 className="text-lg font-semibold text-balance text-ink">{t('notFound.title')}</h1>
       <p className="max-w-md text-sm text-balance text-muted">{t('notFound.hint')}</p>
-      <Link to="/" className="mt-3 text-sm font-medium text-accent-text underline">
+      <Link to="/" className="mt-3 text-sm font-medium text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:px-3">
         {t('notFound.home')}
       </Link>
     </div>
@@ -301,9 +369,8 @@ function NotFound() {
 /** Signed in while on /login (or /password): go where the person was heading (?next=, same-site paths only); otherwise
  * Home, or on a phone the 대화 list (signedInHome). */
 function AfterSignIn() {
-  const location = useLocation()
-  const next = new URLSearchParams(location.search).get('next')
+  const next = safeNext(useLocation().search)
   // no ?next: a landing (lib/welcome.ts LANDING_STATE), where an owner with unfinished welcome steps goes to them
-  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return <Navigate to={next} replace />
+  if (next) return <Navigate to={next} replace />
   return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
 }

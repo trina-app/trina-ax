@@ -11,6 +11,7 @@ import { listSkills, skillFileProblem, skillIssues, skillWriteNote } from '../..
 import { TurnExec } from '../../server/src/chat/turn'
 import { sha256 } from '../../server/src/files/store'
 import { newId } from '../../server/src/db'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 setDefaultTimeout(60_000)
 
@@ -125,6 +126,10 @@ describe('at the save', () => {
     const c = env.ctx('carol', 'no-note')
     env.db.query("INSERT INTO chats (id,user_id) VALUES ('chat-no-note','carol')").run()
     env.db.query("INSERT INTO turns (id,chat_id,user_id,engine) VALUES ('no-note','chat-no-note','carol','claude-code')").run()
+    // an admin writes in a team project only as its member (docs/DECISIONS.md "Project contents only for members")
+    expect((await env.files.call('write', { file_path: 'projects/acme-video/tools/x/SKILL.md', content: md('한글') }, c)).isError).toBe(true)
+    expect(fs.existsSync(path.join(env.fx.team, 'projects/acme-video/tools/x/SKILL.md'))).toBe(false)
+    legacyProjectFolder(env.db, env.fx.team, 'projects/acme-video', [{ subjectType: 'user', subjectId: 'carol', access: 'write' }])
     const r = await env.files.call('write', { file_path: 'projects/acme-video/tools/x/SKILL.md', content: md('한글') }, c)
     expect(r.isError).toBeFalsy()
     expect(r.text).not.toContain('does not load')

@@ -25,7 +25,7 @@ import type { UpdateStatus } from '@mycel/shared/api'
 import { AppState, BundleManifest, BundleSignature, emptyAppState } from '@mycel/shared/install'
 import { SCHEMA_READER_LEVEL } from '../db'
 import type { Logger } from '../log'
-import { readFileChunks, writeAtomic, zstdDecompress } from './streams'
+import { fsyncPath, fsyncTree, readFileChunks, writeAtomic, zstdDecompress } from './streams'
 import { extractTar } from './tar'
 import { RELEASE_KEYS } from './release-keys'
 import { FeedRollout } from './rollout'
@@ -235,7 +235,11 @@ export class UpdateManager {
 
   private writeState(s: AppState) {
     const tmp = this.stateFile() + '.tmp'
-    fs.writeFileSync(tmp, JSON.stringify(s, null, 2) + '\n', { mode: 0o640 })
+    const fd = fs.openSync(tmp, 'w', 0o640)
+    try {
+      fs.writeSync(fd, JSON.stringify(s, null, 2) + '\n')
+      fs.fsyncSync(fd)
+    } finally { fs.closeSync(fd) }
     fs.renameSync(tmp, this.stateFile())
   }
 
@@ -293,7 +297,11 @@ export class UpdateManager {
         return m
       }
       // folders readable by the engine account? No: versions/ is the server's; only app/engines is shared.
+      // on disk before it gets its name: after a power loss, a version folder whose files never reached the disk fails
+      // the bootstrap's check and the server rolls back to a version that may not read the migrated DB (QA TC-279)
+      await fsyncTree(staging)
       await fsp.rename(staging, dest)
+      await fsyncPath(this.versionsDir())
       this.o.log.info('update staged', { version: m.version })
       return m
     } catch (e) {
@@ -330,6 +338,7 @@ export class UpdateManager {
     fs.rmSync(tmp, { force: true })
     fs.symlinkSync(path.join('versions', version), tmp)
     fs.renameSync(tmp, path.join(this.o.appDir, 'current'))
+    await fsyncPath(this.o.appDir) // state.json and app/current: the restart that follows must find both after a power loss
     this.o.log.info('update switched', { from, to: version })
     return { from, to: version }
   }

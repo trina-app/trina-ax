@@ -38,7 +38,7 @@ export const TEAM_TYPES = ['marketing', 'sales', 'operations', 'other'] as const
 export const TeamType = z.enum(TEAM_TYPES)
 export type TeamType = z.infer<typeof TeamType>
 
-/** The team's own group (the invite link puts joiners in it; its team room) and where the team's start put the company's
+/** The team's own group (the invite link puts joiners in it; no team room of its own) and where the team's start put the company's
  * own material. `home`: the folder that holds it, 'shared' for a team whose start ran since docs/DECISIONS.md "Team folder
  * basics" (shared/브랜드, shared/회의록 and the 팀 파일 uploads: everyone in the team sees them); absent on rows from
  * before, whose material stays in the group's `folder` (groups/<team>/: nothing is moved). `notesFolder` and

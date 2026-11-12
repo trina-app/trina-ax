@@ -94,12 +94,21 @@ export class MockPlugins {
       trust: p.pack.trust, verifiedBy: p.plan.verifiedBy, keyId: p.plan.keyId, manifestSha256: p.plan.manifestSha256, archiveSha256: p.plan.archiveSha256,
       enabled: enable, access: { everyone: enable, groups: [], users: [] }, status: enable ? 'enabled' as const : 'disabled' as const, unsupported: null,
       permissions: p.plan.permissions.map((x) => ({ id: x.id, required: x.required, granted: true })), platforms: null, license: p.plan.license, components: [], source: p.pack.source,
-      previousVersion: prev?.version ?? null, skills: enable ? p.pack.skills.map((s) => `skills/${p.pack.id}/${s}/SKILL.md`) : [],
+      previousVersion: prev?.version ?? null, previousTrusted: !!prev, skills: enable ? p.pack.skills.map((s) => `skills/${p.pack.id}/${s}/SKILL.md`) : [],
       installedBy: actor, installedAt: now(), updatedAt: now(),
     }
     this.installed.push(row)
     const { pack: _pack, ...view } = row
     return view
+  }
+
+  /** POST /__test/plugin-previous {id, version, trusted, untrusted?}: the installed plugin has an earlier version a
+   * rollback returns to (trusted: it passes the trust check); untrusted: this server no longer trusts the active one */
+  control(b: { id: string; version: string; trusted: boolean; untrusted?: boolean }) {
+    const p = this.installed.find((x) => x.id === b.id)
+    if (!p) return
+    Object.assign(p, { previousVersion: b.version, previousTrusted: b.trusted })
+    if (b.untrusted) Object.assign(p, { enabled: false, status: 'unsupported', unsupported: 'untrusted', access: { everyone: false, groups: [], users: [] }, skills: [] })
   }
 
   set(id: string, enabled: boolean): InstalledPlugin | null {

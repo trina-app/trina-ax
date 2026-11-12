@@ -50,6 +50,15 @@ function stored(ctx: Pick<AppContext, 'db'>): { row: boolean; raw: Raw | null } 
   }
 }
 
+/** The team group the welcome steps made (`teamGroup.id` of the stored row), or null. Read by rooms/service.ts sync:
+ * that group gets no team room (docs/DECISIONS.md "One room for the whole team"). Never throws. */
+export function welcomeTeamGroupId(ctx: Pick<AppContext, 'db'>): string | null {
+  try {
+    const g = stored(ctx).raw?.teamGroup
+    return isObj(g) && typeof g.id === 'string' ? g.id : null
+  } catch { return null }
+}
+
 const pick = <T>(schema: z.ZodType<T>, v: unknown, d: T): T => {
   const r = schema.safeParse(v)
   return r.success ? r.data : d
@@ -376,7 +385,8 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
   const team = getTeamSettings(ctx.db).teamName.trim().slice(0, 100) || 'Team'
   const name = !groupIdByName(ctx, team) ? team
     : [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${team.slice(0, 96)} ${n}`).find((n) => !groupIdByName(ctx, n)) ?? `${team.slice(0, 80)} ${Date.now()}`
-  const g = createGroupAs(ctx, userId, { name, memberIds: [userId] }, locale)
+  // no team room: the everyone room is the team's one room (docs/DECISIONS.md "One room for the whole team")
+  const g = createGroupAs(ctx, userId, { name, memberIds: [userId], room: false }, locale)
   const folder = groupFolder(ctx, g.id)
   if (!folder) return fail('internal')
   return { id: g.id, name: g.name, folder, ...sharedStart(ctx, userId, recorded) }

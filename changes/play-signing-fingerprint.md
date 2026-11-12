@@ -1,0 +1,1 @@
+- Android: invite and team links now open the app for people who installed it from Google Play too. The team server's app-link file lists Play's app signing key next to the upload key.

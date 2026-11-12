@@ -379,6 +379,31 @@ describe('colours and images, clicked', () => {
     } finally { await m.unmount() }
   })
 
+  // QA TC-206: after the three typed answers nothing was read, so the review does not say "이렇게 이해했어요"
+  test('the review after typed answers asks to check what was entered; a reading keeps "이렇게 이해했어요"', async () => {
+    const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
+    calls = []
+    let m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={noop} skipLabel="나중에 하기" /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-site'), 'the website form')
+      await m.click(button('홈페이지가 없어요'))
+      await m.click(await m.until(() => m.find('profile-step-to-questions'), 'the fallback'))
+      const form = await m.until(() => m.find('profile-step-questions'), 'the questions')
+      await m.type(form.querySelectorAll('textarea')[0]!, 'Desk fans')
+      await m.click(form.querySelector('button[type="submit"]')!)
+      const review = await m.until(() => m.find('profile-step-review'), 'the review')
+      expect(review.textContent).toContain('입력한 내용을 확인해 주세요')
+      expect(review.textContent).not.toContain('이렇게 이해했어요')
+    } finally { await m.unmount() }
+    // a saved profile (and a draft the AI read) keeps the title
+    m = await mount(<MemoryRouter><ProfileStep initial={PROFILE} onDone={noop} onSkip={noop} skipLabel="나중에 하기" /></MemoryRouter>)
+    try {
+      const review = await m.until(() => m.find('profile-step-review'), 'the review')
+      expect(review.textContent).toContain('이렇게 이해했어요')
+      expect(review.textContent).not.toContain('입력한 내용을 확인해 주세요')
+    } finally { await m.unmount() }
+  })
+
   // the recheck of onboarding v5: after "홈페이지가 없어요" and a pasted text the review still offered "홈페이지 다시 읽기"
   test('"홈페이지 다시 읽기" only with a homepage: none after "홈페이지가 없어요" and a pasted text, nor for a saved profile without one; a website reading keeps it', async () => {
     const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)

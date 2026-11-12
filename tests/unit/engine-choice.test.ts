@@ -6,10 +6,12 @@
 // Fake engine through the real launcher; fixture: alice, erin = marketing; bob = finance; carol = admin; dana = owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, type MemberEngineChoice } from '@mycel/shared/api'
+import { tr } from '../../server/src/chat/i18n'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { canChooseEngine, filterEnginePrefs, HOSTED_FALLBACK_SET_KEY, LIMIT_FALLBACK_KEY, limitFallbackSetting, personalDefault, readyEngines, settleHostedFallback, turnEngine } from '../../server/src/admin/engine-choice'
 
 setDefaultTimeout(30_000)
+const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 
@@ -103,8 +105,15 @@ describe('enforcement', () => {
     expect(ac).toMatchObject({ engine: 'codex', model: 'fake-2' })
     await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: false } } })
     try {
-      expect(await status(send('carol', chat.id, { engine: 'codex' }))).toMatchObject({ status: 409, reason: 'engine_off' })
-      expect((await status(h.api('alice').call(API.createChat, { body: { engine: 'codex' } }))).status).toBe(409)
+      // an admin is told it is off for the team and where to turn it on; a member keeps "your admin turned it off" and
+      // never sees who the admins are (QA TC-234)
+      const admin = await status(send('carol', chat.id, { engine: 'codex' }))
+      expect(admin).toMatchObject({ status: 409, reason: 'engine_off' })
+      expect(LOCALES.map((l) => tr('engineOffAdmin', l))).toContain(admin.message!)
+      const member = await status(h.api('alice').call(API.createChat, { body: { engine: 'codex' } }))
+      expect(member).toMatchObject({ status: 409, reason: 'engine_off' })
+      expect(LOCALES.map((l) => tr('engineOff', l))).toContain(member.message!)
+      expect(tr('engineOffAdmin', 'en')).toBe('This AI is turned off for the team. Turn it on in Admin › AI accounts, or pick another one.')
       expect((await h.api('carol').call(API.chatEngines)).engines.map((e) => e.id)).toEqual(['claude-code'])
     } finally {
       await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: true } } })
@@ -123,7 +132,8 @@ describe('enforcement', () => {
       const { done } = await ask(h, alice, 'alice', chat.id, fake({ say: 'now claude' }))
       expect(done).toMatchObject({ status: 'done', engine: 'claude-code', content: 'now claude' })
       const note = done.steps.find((s) => s.tool === 'engine')
-      expect(note?.label).toBe('Codex is switched off; answering with the team default (Claude Code)')
+      // no engine names (docs/DECISIONS.md "Plain words in errors, cards and steps")
+      expect(note?.label).toBe("The chosen AI is off; answering with the team's default AI")
       expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
     } finally {
       await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: true } } })
@@ -196,7 +206,7 @@ describe('Claude limit -> Codex fallback', () => {
       const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ claudeFail: 'rate limit exceeded' }, { say: 'from codex' }))
       expect(done).toMatchObject({ status: 'done', engine: 'codex', content: 'from codex' })
       expect(done.error).toBeNull()
-      expect(done.steps.find((s) => s.tool === 'engine')?.label).toBe('Claude Code usage limit reached; continuing with Codex')
+      expect(done.steps.find((s) => s.tool === 'engine')?.label).toBe('Usage limit reached; continuing with another AI')
       expect(h.ctx.db.query('SELECT engine FROM turns WHERE id = ?').get(started.turnId)).toEqual({ engine: 'codex' })
       const a = h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'engine.limit_fallback' AND target = ?").get(started.turnId) as { actor_id: string; detail: string }
       expect(a.actor_id).toBe('alice')

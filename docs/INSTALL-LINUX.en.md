@@ -109,17 +109,17 @@ The installer takes its system packages from one list in the kit (`app/<version>
 
 ## First run
 
-On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <server>`. Read the setup code locally on the server from `/var/lib/mycel/setup/code` with administrative access; keep it private. Open the loopback setup page and enter the code. Create the owner, team name and language; verify the team timezone.
+On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <server>`. Read the setup code locally on the server from `/var/lib/mycel/setup/code` with administrative access; keep it private. Open the loopback setup page and enter the code. Create the owner, team name and language; verify the team timezone. Once the owner exists the code is spent: the server deletes `data/setup-token`, and the next repair or update (or an uninstall that keeps the data) deletes `setup/code`.
 
 Then follow **permissions → AI connection → invite the team → first skill → first backup**:
 
 1. Admin → Groups/Folders: assign sources and verify access with two pilot accounts.
-2. Owner → Admin → AI providers: connect an authorized Claude or Codex account/API key. On fresh teams one company connection can serve the whole team by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
+2. Owner → Admin → Connections → AI accounts: connect an authorized Claude or Codex account/API key. On fresh teams one company connection can serve the whole team by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
 3. Configure an HTTPS address before inviting colleagues. A separately installed tunnel/reverse proxy must reach `127.0.0.1:47820`; register its hostname with `sudo ./install-linux.sh repair --public-host team.example.com`. Tunnel credentials are managed outside this installer. Official relay registration needs an issued connection code; it is not a free hostname signup.
 4. Invite a small group, copy a [starter skill](../examples/README.md), and review its result against sources.
 5. Make a backup and practice [restore](BACKUP-RESTORE.md) before real rollout.
 
-Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter or a provider's Anthropic-compatible API): set `engine.anthropicGateway` in `/var/lib/mycel/config/server.json`, restart with `sudo systemctl restart mycel-server`, and add the gateway's key in Admin → AI providers. Conversations then go to the gateway provider and the model's vendor, and Claude subscription connections are off. [Anthropic-compatible gateway](CONFIGURATION.md#anthropic-compatible-gateway).
+Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter or a provider's Anthropic-compatible API): set `engine.anthropicGateway` in `/var/lib/mycel/config/server.json`, restart with `sudo systemctl restart mycel-server`, and add the gateway's key in Admin → Connections → AI accounts. Conversations then go to the gateway provider and the model's vendor, and Claude subscription connections are off. [Anthropic-compatible gateway](CONFIGURATION.md#anthropic-compatible-gateway).
 
 ## Upgrade and rollback
 
@@ -129,7 +129,7 @@ The update timer and `sudo mycel-ctl update` without `--version` install the fee
 
 A new stable release does not reach every server on the same night (staged roll-out): about 10% of servers take it automatically on the first day after it was published, about 50% on the second, and all of them from the third, so a bad release reaches few teams. Each server works out its turn itself from its install id (`MYCEL_INSTALL_ID`, else the id the app made) and a value chosen anew for every release, counted from the feed's signed `publishedAt`; the app's own updater, the update timer and office Macs keep the same rule, and a server installs in its next update window once its turn has come. A server whose install id cannot be read is in the last wave (100%). A release published while the previous one is still in its stages continues them, so several releases a few hours apart still reach every server within two days of the first. The beta channel, an urgent release (`urgent`) and an administrator's update (Admin › System › Update, `sudo mycel-ctl update`) do not wait. While a server waits, `sudo mycel-ctl status` says "this server's turn comes at …" and the app's update status (`GET /api/admin/update`) has `turnAt`. Servers on 0.4.0-beta.2 or older do not know the rule and take a release at once, as before.
 
-For manual updates, download and verify the new kit as above, then use `sudo ./install-linux.sh update --from .`. A startup failure can roll the app back; it does **not** undo database migrations or file changes. Do not assume an older binary can read every future database. Restore from a verified pre-update backup when needed, using a compatible release.
+For manual updates, download and verify the new kit as above, then use `sudo ./install-linux.sh update --from .`. An update (and `repair`) first installs everything new while the team server keeps running: the list's system packages, the headless browser, the Google Workspace library and any engine named with `--engine`. Only then does it stop the server, switch `app/current` and start it again, which usually takes well under a minute. The whole run can take up to about 10 minutes when a release adds many packages (the first update to 0.5 on a server installed with 0.4 adds about 1 GB: build tools, Chromium's libraries, CJK fonts and the browser) or when the network is slow. Later updates without new packages take a minute or two. `./install-linux.sh check --from .` lists what the kit installs and changes nothing. A startup failure can roll the app back; it does **not** undo database migrations or file changes. Do not assume an older binary can read every future database. Restore from a verified pre-update backup when needed, using a compatible release.
 
 ### Kept versions
 
@@ -154,7 +154,9 @@ you updated it.
 
 - Source: `office/<channel>.json` (signed) on the same feed as the server's. The signature, both files' size and
   SHA-256, and that `latest.yml` names exactly that installer are checked. An app newer than the server waits until
-  the server has that release.
+  the server has that release. The signed manifest goes next to the installer as `/downloads/<channel>.json`: the
+  Windows app installs an update only when that signed release names the file it downloaded (else it asks the
+  release feed, and installs nothing when neither matches).
 - One Windows installer is kept (about 110 MB; older ones are removed). Nothing is downloaded when the free space left
   afterwards would be under the team folder's write reserve (512 MB or 2% of the disk, whichever is larger). A newer
   installer put there by hand stays.

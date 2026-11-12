@@ -25,6 +25,10 @@ import { writeTargetOf } from '../../server/src/chat/turn'
 import { fileEvent } from '../../server/src/files/store'
 import { fileTimelineWalk } from '../../server/src/files/timeline'
 import type { TurnToolProvider } from '../../server/src/services'
+import { labeledPath } from '@mycel/shared'
+
+// a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
+const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -158,7 +162,7 @@ describe('my own folder after a room read', () => {
     // one card each, every one declined: nothing written
     expect(r.cards).toHaveLength(5)
     // the team folder's card is the room card's (every member may write there): it offers the room's grant
-    expect(r.cards[0]!.question).toContain(`${dir}: planted-${tag}.md`)
+    expect(r.cards[0]!.question).toContain(`${W(dir)}: planted-${tag}.md`)
     expect(values(r.cards[0]!)).toEqual(['allow', 'always', 'skip'])
     expect(r.cards[1]!.question).toContain(mine)
     targets.forEach((t, i) => expect(r.cards[i + 2]!.question).toContain(t))
@@ -275,8 +279,8 @@ describe('one yes per team folder in my own chat', () => {
     // the first: the room card's words after why it asks; an ordinary chat gets no "always" (two buttons)
     expect(values(r.cards[0]!)).toEqual(['allow', 'skip'])
     expect(r.cards[0]!.question).toStartWith(WHY)
-    expect(r.cards[0]!.question).toMatch(new RegExp(`(Trina|The AI) wants to save a new file in ${one}: quote-1\\.md\\.`))
-    expect(r.cards[1]!.question).toContain(`${two}: a.md`)
+    expect(r.cards[0]!.question).toMatch(new RegExp(`(Trina|The AI) wants to save a new file in ${W(one)}: quote-1\\.md\\.`))
+    expect(r.cards[1]!.question).toContain(`${W(two)}: a.md`)
     expect(r.cards[2]!.question).toContain(`${one}/old.md`)
     for (const f of files) expect(read(f)).toBe('made by the AI\n')
     expect(read(`${one}/old.md`)).toBe('changed\n')
@@ -311,7 +315,8 @@ describe('one yes per team folder in my own chat', () => {
       const conn = await newChat('alice')
       const c = await run('alice', conn, fake(roomRead(roomId), { tool: 'my_test__lookup', args: { q: 'x' } }, write(`${dir}/c1.md`), write(`${dir}/c2.md`), { say: 'done' }), () => 'allow')
       expect(c.cards).toHaveLength(3)
-      expect(c.cards[0]!.question).toContain('my_test__lookup')
+      // the tool in words, not its id
+      expect(c.cards[0]!.question).toContain('Lookup')
       expect(exists(`${dir}/c2.md`)).toBe(true)
     } finally { h.ctx.services.turnToolProviders = saved }
   })
@@ -375,7 +380,7 @@ describe('the tools that refuse after a room read', () => {
     const chat = await sideChat('alice', roomId)
     let n = 0
     const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/a.md`), write(`${dir}/b.md`), write(`groups/marketing/skills/planted-${tag}/SKILL.md`, '---\nname: planted\ndescription: x\n---\nx\n'), write(gone, 'planted\n'), { tool: 'delete_files', args: { paths: [`${dir}/a.md`] } }, { say: 'done' }), () => (n++ === 0 ? 'allow' : 'skip'))
-    expect(r.cards.map((c) => c.question.includes(`${dir}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : 'other')).toEqual(['team', 'skill', 'trashed'])
+    expect(r.cards.map((c) => c.question.includes(`${W(dir)}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : 'other')).toEqual(['team', 'skill', 'trashed'])
     expect(read(`${dir}/b.md`)).toBe('made by the AI\n')
     expect(exists(`groups/marketing/skills/planted-${tag}`)).toBe(false)
     expect(exists(gone)).toBe(false)
@@ -617,7 +622,7 @@ describe('"이 방에서는 항상 허용" in the side chat', () => {
     const c = r.cards[0]!
     expect(c).toMatchObject({ origin: 'server', buttons: true, note: 'Applies only when you call it, to new files in this folder.' })
     expect(c.options).toEqual([{ label: 'Allow once', value: 'allow' }, { label: 'Always allow in this room', value: 'always' }, { label: "Don't allow", value: 'skip' }])
-    expect(c.question).toMatch(new RegExp(`^${WHY.replace(/[()]/g, '\\$&')}(Trina|The AI) wants to save a new file in ${dir}: 견적서_A사\\.md\\. Changed files can be restored from their history\\.$`))
+    expect(c.question).toMatch(new RegExp(`^${WHY.replace(/[()]/g, '\\$&')}(Trina|The AI) wants to save a new file in ${W(dir)}: 견적서_A사\\.md\\. Changed files can be restored from their history\\.$`))
     expect(c.details?.[0]?.text).toBe('quote\n')
     expect(read(`${dir}/견적서_B사.md`)).toBe('made by the AI\n')
     expect(labels(r.done, 'write')[1]).toEndWith(ONCE)

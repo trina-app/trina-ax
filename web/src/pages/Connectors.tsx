@@ -6,7 +6,9 @@
 // Calendar, Google Docs, Google Sheets), then the listed MCP services (lib/connectors.ts), with a + that connects at once
 // (a Google card opens Google during the click), a ✓ once connected, or why not now. "Add custom connector" in the title
 // row takes any MCP server or API by its address: owners and admins only; a member reads "Not listed? Ask an admin to
-// add it." under Popular instead (docs/DECISIONS.md "Plain words for members"). A card opens its page, /connectors/<id>: a built-in's (AppDetail.tsx:
+// add it." under Popular instead (docs/DECISIONS.md "Plain words for members"). A built-in the team has not set up gives
+// a member "Ask admin to add it" on its page, and its card then says "Asked" (components/integrations/AskAdmin.tsx). A
+// card opens its page, /connectors/<id>: a built-in's (AppDetail.tsx:
 // Connect, things to try, About, what the AI can do, Information, the tools), a listed service's (ConnectorDetail), or
 // /connectors/mcp/<connection id> for a connection of the person's own (its row, with everything it had before).
 // Settings › Connected apps leads here (SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1 (old Drive
@@ -14,16 +16,16 @@
 // ConnectorsLayout, so a + can open Google during the click and its page shows the same sign-in.
 import clsx from 'clsx'
 import { Check, Plus, Search } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, exampleKeys, fits, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId, type CardState } from '../lib/googleApps'
-import { canonicalService, splitByScope } from '../lib/integrations'
+import { awaitingFirstSignIn, canonicalService, splitByScope } from '../lib/integrations'
 import { writeDraft } from '../lib/localData'
 import { useT } from '../i18n'
-import { reloadAsked } from '../store/live'
+import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe, useMeStrict } from '../store/session'
 import { Button, EmptyState, ErrorNote, IconButton, PageHeader, Skeleton, inputCls, pageColumn } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
@@ -36,6 +38,7 @@ import { SlackAccount } from '../components/settings/SlackAccount'
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
+import { AskAdminAction, useServiceAsks } from '../components/integrations/AskAdmin'
 import { FromTeam } from '../components/integrations/TemplatesView'
 import { useLoad } from './admin/common'
 
@@ -54,11 +57,23 @@ function useConnectorsState() {
   }, [admin])
   const drive = useDriveConnection()
   const google = useGoogleApps()
+  // a member's asks to add an app the team has not set up (none for an owner or admin)
+  const asks = useServiceAsks(admin)
   // the admin's requests load again with the list: a sign-in that finished may have connected one
   const [requests, setRequests] = useState(0)
-  const reloadList = list.reload, reloadTeam = teamAll.reload, reloadGoogle = google.load
-  const reload = useCallback(() => { void reloadList(); void reloadTeam(); void reloadGoogle(); setRequests((n) => n + 1) }, [reloadList, reloadTeam, reloadGoogle])
+  const reloadList = list.reload, reloadTeam = teamAll.reload, reloadGoogle = google.load, reloadAsks = asks.reload
+  const reload = useCallback(() => { void reloadList(); void reloadTeam(); void reloadGoogle(); void reloadAsks(); setRequests((n) => n + 1) }, [reloadList, reloadTeam, reloadGoogle, reloadAsks])
   useEffect(() => reloadAsked.on(reload), [reload])
+  // a connection of mine went without me (its template changed or went): the lists again, so no stale row stays
+  useEffect(() => integrationsChanged.on(reload), [reload])
+  // an app I asked for may be ready now (its notice comes with notifications.changed): only while I have an ask open,
+  // the asks again, and when fewer are open the apps too, so its page offers Connect without a reload
+  const onNotice = useRef(() => {})
+  onNotice.current = () => {
+    const before = asks.open
+    if (before) void reloadAsks().then((n) => { if (n !== null && n < before) { void reloadGoogle(); drive.load() } })
+  }
+  useEffect(() => notificationsChanged.on(() => onNotice.current()), [])
   const actions = useIntegrationActions({
     add: (i) => list.setData((d) => (d ? { ...d, items: [...d.items, i] } : d)),
     replace: (i) => list.setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === i.id ? i : x)) } : d)),
@@ -70,7 +85,7 @@ function useConnectorsState() {
     writeDraft(me.user.id, 'new', text)
     navigate('/')
   }, [me, navigate])
-  return { list, teamAll, drive, google, requests, reload, actions, dialog, setDialog, startChat, admin }
+  return { list, teamAll, drive, google, asks, requests, reload, actions, dialog, setDialog, startChat, admin }
 }
 type ConnectorsState = ReturnType<typeof useConnectorsState>
 const Ctx = createContext<ConnectorsState | null>(null)
@@ -110,7 +125,7 @@ export function ConnectorsHome() {
   const t = useT()
   const me = useMeStrict()
   const navigate = useNavigate()
-  const { list, teamAll, drive, google, requests, actions, setDialog, admin } = useConnectors()
+  const { list, teamAll, drive, google, asks, requests, actions, setDialog, admin } = useConnectors()
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
   const [fromTeamShown, setFromTeamShown] = useState<boolean | null>(null)
@@ -136,8 +151,11 @@ export function ConnectorsHome() {
   const builtIns: Card[] = BUILT_IN_ORDER.flatMap((id): Card[] => {
     const name = builtInName(id)
     const open = () => navigate(`/connectors/${id}`)
+    // a member who asked an admin to add it: "Asked" in place of "Not set up yet"
+    const asked = !admin && asks.stateOf(id) !== 'none'
     if (id === 'google-drive') {
-      const off = dState === 'off' ? t(drive.connection && !drive.connection.configured ? 'gapps.off.notSetUp' : 'gapps.off.membersOff') : undefined
+      const notSetUp = !!drive.connection && !drive.connection.configured
+      const off = dState === 'off' ? t(notSetUp && asked ? 'serviceRequest.asked' : notSetUp ? 'gapps.off.notSetUp' : 'gapps.off.membersOff') : undefined
       return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: dState, off, onOpen: open,
         onAdd: () => { open(); if (dState === 'available') drive.start() } }]
     }
@@ -145,7 +163,8 @@ export function ConnectorsHome() {
     if (!v) return []
     const state = googleAppCardState(v)
     const why = unavailableKeys(v.reason, admin)
-    return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state, off: why ? t(why.short) : undefined, onOpen: open,
+    const off = v.reason === 'not_set_up' && asked ? t('serviceRequest.asked') : why ? t(why.short) : undefined
+    return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state, off, onOpen: open,
       onAdd: () => { open(); void google.flows[id].start() } }]
   })
   // the listed services: added from their page or with + (the add dialog, filled in); only while members may add their own
@@ -161,14 +180,17 @@ export function ConnectorsHome() {
   // Connected: the built-in ones connected (or needing a new sign-in), then the person's own connections
   const connected: { id: string; name: string; logo: string; warn: boolean; to: string }[] = [
     ...builtIns.filter((c) => c.state === 'added' || c.state === 'reconnect').map((c) => ({ id: c.id, name: c.name, logo: c.logo, warn: c.state === 'reconnect', to: `/connectors/${c.id}` })),
-    ...mine.map((i) => {
+    ...mine.filter((i) => !awaitingFirstSignIn(i)).map((i) => {
       const c = connectorFor(i.url)
       return { id: i.id, name: i.name, logo: c ? connectorLogo(c) : '', warn: i.status !== 'connected', to: `/connectors/mcp/${i.id}` }
     }),
   ].filter((x) => fits(q, x.name))
+  // added but never signed in: not connected yet, so not under Connected; its own section says what its page says
+  // ("로그인 필요", QA TC-205)
+  const toSignIn = mine.filter(awaitingFirstSignIn).filter((i) => fits(q, i.name)).map((i) => ({ i, logo: connectorFor(i.url) }))
 
   const loading = !list.data && !list.error
-  const nothing = !!q && !cards.length && !connected.length && !fromTeamShown
+  const nothing = !!q && !cards.length && !connected.length && !toSignIn.length && !fromTeamShown
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="integrations">
       <PageHeader testId="connectors-header" title={t('integrations.title')} desc={t('connectorsPage.desc')}
@@ -216,6 +238,21 @@ export function ConnectorsHome() {
                         </span>
                         <span className="line-clamp-2 w-full text-xs leading-tight break-words">{x.name}</span>
                         {x.warn && <span className="sr-only">{t('drive.status.needs_reconnect')}</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {toSignIn.length > 0 && (
+              <section aria-labelledby="connectors-sign-in">
+                <h2 id="connectors-sign-in" className="mb-3 text-sm font-semibold">{t('integrations.status.needs_auth')}</h2>
+                <ul className="flex flex-wrap gap-x-2 gap-y-3" data-testid="sign-in-apps">
+                  {toSignIn.map(({ i, logo }) => (
+                    <li key={i.id}>
+                      <button type="button" onClick={() => navigate(`/connectors/mcp/${i.id}`)} className="group flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl p-1.5 text-center hover:bg-hover" data-testid="connected-app" data-id={i.id}>
+                        {logo ? <LogoTile src={connectorLogo(logo)} className="size-12 rounded-xl p-2" /> : <InitialTile name={i.name} />}
+                        <span className="line-clamp-2 w-full text-xs leading-tight break-words">{i.name}</span>
                       </button>
                     </li>
                   ))}
@@ -291,12 +328,17 @@ function PopularCard({ c }: { c: Card }) {
 /** /connectors/:id: a built-in card's page, or a listed service's. */
 export function ConnectorPage() {
   const { id = '' } = useParams()
-  const { google, startChat } = useConnectors()
+  const { google, asks, admin, startChat } = useConnectors()
   if (id === 'google-drive') return <DrivePage />
   if (isGoogleApp(id)) {
     if (!google.apps) return <PageSkeleton />
     const v = google.apps.find((x) => x.id === id)
-    return v ? <GoogleAppDetail v={v} g={google} onChat={startChat} /> : <Navigate to="/connectors" replace />
+    if (!v) return <Navigate to="/connectors" replace />
+    // a member, the team has not set it up, never connected: ask an admin to add it (once the server says what was asked)
+    const ask = !admin && asks.ready && v.reason === 'not_set_up' && v.status === 'disconnected'
+      ? { state: asks.stateOf(v.id), busy: asks.busy === v.id, onAsk: () => void asks.ask(v.id, builtInName(v.id), () => void google.load()), error: asks.error?.service === v.id ? asks.error.text : null }
+      : undefined
+    return <GoogleAppDetail v={v} g={google} onChat={startChat} ask={ask} />
   }
   const c = CONNECTORS.find((x) => x.id === id)
   return c ? <ListedPage c={c} /> : <Navigate to="/connectors" replace />
@@ -309,17 +351,24 @@ function PageSkeleton() {
 /** Google Drive's page: Trina's own connector, the same layout as the Google apps'. */
 function DrivePage() {
   const t = useT()
-  const { drive, startChat } = useConnectors()
+  const { drive, asks, admin, startChat } = useConnectors()
   const p = useDriveParts(drive)
   const id: BuiltInId = 'google-drive'
+  const name = builtInName(id)
   const examples = exampleKeys(id).map((k) => t(k))
   const ready = p.linked && !p.reconnect && !p.off
-  const line = p.line !== t('drive.cardDesc') ? p.line : null
+  // a member, the team has not set Google Drive up: "Ask admin to add it" in place of the Connect button that cannot
+  // work and of "Your admin needs to turn this on"; once asked, when they will hear
+  const ask = !admin && asks.ready && p.unavailable && !p.linked && !p.shares.length ? asks.stateOf(id) : null
+  const askError = ask && asks.error?.service === id ? asks.error.text : null
+  const line = ask === 'none' ? null : ask ? t('serviceRequest.waiting', { name }) : p.line !== t('drive.cardDesc') ? p.line : null
   return (
-    <AppDetail testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={builtInName(id)} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
-      actions={<>{ready && <Button variant="primary" onClick={() => startChat(examples[0]!)} data-testid="drive-try">{t('gapps.tryInChat')}</Button>}{p.action}</>}
-      status={(line || p.busy || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
-        {line && <Note tone={p.reconnect || (p.off && p.linked) ? 'warn' : undefined} testId="drive-detail-line">{line}</Note>}
+    <AppDetail testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
+      actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} />
+        : <>{ready && <Button variant="primary" onClick={() => startChat(examples[0]!)} data-testid="drive-try">{t('gapps.tryInChat')}</Button>}{p.action}</>}
+      status={(line || askError || p.busy || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
+        {line && <Note tone={p.reconnect || (p.off && p.linked) ? 'warn' : undefined} testId={ask ? 'service-asked-note' : 'drive-detail-line'}>{line}</Note>}
+        {askError && <Note tone="warn" testId="service-ask-error">{askError}</Note>}
         <div className="empty:hidden">{p.steps}</div>
         <DriveTeamShares shares={p.shares} />
       </> : undefined}

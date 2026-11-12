@@ -47,6 +47,8 @@ export interface EditSource {
   rules: RuleSet
   /** active people */
   people: readonly Principal[]
+  /** people switched off (not deleted): not counted, but what they would get when switched back on is (`latentMore`) */
+  uncounted?: readonly Principal[]
   groupName(id: string): string | null
   personName(id: string): string | null
 }
@@ -147,6 +149,10 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
   const now = whoAt({ ...ws, rules: before }, segs)
   const nextWho = whoAt({ ...ws, rules: after }, segs)
   const above = segs.length ? whoAt({ ...ws, rules: withRules(before, path, []) }, segs) : null
+  // "the same as the folder above", in one line: what a member whom no person or group rule names gets here with no
+  // rules of its own, and the folder whose rule decides it (null: no rule on the way up lets them in). Asked of the
+  // permission function itself, for a member who is nobody (no groups, an id no person can have).
+  const everyoneAbove = segs.length ? plainAbove(withRules(before, path, []), segs) : null
 
   // the rule folders below, the same before and after (only `path` changes)
   const below = belowOf(before, path)
@@ -213,6 +219,79 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
   return {
     current, hash: rulesHash(current),
     people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
-    now, next: nextWho, above, changes, below: belowRows, belowMore: hit.length - shown.length, less, more, warnings,
+    now, next: nextWho, above, everyoneAbove, ...latentOf(src, before, after, path, below.paths), changes, below: belowRows, belowMore: hit.length - shown.length, less, more, warnings,
   }
+}
+
+/**
+ * Whether the rules give more to someone the head count above cannot see (FolderEditPreview.latentMore): a person
+ * switched off (they get it when switched back on), a member nobody names (whoever joins the team), or whoever joins
+ * the groups the rules name later: one made-up member per group, per pair of the groups named on the way to the folder
+ * and below it (group rules take the widest, so being in two groups can differ from either alone), and one in all of
+ * them. At the folder and at each rule folder below it, asked of the permission function before and after.
+ */
+function latentOf(src: EditSource, before: RuleSet, after: RuleSet, path: string, belowPaths: readonly string[]): Pick<FolderEditPreview, 'latentMore' | 'latent'> {
+  const groups = new Set<string>()
+  for (const rs of [before, after]) for (const f of rs.ruleFolders()) for (const r of rs.rulesAt(f)) if (r.subjectType === 'group' && r.subjectId) groups.add(r.subjectId)
+  // the groups named on the way up to the folder, at it and below it: the ones whose combinations can decide there
+  const segs = segsOf(path)
+  const near = new Set<string>()
+  const folders = [...Array.from({ length: segs.length + 1 }, (_, len) => segs.slice(0, len).join('/')), ...belowPaths]
+  for (const rs of [before, after]) for (const f of folders) for (const r of rs.rulesAt(f)) if (r.subjectType === 'group' && r.subjectId) near.add(r.subjectId)
+  const at = [segs, ...belowPaths.map(segsOf)]
+  // the most a principal gains anywhere at those folders: 0 nothing, 1 view, 2 edit (after above before)
+  const gain = (p: Principal): number => {
+    let most = 0
+    for (const s of at) { const a = RANK[after.access(p, s)], b = RANK[before.access(p, s)]; if (a > b && a > most) most = a }
+    return most
+  }
+  const member = (id: string, gs: string[]): Principal => ({ id: `\u0000${id}`, name: '', role: 'member', groups: gs })
+  // who: whoever joins the team, people switched off by name, whoever joins these groups; and whether each of the three
+  // gains edit somewhere (the panel says "open or edit" then, else "open": QA TC-232), for the groups group by group
+  // (one group's edit is not said of the others: QA TC-284)
+  const teamGain = gain(NOBODY)
+  const team = teamGain > 0
+  const offGains = (src.uncounted ?? []).map((p) => [p, gain(p)] as const).filter(([, g]) => g > 0)
+  const off = offGains.map(([p]) => p)
+  /** each group named, with the most whoever joins it gains: alone, or together with other groups named on the way when
+   * that gains more than any of them alone (then it is said of each of them: the confirm says more, never less) */
+  const named = new Map<string, number>()
+  const alone = new Map<string, number>()
+  for (const g of groups) {
+    const v = gain(member(`group:${g}`, [g]))
+    alone.set(g, v)
+    if (v > 0) named.set(g, v)
+  }
+  const together = (p: Principal, gs: readonly string[]) => {
+    const v = gain(p)
+    // what one of them gives alone is said of that one only: Sales can edit, Leads can view, someone in both edits
+    // because of Sales (QA TC-284)
+    if (v <= Math.max(0, ...gs.map((id) => alone.get(id) ?? 0))) return
+    for (const id of gs) named.set(id, Math.max(named.get(id) ?? 0, v))
+  }
+  const list = [...near]
+  // pairs while they stay few (30 groups: 435); and always everyone in all of them. Known limit: with more than 30
+  // groups named on the way, pairs are not tried, and the one member in all of them can miss a pair that gains when
+  // being in all of them already gave more before the change
+  if (list.length <= 30) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    together(member(`pair:${list[i]}:${list[j]}`, [list[i]!, list[j]!]), [list[i]!, list[j]!])
+  }
+  if (list.length > 2 && !named.size) together(member('all-groups', list), list)
+  const more = team || off.length > 0 || named.size > 0
+  return {
+    latentMore: more,
+    latent: more ? {
+      team,
+      off: [...off].sort(byPerson).slice(0, EDIT_PEOPLE).map((u) => ({ id: u.id, name: u.name })),
+      groups: [...named].map(([id, g]) => ({ id, name: src.groupName(id) ?? id, edit: g === 2 })).sort((a, b) => cmp(a.name, b.name)),
+      edit: { team: teamGain === 2, off: offGains.some(([, g]) => g === 2), groups: [...named.values()].some((g) => g === 2) },
+    } : null,
+  }
+}
+
+/** A member no person or group rule can name: what the folders above give "everyone" (FolderEditPreview.everyoneAbove). */
+const NOBODY: Principal = { id: '\u0000everyone', name: '', role: 'member', groups: [] }
+function plainAbove(rules: RuleSet, segs: readonly string[]): NonNullable<FolderEditPreview['everyoneAbove']> {
+  const e = rules.explain(NOBODY, segs)
+  return { access: e.access, folder: e.reason.kind === 'rule' ? e.reason.folder : null }
 }

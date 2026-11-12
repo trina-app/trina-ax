@@ -107,17 +107,19 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
       put(chatId, { items: q.items.slice(take.length), paused: null, after: null })
       // send() puts the message on screen as "sending" before it returns: from then on the chat is busy and the runner
       // waits (a failure shows "not sent [send again]" on that message, so nothing disappears)
-      void useChats.getState().send({ chatId, content, attachments, author: take[0]!.author, clientMessageId: combinedClientId(take), onConflict: () => takeBack(chatId, take) }).catch(() => {})
+      void useChats.getState().send({ chatId, content, attachments, author: take[0]!.author, clientMessageId: combinedClientId(take), onConflict: (e) => takeBack(chatId, take, e.body.params?.reason === 'earlier_answer_ending') }).catch(() => {})
     } finally {
       flushing.delete(chatId)
     }
   }
 
-  /** The server still runs an answer in the chat: the messages wait again, in front of anything queued since. */
-  function takeBack(chatId: string, take: QueuedMessage[]) {
+  /** The server still runs an answer in the chat: the messages wait again, in front of anything queued since. The
+   * earlier answer is still being ended (Chat.ending, minutes at most): they wait for "Send now", not tried again and
+   * again (the chat says why). */
+  function takeBack(chatId: string, take: QueuedMessage[], ending = false) {
     const q = current(chatId)
     const ids = new Set(q.items.map((i) => i.id))
-    put(chatId, { ...q, items: [...take.filter((i) => !ids.has(i.id)), ...q.items], paused: null })
+    put(chatId, { ...q, items: [...take.filter((i) => !ids.has(i.id)), ...q.items], paused: ending ? 'error' : null })
     holdUntil.set(chatId, Date.now() + HOLD_MS)
     setTimeout(schedule, HOLD_MS + 50)
     void useChats.getState().loadThread(chatId).catch(() => {})

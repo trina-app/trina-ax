@@ -115,11 +115,11 @@ test('Settings: named groups Account, Connections, App (Providers first in Conne
   await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['integrations.title'], exact: true })).toBeAttached()
 })
 
-test('phone width: the Admin strip and the Settings list keep every item without sideways page scroll', async ({ page }) => {
+test('phone width: the Admin list and the Settings list keep every item without sideways page scroll', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await start(page)
-  await page.goto('/admin/providers')
-  await expect(page.getByTestId('admin-menu').getByRole('link', { name: t['admin.providers'] })).toBeAttached()
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-row-providers')).toBeAttached()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.goto('/settings')
   await expect(page.getByTestId('settings-group-connections')).toBeVisible()

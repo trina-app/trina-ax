@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: release to test (a tag without the v, 0.5.0-beta.1 or later)
+        description: release to test (a tag without the v, for example 0.4.0)
         type: string
         required: true
 

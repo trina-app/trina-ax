@@ -2,6 +2,7 @@
 // server/src/system/*). Everything but health is owner-only; update and restore ask for the password again (tab 4).
 import { z } from 'zod'
 import { IsoTime, JobAccepted } from './common'
+import { UserRef } from './entities'
 import { empty, endpoint } from './endpoint'
 import { SourceCodeOffer } from '../source'
 
@@ -110,6 +111,16 @@ export const BackupInfo = z.object({
   scope: z.enum(['db', 'full', 'incremental']),
 })
 export type BackupInfo = z.infer<typeof BackupInfo>
+/** The last restore (the activity log's `backup.restore`): which backup, made when, put back when, by whom, and whether
+ * it worked (a failed one kept the data as it was). */
+export const LastRestore = z.object({
+  backupId: z.string(),
+  backupCreatedAt: IsoTime.nullable(),
+  at: IsoTime,
+  by: UserRef.nullable(),
+  ok: z.boolean(),
+})
+export type LastRestore = z.infer<typeof LastRestore>
 export const StartBackupBody = z.object({ scope: z.enum(['db', 'full']).default('full') })
 export const StartRestoreBody = ReauthBody.extend({ backupId: z.string().min(1).max(200) })
 /** Export (tab 6): chats as Markdown, memories as CSV, the team folder as is. Written to users/<owner>/exports/. */
@@ -255,7 +266,7 @@ export const SYSTEM = {
   startUpdate: endpoint({ method: 'POST', path: '/api/admin/update', auth: 'owner-reauth', owner: 'G', status: 202, body: StartUpdateBody, response: JobAccepted, summary: 'Back up the DB, switch app/current, restart; roll back if the health check fails.' }),
   afterUpdateActions: endpoint({ method: 'GET', path: '/api/admin/after-update', auth: 'admin', owner: 'G', response: z.object({ items: z.array(AfterUpdateAction) }), summary: 'What a release left for an admin to do and that still applies to this team (not dismissed).' }),
   dismissAfterUpdate: endpoint({ method: 'POST', path: '/api/admin/after-update/:id/dismiss', auth: 'admin', owner: 'G', status: 204, body: z.object({}), response: empty, summary: 'Remember for the team that one after-update to-do is not needed.' }),
-  listBackups: endpoint({ method: 'GET', path: '/api/admin/backups', auth: 'owner', owner: 'G', response: z.object({ items: z.array(BackupInfo) }), summary: 'Backups in .system/backups/.' }),
+  listBackups: endpoint({ method: 'GET', path: '/api/admin/backups', auth: 'owner', owner: 'G', response: z.object({ items: z.array(BackupInfo), lastRestore: LastRestore.nullable().optional() }), summary: 'Backups in .system/backups/, and the last restore (which backup, when, by whom, ok).' }),
   startBackup: endpoint({ method: 'POST', path: '/api/admin/backup', auth: 'owner', owner: 'G', status: 202, body: StartBackupBody, response: JobAccepted, summary: 'Back up now (VACUUM INTO + team folder manifest diff).' }),
   startRestore: endpoint({ method: 'POST', path: '/api/admin/restore', auth: 'owner-reauth', owner: 'G', status: 202, body: StartRestoreBody, response: JobAccepted, summary: 'Restore a backup (everything after it is lost; the UI shows how much).' }),
   startExport: endpoint({ method: 'POST', path: '/api/admin/export', auth: 'owner', owner: 'G', status: 202, body: StartExportBody, response: JobAccepted, summary: 'Export chats / memories / files (optionally password-encrypted with age).' }),

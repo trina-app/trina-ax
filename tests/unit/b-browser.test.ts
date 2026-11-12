@@ -11,6 +11,8 @@ import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
+import { buildTurnContext, buildTurnPrompt, NO_BROWSER_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { loadPrincipal } from '../../server/src/policy/access'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -61,6 +63,7 @@ describe('browser tools', () => {
       for (const t of ['navigate', 'computer', 'read_page', 'browser_batch', 'preview_start', 'tabs_context']) expect(tools!.split(',')).toContain(t)
       expect(result).toBe('opened https://example.com')
       expect(system).toContain('## Browser (desktop app)')
+      expect(system).not.toContain('There is no browser in this app')
       expect(d.data.message.steps.find((s) => s.tool === 'navigate')).toMatchObject({ kind: 'browser', label: 'Open page · https://example.com', status: 'ok' })
       expect(web.frames.some((f) => f.type === 'browser.call')).toBe(false)
     } finally { stop() }
@@ -76,6 +79,32 @@ describe('browser tools', () => {
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')
+  })
+
+  test('on the web the AI is told the desktop app has the browser, so it says so instead of only "I cannot" (QA TC-242)', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await send(fake({ echo: 'system' }), { window: 'win-web-00002', client: 'web' })(chat.id)
+    const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+    expect(d.data.message.content).toContain('There is no browser in this app (the web or a phone).')
+    expect(d.data.message.content).toContain('desktop app has a browser next to the chat')
+    expect(d.data.message.content).not.toContain('## Browser (desktop app)')
+  })
+
+  test('the "no browser here" line only with the web-or-phone flag (turn.ts sets it for the person\'s own chat there): never in a confidential chat, a room or a shared chat, even with the flag', () => {
+    const user = loadPrincipal(h.ctx.db, 'alice')!
+    const base: PromptInput = { user, groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null, now: new Date('2026-11-12T09:00:00Z') }
+    const cases: [string, PromptInput, boolean][] = [
+      ['own chat on the web', { ...base, browserInDesktopApp: true }, true],
+      ['no flag', base, false],
+      ['confidential', { ...base, browserInDesktopApp: true, confidential: 'chat' }, false],
+      ['room', { ...base, browserInDesktopApp: true, room: { name: 'Sales', kind: 'team', members: 3, asker: user.name } }, false],
+      ['shared', { ...base, browserInDesktopApp: true, shared: { project: 'Falcon', audience: 3, asker: user.name } }, false],
+    ]
+    for (const [name, input, has] of cases) {
+      for (const text of [buildTurnPrompt(h.ctx.files, input), buildTurnContext(h.ctx.files, input)]) {
+        expect({ name, has: text.includes(NO_BROWSER_RULE), desktop: text.includes('## Browser (desktop app)') }).toEqual({ name, has, desktop: false })
+      }
+    }
   })
 
   test('"Allow all websites" (url-gate ①d): a browser tool opens an address the AI wrote without the address card, named in its audit line', async () => {

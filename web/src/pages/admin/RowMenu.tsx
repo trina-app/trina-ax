@@ -62,7 +62,7 @@ export function MemberMenu({ name, items, rowFocus }: { name: string; items: Mem
   const label = t('members.actionsFor', { name })
   return (
     <div ref={box} className="relative shrink-0" onKeyDown={onKeyDown}>
-      <IconButton label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="member-more" data-row-focus={rowFocus || undefined}>
+      <IconButton label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="max-md:size-11" data-testid="member-more" data-row-focus={rowFocus || undefined}>
         <MoreHorizontal size={16} aria-hidden />
       </IconButton>
       {open && (

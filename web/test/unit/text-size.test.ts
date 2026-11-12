@@ -142,4 +142,41 @@ describe('on the page and in the account', () => {
     useSession.getState().signedIn(me('large'))
     expect(root()).toBe('112.5%')
   })
+
+  test('a save that fails (offline) puts back the account\'s size and says so to the caller', async () => {
+    useSession.getState().signedIn(me('large'))
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    const saving = useSession.getState().setTextSize('largest')
+    expect(root()).toBe('140%')
+    await expect(saving).rejects.toThrow()
+    expect(root()).toBe('112.5%')
+    expect(storedTextSize()).toBe('large')
+    // nothing is left waiting: the next account read counts
+    useSession.getState().signedIn(me('small'))
+    expect(root()).toBe('90%')
+  })
+
+  test('an account with no size of its own: a failed save goes back to the size this device used before', async () => {
+    storeTextSize('larger')
+    useSession.getState().signedIn(me())
+    expect(root()).toBe('125%')
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    await expect(useSession.getState().setTextSize('small')).rejects.toThrow()
+    expect(root()).toBe('125%')
+    expect(storedTextSize()).toBe('larger')
+  })
+
+  test('an earlier save that fails does not undo a later pick still being saved', async () => {
+    useSession.getState().signedIn(me('large'))
+    const answers: ((r: Response | Error) => void)[] = []
+    globalThis.fetch = (() => new Promise<Response>((ok, no) => { answers.push((r) => (r instanceof Error ? no(r) : ok(r))) })) as unknown as typeof fetch
+    const first = useSession.getState().setTextSize('small')
+    const second = useSession.getState().setTextSize('largest')
+    answers[0]!(new TypeError('Failed to fetch'))
+    await expect(first).rejects.toThrow()
+    expect(root()).toBe('140%')
+    answers[1]!(Response.json(me('largest')))
+    await second
+    expect(root()).toBe('140%')
+  })
 })

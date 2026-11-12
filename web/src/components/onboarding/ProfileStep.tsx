@@ -67,7 +67,8 @@ type Phase =
   | { kind: 'fallback'; failed: { input: DraftInput; error: string | null } | null }
   | { kind: 'paste' }
   | { kind: 'questions' }
-  | { kind: 'review' }
+  /** `from`: 'answers' after the three typed answers (nothing was read: its title says to check what was typed) */
+  | { kind: 'review'; from?: 'answers' }
 
 const POLL_MS = 2500
 /** after a step event of the draft chat (realtime): ask again this soon (the tool call reaches the server a moment after
@@ -403,7 +404,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     const any = !!(answers.what.trim() || answers.who.trim() || answers.tone.trim())
     const next = () => {
       setDraft((d) => ({ ...d, website: d.website || normalizeWebsite(site) || '', products: answers.what.trim().slice(0, PROFILE_LIMITS.products), audience: answers.who.trim().slice(0, PROFILE_LIMITS.audience), tone: toneChips(answers.tone), sources: [] }))
-      setPhase({ kind: 'review' })
+      setPhase({ kind: 'review', from: 'answers' })
     }
     return (
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (any) next() }} data-testid="profile-step-questions">
@@ -430,7 +431,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     )
   }
 
-  // review: "이렇게 이해했어요"
+  // review: "이렇게 이해했어요" (what was read, or a saved profile); after typed answers "입력한 내용을 확인해 주세요" (QA TC-206)
   const sourceOf = (f: ProfileField) => draft.sources.find((s) => s.field === f) ?? null
   const set = (f: Exclude<ProfileField, 'tone'>, v: string) => setDraft((d) => ({ ...d, [f]: v }))
   const clear = (f: ProfileField) => setDraft((d) => ({ ...d, [f]: f === 'tone' ? [] : '', sources: d.sources.filter((s) => s.field !== f) }))
@@ -438,7 +439,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   const fromDraft = draft.sources.length > 0
   return (
     <div className="space-y-4" data-testid="profile-step-review">
-      {head(t('onboarding.profile.reviewTitle'), t('onboarding.profile.reviewDesc'))}
+      {head(t(phase.from === 'answers' ? 'onboarding.profile.reviewTitleTyped' : 'onboarding.profile.reviewTitle'), t('onboarding.profile.reviewDesc'))}
       <ReviewField field="name" value={draft.name ?? ''} source={sourceOf('name')} onClear={() => clear('name')}>
         {(id) => <input id={id} className={inputCls} value={draft.name ?? ''} onChange={(e) => set('name', e.target.value)} maxLength={PROFILE_LIMITS.name} data-testid="profile-name" />}
       </ReviewField>

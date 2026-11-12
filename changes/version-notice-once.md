@@ -1,0 +1,1 @@
+- "A new version is ready" shows once after the server is updated, not once more every time the connection comes back (a phone showed four stacked).

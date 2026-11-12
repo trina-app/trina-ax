@@ -162,6 +162,16 @@ export async function opsCall(base: string, keyId: string, kp: TeamKeyPair, meth
   return { status: res.status, json, text: t, auth: auth ?? '' }
 }
 
+/** other base64 spellings of the same 64 signature bytes: padding dropped, and the unused low bits of the last
+ * character set (Node's decoder accepts both) */
+export function base64Respellings(sig: string): string[] {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  const bare = sig.replace(/=+$/, '')
+  const last = A.indexOf(bare.at(-1)!)
+  const flipped = bare.slice(0, -1) + A[last ^ 0b1111]!
+  return [bare, flipped, flipped + '==']
+}
+
 /** fields the operator API needs to create a team with this key (the tenant signs at enroll time) */
 export function opsCreateBody(name: string, kp: TeamKeyPair, externalRef: string, ts = Date.now()) {
   return { name, publicKey: kp.publicKey, ts, sig: signB64(loadPrivateKey(kp.privatePem), registerSigningString(name, kp.publicKey, ts)), region: 'kr-seoul-1', origin: 'cloud', externalRef }

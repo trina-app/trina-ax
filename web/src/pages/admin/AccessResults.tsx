@@ -3,14 +3,16 @@
 // (lib/access-view.ts). Read only. Shown by Folder permissions › By person (AccessPeople.tsx), where a row's "View or
 // change rules" opens that folder's rule editor, and by the invite and add-member dialogs ("Folders this person will
 // see"). Access is never told by colour: the level is grey text with an icon; the warning colour marks a risk the
-// screen computes (a member who manages team skills).
+// screen computes (a member who manages team skills). A team project's folder in projects/ says "멤버만" and offers
+// "멤버 관리" (its project's page) instead of its rules: its members are changed there (docs/DECISIONS.md "Project
+// contents only for members").
 import clsx from 'clsx'
 import { ChevronRight, ExternalLink, Eye, EyeOff, FolderSearch, Pencil, Signpost, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Group, Locale, PersonAccessResponse, PersonFolderAccess, Role } from '@mycel/shared/api'
 import { api, API, errorText, isApiError, isNetworkError } from '../../lib/api'
-import { cleanPrefix, groupRows, levelOf, reasonText, riskOf, rulesApply, shortPath, summaryLines, type Level, type Names, type Section, type Who } from '../../lib/access-view'
+import { cleanPrefix, groupRows, levelOf, manageMembersLink, membersOnlyFolder, reasonText, riskOf, rulesApply, shortPath, summaryLines, type Level, type Names, type Section, type Who } from '../../lib/access-view'
 import { useLocale, useT, type MessageKey, type Params } from '../../i18n'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, useAnnounce } from '../../components/ui'
 import type { MemberRole } from './people-choices'
@@ -64,8 +66,11 @@ function Row({ f, role, names, onEdit, editCol, newPerson }: { f: PersonFolderAc
   const meta = f.group ? t('rules.groupOf', { name: f.group.name }) : f.projects?.length ? f.projects.map((p) => t('accessView.projectOf', { name: p.name })).join(', ') : null
   const risk = riskOf(f, role)
   const editLabel = t('accessView.editNamed', { path: full })
-  // rules never change a personal folder or what the owner and admins get: nothing to open there
-  const canEdit = onEdit && rulesApply(f)
+  // rules never change a personal folder or what the owner and admins get: nothing to open there; a team project's
+  // folder: its members, on its page
+  const membersOnly = membersOnlyFolder(f)
+  const manage = membersOnly ? manageMembersLink(f) : null
+  const canEdit = onEdit && rulesApply(f) && !membersOnly
   return (
     <li className="flex items-start gap-3 py-2.5" data-testid="access-row" data-path={f.path} data-level={level}>
       <div className="min-w-0 flex-1">
@@ -75,6 +80,7 @@ function Row({ f, role, names, onEdit, editCol, newPerson }: { f: PersonFolderAc
             <span className="sr-only">{full}</span>
           </span>
           {meta && <span className="text-xs text-faint">{meta}</span>}
+          {membersOnly && <span data-testid="access-members-only"><Badge>{t('accessTree.membersOnly')}</Badge></span>}
           {f.exists === false && <span className="text-xs text-faint">{t('rules.missingOnDisk')}</span>}
         </div>
         {/* narrow: the access on its own line under the path; wide: its own column */}
@@ -86,6 +92,11 @@ function Row({ f, role, names, onEdit, editCol, newPerson }: { f: PersonFolderAc
             </p>
           ))}
         </div>
+        {manage && onEdit && (
+          <Link to={manage} className="mt-1 inline-block text-xs text-accent-text underline-offset-2 hover:underline" data-testid="access-manage-members">
+            {t('accessTree.manageMembers')}
+          </Link>
+        )}
         {risk && (
           <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="access-risk">
             <Badge tone="warn">{t('accessView.risk.skills')}</Badge>

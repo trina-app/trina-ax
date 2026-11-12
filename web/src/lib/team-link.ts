@@ -18,6 +18,27 @@ export function readJoinToken(loc: { pathname: string; search: string; hash: str
   return { token: /^[A-Za-z0-9_-]{16,200}$/.test(raw) ? raw : null, cleanUrl: `${loc.pathname}${loc.search}${rest ? `#${rest}` : ''}` }
 }
 
+const JOIN_TOKEN_KEY = 'mycel.joinToken'
+
+/**
+ * The team link of this tab: the address's #t= (which the page then takes out of the address bar), else the token this
+ * tab kept from it. The tab keeps it until the person joined or the server said the link does not work, so a refresh
+ * on a weak phone connection (the details never loaded, or the form was open) still finds the link.
+ */
+export function tabJoinToken(loc: { pathname: string; search: string; hash: string }): { token: string | null; cleanUrl: string | null } {
+  const link = readJoinToken(loc)
+  try {
+    if (link.cleanUrl === null) return { token: sessionStorage.getItem(JOIN_TOKEN_KEY), cleanUrl: null }
+    if (link.token) sessionStorage.setItem(JOIN_TOKEN_KEY, link.token)
+    else sessionStorage.removeItem(JOIN_TOKEN_KEY)
+  } catch { /* storage blocked: only the address has it, as before */ }
+  return link
+}
+/** Joined, or the link does not work: the tab forgets the token. */
+export function forgetJoinToken() {
+  try { sessionStorage.removeItem(JOIN_TOKEN_KEY) } catch { /* storage blocked: nothing kept */ }
+}
+
 /** The text a leader pastes into KakaoTalk or Slack: who invites, to which team (`team`: the team's name, so the
  * message says where the link leads; docs/DECISIONS.md "W3"), and the ONE skill to try together when the link names one
  * (the skill the link opens: several shared skills are never listed, docs/DECISIONS.md "W5"), on the product as the app
@@ -51,6 +72,8 @@ export function joinNext(next: string | null | undefined): string {
 let afterJoin: string | null = null
 export const setAfterJoin = (next: string) => { afterJoin = next }
 export const afterJoinTarget = (): string => afterJoin ?? '/'
+/** The join page set where to go: someone just joined (not a team link opened while already signed in). */
+export const afterJoinSet = (): boolean => afterJoin !== null
 export const clearAfterJoin = () => { afterJoin = null }
 
 /**
@@ -66,11 +89,29 @@ export const clearAfterJoin = () => { afterJoin = null }
  * - Anything else (Linux, unknown): none.
  * The team link's token comes from memory (the page took it out of the address bar).
  */
-export function openInAppHref(o: { scheme: string; origin: string; path: string; platform: 'ios' | 'android' | 'mac' | 'windows' | 'other'; androidPackage: string }): string | null {
+export function openInAppHref(o: { scheme: string; origin: string; path: string; platform: 'ios' | 'android' | 'mac' | 'windows' | 'other'; androidPackage: string; androidFallback?: string | null }): string | null {
   const url = encodeURIComponent(o.origin + o.path)
-  if (o.platform === 'android') return `intent://open?url=${url}#Intent;scheme=${o.scheme};package=${o.androidPackage};end`
+  // without the app, Chrome opens the fallback page (getAppHref: the store listing or the download page, a fixed
+  // https address with nothing of this page in it), never the token
+  const fallback = o.androidFallback && /^https:\/\//.test(o.androidFallback) ? `S.browser_fallback_url=${encodeURIComponent(o.androidFallback)};` : ''
+  if (o.platform === 'android') return `intent://open?url=${url}#Intent;scheme=${o.scheme};package=${o.androidPackage};${fallback}end`
   if (o.platform === 'mac' || o.platform === 'windows') return `${o.scheme}://open?url=${url}`
   return null
 }
 /** Shown only in a web browser (inside the apps the page already is the app) with a link for this system. */
 export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', href: string | null): href is string => client === 'web' && href !== null
+
+/**
+ * "Get the app" on the join pages (docs/DECISIONS.md "Get the app"): a phone's web browser without the app lands here
+ * from a tapped invite or team link (with the app, the link itself opens it). The edition's store listing for this
+ * phone, else its download page (APP_DOWNLOADS, shared/src/app-downloads.ts); nothing on a computer, inside our own
+ * apps, or in a build that names neither. A fixed address: nothing of this page (no token) is ever added to it.
+ * - iPhone: the App Store listing.
+ * - Android: the Google Play listing (APP_DOWNLOADS.android), else the download page (never an .apk itself); the
+ *   intent's fallback follows it.
+ */
+export function getAppHref(platform: 'ios' | 'android' | 'mac' | 'windows' | 'other', client: 'web' | 'desktop' | 'mobile', links: { page: string; iphone: string; android: string }): string | null {
+  if (client !== 'web') return null
+  const href = platform === 'ios' ? links.iphone || links.page : platform === 'android' ? links.android || links.page : ''
+  return /^https:\/\//.test(href) ? href : null
+}

@@ -19,6 +19,7 @@ import { fileError } from '../team-files/errors'
 import { hashFile } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import type { Attachments } from './attachments'
+import { defaultChunkGate, type ChunkGate } from './chunk-gate'
 
 /** idle expiry: every accepted chunk moves expires_at to now + this */
 export const SESSION_TTL_MS = 24 * 3600_000
@@ -42,6 +43,8 @@ export class UploadSessions {
   transcribe: TranscribeStarter | null = null
   /** refuses a transcribe upload before it starts (a confidential chat's recording that would go out) */
   transcribeCheck: ((userId: string, chatId?: string) => void) | null = null
+  /** limits chunks read at once and refuses them while the server is short of memory (chunk-gate.ts) */
+  gate: ChunkGate = defaultChunkGate()
 
   constructor(private ctx: AppContext, private files: TeamFiles, private attachments: Attachments) {
     fs.mkdirSync(this.dir(), { recursive: true, mode: 0o700 })
@@ -52,7 +55,12 @@ export class UploadSessions {
   private row(userId: string, id: string): Row {
     const r = this.ctx.db.query('SELECT id, user_id, target, size, sha256, chunk_size, received, expires_at, created_at, result FROM upload_sessions WHERE id = ?').get(id) as Row | null
     if (!r || r.user_id !== userId) throw new HttpError('not_found')
-    if (Date.parse(r.expires_at) < Date.now() && !r.result) { this.drop(id); fileError('gone', 'expired') }
+    if (Date.parse(r.expires_at) < Date.now() && !r.result) {
+      this.drop(id)
+      // the words name the limit that ended it (QA TC-230: a 7-day upload was told "24 h" seconds after a chunk)
+      const started = r.created_at ? Date.parse(r.created_at) : NaN
+      fileError('gone', Number.isFinite(started) && Date.now() >= started + SESSION_MAX_MS ? 'expiredMax' : 'expired')
+    }
     return r
   }
   private toApi(r: Row): UploadSession {
@@ -110,6 +118,11 @@ export class UploadSessions {
     if (!Number.isInteger(n) || n < 0 || n >= count) fileError('validation', 'chunkSize', { n: `chunk number must be 0..${count - 1}` })
     const already: number[] = JSON.parse(r.received)
     if (already.includes(n)) { for await (const _ of body) { /* drain */ } return { received: already } }
+    const release = await this.gate.enter()
+    try { return await this.writeChunk(id, n, count, r, body) } finally { release() }
+  }
+
+  private async writeChunk(id: string, n: number, count: number, r: Row, body: AsyncIterable<Uint8Array>): Promise<{ received: number[] }> {
     const expected = n === count - 1 ? r.size - n * r.chunk_size : r.chunk_size
     const offset = n * r.chunk_size
     const h = this.hashes.get(id) ?? (n === 0 ? { hash: crypto.createHash('sha256'), next: 0 } : null)
@@ -120,7 +133,7 @@ export class UploadSessions {
       // the part file is gone (a restored DB brought the session back, the folder was cleaned): this session can
       // never finish; end it so the client starts a new one instead of retrying
       this.drop(id)
-      fileError('gone', 'expired')
+      fileError('gone', 'uploadLost')
     }
     let got = 0
     try {
@@ -177,7 +190,8 @@ export class UploadSessions {
     let result: UploadComplete
     if (target.kind === 'path') {
       const slash = target.path.lastIndexOf('/')
-      const entry = await this.files.placeUpload(userId, slash < 0 ? '' : target.path.slice(0, slash), target.path.slice(slash + 1), this.part(id), target.onExists, sha)
+      // the same file at that name already (picked again after its first upload ended): kept, no "(2)"
+      const entry = await this.files.placeUpload(userId, slash < 0 ? '' : target.path.slice(0, slash), target.path.slice(slash + 1), this.part(id), target.onExists, sha, undefined, { keepSame: true })
       result = { kind: 'path', entry }
     } else if (target.kind === 'attachment') {
       result = { kind: 'attachment', attachment: await this.attachments.create(userId, target.chatId, target.name, this.part(id), sha) }

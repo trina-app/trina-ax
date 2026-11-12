@@ -50,6 +50,7 @@ const bridge: DesktopBridge = {
   },
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
   setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),
+  folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),
   browserSettings: {
     get: () => ipcRenderer.invoke('bridge:browser-settings'),
     onChange: on('bridge:browser-settings'),

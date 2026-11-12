@@ -20,13 +20,14 @@ import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
+import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
-import { placeKey, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
+import { keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
@@ -60,6 +61,10 @@ export const MENTION_ALL_CONFIRM = 10
 
 /** the boxes on screen for each place (placeKey), each with how it reads the place's draft again */
 const boxesOf = new Map<string, Set<() => void>>()
+// another tab of mine changed a place's draft (sent it, typed in it): the boxes of that place here show it too
+onRoomDraftElsewhere((key) => {
+  for (const f of boxesOf.get(key) ?? []) f()
+})
 
 /** `above`: one quiet line over the box (a DM's status line, components/StatusMessage.tsx) */
 export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false, above }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean; above?: ReactNode }) {
@@ -67,7 +72,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const locale = useLocale()
   // the room's box and each thread's box keep their own draft
   const key = placeKey(roomId, threadRootId)
-  const [text, setTextState] = useState(() => drafts.get(key) ?? '')
+  // (the draft this device kept for the place when this page has none: the app was closed, or the page loaded again)
+  const [text, setTextState] = useState(() => {
+    restoreRoomDraft(key)
+    return drafts.get(key) ?? ''
+  })
   const [alsoInRoom, setAlsoInRoom] = useState(false)
   const [files, setFiles] = useState<Upload[]>([])
   const input = useRef<HTMLTextAreaElement>(null)
@@ -76,7 +85,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     setTextState(s)
     if (s) drafts.set(key, s)
     else drafts.delete(key)
+    keepRoomDraft(key)
   }
+  // a reply typed here (store/rooms.ts roomDrafts, kept on this device too): while there is one, the page does not
+  // reload by itself (after an update, or once the connection is back: lib/reload-guard.ts), as the chat's box does
+  useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   // "@전체": everyone else in the room, where it is offered (useEveryone)
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
@@ -113,6 +126,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useEffect(() => {
     if (mention.picked.length) roomDraftMentions.set(key, mention.picked)
     else roomDraftMentions.delete(key)
+    keepRoomDraft(key)
   }, [key, mention.picked])
   // another box of this place (the same thread beside a file in the viewer) goes: what it left is this box's draft now
   const mentionNow = useRef(mention)
@@ -298,15 +312,16 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         )}
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
-          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:px-3" />
+          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:pr-3 max-md:pl-2" />
         ) : (
           <>
             <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
             {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
-                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last */}
-            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
+                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last. A phone: 8 px on the
+                left, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
+            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:pr-3 max-md:pl-2">
               <div className="flex h-composer-line shrink-0 items-center">
-                <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="room-attach">
+                <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
                   <Paperclip size={18} />
                 </IconButton>
               </div>
@@ -382,6 +397,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       {voiceError && (
         <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">
           {voiceError}
+          {voice.settingsFor === voiceError && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
         </p>
       )}
       {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}

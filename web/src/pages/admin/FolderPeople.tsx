@@ -1,7 +1,6 @@
 // A folder's people, as Admin › Folder permissions lists them (GET /api/admin/access/folder): every active person's
 // access at the folder and the reason, by name, with people switched off apart. Used by the tree's folder detail
-// (AccessTree.tsx) and by the Files page's "Who can see it" panel for admins (FolderAccessAdmin.tsx). Admins only: the
-// server refuses the endpoint to anyone else.
+// (AccessTree.tsx). Admins only: the server refuses the endpoint to anyone else.
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { FolderAccessResponse } from '@mycel/shared/api'
@@ -110,8 +109,9 @@ export function People({ answer, path, names, linkPeople = false }: { answer: Re
                     )}
                     <span className="shrink-0 text-xs text-faint">· {t(`role.${p.role}`)}</span>
                   </div>
-                  {/* the reason in one dim line; all of it in the tooltip and for screen readers */}
-                  <p className="truncate text-xs text-faint" title={reasonText(t, asRow(p), p.role, names).join(' · ')}>
+                  {/* the reason in one dim line; all of it in the tooltip and for screen readers. On a team project's
+                      folder: "Member" or "Not a member" (lib/access-view.ts), never the setting that decided */}
+                  <p className="truncate text-xs text-faint" title={reasonText(t, asRow(p), p.role, names).join(' · ')} data-testid="folder-person-reason">
                     {reasonText(t, asRow(p), p.role, names).join(' · ')}
                   </p>
                 </div>

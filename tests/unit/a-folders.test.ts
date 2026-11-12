@@ -8,6 +8,7 @@ import { RuleSet, type Access, type Principal } from '../../server/src/policy/ac
 import { captureState, readLosses } from '../../server/src/admin/folders'
 import { uuidv7 } from '@mycel/shared/api'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 // ---------------- resolution table (pure) ----------------
 type R = [path: string, type: 'everyone' | 'role' | 'group' | 'user', subject: string | null, access: Access]
@@ -27,6 +28,7 @@ const RULES: R[] = [
   ['projects/x/drafts', 'user', 'leo', 'write'], // only leo has a rule here; others inherit from projects/x
   ['projects/y', 'role', 'member', 'read'],
   ['projects/y', 'everyone', null, 'write'], // role beats everyone
+  ['projects/z/open', 'everyone', null, 'read'], // an open folder inside a project nobody's a member of by a rule there
   ['users/leo', 'everyone', null, 'write'], // ignored: rules under users/ never apply
   ['users', 'everyone', null, 'write'], // ignored too: users/ itself is read-only and never opens users/<id>/
 ]
@@ -52,7 +54,14 @@ const TABLE: [string, string, Access][] = [
   // personal > group (widest) > role > everyone
   ['mia', 'projects/x/a', 'none'], ['leo', 'projects/x/a', 'read'], ['ola', 'projects/x/a', 'write'], ['nobody', 'projects/x/a', 'write'],
   ['leo', 'projects/x/drafts/d.md', 'write'], ['ola', 'projects/x/drafts/d.md', 'write'], ['mia', 'projects/x/drafts/d.md', 'none'],
-  ['nobody', 'projects/y/a', 'read'], ['adam', 'projects/y/a', 'write'],
+  ['nobody', 'projects/y/a', 'read'],
+  // inside a team project (projects/<name>/…) the owner and admins are judged as a member with the same groups, by the
+  // rules at or below projects/<name> only (docs/DECISIONS.md "Project contents only for members"): a role rule for
+  // members applies to them there, the root's everyone:read does not reach in, projects/ itself stays theirs
+  ['adam', 'projects/y/a', 'read'], ['olga', 'projects/x/a', 'write'], ['adam', 'projects/x/drafts/d.md', 'write'],
+  ['adam', 'projects/z/a', 'none'], ['olga', 'projects/z', 'none'], ['nobody', 'projects/z/a', 'read'], ['adam', 'projects', 'write'], ['olga', 'projects/new.md', 'none'],
+  // a rule on a folder inside a project lets members in, never the owner or an admin who does not read projects/<name>
+  ['nobody', 'projects/z/open/a.md', 'read'], ['adam', 'projects/z/open/a.md', 'none'], ['olga', 'projects/z/open', 'none'],
   ['nobody', 'skills/a', 'read'], ['nobody', 'shared/a', 'write'], ['nobody', '.system/x', 'none'],
 ]
 
@@ -66,6 +75,11 @@ describe('permission resolution table (tab 2)', () => {
     expect(rules.canList(P.olga!, ['users', 'leo'])).toBe(false)
     expect(rules.canList(P.adam!, ['users', 'leo'])).toBe(false)
     expect(rules.canList(P.olga!, ['users', 'olga'])).toBe(true)
+    // a project the owner or an admin is no member of: not even listed for its open folder inside; projects/ is
+    expect(rules.canList(P.adam!, ['projects', 'z'])).toBe(false)
+    expect(rules.canList(P.olga!, ['projects', 'z', 'open'])).toBe(false)
+    expect(rules.canList(P.adam!, ['projects'])).toBe(true)
+    expect(rules.canList(P.nobody!, ['projects', 'z', 'open'])).toBe(true)
   })
   test('readLosses reports the top-most folders where read access disappears', () => {
     const before = { principals: Object.values(P), rules }
@@ -111,14 +125,14 @@ describe('folders API', () => {
   })
 
   test('create folder + rules: on disk, by actual name, not inside users/ or .system, no duplicates', async () => {
-    const f = await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo', rules: [{ subjectType: 'user', subjectId: alice.id, access: 'write' }, { subjectType: 'group', subjectId: sales, access: 'read' }] })
-    expect(f).toMatchObject({ path: 'projects/apollo', exists: true })
+    const f = await admin.call('POST', '/api/admin/folders', { path: 'teams/apollo', rules: [{ subjectType: 'user', subjectId: alice.id, access: 'write' }, { subjectType: 'group', subjectId: sales, access: 'read' }] })
+    expect(f).toMatchObject({ path: 'teams/apollo', exists: true })
     expect(f.rules).toHaveLength(2)
-    expect(fs.statSync(path.join(root(), 'projects', 'apollo')).isDirectory()).toBe(true)
+    expect(fs.statSync(path.join(root(), 'teams', 'apollo')).isDirectory()).toBe(true)
     if (h.ctx.files.fx.caseInsensitive) {
       // the stored path is the on-disk name, whatever case the admin typed
-      const g = await admin.call('POST', '/api/admin/folders', { path: 'PROJECTS/Apollo/notes', rules: [] })
-      expect(g.path).toBe('projects/apollo/notes')
+      const g = await admin.call('POST', '/api/admin/folders', { path: 'TEAMS/Apollo/notes', rules: [] })
+      expect(g.path).toBe('teams/apollo/notes')
     }
     for (const bad of ['users/alice', 'users', 'users/alice/x', '.system', '.system/history']) {
       const r = await admin.try('POST', '/api/admin/folders', { path: bad, rules: [] })
@@ -126,24 +140,62 @@ describe('folders API', () => {
     }
     expect((await admin.try('POST', '/api/admin/folders', { path: '../etc', rules: [] })).status).toBe(400)
     expect((await admin.try('POST', '/api/admin/folders', { path: 'missing/one', create: false, rules: [] })).status).toBe(404)
-    expect((await admin.try('POST', '/api/admin/folders', { path: 'projects/apollo', rules: [] })).status).toBe(409)
+    expect((await admin.try('POST', '/api/admin/folders', { path: 'teams/apollo', rules: [] })).status).toBe(409)
     expect((await admin.try('POST', '/api/admin/folders', { path: 'p2', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'write' }] })).status).toBe(400)
     expect((await admin.try('POST', '/api/admin/folders', { path: 'p3', rules: [{ subjectType: 'group', subjectId: uuidv7(), access: 'read' }] })).status).toBe(400)
     expect((await admin.try('POST', '/api/admin/folders', { path: 'p4', rules: [{ subjectType: 'role', subjectId: 'owner', access: 'read' }] })).status).toBe(400)
     fs.writeFileSync(path.join(root(), 'shared', 'file.md'), 'x')
     expect((await admin.try('POST', '/api/admin/folders', { path: 'shared/file.md', rules: [] })).status).toBe(400)
     // and the stored rules take effect for the file tools right away
-    expect(h.ctx.files.rules().access(h.ctx.files.principal(alice.id), ['projects', 'apollo', 'x.md'])).toBe('write')
-    expect(h.ctx.files.rules().access(h.ctx.files.principal(bob.id), ['projects', 'apollo', 'x.md'])).toBe('none')
+    expect(h.ctx.files.rules().access(h.ctx.files.principal(alice.id), ['teams', 'apollo', 'x.md'])).toBe('write')
+    expect(h.ctx.files.rules().access(h.ctx.files.principal(bob.id), ['teams', 'apollo', 'x.md'])).toBe('none')
+  })
+
+  test('nothing at or under projects/<name>: its members change on the project page (409, one answer present or missing)', async () => {
+    // docs/DECISIONS.md "Project contents only for members": Admin › Folder permissions never writes or previews there
+    fs.mkdirSync(path.join(root(), 'projects', 'apollo', 'notes'), { recursive: true })
+    const refused = async (r: Promise<{ status: number; body: any }>, label: string) => {
+      const x = await r
+      expect(x.status, label).toBe(409)
+      expect(x.body.error.params.reason, label).toBe('project_members_only')
+    }
+    for (const p of ['projects/apollo', 'projects/apollo/notes', 'projects/not-there', 'projects/not-there/x', 'PROJECTS/Apollo', 'Projects/apollo/notes']) {
+      await refused(admin.try('POST', '/api/admin/folders', { path: p, rules: [{ subjectType: 'user', subjectId: 'adam', access: 'write' }] }), `create ${p}`)
+      await refused(admin.try('POST', '/api/admin/folders', { path: p, create: false, rules: [] }), `create false ${p}`)
+      await refused(owner.try('POST', '/api/admin/folder-rules/preview', { changes: [{ path: p, rules: [{ subjectType: 'user', subjectId: 'olga', access: 'read' }] }] }), `preview ${p}`)
+    }
+    // nothing was made, no rule was written
+    expect(fs.existsSync(path.join(root(), 'projects', 'not-there'))).toBe(false)
+    expect(h.ctx.db.query("SELECT 1 FROM folders WHERE path LIKE 'projects/%'").get()).toBeNull()
+    // a folder row an older build made there (rules set by an admin then): not edited, not removed, not listed inside
+    const top = legacyProjectFolder(h.ctx.db, root(), 'projects/apollo', [{ subjectType: 'user', subjectId: alice.id, access: 'write' }], 'adam')
+    const inner = legacyProjectFolder(h.ctx.db, root(), 'projects/apollo/notes', [{ subjectType: 'user', subjectId: bob.id, access: 'read' }], 'adam')
+    legacyProjectFolder(h.ctx.db, root(), 'projects/apollo/open', [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'adam')
+    for (const id of [top, inner]) {
+      await refused(admin.try('PUT', `/api/admin/folders/${id}/rules`, { rules: [{ subjectType: 'user', subjectId: 'adam', access: 'write' }] }), `put ${id}`)
+      await refused(owner.try('DELETE', `/api/admin/folders/${id}`), `delete ${id}`)
+    }
+    const listed = (await admin.call('GET', '/api/admin/folders')).items.map((x: any) => x.path)
+    expect(listed).toContain('projects/apollo')
+    expect(listed.some((p: string) => p.startsWith('projects/apollo/'))).toBe(false)
+    expect(h.ctx.files.rules().rulesAt('projects/apollo')).toEqual([{ subjectType: 'user', subjectId: alice.id, access: 'write' }])
+    expect(h.ctx.files.rules().rulesAt('projects/apollo/notes')).toEqual([{ subjectType: 'user', subjectId: bob.id, access: 'read' }])
+    // the admin who made them is not a member: they read nothing there, not even the open folder its members read
+    const acc = (who: string, p: string) => h.ctx.files.rules().access(h.ctx.files.principal(who), p.split('/'))
+    expect(acc('adam', 'projects/apollo/x.md')).toBe('none')
+    for (const who of ['adam', 'olga']) expect(acc(who, 'projects/apollo/open/x.md'), who).toBe('none')
+    expect(acc(alice.id, 'projects/apollo/open/x.md')).toBe('read')
+    expect(acc(bob.id, 'projects/apollo/open/x.md')).toBe('read')
+    expect(acc(bob.id, 'projects/apollo/notes/x.md')).toBe('read')
   })
 
   test('preview shows before/after per person and who loses access, without saving', async () => {
     const before = (await admin.call('GET', '/api/admin/folders')).items
-    const p = await admin.call('POST', '/api/admin/folder-rules/preview', { changes: [{ path: 'projects/apollo', rules: [{ subjectType: 'user', subjectId: bob.id, access: 'read' }] }] })
-    const row = p.folders.find((f: any) => f.path === 'projects/apollo')
+    const p = await admin.call('POST', '/api/admin/folder-rules/preview', { changes: [{ path: 'teams/apollo', rules: [{ subjectType: 'user', subjectId: bob.id, access: 'read' }] }] })
+    const row = p.folders.find((f: any) => f.path === 'teams/apollo')
     const by = Object.fromEntries(row.users.map((u: any) => [u.user.id, `${u.before}->${u.after}`]))
     expect(by).toMatchObject({ [alice.id]: 'write->none', [bob.id]: 'none->read', adam: 'write->write', olga: 'write->write' })
-    expect(p.losing).toEqual([{ user: { id: alice.id, name: 'ALICE' }, paths: ['projects/apollo'], chatsReset: 0 }])
+    expect(p.losing).toEqual([{ user: { id: alice.id, name: 'ALICE' }, paths: ['teams/apollo'], chatsReset: 0 }])
     expect((await admin.call('GET', '/api/admin/folders')).items).toEqual(before)
     expect((await admin.try('POST', '/api/admin/folder-rules/preview', { changes: [{ path: 'users/bob', rules: [] }] })).status).toBe(400)
     // a new (not yet existing) folder can be previewed
@@ -155,9 +207,9 @@ describe('folders API', () => {
     const chatA = uuidv7(), chatB = uuidv7()
     h.ctx.db.query("INSERT INTO chats (id, user_id, engine_session_id) VALUES (?, ?, 'sess-a'), (?, ?, 'sess-b')").run(chatA, alice.id, chatB, bob.id)
     for (const c of [chatA, chatB]) { fs.mkdirSync(path.join(h.ctx.config.dataDir, 'sessions', c), { recursive: true }); fs.writeFileSync(path.join(h.ctx.config.dataDir, 'sessions', c, 's.jsonl'), '{}') }
-    const preview = await admin.call('POST', '/api/admin/folder-rules/preview', { changes: [{ path: 'projects/apollo', rules: [{ subjectType: 'user', subjectId: bob.id, access: 'read' }] }] })
+    const preview = await admin.call('POST', '/api/admin/folder-rules/preview', { changes: [{ path: 'teams/apollo', rules: [{ subjectType: 'user', subjectId: bob.id, access: 'read' }] }] })
     expect(preview.losing[0].chatsReset).toBe(1)
-    const f = (await admin.call('GET', '/api/admin/folders')).items.find((x: any) => x.path === 'projects/apollo')
+    const f = (await admin.call('GET', '/api/admin/folders')).items.find((x: any) => x.path === 'teams/apollo')
     h.hub.events = []
     const put = await admin.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [{ subjectType: 'user', subjectId: bob.id, access: 'read' }] })
     expect(put.rules.map((r: any) => r.subjectId)).toEqual([bob.id])
@@ -170,7 +222,7 @@ describe('folders API', () => {
     expect(notices).toContainEqual([bob.id, 'access_changed'])
     const audit = await owner.call('GET', '/api/admin/audit?source=admin')
     const lost = audit.items.find((e: any) => e.action === 'folder.access_lost')
-    expect(lost.detail.losing).toEqual([{ userId: alice.id, paths: ['projects/apollo'], chatsReset: 1 }])
+    expect(lost.detail.losing).toEqual([{ userId: alice.id, paths: ['teams/apollo'], chatsReset: 1 }])
     expect(audit.items.find((e: any) => e.action === 'folder.rules').detail.after).toEqual([{ subjectType: 'user', subjectId: bob.id, access: 'read' }])
   })
 

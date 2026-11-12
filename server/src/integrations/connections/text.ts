@@ -7,12 +7,33 @@ type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
 
 export const TEXT = {
-  // the card before a call that changes something at the service
-  confirm: t('AI가 {name}에서 이 작업을 하려고 해요: {what}', 'The AI wants to do this at {name}: {what}', 'AI ingin melakukan ini di {name}: {what}', "AIが{name}で次の操作を実行しようとしています：{what}", "La IA quiere hacer esto en {name}: {what}"),
+  // the card before a call that changes something at the service: {what} is the tool's title (MCP `title`, else its id
+  // in words) or, for an HTTP API, what the method does (methodPost …); card-lines.ts
+  confirm: t('AI가 {name}에 이 내용을 보내려고 해요: {what}', 'The AI wants to send this to {name}: {what}', 'AI ingin mengirim ini ke {name}: {what}', "AIが{name}に次の内容を送ろうとしています：{what}", "La IA quiere enviar esto a {name}: {what}"),
+  // an HTTP API call: {what} is what its method does (methodDELETE …), so the sentence names a request, not "this"
+  confirmRequest: t('AI가 {name}에 이 요청을 보내려고 해요: {what}', 'The AI wants to send this request to {name}: {what}', 'AI ingin mengirim permintaan ini ke {name}: {what}', "AIが{name}に次のリクエストを送ろうとしています：{what}", "La IA quiere enviar esta solicitud a {name}: {what}"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)"),
+  // a value on the card's lines (card-lines.ts): an empty text, yes / no, nothing
+  valueEmpty: t('(비어 있음)', '(empty)', '(kosong)', "（空）", "(vacío)"),
+  valueYes: t('예', 'Yes', 'Ya', "はい", "Sí"),
+  valueNo: t('아니요', 'No', 'Tidak', "いいえ", "No"),
+  valueNone: t('(없음)', '(none)', '(tidak ada)', "（なし）", "(ninguno)"),
+  // an HTTP API call on the card and in its step: the address it calls, and what its method does
+  fieldAddress: t('보내는 곳', 'Sends to', 'Dikirim ke', "送信先", "Se envía a"),
+  methodGET: t('가져오기', 'Get', 'Ambil', "取得", "Obtener"),
+  methodHEAD: t('확인하기', 'Check', 'Periksa', "確認", "Comprobar"),
+  methodPOST: t('보내기', 'Send', 'Kirim', "送信", "Enviar"),
+  methodPUT: t('바꾸기', 'Replace', 'Ganti', "置き換え", "Reemplazar"),
+  methodPATCH: t('고치기', 'Update', 'Perbarui', "更新", "Actualizar"),
+  methodDELETE: t('지우기', 'Delete', 'Hapus', "削除", "Eliminar"),
+  // the room card after a room read (TurnTool.card): what an HTTP API call does at the service, by its name (QA TC-233)
+  cardRead: t('{name}에서 읽어 오기', 'Read from {name}', 'Membaca dari {name}', "{name}から読み取る", "Leer de {name}"),
+  cardChange: t('{name}에서 무언가 바꾸기', 'Change something in {name}', 'Mengubah sesuatu di {name}', "{name}で何かを変更する", "Cambiar algo en {name}"),
   ask: t('보낼까요?', 'Send it?', 'Kirim?', "送信しますか？", "¿Enviarlo?"),
   checkBelow: t('보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.', 'Check everything it sends, and where it goes, below.', 'Periksa semua yang dikirim, dan tujuannya, di bawah.', "送信内容全体と送信先を下で確認してください。", "Revise abajo todo lo que envía y a dónde va."),
   sendsLabel: t('보낼 내용', 'What it sends', 'Yang dikirim', "送信内容", "Lo que envía"),
+  // the room card's request for a read (TurnTool.card): it sends nothing of the person's, it reads (QA TC-285)
+  readsLabel: t('읽어 올 내용', 'What it reads', 'Yang dibaca', "読み取る内容", "Lo que lee"),
   yes: t('보내기', 'Send', 'Kirim', "送信", "Enviar"),
   no: t('보내지 않기', 'Don’t send', 'Jangan kirim', "送信しない", "No enviar"),
   // a Google app's card (google-apps/): the person's own choice to stop asking for this app
@@ -38,7 +59,7 @@ export const TEXT = {
   toolUnknown: t('이 서비스가 지금 알려 준 도구 목록에 없는 도구예요. "다시 확인"을 누른 뒤 다시 해 주세요.', 'The service does not list this tool now. Choose "Check again" and try again.', 'Layanan tidak mencantumkan alat ini sekarang. Pilih "Periksa lagi" lalu coba lagi.', "このサービスは現在このツールを提供していません。「再確認」を押してからもう一度お試しください。", "El servicio no ofrece esta herramienta ahora. Elija «Comprobar de nuevo» e inténtelo otra vez."),
   toolsMcpOnly: t('도구를 하나씩 켜고 끄는 것은 MCP 서버 연결에서만 할 수 있어요.', 'Single tools can be turned on and off for MCP server connections only.', 'Alat satu per satu hanya bisa dinyalakan dan dimatikan untuk koneksi server MCP.', "ツールを個別にオン・オフできるのはMCPサーバー接続のみです。", "Solo se pueden activar y desactivar herramientas una a una en conexiones a servidores MCP."),
   // an admin's request to a member to connect a service as their own connection (requests.ts)
-  requestNotice: t('{by}님이 {name} 연결을 요청했어요(주소: {host}). 이 주소가 정말 {name}의 주소인지 확인한 뒤 내 키나 로그인으로 연결해 주세요.', '{by} asked you to connect {name} at {host}. Check that {host} is really {name}\'s address before you connect it with your own key or sign-in.', '{by} meminta Anda menghubungkan {name} di {host}. Pastikan {host} memang alamat {name} sebelum menghubungkannya dengan kunci atau login Anda sendiri.', "{by}さんが{name}（{host}）の接続を依頼しました。{host}が本当に{name}のアドレスか確認してから、ご自身のキーまたはログインで接続してください。", "{by} le pidió conectar {name} en {host}. Compruebe que {host} es de verdad la dirección de {name} antes de conectarlo con su propia clave o inicio de sesión."),
+  requestNotice: t('관리자가 {name} 연결을 요청했어요(주소: {host}). 이 주소가 정말 {name}의 주소인지 확인한 뒤 내 키나 로그인으로 연결해 주세요.', 'An admin asked you to connect {name} at {host}. Check that {host} is really {name}\'s address before you connect it with your own key or sign-in.', 'Admin meminta Anda menghubungkan {name} di {host}. Pastikan {host} memang alamat {name} sebelum menghubungkannya dengan kunci atau login Anda sendiri.', "管理者が{name}（{host}）の接続を依頼しました。{host}が本当に{name}のアドレスか確認してから、ご自身のキーまたはログインで接続してください。", "Un administrador le pidió conectar {name} en {host}. Compruebe que {host} es de verdad la dirección de {name} antes de conectarlo con su propia clave o inicio de sesión."),
   requestPersonalOff: t('지금은 직원이 개인 연결을 추가할 수 없어요. 먼저 팀 설정에서 "직원이 개인 연결을 추가할 수 있음"을 켜 주세요.', 'Members cannot add their own connections now. First turn on "Members can add their own connections" in Team settings.', 'Anggota tidak bisa menambah koneksi sendiri sekarang. Nyalakan dulu "Anggota dapat menambah koneksi pribadi" di Pengaturan tim.', "現在、メンバーは個人接続を追加できません。先にチーム設定で「メンバーによる個人接続の追加を許可」をオンにしてください。", "Ahora los miembros no pueden añadir sus propias conexiones. Active primero «Los miembros pueden añadir sus propias conexiones» en la configuración del equipo."),
   requestNoUser: t('이 팀에서 쓰고 있는 계정이 아니에요.', 'This is not an active account of the team.', 'Ini bukan akun aktif di tim.', "このチームの有効なアカウントではありません。", "No es una cuenta activa del equipo."),
   requestNoName: t('보이는 글자가 있는 이름을 넣어 주세요.', 'Enter a name with at least one visible character.', 'Masukkan nama dengan setidaknya satu karakter yang terlihat.', "表示できる文字を含む名前を入力してください。", "Introduzca un nombre con al menos un carácter visible."),
@@ -92,9 +113,41 @@ export const TEXT = {
   oauth_no_registration: t('이 서비스는 앱을 스스로 등록하게 해 주지 않아요. 서비스에서 앱을 만들어 "내 앱으로 로그인"에 Client ID를 넣거나, API 키로 연결해 보세요.', 'This service does not let apps register themselves. Make an app at the service and enter its client ID under "Sign in with my own app", or try an API key instead.', 'Layanan ini tidak mengizinkan aplikasi mendaftar sendiri. Buat aplikasi di layanan itu dan masukkan client ID-nya di "Login dengan aplikasi saya", atau coba pakai kunci API.', "このサービスはアプリの自動登録を受け付けていません。サービスでアプリを作成して「自分のアプリでログイン」にクライアントIDを入力するか、APIキーをお試しください。", "Este servicio no permite que las aplicaciones se registren solas. Cree una aplicación en el servicio e introduzca su ID de cliente en «Iniciar sesión con mi propia aplicación», o pruebe con una clave de API."),
   oauth_no_registration_member: t('이 서비스는 팀이 서비스에 만든 앱으로만 로그인할 수 있어요. 관리자에게 알려 주세요.', 'This service signs in only through an app your team made there. Tell your admin.', 'Layanan ini hanya bisa login melalui aplikasi yang dibuat tim Anda di sana. Beri tahu admin Anda.', "このサービスには、チームがそこで作成したアプリでのみログインできます。管理者に知らせてください。", "Este servicio solo permite iniciar sesión con una aplicación que su equipo creó allí. Avise a su administrador."),
   oauth_failed: t('로그인을 마치지 못했어요. 다시 시도해 주세요.', 'Signing in did not finish. Try again.', 'Login tidak selesai. Coba lagi.', "ログインを完了できませんでした。再試行してください。", "No se completó el inicio de sesión. Vuelva a intentarlo."),
+  // the same reasons for someone who cannot fix them (reasonText): a member on a team connection, or on a connection made
+  // from a team template for its address (QA TC-235). No admin is named (members never see who the admins are)
+  addressMember: t('서비스에 연결하지 못했어요. 관리자에게 알려 주세요.', 'Could not reach the service. Tell your admin.', 'Tidak dapat menghubungi layanan. Beri tahu admin Anda.', "サービスに接続できませんでした。管理者に知らせてください。", "No se pudo conectar con el servicio. Avise a su administrador."),
+  keyMember: t('이 서비스에 쓰는 팀의 키나 로그인이 안 돼요. 관리자에게 알려 주세요.', "The team's key or sign-in for this service is not working. Tell your admin.", 'Kunci atau login tim untuk layanan ini tidak berfungsi. Beri tahu admin Anda.', "このサービスに使うチームのキーまたはログインが機能していません。管理者に知らせてください。", "La clave o el inicio de sesión del equipo para este servicio no funciona. Avise a su administrador."),
   key_unsafe: t('서버의 키 보관 폴더를 쓸 수 없어요. 관리자에게 알려 주세요.', 'The server’s key folder cannot be used. Tell your admin.', 'Folder kunci server tidak bisa dipakai. Beri tahu admin Anda.', "サーバーのキーフォルダーを使用できません。管理者に知らせてください。", "No se puede usar la carpeta de claves del servidor. Avise a su administrador."),
 }
 export type TextKey = keyof typeof TEXT
+
+/** A call's argument names in words on the card (card-lines.ts fieldWord), by the name's letters alone ("email_address",
+ * "emailAddress" and "Email-Address" are one). A name not here is said as its own words ("page_id" -> "Page id"). */
+const RECIPIENT_WORD = t('받는 사람', 'Recipient', 'Penerima', "宛先", "Destinatario")
+const CONTENT_WORD = t('내용', 'Content', 'Isi', "内容", "Contenido")
+export const FIELD_WORDS: Record<string, T> = {
+  to: RECIPIENT_WORD, recipient: RECIPIENT_WORD, recipients: RECIPIENT_WORD, email: RECIPIENT_WORD, emails: RECIPIENT_WORD, emailaddress: RECIPIENT_WORD, emailaddresses: RECIPIENT_WORD,
+  cc: t('참조', 'Cc', 'Cc', "CC", "CC"),
+  bcc: t('숨은 참조', 'Bcc', 'Bcc', "BCC", "CCO"),
+  subject: t('제목', 'Subject', 'Subjek', "件名", "Asunto"),
+  title: t('제목', 'Title', 'Judul', "タイトル", "Título"),
+  name: t('이름', 'Name', 'Nama', "名前", "Nombre"),
+  body: CONTENT_WORD, text: CONTENT_WORD, content: CONTENT_WORD, contents: CONTENT_WORD, message: CONTENT_WORD, markdown: CONTENT_WORD, html: CONTENT_WORD, plaintext: CONTENT_WORD,
+  description: t('설명', 'Description', 'Deskripsi', "説明", "Descripción"),
+  summary: t('요약', 'Summary', 'Ringkasan', "要約", "Resumen"),
+  channel: t('채널', 'Channel', 'Saluran', "チャンネル", "Canal"),
+  url: t('주소', 'Address', 'Alamat', "アドレス", "Dirección"), link: t('링크', 'Link', 'Tautan', "リンク", "Enlace"),
+  date: t('날짜', 'Date', 'Tanggal', "日付", "Fecha"),
+  due: t('마감일', 'Due date', 'Tenggat', "期限", "Fecha límite"), duedate: t('마감일', 'Due date', 'Tenggat', "期限", "Fecha límite"),
+  assignee: t('담당자', 'Assignee', 'Penanggung jawab', "担当者", "Responsable"), assignees: t('담당자', 'Assignees', 'Penanggung jawab', "担当者", "Responsables"),
+  priority: t('우선순위', 'Priority', 'Prioritas', "優先度", "Prioridad"),
+  status: t('상태', 'Status', 'Status', "ステータス", "Estado"),
+  tags: t('태그', 'Tags', 'Tag', "タグ", "Etiquetas"), labels: t('라벨', 'Labels', 'Label', "ラベル", "Etiquetas"),
+  note: t('메모', 'Note', 'Catatan', "メモ", "Nota"), notes: t('메모', 'Notes', 'Catatan', "メモ", "Notas"), comment: t('댓글', 'Comment', 'Komentar', "コメント", "Comentario"),
+  project: t('프로젝트', 'Project', 'Proyek', "プロジェクト", "Proyecto"),
+  parent: t('넣을 곳', 'Where it goes', 'Tempat tujuan', "追加先", "Dónde va"),
+  folder: t('폴더', 'Folder', 'Folder', "フォルダー", "Carpeta"),
+}
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_failed' | 'key_unsafe'
@@ -103,10 +156,23 @@ export const say = (key: TextKey, locale: Locale, vars: Record<string, string | 
   // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts)
   dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, vars).replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all))
 
-/** The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"). */
-export function reasonText(code: string | null, locale: Locale): string | null {
+/** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
+const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
+/** Reasons whose fix is the connection's key or sign-in. */
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_failed'])
+
+/**
+ * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can
+ * fix it. `can`: what this reader can change (store.ts view): the address (whoever manages the connection, not on one
+ * made from a team template) and the key or sign-in (whoever manages it). A reason only someone else can fix says what
+ * happened and "Tell your admin." instead of "Check the address" (QA TC-235).
+ */
+export function reasonText(code: string | null, locale: Locale, can: { address: boolean; key: boolean } = { address: true, key: true }): string | null {
   if (!code) return null
   const [reason, status] = code.split(':')
-  if (!reason || !(reason in TEXT)) return say('unreachable', locale)
+  const known = !!reason && reason in TEXT
+  if (!can.address && (!known || ADDRESS_REASONS.has(reason!))) return say('addressMember', locale)
+  if (!can.key && KEY_REASONS.has(reason!)) return say('keyMember', locale)
+  if (!known) return say('unreachable', locale)
   return say(reason as TextKey, locale, { status: status ?? '?' })
 }

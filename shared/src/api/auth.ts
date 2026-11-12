@@ -4,13 +4,17 @@ import { UserId, Uuid7 } from '../ids'
 import { ClientKind, DEFAULT_LOCALE, EngineId, IsoTime, Locale, Ok, Role, TextSize } from './common'
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
+import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
 import { Session, UserPrefs, UserRef } from './entities'
 import { MyStatus } from './status-message'
 
 export const Username = z.string().min(2).max(64).regex(/^[A-Za-z0-9._@-]+$/, 'letters, digits, ".", "_", "@", "-"')
 /** Password rule: 8-128 characters; the server also refuses the username itself and very common passwords. */
 export const Password = z.string().min(8).max(128)
-export const PersonName = z.string().trim().min(1).max(100)
+/** A person's name as typed: 1-100 characters after trimming, one line with nothing invisible in it (../name-chars.ts:
+ * it is shown and quoted as one line, a line break would end a quote). Names saved before the rule still load (the
+ * responses read a plain string) and are made one line where they are quoted. */
+export const PersonName = z.string().trim().min(1).max(100).refine((s) => !NAME_FORBIDDEN.test(s), { message: NAME_FORBIDDEN_FIELD })
 
 /** GET /api/me */
 export const Me = z.object({
@@ -142,6 +146,9 @@ export const InviteInfo = z.object({
   expiresAt: IsoTime,
   /** false when expired, used or revoked (the page shows why instead of the form) */
   valid: z.boolean(),
+  /** who made the invite ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
+   * from an older server */
+  inviterName: z.string().nullable().optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({

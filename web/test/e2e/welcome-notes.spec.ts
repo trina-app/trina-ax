@@ -56,7 +56,7 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   await page.getByTestId('welcome-profile-continue').click()
   // the steps go on at once: 2/5 내 스킬; no deck chat, no skill went in
   await expect(page.locator('[data-step="skills"]')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress')).toContainText('2/5 내 스킬')
+  await expect(page.getByTestId('welcome-progress')).toContainText('2/5 스킬')
   await expect(page.getByTestId('welcome-brand-failed')).toHaveCount(0)
   expect(((await (await page.request.get('/api/chats')).json()).items as unknown[]).length).toBe(chatsBefore)
   await expect(page.getByRole('navigation').getByRole('link', { name: /우리 회사 소개서/ })).toHaveCount(0)
@@ -130,7 +130,7 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   expect(realErrors(errors)).toEqual([])
 })
 
-test('a phone: 회사 소개 saves; 내 스킬 says own skills go in on a computer and is put off; 도구 연결 is walked past and put off; the end screen once; Home has nothing left', async ({ page }) => {
+test('a phone: 회사 소개 saves; the skills step is put off; 도구 연결 is walked past and put off; the end screen once; Home has nothing left', async ({ page }) => {
   const errors = watchConsole(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
@@ -140,8 +140,9 @@ test('a phone: 회사 소개 saves; 내 스킬 says own skills go in on a comput
   await expect(page.getByTestId('welcome-brand-line')).toBeVisible()
   await page.getByTestId('welcome-profile-continue').click()
   // without files: the server's 회사 소개.md
-  // 내 스킬 on a phone: one line that own skills go in on a computer (no folder button); 나중에 하기 puts the step off
-  await expect(page.getByTestId('skills-phone-own')).toBeVisible()
+  // the skills step on a phone: the skills Trina prepared, nothing about own skills; 나중에 하기 puts the step off
+  await expect(page.getByTestId('skill-packs')).toBeVisible()
+  await expect(page.getByTestId('skills-phone-own')).toHaveCount(0)
   await expect(page.getByTestId('skills-find')).toHaveCount(0)
   await page.getByTestId('skills-later').click()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()

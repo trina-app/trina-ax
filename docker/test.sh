@@ -2,7 +2,7 @@
 # Build the Trina AX image, start it with docker-compose.yml and check it (docs/INSTALL-DOCKER.md "Test").
 # Then stop it and remove the container, the test volume and the test network.
 #
-#   TRINA_AX_VERSION=0.5.0-beta.1 bash docker/test.sh      published release kit (signed)
+#   TRINA_AX_VERSION=0.4.0 bash docker/test.sh             published release kit (signed)
 #   TRINA_AX_KIT=local bash docker/test.sh                 docker/kit-local/ (an unpacked kit; unsigned is accepted)
 #   KEEP=1 ...                                             leave the test project running
 #
@@ -47,6 +47,8 @@ CID=$($C ps -q trina-ax)
 for _ in $(seq 1 120); do
   st=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$CID")
   case "$st" in "running healthy") break ;; exited*|dead*) fail "container stopped: $st" ;; esac
+  # a host problem (entrypoint host_stop): the container waits with its message; no need to wait 10 minutes
+  grep -q 'the server does not start until this is fixed' <<<"$(docker logs "$CID" 2>&1)" && fail "the container stopped at a host check"
   sleep 5
 done
 [ "$st" = "running healthy" ] || fail "not healthy after 10 minutes ($st)"

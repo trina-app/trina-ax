@@ -100,7 +100,8 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
   await start(page)
   for (const size of [{ width: 1468, height: 700 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    for (const path of ['/admin/settings', '/admin/connectors']) {
+    // a phone: Team settings is a list of its groups; its AI engine group is the long page there
+    for (const path of [size.width < 768 ? '/admin/settings/ai' : '/admin/settings', '/admin/connectors']) {
       await page.goto(path)
       await expect(page.getByTestId('admin-content')).toBeVisible()
       if (path === '/admin/connectors') await page.getByTestId('connector-show-all').click()
@@ -116,11 +117,11 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
       if (size.width >= 768) {
         const first = (await page.getByTestId('new-chat').boundingBox())!
         expect(first.y).toBeGreaterThanOrEqual(0)
+        expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       } else {
-        // Admin is a page under the 나 tab: its top bar has ‹ (no ☰ there)
-        expect((await page.getByTestId('topbar-back').boundingBox())!.y).toBeGreaterThanOrEqual(0)
+        // a phone: Admin's page has its own bar with ‹ (no ☰, no menu: the list is a step back)
+        expect((await page.getByTestId('admin-back').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       }
-      expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
     }
   }
 })

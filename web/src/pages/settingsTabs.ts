@@ -6,8 +6,9 @@
 // with your accounts, MCP servers and Google Drive in one place, plus the team connections you may use; AI apps: outside
 // AI apps such as Claude using this server) · App (notices, the apps to install, about).
 // The same groups as Admin's menu, which has no AI group either. Every section is just for you (Admin is the team's).
-// "Browser" is there inside a desktop app that offers it, and wherever the team lets members turn on "Allow all
-// websites" for the AI's web reads (Me.team.webAllowAll). Old addresses: /settings/integrations (MCP) and
+// "Browser" is there inside a desktop app that offers it (the AI has the browser only there, server/src/chat/turn.ts);
+// on the web and phones only while the person's own "Allow all websites" for the AI's web reads is on, so it can be
+// turned off again (Me.user.webAllowAll, while the team allows it: Me.team.webAllowAll). Old addresses: /settings/integrations (MCP) and
 // /settings/drive (Connectors), /settings/credentials (Providers, /settings/providers), SettingsDialog.tsx. "Dev
 // environment sites" (the sites the person allowed for her own dev-environment commands, and her Full internet switch)
 // is there while the dev environment on srt is on for her.
@@ -46,18 +47,30 @@ const TABS: SettingsTab[] = [
   { id: 'about', label: 'settings.about', find: 'settings.find.about', icon: Info, group: 'app' },
 ]
 
-/** The tabs to show: "browser" only when the desktop app offers Settings > Browser (lib/desktop.ts browserSettingsBridge)
- * or the team lets members allow all websites for the AI's web reads (Me.team.webAllowAll),
+/** The tabs to show: "browser" when browserTabShown says so,
  * "providers" only when the member may have their own AI accounts (or still has one), "dev-env-sites" only when the dev
  * environment on srt is on for the person (GET /api/dev-env/sites state is not 'off'). */
 export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false): SettingsTab[] {
   return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'providers' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites))
 }
 
-/** Is there a Browser section: inside a desktop app that offers its site setting, or while the team lets members allow
- * all websites for the AI's web reads (Me.team.webAllowAll), on every client. */
-export const browserTabShown = (desktopBridge: boolean, teamWebAllowAll: boolean | undefined) => desktopBridge || teamWebAllowAll === true
+/** Is there a Browser section: inside a desktop app that offers its site setting (the only client whose AI has the
+ * browser); elsewhere only while the person's "Allow all websites" for the AI's web reads is on (Me.user.webAllowAll)
+ * and the team allows it (Me.team.webAllowAll), so the choice can be turned off where it was turned on (an address card). */
+export const browserTabShown = (desktopBridge: boolean, teamWebAllowAll: boolean | undefined, ownWebAllowAll?: boolean) =>
+  desktopBridge || (teamWebAllowAll === true && ownWebAllowAll === true)
 
 /** Whether the search box finds a section: by its name or by the words of what is inside it ("비밀번호" finds 보안·기기).
  * `q` is the search text, trimmed and in lower case. */
 export const sectionMatches = (tab: SettingsTab, q: string, t: (key: MessageKey) => string) => !q || `${t(tab.label)} ${t(tab.find)} ${(tab.keywords ?? []).join(' ')}`.toLowerCase().includes(q)
+
+/** The name of a Settings address for the phone's ‹ label (lib/backStack.ts): "Settings" for the list, the section's
+ * own name for a section, "Activity" for the 나 tab's Activity page (pages/Activity.tsx, whose gear opens 알림); null
+ * for anything else. */
+export function settingsPageName(path: string, t: (key: MessageKey) => string): string | null {
+  if (path === '/settings') return t('settings.title')
+  if (path === '/activity') return t('inbox.title')
+  if (!path.startsWith('/settings/')) return null
+  const tab = TABS.find((x) => x.id === path.slice('/settings/'.length).split('/')[0])
+  return tab ? t(tab.label) : null
+}
