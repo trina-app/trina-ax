@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:32
 - Branch: `fix/phone-leave-followups`
-- Status: in progress
+- Status: done
 - Where: `mobile/`. Why: three low findings from the review of the phone's team switch (PR #537), all phone code.
 - Version impact: patch, fixes in the phone app (ships with the next phone build)
 
@@ -41,3 +41,11 @@ Out: the server and the web app (no change there).
 ## Risks
 
 Phone only. The token key is a copy of the web app's `mycel.joinToken`; a test compares the two.
+
+## Result
+
+Built as planned. One more case found on the way: a link that came while another link's switch ran was cleared from
+the gate when that switch finished (`LinkGate.clear(id)` now clears only the last link put; shared and phone copies
+stay the same file), and that link's box stays open. Unit tests (behaviour of `OneSwitch`, `oweForSwitch`, the owed
+sign-out script on a stand-in page, the gate) and the mobile typecheck pass; not yet tried on a phone (QA with the next
+phone build).
