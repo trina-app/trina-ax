@@ -295,6 +295,42 @@ test('the AI cannot start: a member tells an admin with one button', async ({ pa
   await expect(button).toBeDisabled()
 })
 
+// owner decision 2026-11-12 (QA TC-188): "Told" is the server's record (the same once-an-hour limit), so it stays after a
+// reload; it is the member's own: another member still reads [Tell an admin]
+test('the AI cannot start: "Told" stays after a reload, and only for the member who told', async ({ page, browser }) => {
+  await reset(page)
+  // a second member, carol, made by the owner (her temporary password changed through the API)
+  const owner = await browser.newContext()
+  const csrf = { [CSRF_HEADER]: '1' }
+  expect((await owner.request.post('/api/auth/login', { headers: csrf, data: { username: 'olga', password: 'correct horse battery' } })).ok()).toBe(true)
+  expect((await owner.request.post('/api/admin/users', { headers: csrf, data: { username: 'carol', name: 'Carol', role: 'member', groupIds: [], temporaryPassword: 'tiger4271x' } })).ok()).toBe(true)
+  await owner.close()
+  const carol = await browser.newContext()
+  expect((await carol.request.post('/api/auth/login', { headers: csrf, data: { username: 'carol', password: 'tiger4271x' } })).ok()).toBe(true)
+  expect((await carol.request.post('/api/auth/password', { headers: csrf, data: { newPassword: 'carol password 1' } })).ok()).toBe(true)
+
+  await signIn(page, BOB)
+  await ask(page, 'error:engine_missing\n왜?')
+  const button = lastAnswer(page).getByTestId('answer-error').getByTestId('not-ready-button')
+  await expect(button).toHaveText('관리자에게 알리기')
+  await button.click()
+  await expect(button).toHaveText('알렸어요')
+  await page.reload()
+  const again = lastAnswer(page).getByTestId('answer-error').getByTestId('not-ready-button')
+  await expect(again).toHaveText('알렸어요')
+  await expect(again).toBeDisabled()
+
+  // carol's context is signed in already (the API sign-in above)
+  const other = await carol.newPage()
+  await other.goto('/')
+  await expect(other.getByTestId('composer-input')).toBeVisible()
+  await ask(other, 'error:engine_missing\n왜?')
+  const hers = lastAnswer(other).getByTestId('answer-error').getByTestId('not-ready-button')
+  await expect(hers).toHaveText('관리자에게 알리기')
+  await expect(hers).toBeEnabled()
+  await carol.close()
+})
+
 test('the AI cannot start: the owner connects the AI with one button', async ({ page }) => {
   await reset(page)
   await signIn(page)

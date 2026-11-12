@@ -3,13 +3,16 @@
 // _FILES.md in each folder, which the in-app AI greps first. One switch (on by default) and a short status: files
 // listed and waiting, the last and next run, whose team AI account the runs use (they count against its limit), and why
 // it cannot run. "Run now" starts a capped run at once. Lean: no list of folders, no per-file view. Saves at once, like
-// the AI groups above. While a run goes, the status is read again every few seconds.
+// the AI groups above. While a run goes, the status is read again every few seconds. A Run now from a screen that is
+// out of date (someone else, or the host, turned it off since) says so plainly and reads the status again, so the
+// button goes away.
 import { Loader2, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { FileListSignIn, FileListStatus } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
+import type { FileListSignIn, FileListStatus, Locale } from '@mycel/shared/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime, formatNumber } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
+import { toast } from '../../store/ui'
 import { Button, confirmDialog, Switch } from '../../components/ui'
 import { Loadable, SettingsSection, useAction, useLoad } from './common'
 
@@ -58,17 +61,34 @@ function engineName(s: FileListSignIn): string {
   return s.model ? `ChatGPT (${s.model})` : 'ChatGPT'
 }
 
+/** The message for a refused Run now: the server's 409 says the file list is off (`off`) or the host turned it off
+ * (`forced_off`); any other error keeps its own text. `refused` tells the screen to read the status again. */
+export function runNowError(e: unknown, locale: Locale, t: ReturnType<typeof useT>): { text: string; refused: boolean } {
+  const reason = isApiError(e, 'conflict') ? e.body.params?.reason : undefined
+  if (reason === 'off') return { text: t('fileList.runOff'), refused: true }
+  if (reason === 'forced_off') return { text: t('fileList.problem.forced_off'), refused: true }
+  return { text: errorText(e, locale, t('error.network')), refused: false }
+}
+
 export function FileListStatusLines({ d, onData }: { d: FileListStatus; onData: (d: FileListStatus) => void }) {
   const t = useT()
   const locale = useLocale()
-  const act = useAction()
   const [starting, setStarting] = useState(false)
   const on = d.enabled && !d.forcedOff
   const runNow = async () => {
     setStarting(true)
-    const r = await act(() => api.call(API.runFileList), t('fileList.runStarted'))
-    setStarting(false)
-    if (r) onData(r)
+    try {
+      const r = await api.call(API.runFileList)
+      toast({ level: 'success', text: t('fileList.runStarted') })
+      onData(r)
+    } catch (e) {
+      const err = runNowError(e, locale, t)
+      toast({ level: 'error', text: err.text })
+      // the screen was out of date: show it as it is now (off, so Run now goes away)
+      if (err.refused) await api.call(API.fileListStatus).then(onData, () => {})
+    } finally {
+      setStarting(false)
+    }
   }
   const account = (s: FileListSignIn) =>
     s.kind === 'server' ? t('fileList.account.server')

@@ -7,7 +7,7 @@ import path from 'node:path'
 import { API, ApiError, CHAT_ERROR_MESSAGES, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { FIND_FILE_RULE, LANGUAGE_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
+import { FIND_FILE_RULE, LANGUAGE_RULE, NO_BROWSER_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
 import { FILE_TOOLS } from '../../shared/src/tools'
 import { unansweredStep } from '../../shared/src/step-labels'
 import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
@@ -540,7 +540,10 @@ describe('instructions', () => {
     expect(s).toContain('### skills/team-rules.md')
     expect(s).toContain('## Project: Falcon')
     expect(s).toContain('<project_instructions>\nAlways cite the plan file.\n</project_instructions>')
-    expect(s).not.toContain('## Browser')
+    // alice's own chat on the web: no browser here, so the AI is told the desktop app has one (QA TC-242, #460); never
+    // the desktop app's browser rules (tests/unit/b-browser.test.ts: the desktop app gets those and not this)
+    expect(s).toContain(NO_BROWSER_RULE)
+    expect(s).not.toContain('## Browser (desktop app)')
     expect(s).not.toContain('CANARY')
   })
 

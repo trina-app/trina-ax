@@ -6,7 +6,7 @@
 // can be another folder or none, and the places whose content may go there can be taken away (×); the card shows them
 // as they will be. A template: its time (and weekday) and folders, saved directly (checked like at creation).
 import { useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { ChevronRight, X } from 'lucide-react'
 import type { Project, Schedule, ScheduleReviewCard, ScheduleTaskEdit } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -104,7 +104,7 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
             <input className={inputCls} value={f.title} maxLength={80} onChange={(e) => set('title', e.target.value)} data-testid="schedule-edit-title" />
           </Field>
           <Field label={t('schedules.field.prompt')} hint={t('schedules.field.promptHint')} error={fieldErr(error, 'prompt')}>
-            <textarea className={`${inputCls} h-auto min-h-32 resize-y py-2`} rows={6} value={f.prompt} maxLength={4000} onChange={(e) => set('prompt', e.target.value)} data-testid="schedule-edit-prompt" />
+            <textarea className={`${inputCls} h-auto min-h-32 resize-y py-2 max-md:resize-none`} rows={6} value={f.prompt} maxLength={4000} onChange={(e) => set('prompt', e.target.value)} data-testid="schedule-edit-prompt" />
           </Field>
           <div className="flex flex-wrap gap-3">
             <div className="min-w-40 flex-1">
@@ -155,7 +155,8 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
           </Field>
           <Field label={t('schedules.field.saveFolder')} hint={t('schedules.field.saveFolderHint')} error={fieldErr(error, 'saveFolder')}>
             <div className="flex min-w-0 items-center gap-1" data-testid="schedule-edit-save-folder">
-              <Button onClick={() => setPicking(true)} className="min-w-0 truncate" data-testid="schedule-edit-save-pick">{saveFolder ?? t('schedules.saveFolderPick')}</Button>
+              {/* a phone: a value row with a chevron (it opens the folder picker), not an outline button */}
+              <Button onClick={() => setPicking(true)} className="min-w-0 truncate max-md:min-h-11 max-md:flex-1 max-md:justify-between max-md:border-transparent max-md:bg-subtle" data-testid="schedule-edit-save-pick"><span className="truncate">{saveFolder ?? t('schedules.saveFolderPick')}</span><ChevronRight size={16} className="shrink-0 text-faint md:hidden" aria-hidden /></Button>
               {saveFolder ? (
                 <IconButton label={t('schedules.removeSaveFolder')} onClick={() => { setSaveFolder(null); setNote(null) }} data-testid="schedule-edit-save-remove"><X size={14} /></IconButton>
               ) : <span className="text-xs text-faint">{t('schedules.saveFolderNone')}</span>}

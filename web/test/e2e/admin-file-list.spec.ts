@@ -4,6 +4,7 @@
 // as lines, the switch and Run now stay reachable, no serious accessibility problem.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { ERROR_MESSAGES } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
@@ -65,6 +66,22 @@ test('why it cannot run: no team AI account, and the host turned it off', async 
   await expect(page.getByTestId('file-list-forced')).toHaveText(t['fileList.problem.forced_off'])
   await expect(page.getByRole('checkbox', { name: t['fileList.title'] })).toBeDisabled()
   await expect(page.getByTestId('file-list-run')).toHaveCount(0)
+})
+
+test('Run now on a screen from before it was turned off: says it is off, and the button goes away', async ({ page }) => {
+  const errors = watchConsole(page)
+  await open(page)
+  await expect(page.getByTestId('file-list-run')).toBeVisible()
+  // someone else turned it off since this screen loaded
+  await page.request.post('/__test/file-list', { data: { enabled: false, nextRunAt: null } })
+  await page.getByTestId('file-list-run').click()
+  await expect(page.getByText(t['fileList.runOff'])).toBeVisible()
+  await expect(page.getByText(ERROR_MESSAGES.conflict.en)).toHaveCount(0)
+  await expect(page.getByTestId('file-list-off')).toHaveText(t['fileList.off'])
+  await expect(page.getByTestId('file-list-run')).toHaveCount(0)
+  await expect(page.getByRole('checkbox', { name: t['fileList.title'] })).not.toBeChecked()
+  // the refused call itself is the 409 the browser logs
+  expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])
 })
 
 for (const scheme of ['light', 'dark'] as const) {

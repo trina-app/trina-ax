@@ -66,10 +66,10 @@ test('an owner or admin gets mcp:admin without asking or ticking; what the body 
   expect(admin).toMatchObject({ optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true, scope: 'mcp:read mcp:admin' })
   expect(f.names(admin.token)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list', ...GROUP])
   expect(f.audits('remote_mcp.connected').map(a => a.detail)).toEqual([
-    { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'] },
-    { scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'] },
-    { scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'] },
-    { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'] },
+    { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'], app: 'MCP app' },
+    { scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], app: 'MCP app' },
+    { scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], app: 'MCP app' },
+    { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'], app: 'MCP app' },
   ])
   // made an admin after consent and before the decision: the role at the decision counts (and the reverse)
   const auth = (await f.h.auth.resolve(new Request('http://team.localhost', { headers: { cookie: f.reader.client.cookie! } }), { ip: '10.0.0.7', via: 'test' }))!
@@ -150,7 +150,7 @@ test('an admin demoted after granting loses the group tools on the next call, fo
   expect(f.names(g.token).filter(n => GROUP.includes(n))).toEqual([])
   expect(f.names(g.token)).toContain('read')
   // the admin who made the change is the line's actor
-  expect(f.audits('remote_mcp.scope_dropped').map(a => ({ actor: a.actor, ...a.detail }))).toEqual([{ actor: f.ownerId, scope: 'mcp:admin', user: f.helper.id, reason: 'role' }])
+  expect(f.audits('remote_mcp.scope_dropped').map(a => ({ actor: a.actor, ...a.detail }))).toEqual([{ actor: f.ownerId, scope: 'mcp:admin', user: f.helper.id, reason: 'role', app: 'MCP app' }])
 
   // a role changed some other way: the next call checks the role itself
   const h2 = await f.connect(f.helper.client.cookie!)

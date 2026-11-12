@@ -1,0 +1,1 @@
+- "Trina isn't ready yet": after a member presses [Tell an admin], the button still reads "Told" after a reload, until the hour in which the server sends no second notice has passed. It is read from the server (the same record that limits the notices), only for that member; the owner and admins still get [Connect AI].

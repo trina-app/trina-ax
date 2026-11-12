@@ -276,7 +276,7 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
         <h4 className="mb-3 text-base font-semibold">{t('connectors.tools')}</h4>
         {tools?.length ? (
           <ul className="flex flex-wrap gap-2" data-testid="connector-tools">
-            {tools.map((x) => <li key={x} className="rounded-full border border-line px-3 py-1 font-mono text-xs">{x}</li>)}
+            {tools.map((x) => <li key={x} className={`rounded-full border border-line px-3 py-1 text-xs${/^[\w.-]+$/.test(x) ? ' font-mono' : ''}`}>{x}</li>)}
           </ul>
         ) : (
           <p className="text-sm text-muted" data-testid="connector-tools-note">{toolsNote ?? t('connectors.toolsAfter')}</p>

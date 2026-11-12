@@ -106,7 +106,8 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   }
   kit.handle(API.getAiAccess, ({ auth }) => {
     const { usable, action, trial } = accessOf(auth)
-    return { usable, action, requested: notificationsOf(ctx).aiRequested(auth.user.id), ...(trial ? { trial } : {}) }
+    const n = notificationsOf(ctx), member = auth.user.role !== 'owner' && auth.user.role !== 'admin'
+    return { usable, action, requested: n.aiRequested(auth.user.id), ...(trial ? { trial } : {}), notReadyTold: member && n.aiNotReadyTold(auth.user.id) }
   })
   kit.handle(API.requestAiAccess, ({ c, auth }) => {
     const { person, usable } = accessOf(auth)
