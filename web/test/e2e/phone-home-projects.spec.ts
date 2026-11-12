@@ -70,6 +70,8 @@ test.describe('TC-253: Home on a phone', () => {
     const row = await box(page, 'team-prepared-rows')
     expect(g.y + g.height).toBeLessThanOrEqual(row.y)
     expect(row.y + row.height).toBeLessThanOrEqual(dock.y + 1)
+    // read and reached in the order seen: the suggestions come before the box (focus, screen readers)
+    expect(await page.getByTestId('team-prepared').evaluate((el) => !!(el.compareDocumentPosition(document.querySelector('[data-testid="composer-input"]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
     // nothing taller than the screen: no scrolling needed (it was 977 px), the box never under the top bar
     expect(await page.getByTestId('home-scroll').evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
     await shot(page, 'home-prepared')
@@ -187,6 +189,8 @@ test('TC-253: a computer keeps its Home: the box under the greeting, the block u
   const input = await box(page, 'composer-input')
   expect(greeting.y).toBeLessThan(input.y)
   expect((await block.boundingBox())!.y).toBeGreaterThan(input.y)
+  // and in that order in the page: the box before the block
+  expect(await block.evaluate((el) => !!(el.compareDocumentPosition(document.querySelector('[data-testid="composer-input"]')!) & Node.DOCUMENT_POSITION_PRECEDING))).toBe(true)
   // its rows one under another, with their buttons
   const ys = await block.getByTestId('team-prepared-skill').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().y)))
   expect(new Set(ys).size).toBe(3)
@@ -298,6 +302,17 @@ test.describe('TC-254: project screens on a phone', () => {
     await page.goto(`/projects/${id}/files`)
     await bar.getByTestId('project-files-in-files').click()
     await expect(page).toHaveURL(/\/files\?path=marketing$/)
+  })
+
+  test('the owner on a team project she is not in: the files screen says only members see them, no way to the 파일 screen', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    const made = await page.request.post('/__test/project', { data: { name: 'Falcon', by: 'bob', files: { 'plan.md': 'plan' } } })
+    const { id } = (await made.json()) as { id: string }
+    await page.goto(`/projects/${id}/files`)
+    await expect(page.getByTestId('project-files-members-only')).toHaveText(t['projects.membersOnly'])
+    await expect(page.getByTestId('project-file')).toHaveCount(0)
+    await expect(page.getByTestId('project-files-in-files')).toHaveCount(0)
   })
 
   test('a computer opening a project\'s files address goes to that folder on the Files screen', async ({ browser }) => {

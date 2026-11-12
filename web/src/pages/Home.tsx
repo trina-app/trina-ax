@@ -111,6 +111,22 @@ export default function Home() {
 
   if (elsewhere) return <Navigate to={landingPath(true)} state={LANDING_STATE} replace />
   if (resuming) return <div className="h-full" data-testid="home-resuming" />
+  // the box: on a computer under the greeting, before the suggestions; on a phone after them, held at the bottom of the
+  // screen, so the order things are read and reached in is the order they are seen
+  const dock = (
+    <div className="max-md:sticky max-md:bottom-0 max-md:z-10 max-md:bg-canvas max-md:pt-2 max-md:pb-3 md:contents" data-testid="home-dock">
+      <NewChatComposer
+        projectId={projectId}
+        project={project}
+        initialText={preset?.text}
+        resetKey={preset?.n ?? 0}
+        // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
+        autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
+        aiLine={!noAi}
+        waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}
+      />
+    </div>
+  )
   // the one thing at the top (the lead link's card, the welcome card, the no-AI card, else the setup row or the goal)
   const oneThing = leadCard ? leadCard : welcomeCard ? welcomeCard : noAi ? welcomeKnown && <NoAiCard /> : top
   return (
@@ -136,19 +152,7 @@ export default function Home() {
             {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[1.625rem] font-semibold tracking-tight text-balance max-md:mb-4 sm:text-[1.75rem]">{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
           </div>
-          {/* phones: last, held at the bottom of the screen */}
-          <div className="max-md:sticky max-md:bottom-0 max-md:z-10 max-md:order-last max-md:bg-canvas max-md:pt-2 max-md:pb-3 md:contents" data-testid="home-dock">
-            <NewChatComposer
-              projectId={projectId}
-              project={project}
-              initialText={preset?.text}
-              resetKey={preset?.n ?? 0}
-              // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
-              autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
-              aiLine={!noAi}
-              waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}
-            />
-          </div>
+          {!phone && dock}
           <div className="md:contents" data-testid="home-tail">
             {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
@@ -157,6 +161,7 @@ export default function Home() {
             {/* what my group often asks, in the same place once "팀에 준비된 것" has nothing (one block at a time) */}
             {suggest && chatsLoaded && prepared === false && <OftenAsked key={`asked-${me.user.id}`} onChoose={choose} />}
           </div>
+          {phone && dock}
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>

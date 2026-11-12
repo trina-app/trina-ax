@@ -830,7 +830,8 @@ export function ProjectFiles() {
     return () => { loads.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, p?.member])
-  if (!phone && path !== null) return <Navigate to={`/files?path=${encodeURIComponent(path)}`} replace />
+  // a computer: the folder on the 파일 screen (the project's page for someone who is not a member: no files for them)
+  if (!phone && p && path !== null) return <Navigate to={p.member === false ? `/projects/${p.id}` : `/files?path=${encodeURIComponent(path)}`} replace />
   if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
   const name = dir ? dir.slice(dir.lastIndexOf('/') + 1) : t('files.title')
   const down = (f: FileEntry) => `/projects/${projectId}/files?dir=${encodeURIComponent(dir ? `${dir}/${f.name}` : f.name)}`
@@ -838,7 +839,8 @@ export function ProjectFiles() {
     <div className="flex h-full flex-col overflow-y-auto" data-testid="project-files-page">
       <h1 className="sr-only">{name}</h1>
       <PhoneBarTitle>{name}</PhoneBarTitle>
-      {path !== null && (
+      {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them */}
+      {path !== null && p?.member !== false && (
         <PhoneBarAction>
           <Tooltip label={t('projects.openFolder')}>
             <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">
