@@ -400,11 +400,33 @@ describe('what the card shows', () => {
   })
   test('a team template or a reconnect at its own address: no "unlisted" box, no block', () => {
     const tpl = card({ name: 'Notion', template: { id: 't1', version: 1 }, service: { kind: 'mcp', url: 'https://wiki.example.com/mcp', host: 'wiki.example.com', auth: 'oauth', authHeader: null } })
-    expect(cardTrust(tpl)).toEqual({ kind: 'template' })
-    expect(cardTrust({ ...tpl, template: undefined, reconnect: true })).toEqual({ kind: 'template' })
+    // the admin's template keeps the admin's name
+    expect(cardTrust(tpl)).toEqual({ kind: 'template', display: 'Notion' })
+    expect(cardTrust({ ...tpl, name: 'Team wiki', template: undefined, reconnect: true })).toEqual({ kind: 'template', display: 'Team wiki' })
     const out = html(tpl)
     expect(out).toContain('data-testid="connect-sign-in"')
     expect(out).not.toContain('data-testid="connect-unlisted"')
+  })
+  test('a reconnect card for a connection saved under a listed name before #582: titled by its host unless its address is official', () => {
+    const old = (name: string, url: string) => card({ name, reconnect: true, service: { kind: 'mcp', url, host: new URL(url).host, auth: 'oauth', authHeader: null } })
+    expect(cardTrust(old('Notion', 'https://notion-mcp.example.com/mcp'))).toEqual({ kind: 'template', display: 'notion-mcp.example.com' })
+    expect(cardTrust(old('N\u043etion', 'https://wiki.example.com/mcp'))).toEqual({ kind: 'template', display: 'wiki.example.com' })
+    expect(cardTrust(old('Notion', 'https://mcp.notion.com/mcp'))).toMatchObject({ kind: 'official', service: { id: 'notion' } })
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      const out = html(old('Notion', 'https://notion-mcp.example.com/mcp'))
+      expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectTitle', { name: 'notion-mcp.example.com' })))
+      expect(out).toContain(esc(translate(locale, 'connect.signIn', { name: 'notion-mcp.example.com' })))
+      expect(out).not.toContain('Notion')
+    }
+  })
+  test('a name that mixes Latin with another alphabet in a word is titled by its host, whatever it imitates', () => {
+    const at = (name: string) => cardTrust(card({ name, service: { kind: 'mcp', url: 'https://x.example.com/mcp', host: 'x.example.com', auth: 'oauth', authHeader: null } }))
+    // a mixed word that maps to no listed name still gets the host (the robust rule)
+    for (const n of ['Ac\u043ceTools', 'Pay\u03c1al Tools', 'Sl\u0561ck']) expect(at(n), n).toEqual({ kind: 'unlisted', display: 'x.example.com' })
+    // one script per word is not mixed
+    for (const n of ['Нотион', 'Acme Нотион', '노션 Wiki', 'Acme Tools']) expect(at(n).kind, n).toBe('unlisted')
+    expect(at('Acme Tools')).toEqual({ kind: 'unlisted', display: 'Acme Tools' })
   })
   test('bug 2: a reconnect card says it fixes the connection the person has, by sign-in or by key', () => {
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {

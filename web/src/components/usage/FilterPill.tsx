@@ -2,8 +2,13 @@
 // pill, so the keyboard, screen readers and phone pickers all work as usual; the pill only draws the frame and the label.
 // The ⌄ is the one every <select> draws (index.css), with its room on the right: the pill adds none of its own (two
 // arrows showed side by side).
+// A phone (below 768 px): a setting pill (`neutral`: Admin › Usage's Range and Group by, Me › Usage's Period) is no
+// select box: "Range   Last 30 days ›" opens a bottom sheet with ✓ on the current choice (components/phone/PhoneChoice.tsx,
+// QA TC-378); a pick changes the page at once, as the select did. The filters (inside the phone's Filters sheet) stay.
 import clsx from 'clsx'
 import { useId } from 'react'
+import { useMediaQuery } from '../ui'
+import { PhoneChoicePill } from '../phone/PhoneChoice'
 
 export function FilterPill<T extends string>({ label, value, options, onChange, testId, className, neutral }: {
   label: string
@@ -16,6 +21,8 @@ export function FilterPill<T extends string>({ label, value, options, onChange, 
   neutral?: boolean
 }) {
   const id = useId()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  if (phone && neutral) return <PhoneChoicePill label={label} value={value} options={options} onChange={onChange} testId={testId} className={className} />
   // a filter away from its first choice ("All") gets a stronger border, like an applied filter in the Console
   const active = !neutral && options[0] ? value !== options[0].value : false
   return (

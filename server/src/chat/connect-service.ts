@@ -16,7 +16,7 @@
 // service the person already uses is not connected twice: a working one is said, their own that needs a sign-in or a
 // new key gets a card for that same connection (`reconnect`).
 import { z } from 'zod'
-import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, catalogHost, catalogNamed, officialService, ConnectServiceInput, hasSecret, uuidv7, type CatalogService } from '@mycel/shared'
+import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, catalogHost, catalogNamed, mixedScript, officialService, posesAsListed, ConnectServiceInput, hasSecret, uuidv7, type CatalogService } from '@mycel/shared'
 import { IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
@@ -135,7 +135,8 @@ export function ownNeedsSignIn(r: Row | null, userId: string): boolean {
  * sign-in. It never makes a second connection, and "Not now" leaves this one as it is (ConnectCard.created false). */
 function reconnectCard(r: Row, why: string | undefined, expiresAt: string): Extract<TurnRequest, { kind: 'connect_service' }> {
   return {
-    kind: 'connect_service', requestId: uuidv7(), target: 'service', name: r.name, scope: 'personal',
+    // saved before the list's rule (#582) under a listed name at another address: titled by its host, like a new card
+    kind: 'connect_service', requestId: uuidv7(), target: 'service', name: posesAsListed(r.name, r.url) ? new URL(r.url).host.slice(0, 60) : r.name, scope: 'personal',
     service: { kind: r.kind, url: r.url, host: new URL(r.url).host, auth: r.auth, authHeader: r.auth_header },
     reconnect: true, ...(why ? { why } : {}), expiresAt,
   }
@@ -216,7 +217,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     try { given = a.data.url ? new URL(a.data.url) : null } catch { /* IntegrationInput says why */ }
     const listed = (a.data.url ? officialService(a.data.url) : undefined)
       ?? (named?.exact && (!a.data.url || given?.host.toLowerCase() === catalogHost(named.service)) ? named.service : undefined)
-    const posing = !listed && named && given ? given.host.slice(0, 60) : null
+    // a name that mixes Latin with another alphabet inside a word ("Nоtion" with a Cyrillic о) is never shown as given,
+    // whatever look-alike table it gets past
+    const posing = !listed && given && (named || mixedScript(a.data.name)) ? given.host.slice(0, 60) : null
     if (listed && a.data.url && officialService(a.data.url)?.id !== listed.id) note = replacedNote(a.data.url, listed)
     const kind = listed ? CATALOG_KIND : a.data.kind
     const url = listed ? listed.url : a.data.url
