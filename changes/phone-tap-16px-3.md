@@ -1,0 +1,1 @@
+- Phones: the message box's ＋ menu items, the team file picker's "Team folder" and folder rows, and the "Go to Home" link on the page-not-found screen take taps from 44 px. Computers unchanged.
