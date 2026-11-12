@@ -23592,6 +23592,9 @@ the Android QA app and the iPhone TestFlight build. Plan and evidence:
   (`sameDocumentScript`); only a new document gets the bridge again, so no step within the page (the iOS shim's, an
   Android one) cancels anything on its way. Android, a load start at the address on screen while a pick is on is no
   fence (`loadStartFences`). A copy whose size reads as 0 takes the picker's size (`assetSize`).
+- **The question carries no secret** (fix/mobile-same-document-id): the load end asks about a random document id set
+  with the bridge (`documentScript`), not the nonce, and uses no JSON of the page's, so a new page that hooks
+  postMessage learns only that id, which opens nothing.
 - **Left:** a tap on 사진 보관함 faster than the reinstall the sheet's opening brings on iPhone build 9 (tens of ms);
   gone with the native fix.
 - Version impact: **patch**.
