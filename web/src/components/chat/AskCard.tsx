@@ -18,9 +18,10 @@ import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
-import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type ConfirmDetail, type SkillWritePreview } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER } from '@mycel/shared'
 import { navigateTo } from '../../lib/nav'
+import { isPhone } from '../../lib/screenHistory'
 import { toast } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { Button, inputCls } from '../ui'
@@ -540,14 +541,16 @@ function Marked({ text, marks, alerts }: { text: string; marks?: string[]; alert
 }
 
 /** After the card's "Allow all websites": read Me again (the server sets the switch as the card closes) and say it is on
- * only when it is. */
+ * only when it is, with where to turn it off on this screen: a phone has no Browser row, the switch is a part of
+ * 트리나에게 허용한 것 there (SettingsDialog.tsx PHONE_FOLDED), and Open lands on it either way. */
 async function toastWhenOn(t: ReturnType<typeof useT>) {
   for (const wait of [300, 1000, 3000]) {
     await new Promise((r) => setTimeout(r, wait))
     await useSession.getState().refreshMe().catch(() => {})
     const st = useSession.getState().status
     if (st.kind === 'signed-in' && st.me.user.webAllowAll === true) {
-      toast({ level: 'success', text: t('settings.browser.allOnFromCard'), action: { label: t('settings.browser.open'), run: () => navigateTo('/settings/browser') } })
+      const place = t(isPhone() ? (PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi') : 'settings.browser')
+      toast({ level: 'success', text: t('settings.browser.allOnFromCard', { place }), action: { label: t('settings.browser.open'), run: () => navigateTo('/settings/browser') } })
       return
     }
   }

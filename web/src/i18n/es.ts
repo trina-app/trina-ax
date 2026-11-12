@@ -1506,7 +1506,7 @@ export const es: Record<MessageKey, string> = {
   "settings.browser.hereOnly": "El navegador integrado de esta computadora ya permite todos los sitios web. Las páginas web que lee la IA siguen preguntando.",
   "settings.browser.webPolicyOff": "El administrador de su equipo no permitió \"Permitir todos los sitios web\" para las páginas que abre la IA.",
   "settings.browser.warningChanged": "El aviso cambió. Léalo de nuevo y actívelo otra vez.",
-  "settings.browser.allOnFromCard": "Todos los sitios web están permitidos. Desactívelo en Configuración › Navegador.",
+  "settings.browser.allOnFromCard": "Todos los sitios web están permitidos. Desactívelo en Configuración › {place}.",
   "settings.browser.open": "Abrir Configuración",
   "teamSettings.webAllowAll": "También para las páginas web que abre la IA",
   "teamSettings.row.webAllowAllDesc": "\"Permitir todos los sitios web\" de los miembros también deja que la IA abra páginas web y guarde archivos de la web sin preguntar, en sus chats y salas.",

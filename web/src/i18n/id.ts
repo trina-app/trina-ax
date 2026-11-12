@@ -1534,7 +1534,7 @@ export const id: Record<MessageKey, string> = {
   "settings.browser.hereOnly": "Browser di aplikasi pada komputer ini sudah mengizinkan semua situs web. Halaman web yang dibaca AI tetap ditanyakan.",
   "settings.browser.webPolicyOff": "Admin tim Anda belum mengizinkan \"Izinkan semua situs web\" untuk halaman web yang dibuka AI.",
   "settings.browser.warningChanged": "Peringatannya berubah. Baca lagi lalu aktifkan sekali lagi.",
-  "settings.browser.allOnFromCard": "Semua situs web diizinkan. Matikan di Pengaturan › Browser.",
+  "settings.browser.allOnFromCard": "Semua situs web diizinkan. Matikan di Pengaturan › {place}.",
   "settings.browser.open": "Buka Pengaturan",
   "teamSettings.webAllowAll": "Juga untuk halaman web yang dibuka AI",
   "teamSettings.row.webAllowAllDesc": "\"Izinkan semua situs web\" milik anggota juga membuat AI membuka halaman web dan menyimpan file dari web tanpa bertanya, di obrolan dan ruang mereka.",

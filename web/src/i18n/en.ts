@@ -1534,7 +1534,7 @@ export const en: Record<MessageKey, string> = {
   "settings.browser.hereOnly": "The in-app browser on this computer already allows all websites. Web pages the AI reads still ask.",
   "settings.browser.webPolicyOff": "Your team admin has not allowed \"Allow all websites\" for web pages the AI opens.",
   "settings.browser.warningChanged": "The warning has changed. Read it again and turn it on once more.",
-  "settings.browser.allOnFromCard": "All websites are allowed. Turn it off in Settings › Browser.",
+  "settings.browser.allOnFromCard": "All websites are allowed. Turn it off in Settings › {place}.",
   "settings.browser.open": "Open Settings",
   "teamSettings.webAllowAll": "Also for web pages the AI opens",
   "teamSettings.row.webAllowAllDesc": "Members' \"Allow all websites\" also lets the AI open web pages and save files from the web without asking, in their chats and rooms.",

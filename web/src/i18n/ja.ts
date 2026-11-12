@@ -1506,7 +1506,7 @@ export const ja: Record<MessageKey, string> = {
   "settings.browser.hereOnly": "このコンピューターのアプリ内ブラウザーはすでにすべてのWebサイトを許可しています。AIが読むWebページは引き続き確認します。",
   "settings.browser.webPolicyOff": "チームの管理者は、AIが開くWebページに「すべてのWebサイトを許可」を認めていません。",
   "settings.browser.warningChanged": "注意文が変わりました。もう一度読んでから、改めてオンにしてください。",
-  "settings.browser.allOnFromCard": "すべてのWebサイトを許可しました。設定 › ブラウザーでオフにできます。",
+  "settings.browser.allOnFromCard": "すべてのWebサイトを許可しました。設定 › 「{place}」でオフにできます。",
   "settings.browser.open": "設定を開く",
   "teamSettings.webAllowAll": "AIが開くWebページにも適用",
   "teamSettings.row.webAllowAllDesc": "メンバーの「すべてのWebサイトを許可」で、チャットとルームではAIがWebページを開いたりWebからファイルを保存したりするときも確認しなくなります。",

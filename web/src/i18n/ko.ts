@@ -1533,7 +1533,7 @@ export const ko = {
   "settings.browser.hereOnly": "이 컴퓨터의 앱 안 브라우저는 이미 모든 웹사이트를 허용해요. AI가 읽는 웹 페이지는 계속 물어요.",
   "settings.browser.webPolicyOff": "팀 관리자가 AI가 여는 웹 페이지에는 \"모든 웹사이트 허용\"을 허락하지 않았어요.",
   "settings.browser.warningChanged": "안내 문구가 바뀌었어요. 다시 읽고 한 번 더 켜 주세요.",
-  "settings.browser.allOnFromCard": "모든 웹사이트를 허용했어요. 설정 › 브라우저에서 끌 수 있어요.",
+  "settings.browser.allOnFromCard": "모든 웹사이트를 허용했어요. 설정 › {place}에서 끌 수 있어요.",
   "settings.browser.open": "설정 열기",
   "teamSettings.webAllowAll": "AI가 여는 웹 페이지에도 적용",
   "teamSettings.row.webAllowAllDesc": "팀원의 \"모든 웹사이트 허용\"이 자기 채팅과 대화방에서 AI가 웹 페이지를 열거나 웹에서 파일을 저장할 때도 묻지 않게 해요.",
