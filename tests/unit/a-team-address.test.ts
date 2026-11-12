@@ -55,9 +55,15 @@ describe('team address for members', () => {
       const office = h.client({ base: 'https://192.168.0.10:8443' })
       await office.login('mina', 'river stone lamp 7')
       expect((await office.call('GET', '/api/me')).team.address).toBe('https://acme.trina.app')
+      // the same straight to the office listener, with the relay configured
+      h.ctx.config.relay.url = 'wss://relay.example.com/connect'
+      const direct = h.client({ base: 'https://192.168.0.10:8443', via: 'direct' })
+      await direct.login('mina', 'river stone lamp 7')
+      expect((await direct.call('GET', '/api/me')).team.address).toBe('https://acme.trina.app')
     } finally {
       h.ctx.services.relay = before
       h.ctx.config.publicOrigins = []
+      h.ctx.config.relay.url = null
     }
   })
 

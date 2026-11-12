@@ -37,7 +37,7 @@ import { browserTabShown } from './settingsTabs'
 import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
-import { teamAddressHost } from '../lib/team-address'
+import { teamAddressShown } from '../lib/team-address'
 import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, Skeleton, confirmDialog, inputCls, noKeyRepeat, useCopy, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
@@ -924,15 +924,15 @@ function SendToComputer({ address }: { address: string | undefined }) {
  */
 export function TeamAddressRow({ address }: { address: string | undefined }) {
   const t = useT()
-  const host = teamAddressHost(address)
-  if (!address || !host) return null
+  const shown = teamAddressShown(address)
+  if (!address || !shown) return null
   const origin = new URL(address).origin
   const insecure = origin.startsWith('http:')
   return (
     <div className="mb-6" data-testid="apps-team-address">
       <Row label={t('apps.teamAddress')} hint={t(insecure ? 'apps.teamAddressHttpHint' : 'apps.teamAddressHint')}>
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{insecure ? origin : host}</span>
+          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{shown}</span>
           <CopyButton text={origin} showLabel className="shrink-0" />
         </div>
       </Row>

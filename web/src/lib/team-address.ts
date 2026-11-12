@@ -15,3 +15,12 @@ export function teamAddressHost(address: string | null | undefined): string | nu
     return null
   }
 }
+
+/** The team address as people should read and type it: the host (with its port) for https, the whole origin with
+ * http:// for plain http (an office server without a certificate: typed without it, the apps would try https). null as
+ * teamAddressHost. */
+export function teamAddressShown(address: string | null | undefined): string | null {
+  const host = teamAddressHost(address)
+  if (!host) return null
+  return address!.trim().toLowerCase().startsWith('http:') ? new URL(address!).origin : host
+}

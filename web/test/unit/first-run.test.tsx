@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { DICTS, LOCALES, translate, useLocaleStore } from '../../src/i18n'
-import { teamAddressHost } from '../../src/lib/team-address'
+import { teamAddressHost, teamAddressShown } from '../../src/lib/team-address'
 import { TeamAddressRow } from '../../src/pages/Settings'
 import { AcceptInvite, TeamJoin } from '../../src/pages/Auth'
 import { installDom, mount, removeDom } from './dom-host'
@@ -105,6 +105,11 @@ describe('on screen', () => {
       expect(copied).toEqual(['http://192.168.1.2:19300'])
     } finally { await h.unmount() }
     expect(teamAddressHost('https://acme-mac.tail1234.ts.net:8489')).toBe('acme-mac.tail1234.ts.net:8489')
+    // the team menu and the install pictures read it the same way
+    expect(teamAddressShown('https://192.168.1.2:19300')).toBe('192.168.1.2:19300')
+    expect(teamAddressShown('http://192.168.1.2:19300')).toBe('http://192.168.1.2:19300')
+    expect(teamAddressShown('HTTP://192.168.1.2:19300/x')).toBe('http://192.168.1.2:19300')
+    for (const bad of [undefined, '', 'acme', 'ftp://x.example']) expect(teamAddressShown(bad)).toBeNull()
   })
 
   const where = <Route path="/login" element={<p data-testid="where">login</p>} />
