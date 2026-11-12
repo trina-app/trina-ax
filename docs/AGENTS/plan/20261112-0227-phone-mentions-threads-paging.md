@@ -50,4 +50,7 @@ activity-tabs again.
 ## Result
 
 Built as planned (PR #545). Also: Activity is keyed by its view, so moving between 대화's and 나's starts afresh; the
-Settings › 알림 link (hidden on phones already) counts as the 나 tab there.
+Settings › 알림 link (hidden on phones already) counts as the 나 tab there. After review: an older page goes on only
+while the list still ends where it was asked from, and the reading of older pages looks again after every read that
+ends (it stalled when a read again landed meanwhile); a read again is one request that keeps the older rows; at most 9
+pages are read by themselves per tab, Unreads and search text, then "최근 N개 안에는 없어요." with Load more.
