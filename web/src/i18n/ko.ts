@@ -1263,7 +1263,6 @@ export const ko = {
   'connectors.tools': "도구",
   'connectors.toolsAfter': "연결하면 도구가 여기에 보여요.",
   'connectors.adminNeeded': "관리자가 먼저 켜야 해요",
-  'connectors.drive.about': "내 Google Drive를 연결하면 AI가 대화에서 내 Docs, Sheets, Slides, PDF를 찾아 읽어요. 파일 이름이 정확히 기억나지 않아도 괜찮아요. 읽기만 하고 파일을 바꾸거나 옮기거나 공유하지 않으며, 이 연결은 나만 써요.",
   'connectors.mcp.about': "{name}을(를) 연결하면 AI가 내 계정으로 대화에서 사용해요. 쓰기·삭제·보내기 전에는 따로 정하지 않는 한 먼저 물어봐요.",
   'connectors.setUpOnceLine': "한 번 설정하면 멤버는 Google에 로그인만 하면 돼요",
   'connectors.connectTeam': "팀용, 키 하나",

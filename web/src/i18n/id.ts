@@ -1264,7 +1264,6 @@ export const id: Record<MessageKey, string> = {
   'connectors.tools': "Alat",
   'connectors.toolsAfter': "Alatnya tampil di sini setelah terhubung.",
   'connectors.adminNeeded': "Admin perlu mengaktifkan ini",
-  'connectors.drive.about': "Hubungkan Google Drive Anda agar AI dapat menemukan dan membaca Docs, Sheets, Slides, dan PDF Anda dalam obrolan, bahkan saat Anda tidak ingat nama filenya. AI hanya membaca: tidak bisa mengubah, memindahkan, atau membagikan file Anda, dan hanya Anda yang memakai koneksi ini.",
   'connectors.mcp.about': "Hubungkan {name} agar AI dapat memakainya di obrolan Anda dengan akun Anda sendiri. Sebelum menulis, menghapus, atau mengirim apa pun di sana, AI bertanya dulu, kecuali Anda memilih lain.",
   'connectors.setUpOnceLine': "Sekali disiapkan, lalu setiap anggota cukup masuk ke Google",
   'connectors.connectTeam': "Untuk tim, satu kunci",

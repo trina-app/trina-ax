@@ -1236,7 +1236,6 @@ export const es: Record<MessageKey, string> = {
   'connectors.tools': "Herramientas",
   'connectors.toolsAfter': "Sus herramientas aparecen aquí al conectarlo.",
   'connectors.adminNeeded': "Su administrador debe activarlo",
-  'connectors.drive.about': "Conecte su propio Google Drive para que la IA encuentre y lea sus Docs, Sheets, Slides y PDF en sus chats, aunque no recuerde el nombre exacto. Solo lee: no puede cambiar, mover ni compartir sus archivos, y solo usted usa esta conexión.",
   'connectors.mcp.about': "Conecte {name} para que la IA lo use en sus chats con su propia cuenta. Antes de escribir, borrar o enviar algo allí, le pregunta primero, salvo que elija otra cosa.",
   'connectors.setUpOnceLine': "Una configuración y luego cada miembro solo inicia sesión en Google",
   'connectors.connectTeam': "Para el equipo, una clave",

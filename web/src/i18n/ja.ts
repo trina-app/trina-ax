@@ -1236,7 +1236,6 @@ export const ja: Record<MessageKey, string> = {
   'connectors.tools': "ツール",
   'connectors.toolsAfter': "接続するとツールがここに表示されます。",
   'connectors.adminNeeded': "管理者がオンにする必要があります",
-  'connectors.drive.about': "自分のGoogle Driveを接続すると、AIがチャットでDocs・Sheets・Slides・PDFを探して読めます。ファイル名を正確に覚えていなくても大丈夫です。読み取りのみで、ファイルの変更・移動・共有はできません。この接続を使うのはあなただけです。",
   'connectors.mcp.about': "{name}を接続すると、AIがあなたのアカウントでチャットから使えます。書き込み・削除・送信の前には、別の設定をしない限り先に確認します。",
   'connectors.setUpOnceLine': "一度設定すれば、メンバーはGoogleにサインインするだけです",
   'connectors.connectTeam': "チーム用（キー1つ）",

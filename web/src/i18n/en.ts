@@ -1264,7 +1264,6 @@ export const en: Record<MessageKey, string> = {
   'connectors.tools': "Tools",
   'connectors.toolsAfter': "Its tools show here once you connect it.",
   'connectors.adminNeeded': "Your admin needs to turn this on",
-  'connectors.drive.about': "Connect your own Google Drive so the AI can find and read your Docs, Sheets, Slides and PDFs in your chats, even when you don't remember a file's exact name. It only reads: it can't change, move or share your files, and only you use this connection.",
   'connectors.mcp.about': "Connect {name} so the AI can use it in your chats with your own account. Before it writes, deletes or sends anything there, it asks you first, unless you choose otherwise.",
   'connectors.setUpOnceLine': "One setup, then every member just signs in to Google",
   'connectors.connectTeam': "For the team, one key",
