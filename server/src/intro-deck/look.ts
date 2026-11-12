@@ -119,8 +119,11 @@ function brandFeature(B: string): G2 {
  * type as B is (so type that reads on B reads on every blend of the mesh). */
 export function meshOf(B: string): [string, string, string] {
   const text = brandFeature(B).text
-  const need = contrast(text, B)
-  const step = text === '#ffffff' ? -0.01 : 0.01
+  const white = text === '#ffffff'
+  // under white type a blend of B and darker blobs is never lighter than B; under near-black type a blend of lighter
+  // colours can read a little darker than either, so the blobs keep a margin there
+  const need = contrast(text, B) + (white ? 0 : 0.3)
+  const step = white ? -0.01 : 0.01
   const keep = (c: string) => { let m = c; for (let k = 0; k < 100 && contrast(text, m) < need; k++) m = shift(m, 0, step); return m }
   return [keep(shift(B, -26, 0.04)), keep(shift(B, 0, -0.16)), keep(shift(B, 24, 0.06))]
 }
