@@ -138,6 +138,10 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: the run did not start because its owner no longer sees the task's project (its folder's
    * access was taken away, or it is in the trash); older servers omit it */
   projectGone: z.literal(true).optional(),
+  /** with projectGone: the project is still there and the person (the owner or an admin) may add themselves; only its
+   * members can use it since "Project contents only for members". The task is paused and starts again once they are a
+   * member (docs/DECISIONS.md "Projects from before the update: one card, Add me to these"); older servers omit it */
+  membersOnly: z.literal(true).optional(),
   /** 'schedule.failure' only: the task's save folder lapsed (moved, renamed, deleted, its permissions changed, or the
    * person's write access gone); its runs save in the person's own folder until they check it again on the Scheduled
    * page; older servers omit it */

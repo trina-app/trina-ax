@@ -496,3 +496,62 @@ test('an admin who is not the owner does not ask for the update status', async (
   await expect(page.getByTestId('admin-home-system')).toBeVisible()
   expect(asked).toEqual([])
 })
+
+// QA TC-360 (docs/DECISIONS.md "Projects from before the update: one card, Add me to these"): the owner who lost team
+// projects at the update to members-only projects gets one card naming them, Add me to these (asks first, then she is
+// in all of them) and a dismiss; on a phone the same card is in the Admin list. Members get none.
+for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: '390', size: { width: 390, height: 844 } }]) {
+  test(`projects from before the update: one card, Add me to these, dismiss (${vp.name})`, async ({ page }) => {
+    const errors = watchConsole(page)
+    await page.setViewportSize(vp.size)
+    await start(page)
+    await dismissHwp(page)
+    const ids: Record<string, string> = {}
+    for (const [name, beforeUpdate] of [['Falcon', true], ['Harbor', true], ['Comet', false]] as const) {
+      const made = await page.request.post('/__test/project', { data: { name, by: 'bob', beforeUpdate, files: { 'plan.md': 'plan' } } })
+      ids[name] = ((await made.json()) as { id: string }).id
+    }
+    await page.goto('/admin')
+    const card = page.getByTestId('admin-old-projects')
+    await expect(card).toBeVisible()
+    await expect(card.getByRole('heading')).toHaveText('2 projects from before the update are for their members only now')
+    await expect(page.getByTestId('admin-old-projects-names')).toHaveText('Falcon, Harbor')
+    await expect(card).toContainText(t['adminHome.oldProjects.body'])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    // the dismiss is a 44px target on a phone
+    if (vp.size.width < 768) expect((await page.getByTestId('admin-old-projects-dismiss').boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    await page.getByTestId('admin-old-projects-add').click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading')).toHaveText('Add yourself to 2 projects?')
+    await expect(dialog).toContainText(t['projects.addMeBody'])
+    await dialog.getByTestId('dialog-confirm').click()
+    await expect(card).toHaveCount(0)
+    // she is in the two, and only those
+    const mine = ((await (await page.request.get('/api/projects')).json()) as { items: { name: string }[] }).items.map((p) => p.name).sort()
+    expect(mine).toEqual(['Falcon', 'Harbor'])
+    await page.goto(`/projects/${ids.Falcon}`)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await page.goto(`/projects/${ids.Comet}`)
+    await expect(page.getByTestId('project-members-only')).toBeVisible()
+    expect(realErrors(errors)).toEqual([])
+  })
+}
+
+test('projects from before the update: the dismiss keeps it closed; a member never gets the card', async ({ page }) => {
+  await start(page)
+  await dismissHwp(page)
+  await page.request.post('/__test/project', { data: { name: 'Falcon', by: 'bob', beforeUpdate: true } })
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-old-projects')).toBeVisible()
+  await page.getByTestId('admin-old-projects-dismiss').click()
+  await expect(page.getByTestId('admin-old-projects')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByTestId('admin-home-members')).toBeVisible()
+  await expect(page.getByTestId('admin-old-projects')).toHaveCount(0)
+  // still not a member: the dismiss changes nothing else
+  expect(((await (await page.request.get('/api/projects')).json()) as { items: unknown[] }).items).toHaveLength(0)
+  // a member asks: nothing
+  await page.context().clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  expect(((await (await page.request.get('/api/projects/update-notice')).json()) as { items: unknown[] }).items).toEqual([])
+})

@@ -585,6 +585,8 @@ export class MockServer {
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
+    this.beforeUpdate = new Set()
+    this.updateNoticeDismissed = new Set()
     this.trashedProjects.clear()
     this.projectRowIds.clear()
     this.memories = []
@@ -780,6 +782,16 @@ export class MockServer {
   entry(path: string, n: FileNode, user: User): FileEntry {
     return { name: path.slice(path.lastIndexOf('/') + 1), path, type: n.type, size: n.type === 'file' ? n.data!.byteLength : null, mtime: n.mtime, mime: n.type === 'file' ? mimeOf(path) : null, access: this.access(path, user),
       ...(n.type === 'file' && this.downloadOnly.has(path) ? { downloadOnly: true as const } : {}) }
+  }
+  /** POST /__test/project {beforeUpdate: true}: a team project from before the update to members-only projects; and who
+   * dismissed the card about them (server/src/chat/old-projects.ts) */
+  beforeUpdate = new Set<string>()
+  updateNoticeDismissed = new Set<string>()
+  /** like server/src/chat/old-projects.ts updateNoticeProjects: the owner's or an admin's projects from before the update
+   * they manage and do not read now, until they dismiss the card */
+  updateNoticeOf(u: User): Project[] {
+    if (u.role === 'member' || this.updateNoticeDismissed.has(u.id)) return []
+    return this.projects.filter((p) => this.beforeUpdate.has(p.id) && !p.inTrash && this.projectManages(p, u) && !this.projectSees(p, u)).sort((a, b) => a.name.localeCompare(b.name))
   }
   /** POST /__test/download-only {path}: a file Safe operations 1A generated (quarantined: FileEntry.downloadOnly) */
   downloadOnly = new Set<string>()
@@ -2423,6 +2435,22 @@ export class MockServer {
       return { status: 201, body: p }
     },
     getProject: (c) => this.projectFor(c, c.query.manage === '1'),
+    getProjectsUpdateNotice: (c) => ({ items: this.updateNoticeOf(c.user).map((p) => ({ id: p.id, name: p.name })) }),
+    // "Add me to these": a member of each, as Add me saves it (its members told)
+    joinProjectsUpdateNotice: (c) => {
+      let joined = 0, skipped = 0
+      for (const p of this.updateNoticeOf(c.user)) {
+        const pm = this.projectMembers.get(p.folderPath)
+        if (!pm) { skipped++; continue }
+        const before = new Set(this.sharedAudience(p).map((u) => u.id))
+        pm.participants = [...pm.participants, { subjectType: 'user', subjectId: c.user.id }]
+        pm.version++
+        for (const id of before) this.note(id, { kind: 'project_joined', joinerId: c.user.id, projectId: p.id })
+        joined++
+      }
+      return { joined, skipped }
+    },
+    dismissProjectsUpdateNotice: (c) => { this.updateNoticeDismissed.add(c.user.id); return undefined },
     // a new name is management (also without reading it); its instructions and chat sharing are its contents
     updateProject: (c) => {
       const p = this.projectFor(c, true)
@@ -4957,6 +4985,8 @@ export class MockServer {
       this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
       const pr: Project = { id: uuidv7(), name: String(body.name), folderPath, instructions: String(body.instructions ?? ''), createdBy: { id: by.id, name: by.name }, createdAt: now(), canEdit: true }
       this.projects.push(pr)
+      // made before the update to members-only projects (the card on Admin › Home, GET /api/projects/update-notice)
+      if (body.beforeUpdate === true) this.beforeUpdate.add(pr.id)
       for (const [name, text] of Object.entries((body.files as Record<string, string> | undefined) ?? {})) this.putFile(`${folderPath}/${name}`, text)
       // a chat of the caller there (`chatsOf`: whose, by id; their own chats stay theirs, also after they lose it)
       for (const [uid, title] of (body.chats as [string, string][] | undefined) ?? []) {
