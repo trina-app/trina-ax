@@ -90,7 +90,8 @@ async function inside(inner: Locator, outer: Locator) {
 async function filtersIcon(page: Page, prefix: string, choose: (sheet: Locator) => Promise<void>) {
   const toggle = page.getByTestId(`${prefix}-toggle`)
   await expect(toggle).toHaveAccessibleName(t['activity.filters'])
-  await expect(toggle).not.toContainText(t['activity.filters'], { useInnerText: true })
+  // the icon alone (the word for screen readers only): a 44 px square
+  await expect(toggle.locator('svg')).toBeVisible()
   const r = await box(toggle)
   expect(Math.round(r.width)).toBeGreaterThanOrEqual(44)
   expect(Math.round(r.width)).toBeLessThanOrEqual(46)
@@ -238,8 +239,10 @@ export function adminBarCases() {
     }
     await inside(page.getByTestId('tree-filters-toggle'), bar(page))
     await fits(page)
-    await filtersIcon(page, 'tree-filters', (sheet) => sheet.getByText(t['accessTree.ruledOnly']).click())
-    await expect(page.getByTestId('tree-ruled-only')).toBeChecked()
+    await filtersIcon(page, 'tree-filters', async (sheet) => {
+      await sheet.getByText(t['accessTree.ruledOnly']).click()
+      await expect(sheet.getByTestId('tree-ruled-only')).toBeChecked()
+    })
     // By person: its search under the two views, full width; no Filters or + of By folder
     await views.getByRole('tab', { name: t['accessView.byPerson'] }).click()
     const search = page.getByTestId('access-person-search')
