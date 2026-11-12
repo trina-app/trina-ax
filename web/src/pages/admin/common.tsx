@@ -456,7 +456,7 @@ export function SettingRow({ id, title, desc, more, control, below, heading, inl
             {desc && <span id={descId}>{desc}</span>}
             {desc && more && ' '}
             {more && (
-              <button type="button" aria-expanded={open} className="font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
+              <button type="button" aria-expanded={open} className="touch-hit font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
                 {t(open ? 'common.less' : 'teamSettings.learnMore')}
               </button>
             )}
