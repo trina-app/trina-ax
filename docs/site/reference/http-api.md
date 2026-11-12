@@ -567,16 +567,16 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/admin/slack` | Owner | The Slack connector: state, workspace, the manifest to create the app with. Never a token. |
-| `PUT` | `/api/admin/slack/tokens` | Owner | Check and save the bot and app-level tokens (sealed in the browser). Another workspace than before removes every link. |
-| `POST` | `/api/admin/slack/enabled` | Owner | Turn the connector on (needs saved tokens) or off. |
-| `DELETE` | `/api/admin/slack` | Owner | Remove the tokens and every link; the connector is off. |
+| `GET` | `/api/admin/slack` | Admin | The Slack connector: state, workspace, the manifest to create the app with. Never a token. |
+| `PUT` | `/api/admin/slack/tokens` | Owner | Check and save the bot and app-level tokens (sealed in the browser). The owner only. Another workspace than before removes every link. |
+| `POST` | `/api/admin/slack/enabled` | Admin | Turn the connector on (needs saved tokens) or off. |
+| `DELETE` | `/api/admin/slack` | Admin | Remove the tokens and every link; the connector is off. The team's own Slack app (mode own, tokens saved): the owner only (an admin: 403 owner_only). |
 | `GET` | `/api/slack/me` | Signed in | Whether the team uses Slack and the Slack account linked to me. |
 | `DELETE` | `/api/slack/me` | Signed in | Unlink my Slack account. |
 | `POST` | `/api/slack/link/preview` | Signed in | What confirming this one-time link would link: the Slack account and me. Changes nothing. |
 | `POST` | `/api/slack/link/confirm` | Signed in | Link the Slack account of this one-time link to me (used up). |
 | `POST` | `/api/slack/signin` | Signed in | Start "Sign in with Slack" to link the Slack account I sign in to (10 minutes, this session only). |
-| `POST` | `/api/admin/slack/official/install` | Owner | "Add to Slack": Slack's install page of the hosting service's official app (10 minutes, this owner only). `origin`: the address the page is open at, where links in Slack open. |
+| `POST` | `/api/admin/slack/official/install` | Admin | "Add to Slack": Slack's install page of the hosting service's official app (10 minutes, this owner or admin only). `origin`: the address the page is open at, where links in Slack open. |
 | `POST` | `/api/slack/link/cancel` | Signed in | Throw this one-time link away without linking. |
 
 ## Promo video and its MP4

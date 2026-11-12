@@ -1,6 +1,8 @@
 import type { Spec } from './cases'
 
-// The Slack connector (docs/SLACK.md). Slack's admin page is the owner's alone (admins too are refused); each person's
+// The Slack connector (docs/SLACK.md). Slack's admin page is the owner's and admins' (auth 'admin': its state, "Add to
+// Slack", on/off, Remove); saving the team's own app's tokens is the owner's alone (auth 'owner'), and an admin's Remove
+// of the own app is refused in the service (tests/unit/c-slack.test.ts); members get none of them. Each person's
 // own link is theirs (self); a one-time link token nobody was given is refused for everyone after the auth level. Who a
 // link binds (the Slack account of the event, used once, 10 minutes, both names shown) is tested against a fake Slack
 // in tests/unit/c-slack.test.ts.
@@ -21,11 +23,11 @@ export const SLACK_SPECS: Record<string, Spec> = {
   cancelSlackLink: { build: c => c.post('/api/slack/link/cancel', NO_TOKEN), scope: 'nobody' },
   // "Sign in with Slack" for the caller's own account (Slack not set up here: 409 after the permission check)
   startSlackSignIn: { build: c => c.post('/api/slack/signin', {}), scope: 'self' },
-  // "Add to Slack" (the hosting service's official app): the owner's alone (no hosting service here: 409 after the
+  // "Add to Slack" (the hosting service's official app): the owner's and admins' (no hosting service here: 409 after the
   // permission check)
   startSlackInstall: { build: c => c.post('/api/admin/slack/official/install', {}), scope: 'byLevel' },
 }
 // GET /api/integrations/slack/oauth/callback: the state's person and session binding is tested in tests/unit/c-slack.test.ts
 // (the official app's handoff: tests/unit/c-slack-official.test.ts); GET /api/integrations/slack/official/callback, the
-// owner binding of "Add to Slack": tests/unit/c-slack-official.test.ts
+// binding of "Add to Slack" to the owner or admin who pressed it: tests/unit/c-slack-official.test.ts
 export const SLACK_RAW_COVERED = ['RAW GET SLACK_CALLBACK_PATH', 'RAW GET SLACK_BROKER_TEAM_INSTALL_RETURN_PATH']
