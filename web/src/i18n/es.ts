@@ -4256,6 +4256,7 @@ export const es: Record<MessageKey, string> = {
   "fileList.running": "Leyendo archivos…",
   "fileList.runNow": "Ejecutar ahora",
   "fileList.runStarted": "Se inició la lista de archivos.",
+  "fileList.runOff": "La lista de archivos está desactivada. Actívela en Configuración del equipo para ejecutarla.",
   "fileList.offTitle": "¿Desactivar la lista de archivos?",
   "fileList.offBody": "Se eliminan las líneas guardadas y no se lee ningún archivo por la noche. La IA busca entonces los archivos solo por su nombre y su texto. Al activarla de nuevo, los archivos se vuelven a leer durante las noches siguientes.",
   "fileList.offConfirm": "Desactivar",

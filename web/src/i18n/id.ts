@@ -4300,6 +4300,7 @@ export const id: Record<MessageKey, string> = {
   "fileList.running": "Sedang membaca file…",
   "fileList.runNow": "Jalankan sekarang",
   "fileList.runStarted": "Daftar file mulai dibuat.",
+  "fileList.runOff": "Daftar file sedang dimatikan. Nyalakan di Pengaturan tim untuk menjalankannya.",
   "fileList.offTitle": "Matikan daftar file?",
   "fileList.offBody": "Baris yang tersimpan dihapus dan tidak ada file yang dibaca pada malam hari. AI lalu mencari file hanya dari nama dan isinya. Jika dinyalakan lagi, file dibaca ulang selama beberapa malam berikutnya.",
   "fileList.offConfirm": "Matikan",

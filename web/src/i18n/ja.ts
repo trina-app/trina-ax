@@ -4256,6 +4256,7 @@ export const ja: Record<MessageKey, string> = {
   "fileList.running": "ファイルを読み込み中…",
   "fileList.runNow": "今すぐ実行",
   "fileList.runStarted": "ファイル一覧の実行を開始しました。",
+  "fileList.runOff": "ファイル一覧はオフになっています。チーム設定でオンにすると実行できます。",
   "fileList.offTitle": "ファイル一覧をオフにしますか？",
   "fileList.offBody": "記録した行が削除され、夜間にファイルを読むこともなくなります。AIはファイル名と内容だけで探すようになります。もう一度オンにすると、次の数晩でファイルを読み直します。",
   "fileList.offConfirm": "オフにする",

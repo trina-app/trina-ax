@@ -4300,6 +4300,7 @@ export const ko = {
   "fileList.running": "지금 파일을 읽는 중…",
   "fileList.runNow": "지금 실행",
   "fileList.runStarted": "파일 목록 실행을 시작했어요.",
+  "fileList.runOff": "파일 목록이 꺼져 있어요. 팀 설정에서 켜면 실행할 수 있어요.",
   "fileList.offTitle": "파일 목록을 끌까요?",
   "fileList.offBody": "적어 둔 줄이 지워지고 밤에 파일을 읽지 않아요. AI는 파일 이름과 내용으로만 찾게 돼요. 다시 켜면 다음 며칠 밤에 걸쳐 파일을 다시 읽어요.",
   "fileList.offConfirm": "끄기",

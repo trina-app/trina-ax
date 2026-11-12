@@ -3,9 +3,10 @@
 // against its limit), why it cannot run, and Run now only while on.
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { FileListStatus } from '@mycel/shared/api'
+import { ERROR_MESSAGES, type FileListStatus } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { FileListStatusLines, FileListToggle } from '../../src/pages/admin/FileList'
+import { ApiError } from '../../src/lib/api'
+import { FileListStatusLines, FileListToggle, runNowError } from '../../src/pages/admin/FileList'
 
 const noop = () => {}
 const status = (o: Partial<FileListStatus> = {}): FileListStatus => ({
@@ -64,5 +65,17 @@ describe('the file list status', () => {
   test('in Korean, plainly', () => {
     expect(translate('ko', 'fileList.countsWaiting', { listed: '1,240', waiting: '18' })).toBe('목록에 있는 파일 1,240개 · 읽기를 기다리는 파일 18개')
     expect(translate('ko', 'fileList.account.teamBy', { label: 'Team Claude', name: 'Dana' })).toBe('팀 AI 계정 “Team Claude” (Dana 님이 로그인)')
+  })
+  test('Run now refused because it is off (a screen from before it was turned off): a plain message, and the status is read again', () => {
+    const en: Parameters<typeof runNowError>[2] = (k, p) => translate('en', k, p)
+    const ko: Parameters<typeof runNowError>[2] = (k, p) => translate('ko', k, p)
+    const refused = (reason: string) => new ApiError(409, { code: 'conflict', message: ERROR_MESSAGES.conflict.en, params: { reason } })
+    expect(runNowError(refused('off'), 'en', en)).toEqual({ text: 'The file list is turned off. Turn it on in Team settings to run it.', refused: true })
+    expect(runNowError(refused('off'), 'ko', ko)).toEqual({ text: '파일 목록이 꺼져 있어요. 팀 설정에서 켜면 실행할 수 있어요.', refused: true })
+    expect(runNowError(refused('forced_off'), 'en', en)).toEqual({ text: 'Turned off on this server by its host.', refused: true })
+    // before: the generic "This conflicts with another change"
+    expect(runNowError(refused('off'), 'en', en).text).not.toBe(ERROR_MESSAGES.conflict.en)
+    // any other error keeps its own text and does not read the status again
+    expect(runNowError(new Error('boom'), 'en', en)).toEqual({ text: 'boom', refused: false })
   })
 })

@@ -1945,7 +1945,7 @@ export class MockServer {
       return this.fileList
     },
     runFileList: () => {
-      if (!this.fileList.enabled || this.fileList.forcedOff) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
+      if (!this.fileList.enabled || this.fileList.forcedOff) throw new Fail('conflict', 409, 'off', undefined, { reason: this.fileList.forcedOff ? 'forced_off' : 'off' })
       this.fileList = { ...this.fileList, running: true, lastRun: { startedAt: new Date().toISOString(), endedAt: null, trigger: 'now', read: 0, stoppedBy: null } }
       return this.fileList
     },
