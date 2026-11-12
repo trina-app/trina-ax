@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:27
 - Branch: `fix/phone-mentions-threads-paging`
-- Status: in progress
+- Status: done
 - Where: this repo, `web/` and `server/` + `shared/` (`GET /api/notifications`). Why: follow-up of #530 (QA TC-256),
   core UI.
 - Version impact: patch: fixes to #530's view and counts; one more optional query value.
@@ -49,4 +49,5 @@ activity-tabs again.
 
 ## Result
 
-(filled in at the end)
+Built as planned (PR #545). Also: Activity is keyed by its view, so moving between 대화's and 나's starts afresh; the
+Settings › 알림 link (hidden on phones already) counts as the 나 tab there.
