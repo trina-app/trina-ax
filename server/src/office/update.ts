@@ -81,7 +81,7 @@ export interface UpdateState {
   deferred?: { version: string; since: string } | null
   /** the newest head seen that a hold or resume changed (system/rollout.ts changedAt): an older copy of the same version's
    * head served again is not taken by the nightly run (newerHeadSeen) */
-  seenHead?: { version: string; changedAt: string } | null
+  seenHead?: { channel?: Channel; version: string; changedAt: string } | null
 }
 const emptyState = (): UpdateState => ({ lastCheckAt: null, last: null, available: null, lastUpdate: null, failed: {}, running: null, desktop: null, deferred: null })
 
@@ -818,8 +818,8 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
     // an older copy of a head this Mac has seen changed by a hold or resume (system/rollout.ts changedAt): the nightly
     // run leaves it, so a copy served again cannot lift a hold
     const seen = readUpdateState(home).seenHead
-    const stale = !!seen && newerHeadSeen({ version: seen.version, rollout: { changedAt: seen.changedAt } }, r)
-    if (stale && o.reason === 'schedule') {
+    const stale = !!seen && seen.channel === set.channel && newerHeadSeen({ version: seen.version, rollout: { changedAt: seen.changedAt } }, r)
+    if (stale) {
       patchUpdateState(home, (s) => { s.lastCheckAt = d.now().toISOString() })
       return finish({ kind: 'skipped', version: r.version, message: `the feed answered with an older copy of the ${r.version} manifest (changed ${r.rollout?.changedAt ?? 'never'}, seen ${seen!.changedAt}); waiting for the current one` })
     }
@@ -831,7 +831,9 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
       s.available = dec.kind === 'install' || dec.kind === 'too-old'
         ? { version: r.version, channel: r.channel, notes: r.notes, publishedAt: r.publishedAt, ...(turn?.wait ? { turnAt: turn.at?.toISOString() ?? null } : {}), ...(turn?.wait && turn.paused ? { paused: true } : {}) }
         : null
-      if (!stale && r.rollout?.changedAt) s.seenHead = { version: r.version, changedAt: r.rollout.changedAt }
+      // kept until a newer version's changed head: an older version's head served in between does not reset it
+      const keep = s.seenHead && s.seenHead.channel === set.channel && typeof s.seenHead.version === 'string' && VERSION_RE.test(s.seenHead.version) && compareVersions(s.seenHead.version, r.version) > 0
+      if (r.rollout?.changedAt && !keep) s.seenHead = { channel: set.channel, version: r.version, changedAt: r.rollout.changedAt }
     })
     if (dec.kind === 'older' || dec.kind === 'too-old') return finish({ kind: 'refused', version: r.version, message: dec.reason })
     if (dec.kind === 'current') {

@@ -208,7 +208,7 @@ describe('publish-server', () => {
     expect(rel('0.3.2').rollout?.salt).not.toBe(rel('0.3.0').rollout!.salt)
   })
 
-  test('a held head (hosting.ts hold) stays held when the same version is published again; a newer version replaces it', async () => {
+  test('a held or resumed head (hosting.ts hold/resume) stays as it is when the same version is published again; a newer version replaces it', async () => {
     const feed = path.join(T, 'feed-held')
     const t0 = Date.parse('2026-11-04T01:00:00.000Z')
     await publishServer(opts(b030, feed, { channel: 'stable', now: () => new Date(t0) }))
@@ -222,9 +222,16 @@ describe('publish-server', () => {
     expect(lines.some((l) => l.startsWith('server/stable.json holds 0.3.0 (paused since 2026-11-05T07:00:00.000Z): left as it is'))).toBe(true)
     expect(fs.readFileSync(path.join(feed, 'server', 'stable.json')).equals(held)).toBe(true)
     expect(ReleaseFeed.parse(JSON.parse(held.toString())).rollout?.hold?.reason).toBe('bad')
-    // the fix: a newer version replaces the held head with its own ramp (nothing inherited from the held one)
+    // resumed, then re-run: the resumed head stays (release.json would undo the resume)
+    expect((await holdRelease({ action: 'resume', channel: 'stable', feed: FEED, keys: [PUB], pem: PEM, store: dirStore(feed, FEED), now: () => new Date(t0 + 40 * 3_600_000), log: () => {} })).status).toBe('resumed')
+    const resumed = fs.readFileSync(path.join(feed, 'server', 'stable.json'))
+    const after: string[] = []
+    expect((await publishServer(opts(b030, feed, { channel: 'stable', log: (s) => after.push(s) }))).status).toBe('unchanged')
+    expect(fs.readFileSync(path.join(feed, 'server', 'stable.json')).equals(resumed)).toBe(true)
+    expect(after.some((l) => l.startsWith('server/stable.json was resumed'))).toBe(true)
+    // the fix: a newer version replaces the head with its own ramp (the resumed ramp has ended by then)
     const b031 = await signedBuilds('b031-held', '0.3.1')
-    expect((await publishServer(opts(b031, feed, { version: '0.3.1', channel: 'stable', now: () => new Date(t0 + 31 * 3_600_000) }))).status).toBe('published')
+    expect((await publishServer(opts(b031, feed, { version: '0.3.1', channel: 'stable', now: () => new Date(t0 + 60 * 3_600_000) }))).status).toBe('published')
     const head = ReleaseFeed.parse(JSON.parse(read(path.join(feed, 'server', 'stable.json'))))
     expect(head.version).toBe('0.3.1')
     expect(head.rollout?.hold).toBeUndefined()

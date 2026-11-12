@@ -420,9 +420,12 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
       if (seen === 'different') throw new Error(`${u.key} is already published with other content: publish a new version instead`)
     }
     const headKey = releaseChannelPath(o.channel)
-    // a held head of this version (scripts/release/hold.ts) stays held: a re-run must not lift the hold by itself
-    const held = !!head && head.feed.version === o.version && !!head.feed.rollout?.hold && !same(head.bytes, rel)
-    if (held) log(`${headKey} holds ${o.version} (paused since ${head!.feed.rollout!.hold!.at}): left as it is; \`bun scripts/release/hosting.ts resume ${o.channel}\` gives the roll-out back`)
+    // a head of this version that a hold or resume changed (scripts/release/hold.ts, rollout.changedAt) stays as it is: a
+    // re-run must neither lift a hold nor undo a resume (servers that saw it would take release.json for an older copy)
+    const held = !!head && head.feed.version === o.version && !!head.feed.rollout?.changedAt && !same(head.bytes, rel)
+    if (held) log(head!.feed.rollout!.hold
+      ? `${headKey} holds ${o.version} (paused since ${head!.feed.rollout!.hold.at}): left as it is; \`bun scripts/release/hosting.ts resume ${o.channel}\` gives the roll-out back`
+      : `${headKey} was resumed (${head!.feed.rollout!.changedAt}): left as it is`)
     const headDone = held || (!!head && same(head.bytes, rel) && !!head.sig && utf8(head.sig) === relSig)
     if (headDone && !todo.length) {
       log(`${o.channel} is already at ${o.version} with these files`)

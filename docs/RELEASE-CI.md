@@ -254,14 +254,20 @@ bun scripts/release/hosting.ts resume stable                                    
 - `resume`: 멈추기 전의 roll-out(멈춘 머리의 `rollout.before`)과 `minFrom`(`hold.minFrom`)을 돌려준다. 아직 오지 않은 단계는 멈춘 시간만큼
   늦춰지므로 ramp는 멈춘 곳에서 이어진다(예: 30시간째 50%에서 멈추고 72시간 뒤 다시 이으면 바로 50%, 100%는 120시간째). roll-out 없이
   낸 릴리스(`Rollout: all`)는 percent 100(모두)으로 돌아간다.
-- **다시 보낸 옛 머리**: 서버·root 타이머·사무실은 같은 버전 머리의 가장 늦은 `changedAt`을 기억한다(앱 `update-check.json`, root
-  `root/feed-seen.json`, 사무실 `update/state.json` `seenHead`). 같은 버전인데 그보다 이른(또는 없는) 머리는 옛 사본으로 보고 받지 않는다.
-  그래서 멈추기 전의 서명된 머리를 누가 다시 내보내도 멈춤이 풀리지 않는다. 처음 보는 서버는 이 보호가 없다(머리는 캐시하지 않는다).
+- **다시 보낸 옛 머리**: 서버·root 타이머·사무실은 그 피드 주소(사무실은 채널)에서 본, 멈춤·이어 감이 바꾼 가장 새 머리의 버전과
+  `changedAt`을 따로 기억한다(앱 `data/update-seen-head.json`, root `root/feed-seen.json`, 사무실 `update/state.json` `seenHead`). 같은 버전인데
+  그보다 이른(또는 없는) 머리는 옛 사본으로 보고 받지 않는다("지금 업데이트"도). 그 사이 더 옛 버전의 머리가 와도 기록은 그대로다. 그래서
+  멈추기 전의 서명된 머리를 누가 다시 내보내도 멈춤이 풀리지 않는다. 처음 보는 서버는 이 보호가 없다(머리는 캐시하지 않는다).
 - 멈춘 머리 위에 **새 버전**을 내면 보통처럼 그 버전이 머리가 된다(새 ramp, 멈춘 릴리스의 salt·시작을 이어받지 않는다). 고친 릴리스는
-  `Rollout: all`로 낸다. 멈춘 버전을 **다시 돌리면**(Re-run failed jobs) 버전 파일은 올라가도 머리는 멈춘 그대로다(`publish-server.ts`,
-  `publish.ts`가 "holds … left as it is"를 남긴다). 풀려면 `resume`.
+  `Rollout: all`로 낸다. 멈추거나 이어 간 버전을 **다시 돌리면**(Re-run failed jobs) 버전 파일은 올라가도 머리는 그대로다(`publish-server.ts`,
+  `publish.ts`가 "holds … left as it is" / "was resumed … left as it is"를 남긴다). 풀려면 `resume`. 서버 머리가 새 버전으로 갔는데 사무실
+  목록만 멈춘 채 남았으면(사무실 배포 실패) `resume`이 그 목록도 돌려준다.
 - beta 채널은 따로다: stable 릴리스는 beta 머리도 되므로 beta 서버까지 멈추려면 `hold beta`도 한다.
-- 지키지 못하는 것: rollout을 모르는 사무실(0.4.0-beta.2 이하)은 사무실 목록의 `minFrom`을 바꾸지 않으므로 멈추지 않는다.
+- `hold`가 머리와 `.sig` 사이에서 끊기면 다음 `hold`·`resume`이 "does not verify"로 멈춘다(설치는 마지막으로 확인한 머리를 쓰니 안전하다).
+  로그의 `↑` 줄로 어디까지 올라갔는지 보고, 같은 명령을 다시 돌리기 전에 버킷의 `server/<channel>.json`을 `server/<version>/release.json`과
+  같게 되돌린다(그 `.sig`는 버전 파일의 것과 같다). 그러면 다시 멈출 수 있다.
+- 지키지 못하는 것: rollout을 모르는 사무실(0.4.0-beta.2 이하)은 사무실 목록의 `minFrom`을 바꾸지 않으므로 멈추지 않는다. 호스팅 클라우드는
+  rollout을 보지 않는다(제어판이 고른다); 멈춘 머리의 `minFrom`을 제어판이 어떻게 읽는지는 그쪽 레포에서 확인한다.
 - 시험: `tests/unit/release-hold.test.ts`(계산, 업데이트, 임시 키·임시 피드로 스크립트), `TestScheduledUpdateHeld`(root 타이머).
 
 - 같은 태그를 다시 돌리려면 Actions → Release → Run workflow에서 tag를 넣는다. "Use workflow from"도 같은 태그로 고른다(그 태그의 release.yml·ci.yml로 돈다).

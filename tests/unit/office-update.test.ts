@@ -511,12 +511,13 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(readUpdateState(home).available).toMatchObject({ version: '0.3.0', turnAt: null, paused: true })
     expect(updateView(home).available?.paused).toBe(true)
     expect(viewText(updateView(home))).toContain('paused by the publisher')
-    expect(readUpdateState(home).seenHead).toEqual({ version: '0.3.0', changedAt: held.changedAt })
+    expect(readUpdateState(home).seenHead).toEqual({ channel: 'stable', version: '0.3.0', changedAt: held.changedAt })
     // the list from before the hold served again (validly signed): the nightly run still leaves it
     files.set(manifestUrl(FEED, 'stable'), signRelease(r0, keyPem))
     const replay = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })
     expect(replay).toMatchObject({ kind: 'skipped', version: '0.3.0' })
     expect(replay.message).toContain('older copy of the 0.3.0 manifest')
+    expect(await runUpdate(home, { reason: 'now', deps: f.deps, ...short })).toMatchObject({ kind: 'skipped', version: '0.3.0' }) // "update now" neither
     expect(f.calls).toEqual([])
     // resumed: the ramp had ended, so it goes in
     files.set(manifestUrl(FEED, 'stable'), signRelease({ ...r0, rollout: resumeRollout(held, r0.publishedAt, new Date(now)) }, keyPem))

@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { OFFICE_PRODUCT, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
-import { DEFAULT_RAMP, holdRollout } from '../../server/src/system/rollout'
+import { DEFAULT_RAMP, holdRollout, resumeRollout } from '../../server/src/system/rollout'
 import { BUCKET, CfError, Cloudflare, listReport, openBucket, type Bucket } from '../../scripts/release/cloudflare'
 import { cloudflareStore } from '../../scripts/release/publish-server'
 import { alreadyPublished, keepRolloutOf, officeRelease, publishToFeed, type Artifact } from '../../scripts/release/publish'
@@ -489,6 +489,12 @@ describe('publish.ts: the channel head and the kept manifest', () => {
     expect(feed.bucket.get('office/stable.json')!.toString('utf8')).toBe(held)
     expect(feed.puts).not.toContain('office/stable.json')
     expect(lines.some((l) => l.startsWith('office/stable.json holds 0.2.20 (paused since 2026-11-05T01:00:00.000Z): left as it is'))).toBe(true)
+    // a resumed head stays too
+    const resumed = signRelease({ ...r0, rollout: resumeRollout(holdRollout(r0.rollout, new Date('2026-11-05T01:00:00.000Z'), 'bad'), r0.publishedAt, new Date('2026-11-06T01:00:00.000Z')) }, OFFICE_PEM)
+    feed.bucket.set('office/stable.json', Buffer.from(resumed))
+    expect(await publishToFeed({ feed: feed.origin, release: r0, signed: s0, arts: prev.arts, ifNewer: false, dryRun: false, keys: OFFICE_KEYS,
+      bucket: feed.the, fetch: feed.fetch, retry: quiet(), log: () => {}, resign: (r) => signRelease(r, OFFICE_PEM) })).toBe('head-stays')
+    expect(feed.bucket.get('office/stable.json')!.toString('utf8')).toBe(resumed)
   })
 
   test('the manifest of a stable release has the staged roll-out; Rollout: all and beta releases have none', () => {

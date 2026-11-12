@@ -167,7 +167,7 @@ describe('UpdateManager.checkFeed: an older copy of the head served again does n
   const fetchFake = (async (u: string) => new Response(u.endsWith('.sig') ? signDetached(new Uint8Array(Buffer.from(body)), pem) : body)) as unknown as typeof fetch
   const mgr = (dataDir: string, feedUrl = URL_) => new UpdateManager({ appDir: null, dataDir, version: '1.0.0', channel: 'stable', feedUrl, log: silentLogger, keys, fetch: fetchFake })
 
-  test('held, then the original again: still held; resumed; the hold again: still resumed; a newer version: taken', async () => {
+  test('held, then the original again: not taken; resumed; the hold again: not taken; a newer version: taken', async () => {
     const data = path.join(T, 'mgr')
     const held = holdRollout(ramp(), hours(30), 'x')
     const resumed = resumeRollout(held, PUBLISHED, hours(40))
@@ -176,21 +176,30 @@ describe('UpdateManager.checkFeed: an older copy of the head served again does n
     serve(held)
     expect((await mgr(data).checkFeed())?.rollout?.hold?.reason).toBe('x')
     serve(ramp()) // the bytes from before the hold, validly signed
-    const replay = await mgr(data).checkFeed()
-    expect(replay?.rollout?.hold?.reason).toBe('x')
-    expect(mgr(data).lastFeed()?.rollout?.hold).toBeDefined()
+    expect(await mgr(data).checkFeed()).toBeNull()
+    expect(mgr(data).lastFeed()?.rollout?.hold?.reason).toBe('x') // the last verified head stands
     serve(resumed)
     expect((await mgr(data).checkFeed())?.rollout).toEqual(resumed)
     serve(held)
-    expect((await mgr(data).checkFeed())?.rollout).toEqual(resumed)
+    expect(await mgr(data).checkFeed()).toBeNull()
+    expect(mgr(data).lastFeed()?.rollout).toEqual(resumed)
     serve(ramp(), '1.2.0')
     expect((await mgr(data).checkFeed())?.version).toBe('1.2.0')
-    // another feed address (a channel switch) is not compared with this one's record
-    serve(held)
-    await mgr(data).checkFeed()
+  })
+  test('two replays in a row (an older version\'s head, then the copy from before the hold) do not lift it either', async () => {
+    const data = path.join(T, 'mgr2')
+    serve(holdRollout(ramp(), hours(30), 'x'))
+    expect((await mgr(data).checkFeed())?.rollout?.hold).toBeDefined()
+    serve(ramp(), '1.0.5')
+    expect((await mgr(data).checkFeed())?.version).toBe('1.0.5')
     serve(ramp())
+    expect(await mgr(data).checkFeed()).toBeNull()
+    expect(autoUpdateDecision({ feed: mgr(data).lastFeed(), current: '1.0.0', installId: FIRST, now: hours(60), tz: 'UTC', window: '00:00-23:59', running: 0, history: [], channel: 'stable' }).go).toBe(true) // 1.0.5, not 1.1.0
+    expect(mgr(data).lastFeed()?.version).toBe('1.0.5')
+    // another feed address (a channel switch) is not compared with this one's record
     expect((await mgr(data, 'https://releases.test/server/beta.json').checkFeed())?.rollout?.hold).toBeUndefined()
   })
+
 })
 
 // ---------------- the script, on a feed in a folder ----------------
@@ -309,6 +318,18 @@ describe('hosting.ts hold / resume (scripts/release/hold.ts) on a local feed', (
     expect(snapshot(root)).toEqual(before)
     const r = await run(root, { version: '1.1.0' })
     expect(r).toMatchObject({ status: 'held', uploaded: ['server/stable.json', 'server/stable.json.sig'], office: null })
+  })
+
+  test('resume gives back an office list still held at the version before a newer server release went out', async () => {
+    const root = publishedFeed('office-left-held')
+    await run(root, { reason: 'x' })
+    // 1.1.1 goes out to the servers; its office publish did not
+    const rel = JSON.parse(fs.readFileSync(path.join(root, 'server/1.1.0/release.json'), 'utf8'))
+    const next = JSON.stringify({ ...rel, version: '1.1.1', rollout: undefined }, null, 1) + '\n'
+    fs.writeFileSync(path.join(root, 'server/stable.json'), next)
+    fs.writeFileSync(path.join(root, 'server/stable.json.sig'), signDetached(new Uint8Array(Buffer.from(next)), PEM))
+    const r = await run(root, { action: 'resume', now: () => hours(40) })
+    expect(r).toMatchObject({ status: 'resumed', version: '1.1.1', uploaded: ['office/stable.json'], office: { version: '1.1.0', held: false } })
   })
 
   test('refused: a key the feed does not trust, a head that does not verify, a head that changed while it ran', async () => {

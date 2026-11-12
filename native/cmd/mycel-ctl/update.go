@@ -310,7 +310,8 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	// held), never on a hosted server (its control plane picks), and never for an administrator's `mycel-ctl update`.
 	if !u.in.Hosted && u.res.From != "" && compareVersions(feed.Version, u.res.From) > 0 {
 		// an older copy of a head a hold or resume changed (root/feed-seen.json): left, so it cannot lift a hold
-		if older, seen := olderCopy(u.e, feed); older {
+		fu, _ := u.feedURL()
+		if older, seen := olderCopy(u.e, fu, feed); older {
 			return u.syncOnly("the feed answered with an older copy of release " + feed.Version + " (a newer one, changed " + seen + ", was seen); waiting for the current one"), nil
 		}
 		if w := rolloutTurn(feed, installIDOf(u.in, s), serverChannel(u.e.base), u.e.now()); w.wait {

@@ -110,7 +110,9 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
     const release = verifyRelease(utf8(officeText), { keys: o.keys, channel: o.channel, feed })
     const opened = openSignedManifest(utf8(officeText), o.keys)
     if (!opened.ok) throw new Error(`${officeKey}: ${opened.reason}`) // verifyRelease passed: never expected
-    if (release.version === version) office = { text: utf8(officeText), payload: JSON.parse(opened.payload) as Raw, release }
+    // resume also gives back a held office list at another version (a newer server release went out over it, its office
+    // publish did not): it would stay held for good otherwise
+    if (release.version === version || (o.action === 'resume' && release.rollout?.hold)) office = { text: utf8(officeText), payload: JSON.parse(opened.payload) as Raw, release }
     else log(`${officeKey} is at ${release.version}, not ${version}: left as it is`)
   } else log(`${officeKey} is not on the feed: only the server head`)
 
@@ -167,7 +169,7 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
       const pubRaw = Buffer.from(publicKeyOf(o.pem!), 'base64')
       const text = JSON.stringify({ format: 1, payload, keyId: keyId(pubRaw), sig: crypto.sign(null, Buffer.from(payload, 'utf8'), crypto.createPrivateKey(o.pem!)).toString('base64') }, null, 1) + '\n'
       officeAfter = verifyRelease(text, { keys: o.keys, channel: o.channel, feed })
-      if (officeAfter.version !== version || JSON.stringify(officeAfter.office) !== JSON.stringify(office.release.office)) throw new Error('the new office list does not read as the same release') // never expected
+      if (officeAfter.version !== office.release.version || JSON.stringify(officeAfter.office) !== JSON.stringify(office.release.office)) throw new Error('the new office list does not read as the same release') // never expected
       if (o.action === 'hold' && rolloutPercent(officeAfter, { now, channel: o.channel }) !== 0) throw new Error('the held office list would still let offices take the release') // never expected
       ups.push({ key: officeKey, bytes: text })
       log(`${officeKey}: ${version}, ${describeRollout(office.release.rollout)} -> ${describeRollout(officeAfter.rollout)}`)
@@ -206,7 +208,7 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
   if (ups.some((u) => u.key === officeKey)) {
     const back = await o.store.get(officeKey)
     const r = back ? verifyRelease(utf8(back), { keys: o.keys, channel: o.channel, feed }) : null
-    if (!r || r.version !== version || r.rollout?.changedAt !== officeAfter?.rollout?.changedAt) throw new Error(`${officeKey} does not read back as uploaded: look at it`)
+    if (!r || r.version !== office!.release.version || r.rollout?.changedAt !== officeAfter?.rollout?.changedAt) throw new Error(`${officeKey} does not read back as uploaded: look at it`)
   }
   log(o.action === 'hold'
     ? `held: ${version} on ${o.channel}. Servers and offices not on it yet stay where they are; resume with \`bun scripts/release/hosting.ts resume ${o.channel}\``

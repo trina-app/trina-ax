@@ -341,6 +341,7 @@ func appCheckedFeed(base string) *ReleaseFeed {
 // version with an earlier changedAt (or none) is an older copy served again, and the scheduled run leaves it, so it
 // cannot lift a hold (rollout.ts newerHeadSeen). Root's file.
 type seenHead struct {
+	URL       string `json:"url"`
 	Version   string `json:"version"`
 	ChangedAt string `json:"changedAt"`
 }
@@ -352,11 +353,15 @@ func changedMs(r *rolloutSpec) (int64, bool) {
 	return publishedMs(r.ChangedAt)
 }
 
-// olderCopy says whether f is an older copy of the head recorded in root/feed-seen.json; otherwise it records f when it
-// carries a changedAt.
-func olderCopy(e *env, f *ReleaseFeed) (bool, string) {
+// olderCopy says whether f (read from feedURL) is an older copy of the head recorded in root/feed-seen.json; otherwise
+// it records f when it carries a changedAt and is not older than the recorded version (an older version's head served
+// in between does not reset the record). A record of another feed address (a channel switch) does not count.
+func olderCopy(e *env, feedURL string, f *ReleaseFeed) (bool, string) {
 	var s seenHead
-	if b, err := readRootFile(e.root("feed-seen.json"), 4<<10); err == nil && json.Unmarshal(b, &s) == nil && s.Version == f.Version {
+	if b, err := readRootFile(e.root("feed-seen.json"), 4<<10); err != nil || json.Unmarshal(b, &s) != nil || s.URL != feedURL || !bundle.ValidVersion(s.Version) {
+		s = seenHead{}
+	}
+	if s.Version == f.Version {
 		if seen, ok := publishedMs(s.ChangedAt); ok {
 			got, gok := changedMs(f.Rollout)
 			if !gok || got < seen {
@@ -364,8 +369,9 @@ func olderCopy(e *env, f *ReleaseFeed) (bool, string) {
 			}
 		}
 	}
-	if _, ok := changedMs(f.Rollout); ok && (s.Version != f.Version || s.ChangedAt != f.Rollout.ChangedAt) {
-		if b, err := json.Marshal(seenHead{Version: f.Version, ChangedAt: f.Rollout.ChangedAt}); err == nil {
+	newer := s.Version == "" || compareVersions(f.Version, s.Version) > 0 || (s.Version == f.Version && s.ChangedAt != f.Rollout.ChangedAt)
+	if _, ok := changedMs(f.Rollout); ok && newer {
+		if b, err := json.Marshal(seenHead{URL: feedURL, Version: f.Version, ChangedAt: f.Rollout.ChangedAt}); err == nil {
 			_ = writeRootFile(e.root("feed-seen.json"), append(b, '\n'), 0o644)
 		}
 	}

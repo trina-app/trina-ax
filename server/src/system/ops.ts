@@ -167,6 +167,7 @@ export class OpsService {
     } catch { return null }
   }
 
+  private pausedLogged: string | null = null
   private autoFile() { return path.join(this.ctx.config.dataDir, 'update-auto.json') }
 
   /** One automatic-update check (hourly): the feed, the roll-out, the team's update window, no running answer; then the
@@ -185,7 +186,12 @@ export class OpsService {
     }
     const first = decide()
     const log = this.ctx.log.child({ c: 'update' })
-    if (!first.go && first.why === 'paused' && feed?.rollout?.hold) log.info('automatic update: the publisher paused this release; not installing it', { version: feed.version, since: feed.rollout.hold.at, reason: feed.rollout.hold.reason })
+    // said once per hold, not at every hourly check
+    const pausedKey = feed?.rollout?.hold ? `${feed.version} ${feed.rollout.hold.at}` : null
+    if (!first.go && first.why === 'paused' && feed?.rollout?.hold && this.pausedLogged !== pausedKey) {
+      this.pausedLogged = pausedKey
+      log.info('automatic update: the publisher paused this release; not installing it', { version: feed.version, since: feed.rollout.hold.at, reason: feed.rollout.hold.reason })
+    }
     if (!first.go) return first.why
     if (!await this.lockAfterPrune('update')) {
       log.info('automatic update: another operation runs, trying again in an hour', { to: first.version, holder: this.busy })
