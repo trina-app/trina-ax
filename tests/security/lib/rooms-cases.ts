@@ -1,5 +1,6 @@
 import { CSRF_HEADER } from '@mycel/shared/api'
 import type { Spec } from './cases'
+import { leaks } from './matrix'
 import { C, PNG } from './world'
 
 // Team chat rooms (docs/DECISIONS.md "대화방 v1"). The world has a DM of alice (memberIn) and erin (other) with a
@@ -161,12 +162,19 @@ export const ROOM_SPECS: Record<string, Spec> = {
   attachRoomTeamFile: {
     build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/team-file`, { path: 'shared/readme.md' }), scope: 'room-dm',
     check: async (r, w, who) => {
-      if (r.status !== 201) return
-      if (r.json?.unable !== 0) throw new Error(`shared/readme.md: unable ${JSON.stringify(r.json?.unable)}`)
-      const own = await w.as[who].post(`/api/rooms/${w.ids.dmRoom}/team-file`, { path: `users/alice/${C.aliceFileName}.md` })
-      if (who === 'memberIn' ? own.status !== 201 || own.json?.unable !== 1 : own.status !== 404) {
-        throw new Error(`${who}: alice's file into the DM answered ${own.status} ${own.text.slice(0, 200)}`)
+      if (who !== 'memberIn' && who !== 'other') return
+      // both files stay put through the matrix, so the DM's two people must get the copy (an allowed write's 404 is let
+      // through by the matrix itself)
+      if (r.status !== 201 || r.json?.unable !== 0) throw new Error(`${who}: shared/readme.md into the DM answered ${r.status} ${r.text.slice(0, 200)}`)
+      const to = (p: string) => w.as[who].post(`/api/rooms/${w.ids.dmRoom}/team-file`, { path: p })
+      const own = await to(`users/alice/${C.aliceFileName}.md`)
+      if (who === 'memberIn') {
+        if (own.status !== 201 || own.json?.unable !== 1) throw new Error(`alice: her file into the DM answered ${own.status} ${own.text.slice(0, 200)}`)
+        return
       }
+      const none = await to('users/alice/no-such-file.md')
+      const same = own.status === 404 && none.status === 404 && own.json?.error?.code === none.json?.error?.code && own.json?.error?.message === none.json?.error?.message
+      if (!same || leaks(who, own.text).length) throw new Error(`erin: alice's file into the DM answered ${own.status} ${own.text.slice(0, 200)} (a missing one: ${none.status} ${none.text.slice(0, 200)})`)
     },
   },
   // the AI in rooms: the DM's count and my own runs (both people), alice's preview and her question's turn (alice only;
