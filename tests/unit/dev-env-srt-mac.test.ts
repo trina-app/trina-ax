@@ -240,7 +240,10 @@ describe('run-wrap-mac', () => {
     expect(out.trim()).toBe('P=/opt/trina/node/bin:/usr/bin:/bin')
     expect(fs.readFileSync(ef, 'utf8').trim()).toBe('0')
   })
-  test('the process limit is the command\'s only: at its limit the command cannot fork, the clean-up and the exit file still happen', async () => {
+  // the limit of 64 is below what this account runs already only on a Mac in use (a CI runner on Linux runs a few
+  // processes, and the kernel lets the fork through): run-wrap-mac is for macOS
+  const ownProcs = Number(spawnSync('/bin/sh', ['-c', 'ps -x -U "$(id -u)" -o pid= | wc -l'], { encoding: 'utf8' }).stdout.trim() || '0')
+  test.skipIf(process.platform !== 'darwin' || process.getuid?.() === 0 || ownProcs < 80)('the process limit is the command\'s only: at its limit the command cannot fork, the clean-up and the exit file still happen', async () => {
     const ef = exitFile('limit')
     // 64 processes for the whole uid of this test's account, which runs more than that already: no fork works
     const r = runSlot(['run', ef, '512', '64', '60', '4096', '--', '/bin/bash', '-c', '(true); echo not-reached'])
