@@ -24061,12 +24061,13 @@ Version impact: **minor** (new route, migration 288).
   names) or a file the caller's own applied folder plan marked as a form and moved (still remembered by the server:
   10 minutes), never `users/`, `skills/`, `.system` or another team file (400 `not_in_forms_folder`). Names quoted in
   the steps are one line, with backticks and `<` replaced, as `files/locations.ts` cleanLabel.
-- **Where the real fill cannot run.** box_shell is not offered in rooms, scheduled runs or shared project chats
+- **Where the real fill cannot run.** box_shell is not offered in scheduled runs or shared project chats
   (`chat/turn.ts`), nor when the team's dev environment is off or the person is outside its scope
   (`devenv/setting.ts`); edit_hwp exists only with the HWP plugin. There, step 7 runs: make_file with the same fields,
   and the AI must say plainly that the form itself cannot be filled here, so it made a copy with the same fields, and
   that opening it in their own chat (or asking an admin to turn on the dev environment) fills the real form. Who gets
-  box_shell is unchanged. **Open question for the owner:** should rooms (and scheduled runs) get the fill path?
+  box_shell is unchanged. The ✦ side chat beside a room is the person's own chat and fills the real form ("@트리나" in
+  rooms is off since "Trina side chat, PR 2").
 - **Sharing** is S's: re-read from the answer, the people it is shared with must open the form's folder, a free name,
   the caller's `humanSave` of `skills/general/<slug>/SKILL.md`, audited (`onboarding.skill_share`, `sourcePath`).
   Fixed on the way: a team without `skills/general/` yet could not share any draft (the name check under a missing
