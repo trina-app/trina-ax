@@ -23309,3 +23309,19 @@ Adds to "The chat's connect card trusts the app's list".
   scope, never me), `web/test/e2e/room-typing.spec.ts` (a second member through the mock's `POST /__test/typing`, the
   box does not move, contrast, 390 px).
 - Version impact: **minor**.
+
+## A listed service can have more than one official address (fix/catalog-addresses-followups, 2026-11-12, owner go-ahead)
+
+Adds to "The chat's connect card trusts the app's list"; reverses nothing.
+- **`otherUrls`** in `shared/src/service-catalog.ts`: a listed service's other official addresses, besides `url` (the
+  one new connections use). `officialService`, `catalogAt`, `trustedServiceName` (a listed name at any official host),
+  the web's `connectorFor`/`isConnected`, and the connect card's "already has it" check (`sameAddress` →
+  `sameListedService`) treat all of them as that service. A connection saved at an older official address keeps working
+  and is still that service, never a second connection.
+- **Atlassian**: `url` is `https://mcp.atlassian.com/v2/mcp` (https://developer.atlassian.com/cloud/rovo-mcp/; it
+  signs in with dynamic client registration), `otherUrls` the v1 address, which still works for users outside the v2
+  rollout cohort (https://developer.atlassian.com/cloud/rovo-mcp/changelog/).
+- **Canva**: `url` stays `https://mcp.canva.com/mcp`, which signs in without an app of one's own; Canva's announced
+  `https://api.canva.com/connect/v1/mcp` (https://www.canva.dev/blog/developers/canva-mcp-ga/) needs "your app's OAuth
+  client" (no registration endpoint), which the list does not take (docs/INTEGRATIONS.md "Discover"), so it is in
+  `otherUrls`: someone who adds it with their own app sees it as Canva.

@@ -215,6 +215,11 @@ test('Admin: "Connect for the team" saved without opening Advanced reaches the w
   await page.getByTestId('connector-detail').getByTestId('connector-connect').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
+  // who it is for, without opening Advanced; Change opens the chooser
+  await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
+  await dialog.getByTestId('integration-for-change').click()
+  await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'true')
+  await expect(dialog.getByTestId('integration-access-everyone')).toBeFocused()
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
   await dialog.getByTestId('integration-save').click()
   expect((await sent).postDataJSON()).toMatchObject({ name: 'Linear', access: { everyone: true, groups: [], users: [] } })

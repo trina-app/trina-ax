@@ -20,8 +20,8 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, GoogleAppView, Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
-import { canonicalService, connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
+import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../../lib/connectors'
+import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -140,8 +140,8 @@ export default function AdminIntegrations() {
           if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} />
           if (open?.kind === 'listed') {
             const c = open.c
-            const have = [...list, ...tpls].find((i) => canonicalService(i.url) === canonicalService(c.url))
-            const tools = list.find((i) => canonicalService(i.url) === canonicalService(c.url))?.tools.map((x) => x.name)
+            const have = [...list, ...tpls].find((i) => servesAt(c, i.url))
+            const tools = list.find((i) => servesAt(c, i.url))?.tools.map((x) => x.name)
             return (
               <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={back}
                 action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span> : (

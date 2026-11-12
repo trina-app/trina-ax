@@ -4,7 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { catalogAt, catalogNamed, mixedScript, nameSkeleton, officialService, posesAsListed, SERVICE_CATALOG } from '@mycel/shared'
+import { catalogAt, catalogNamed, mixedScript, nameSkeleton, officialService, officialUrls, posesAsListed, sameListedService, SERVICE_CATALOG, trustedServiceName } from '@mycel/shared'
 import { IntegrationInput } from '@mycel/shared/api'
 import { AI_APPS, BUILT_IN, connectorFor, CONNECTORS, isConnected } from '../../src/lib/connectors'
 import { canonicalService, emptyForm, toInput, validate } from '../../src/lib/integrations'
@@ -59,6 +59,28 @@ describe('the shared list of services (shared/src/service-catalog.ts)', () => {
     expect(catalogAt('https://notion-mcp.example.com/mcp')).toBeUndefined()
     expect(catalogAt('https://mcp.notion.com.example.com/mcp')).toBeUndefined()
     expect(catalogAt('https://mcp.notion.com/other')).toBeUndefined()
+  })
+  // 2026-11-12: Atlassian's listed address is v2 (its v1 still works); Canva's documented address needs an app of one's
+  // own, so the list keeps the one that does not and counts both as Canva's
+  test('every official address of a service is that service: Atlassian v1 and v2, Canva\'s two', () => {
+    expect(SERVICE_CATALOG.find((c) => c.id === 'atlassian')?.url).toBe('https://mcp.atlassian.com/v2/mcp')
+    for (const [u, id] of [['https://mcp.atlassian.com/v2/mcp', 'atlassian'], ['https://mcp.atlassian.com/v1/mcp', 'atlassian'], ['https://mcp.canva.com/mcp', 'canva'], ['https://api.canva.com/connect/v1/mcp', 'canva']] as const) {
+      expect(officialService(u)?.id, u).toBe(id)
+      expect(catalogAt(u)?.id, u).toBe(id)
+      expect(connectorFor(u)?.id, u).toBe(id)
+    }
+    // the same service, never a second connection; another service is not
+    expect(sameListedService('https://mcp.atlassian.com/v1/mcp', 'https://mcp.atlassian.com/v2/mcp')).toBe(true)
+    expect(sameListedService('https://api.canva.com/connect/v1/mcp', 'https://mcp.canva.com/mcp')).toBe(true)
+    expect(sameListedService('https://mcp.atlassian.com/v1/mcp', 'https://mcp.notion.com/mcp')).toBe(false)
+    expect(sameListedService('https://mcp.atlassian.com/v1/sse', 'https://mcp.atlassian.com/v2/mcp')).toBe(false)
+    // Discover: a connection saved at v1 counts as Atlassian connected
+    expect(isConnected(CONNECTORS.find((c) => c.id === 'atlassian')!, ['https://mcp.atlassian.com/v1/mcp'])).toBe(true)
+    // a name at a documented host is the service; anything else at Canva's name is not
+    expect(trustedServiceName('Canva', 'https://api.canva.com/connect/v1/mcp')).toMatchObject({ name: 'Canva', listed: { id: 'canva' } })
+    expect(trustedServiceName('Atlassian', 'https://mcp.atlassian.com/v1/mcp')).toMatchObject({ name: 'Atlassian', listed: { id: 'atlassian' } })
+    expect(trustedServiceName('Canva', 'https://canva-mcp.example.com/mcp')).toMatchObject({ name: 'canva-mcp.example.com', claimed: { id: 'canva' } })
+    for (const c of SERVICE_CATALOG) for (const u of officialUrls(c)) expect(new URL(u).protocol).toBe('https:')
   })
 })
 
