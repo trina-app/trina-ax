@@ -681,9 +681,10 @@ test('push: room notices and the other notices reach Web Push and phones alike; 
     await p.tick(); await p.tick()
     expect(web).toEqual([{ notificationId: expect.any(String), subscriptionId: sub.id, code: 'room.dm' }])
     expect(phone).toHaveLength(2)
-    // ids, the event code, the language, the device tag and an id path: never names or text
-    expect(phone.find((x) => x.code === 'room.dm')).toEqual({ notificationId: expect.any(String), code: 'room.dm', locale: expect.any(String), tag: device.id, path: `/rooms/${toOtto.id}` })
-    expect(phone.find((x) => x.code === 'connection.reconnect')).toEqual({ notificationId: expect.any(String), code: 'connection.reconnect', locale: expect.any(String), tag: device.id, path: '/settings/notifications' })
+    // ids, the event code, the language, the device tag, an id path and the icon's number (otto's one count: the unread
+    // DM from mia; docs/DECISIONS.md "휴대폰 앱 아이콘의 숫자"): never names or text
+    expect(phone.find((x) => x.code === 'room.dm')).toEqual({ notificationId: expect.any(String), code: 'room.dm', locale: expect.any(String), tag: device.id, path: `/rooms/${toOtto.id}`, badge: 1 })
+    expect(phone.find((x) => x.code === 'connection.reconnect')).toEqual({ notificationId: expect.any(String), code: 'connection.reconnect', locale: expect.any(String), tag: device.id, path: '/settings/notifications', badge: 1 })
     expect(JSON.stringify([web, phone])).not.toContain('LOCK SCREEN')
     expect(h.ctx.db.query('SELECT state FROM room_push_deliveries WHERE subscription_id = ?').all(device.id)).toEqual([{ state: 'sent' }])
     expect(h.ctx.db.query('SELECT state FROM push_deliveries WHERE subscription_id = ?').all(device.id)).toEqual([{ state: 'sent' }])

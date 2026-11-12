@@ -4,7 +4,9 @@
 // `data` is flat strings { notificationId, code, path?, device? } and never has a key named "body" (expo-notifications on
 // Android would read a JSON "body" as its own format) or "tag" (expo-notifications 58 uses data["tag"] as the
 // notification's identifier, so a per-device tag would make every push replace the previous one). The request's `tag`
-// (the team's device id) therefore travels as `device`.
+// (the team's device id) therefore travels as `device`. `badge` is not sent: Android launchers count the notifications in
+// the tray and add up their `notification_count`, so the total on every push would show 1+2+3 = 6 for three pushes.
+// Each notification counts as one there; the open app sets its own number (badge-v1).
 import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importRs256, signJwt, type FetchLike } from './crypto.ts'
 

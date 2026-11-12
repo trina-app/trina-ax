@@ -43,6 +43,12 @@ export const NAV_CAPABILITY = 'nav-v1'
  * for its size; the page then asks for the bytes with `photo-chunk`, one chunk at a time and in order, and ends with
  * `photo-done` (the app deletes its copies). Cancelled is an empty list. An app without it: the page keeps its file input. */
 export const PHOTO_PICK_CAPABILITY = 'photo-pick-v1'
+/** Optional, versioned: `badge` gives the app the page's count (the one count n of its tab title and the Mac Dock) for
+ * the app icon: when it changes, whenever the app comes to the foreground, and 0 at sign-out. A number only. An app
+ * without it: the icon shows what the last push set (an app before 1.0.5 asked for no badge, so iOS shows none). */
+export const BADGE_CAPABILITY = 'badge-v1'
+/** The largest icon number (shared/src/cloud-protocol/push-gateway.ts PUSH_GATEWAY_MAX_BADGE; a test keeps them equal). */
+export const MAX_BADGE = 9999
 /** The most files one pick returns: a message's attachment limit. The page asks for what its box still takes. */
 export const MAX_PICK_FILES = 20
 /** The most bytes one pick returns: the page holds them in memory until it has uploaded them. One file stays within
@@ -93,6 +99,8 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'photo-pick'; limit: number }
   | { type: 'photo-chunk'; seq: number; index: number; offset: number }
   | { type: 'photo-done' }
+  // badge-v1: the app icon's number, 0 clears it
+  | { type: 'badge'; count: number }
 ))
 /** files/tooBig: a `photo-pick` answer (the picked files, and the names of those left out for their size); b64: a
  * `photo-chunk` answer. */
@@ -149,6 +157,7 @@ export function parseMessage(raw: string): MobileMessage | null {
         || typeof m.offset !== 'number' || !Number.isSafeInteger(m.offset) || m.offset < 0 || m.offset >= MAX_FILE_BYTES || m.offset % PICK_CHUNK_BYTES !== 0) return null
       break
     case 'photo-done': break
+    case 'badge': if (typeof m.count !== 'number' || !Number.isInteger(m.count) || m.count < 0 || m.count > MAX_BADGE) return null; break
     case 'push-registered': if (!deviceId(m.deviceId) || typeof m.removeKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(m.removeKey)) return null; break
     case 'external-open': if (m.purpose !== 'google-oauth' || typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break
     default: return null

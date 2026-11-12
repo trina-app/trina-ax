@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   PUSH_GATEWAY_ERRORS, parsePushGatewayAuthorization, parsePushGatewaySend, pushGatewayAuthorization,
-  pushGatewaySigningString, validPushPath, validPushToken,
+  pushGatewaySigningString, validPushBadge, validPushPath, validPushToken,
 } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { TEXT } from '../../server/src/notifications/text.ts'
 import { clientBucket, createGateway, type GatewayEnv, type LogLine } from '../../push-gateway/src/gateway.ts'
@@ -124,7 +124,10 @@ describe('push gateway contract', () => {
       { path: '//x' }, { path: '/rooms/../x' }, { path: '/rooms/x?y=1' }, { path: '/rooms/' }, { path: 'https://example.test/x' },
       { path: `/${'a'.repeat(200)}` }, { ttlSeconds: -1 }, { ttlSeconds: 86_401 }, { ttlSeconds: 1.5 }, { ttlSeconds: '60' }, { ttlSeconds: null },
       { tag: '' }, { tag: 'dev 42' }, { tag: 'x'.repeat(101) }, { tag: 42 }, { tag: null }, { tag: 'dev/42' },
+      { badge: -1 }, { badge: 10_000 }, { badge: 1.5 }, { badge: '3' }, { badge: null }, { badge: Number.NaN }, { badge: true },
     ]
+    // the app icon's number: a whole number from 0 to 9999, nothing else
+    for (const b of [0, 1, 9999]) expect(parsePushGatewaySend({ ...ok, badge: b })?.badge).toBe(b)
     expect(parsePushGatewaySend({ ...ok, tag: 'x'.repeat(100) })?.tag).toBe('x'.repeat(100))
     for (const b of bad) expect(parsePushGatewaySend({ ...ok, ...b })).toBeNull()
     // android tokens are FCM registration tokens, always the production environment
@@ -407,6 +410,17 @@ describe('push gateway: APNs', () => {
     await expectError(await h.send(body({ notificationId: 'm9', code: 'room.dm', title: '민준 · #마케팅' })), 'invalid_body')
   })
 
+  test('badge: the number goes to aps.badge (0 too, it clears the icon), and only when the request has one', async () => {
+    const h = harness()
+    await expectOk(await h.send(body({ notificationId: 'b1', badge: 7 })))
+    await expectOk(await h.send(body({ notificationId: 'b2', badge: 0, code: 'schedule.success' })))
+    await expectOk(await h.send(body({ notificationId: 'b3' })))
+    const sent = h.apnsCalls().map(c => JSON.parse(c.body) as { aps: Record<string, unknown>; body: Record<string, string> })
+    expect(sent.map(p => p.aps.badge ?? null)).toEqual([7, 0, null])
+    // a number only: nothing about what it counts reaches APNs or the app's data
+    for (const p of sent) expect(Object.keys(p.body).sort()).toEqual(['code', 'notificationId'])
+  })
+
   test('the provider token is reused for at most 50 minutes; long ids collapse by their hash; APP_TITLE', async () => {
     const h = harness({ env: { APP_TITLE: 'Acme' } })
     await expectOk(await h.send(body()))
@@ -493,6 +507,7 @@ describe('push gateway: FCM', () => {
     })
     h.clock.t += 3600_000 - 61_000
     await expectOk(await h.send(android({ notificationId: 'n2' })))
+    expect(JSON.parse(h.calls[2]!.body).message.android.notification).toEqual({ channel_id: 'default', tag: 'n2' })
     expect(h.calls.length).toBe(3) // the cached token
     expect(JSON.parse(h.calls[2]!.body).message.data).toEqual({ notificationId: 'n2', code: 'room.message' })
     expect(JSON.parse(h.calls[2]!.body).message.android.ttl).toBe('0s')
@@ -567,6 +582,33 @@ describe('push gateway: FCM', () => {
 })
 
 // ------------------------------------------------------------------ configuration, text, logs
+
+describe('push gateway: badge', () => {
+  test('contract: an optional whole number from 0 to 9999; absent stays absent (an older team server)', () => {
+    for (const n of [0, 1, 42, 9999]) expect(validPushBadge(n)).toBe(true)
+    for (const n of [-1, 10_000, 0.5, '1', null, undefined, Number.POSITIVE_INFINITY]) expect(validPushBadge(n)).toBe(false)
+    expect(parsePushGatewaySend(JSON.parse(body()))).not.toHaveProperty('badge')
+  })
+
+  test('a bad badge is refused as a bad body, before anything is sent', async () => {
+    const h = harness()
+    await expectError(await h.send(body({ badge: -1 })), 'invalid_body')
+    await expectError(await h.send(body({ badge: 10_000 })), 'invalid_body')
+    expect(h.apnsCalls().length).toBe(0)
+  })
+})
+
+describe('push gateway: FCM badge', () => {
+  test('badge: accepted, but not sent to FCM (launchers add up each notification\'s count); never in data', async () => {
+    const h = harness()
+    await expectOk(await h.send(android({ notificationId: 'b1', badge: 12 })))
+    await expectOk(await h.send(android({ notificationId: 'b2', badge: 0 })))
+    const sends = h.calls.filter(c => c.url.includes('fcm.googleapis.com')).map(c => JSON.parse(c.body).message)
+    expect(sends[0].android.notification).toEqual({ channel_id: 'default', tag: 'b1' })
+    expect(sends[1].android.notification).toEqual({ channel_id: 'default', tag: 'b2' })
+    for (const m of sends) expect(Object.keys(m.data).sort()).toEqual(['code', 'notificationId'])
+  })
+})
 
 describe('push gateway: configuration, text and logs', () => {
   test('a platform without credentials is 503 not_configured', async () => {
