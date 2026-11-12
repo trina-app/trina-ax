@@ -3624,6 +3624,7 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.changeGroups": "グループを変更",
   "teamLink.groupsKeep": "これから参加する人だけがこのグループに入ります。すでに参加した人のグループはそのままです。",
   "teamLink.newGroup": "新しいグループを作る",
+  "teamLink.skillCleared": "このグループで参加した人は「{skill}」を開けないため、参加後に開かなくなりました。",
   "teamLink.usesField": "参加できる人数",
   "teamLink.usesHint": "空欄なら{n}人",
   "teamLink.usesRule": "1〜{max}の数字を入力してください。",

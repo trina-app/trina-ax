@@ -80,7 +80,8 @@ test('PATCH changes the open link\'s skill and adds groups, keeping its address;
   // `groupIds` replaces them (QA TC-458; tests/unit/a-team-links.test.ts)
   expect((await owner.call('PATCH', '/api/admin/team-link', { groupIds: [] })).link.groupIds).toEqual([])
   const audits = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'team_link.update' AND target = ?").all(link.id) as { detail: string }[]
-  expect(audits.length).toBe(6)
+  // a PATCH that changes nothing (the same group again, a starter alone) writes no row
+  expect(audits.length).toBe(4)
   for (const a of audits) expect(JSON.parse(a.detail).starter).toBeUndefined()
   const member = await addMember(h, owner, { username: 'mia' })
   expect((await member.client.try('PATCH', '/api/admin/team-link', { skillPath: null })).status).toBe(403)

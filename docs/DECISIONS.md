@@ -23813,6 +23813,12 @@ Version impact: **minor** (new route, migration 288).
   Admin only; unknown ids → 400; groups deleted since drop out (also from what GET shows); refused (410, reason
   `expired`/`stopped`) on a link that no longer works; no open link → 404. Token, uses and expiry stay. Audit
   `team_link.update` with `groupIds` (after) and `from` (before). Nobody's groups change: only people who join later.
+- **Review fixes.** A join reads the link's groups (and skill) again inside its write, so a join waiting on the
+  password hash while the admin changes the groups gets the new ones. When the replaced groups cannot open the link's
+  own skill, the skill is taken off (audited `skillCleared`; the popup says so), not refused: refusing would leave the
+  admin unable to take a wrong group off a link whose skill only that group opens, which is TC-458 itself. A skill asked
+  for in the same PATCH is still refused, as on create. A PATCH that changes nothing writes no row. Once an admin chose
+  the groups (`groupsChosen`, from the audit row with `from`), the welcome steps no longer add the team's group back.
 - Tests: `tests/unit/a-team-links.test.ts` ("changing the groups of the open link"), `tests/unit/a-team-link-starter.test.ts`,
   `web/test/unit/team-link.test.tsx`, `web/test/unit/onboarding-polish.test.tsx`, `web/test/e2e/team-link.spec.ts`;
   screenshots `web/test/e2e/shots-team-link-groups.spec.ts` (`TEAM_LINK_GROUPS_SHOTS`).

@@ -56,6 +56,9 @@ export const TeamLink = z.object({
    * or a managed engine answers them), `connect_own` (each person signs in to their own AI: the invite message says
    * "본인 AI 계정이 필요해요"), `ask_owner` (nothing answers them yet). Absent from an older server */
   memberAi: z.enum(['ready', 'connect_own', 'ask_owner']).optional(),
+  /** an admin chose this link's groups after making it (PATCH `groupIds`): the welcome steps no longer add the team's
+   * group to it. Absent from an older server */
+  groupsChosen: z.boolean().optional(),
 })
 export type TeamLink = z.infer<typeof TeamLink>
 

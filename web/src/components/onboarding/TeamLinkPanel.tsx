@@ -19,6 +19,7 @@ import { teamLinkMessage } from '../../lib/team-link'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
+import { toast } from '../../store/ui'
 import QrCode from '../QrCode'
 import type { InviteShared } from './InviteStep'
 import { Button, Field, Modal, Skeleton, confirmDialog, inputCls, useCopy, useMediaQuery } from '../ui'
@@ -42,7 +43,9 @@ export const forgetPatched = () => patched.clear()
 export function linkDiffers(link: TeamLink | null, want: Want): boolean {
   if (!link || link.state !== 'active' || !link.url) return false
   if (patched.has(patchKey(link, want))) return false
-  const groupMissing = !!want.groupId && !link.groupIds.includes(want.groupId)
+  // the team's group is added only to a link whose groups no admin chose since (Admin › Members' "Change groups"):
+  // a group the admin took off is not put back on the next visit of the welcome steps
+  const groupMissing = !!want.groupId && !link.groupsChosen && !link.groupIds.includes(want.groupId)
   return link.skill?.path !== want.skillPath || groupMissing
 }
 
@@ -61,6 +64,7 @@ export function linkToMake(data: TeamLinkResponse): boolean {
  * as the panel opens when none could let anyone in (`linkToMake`; never for anyone else); `folded`: the invite step's
  * short view (TeamLinkView). */
 export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, made, retarget, prepare, folded, shared, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; made?: boolean; retarget?: boolean; prepare?: boolean; folded?: boolean; shared?: InviteShared | null; onChange?: (r: TeamLinkResponse) => void }) {
+  const t = useT()
   const me = useMe()
   const admin = isAdmin(me)
   const owner = isOwner(me)
@@ -92,9 +96,12 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
   // the groups of the open link, for people who join from now on (same address; QA TC-458)
   const changeGroups = async (groupIds: string[]) => {
     setBusy(true)
+    const had = state.data?.link?.skill ?? null
     const r = await act(() => api.call(API.updateTeamLink, { body: { groupIds } }))
     setBusy(false)
     if (r) state.setData(r)
+    // the server took the link's skill off: someone joining with these groups could not open it
+    if (r && had && !r.link?.skill) toast({ level: 'info', text: t('teamLink.skillCleared', { skill: had.title ?? had.name ?? had.path }) })
     return !!r
   }
   const revoke = async () => {
@@ -121,7 +128,8 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
     setPatch('running')
     // once for this link and this wish, whatever the answer (a refusal says so; trying again on every open would not help)
     if (state.data?.link) markPatched(state.data.link, want)
-    void act(() => api.call(API.updateTeamLink, { body: { skillPath: want.skillPath, addGroupIds: want.groupId ? [want.groupId] : [] } })).then((r) => {
+    const addGroupIds = want.groupId && !state.data?.link?.groupsChosen ? [want.groupId] : []
+    void act(() => api.call(API.updateTeamLink, { body: { skillPath: want.skillPath, addGroupIds } })).then((r) => {
       if (r) state.setData(r)
       setPatch('done')
     })
@@ -322,7 +330,8 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
           busy={busy}
           newGroupLink={!folded}
           onCancel={() => setGroupsOpen(false)}
-          onSave={async (ids) => { if (await onGroups(ids)) setGroupsOpen(false) }}
+          // the same groups: nothing to send
+          onSave={async (ids) => { if (sameSet(ids, link.groupIds) || (await onGroups(ids))) setGroupsOpen(false) }}
         />
       )}
       <div className="-ml-2.5 flex flex-wrap items-center gap-1">
@@ -354,6 +363,8 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
     </div>
   )
 }
+
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
 
 /** "Joins: leads, sales" / "Joins no groups": the groups everyone who joins with a link is put in. Groups deleted since
  * (or not loaded yet) are left out; none known while the ids are there reads as how many. Also Admin › Members' rows. */

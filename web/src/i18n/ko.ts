@@ -3667,6 +3667,7 @@ export const ko = {
   "teamLink.changeGroups": "부서 바꾸기",
   "teamLink.groupsKeep": "지금부터 들어오는 사람만 이 부서에 들어가요. 이미 들어온 사람의 부서는 그대로예요.",
   "teamLink.newGroup": "새 부서 만들기",
+  "teamLink.skillCleared": "이 부서로 들어온 사람은 '{skill}'을 열 수 없어서, 들어온 뒤 바로 열리지 않아요.",
   "teamLink.usesField": "들어올 수 있는 인원",
   "teamLink.usesHint": "비워 두면 {n}명",
   "teamLink.usesRule": "1~{max} 사이 숫자로 적어 주세요.",

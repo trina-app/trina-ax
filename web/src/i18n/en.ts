@@ -3668,6 +3668,7 @@ export const en: Record<MessageKey, string> = {
   "teamLink.changeGroups": "Change groups",
   "teamLink.groupsKeep": "Only people who join from now on get these groups. People who already joined keep theirs.",
   "teamLink.newGroup": "Make a new group",
+  "teamLink.skillCleared": "'{skill}' no longer opens after joining: people in these groups can't open it.",
   "teamLink.usesField": "How many people can join",
   "teamLink.usesHint": "Leave empty for {n}",
   "teamLink.usesRule": "Enter a number from 1 to {max}.",

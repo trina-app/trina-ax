@@ -3668,6 +3668,7 @@ export const id: Record<MessageKey, string> = {
   "teamLink.changeGroups": "Ubah grup",
   "teamLink.groupsKeep": "Hanya orang yang bergabung mulai sekarang yang masuk grup ini. Orang yang sudah bergabung tetap di grupnya.",
   "teamLink.newGroup": "Buat grup baru",
+  "teamLink.skillCleared": "'{skill}' tidak lagi terbuka setelah bergabung: orang di grup ini tidak bisa membukanya.",
   "teamLink.usesField": "Berapa orang yang bisa bergabung",
   "teamLink.usesHint": "Kosongkan untuk {n}",
   "teamLink.usesRule": "Masukkan angka 1 sampai {max}.",

@@ -290,6 +290,39 @@ describe('changing the groups of the open link (QA TC-458)', () => {
     expect((await join(tokenOf(link.url))).body.me.groups).toEqual([])
   })
 
+  test('a join in flight while the groups change gets the groups of the moment it is written, not of when it started', async () => {
+    const before = await owner.call('POST', '/api/admin/groups', { name: 'Old Crew' })
+    const after = await owner.call('POST', '/api/admin/groups', { name: 'New Crew' })
+    const { link } = await owner.call('POST', '/api/admin/team-link', { groupIds: [before.id] })
+    // the join reads the link, then waits on the slow password hash; the admin changes the groups meanwhile
+    const pending = join(tokenOf(link.url))
+    await new Promise((r) => setTimeout(r, 5))
+    await owner.call('PATCH', '/api/admin/team-link', { groupIds: [after.id] })
+    const r = await pending
+    expect(r.status).toBe(201)
+    expect(r.body.me.groups.map((x: any) => x.id)).toEqual([after.id])
+    expect(JSON.parse(audits(h, 'team_link.join').at(-1)!.detail).groupIds).toEqual([after.id])
+  })
+
+  test('the replaced groups cannot open the link\'s skill: it is taken off (audited), not refused; Save with nothing changed writes nothing', async () => {
+    const g = await owner.call('POST', '/api/admin/groups', { name: 'Pitchers' })
+    const other = await owner.call('POST', '/api/admin/groups', { name: 'Others' })
+    await owner.call('POST', '/api/admin/folders', { path: 'skills/pitchers', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: g.id, access: 'read' }] })
+    writeSkill(h, 'skills/pitchers/deck/SKILL.md', 'deck')
+    const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath: 'skills/pitchers/deck/SKILL.md', groupIds: [g.id] })
+    expect(link.groupsChosen).toBe(false)
+    // the same groups: no write, no audit row
+    const n = audits(h, 'team_link.update').length
+    expect((await owner.call('PATCH', '/api/admin/team-link', { groupIds: [g.id] })).link.groupsChosen).toBe(false)
+    expect(audits(h, 'team_link.update').length).toBe(n)
+    // a skill asked for that the groups cannot open is still refused
+    expect((await owner.try('PATCH', '/api/admin/team-link', { groupIds: [other.id], skillPath: 'skills/pitchers/deck/SKILL.md' })).status).toBe(400)
+    // the link's own skill: taken off, so the wrong group can still be taken off the link
+    const r = await owner.call('PATCH', '/api/admin/team-link', { groupIds: [other.id] })
+    expect(r.link).toMatchObject({ groupIds: [other.id], skill: null, groupsChosen: true })
+    expect(JSON.parse(audits(h, 'team_link.update').at(-1)!.detail)).toMatchObject({ groupIds: [other.id], from: [g.id], skillPath: null, skillCleared: 'skills/pitchers/deck/SKILL.md' })
+  })
+
   test('unknown groups are refused; a group deleted since drops out; no change on an expired or revoked link', async () => {
     const temp = await owner.call('POST', '/api/admin/groups', { name: 'Temp' })
     const keep = await owner.call('POST', '/api/admin/groups', { name: 'Keep' })

@@ -449,6 +449,14 @@ describe('on screen', () => {
       expect(sent).toEqual([[sales.id]])
       await m.until(() => !m.find('team-link-groups-edit'), 'the editor closes after saving')
     } finally { await m.unmount() }
+    // Save on the same groups sends nothing and closes
+    const same = await mount(<MemoryRouter><TeamLinkView data={data} inviter="Olga" team="Acme" groups={[leads, sales] as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} onGroups={async (ids) => { sent.push(ids); return true }} /></MemoryRouter>)
+    try {
+      await same.click('team-link-groups-change')
+      await same.click('team-link-groups-save')
+      await same.until(() => !same.find('team-link-groups-edit'), 'the editor closes')
+      expect(sent).toEqual([[sales.id]])
+    } finally { await same.unmount() }
     // no groups: "Joins no groups"; the folded invite step has no link out to Groups
     const none = await mount(<MemoryRouter><TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={noop} onRevoke={noop} onGroups={async () => true} /></MemoryRouter>)
     try {
@@ -564,6 +572,8 @@ describe('the team\'s group and the invite\'s skill', () => {
     const other = { ...there, skill: { path: 'skills/other/SKILL.md', name: 'other', title: null } }
     expect(linkDiffers(other, want)).toBe(true)
     expect(linkDiffers({ ...there, groupIds: [] }, want)).toBe(true)
+    // an admin chose the link's groups (Admin › Members' "Change groups"): the team's group is not put back
+    expect(linkDiffers({ ...there, groupIds: [], groupsChosen: true }, want)).toBe(false)
     markPatched(other, want)
     expect(linkDiffers(other, want)).toBe(false)
     // another wish for the same link is still sent
