@@ -6,8 +6,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { ConnectionMode, ConnectionStatus } from '@mycel/shared/api'
 import { isServiceHost, SERVICE_HOSTS } from '@mycel/shared/service-hosts'
+import { isLoopbackHost } from '@mycel/shared/team-link'
 import { PUBLIC_HOST_RE } from '../app-config'
+import type { Context } from 'hono'
 import type { AppContext } from '../context'
+import type { AppEnv } from '../http/env'
 import { relayApiBase } from '../relay-client/client'
 import { saveClaimCode } from '../relay-client/registration'
 
@@ -72,13 +75,58 @@ export function publicAddress(cfg: Pick<AppContext['config'], 'tunnel' | 'public
   return null
 }
 
+/** Where a request reached this server, as the server itself saw it (never a client-sent X-Forwarded-* header): the
+ * request URL (its scheme is the listener's, its host the Host header the host check let through) and how it came in
+ * (requestContext's info). */
+export interface ReachedAt { url: string; via: string; tunnel?: boolean }
+
+export function reachedAt(c: Context<AppEnv>): ReachedAt {
+  const info = c.get('info')
+  return { url: c.req.url, via: info?.via ?? 'test', ...(info?.tunnel ? { tunnel: true } : {}) }
+}
+
+const reachable = (o: string): URL | null => {
+  try {
+    const u = new URL(o)
+    if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.username || u.password || isLoopbackHost(u.hostname)) return null
+    return u
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The address a server without a relay or public address is reached at (QA TC-089: a self-installed office server at
+ * https://192.168.1.2:19300 or https://host.ts.net:8489 showed no team address, though that is what people type into
+ * the apps). With the port. A configured public origin (MYCEL_PUBLIC_ORIGINS) that names the host this request came in
+ * at wins (a TLS proxy in front, such as `tailscale serve`, hands the server plain http: the origin says https), else
+ * the request's own origin, else (a request from this machine itself: localhost) the first configured origin that is
+ * not this machine. Only a request that came straight to a listener counts (via 'direct', not the office public
+ * address: that one is `tunnel.host`). Never a loopback address. null = none.
+ */
+export function reachedAddress(cfg: Pick<AppContext['config'], 'publicOrigins'>, at: ReachedAt | null | undefined): string | null {
+  const origins = cfg.publicOrigins.map(reachable).filter((u): u is URL => u !== null)
+  let req: URL | null = null
+  if (at && at.via === 'direct' && !at.tunnel) { try { req = new URL(at.url) } catch { req = null } }
+  if (req) {
+    const named = origins.find((u) => u.host === req!.host)
+    if (named) return named.origin
+    const own = reachable(req.origin)
+    if (own) return own.origin
+  }
+  return origins[0]?.origin ?? null
+}
+
 /**
  * The team's address for its own members (GET /api/me team.address: Settings › 앱 "팀 주소", the install pictures): the
  * relay address when this server has one (https://acme.trina.app; dev http://demo.localhost:19161), else the public
- * address it knows (publicAddress, as https), else null (the office network only). Never the address a request came in
- * at: over the office network that is the office's own address (192.168.x.x), which a new device elsewhere cannot use.
+ * address it knows (publicAddress, as https). A server that is not on a relay at all (no relay.url) gives the address
+ * it is reached at (reachedAddress: the office network address with its port, http included; the web says the apps
+ * need https). A server on a relay whose address is not known yet (connecting, offline) gives none: over the office
+ * network the request's address is the office's own (192.168.x.x), which a new device elsewhere cannot use, while the
+ * relay address works everywhere.
  */
-export function teamAddressOf(ctx: Pick<AppContext, 'config' | 'services'>): string | null {
+export function teamAddressOf(ctx: Pick<AppContext, 'config' | 'services'>, at?: ReachedAt | null): string | null {
   let relayAddress: string | null = null
   try { relayAddress = ctx.services.relay?.status().address ?? null } catch { relayAddress = null }
   if (relayAddress) {
@@ -88,7 +136,9 @@ export function teamAddressOf(ctx: Pick<AppContext, 'config' | 'services'>): str
     } catch { /* not an address: fall through to the public address */ }
   }
   const pub = publicAddress(ctx.config, relayAddress)
-  return pub ? `https://${pub}` : null
+  if (pub) return `https://${pub}`
+  if (ctx.config.relay?.url) return null
+  return reachedAddress(ctx.config, at)
 }
 
 export function connectionStatus(ctx: AppContext): ConnectionStatus {

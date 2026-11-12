@@ -102,8 +102,9 @@ const PHONE_LABEL: Partial<Record<string, MessageKey>> = { providers: 'admin.tea
 const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
 
 /** The name of an address for the phone's ‹ label: Admin's list and pages (a group of Team settings or System by its
- * own name), and Settings' (lib/backStack.ts). */
-function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | undefined, who: Parameters<typeof systemGroup>[1]): string | null {
+ * own name), and Settings' (lib/backStack.ts). Every page pushed under Admin (an item's page, a group) has the page
+ * above it named here (test/unit/admin-back-names.test.ts); the bar shows it whole (phone/PhonePageBar.tsx). */
+export function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | undefined, who: Parameters<typeof systemGroup>[1]): string | null {
   const path = to.split(/[?#]/)[0]!
   if (path === '/admin') return t('admin.title')
   // a folder of Folder permissions (under its rule editor): its name; By person (under a person): that view

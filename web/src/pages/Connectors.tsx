@@ -18,24 +18,27 @@
 // /settings/connectors (old links) leads here (SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1
 // (old Drive links: Google Drive's page). The state (the lists, Drive's and the Google apps' sign-ins, the add dialog)
 // lives in ConnectorsLayout, so a + can open Google during the click and its page shows the same sign-in.
+// Phones (below 768 px, QA TC-262): the line, the search and Add are the top of the page and scroll away with it (a
+// computer keeps them in the sticky title bar), and the small links take a 44 px tap. In the phone app nothing signs in
+// to Google here (connecting is done on a computer): a built-in one's + only opens its page, and its page shows what it
+// is now, Disconnect, and one line "Connect … on a computer".
 import clsx from 'clsx'
-import { Plus, Search } from 'lucide-react'
+import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
-import { builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, exampleKeys, fits, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
-import { awaitingFirstSignIn, canonicalService, splitByScope } from '../lib/integrations'
-import { writeDraft } from '../lib/localData'
+import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
+import { canonicalService, connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
-import { Button, EmptyState, ErrorNote, IconButton, PageHeader, Skeleton, inputCls, pageColumn } from '../components/ui'
+import { Button, EmptyState, ErrorNote, IconButton, PageHeader, Skeleton, inputCls, pageColumn, useMediaQuery } from '../components/ui'
 import { ConnectorDetail, ConnectorRow, LogoTile } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
-import { GoogleAppDetail, Note, useGoogleApps, type StartChat } from '../components/integrations/GoogleAppConnector'
+import { GoogleAppDetail, Note, useGoogleApps } from '../components/integrations/GoogleAppConnector'
 import { useDriveConnection } from '../components/settings/DriveConnection'
 import { SlackAccount } from '../components/settings/SlackAccount'
 import { MyRequests } from '../components/integrations/AnswerDialog'
@@ -44,14 +47,15 @@ import { IntegrationRow, useIntegrationActions } from '../components/integration
 import { AskAdminAction, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { useLoad } from './admin/common'
+import { mobileApp } from '../lib/mobile'
+
+const PHONE = '(max-width: 767.98px)'
 
 /** How many Discover cards show before "Show all": the five built-in ones and five well-known services. */
 export const POPULAR_FIRST = 10
 
 function useConnectorsState() {
-  const me = useMe()
-  const admin = isAdmin(me)
-  const navigate = useNavigate()
+  const admin = isAdmin(useMe())
   const list = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
   const drive = useDriveConnection()
   const google = useGoogleApps()
@@ -78,12 +82,7 @@ function useConnectorsState() {
     reload,
   })
   const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector } | null>(null)
-  const startChat: StartChat = useCallback((text) => {
-    if (!me) return
-    writeDraft(me.user.id, 'new', text)
-    navigate('/')
-  }, [me, navigate])
-  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, startChat, admin }
+  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, admin }
 }
 type ConnectorsState = ReturnType<typeof useConnectorsState>
 const Ctx = createContext<ConnectorsState | null>(null)
@@ -128,6 +127,9 @@ export function ConnectorsHome() {
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
   const [params, setParams] = useSearchParams()
+  const phone = useMediaQuery(PHONE)
+  // the phone app: Google's sign-in is not started from here (connecting is done on a computer, QA TC-262)
+  const inApp = !!mobileApp()
   const personalAllowed = list.data?.personalAllowed
   // ?add=1 (Search's "Connect an app") opens the add dialog once the list says members may add their own, for owners
   // and admins (a member's Search comes here without it); ?drive=1 (old Drive links, a notice) opens Google Drive's page
@@ -157,14 +159,14 @@ export function ConnectorsHome() {
     if (id === 'google-drive') {
       const setUp = !!drive.connection && !drive.connection.configured
       return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: dState, setUp, asked: setUp && asked, onOpen: open,
-        onAdd: () => { open(); if (dState === 'available') drive.start() } }]
+        onAdd: () => { open(); if (dState === 'available' && !inApp) drive.start() } }]
     }
     const v = google.apps?.find((x) => x.id === id)
     if (!v) return []
     // one that needs a new sign-in stays in Your connectors even when it cannot be connected now: its page disconnects it
     const setUp = v.reason === 'not_set_up'
     return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: v.status === 'needs_reconnect' ? 'reconnect' : googleAppCardState(v), setUp, asked: setUp && asked, onOpen: open,
-      onAdd: () => { open(); void google.flows[id].start() } }]
+      onAdd: () => { open(); if (!inApp) void google.flows[id].start() } }]
   })
   // the listed services: added from their page or with + (the add dialog, filled in); only while members may add their own
   // (every connection the person can use counts as connected: their own, the team's, the ones made from a template)
@@ -196,7 +198,7 @@ export function ConnectorsHome() {
       const c = connectorFor(i.url)
       return { name: i.name, row: (
         <ConnectorRow key={i.id} id={i.id} logo={c ? connectorLogo(c) : undefined} name={i.name}
-          status={awaitingFirstSignIn(i) ? 'signin' : i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'} onOpen={() => navigate(`/connectors/mcp/${i.id}`)} />
+          status={connectionRowStatus(i)} onOpen={() => navigate(`/connectors/mcp/${i.id}`)} />
       ) }
     }),
     ...fromTeam.rows,
@@ -206,20 +208,32 @@ export function ConnectorsHome() {
   const nothing = !!q && fromTeam.ready && !cards.length && !yours.length
   // nothing connected and nothing this person can add (the team has set nothing up for members): say so once
   const empty = !q && !loading && fromTeam.ready && !cards.length && !yours.length
+  const headActions = (
+    <>
+      <div className="relative w-[calc(100vw-2rem)] min-w-0 sm:w-60">
+        <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
+      </div>
+      {personalAllowed && admin && (
+        <Button onClick={() => setDialog({})} data-testid="integration-add">
+          <Plus size={15} aria-hidden /> {t('connectorsPage.addCustom')}
+        </Button>
+      )}
+    </>
+  )
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="integrations">
-      <PageHeader testId="connectors-header" title={t('integrations.title')} desc={t('connectorsPage.desc')}
-        actions={<>
-          <div className="relative w-[calc(100vw-2rem)] min-w-0 sm:w-60">
-            <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
-            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
-          </div>
-          {personalAllowed && admin && (
-            <Button onClick={() => setDialog({})} data-testid="integration-add">
-              <Plus size={15} aria-hidden /> {t('connectorsPage.addCustom')}
-            </Button>
-          )}
-        </>} />
+      {phone ? (
+        // a phone: the same line, search and Add as the title bar's, but as the top of the page, so they scroll away
+        // with the list like the other phone pages' tops (QA TC-262); the phone's top bar says the page's name
+        <div className="shrink-0 border-b border-line px-4 py-4" data-testid="connectors-header">
+          <h1 className="sr-only">{t('integrations.title')}</h1>
+          <p className="text-sm text-muted">{t('connectorsPage.desc')}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">{headActions}</div>
+        </div>
+      ) : (
+        <PageHeader testId="connectors-header" title={t('integrations.title')} desc={t('connectorsPage.desc')} actions={headActions} />
+      )}
       <div className={clsx(pageColumn, 'space-y-8 p-4 pb-10 sm:p-6')}>
         {/* what an admin asked this person to connect: answered, its own page, with its row */}
         <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(`/connectors/mcp/${i.id}`) }} />
@@ -250,7 +264,8 @@ export function ConnectorsHome() {
                 <div className="mb-1 flex items-center gap-2">
                   <h2 id="connectors-discover" className="text-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h2>
                   {!q && cards.length > POPULAR_FIRST && (
-                    <button type="button" className="touch-hit ml-auto text-sm text-muted hover:text-ink" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
+                    // a text link; on a phone 44 px tall (and at least as wide), still without a box
+                    <button type="button" className="touch-hit ml-auto text-sm text-muted hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-end" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
                       {all ? t('connectors.showLess') : t('connectorsPage.showAll', { count: cards.length })}
                     </button>
                   )}
@@ -280,7 +295,7 @@ function DiscoverCard({ c, admin }: { c: Card; admin: boolean }) {
   const t = useT()
   return (
     <li className="flex items-center gap-3 border-b border-line py-3" data-testid="connector-card" data-id={c.id} data-state={c.state}>
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2" onClick={c.onOpen} data-testid="connector-open">
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2 max-md:min-h-11" onClick={c.onOpen} data-testid="connector-open">
         <LogoTile src={c.logo} className="size-10 rounded-xl p-2" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{c.name}</span>
@@ -290,7 +305,7 @@ function DiscoverCard({ c, admin }: { c: Card; admin: boolean }) {
       {c.state === 'off' && !admin ? (
         <span className="max-w-28 shrink-0 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
       ) : c.state === 'off' ? (
-        <Link to="/admin/connectors" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
+        <Link to="/admin/connectors" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
       ) : (
         <IconButton label={t('integrations.discover.add', { name: c.name })} className="shrink-0 rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />
@@ -303,7 +318,7 @@ function DiscoverCard({ c, admin }: { c: Card; admin: boolean }) {
 /** /connectors/:id: a built-in card's page, or a listed service's. */
 export function ConnectorPage() {
   const { id = '' } = useParams()
-  const { google, asks, admin, startChat } = useConnectors()
+  const { google, asks, admin } = useConnectors()
   if (id === 'google-drive') return <DrivePage />
   if (isGoogleApp(id)) {
     if (!google.apps) return <PageSkeleton />
@@ -313,7 +328,7 @@ export function ConnectorPage() {
     const ask = !admin && asks.ready && v.reason === 'not_set_up' && v.status === 'disconnected'
       ? { state: asks.stateOf(v.id), busy: asks.busy === v.id, onAsk: () => void asks.ask(v.id, builtInName(v.id), () => void google.load()), error: asks.error?.service === v.id ? asks.error.text : null }
       : undefined
-    return <GoogleAppDetail v={v} g={google} onChat={startChat} ask={ask} />
+    return <GoogleAppDetail v={v} g={google} ask={ask} />
   }
   const c = CONNECTORS.find((x) => x.id === id)
   return c ? <ListedPage c={c} /> : <Navigate to="/connectors" replace />
@@ -326,30 +341,43 @@ function PageSkeleton() {
 /** Google Drive's page: Trina's own connector, the same layout as the Google apps'. */
 function DrivePage() {
   const t = useT()
-  const { drive, asks, admin, startChat } = useConnectors()
+  const { drive, asks, admin } = useConnectors()
   const p = useDriveParts(drive)
   const id: BuiltInId = 'google-drive'
   const name = builtInName(id)
-  const examples = exampleKeys(id).map((k) => t(k))
   const ready = p.linked && !p.reconnect && !p.off
   // a member, the team has not set Google Drive up: "Ask admin to add it" in place of the Connect button that cannot
   // work and of "Your admin needs to turn this on"; once asked, when they will hear
   const ask = !admin && asks.ready && p.unavailable && !p.linked && !p.shares.length ? asks.stateOf(id) : null
   const askError = ask && asks.error?.service === id ? asks.error.text : null
   const line = ask === 'none' ? null : ask ? t('serviceRequest.waiting', { name }) : p.line !== t('drive.cardDesc') ? p.line : null
+  // the phone app (QA TC-262): no Google sign-in here, connecting is done on a computer. What it is now (Connected and
+  // the account, Reconnect required, why it is off), Disconnect once there is a connection, and one line to connect (or
+  // connect again) on a computer when that can be done there. A member's "Ask admin to add it" and an owner or admin's
+  // "Set it up" stay: they work on a phone.
+  const inApp = !!mobileApp() && !!drive.connection && !ask && !(p.unavailable && admin)
+  const onComputer = inApp && !p.unavailable && (p.turnOn || !p.off) && (!p.linked || p.reconnect)
+    ? t(p.linked ? 'integrations.reconnectOnComputer' : 'integrations.onComputer', { name }) : null
+  const appActions = p.linked ? (
+    <>
+      {ready && <span className="flex items-center gap-1 text-sm text-ok" data-testid="drive-connected"><Check size={14} aria-hidden />{t('drive.status.connected')}</span>}
+      <Button busy={drive.d.busy} onClick={() => void drive.disconnect()} data-testid="drive-disconnect">{t('drive.disconnect')}</Button>
+    </>
+  ) : null
   return (
     <AppDetail testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
       actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} />
-        : <>{ready && <Button variant="primary" onClick={() => startChat(examples[0]!)} data-testid="drive-try">{t('gapps.tryInChat')}</Button>}{p.action}</>}
-      status={(line || askError || p.busy || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
+        : inApp ? appActions
+        : p.action}
+      status={(line || onComputer || askError || p.busy || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
         {line && <Note tone={p.reconnect || (p.off && p.linked) ? 'warn' : undefined} testId={ask ? 'service-asked-note' : 'drive-detail-line'}>{line}</Note>}
+        {onComputer && <Note testId="drive-on-computer">{onComputer}</Note>}
         {askError && <Note tone="warn" testId="service-ask-error">{askError}</Note>}
         <div className="empty:hidden">{p.steps}</div>
         <DriveTeamShares shares={p.shares} />
       </> : undefined}
-      examples={examples} onExample={startChat}
-      about={t('connectors.drive.about')} canChange={false}
-      developer={t('gapps.dev.trina')} category={t('gapps.drive.category')} links={{ privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
+      about={t(aboutKey(id))} canChange={false}
+      developer={t('gapps.dev.trina')} category={t('gapps.drive.category')} signIn={GOOGLE} links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
       tools={DRIVE_TOOL_LIST.map((x) => ({ name: x.name, title: t(`gapps.drive.tool.${x.name}`), changes: x.changes }))} />
   )
 }

@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { GoogleAppAdminStatus, GoogleAppFlow, GoogleAppView, type DriveConnection, type GoogleAppId } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
-import { aboutKey, BUILT_IN_ORDER, canChange, categoryKey, driveCardState, exampleKeys, fits, googleAppCardState, isBuiltIn, isGoogleApp, lineKey, unavailableKeys } from '../../src/lib/googleApps'
+import { aboutKey, BUILT_IN_ORDER, canChange, categoryKey, driveCardState, fits, googleAppCardState, isBuiltIn, isGoogleApp, lineKey, unavailableKeys } from '../../src/lib/googleApps'
 import { GoogleAppDetail, type GoogleAppsState } from '../../src/components/integrations/GoogleAppConnector'
 import { GOOGLE_APP_IDS, MockGoogleApps, MOCK_GOOGLE_TOOLS } from '../mock/googleApps'
 
@@ -63,11 +63,19 @@ describe('card states', () => {
 })
 
 describe('words', () => {
-  test('every built-in card has its line, category, About and three things to try in every language', () => {
+  test('every built-in card has its line, category and About in every language', () => {
     for (const [locale, dict] of Object.entries(DICTS)) {
       for (const id of BUILT_IN_ORDER) {
-        for (const k of [lineKey(id), categoryKey(id), aboutKey(id), ...exampleKeys(id)]) expect({ locale, k, text: !!(dict as Record<string, string>)[k]?.trim() }).toEqual({ locale, k, text: true })
+        for (const k of [lineKey(id), categoryKey(id), aboutKey(id)]) expect({ locale, k, text: !!(dict as Record<string, string>)[k]?.trim() }).toEqual({ locale, k, text: true })
       }
+    }
+  })
+
+  test('About does not say again what the line under it says (read only, asks first, Always allow)', () => {
+    for (const id of BUILT_IN_ORDER) {
+      const about = DICTS.en[aboutKey(id) as keyof typeof DICTS.en] as string
+      expect({ id, about }).toEqual({ id, about: about.replace(/only reads|read only|can't change|asks you first|Always allow/gi, '') })
+      expect(about).toContain('Only you use this connection.')
     }
   })
 
@@ -105,25 +113,30 @@ describe('the mock server keeps the contract', () => {
 describe('a Google app\'s page', () => {
   const flow = { flow: null, inProgress: false, busy: false, error: false, authorizationUrl: null, start: async () => {}, cancel: async () => {}, complete: async () => {}, setError: () => {} }
   const g = (apps: GoogleAppView[]) => ({ apps, load: async () => {}, busy: null, setPolicy: async () => {}, disconnect: async () => {}, flows: Object.fromEntries(GOOGLE_APP_IDS.map((id) => [id, flow])) as unknown as Record<GoogleAppId, GoogleAppsState['flows']['gmail']> }) as unknown as GoogleAppsState
-  const page = (v: GoogleAppView) => renderToStaticMarkup(<MemoryRouter><GoogleAppDetail v={v} g={g([v])} onChat={() => {}} /></MemoryRouter>)
+  const page = (v: GoogleAppView) => renderToStaticMarkup(<MemoryRouter><GoogleAppDetail v={v} g={g([v])} /></MemoryRouter>)
 
-  test('not connected: Connect, three things to try, About, what it can do, Information and the tools behind Show all', () => {
+  test('not connected: Connect, About, one line on what it can do, every tool as a chip and the details; no boxes', () => {
     const html = page(view())
     expect(html).toContain('data-testid="gapp-connect"')
     expect(html).not.toContain('disabled=""')
-    expect((html.match(/data-testid="app-example"/g) ?? []).length).toBe(3)
     expect(html).toContain('data-testid="app-about"')
     expect(html).toContain('data-can-change="yes"')
     expect(html).toContain('data-testid="app-info"')
     expect(html).toContain('href="https://policies.google.com/privacy"')
+    expect(html).toContain('href="https://policies.google.com/terms"')
+    // every tool at once, a chip that changes things marked, its description as its tooltip
     expect((html.match(/data-testid="app-tool"/g) ?? []).length).toBe(MOCK_GOOGLE_TOOLS.gmail.length)
-    expect(html).toMatch(/id="[^"]+" hidden=""[^>]*data-testid="app-tools"/)
+    expect(html).not.toMatch(/hidden=""[^>]*data-testid="app-tools"/)
+    expect((html.match(/data-testid="app-tool-changes"/g) ?? []).length).toBe(MOCK_GOOGLE_TOOLS.gmail.filter((x) => x.changes).length)
+    // gone: the examples, the "What the AI can do" card, the tools toggle, Try in chat
+    for (const id of ['app-examples', 'app-example', 'app-tools-toggle', 'gapp-try']) expect(html).not.toContain(`data-testid="${id}"`)
   })
 
-  test('connected: Try in chat, Settings and ⋯, the account; no Connect', () => {
+  test('connected: Connected and ⋯ (Settings, Reconnect, Disconnect), the account; no Connect', () => {
     const html = page(view({ status: 'connected', account: { name: 'Fixture', email: 'fixture@example.test' } }))
-    for (const id of ['gapp-try', 'gapp-settings', 'gapp-menu', 'gapp-account-line']) expect(html).toContain(`data-testid="${id}"`)
+    for (const id of ['gapp-connected', 'gapp-menu', 'gapp-account-line']) expect(html).toContain(`data-testid="${id}"`)
     expect(html).not.toContain('data-testid="gapp-connect"')
+    expect(html).not.toContain('data-testid="gapp-try"')
     expect(html).toContain('fixture@example.test')
   })
 

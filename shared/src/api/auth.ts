@@ -68,10 +68,11 @@ export const Me = z.object({
      * 'members'. Absent (older server) = admins only. */
     projectCreators: z.enum(['members', 'admins']).optional(),
     /** the team's address for its members, an origin (https://acme.trina.app): what a new device puts in the app
-     * (Settings › 앱 "팀 주소"). The relay address when the server is on a relay, else the public address it knows
-     * (server/src/system/connection.ts teamAddressOf), never the address the page was opened at (over the office
-     * network that is the office's own address). Signed-in people only (this answer); absent = none known (the office
-     * network only) or an older server. */
+     * (Settings › 앱 "팀 주소"). The relay address when the server is on a relay, else the public address it knows,
+     * else for a server not on a relay the address it is reached at, with its port, http included
+     * (server/src/system/connection.ts teamAddressOf). A server on a relay never gives the address the page was opened
+     * at (over the office network that is the office's own address). Signed-in people only (this answer); absent =
+     * none known or an older server. */
     address: z.string().max(300).optional(),
   }),
   session: z.object({

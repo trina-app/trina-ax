@@ -13,9 +13,12 @@ export type ShareOutcome = 'shared' | 'cancelled' | 'failed'
 
 const browserShares = () => typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
-/** A share sheet can open here (a phone's width, and the app's sheet or the browser's). */
-export function canShareText(): boolean {
-  if (typeof window === 'undefined' || window.matchMedia?.(SHARE_PHONE_QUERY).matches !== true) return false
+/** A share sheet can open here (a phone's width, and the app's sheet or the browser's). `anyWidth`: a caller that
+ * already knows it is on a phone or tablet (Settings › Apps' send-to-computer row) skips the width check, so a phone
+ * held sideways or a tablet keeps its sheet. */
+export function canShareText(o: { anyWidth?: boolean } = {}): boolean {
+  if (typeof window === 'undefined') return false
+  if (!o.anyWidth && window.matchMedia?.(SHARE_PHONE_QUERY).matches !== true) return false
   return appSharesText() || browserShares()
 }
 
@@ -24,7 +27,9 @@ const aborted = (e: unknown) => (e as { name?: unknown } | null)?.name === 'Abor
 /** Open the share sheet with `text`: the app's, else the browser's. Never a second try after the app's refused: the
  * press that allowed a sheet (or a copy) is spent once the app answered, so WebKit would refuse it or copy nothing;
  * the caller shows its copy button instead. */
-export async function shareText(text: string): Promise<ShareOutcome> {
+/** `url`: the text is one link; the browser's sheet gets it as a link (`{ url, title }`), so AirDrop to a Mac opens it
+ * in Safari instead of giving a text clip. The app's sheet always takes text. */
+export async function shareText(text: string, o: { url?: boolean; title?: string } = {}): Promise<ShareOutcome> {
   if (appSharesText()) {
     try {
       await shareTextToApp(text)
@@ -36,7 +41,7 @@ export async function shareText(text: string): Promise<ShareOutcome> {
   }
   if (!browserShares()) return 'failed'
   try {
-    await navigator.share({ text })
+    await navigator.share(o.url ? { url: text, ...(o.title ? { title: o.title } : {}) } : { text })
     return 'shared'
   } catch (e) {
     // the person closed the sheet (AbortError); anything else (no permission, a busy sheet): copy instead

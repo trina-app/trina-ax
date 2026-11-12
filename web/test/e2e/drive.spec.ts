@@ -1,7 +1,7 @@
 // Google Drive in Connectors (pages/Connectors.tsx, components/integrations/DriveConnector.tsx), Trina's own connector
 // next to the Google apps and the MCP services: first in Popular, where its + goes straight to Google and its page
 // (/connectors/google-drive) shows the steps; back from Google one inline line confirms the account (a security step);
-// then it is in Your connectors on the page (and out of Discover), and its page has the account, Try in chat and ⋯ Reconnect /
+// then it is in Your connectors on the page (and out of Discover), and its page has the account, Connected and ⋯ Reconnect /
 // Disconnect. Also: a server without a Google client, a Drive that needs a new sign-in, the old /settings/drive and
 // /settings/integrations addresses, phone width and accessibility.
 // Admin › Connectors' Drive page: admin-app-connectors.spec.ts. AI apps: ai-apps.spec.ts.
@@ -62,7 +62,7 @@ test('Popular lists Google Drive first; its + goes straight to Google, one line 
   await detail(page).getByRole('button', { name: '이 계정으로 연결 완료' }).click()
   await expect(detail(page).getByTestId('drive-detail-line')).toHaveText('fixture@example.test')
   await expect(detail(page).getByTestId('drive-connected')).toHaveText('연결됨')
-  await expect(detail(page).getByTestId('drive-try')).toBeVisible()
+  await expect(detail(page).getByTestId('drive-try')).toHaveCount(0)
   expect(state.completed).toBe(1)
 
   // back on the list: in Your connectors (and no longer in Discover), and its page has ⋯

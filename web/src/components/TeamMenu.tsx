@@ -20,7 +20,7 @@ import { useLocation, useNavigate, type NavigateFunction } from 'react-router-do
 import { create } from 'zustand'
 import { teamIconUrl } from '@mycel/shared'
 import { useT } from '../i18n'
-import { teamAddressHost } from '../lib/team-address'
+import { teamAddressShown } from '../lib/team-address'
 import { showResume } from '../lib/welcome'
 import { isAdmin, isOwner, useMeStrict, useSession } from '../store/session'
 import { useWelcome } from '../store/welcome'
@@ -44,7 +44,7 @@ export function TeamMenu() {
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const admin = isAdmin(me)
-  const host = teamAddressHost(me.team.address)
+  const host = teamAddressShown(me.team.address)
   const addressId = useId()
   const hide = (focusBack: boolean) => {
     setOpen(false)

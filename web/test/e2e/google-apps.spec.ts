@@ -1,7 +1,7 @@
 // Connectors in the sidebar (pages/Connectors.tsx) and Gmail, Google Calendar, Google Docs and Google Sheets
 // (components/integrations/GoogleAppConnector.tsx, GoogleAppAdmin.tsx; the mock: test/mock/googleApps.ts): the sidebar
 // item opens the page; Discover lists what can be added now first (Google Drive and the four apps once set up); Gmail's Connect opens Google, its page asks to
-// confirm the account, then offers Try in chat, Settings and ⋯; the old Settings › Connectors address leads to the page; Admin sets up
+// confirm the account, then shows Connected and ⋯ (Settings, Reconnect, Disconnect); the old Settings › Connectors address leads to the page; Admin sets up
 // a card with the same Google app as Drive; and an app that cannot be connected says why.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
@@ -40,7 +40,7 @@ test('the sidebar opens Connectors: Discover lists what can be added first, the 
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Gmail: Connect opens Google, the account is confirmed, then Try in chat, Settings and ⋯ (Disconnect)', async ({ page }) => {
+test('Gmail: Connect opens Google, the account is confirmed, then Connected and ⋯ (Settings, Disconnect)', async ({ page }) => {
   await reset(page)
   await googleApps(page, { client: 'app' })
   await fakeGoogle(page)
@@ -53,9 +53,8 @@ test('Gmail: Connect opens Google, the account is confirmed, then Try in chat, S
   await expect(page.getByTestId('app-breadcrumb')).toContainText('커넥터')
   await expect(page.getByTestId('app-breadcrumb')).toContainText('Gmail')
   await expect(detail.getByTestId('app-by')).toContainText('Google')
-  await expect(detail.getByTestId('app-example')).toHaveCount(3)
-  await expect(detail.getByTestId('app-tools')).toBeHidden()
-  await detail.getByTestId('app-tools-toggle').click()
+  // every tool at once, as chips; one that changes things is marked
+  await expect(detail.getByTestId('app-tools')).toBeVisible()
   await expect(detail.getByTestId('app-tool').filter({ has: page.getByTestId('app-tool-changes') })).not.toHaveCount(0)
 
   const popup = page.waitForEvent('popup')
@@ -65,10 +64,11 @@ test('Gmail: Connect opens Google, the account is confirmed, then Try in chat, S
   await detail.getByTestId('gapp-confirm').click()
   await expect(detail).toHaveAttribute('data-state', 'connected')
   await expect(detail.getByTestId('gapp-account-line')).toContainText('olga@example.test')
-  for (const id of ['gapp-try', 'gapp-settings', 'gapp-menu']) await expect(detail.getByTestId(id)).toBeVisible()
+  for (const id of ['gapp-connected', 'gapp-menu']) await expect(detail.getByTestId(id)).toBeVisible()
 
-  // Settings: Always allow, saved at once
-  await detail.getByTestId('gapp-settings').click()
+  // ⋯ › Settings: Always allow, saved at once
+  await detail.getByTestId('gapp-menu').click()
+  await page.getByTestId('gapp-settings').click()
   const patched = page.waitForRequest((r) => /\/api\/integrations\/google-apps\/gmail$/.test(r.url()) && r.method() === 'PATCH')
   await page.getByTestId('gapp-policy-allow').check()
   expect((await patched).postDataJSON()).toEqual({ writePolicy: 'allow' })
@@ -89,22 +89,6 @@ test('Gmail: Connect opens Google, the account is confirmed, then Try in chat, S
   await expect(detail).toHaveAttribute('data-state', 'disconnected')
   await expect(detail.getByTestId('gapp-connect')).toBeEnabled()
   expect(realErrors(errors)).toEqual([])
-})
-
-test('an example (and Try in chat) starts a new chat with the text in its box', async ({ page }) => {
-  await reset(page)
-  await googleApps(page, { app: 'calendar', client: 'app', connect: { userId: 'olga' } })
-  await signIn(page)
-  await page.goto('/connectors/calendar')
-  const first = page.getByTestId('app-example').first()
-  const text = (await first.textContent())!.trim()
-  await first.click()
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('composer-input')).toHaveValue(text)
-  await page.goto('/connectors/calendar')
-  await page.getByTestId('gapp-try').click()
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('composer-input')).toHaveValue(text)
 })
 
 test('Settings › Connectors leads to the Connectors page, with what its address asked for', async ({ page }) => {
@@ -236,8 +220,9 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(card(page, 'calendar')).toBeVisible()
     expect(await audit()).toEqual([])
     await page.goto('/connectors/gmail')
-    await page.getByTestId('app-tools-toggle').click()
+    await expect(page.getByTestId('app-tools')).toBeVisible()
     expect(await audit()).toEqual([])
+    await page.getByTestId('gapp-menu').click()
     await page.getByTestId('gapp-settings').click()
     expect(await audit()).toEqual([])
   })

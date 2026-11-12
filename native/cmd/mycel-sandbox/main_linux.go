@@ -2,7 +2,7 @@
 
 // mycel-sandbox: the last step before an engine (or a converter) runs (linux-runtime spec 3.3.4, 3.8.2).
 //
-//	mycel-sandbox exec   [--landlock MODE] [--exec-allow PATH]... [--allow-listen] -- PROG ARGS...
+//	mycel-sandbox exec   [--landlock MODE] [--exec-allow PATH]... [--allow-listen] [--net-proxy PORT] -- PROG ARGS...
 //	mycel-sandbox cgexec [--cgroup DIR] [--oom-score-adj N] [--rlimit-cpu SEC] [--rlimit-fsize BYTES] [--rlimit-nofile N] -- PROG ARGS...
 //	mycel-sandbox probe
 //
@@ -14,6 +14,9 @@
 //
 // cgexec runs OUTSIDE bwrap for converters started by the server: it moves itself into the converter cgroup and sets
 // rlimits, then execs bwrap; every converter process is born inside the limits.
+//
+// exec --net-proxy gives the engine its own network namespace with the model proxy forwarded (netns_linux.go; the
+// forwarder is the internal command `forward`).
 //
 // probe prints what this kernel offers (launcher status, diagnostics).
 //
@@ -55,17 +58,19 @@ func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: mycel-sandbox exec|cgexec|probe ...")
+		fail("usage: mycel-sandbox exec|cgexec|forward|probe ...")
 	}
 	switch os.Args[1] {
 	case "exec":
 		cmdExec(os.Args[2:])
 	case "cgexec":
 		cmdCgexec(os.Args[2:])
+	case "forward":
+		cmdForward(os.Args[2:])
 	case "probe":
 		cmdProbe()
 	default:
-		fail("unknown command %q (exec, cgexec, probe)", os.Args[1])
+		fail("unknown command %q (exec, cgexec, forward, probe)", os.Args[1])
 	}
 }
 
@@ -102,7 +107,11 @@ func cmdExec(args []string) {
 	var allow multi
 	fs.Var(&allow, "exec-allow", "folder or file the engine may execute (repeatable)")
 	allowListen := fs.Bool("allow-listen", false, "do not refuse listen() (spike S4 fallback)")
+	netProxy := fs.Int("net-proxy", 0, "own network namespace; forward 127.0.0.1:PORT to the host's model proxy")
 	prog := parse(fs, args)
+	if *netProxy < 0 || *netProxy > 65535 {
+		fail("--net-proxy takes a port (1-65535)")
+	}
 	m, err := landlock.ParseMode(*mode)
 	if err != nil {
 		fail("%v", err)
@@ -117,8 +126,16 @@ func cmdExec(args []string) {
 			}
 		}
 	}
-	if _, err := landlock.RestrictExec(m, allow); err != nil {
+	var net netSetup
+	if *netProxy > 0 {
+		net = privateNetStart(*netProxy)
+	}
+	ll, err := landlock.RestrictExec(m, allow)
+	if err != nil {
 		fail("landlock: %v", err)
+	}
+	if *netProxy > 0 {
+		privateNetFinish(net, ll.Applied)
 	}
 	if err := seccomp.Install(*allowListen); err != nil {
 		fail("%v", err)

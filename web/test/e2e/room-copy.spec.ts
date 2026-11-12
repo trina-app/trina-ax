@@ -33,7 +33,7 @@ async function openRoom(page: Page) {
   await expect(page.getByTestId('room-message')).toHaveCount(4)
   return room
 }
-const words = (msg: Locator) => msg.locator('p.whitespace-pre-wrap')
+const words = (msg: Locator) => msg.getByTestId('message-markdown')
 
 /** A mouse drag from the left edge of `from` to the right end of `to`, as a person selects text. */
 async function drag(page: Page, from: Locator, to: Locator) {
@@ -90,7 +90,7 @@ test('a selection that starts mid-message gives the part selected, under its aut
   const msgs = page.getByTestId('room-message')
   // from inside the second message's text (after "피드백 ") to the end of the third
   await page.evaluate(() => {
-    const ps = document.querySelectorAll('[data-testid="room-message"] p.whitespace-pre-wrap')
+    const ps = document.querySelectorAll('[data-testid="room-message"] [data-testid="message-markdown"] > p')
     const start = ps[1]!.firstChild!
     const end = ps[2]!
     const r = document.createRange()
@@ -108,7 +108,7 @@ test("Firefox's selection of several ranges (it splits a drag around what cannot
   // Chromium keeps one range; the selection the handler reads is made to look like Firefox's: one range per message's
   // words, the first in the second message, the last in the fourth
   await page.evaluate(() => {
-    const ps = [...document.querySelectorAll('[data-testid="room-message"] p.whitespace-pre-wrap')]
+    const ps = [...document.querySelectorAll('[data-testid="room-message"] [data-testid="message-markdown"]')]
     const ranges = ps.slice(1).map((p) => {
       const r = document.createRange()
       r.selectNodeContents(p)
@@ -135,7 +135,7 @@ test('a selection inside one message copies just that text', async ({ page }) =>
   expect(one).toBe('네네, 수요일까지 보내기로했어요')
   // a part of it
   await page.evaluate(() => {
-    const t = document.querySelectorAll('[data-testid="room-message"] p.whitespace-pre-wrap')[2]!.firstChild!
+    const t = document.querySelectorAll('[data-testid="room-message"] [data-testid="message-markdown"] > p')[2]!.firstChild!
     const r = document.createRange()
     r.setStart(t, 4)
     r.setEnd(t, 9)

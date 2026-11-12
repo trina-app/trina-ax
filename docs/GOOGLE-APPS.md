@@ -82,9 +82,9 @@ is refused, and connections made before are kept but not used (`PUT /api/admin/g
 
 ## What members see
 
-- The card says what the AI can do and lists every tool ("Show all tools"). **Connect** goes straight to Google; back
-  in Trina the person confirms the Google account shown.
-- Connected: **Try in chat**, **Settings** (Ask before each change, or Always allow), ⋯ (Reconnect, Disconnect).
+- The app's page says in one line what the AI can do and shows every tool as a chip. **Connect** goes straight to
+  Google (the desktop app opens it in the system browser); back in Trina the person confirms the Google account shown.
+- Connected: **Connected** and ⋯ (**Settings**: Ask before each change, or Always allow; Reconnect; Disconnect).
 - Not set up on the team yet: **Ask admin to add it** in place of Connect. The owner and the admins get one notice per
   app in Activity that opens its setup; once members can connect it, each member who asked hears that it is ready
   ([INTEGRATIONS.md](INTEGRATIONS.md) "A member asks for an app"). The same for Google Drive.

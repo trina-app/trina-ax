@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { API, type DriveAdminStatus, type DriveFlow, type DriveShare, type DriveShareFolder, type IntegrationAccess } from '@mycel/shared/api'
 import { api, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { driveSignInUrl } from '../../lib/driveSignIn'
+import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -52,15 +52,16 @@ function useShareFlow() {
   const start = async (shareId?: string) => {
     const g = ++generation.current
     setBusy(true); setError(false); setFlow(null); setUrl(null)
-    if (!mobileApp()) { popup.current = window.open('about:blank', '_blank'); if (popup.current) popup.current.opener = null }
+    const place = signInPlace()
+    popup.current = reserveSignInWindow(place)
     try {
       const r = await api.call(API.authorizeDriveShare, { body: shareId ? { shareId } : {} })
       if (g !== generation.current) return
-      const href = driveSignInUrl(r, !!mobileApp())
+      const href = driveSignInUrl(r, place === 'phone')
       setUrl(href)
       setFlow({ flowId: r.flowId, state: 'pending', account: null, expiresAt: r.expiresAt, reason: null })
-      if (mobileApp()) await openExternal(href, { purpose: 'google-oauth' })
-      else if (popup.current) popup.current.location.replace(href)
+      if (place === 'phone') await openExternal(href, { purpose: 'google-oauth' })
+      else openSignInWindow(place, popup.current, href)
     } catch { if (g === generation.current) { setError(true); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }
