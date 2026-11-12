@@ -23572,4 +23572,8 @@ section 5. Linux only (macOS will use the shared localhost).
   system: links, the gateway, A26 with two runs on one port, the end of a run), the permission matrix case,
   `web/test/e2e/devenv-preview.spec.ts`, and `scripts/dev-env/srt/vm-check.sh REPO preview`
   (`tests/linux/srt-vm-preview.ts`: S2 in the stand-in server unit, A26, the sandbox and the socket, the end of a run).
+- **VM, 2026-11-12** (Debian 13, t3a.medium, systemd 257, in the stand-in server unit as the server account:
+  NoNewPrivileges, no capabilities): every preview check passed. The forwarder was in the run's network namespace with
+  CapEff 0 and NoNewPrivs 1; two runs on port 3000 each served only their own page; the sandbox got "Operation not
+  permitted" on AF_UNIX and did not see `<base>/devenv/run`.
 ||||||| a932b709c
