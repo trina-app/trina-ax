@@ -277,6 +277,10 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   private, personal connections off, a team connection asked for by a member, a connection to the same address that
   the person (or the team) already has (its name and state), the team limit, Google Drive not set up on this server
   (an admin or the operator has to set it up), Google Drive already connected.
+- **Signing in again to one's own connection** (QA TC-127): when the person's own connection (not one from a template,
+  not a Google app) needs a new sign-in or key, the AI's list of connections names its id, and `connection` (or the
+  connection's own address filled in) opens the card for it ("Sign in again to …", `reconnect`): the sign-in or key
+  goes to that connection, the limit does not count it, and "Not now" leaves it as it is.
 - **Sign-in services** are added first; the card then runs the usual sign-in (`POST /api/integrations/:id/authorize`)
   and, once it finished, tells the server ("done"), which checks the connection before telling the AI. The card says
   that signing in opens a sign-in page in a new window, to check that it is the service the person expects, and that

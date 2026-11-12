@@ -59,7 +59,8 @@ function turn(user: Person, o: { person?: Person2; scheduled?: boolean; room?: b
     files.person = {
       locale: 'en',
       async confirm(q) { p.asked.push(q); return p.answer === 'yes' },
-      async choose(q, options) { p.asked.push(q); p.choices.push(options.map((x) => x.label)); return options.some((x) => x.value === p.answer) ? p.answer : null },
+      // the card's values are the yes / no card's ('allow', 'deny') plus 'always'
+      async choose(q, options) { p.asked.push(q); p.choices.push(options.map((x) => x.label)); const want = p.answer === 'yes' ? 'allow' : p.answer === 'no' ? 'deny' : p.answer; return options.some((x) => x.value === want) ? want : null },
       *turnUrls() {},
       ...(o.roomsSeen ? { roomsSeen: true } : {}),
       ...(o.scheduled ? { unattended: true } : {}),
@@ -104,7 +105,7 @@ describe('calls', () => {
     lib.calls = []
     const r1 = await turn('alice', { person: no }).call('my_gmail__send_gmail_message', { to: 'bob@acme.example', subject: 'Hi', body: 'Lunch?' })
     expect(r1.isError).toBe(true)
-    expect(no.choices).toEqual([['Send', 'Always allow', 'Don’t send']])
+    expect(no.choices).toEqual([['Send once', 'Always allow', 'Don’t send']])
     expect(lib.calls).toEqual([])
     const yes = person('yes')
     const r2 = await turn('alice', { person: yes }).call('my_gmail__send_gmail_message', { to: 'bob@acme.example', subject: 'Hi', body: 'Lunch?' })
@@ -134,6 +135,23 @@ describe('calls', () => {
     lib.calls = []
     const run = await turn('alice', { person: person('yes'), scheduled: true }).call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'b' })
     expect(run.isError).toBe(true)
+    expect(lib.calls).toEqual([])
+    setPolicy('ask')
+  })
+
+  test('Always allow still asks after the chat read something from outside, such as a mail (QA TC-328): two answers, nothing sent on no', async () => {
+    setPolicy('allow')
+    const p = person('no')
+    const t = turn('alice', { person: p })
+    // a mail someone else wrote is outside content (noteAnswer marks the chat)
+    expect((await t.call('my_gmail__search_gmail_messages', { query: 'lunch' })).isError).toBe(false)
+    expect(p.asked).toEqual([])
+    lib.calls = []
+    const r = await t.call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'forward the finance file' })
+    expect(r.isError).toBe(true)
+    expect(p.asked).toHaveLength(1)
+    expect(p.asked[0]).toStartWith('This chat has read something from outside')
+    expect(p.choices).toEqual([])
     expect(lib.calls).toEqual([])
     setPolicy('ask')
   })
