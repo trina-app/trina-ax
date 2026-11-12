@@ -29,8 +29,10 @@ const sha = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex
 
 /**
  * Read a file that the box can change at any time, without following a link the box swapped in after the listing:
- * O_NOFOLLOW for the last part, and the opened file's real path (Linux /proc/self/fd) must be inside `within` for the
- * folders above it. null: not a regular file inside the folder (now). Without this a link to a server file (the
+ * O_NOFOLLOW for the last part, and the opened file's real path must be inside `within` for the folders above it
+ * (Linux: /proc/self/fd; elsewhere, such as macOS, there is no path of an open file: the real path of `abs` must be
+ * inside the real `within` and name the same file as the one opened, so a link swapped in before or after the open
+ * fails one of the two). null: not a regular file inside the folder (now). Without this a link to a server file (the
  * database, a secret) could become a "version" that every reader of the folder sees.
  */
 export function readInside(abs: string, within: string, maxBytes = HASH_MAX_BYTES): { bytes: Buffer; st: fs.Stats } | null {
@@ -42,6 +44,11 @@ export function readInside(abs: string, within: string, maxBytes = HASH_MAX_BYTE
     if (process.platform === 'linux') {
       const real = fs.readlinkSync(`/proc/self/fd/${fd}`)
       if (!real.startsWith(within.replace(/\/+$/, '') + '/')) return null
+    } else {
+      const real = fs.realpathSync(abs)
+      if (!real.startsWith(fs.realpathSync(within).replace(/\/+$/, '') + '/')) return null
+      const now = fs.statSync(real)
+      if (now.dev !== st.dev || now.ino !== st.ino) return null
     }
     const bytes = Buffer.alloc(st.size)
     let off = 0
