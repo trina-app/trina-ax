@@ -66,6 +66,7 @@ test('a file over the message list: one overlay over the whole chat; leaving and
   expect(box.width).toBeGreaterThan(col.width - 24)
   expect(box.height).toBeGreaterThan(col.height - 24)
   expect(box.y).toBeLessThanOrEqual(list.y + 8)
+  expect(Math.abs(box.y - col.y)).toBeLessThanOrEqual(12)
   await shot(page, 'chat-drop-overlay-1440.png')
   // into the box: still one overlay (the next element entered, then the last left)
   const input = page.getByTestId('composer-input')
@@ -105,6 +106,9 @@ test('a file dropped on the box itself still goes on the box, once', async ({ pa
   await expect(page.getByTestId('attachment-chip')).toHaveCount(1)
   await expect(page.getByTestId('attachment-chip')).toHaveAttribute('data-status', 'done')
   await expect(page.getByTestId('drop-overlay')).toHaveCount(0)
+  // no late second chip (the zone and the box both taking it)
+  await page.waitForTimeout(500)
+  await expect(page.getByTestId('attachment-chip')).toHaveCount(1)
 })
 
 test('text, and a picture dragged from the page itself, over the message list are left alone', async ({ page }) => {
@@ -124,7 +128,8 @@ test('text, and a picture dragged from the page itself, over the message list ar
   await message.dispatchEvent('dragend')
 })
 
-test('a real drag from the computer (the browser\'s own drag, not made-up events): overlay over the list, a chip on drop', async ({ page }) => {
+test('a real drag from the computer (the browser\'s own drag, not made-up events): overlay over the list, a chip on drop', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'CDP drag is Chromium only')
   await openChat(page)
   const at = (await page.getByTestId('assistant-message').last().boundingBox())!
   const x = at.x + 40
