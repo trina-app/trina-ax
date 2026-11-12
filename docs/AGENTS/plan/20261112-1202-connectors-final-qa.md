@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 12:02
 - Branch: `fix/connectors-final-qa`
-- Status: in progress
+- Status: done
 - Where: `web/` (Connectors' listed service page and the ask for a service). Why: the web app's own screens (see
   docs/REPOSITORY-RULES.md).
 - Version impact: patch. Fixes on one page and one word; no API, data or migration change.
@@ -48,4 +48,4 @@ requests and connectors-hub.
 
 ## Result
 
-Filled in at the end.
+Built as planned; a DECISIONS line ("One word for an open request") adds to "A member asks for an app".

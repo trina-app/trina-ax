@@ -121,7 +121,7 @@ describe('a Google app\'s page for a member, not set up', () => {
     expect(before).toContain('data-testid="gapp-unavailable"')
     expect(before).not.toContain('data-testid="service-ask"')
   })
-  test('after the tap "Request sent", opened again "Already asked", with when they will hear; a refusal in words', () => {
+  test('after the tap and opened again alike "Request sent" (one word, QA final), with when they will hear; a refusal in words', () => {
     const sent = page(ask('sent'))
     expect(sent).toMatch(/data-testid="service-asked" data-state="sent"/)
     expect(sent).toContain('Request sent')
@@ -129,12 +129,13 @@ describe('a Google app\'s page for a member, not set up', () => {
     expect(sent).toContain("We&#x27;ll tell you when Gmail is ready.")
     const already = page(ask('already'))
     expect(already).toMatch(/data-state="already"/)
-    expect(already).toContain('Already asked')
+    expect(already).toContain('Request sent')
+    expect(already).not.toContain('Already asked')
     expect(page(ask('none', en('serviceRequest.tooMany')))).toContain('data-testid="service-ask-error"')
   })
   test('the member\'s words are there in every language, plain, and name nobody; the button says who it goes to', () => {
     for (const [locale, d] of Object.entries(DICTS)) {
-      for (const k of ['serviceRequest.ask', 'serviceRequest.sent', 'serviceRequest.already', 'serviceRequest.waiting', 'serviceRequest.asked', 'notifications.event.service.readyNamed'] as const) {
+      for (const k of ['serviceRequest.ask', 'serviceRequest.sent', 'serviceRequest.waiting', 'serviceRequest.asked', 'notifications.event.service.readyNamed'] as const) {
         expect({ locale, k, set: !!d[k] }).toEqual({ locale, k, set: true })
         expect({ locale, k, jargon: /\b(MCP|OAuth|token|request id)\b/i.test(d[k]) }).toEqual({ locale, k, jargon: false })
       }

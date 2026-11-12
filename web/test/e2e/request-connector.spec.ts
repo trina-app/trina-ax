@@ -92,3 +92,26 @@ test('members may not add their own: the ask is the page\'s action; the admin di
   await page.goto('/connectors/linear')
   await expect(page.getByTestId('service-ask')).toBeVisible()
 })
+
+// QA final: the member's open request stays on their page while the team's connection to the service is not connected
+// yet (or is not for them), and it reads the same "Request sent" after a reload
+test('an open request stays on the page while the team\'s Notion still needs its sign-in; one word for it', async ({ page }) => {
+  await reset(page)
+  await signIn(page, BOB)
+  await page.goto('/connectors/notion')
+  const detail = page.getByTestId('connector-detail')
+  await detail.getByTestId('service-ask').click()
+  await expect(detail.getByTestId('service-asked')).toHaveText('요청을 보냈어요')
+  // the admin adds it for the team, not signed in yet
+  await page.context().clearCookies()
+  await signIn(page)
+  const made = await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', access: { everyone: true, groups: [], users: [] } } })
+  expect(made.status()).toBe(201)
+  expect((await made.json()).status).not.toBe('connected')
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  await page.goto('/connectors/notion')
+  await expect(detail.getByTestId('service-asked')).toHaveText('요청을 보냈어요')
+  await expect(detail.getByTestId('service-withdraw')).toBeVisible()
+  await expect(detail.getByTestId('service-asked-note')).toBeVisible()
+})

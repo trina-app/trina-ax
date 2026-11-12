@@ -3,7 +3,7 @@
 // scrolls; one line of the connected ones (ConnectorRow); one row of Discover (DiscoverCard); and a listed service's
 // or a connection's page (ConnectorDetail: a big logo, the main action, what it does and its tools).
 import { ArrowLeft, BadgeCheck, Check, ExternalLink, Plus, Search } from 'lucide-react'
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, type Connector, type ConnectorDocs } from '../../lib/connectors'
@@ -136,6 +136,9 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
   const t = useT()
   const titleId = useId()
   const back = useRef<HTMLButtonElement>(null)
+  // the listed tools past the first ones, shown in place (QA final: Figma's weave_* tools)
+  const [allTools, setAllTools] = useState(false)
+  const toolsListId = useId()
   // the card that opened this page is gone: the keyboard starts on the way back
   useEffect(() => { back.current?.focus() }, [])
   return (
@@ -166,13 +169,19 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
             {tools.map((x) => <li key={x} className={`rounded-full border border-line px-3 py-1 text-xs${/^[\w.-]+$/.test(x) ? ' font-mono' : ''}`}>{x}</li>)}
           </ul>
         ) : docs?.tools?.length ? (
-          // before it is connected: the tools the service lists on its own page (the first ones, the rest there)
+          // before it is connected: the tools the service lists on its own page, the first ones and the rest in place
+          // behind "Show all"; the service's own page too
           <>
-            <ul className="flex flex-wrap gap-2" data-testid="connector-tools-listed">
-              {docs.tools.slice(0, LISTED_TOOLS).map((x) => <li key={x} className="rounded-full border border-line px-3 py-1 font-mono text-xs">{x}</li>)}
+            <ul id={toolsListId} className="flex flex-wrap gap-2" data-testid="connector-tools-listed">
+              {(allTools ? docs.tools : docs.tools.slice(0, LISTED_TOOLS)).map((x) => <li key={x} className="rounded-full border border-line px-3 py-1 font-mono text-xs">{x}</li>)}
             </ul>
-            <p className="mt-2 text-sm text-muted">
-              {docs.tools.length > LISTED_TOOLS && <>{t('connectors.toolsMore', { count: docs.tools.length - LISTED_TOOLS })} </>}
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+              {docs.tools.length > LISTED_TOOLS && (
+                <button type="button" aria-expanded={allTools} aria-controls={toolsListId} onClick={() => setAllTools((v) => !v)}
+                  className="touch-hit font-medium text-accent-text hover:underline max-md:min-h-11" data-testid="connector-tools-more">
+                  {allTools ? t('connectors.showLess') : t('connectors.toolsShowAll', { count: docs.tools.length })}
+                </button>
+              )}
               {docs.toolsUrl && <a href={docs.toolsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline max-md:min-h-11" data-testid="connector-tools-link">{t('connectors.toolsAll', { name })} <ExternalLink size={12} aria-hidden /></a>}
             </p>
           </>

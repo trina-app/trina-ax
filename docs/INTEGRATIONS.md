@@ -188,7 +188,7 @@ their own".
 The other direction: a member who opens an app the team has not set up (Google Drive, Gmail, Google Calendar, Google
 Docs, Google Sheets: the apps an admin sets up once for everyone; since QA TC-133 also every listed service) taps **Ask admin to add it** on its page, like an app
 request in Slack. It takes the place of the Connect button that could not work and of the "not set up" line; afterwards
-the page says "Request sent", opened again "Already asked", and the app's card says "Asked".
+the page says "Request sent" (also when opened again while the request is open), and the app's card says so too.
 
 - Only those five ids, only while the app is not set up (`POST /api/integrations/service-requests {service}`). The
   server refuses any other name (400 `unknown_service`: no free text from a member reaches an admin), an app the member

@@ -23344,3 +23344,9 @@ Adds to "The chat's connect card trusts the app's list"; reverses nothing.
   `https://api.canva.com/connect/v1/mcp` (https://www.canva.dev/blog/developers/canva-mcp-ga/) needs "your app's OAuth
   client" (no registration endpoint), which the list does not take (docs/INTEGRATIONS.md "Discover"), so it is in
   `otherUrls`: someone who adds it with their own app sees it as Canva.
+
+## One word for an open request (fix/connectors-final-qa, 2026-11-12, QA final)
+
+Adds to "A member asks for an app": an open request reads "Request sent" right after the tap and whenever the page is
+opened again (and the card says so too); "Already asked" is gone. The member's page shows their open request (with
+"Cancel request") whatever team connections exist; only a working team connection they may use ends the ask there.
