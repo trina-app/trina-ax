@@ -23,7 +23,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
-import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
+import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { useBackLink } from '../lib/back'
@@ -403,6 +403,8 @@ function ChatView({ chatId }: { chatId: string }) {
           {loadError && !loading ? <LoadError error={loadError} onRetry={load} what="chat" /> : null}
           {/* the chat's pictures (attachments and answers' pictures, this branch): ← → in the image viewer walks through
               these; each says who sent it and when */}
+          {/* the message box below answers the AI's open question (not when it is not shown: a trashed or read-only chat) */}
+          <BoxAnswers.Provider value={chat?.deletedAt || readOnly ? null : (question?.request.requestId ?? null)}>
           <ImageGroup>
             {messages.map((m, i) => {
               if (m.role === 'user')
@@ -420,6 +422,7 @@ function ChatView({ chatId }: { chatId: string }) {
               )
             })}
           </ImageGroup>
+          </BoxAnswers.Provider>
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>

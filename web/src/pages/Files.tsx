@@ -43,7 +43,7 @@ import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
-import { contentQueryReady, FileContentResults } from '../components/FileContentSearch'
+import { contentQueryReady, FileContentResults, FileNameResults } from '../components/FileContentSearch'
 import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../components/FolderAccess'
@@ -52,6 +52,7 @@ import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
+import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, PhoneTargets, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
@@ -938,14 +939,14 @@ export default function Files() {
             />
           ) : (
             // phones at the top folder: no lone "팀 폴더" under the tab of the same name (only a read-only note, if any)
-            <nav aria-label={t('files.breadcrumb')} className={clsx('flex flex-wrap items-center gap-1 px-4 py-2 text-sm sm:px-6', !path && (!tree || tree.access === 'write') && 'max-md:hidden')}>
-              <button type="button" className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover', !path && 'max-md:hidden', crumbDrop('') === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go('')} {...crumbTarget('')} data-drop={crumbDrop('')} data-testid="crumb">
+            <nav aria-label={t('files.breadcrumb')} className={clsx('flex flex-wrap items-center gap-1 px-4 py-2 text-sm max-md:gap-y-2.5 max-md:pt-0 max-md:pb-2.5 sm:px-6', !path && (!tree || tree.access === 'write') && 'max-md:hidden')}>
+              <button type="button" className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover max-md:min-h-11', !path && 'max-md:hidden', crumbDrop('') === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go('')} {...crumbTarget('')} data-drop={crumbDrop('')} data-testid="crumb">
                 <Home size={14} aria-hidden /> {t('files.root')}
               </button>
               {crumbs(path).map((c) => (
                 <span key={c.path} className="inline-flex items-center gap-1">
                   <ChevronRight size={13} className="text-faint" aria-hidden />
-                  <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
+                  <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover max-md:min-h-11', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
                     {words.name(c.path, c.name)}
                   </button>
                 </span>
@@ -972,7 +973,11 @@ export default function Files() {
               </>
             )}
             {searching ? (
-              <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
+              // files by name first (QA TC-260), then the lines that contain the text
+              <>
+                <FileNameResults q={q} path={path} onFolder={(p) => go(p)} />
+                <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
+              </>
             ) : (
               <>
                 {!!error && (
@@ -1252,7 +1257,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
     ...(pressSelect && !selecting && !dim ? [{ label: t('files.selectRow'), icon: icon(SquareCheck), onSelect: () => onCheck(false), testId: 'file-select' }] : []),
     ...(!folder && previewKind(e.name) ? [{ label: t('common.preview'), icon: icon(Eye), onSelect: run(onOpen), testId: 'file-preview' }] : []),
     ...(!folder ? [{ label: t('common.download'), icon: icon(Download), onSelect: run(() => startDownload(fileUrl(e.path), e.name)), testId: 'file-download' }] : []),
-    { label: t(folder ? 'files.chatWith' : 'files.askAi'), icon: icon(folder ? MessageSquarePlus : Sparkles), onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
+    { label: t(chatItemKey(folder)), icon: icon(folder ? MessageSquarePlus : Sparkles), onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
     ...(!folder && onAddToChat ? [{ label: t('files.addToChatNamed', { title: chatTitle }), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
     ...(project ? [{ label: t('files.openProject'), icon: icon(FolderKanban), onSelect: run(() => onProject(project)), testId: 'open-project' }] : []),
     ...(onAccess ? [{ label: t('folderAccess.menu'), icon: icon(Users), onSelect: run(onAccess), testId: 'folder-access-menu' }] : []),

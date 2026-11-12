@@ -463,7 +463,7 @@ describe('/downloads/*: signed-in people only, resumable, never cached by Cloudf
     }
     // the URL parser folds %2e%2e away before routing: that is the app shell at /app.db, never the database
     expect(await (await owner.raw('GET', '/downloads/%2e%2e/app.db')).text()).not.toContain('SQLite')
-    expect(serveDownload(new Request('http://x/downloads/a.exe'), '/a.exe', null).status).toBe(404)
+    expect((await serveDownload(new Request('http://x/downloads/a.exe'), '/a.exe', null)).status).toBe(404)
   })
 
   test('only index.json and the files it lists: no hard link, stray file, other type or subfolder (security review)', async () => {

@@ -7,9 +7,11 @@
 // counted in `notQueued`. Thus a person's search never takes the extraction slots that the AI grep of another person
 // needs, and one person's files do not delay the files of other people. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
 // bad regular expression. Limits: results (FileContentHits.items), lines per file, time (office extraction included),
-// file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person.
+// file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person. A line of an HTML file is shown
+// as its text, not its markup (QA TC-260); the screen finds files by name with GET /api/files/find (team-files/find.ts).
 import type { FileContentHits } from '@mycel/shared/api'
 import { grepFiles } from '../files/search'
+import { decodeEntities, htmlToText } from '../tools/web-fetch'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
@@ -82,6 +84,84 @@ export function snippetOf(line: string, q: string): string {
   return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
 }
 
+/** files whose lines are shown as their readable text, not their markup (QA TC-260) */
+const HTML_FILE = /\.(?:html?|xhtml)$/i
+const NO_BASE = new URL('file:///')
+const folded = (s: string) => s.normalize('NFC').toLowerCase()
+
+/** a query as htmlLineText compares it: runs of white space are one space, as in the line's text */
+export const htmlQuery = (q: string) => q.replace(/\s+/g, ' ').trim()
+
+const isSpace = (c: number) => c === 32 || (c >= 9 && c <= 13)
+/** The text of one line with only the markup taken out: tags (attribute values read as HTML reads them, so an
+ * unquoted `alt=it's` does not start a quoted value), comments, <!doctype>/<?…?>, and the content of <script> and
+ * <style>. Everything else stays, also text a page hides or keeps out of its body (<title>, `hidden`, <textarea>).
+ * One forward pass; an unfinished tag or comment ends the line. */
+function markupStripped(line: string): string {
+  const out: string[] = []
+  const low = line.toLowerCase()
+  const n = line.length
+  let i = 0
+  while (i < n) {
+    const lt = line.indexOf('<', i)
+    if (lt < 0) { out.push(line.slice(i)); break }
+    out.push(line.slice(i, lt))
+    i = lt
+    if (line.startsWith('<!--', i)) { const e = line.indexOf('-->', i + 4); if (e < 0) break; i = e + 3; out.push(' '); continue }
+    const c1 = line.charCodeAt(i + 1)
+    if (c1 === 33 /* ! */ || c1 === 63 /* ? */) { const e = line.indexOf('>', i); if (e < 0) break; i = e + 1; continue }
+    const closing = c1 === 47 /* / */
+    let j = i + (closing ? 2 : 1)
+    const first = line.charCodeAt(j) | 0x20
+    if (!(first >= 97 && first <= 122)) { out.push('<'); i++; continue } // "<" not followed by a letter is text
+    const ns = j
+    while (j < n && !isSpace(line.charCodeAt(j)) && line[j] !== '/' && line[j] !== '>') j++
+    const name = low.slice(ns, j)
+    // attributes: name, then = and a value; only a quote right after "=" starts a quoted value
+    let gt = -1
+    while (j < n) {
+      const ch = line.charCodeAt(j)
+      if (ch === 62 /* > */) { gt = j; break }
+      if (ch !== 61 /* = */) { j++; continue }
+      j++
+      while (j < n && isSpace(line.charCodeAt(j))) j++
+      const qc = line.charCodeAt(j)
+      if (qc === 34 || qc === 39) { const e = line.indexOf(qc === 34 ? '"' : "'", j + 1); if (e < 0) { j = n; break } j = e + 1; continue }
+      while (j < n && !isSpace(line.charCodeAt(j)) && line.charCodeAt(j) !== 62) j++
+    }
+    if (gt < 0) break // unfinished tag: the rest of the line is inside it
+    i = gt + 1
+    out.push(' ')
+    if (!closing && (name === 'script' || name === 'style') && line[gt - 1] !== '/') {
+      // the end tag: "</script" then a space, "/" or ">" ("</scripts>" is text of the script)
+      let e = low.indexOf('</' + name, i)
+      while (e >= 0) {
+        const after = line.charCodeAt(e + 2 + name.length)
+        if (isSpace(after) || after === 47 || after === 62) break
+        e = low.indexOf('</' + name, e + 2)
+      }
+      if (e < 0) break
+      i = e
+    }
+  }
+  return out.join('')
+}
+
+/** The text of one line of an HTML file as a reader sees it: tags, scripts and styles out, entities decoded, white
+ * space as one space (web_fetch's htmlToText: one forward pass, no backtracking). When that text lacks the query
+ * (htmlToText also leaves out the <title> and text a page hides: `hidden`, aria-hidden, display:none, <textarea>,
+ * <noscript>, <svg>), the line with only its markup taken out is tried. Null only when the query is in the markup
+ * alone (a tag name, an attribute, a comment, a script or style): that line has nothing to show. A line inside a
+ * multi-line <script> or <style> has no tag to see and stays as written. ripgrep's per-file cap counts lines before
+ * this check, so a file whose first matching lines match only in its markup can show fewer lines (or none). */
+export function htmlLineText(line: string, q: string): string | null {
+  const want = folded(htmlQuery(q))
+  const text = htmlToText(line, NO_BASE, { plain: true }).text.replace(/\s+/g, ' ').trim()
+  if (folded(text).includes(want)) return text
+  const bare = decodeEntities(markupStripped(line)).replace(/\s+/g, ' ').trim()
+  return folded(bare).includes(want) ? bare : null
+}
+
 export async function searchFileContents(files: TeamFiles, userId: string, q: string, base: string, limit: number, clientSignal?: AbortSignal): Promise<FileContentHits> {
   const user = files.principal(userId)
   const rules = files.rules()
@@ -104,7 +184,12 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
     // (a client that still waits, e.g. in a second tab, tries again after retryAfter)
     if (mine.aborted) throw new HttpError('rate_limited', undefined, { retryAfter: 1 })
     const items = res.hits
-      .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
+      .flatMap((h) => {
+        const name = h.path.slice(h.path.lastIndexOf('/') + 1)
+        if (!HTML_FILE.test(name)) return [{ path: h.path, name, line: h.line, snippet: snippetOf(h.text, query) }]
+        const text = htmlLineText(h.text, query)
+        return text === null ? [] : [{ path: h.path, name, line: h.line, snippet: snippetOf(text, htmlQuery(query)) }]
+      })
       .sort((x, y) => x.path.localeCompare(y.path) || x.line - y.line)
     return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, notQueued: res.stats.officeNotQueued, retryLater: res.stats.officeRetryLater, longSkipped: res.stats.longSkipped }
   } finally { done() }

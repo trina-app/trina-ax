@@ -31,11 +31,12 @@
 // (the file viewer's sheet on a phone, which closes back to the file).
 import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MESSAGE_ATTACHMENTS_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
+import { answerTooLong, BoxAnswers, composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
+import { SecretWarning, useSecretHold } from '../chat/SecretWarning'
 import { formatDate, formatDateTime } from '../../lib/format'
 import { closeImageViewer, getImageViewer } from '../../lib/imageViewer'
 import { markerOf } from '../../lib/sessionMarkers'
@@ -346,7 +347,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // what the box sends: its text and its files (all uploaded); an answer to the AI's question is the text alone
   const canSend = chatId !== undefined && (question ? !!draft.trim() : !busy && !files.uploading && (!!draft.trim() || files.ready.length > 0))
   const sendLabel = question ? t('sideChat.answer') : t('sideChat.send')
-  const send = async (asked?: string) => {
+  // an answer to the AI's question typed here goes to the AI: as under the full chat's box, the "no passwords" line and
+  // a key-looking answer held for "Send anyway" (the question's card leaves typing to this box: AskCard BoxAnswers)
+  const secret = useSecretHold(draft)
+  const noSecretsId = useId()
+  const send = async (asked?: string, anyway = false) => {
     const text = (asked ?? draft).trim()
     // the box's files go with what is typed in it; a starter or quick question goes alone (and leaves them, as it leaves
     // the text)
@@ -354,6 +359,10 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     if ((!text && !atts.length) || chatId === undefined) return
     // the AI waits for the answer to its question: the text answers it (never a new message while its answer runs)
     if (question && chatId) {
+      // longer than an answer can be: said before sending, the text kept (the full chat's box does the same)
+      const max = answerTooLong(question.request, text)
+      if (max) return fail(new Error(t('composer.answerTooLong', { n: max.toLocaleString(locale) })))
+      if (!secret.pass(anyway)) return
       stick.current = true
       setDraft('')
       try {
@@ -517,19 +526,22 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             </div>
           )}
           {/* its pictures are one pane of the image viewer (← →), each with who sent it and when, like the AI chat's */}
+          {/* the box below answers the AI's open question: its card leaves typing to the box */}
+          <BoxAnswers.Provider value={question?.request.requestId ?? null}>
           <ImageGroup>
             {!history && chatId && messages.map((m, i) =>
               m.role === 'user' ? (
                 <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? me.user }} at={m.createdAt}>
-                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} sideChat />
+                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} sideChat pressMenu />
                 </ViewerMeta>
               ) : (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={null as EngineId | null} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={() => {}} shareable={shareable} sendHere={{ roomId, target: targets.get(m.id) ?? null, onView: view }} canSuggest={false} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={null as EngineId | null} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={() => {}} shareable={shareable} sendHere={{ roomId, target: targets.get(m.id) ?? null, onView: view }} canSuggest={false} pressMenu />
                 </ViewerMeta>
               ),
             )}
           </ImageGroup>
+          </BoxAnswers.Provider>
         </div>
       </div>
       <div className="shrink-0 px-4 pb-[var(--box-bottom)]">
@@ -560,7 +572,21 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             )}
           </div>
         )}
+        {question && secret.held && (
+          <SecretWarning
+            onSendAnyway={() => void send(undefined, true)}
+            onEdit={() => {
+              secret.release()
+              box.current?.focus()
+            }}
+          />
+        )}
         <div className="rounded-xl border border-line bg-canvas transition focus-within:border-line-strong" data-testid="side-chat-box">
+          {question && (
+            <p id={noSecretsId} className="px-3 pt-2 text-xs text-faint" data-testid="side-chat-no-secrets">
+              {t('ask.noSecrets')}
+            </p>
+          )}
           <ComposerFileList files={files.files} onRemove={files.removeFile} className="px-3 pt-2.5" />
           <textarea
             ref={box}
@@ -577,11 +603,12 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             maxLength={20_000}
             placeholder={boxLabel}
             aria-label={boxLabel}
+            aria-describedby={question ? noSecretsId : undefined}
             className="block max-h-40 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
             data-testid="side-chat-input"
           />
           <div className="flex items-center justify-between gap-2 pr-2 pb-2 pl-1.5">
-            <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="side-chat-attach">
+            <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="side-chat-attach">
               <Paperclip size={15} aria-hidden />
             </IconButton>
             <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />

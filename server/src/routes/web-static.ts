@@ -298,6 +298,33 @@ const iconSvg = (p: string, file: string) => file.toLowerCase().endsWith('.svg')
 /** A path whose last part has a file extension (a static file, not a page of the app). */
 const hasExtension = (p: string) => /\.[A-Za-z0-9]{1,10}$/.test(p.slice(p.lastIndexOf('/') + 1))
 
+/** The notice index files (scripts/release-notices.ts, in web/dist/licenses/ or a bundle's web/licenses/): the
+ * manifest names the exact release and every package with its version and hashes, README.txt lists the open review
+ * items with package versions. That is the build fingerprint /api/health hides from signed-out callers on the
+ * internet (routes/web.ts decides who gets them). LICENSE, NOTICE and the package notices themselves are not here. */
+const NOTICE_INDEX = ['licenses/manifest.json', 'licenses/README.txt']
+/**
+ * Is this URL one of the notice index files? Decided by the file that would be served (device and inode), not by its
+ * name, so no spelling gets around it: `%6D`, another case on a case-insensitive disk (the office Mac, which also folds
+ * characters such as U+017F "ſ" to "s"), `licenses//`, a hard link or a symlink.
+ */
+export function isNoticeIndex(dist: string, urlPath: string): boolean {
+  // the bulk of the static requests: hashed app and vendor files, never the notice folder (safeFile refuses `..`)
+  if (urlPath.startsWith('/assets/') || urlPath.startsWith('/vendor/')) return false
+  const root = path.resolve(dist)
+  const file = safeFile(root, urlPath)
+  if (!file) return false
+  try {
+    const served = fs.statSync(file)
+    return NOTICE_INDEX.some((rel) => {
+      try {
+        const n = fs.statSync(path.join(root, rel))
+        return n.ino === served.ino && n.dev === served.dev
+      } catch { return false }
+    })
+  } catch { return false }
+}
+
 /** The handler behind GET * (also used by the web client's mock server in its end-to-end tests). */
 export function serveWeb(req: Request, o: WebOptions): Response | null {
   const url = new URL(req.url)

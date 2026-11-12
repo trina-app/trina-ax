@@ -218,8 +218,9 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { proj
       sheetTitle={p.name}
       // in line with the name's first line, its right edge at the card's padding
       className="absolute top-3.5 right-2.5"
-      // phones: taps from a 44 px box around it
-      buttonClassName="touch-hit pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
+      // phones: its size, in line with the name; taps from a 44 px box around it
+      compact
+      buttonClassName="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
       buttonRef={more}
       testId="project-card-menu"
     />

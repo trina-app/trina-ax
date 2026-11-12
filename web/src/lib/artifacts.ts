@@ -7,6 +7,7 @@
 // the frame (sucrase), so the frame needs no 'unsafe-eval'. Ported from Saram/chat-proto sandbox.ts, with the
 // sandbox tightened and the CDN imports replaced by /vendor/.
 import type { ArtifactType } from '@mycel/shared/api'
+import { PAGE_FIT_SCRIPT } from './pageFit'
 
 export const SANDBOX = 'allow-scripts'
 
@@ -102,10 +103,12 @@ const PAGE_GUTTER = `<style>:where(body){margin:16px}</style>`
  * Wrap any HTML so our <head> (CSP first) comes before anything the AI or the file wrote. If the content is a full
  * document, its own <html>/<head> tags end up inside our body, where the parser ignores them (its styles and scripts
  * still work, its CSP / base meta tags do not). `gutter`: an HTML page (artifact or .html file) gets PAGE_GUTTER.
+ * `fit`: a page wider than the frame is fitted to its width, and zooms inside the frame (an HTML file's preview,
+ * lib/pageFit.ts).
  */
-export function wrapHtml(content: string, origin: string, o: { gutter?: boolean } = {}): string {
+export function wrapHtml(content: string, origin: string, o: { gutter?: boolean; fit?: boolean } = {}): string {
   const body = content.replace(/^\s*<!doctype[^>]*>/i, '')
-  return `<!doctype html><html>${head(origin, o.gutter ? PAGE_GUTTER : '')}<body>${body}</body></html>`
+  return `<!doctype html><html>${head(origin, (o.gutter ? PAGE_GUTTER : '') + (o.fit ? PAGE_FIT_SCRIPT : ''))}<body>${body}</body></html>`
 }
 
 export type FrameDoc = { ok: true; html: string } | { ok: false; error: string }
