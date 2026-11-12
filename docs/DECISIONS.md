@@ -23470,3 +23470,49 @@ at the bottom.
   events do not carry everything (a version picked in another window, another member's turn in a shared project chat),
   and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
   visible branch). AI chats' messages stay in memory without a limit, as before.
+
+## Move picker: suggested and recent folders — 옮기기 창의 추천·최근 (feat/move-picker-suggestions, 2026-11-12, product owner)
+
+넣을 곳: Team AX core (`server/src/team-files/move-suggest.ts`, `server/src/file-list/service.ts` `lineFields`,
+`shared/src/api/files.ts`, `web/src/components/FolderPicker.tsx`, Files), 이유: files and the file screen are core.
+Plan: `docs/AGENTS/plan/20261112-1236-move-picker-suggestions.md`. Files onboarding plan, PR C (owner, 2026-11-12,
+option 1): the AI judges folders only during setup; after it, the Move picker suggests. No popup at upload.
+
+- **What shows.** In Move (one file, or a selection) "추천" (Suggested) on top with 1–3 folders, each with ✕, then
+  "최근" (Recent, up to 3), then "전체 폴더" (All folders) and the folder browser as before. A row is a button that opens
+  that folder in the picker (pressed), and "여기로 옮기기" moves there: one primary action, as before. No hints: no
+  sections. Share and Save pickers are unchanged.
+- **No AI call** (`POST /api/files/move-suggestions`). Dropbox found that name-similarity rules beat a model here. The
+  files' names (letters only, by script, without dates and filler words such as 최종/사본/final) and, when the person's
+  own `_FILES.md` shows it, the file's list line (type, what, names) against each candidate folder: its own name ("견적서"
+  in "견적서_삼성_2025.xlsx" covers it), the words of the files directly in it and of their lines (a word common in this
+  folder and rare in the others defines it, damped while the folder has few files), and a little more for a shared
+  extension only once the match is over the threshold (it ranks, it never makes a suggestion). A Korean, Chinese or
+  Japanese word inside another counts ("회의록" in "주간회의록", "見積" in "見積書"), so do English plurals; a folder name of
+  two letters or less counts only for the same word or with a file in it that agrees ("인사" does not take
+  "인사말.docx" on its name). Several files: the mean. **Threshold 0.5, none rather than a weak guess**, each shown at least 60% of the best. A new file without a
+  line: its name only; the file list off or empty: names only.
+- **Only what the person may see.** Candidates are folders they can **write**, found by a walk of what the file screen
+  shows them (`siblingVisible`; not skills, not `groups/`, `users/`, `projects/` themselves, not where the files are);
+  files pass `visiblePath`; a line counts only when their `_FILES.md` would show it now (`lineFields`: the view's unit
+  chain, call-mates, size/mtime/inode checks). Files in a subfolder closed to them never count for its parent. A
+  moved folder is never a place for itself: neither it nor any folder inside it is suggested or recent. The
+  answer names those folders and a number, never a file. A path they cannot read: 404, like the file screen.
+- **Bounded.** At most 1,000 folders walked (a folder's entries streamed, 300 at most), 250 candidates, 6 levels, 40
+  files per folder, 10 files of a selection and 12 words each scored. Each folder is indexed once and every word is
+  matched once against all candidates' words (set lookups of its substrings and prefixes, no pairwise loop): the
+  scoring at those caps takes a few milliseconds (a unit test holds it under 150 ms); the walk yields to other
+  requests every 50 folders. 30 requests per person a minute (429 after). Nothing is stored.
+- **Recent** comes from the person's own `file_events` (a move's `create` row, uploads, saves; the last 20,000 events),
+  the folder each went into, still writable and shown to them (every part of its path), not where the files are now,
+  not a suggestion. No new storage.
+- **✕** (`POST /api/files/move-suggestions/dismiss`) is kept per person, folder and the file's name pattern (digits as
+  `#`, so "견적서_삼성_2026.xlsx" after "견적서_삼성_2025.xlsx"), in `suggestion_dismissals` (migration 229, keys
+  `move:[folder, pattern]`): on every device, not suggested again for files named like it; other names and other
+  people still get it. Only for a folder the person can write (404 otherwise); a person keeps at most 500 such rows,
+  the oldest go. No new migration.
+- Tests: `tests/unit/c-move-suggest.test.ts` (scoring, threshold, permissions incl. a closed subfolder and read-only
+  project folders, file-list lines incl. another group's and a changed file, dismiss, recent),
+  `web/test/unit/folder-picker-suggestions.test.tsx`, `web/test/e2e/move-suggestions.spec.ts` (1360 and 390, light and
+  dark, keyboard).
+- Version impact: **minor** (two endpoints, a new part of the Move picker).
