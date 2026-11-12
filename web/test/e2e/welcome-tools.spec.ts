@@ -134,13 +134,15 @@ test('도구 연결\'s exits: a refused or closed sign-in says "연결하지 않
   expect(realErrors(errors).filter((e) => !/status of 503/.test(e))).toEqual([])
 })
 
-test('no Drive on this server: the MCP line alone; its dialog (today\'s, a team connection) closes with nothing changed; a saved one signs in and is one line under it; the primary appears', async ({ page }) => {
+test('no Drive on this server: its card says so; the address form (a team connection) closes with nothing changed; a saved one signs in and is one line under it; the primary appears', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
   await toTools(page)
   await expect(page.getByTestId('welcome-tools-mcp-add')).toBeVisible()
-  await expect(page.getByTestId('welcome-tools-drive')).toHaveCount(0)
+  // not on this server: the card says so, never a hidden row (TC sheet TC-145)
+  await expect(page.getByTestId('welcome-tools-drive')).toHaveAttribute('data-state', 'not-set-up')
+  await expect(page.getByTestId('welcome-tools-drive-off')).toHaveText('아직 설정 안 됨')
   // the dialog opens over the step; 취소 leaves it as it was
   await page.getByTestId('welcome-tools-mcp-add').click()
   const dialog = page.getByRole('dialog')
@@ -165,6 +167,31 @@ test('no Drive on this server: the MCP line alone; its dialog (today\'s, a team 
   expect(team.map((x) => [x.name, x.scope])).toContainEqual(['Acme Tools', 'team'])
   await page.getByTestId('welcome-tools-next').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('Notion in one click (QA TC-136): the same card as Connectors, the owner\'s own connection from the list with nothing typed, its sign-in, then 연결됨 and the primary', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await toTools(page)
+  const notion = page.locator('[data-testid="welcome-tools-service"][data-id="notion"]')
+  await expect(notion).toHaveAttribute('data-state', 'available')
+  await expect(notion.getByTestId('connector-logo')).toHaveAttribute('src', '/icons/connectors/notion.svg')
+  await expect(page.locator('[data-testid="welcome-tools-service"]')).toHaveCount(5)
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/integrations') && r.method() === 'POST')
+  const popup = page.waitForEvent('popup')
+  await notion.getByTestId('welcome-tools-service-connect').click()
+  expect((await sent).postDataJSON()).toEqual({ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', writePolicy: 'ask' })
+  await popup
+  // no dialog, nothing typed
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(notion).toHaveAttribute('data-state', 'connected', { timeout: 10_000 })
+  await expect(notion.getByTestId('welcome-tools-service-on')).toContainText('연결됨')
+  await expect(page.getByTestId('welcome-tools-next')).toHaveText('다음: 팀원 초대')
+  // the owner's own connection (in Connectors), not a team one
+  const mine = (await (await page.request.get('/api/integrations')).json()).items as { name: string; scope: string }[]
+  expect(mine.map((x) => [x.name, x.scope])).toContainEqual(['Notion', 'personal'])
   expect(realErrors(errors)).toEqual([])
 })
 

@@ -22372,3 +22372,15 @@ task stayed on.
   unregistered or removed one stays off and lets the admin set a client of its own, which wins; an own client file or env client never calls the broker; no variable: as
   before; the CLI's output) and `tests/unit/c-google-apps-signin.test.ts` (a self-installed server's cards through the
   broker; a card's own client signs in directly).
+
+## Onboarding's Tools step on Connectors' cards (feat/connectors-simple, 2026-11-12, QA TC-136)
+
+- **Changes W6's "a Drive row where configured + one generic MCP line".** The step shows the same cards as
+  Connectors' Discover: logo, name, one line.
+  - **Google Drive** comes first, with its sign-in and confirm as before where the server has it. Where it does not,
+    the card says "아직 설정 안 됨" instead of being left out (TC sheet TC-145).
+  - **The first listed services** follow: Notion, Linear, Atlassian, Canva, Figma. One **연결** makes the owner's
+    **own** connection to it from the list's address and sign-in, so nothing is typed and nobody else uses it. Its
+    sign-in opens in the window reserved during the click, and the card shows how it goes, then "연결됨".
+  - **The address form** ("다른 도구 연결하기", a team connection) stays as the last, quiet choice; it is no longer
+    the only one.
