@@ -106,7 +106,7 @@ func cmdStatus(e *env, args []string) (int, error) {
 		if updateRunning(e.root(".update.lock")) {
 			fmt.Fprintf(e.stdout, "  an update is running now: it is replacing the root files (%s so far)\n", strings.Join(s.RootUnfinished, ", "))
 		} else {
-			fmt.Fprintf(e.stdout, "  AN UPDATE DID NOT FINISH: some root files (%s) are not those of %s, the version in root/VERSION. Run the update again: sudo mycel-ctl update (with the same --version if you gave one), or on a server without internet sudo ./install-linux.sh update --from . in the kit's folder\n", strings.Join(s.RootUnfinished, ", "), orNone(s.RootVersion))
+			fmt.Fprintf(e.stdout, "  AN UPDATE DID NOT FINISH: some root files (%s) are not those of %s, the version in root/VERSION. %s\n", strings.Join(s.RootUnfinished, ", "), orNone(s.RootVersion), rerunHint)
 		}
 	}
 	printUpdateSettings(e.stdout, s.Updates, in, in.Systemd && fileExists(systemdRunDir))
@@ -140,6 +140,11 @@ func rootVersion(e *env) string {
 	}
 	return strings.TrimSpace(string(b))
 }
+
+// rerunHint: what finishes an update that stopped while it replaced root files. The command that started it first: an
+// update from a kit newer than the feed is finished only by that kit, and `mycel-ctl update` alone installs the feed's
+// release, so it would say "already at" (QA TC-340 retest).
+const rerunHint = "Run the same command again: if the update came from a kit (sudo ./install-linux.sh update --from . in the kit's folder), run that again in the same folder; otherwise sudo mycel-ctl update (with the same --version if you gave one)"
 
 // rootUnfinished lists the root files (programs, scripts, unit templates) whose content differs from the copy in
 // app/versions/<root/VERSION>/root/ (the files an update replaces one by one, update.go updateRoot). A file missing in

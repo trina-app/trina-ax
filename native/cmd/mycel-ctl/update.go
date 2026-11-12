@@ -289,6 +289,9 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 		why = "already at " + feed.Version
 	}
 	if why != "" {
+		if half := rootUnfinished(u.e, root); len(half) > 0 {
+			why += "; " + unfinishedError(half, root, feed.Version).Error()
+		}
 		clearDeferred(u.e)
 		clearFailedUpTo(u.e, u.res.From) // a hold of a version the app has reached is over
 		return u.syncOnly(why), nil
@@ -438,19 +441,26 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the feed moved from "+u.gateVersion+" to "+feed.Version+" while this run waited for a quiet moment; the next check decides on "+feed.Version
 			return nil
 		}
+		// root files half replaced (an update that stopped, from a kit newer than the feed say): the release that would
+		// be skipped here cannot finish them, so an administrator's run says so instead of "already at" (QA TC-340
+		// retest). The update timer skips as before (its gate adds the reason): it would fail at every check.
+		skip := func(why string) error {
+			if half := rootUnfinished(u.e, rootVersion(u.e)); len(half) > 0 && !u.scheduled {
+				return unfinishedError(half, rootVersion(u.e), feed.Version)
+			}
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+			return nil
+		}
 		if version == "" {
 			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
-				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
-				return nil
+				return skip(why)
 			}
 		}
 		if onlyRoot && !needsRoot {
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "release "+feed.Version+" does not change root files"
-			return nil
+			return skip("release " + feed.Version + " does not change root files")
 		}
 		if feed.Version == u.res.From && rootVersion(u.e) == feed.Version {
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "already at "+feed.Version
-			return nil
+			return skip("already at " + feed.Version)
 		}
 		if feed.MinFrom != "" && u.res.From != "" && compareVersions(u.res.From, feed.MinFrom) < 0 {
 			return fmt.Errorf("%s cannot update to %s by itself (needs %s or newer first)", u.res.From, feed.Version, feed.MinFrom)
@@ -484,6 +494,12 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		return nil
 	}
 	return u.updateApp(dir, m.Version)
+}
+
+// unfinishedError: root files (half) are not those of root/VERSION (root) and the release the feed names (feed) is no
+// newer, so this run cannot finish them.
+func unfinishedError(half []string, root, feed string) error {
+	return fmt.Errorf("an update did not finish: some root files (%s) are not those of %s, the version in root/VERSION, and the feed's release %s does not replace them. %s", strings.Join(half, ", "), orNone(root), feed, rerunHint)
 }
 
 // lastOldUpdater is the last release whose updaters (the app's own and mycel-ctl) read only the feed's needsRoot and
@@ -807,7 +823,16 @@ func spaceError(base, version string, need, free uint64) error {
 
 // ---------- root files ----------
 
-// rootDiff lists the files of the bundle's root/ that differ from <base>/root (relative paths).
+// ctlProgram is root's mycel-ctl. Updates replace it before the other root files (rootDiff, install-linux.sh): a reset
+// after any of them changed then leaves the new mycel-ctl, whose `status` says "AN UPDATE DID NOT FINISH" and whose
+// `update` does not answer "already at" (QA TC-340 retest: 0.4.0's mycel-ctl has neither). The new mycel-ctl with the
+// old other root files is a state updates always had (the old walk put it before the launcher, the sandbox helper and
+// the unit templates, and a kit older than root/VERSION keeps newer root files): the units on disk call only
+// `firewall apply` and `update --only-if-needs-root --scheduled`, and units are rendered only after every file is in.
+const ctlProgram = "mycel-ctl"
+
+// rootDiff lists the files of the bundle's root/ that differ from <base>/root (relative paths): mycel-ctl first
+// (ctlProgram), then the others in name order.
 func rootDiff(bundleRoot, installed string) ([]string, error) {
 	var diff []string
 	err := filepath.WalkDir(bundleRoot, func(p string, d fs.DirEntry, err error) error {
@@ -830,6 +855,13 @@ func rootDiff(bundleRoot, installed string) ([]string, error) {
 	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
+	}
+	for i, rel := range diff {
+		if rel == ctlProgram {
+			copy(diff[1:i+1], diff[:i])
+			diff[0] = ctlProgram
+			break
+		}
 	}
 	return diff, err
 }
