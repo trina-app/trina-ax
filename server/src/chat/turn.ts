@@ -3500,8 +3500,6 @@ export class TurnExec {
     this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
     this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
-    // the registry entry only: revoke would write the row's end (and the requeue below would find no running row)
-    try { if (this.registered) this.activeCore?.turns.release(this.id) } catch {}
     const db = this.rt.db
     const ok = db.transaction(() => {
       const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL WHERE id=? AND status='running'").run(this.id)
@@ -3509,8 +3507,12 @@ export class TurnExec {
       db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(this.spec.assistantId)
       return true
     })()
-    if (ok) this.rt.log.info('turn queued again for the restart (it never ran)', { turn: this.id })
-    return ok
+    if (!ok) return false
+    // then the registry entry only (revoke would write the row's end); not before: a failed requeue ends normally and
+    // its revoke must still find the entry and write the end
+    try { if (this.registered) this.activeCore?.turns.release(this.id) } catch {}
+    this.rt.log.info('turn queued again for the restart (it never ran)', { turn: this.id })
+    return true
   }
 
   /** An engine that stopped, or a turn that threw: on a full disk say so (the error is ENOSPC / SQLite full, the engine's
