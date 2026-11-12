@@ -4,13 +4,14 @@ package main
 
 import (
 	"bytes"
+	"debug/elf"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
-	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -150,6 +151,33 @@ func cp(t *testing.T, dst string) {
 
 type layout struct{ w, sbx, a, b string }
 
+// ldso is the --exec-allow for the test binary's ELF interpreter, as the launcher passes for a dynamically linked
+// engine (sandbox_linux.go elfInterpreter): Landlock checks the interpreter's execute right too. A cgo build of this
+// package is dynamically linked (the net package), a CGO_ENABLED=0 one (native/build.sh) is static: no flag.
+func ldso(t *testing.T) []string {
+	t.Helper()
+	f, err := elf.Open(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, pr := range f.Progs {
+		if pr.Type != elf.PT_INTERP {
+			continue
+		}
+		b := make([]byte, pr.Filesz)
+		if _, err := pr.ReadAt(b, 0); err != nil {
+			t.Fatal(err)
+		}
+		real, err := filepath.EvalSymlinks(string(bytes.TrimRight(b, "\x00")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return []string{"--exec-allow", real}
+	}
+	return nil
+}
+
 func setup(t *testing.T) layout {
 	w := t.TempDir()
 	os.Chmod(w, 0o755) // a non-root run of the helpers must reach them
@@ -179,8 +207,11 @@ func run(t *testing.T, bin string, args ...string) (int, string, string) {
 func TestExecAppliesEverything(t *testing.T) {
 	l := setup(t)
 	abi := landlock.ABI()
-	code, out, se := run(t, l.sbx, "exec", "--landlock", "best-effort", "--exec-allow", l.a, "--",
-		filepath.Join(l.a, "helper"), "report", filepath.Join(l.b, "helper"))
+	allow := append([]string{"--exec-allow", l.a}, ldso(t)...)
+	sbxExec := func(mode string, prog ...string) []string {
+		return append(append(append([]string{"exec", "--landlock", mode}, allow...), "--"), prog...)
+	}
+	code, out, se := run(t, l.sbx, sbxExec("best-effort", filepath.Join(l.a, "helper"), "report", filepath.Join(l.b, "helper"))...)
 	if code != 0 {
 		t.Fatalf("exit %d: %s %s", code, out, se)
 	}
@@ -199,7 +230,7 @@ func TestExecAppliesEverything(t *testing.T) {
 		}
 	}
 	// the allowed folder can still run its own programs (a bridge started by the engine)
-	_, out, _ = run(t, l.sbx, "exec", "--landlock", "best-effort", "--exec-allow", l.a, "--", filepath.Join(l.a, "helper"), "report", filepath.Join(l.a, "helper"))
+	_, out, _ = run(t, l.sbx, sbxExec("best-effort", filepath.Join(l.a, "helper"), "report", filepath.Join(l.a, "helper"))...)
 	if !strings.Contains(out, `"exec":"ok"`) {
 		t.Errorf("own folder: %s", out)
 	}
@@ -226,7 +257,7 @@ func TestExecRefusals(t *testing.T) {
 		{"nothing"},
 	}
 	if abi >= 1 { // the program itself is outside the allow list
-		cases = append(cases, []string{"exec", "--landlock", "required", "--exec-allow", l.a, "--", filepath.Join(l.b, "helper"), "exit"})
+		cases = append(cases, append(append(append([]string{"exec", "--landlock", "required", "--exec-allow", l.a}, ldso(t)...), "--"), filepath.Join(l.b, "helper"), "exit"))
 	}
 	if abi < 6 {
 		cases = append(cases, []string{"exec", "--landlock", "required-scoped", "--exec-allow", l.a, "--", filepath.Join(l.a, "helper"), "exit"})
@@ -242,7 +273,8 @@ func TestExecRefusals(t *testing.T) {
 	}
 	// the default mode is required: no Landlock flag still restricts execution
 	if abi >= 1 {
-		_, out, _ := run(t, l.sbx, "exec", "--exec-allow", l.a, "--", filepath.Join(l.a, "helper"), "report", filepath.Join(l.b, "helper"))
+		args := append(append(append([]string{"exec", "--exec-allow", l.a}, ldso(t)...), "--"), filepath.Join(l.a, "helper"), "report", filepath.Join(l.b, "helper"))
+		_, out, _ := run(t, l.sbx, args...)
 		if !strings.Contains(out, `"exec":"EACCES"`) {
 			t.Errorf("default mode: %s", out)
 		}
