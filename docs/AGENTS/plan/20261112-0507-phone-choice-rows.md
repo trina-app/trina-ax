@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 05:07
 - Branch: `fix/phone-choice-rows`
-- Status: in progress
+- Status: done
 - Where: `web/`. Why: the phone app is a WebView of the web app, so a phone's look is the web app's below 768 px.
 - Version impact: patch, phone layout only; no API or data change.
 
@@ -55,4 +55,10 @@ e2e `phone-choice-rows` (no select in sight, the value in each row, the sheet wi
 
 ## Result
 
-(filled in at the end)
+PR #574. As planned, plus: Settings › Profile's own default engine and model (list rows) and a muted room's level in
+Notifications ("Off ›" at the row's end). A row's button holds its name and value, so its accessible name is what it
+shows (axe's label-content-name-mismatch); the short line under it opens the sheet too. A sheet's heading stays at the
+top of a long list (time zones). No new words, so no i18n keys. Left as they are: the selects inside dialogs and sheets
+(a sheet over a sheet), Members and Audit (PR #568), the sign-in page's language (not shown in the app), first-run setup,
+the onboarding steps, the API engine's preset form and the dev environment card (computer forms). PR #568 merges with
+this cleanly; its Usage tests and these pass on the two together.
