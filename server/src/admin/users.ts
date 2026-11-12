@@ -19,7 +19,7 @@ import { assertSeatFree } from '../system/limits'
 import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, setUserLocale, toUser, usernameTaken, type UserRow } from '../auth/users'
 import { audit } from './audit'
 import { cancelLoginsOf } from '../credentials/login'
-import { existingCredentialsOf } from '../credentials/store'
+import { connectionsChanged, existingCredentialsOf } from '../credentials/store'
 import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
@@ -335,7 +335,8 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   })()
   revokeSignIns()
   statusGoneWithAccount(ctx, hadStatus)
-  { const cc = existingCredentialsOf(ctx); if (cc) for (const k of ownAi) cc.cache.delete(k) }
+  // their own AI connections went with them: the engines' state is read again, open screens ask again
+  { const cc = existingCredentialsOf(ctx); if (cc && ownAi.length) { for (const k of ownAi) cc.cache.delete(k); connectionsChanged(cc) } }
   afterPrune(ctx, auth.user.id, pruned)
   if (requested) settleDeletionRequestNotices(ctx, id)
   authOf(ctx).endUserSessions(id, 'revoked')

@@ -106,6 +106,7 @@ describe('Claude sign-in for the team', () => {
     const engines = engineStatusCache(h.ctx)
     await engines.get('claude-code', true, 'en')
     expect(engines.peek('claude-code')).not.toBeNull()
+    const seen = dana.frames.length // only what this sign-in sends counts below
     const start = await team('Team Claude')
     expect(start).toMatchObject({ kind: 'anthropic-oauth', state: 'starting', url: null, code: null })
     const w = await waiting(dana, start.loginId)
@@ -122,8 +123,9 @@ describe('Claude sign-in for the team', () => {
     // the sign-in made a connection: the engine's old "sign-in needed" is dropped (the next read checks again) and every
     // open screen is told to ask again, before the person sees "done"
     expect(engines.peek('claude-code')).toBeNull()
-    const doneAt = dana.frames.findIndex((f) => f.type === 'credential.login' && (f.data as CredentialLogin).loginId === start.loginId && (f.data as CredentialLogin).state === 'done')
-    const told = dana.frames.findIndex((f) => f.type === 'notice' && (f.data as { code?: string }).code === 'engine_choice_changed')
+    const mine = dana.frames.slice(seen)
+    const doneAt = mine.findIndex((f) => f.type === 'credential.login' && (f.data as CredentialLogin).loginId === start.loginId && (f.data as CredentialLogin).state === 'done')
+    const told = mine.findIndex((f) => f.type === 'notice' && (f.data as { code?: string }).code === 'engine_choice_changed')
     expect(told).toBeGreaterThanOrEqual(0); expect(told).toBeLessThan(doneAt)
     for (const s of [alice, bob]) await s.next('notice', (f) => (f.data as { code?: string }).code === 'engine_choice_changed')
     const row = getRow(h.ctx.db, id)!
