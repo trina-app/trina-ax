@@ -106,7 +106,7 @@ member's key, so a key there would reach every member and the service would log 
 name reaches every member's AI, so it may not hold hidden or direction-changing characters, a double quote or control
 characters (and the note no hidden characters).
 
-- The members it is for see it in Settings › Connected apps under `From <team>`. **Connect your account** opens the same
+- The members it is for see it under Connectors (the main sidebar) in **Your connectors**, with a Team label and **Connect**, which opens the same
   dialog as an admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and
   the write rule (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
   refused (409, "This template changed") and shown again as it is now. It becomes their own (personal) connection, made through the same create path as one they add
@@ -129,7 +129,7 @@ characters (and the note no hidden characters).
   Its maker is not told about their own template, someone who connected it already is not told, and
   `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
   address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
-  (`integration.template_reconnect`, one per change). Both open Settings › Connected apps with the template's Connect
+  (`integration.template_reconnect`, one per change). Both open Connectors with the template's Connect
   (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
 - In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
   offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
@@ -600,10 +600,11 @@ connections with their address and the first 1,000 characters of their notes.
 
 ## Discover
 
-Settings › Connected apps and Admin › Connected apps are one page each, with the same title (the Admin shell says `Applies to
-everyone in <team>`, Settings "Just for you"): first the connections, one line per connection with its details a click
-away (in Admin with who may use it in a chip after the name; in Settings what the team provides under `From <team>`,
-read-only, then the person's own under "Connected"), then **Discover**, MCP servers to add by name
+Connectors (an item of the main sidebar, `/connectors`; no longer a Settings section) and Admin › Connected apps are one
+page each: first the connections, one line per connection with its details a click away (in Admin with who may use it
+in a chip after the name; on Connectors **Your connectors**: the built-in apps connected, the person's own connections and
+what the team provides, with a Team label, each with one status and its page a click away, read-only for a team one),
+then **Discover**, what is not connected yet: the built-in apps and MCP servers to add by name
 (`web/src/lib/connectors.ts`). The search filters every section. An entry is
 only a name and an address for the add dialog: nothing about it is special on the server, the person still chooses what
 the AI may change, an admin still chooses who may use it, and the sign-in, checks and asking are those of any other

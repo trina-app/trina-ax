@@ -1,4 +1,4 @@
-// What Admin › Connected apps and Settings › Connected apps share, like Claude's Connectors: the title row (the page's title,
+// What Admin › Connected apps and Connectors (the main sidebar's, pages/Connectors.tsx) share, like Claude's Connectors: the title row (the page's title,
 // the search and Add with its ⌄ menu), which stays at the top while the page scrolls; Discover, the section under the
 // connections on the same page ("Top connectors" with Trina's own Google Drive first, then the MCP services of
 // lib/connectors.ts, the rest behind Show all); and a connector's page (ConnectorDetail: a big logo, the main action,
@@ -48,8 +48,8 @@ export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
 }
 
 /** The ids of the headings of a page's two sections (the connections, Discover), for goToSection and aria-labelledby.
- * Each page makes its own: Settings opens over the page it came from, which stays mounted under it (App.tsx), so
- * Settings › Connected apps can be on screen over Admin › Connected apps. */
+ * Each page makes its own: a dialog (Settings) opens over the page it came from, which stays mounted under it (App.tsx), so
+ * two such pages can be mounted at once. */
 export function useSectionIds() {
   return { connected: useId(), discover: useId() }
 }
