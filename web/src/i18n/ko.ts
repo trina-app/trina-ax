@@ -3935,6 +3935,7 @@ export const ko = {
   "rooms.tooMany": "파일은 한 번에 {n}개까지 보낼 수 있어요.",
   "rooms.sending": "보내는 중…",
   "rooms.sendFailed": "보내지 못했어요",
+  "rooms.notConfirmed": "보냈는지 확인하지 못했어요. 다시 시도해도 두 번 가지 않아요.",
   "rooms.discard": "지우기",
   "rooms.openImage": "{name} 크게 보기",
   "rooms.empty": "아직 메시지가 없어요. 첫 메시지를 보내 보세요.",

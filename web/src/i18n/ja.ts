@@ -3892,6 +3892,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.tooMany": "{n, plural, one {ファイルは一度に#件まで送信できます。} other {ファイルは一度に#件まで送信できます。}}",
   "rooms.sending": "送信中…",
   "rooms.sendFailed": "送信できませんでした",
+  "rooms.notConfirmed": "送信できたか確認できませんでした。再試行しても二重には送られません。",
   "rooms.discard": "破棄",
   "rooms.openImage": "{name}を開く",
   "rooms.empty": "まだメッセージはありません。最初のメッセージを送りましょう。",

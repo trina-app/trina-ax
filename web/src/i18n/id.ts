@@ -3936,6 +3936,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.tooMany": "Kamu bisa mengirim hingga {n} file sekaligus.",
   "rooms.sending": "Mengirim…",
   "rooms.sendFailed": "Tidak terkirim",
+  "rooms.notConfirmed": "Belum pasti terkirim. Mencoba lagi tidak akan mengirimnya dua kali.",
   "rooms.discard": "Buang",
   "rooms.openImage": "Buka {name}",
   "rooms.empty": "Belum ada pesan. Kirim pesan pertama.",
