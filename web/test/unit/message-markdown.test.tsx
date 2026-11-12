@@ -8,7 +8,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { uuidv7 } from '@mycel/shared/api'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { Markdown, PersonMarkdown } from '../../src/components/Markdown'
-import { capDepth, footnotesTooHeavy, hiddenAddress, MAX_AUTOLINK_TRIES, MAX_FOOTNOTES, MAX_LINE_MARKS, MAX_LINES, MAX_LOOSE, MAX_NEST, MAX_OPEN, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
+import { capDepth, footnotesTooHeavy, MAX_TABLE_CELLS, tableTooBig, hiddenAddress, MAX_AUTOLINK_TRIES, MAX_FOOTNOTES, MAX_LINE_MARKS, MAX_LINES, MAX_LOOSE, MAX_NEST, MAX_OPEN, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
 import type { PendingSend } from '../../src/store/rooms'
 import { BEN, CY, ME, message } from './rooms-fixtures'
 
@@ -356,6 +356,12 @@ test('footnote definitions inside each other read in milliseconds, in messages a
   const h = answer('Claim[^1]\n\n' + '> [^a]: q\n'.repeat(5) + '\n[^1]: real note')
   expect(h).toContain('Claim[^1]')
   expect(h).toContain('[^1]: real note')
+  // escaped brackets in a label are still a footnote's (review round 3)
+  for (const body of ['[^a\\]b]:\n\n\t'.repeat(1000), '[^\\]]:\n\n\t'.repeat(1300)]) {
+    expect(footnotesTooHeavy(body)).toBe(true)
+    const ma = fastest(() => answer(body.slice(0, 10_000)))
+    if (ma >= 200) throw new Error(`answer ${JSON.stringify(body.slice(0, 12))}: ${Math.round(ma)} ms`)
+  }
   // a footnote mark at a line's start counts as one of its signs (MAX_LINE_MARKS)
   expect(tooHeavyForMarkdown('[^a]: '.repeat(MAX_LINE_MARKS + 1) + 'x')).toBe(true)
   expect(tooHeavyForMarkdown('[^a]: x\n'.repeat(500))).toBe(false)
@@ -409,3 +415,26 @@ test('fuzz: no message of up to 10,000 characters takes 200 ms to draw', () => {
     if (ms >= 200) throw new Error(`${Math.round(ms)} ms: ${JSON.stringify(s.slice(0, 120))}`)
   }
 }, 120_000)
+
+test('a table of millions of cells (a wide header, then short lines) is its words, in messages and in answers', () => {
+  const wide = (cols: number, rows: number) => 'a|'.repeat(cols) + '\n' + '-|'.repeat(cols) + '\n' + 'x\n'.repeat(rows)
+  md('warm')
+  for (const body of [wide(2000, 998), wide(2400, 199), wide(1000, 998), wide(200, 998), (wide(500, 240) + '\n').repeat(4)]) {
+    const s = body.slice(0, 10_000)
+    expect(tableTooBig(s)).toBe(true)
+    for (const [name, f] of [['message', () => md(s)], ['answer', () => answer(s)]] as const) {
+      const ms = fastest(f)
+      if (ms >= 200) throw new Error(`${name} ${JSON.stringify(s.slice(0, 12))}: ${Math.round(ms)} ms`)
+    }
+    expect(md(s)).toContain('data-plain=""')
+    expect(answer(s)).not.toContain('<table')
+  }
+  // ordinary tables are tables
+  const t = '|이름|부서|메모|\n|---|:-:|--:|\n' + '|김|영업|3~5분|\n'.repeat(150)
+  expect(tableTooBig(t)).toBe(false)
+  expect(md(t)).toContain('<table')
+  expect(answer(t)).toContain('<table')
+  expect(tableTooBig('a|'.repeat(20) + '\n' + '-|'.repeat(20) + '\n' + 'x\n'.repeat(Math.floor(MAX_TABLE_CELLS / 20) - 1))).toBe(false)
+  // a line of dashes under words is a heading, a list item's dash no table
+  expect(tableTooBig('Title\n---\n' + 'text\n'.repeat(900))).toBe(false)
+}, 60_000)

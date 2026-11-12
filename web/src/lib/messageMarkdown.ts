@@ -284,15 +284,40 @@ function codeSearchTooLong(text: string): boolean {
   return false
 }
 
+/** How many cells a text's tables may have in all: a table has as many cells in each row as its header has columns,
+ * however short the row ("a|a|…" 2,000 columns, then a thousand lines of "x": two million cells, seconds to draw and
+ * far more for the browser to lay out). */
+export const MAX_TABLE_CELLS = 20_000
+const DELIMITER_ROW = /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/
+
+/** Whether a text's tables would have more than MAX_TABLE_CELLS cells (counted generously: a table's rows run to the
+ * next blank line). For an AI's answer too. */
+export function tableTooBig(text: string): boolean {
+  if (!text.includes('-')) return false
+  const lines = text.split('\n')
+  let cells = 0
+  for (let k = 1; k < lines.length; k++) {
+    const line = lines[k]
+    if (!line.includes('-') || !lines[k - 1].trim() || !DELIMITER_ROW.test(line)) continue
+    const cols = line.split('|').filter((c) => c.trim()).length
+    let rows = 1
+    while (k + rows < lines.length && lines[k + rows].trim()) rows++
+    cells += cols * rows
+    if (cells > MAX_TABLE_CELLS) return true
+    k += rows - 1
+  }
+  return false
+}
+
 /** Where a footnote definition's mark ("[^a]:") that starts at `i` ends (0: none starts there). */
 function footnoteMark(text: string, i: number): number {
-  const m = /^\[\^[^\]\n]*\]:/.exec(text.slice(i, i + 1000))
+  const m = /^\[\^(?:\\.|[^\]\\\n])*\]:/.exec(text.slice(i, i + 1000))
   return m ? i + m[0].length : 0
 }
 
 /** Text Markdown could only read slowly (seconds) is shown as its plain words instead: a line that starts with
  * thousands of quote or list signs ("* * * … x", "1. 1. …", ">>>…", footnote marks "[^a]:" as one: capDepth keeps them from drawing deep, but reading
- * them is slow in itself), hundreds of "[" or emphasis openers open at once (MAX_OPEN), thousands of lines (MAX_LINES), a thousand emphasis marks that do not pair up (MAX_LOOSE), code spans that never end (MAX_CODE_SEARCH), a thousand words after a "[" that is not closed (MAX_AUTOLINK_TRIES), or a long run mixing
+ * them is slow in itself), hundreds of "[" or emphasis openers open at once (MAX_OPEN), thousands of lines (MAX_LINES), a thousand emphasis marks that do not pair up (MAX_LOOSE), code spans that never end (MAX_CODE_SEARCH), a thousand words after a "[" that is not closed (MAX_AUTOLINK_TRIES), tables of more than MAX_TABLE_CELLS cells, or a long run mixing
  * "*" and "_". Nothing a person writes on purpose. For people's messages only: an AI's answer or a file is Markdown
  * whatever it holds (capDepth and MarkdownBoundary keep those from taking the page down). */
 export function tooHeavyForMarkdown(text: string): boolean {
@@ -348,7 +373,7 @@ export function tooHeavyForMarkdown(text: string): boolean {
     }
     if (open > MAX_OPEN || loose > MAX_LOOSE) return true
   }
-  if (codeSearchTooLong(text)) return true
+  if (codeSearchTooLong(text) || tableTooBig(text)) return true
   let i = 0
   const n = text.length
   while (i < n) {
@@ -421,7 +446,8 @@ export const remarkFootnotesAsText = () => (tree: Node, file: { value?: unknown 
  * footnotes are a list at its end. */
 export const MAX_FOOTNOTES = 100
 export const MAX_INNER_FOOTNOTES = 2
-const FOOTNOTE_DEF = /\[\^[^\]\n]*\]:/g
+// (a label may hold escaped brackets: "[^a\\]b]:")
+const FOOTNOTE_DEF = /\[\^(?:\\.|[^\]\\\n])*\]:/g
 
 /** An answer's text whose footnotes would read slowly (see MAX_FOOTNOTES). */
 export function footnotesTooHeavy(text: string): boolean {

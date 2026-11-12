@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
-import { footnotesTooHeavy, personWords, protectMentions, remarkCapDepth, remarkFootnotesAsText, remarkGfmNoFootnotes, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
+import { footnotesTooHeavy, personWords, tableTooBig, protectMentions, remarkCapDepth, remarkFootnotesAsText, remarkGfmNoFootnotes, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
 import { LinkedText, RoomLink } from './rooms/MessageText'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
@@ -548,14 +548,18 @@ function AnswerMarkdown({ text, streaming, className, size, copyQuotes }: { text
   // (one element while the text is the same: a new render of the page around it does not read the Markdown again)
   const body = useMemo(() => {
     const source = prepareMarkdown(text, streaming)
+    if (tableTooBig(source)) return null
     return (
       <ReactMarkdown remarkPlugins={remarkFor(source)} rehypePlugins={copyQuotes ? REHYPE_ANSWER : REHYPE} components={copyQuotes ? COMPONENTS_ANSWER : COMPONENTS} urlTransform={urlTransform}>
         {source}
       </ReactMarkdown>
     )
   }, [text, streaming, copyQuotes])
+  const plain = <div className={clsx('whitespace-pre-wrap break-words', SIZES[size], className)}>{text}</div>
+  // (tables of millions of cells would take the page with them: the words, as when it cannot be drawn)
+  if (body === null) return plain
   return (
-    <MarkdownBoundary resetKey={text} fallback={<div className={clsx('whitespace-pre-wrap break-words', SIZES[size], className)}>{text}</div>}>
+    <MarkdownBoundary resetKey={text} fallback={plain}>
       <div
         className={clsx(
           'answer prose max-w-none break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
