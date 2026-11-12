@@ -19,12 +19,12 @@ import type { Budget, EngineId, EnginesResponse, Group, MemberEngineChoice, User
 import { api, API } from '../../lib/api'
 import { formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
 import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
 import { useKeptDraft } from '../../lib/keptDraft'
 import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
-import { AdminBarActions, BarAdd } from './barActions'
+import { AdminBarActions, BarAdd, useAdminBarSlot } from './barActions'
 
 type EnginesData = EnginesResponse
 
@@ -313,8 +313,8 @@ function Budgets({ openHere }: { openHere?: boolean }) {
       focus.removed(budgets.data?.findIndex((x) => x.id === b.id) ?? 0)
       await budgets.reload()
     })
-  // a phone: Add limit is the bar's + (the line takes the row)
-  const phone = useMediaQuery('(max-width: 767.98px)')
+  // under the phone's Admin bar: Add limit is the bar's + (the line takes the row); elsewhere the section's button
+  const inBar = useAdminBarSlot()
   const who = (b: Budget) => (b.subjectType === 'team' ? t('budgets.team') : b.subjectType === 'group' ? groups.data?.find((g) => g.id === b.subjectId)?.name ?? '?' : users.data?.find((u) => u.id === b.subjectId)?.name ?? '?')
   const period = (b: Budget) => t(b.period === 'day' ? 'budgets.perDay' : 'budgets.perMonth')
   return (
@@ -324,13 +324,13 @@ function Budgets({ openHere }: { openHere?: boolean }) {
       title={t('budgets.title')}
       desc={t('budgets.desc')}
       testId="engine-budgets"
-      actions={phone ? undefined : (
+      actions={inBar ? undefined : (
         <Button size="sm" onClick={() => setEditing('new')} data-testid="budget-new">
           <Plus size={14} aria-hidden /> {t('budgets.new')}
         </Button>
       )}
     >
-      {phone && (
+      {inBar && (
         <AdminBarActions>
           <BarAdd label={t('budgets.new')} onClick={() => setEditing('new')} testId="budget-new" />
         </AdminBarActions>

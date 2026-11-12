@@ -51,10 +51,13 @@ async function barButtons(page: Page, names: string[]) {
     expect(r.x + r.width).toBeLessThanOrEqual(W)
     expect(r.x).toBeGreaterThan(W / 2)
   }
-  // the page's name stays in the middle of the bar, whole
+  // the page's name whole, between ‹ (with its label) and the buttons: centred, or moved over when a long ‹ label
+  // needs the room (PhonePageBar data-fit="moved", #560); nothing overlaps
   const title = page.getByTestId('admin-bar-title')
   const tb = await box(title)
-  expect(Math.abs(tb.x + tb.width / 2 - W / 2)).toBeLessThanOrEqual(2)
+  const back = await box(page.getByTestId('admin-back'))
+  expect(tb.x).toBeGreaterThanOrEqual(back.x + back.width - 1)
+  expect(tb.x + tb.width).toBeLessThanOrEqual((await box(buttons.first())).x + 1)
   expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
 }
 

@@ -8,8 +8,8 @@ import { API, type CompanyProfile } from '@mycel/shared/api'
 import { api } from '../../lib/api'
 import { useT } from '../../i18n'
 import { Card, Loadable, useLoad } from '../../pages/admin/common'
-import { Button, Modal, useMediaQuery } from '../ui'
-import { AdminBarActions, BarAdd, BarText } from '../../pages/admin/barActions'
+import { Button, Modal } from '../ui'
+import { AdminBarActions, BarAdd, BarText, useAdminBarSlot } from '../../pages/admin/barActions'
 import ProfileStep, { brandColors, ColorSwatch } from './ProfileStep'
 
 export default function CompanyProfileCard() {
@@ -17,19 +17,20 @@ export default function CompanyProfileCard() {
   const state = useLoad(() => api.call(API.getCompanyProfile))
   const [open, setOpen] = useState(false)
   const profile = state.data?.profile ?? null
-  const phone = useMediaQuery('(max-width: 767.98px)')
+  // under the phone's Admin bar: Create / Edit are the bar's; anywhere else the card keeps its button
+  const inBar = useAdminBarSlot()
   return (
     <Card
       id="company-profile"
       title={t('onboarding.profile.title')}
       desc={t('onboarding.profile.cardDesc')}
-      actions={state.data && !phone && (
+      actions={state.data && !inBar && (
         <Button size="sm" onClick={() => setOpen(true)} data-testid="company-profile-edit">
           {profile ? t('onboarding.profile.edit') : t('onboarding.profile.create')}
         </Button>
       )}
     >
-      {state.data && phone && (
+      {state.data && inBar && (
         <AdminBarActions>
           {profile
             ? <BarText label={t('onboarding.profile.edit')} onClick={() => setOpen(true)} testId="company-profile-edit" />
