@@ -28,7 +28,7 @@ import type { Logger } from '../log'
 import { fsyncPath, fsyncTree, readFileChunks, writeAtomic, zstdDecompress } from './streams'
 import { extractTar } from './tar'
 import { RELEASE_KEYS } from './release-keys'
-import { FeedRollout } from './rollout'
+import { FeedRollout, newerHeadSeen } from './rollout'
 import { DOWNLOAD_IDLE_MS, downloadDeadline, downloadTotalMs } from '../http/download-deadline'
 
 /** Ed25519 release public keys (base64, raw 32 bytes): system/release-keys.ts. */
@@ -199,7 +199,8 @@ export interface UpdateManagerOptions {
   dbReaderLevel?: () => number
 }
 
-interface CheckRecord { at: string; feed: ReleaseFeed | null; error: string | null }
+/** url: the feed it came from (records from before it was kept: this server's feed) */
+interface CheckRecord { at: string; feed: ReleaseFeed | null; error: string | null; url?: string | null }
 
 export class UpdateManager {
   constructor(private o: UpdateManagerOptions) {}
@@ -364,7 +365,7 @@ export class UpdateManager {
 
   /** Fetch and verify the release feed; records the result for status(). */
   async checkFeed(): Promise<ReleaseFeed | null> {
-    const rec: CheckRecord = { at: new Date().toISOString(), feed: null, error: null }
+    const rec: CheckRecord = { at: new Date().toISOString(), feed: null, error: null, url: this.o.feedUrl }
     try {
       if (!this.o.feedUrl) throw new UpdateError('no release feed configured')
       if (!this.keys.length) throw new UpdateError('no release signing key in this build; remote updates are disabled')
@@ -375,7 +376,15 @@ export class UpdateManager {
         f(this.o.feedUrl + '.sig', { redirect: 'error', signal }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed signature: HTTP ${r.status}`); return r.text() }),
       ])
       if (!verifySignature(body, sig, this.keys)) throw new UpdateError('release feed signature does not verify')
-      rec.feed = ReleaseFeed.parse(JSON.parse(Buffer.from(body).toString('utf8')))
+      const got = ReleaseFeed.parse(JSON.parse(Buffer.from(body).toString('utf8')))
+      // an older copy of a head this server has already seen changed (a hold or resume, system/rollout.ts changedAt):
+      // the newer one stands, so a copy served again cannot lift a hold
+      const last = this.lastCheck()
+      const seen = last?.feed && (last.url ?? this.o.feedUrl) === this.o.feedUrl ? last.feed : null
+      if (seen && newerHeadSeen(seen, got)) {
+        this.o.log.warn('update check: the feed answered with an older copy of this release; keeping the newer one', { version: got.version, changedAt: got.rollout?.changedAt ?? null, seen: seen.rollout?.changedAt ?? null })
+        rec.feed = seen
+      } else rec.feed = got
     } catch (e) {
       rec.error = (e as Error).message
       // a failed look is not news that the release is gone: the record keeps the last verified feed (the return value stays null)

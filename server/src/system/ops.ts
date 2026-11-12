@@ -152,7 +152,7 @@ export class OpsService {
 
   /** What holds the available release back from installing by itself, from the very decision the automatic update makes
    * (autoUpdateDecision), the window and running answers aside. null: nothing (or nothing to install). */
-  updateHold(): 'rollout' | 'failed' | 'root_failed' | null {
+  updateHold(): 'paused' | 'rollout' | 'failed' | 'root_failed' | null {
     try {
       const feed = this.updates.lastFeed()
       if (!feed || !this.updates.installed) return null
@@ -163,7 +163,7 @@ export class OpsService {
       const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
         window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true,
         channel: this.ctx.config.update.channel })
-      return d.go ? null : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
+      return d.go ? null : d.why === 'paused' ? 'paused' : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
     } catch { return null }
   }
 
@@ -184,8 +184,9 @@ export class OpsService {
         rootHold: this.rootUpdateFailure()?.version ?? null, channel: this.ctx.config.update.channel })
     }
     const first = decide()
-    if (!first.go) return first.why
     const log = this.ctx.log.child({ c: 'update' })
+    if (!first.go && first.why === 'paused' && feed?.rollout?.hold) log.info('automatic update: the publisher paused this release; not installing it', { version: feed.version, since: feed.rollout.hold.at, reason: feed.rollout.hold.reason })
+    if (!first.go) return first.why
     if (!await this.lockAfterPrune('update')) {
       log.info('automatic update: another operation runs, trying again in an hour', { to: first.version, holder: this.busy })
       return 'busy'

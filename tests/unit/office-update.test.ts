@@ -14,6 +14,7 @@ import {
   windowEnd, writeUpdateSettings, sha256File, type UpdateDeps,
 } from '../../server/src/office/update'
 import { viewText } from '../../server/src/office/update-cli'
+import { holdRollout, resumeRollout } from '../../server/src/system/rollout'
 import { Database } from 'bun:sqlite'
 import { settingsFrom } from '../../server/src/office/settings'
 import { officeUpdateHooks } from '../../server/src/routes/office-update'
@@ -485,6 +486,41 @@ describe('a whole update run (fake bundle, fake health)', () => {
     files2.set(fileUrl(FEED, '0.3.0', name), zip)
     files2.set(manifestUrl(FEED, 'beta'), signRelease(release({ version: '0.3.0', publishedAt: f2.deps.now!().toISOString(), rollout: ramp }, [{ name, bytes: zip }]), keyPem))
     expect(await runUpdate(beta, { reason: 'schedule', deps: f2.deps, ...short })).toMatchObject({ kind: 'updated', version: '0.3.0' })
+  })
+  withZip('a held release (hosting.ts hold): the nightly run leaves it and says so; an older copy of the list does not lift the hold; resume does', async () => {
+    const home = makeHome('run-held', '0.2.0')
+    writeUpdateSettings(home, { channel: 'stable' })
+    withInstallId(home, 'install-0')
+    const files = new Map<string, Uint8Array | string>()
+    const f = fakeDeps(home, files)
+    const now = f.deps.now!().getTime()
+    const zip = makeZip('0.3.0')
+    const name = `${PRODUCT.officeBundle}-0.3.0-mac.zip`
+    files.set(fileUrl(FEED, '0.3.0', name), zip)
+    // published 60 h ago: without the hold every office takes it now
+    const r0 = release({ version: '0.3.0', channel: 'stable', publishedAt: new Date(now - 60 * 3600_000).toISOString(), rollout: ramp }, [{ name, bytes: zip }])
+    const held = holdRollout(r0.rollout, new Date(now - 3600_000), 'crashes on start')
+    files.set(manifestUrl(FEED, 'stable'), signRelease({ ...r0, rollout: held }, keyPem))
+    const night = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })
+    expect(night).toMatchObject({ kind: 'skipped', version: '0.3.0' })
+    expect(night.message).toBe(`the publisher paused 0.3.0 (since ${held.hold.at}: crashes on start); not installed until the roll-out resumes`)
+    expect(f.calls).toEqual([])
+    // "update now" neither (a bad release)
+    expect(await runUpdate(home, { reason: 'now', deps: f.deps, ...short })).toMatchObject({ kind: 'skipped', version: '0.3.0' })
+    expect(f.calls).toEqual([])
+    expect(readUpdateState(home).available).toMatchObject({ version: '0.3.0', turnAt: null, paused: true })
+    expect(updateView(home).available?.paused).toBe(true)
+    expect(viewText(updateView(home))).toContain('paused by the publisher')
+    expect(readUpdateState(home).seenHead).toEqual({ version: '0.3.0', changedAt: held.changedAt })
+    // the list from before the hold served again (validly signed): the nightly run still leaves it
+    files.set(manifestUrl(FEED, 'stable'), signRelease(r0, keyPem))
+    const replay = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })
+    expect(replay).toMatchObject({ kind: 'skipped', version: '0.3.0' })
+    expect(replay.message).toContain('older copy of the 0.3.0 manifest')
+    expect(f.calls).toEqual([])
+    // resumed: the ramp had ended, so it goes in
+    files.set(manifestUrl(FEED, 'stable'), signRelease({ ...r0, rollout: resumeRollout(held, r0.publishedAt, new Date(now)) }, keyPem))
+    expect(await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).toMatchObject({ kind: 'updated', version: '0.3.0' })
   })
 })
 

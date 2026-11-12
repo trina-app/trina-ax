@@ -33,6 +33,7 @@ func TestRolloutMatchesServer(t *testing.T) {
 			In          bool            `json:"in"`
 			Wait        bool            `json:"wait"`
 			Turn        *string         `json:"turn"`
+			Paused      *bool           `json:"paused"`
 		} `json:"cases"`
 		Reads []struct {
 			Why     string          `json:"why"`
@@ -67,6 +68,9 @@ func TestRolloutMatchesServer(t *testing.T) {
 		if !c.Wait {
 			continue
 		}
+		if c.Paused != nil && w.paused != *c.Paused {
+			t.Errorf("%s: paused %v, want %v", c.Why, w.paused, *c.Paused)
+		}
 		switch {
 		case c.Turn == nil && w.at != nil:
 			t.Errorf("%s: turn %s, want none", c.Why, w.at)
@@ -95,7 +99,9 @@ func TestRolloutMatchesServer(t *testing.T) {
 			Percent float64     `json:"percent"`
 			Salt    string      `json:"salt"`
 			Ramp    *[]rampStep `json:"ramp"`
-			Since   *string     `json:"since"`
+			Since   *string      `json:"since"`
+			Hold    *rolloutHold `json:"hold"`
+			Changed *string      `json:"changedAt"`
 		}
 		must(t, json.Unmarshal(c.Reads, &want))
 		got := f.Rollout
@@ -115,6 +121,8 @@ func TestRolloutMatchesServer(t *testing.T) {
 			if ok && want.Since != nil {
 				ok = *want.Since == got.Since
 			}
+			ok = ok && (want.Hold == nil) == (got.Hold == nil) && (want.Hold == nil || *want.Hold == *got.Hold)
+			ok = ok && (want.Changed == nil) == (got.ChangedAt == "") && (want.Changed == nil || *want.Changed == got.ChangedAt)
 			if !ok {
 				t.Errorf("%s: reads %+v", c.Why, *got)
 			}
@@ -386,5 +394,81 @@ func TestStatusShowsTheTurn(t *testing.T) {
 	check(rampFeed(map[string]any{"urgent": true}))
 	if _, out, _ := tb.ctl("", "status"); strings.Contains(out, "staged roll-out") {
 		t.Fatalf("urgent, but:\n%s", out)
+	}
+}
+
+// A release the publisher paused (scripts/release/hold.ts): the update timer leaves it at any time and in any wave, and
+// so does an administrator's `mycel-ctl update`; an older copy of the head (from before the hold) served again does not
+// lift it; the resumed head is installed. Nothing is downloaded while it is held.
+func TestScheduledUpdateHeld(t *testing.T) {
+	ramp := []map[string]any{{"afterHours": 0, "percent": 10}, {"afterHours": 24, "percent": 50}, {"afterHours": 48, "percent": 100}}
+	f := newFeedServer(t)
+	f.publishWith("/server/stable.json", "0.2.19", true, map[string]any{"minFrom": "0.2.19", "rollout": map[string]any{
+		"percent": 0, "salt": testSalt, "ramp": []map[string]any{{"afterHours": 0, "percent": 0}}, "changedAt": "2026-11-01T06:00:00Z",
+		"hold":   map[string]any{"at": "2026-11-01T06:00:00Z", "reason": "crashes on start", "minFrom": "0.2.0"},
+		"before": map[string]any{"percent": 100, "salt": testSalt, "ramp": ramp}}})
+	for _, id := range []string{"install-4", "install-0", ""} {
+		tb, _ := scheduledAt(t, f, "2026-11-03T18:10:00Z", id)
+		code, res := tb.scheduled(t, f)
+		if code != 0 || !res.Skipped || res.RootUpdated || res.AppUpdated ||
+			res.Detail != "the publisher paused release 0.2.19 (since 2026-11-01T06:00:00Z: crashes on start); it is not installed until the roll-out resumes" {
+			t.Fatalf("held, %q: %d %+v", id, code, res)
+		}
+		if f.downloaded() != 0 || currentVersion(tb.base) != "0.2.18" {
+			t.Fatal("something changed while held")
+		}
+		if !strings.Contains(tb.file("root/feed-seen.json"), `"changedAt":"2026-11-01T06:00:00Z"`) {
+			t.Fatalf("feed-seen.json: %q", tb.file("root/feed-seen.json"))
+		}
+	}
+	// by hand: refused too
+	tb, _ := scheduledAt(t, f, "2026-11-03T18:10:00Z", "install-4")
+	if code, res := tb.update(t, "--pubkey", f.key); code == 0 || res.AppUpdated || !strings.Contains(res.Detail, "the publisher paused release 0.2.19") {
+		t.Fatalf("by hand: %d %+v", code, res)
+	}
+	if f.downloaded() != 0 {
+		t.Fatal("downloaded while held")
+	}
+	// the head from before the hold, served again (validly signed): left
+	tb, _ = scheduledAt(t, f, "2026-11-03T18:10:00Z", "install-4")
+	_, _ = tb.scheduled(t, f) // the held head first: feed-seen.json
+	f.publishWith("/server/stable.json", "0.2.19", true, rampFeed(nil))
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || res.AppUpdated ||
+		res.Detail != "the feed answered with an older copy of release 0.2.19 (a newer one, changed 2026-11-01T06:00:00Z, was seen); waiting for the current one" {
+		t.Fatalf("older copy: %d %+v", code, res)
+	}
+	// resumed: installed
+	f.publishWith("/server/stable.json", "0.2.19", true, map[string]any{"rollout": map[string]any{"percent": 100, "salt": testSalt, "ramp": ramp, "changedAt": "2026-11-02T06:00:00Z"}})
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.AppUpdated {
+		t.Fatalf("resumed: %d %+v", code, res)
+	}
+}
+
+// The update timers that do not know hold (0.4.0-beta.2 and older read no rollout at all) refuse a held head by its
+// minFrom, which the held head sets to its own version; this timer reads the held head's percent 0 and 0% step without
+// hold as "left out" too.
+func TestOlderTimersHoldAHeldHead(t *testing.T) {
+	body := []byte(`{"version":"0.5.2","minFrom":"0.5.2","needsRoot":true,"publishedAt":"2026-11-04T01:00:00.000Z","bundles":[],` +
+		`"rollout":{"percent":0,"salt":"` + testSalt + `","ramp":[{"afterHours":0,"percent":0}],"hold":{"at":"2026-11-05T01:00:00.000Z","reason":"x","minFrom":null},"changedAt":"2026-11-05T01:00:00.000Z"}}`)
+	var old struct {
+		Version string `json:"version"`
+		MinFrom string `json:"minFrom"`
+	}
+	must(t, json.Unmarshal(body, &old))
+	if compareVersions("0.5.1", old.MinFrom) >= 0 {
+		t.Fatalf("an old timer on 0.5.1 would take it: minFrom %q", old.MinFrom)
+	}
+	var f ReleaseFeed
+	must(t, json.Unmarshal(body, &f))
+	f.Rollout.Hold = nil // a timer that knows the ramp, not hold
+	now := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	for _, ch := range []string{"stable", "beta"} {
+		if inRollout(&f, "install-4", ch, now) || inRollout(&f, "", ch, now) {
+			t.Fatalf("%s: in the roll-out", ch)
+		}
+	}
+	f.Urgent = true
+	if inRollout(&f, "install-4", "stable", now) {
+		t.Fatal("urgent: in the roll-out")
 	}
 }

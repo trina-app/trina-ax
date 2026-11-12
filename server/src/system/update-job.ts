@@ -49,6 +49,7 @@ export async function runUpdate(d: RunUpdateDeps, target: string, o: { staged: b
     progress(0.3, stepText(d.locale, 'download'))
     const feed = await d.updates.checkFeed()
     if (!feed || feed.version !== target) throw new UpdateError(`version ${target} is not available`)
+    if (feed.rollout?.hold) throw new UpdateError(`the publisher paused version ${target}; it is not installed until the roll-out resumes`)
     if (d.updates.needsRoot(feed)) throw new UpdateError(`version ${target} also changes root-owned parts: run \`sudo mycel-ctl update\``)
     await d.updates.download(feed, (f) => progress(0.3 + 0.5 * f, stepText(d.locale, 'download')))
   }
@@ -98,7 +99,7 @@ export function nextWindow(window: string | null, now: Date, tz: string): { at: 
   return null
 }
 
-export type AutoDecision = { go: true; version: string } | { go: false; why: 'no_feed' | 'up_to_date' | 'needs_root' | 'rollout' | 'held' | 'outside_window' | 'busy' }
+export type AutoDecision = { go: true; version: string } | { go: false; why: 'no_feed' | 'up_to_date' | 'paused' | 'needs_root' | 'rollout' | 'held' | 'outside_window' | 'busy' }
 
 /** Should this install take the feed's release by itself now? (pure: the ops service gathers the facts) */
 export function autoUpdateDecision(o: {
@@ -118,6 +119,8 @@ export function autoUpdateDecision(o: {
   const f = o.feed
   if (!f) return { go: false, why: 'no_feed' }
   if (compareVersions(f.version, o.current) <= 0) return { go: false, why: 'up_to_date' }
+  // the publisher paused this release's roll-out (system/rollout.ts hold): nobody takes it by itself until it resumes
+  if (f.rollout?.hold) return { go: false, why: 'paused' }
   if (releaseNeedsRoot(f, o.rootVersion ?? null)) return { go: false, why: 'needs_root' }
   // the staged roll-out (system/rollout.ts): this install's turn may come a day or two after the release
   if (!inRollout(f, o.installId, { now: o.now, channel: o.channel })) return { go: false, why: 'rollout' }

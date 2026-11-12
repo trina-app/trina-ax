@@ -142,6 +142,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
   어느 쪽이든 경고를 남긴다). 사무실 목록도 다시 돌리면 처음 올린 `<dir>/<version>/<channel>.json`을 머리에 다시 둔다(`publishedAt`과 salt가 그대로). 처음에
   윈도우 설치 파일 없이 올린 버전에 다시 돌려 그 파일을 더해도 처음의 `publishedAt`과 `rollout`으로 다시 서명한다.
 - 로컬에서: `publish-server.ts --rollout staged|all`, `publish.ts --rollout staged|all`(기본 staged, beta 채널은 늘 없음).
+- 나쁜 릴리스의 roll-out을 멈추고 다시 잇기: 6장 "배포 멈추기"(`hosting.ts hold|resume <channel>`, `rollout.hold`).
 
 ## 3. 지키는 것
 
@@ -226,7 +227,42 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
-| 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
+| 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | **먼저 멈춘다: `bun scripts/release/hosting.ts hold stable --reason "…"`** (아래 "배포 멈추기"). 아직 받지 않은 서버·사무실은 지금 버전에 머문다. 그다음 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
+
+### 배포 멈추기 (hold a bad release)
+
+나쁜 stable 릴리스가 더 많은 서버에 닿지 않게 하는 한 단계. 새 버전을 낼 필요가 없다. 주인의 맥에서(배포 키와 Cloudflare 토큰이
+있는 곳):
+
+```sh
+bun scripts/release/hosting.ts hold stable --reason "0.5.2 crashes on start"   # 멈춘다
+bun scripts/release/hosting.ts held stable                                      # 지금 머리가 무엇을 말하는지(읽기만)
+bun scripts/release/hosting.ts resume stable                                    # 다시 이어 간다
+```
+
+- 먼저 `--dry-run`을 붙여 무엇을 올릴지 본다. `--version 0.5.2`를 붙이면 머리가 그 버전일 때만 바꾼다(다른 릴리스를 멈추지 않게).
+- 하는 일(`scripts/release/hold.ts`): 채널 머리 `server/<channel>.json`(+ `.sig`)과, 같은 버전이면 사무실 목록 `<officeDir>/<channel>.json`만
+  같은 릴리스 키로 다시 서명해 올린다. 버전의 파일(`server/<version>/release.json`, `<officeDir>/<version>/<channel>.json`, 묶음)은
+  건드리지 않고, 머리를 다른 버전으로 옮기지 않고, 아무것도 지우지 않는다. 올리기 직전에 머리를 다시 읽어 그사이 배포가 있었으면 멈춘다.
+- 멈춘 머리의 `rollout`: `percent: 0`, ramp는 0% 한 단계, `hold: { at, reason }`, `changedAt`. 서버 머리는 `minFrom`도 그 버전 자신이
+  된다. 그래서 모든 업데이트가 멈춘다: 앱의 자동 업데이트(`why: 'paused'`, 로그 "automatic update: the publisher paused this release"),
+  root 타이머("the publisher paused release …"), 사무실 맥, `hold`를 모르는 서버(ramp만 아는 0.4.0-beta.3 이후는 0% 단계, percent만
+  아는 0.4.0-beta.2 이하는 percent 0, rollout을 모르는 옛 root 타이머는 `minFrom`), urgent 릴리스와 beta 채널(percent만 본다)도.
+  관리자의 "지금 업데이트"(관리자 › 시스템, `sudo mycel-ctl update`, `teamax update now`)도 설치하지 않는다. 관리자 › 홈은
+  "Updates are paused by {product}"(제품 이름)라고만 말한다(이유는 로그와 `mycel-ctl status`에만).
+- 이미 그 버전인 서버는 그대로 돈다(설치는 뒤로 가지 않는다). 되돌리기는 위 표대로 고친 새 버전으로 한다.
+- `resume`: 멈추기 전의 roll-out(멈춘 머리의 `rollout.before`)과 `minFrom`(`hold.minFrom`)을 돌려준다. 아직 오지 않은 단계는 멈춘 시간만큼
+  늦춰지므로 ramp는 멈춘 곳에서 이어진다(예: 30시간째 50%에서 멈추고 72시간 뒤 다시 이으면 바로 50%, 100%는 120시간째). roll-out 없이
+  낸 릴리스(`Rollout: all`)는 percent 100(모두)으로 돌아간다.
+- **다시 보낸 옛 머리**: 서버·root 타이머·사무실은 같은 버전 머리의 가장 늦은 `changedAt`을 기억한다(앱 `update-check.json`, root
+  `root/feed-seen.json`, 사무실 `update/state.json` `seenHead`). 같은 버전인데 그보다 이른(또는 없는) 머리는 옛 사본으로 보고 받지 않는다.
+  그래서 멈추기 전의 서명된 머리를 누가 다시 내보내도 멈춤이 풀리지 않는다. 처음 보는 서버는 이 보호가 없다(머리는 캐시하지 않는다).
+- 멈춘 머리 위에 **새 버전**을 내면 보통처럼 그 버전이 머리가 된다(새 ramp, 멈춘 릴리스의 salt·시작을 이어받지 않는다). 고친 릴리스는
+  `Rollout: all`로 낸다. 멈춘 버전을 **다시 돌리면**(Re-run failed jobs) 버전 파일은 올라가도 머리는 멈춘 그대로다(`publish-server.ts`,
+  `publish.ts`가 "holds … left as it is"를 남긴다). 풀려면 `resume`.
+- beta 채널은 따로다: stable 릴리스는 beta 머리도 되므로 beta 서버까지 멈추려면 `hold beta`도 한다.
+- 지키지 못하는 것: rollout을 모르는 사무실(0.4.0-beta.2 이하)은 사무실 목록의 `minFrom`을 바꾸지 않으므로 멈추지 않는다.
+- 시험: `tests/unit/release-hold.test.ts`(계산, 업데이트, 임시 키·임시 피드로 스크립트), `TestScheduledUpdateHeld`(root 타이머).
 
 - 같은 태그를 다시 돌리려면 Actions → Release → Run workflow에서 tag를 넣는다. "Use workflow from"도 같은 태그로 고른다(그 태그의 release.yml·ci.yml로 돈다).
 - 로컬에서 같은 일을 하려면 `publish.ts`(사무실)와 `publish-server.ts --dir <서명된 묶음 폴더>`(리눅스)를 쓴다. 리눅스 묶음은 리눅스(같은 아키텍처)에서만 빌드된다.

@@ -78,7 +78,7 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
             {/* a stable release waiting for this Mac's turn in its staged roll-out (later than the next run, or never) */}
             {turn && !u.paused && u.agentInstalled && (
               <p className="text-muted" data-testid="office-update-turn">
-                {turn.kind === 'never' ? t('officeUpdate.bannerNever') : t('officeUpdate.bannerTurn', { date: turnDate(turn.date, locale), window: turn.window, zone: turn.zone })}
+                {turn.kind === 'paused' ? t('officeUpdate.bannerPaused') : turn.kind === 'never' ? t('officeUpdate.bannerNever') : t('officeUpdate.bannerTurn', { date: turnDate(turn.date, locale), window: turn.window, zone: turn.zone })}
               </p>
             )}
             {u.available.notes && <ReleaseNotes notes={u.available.notes} />}
@@ -99,7 +99,8 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
         )}
         {u.agentInstalled && (
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button variant="primary" size="sm" disabled={active} onClick={() => setAsk(true)}>
+            {/* a paused release is not installed by "update now" either (server/src/office/update.ts) */}
+            <Button variant="primary" size="sm" disabled={active || !!u.available?.paused} onClick={() => setAsk(true)}>
               <Download size={14} aria-hidden /> {t('officeUpdate.now')}
             </Button>
             <Button

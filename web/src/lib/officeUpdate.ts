@@ -41,7 +41,8 @@ export function bannerFor(me: Me | null, s: OfficeUpdateStatus | null | undefine
   return { version: s.available.version, nightly, ...(turn ? { turn } : {}) }
 }
 
-export type OfficeTurn = { kind: 'turn'; date: Date; window: string; zone: string } | { kind: 'never' }
+/** paused: the publisher paused this release (server/src/system/rollout.ts hold); it waits for a resume */
+export type OfficeTurn = { kind: 'turn'; date: Date; window: string; zone: string } | { kind: 'never' } | { kind: 'paused' }
 
 /** the day of a turn's window ("Nov 6", "11월 6일"): turnWhen gives it as that date's UTC midnight */
 export const turnDate = (d: Date, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(d)
@@ -50,6 +51,7 @@ export const turnDate = (d: Date, locale: Locale) => new Intl.DateTimeFormat(int
  * the window that turn falls in, when it is later than the next run of the update window (else the usual words hold),
  * or never (the release does not install by itself here; "update now" does). null: nothing to say. */
 export function officeTurn(s: OfficeUpdateStatus, teamZone?: string | null, now = new Date()): OfficeTurn | null {
+  if (s.available?.paused) return { kind: 'paused' }
   const turnAt = s.available?.turnAt
   if (turnAt === undefined) return null
   if (turnAt === null) return { kind: 'never' }

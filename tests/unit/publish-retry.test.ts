@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { OFFICE_PRODUCT, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
-import { DEFAULT_RAMP } from '../../server/src/system/rollout'
+import { DEFAULT_RAMP, holdRollout } from '../../server/src/system/rollout'
 import { BUCKET, CfError, Cloudflare, listReport, openBucket, type Bucket } from '../../scripts/release/cloudflare'
 import { cloudflareStore } from '../../scripts/release/publish-server'
 import { alreadyPublished, keepRolloutOf, officeRelease, publishToFeed, type Artifact } from '../../scripts/release/publish'
@@ -475,6 +475,20 @@ describe('publish.ts: the channel head and the kept manifest', () => {
     const own = verifyRelease(feed.bucket.get('office/stable.json')!.toString('utf8'), { keys: OFFICE_KEYS, channel: 'stable', feed: ORIGIN }).rollout
     expect(own?.salt).toBe('cc')
     expect(own?.since).toBeUndefined()
+  })
+
+  test('a held office head (hosting.ts hold) stays held when the same version is published again', async () => {
+    const prev = officeBuild('0.2.20', 'stable')
+    const r0: OfficeRelease = { ...prev.release, publishedAt: '2026-11-04T01:00:00.000Z', rollout: { percent: 100, salt: 'aa', ramp: [...DEFAULT_RAMP] } }
+    const s0 = signRelease(r0, OFFICE_PEM)
+    const held = signRelease({ ...r0, rollout: holdRollout(r0.rollout, new Date('2026-11-05T01:00:00.000Z'), 'bad') }, OFFICE_PEM)
+    const feed = memoryFeed({ 'office/stable.json': held, 'office/0.2.20/stable.json': s0, [prev.arts[0]!.key]: prev.body })
+    const lines: string[] = []
+    expect(await publishToFeed({ feed: feed.origin, release: r0, signed: s0, arts: prev.arts, ifNewer: false, dryRun: false, keys: OFFICE_KEYS,
+      bucket: feed.the, fetch: feed.fetch, retry: quiet(), log: (l) => lines.push(l), resign: (r) => signRelease(r, OFFICE_PEM) })).toBe('head-stays')
+    expect(feed.bucket.get('office/stable.json')!.toString('utf8')).toBe(held)
+    expect(feed.puts).not.toContain('office/stable.json')
+    expect(lines.some((l) => l.startsWith('office/stable.json holds 0.2.20 (paused since 2026-11-05T01:00:00.000Z): left as it is'))).toBe(true)
   })
 
   test('the manifest of a stable release has the staged roll-out; Rollout: all and beta releases have none', () => {

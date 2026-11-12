@@ -19,6 +19,7 @@ import { signLinuxBuild } from '../../scripts/release/release-ci'
 import type { Bucket } from '../../scripts/release/cloudflare'
 import { cloudflareStore, dirStore, publishServer, rootSinceOf, type LinuxArch, type PublishServerOptions } from '../../scripts/release/publish-server'
 import { CONFIRM_READS, publicKeyOfPem } from '../../scripts/release/sign'
+import { holdRelease } from '../../scripts/release/hold'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-server-'))
@@ -205,6 +206,30 @@ describe('publish-server', () => {
     await publishServer(opts(b032, feed, { version: '0.3.2', channel: 'stable', now: () => new Date(t0 + 50 * 3_600_000) }))
     expect(rel('0.3.2').rollout?.since).toBeUndefined()
     expect(rel('0.3.2').rollout?.salt).not.toBe(rel('0.3.0').rollout!.salt)
+  })
+
+  test('a held head (hosting.ts hold) stays held when the same version is published again; a newer version replaces it', async () => {
+    const feed = path.join(T, 'feed-held')
+    const t0 = Date.parse('2026-11-04T01:00:00.000Z')
+    await publishServer(opts(b030, feed, { channel: 'stable', now: () => new Date(t0) }))
+    const hold = await holdRelease({ action: 'hold', channel: 'stable', reason: 'bad', feed: FEED, keys: [PUB], pem: PEM, store: dirStore(feed, FEED), now: () => new Date(t0 + 30 * 3_600_000), log: () => {} })
+    expect(hold.status).toBe('held')
+    const held = fs.readFileSync(path.join(feed, 'server', 'stable.json'))
+    // "Re-run failed jobs" of the held release: everything is there, the head is left held
+    const lines: string[] = []
+    const again = await publishServer(opts(b030, feed, { channel: 'stable', log: (s) => lines.push(s) }))
+    expect(again).toMatchObject({ status: 'unchanged', uploaded: [] })
+    expect(lines.some((l) => l.startsWith('server/stable.json holds 0.3.0 (paused since 2026-11-05T07:00:00.000Z): left as it is'))).toBe(true)
+    expect(fs.readFileSync(path.join(feed, 'server', 'stable.json')).equals(held)).toBe(true)
+    expect(ReleaseFeed.parse(JSON.parse(held.toString())).rollout?.hold?.reason).toBe('bad')
+    // the fix: a newer version replaces the held head with its own ramp (nothing inherited from the held one)
+    const b031 = await signedBuilds('b031-held', '0.3.1')
+    expect((await publishServer(opts(b031, feed, { version: '0.3.1', channel: 'stable', now: () => new Date(t0 + 31 * 3_600_000) }))).status).toBe('published')
+    const head = ReleaseFeed.parse(JSON.parse(read(path.join(feed, 'server', 'stable.json'))))
+    expect(head.version).toBe('0.3.1')
+    expect(head.rollout?.hold).toBeUndefined()
+    expect(head.rollout?.since).toBeUndefined()
+    expect(head.rollout?.ramp).toEqual([...DEFAULT_RAMP])
   })
 
   test('a re-run of a release first published without the ramp says so when the ramp is asked for', async () => {

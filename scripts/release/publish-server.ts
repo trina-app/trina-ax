@@ -420,7 +420,10 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
       if (seen === 'different') throw new Error(`${u.key} is already published with other content: publish a new version instead`)
     }
     const headKey = releaseChannelPath(o.channel)
-    const headDone = !!head && same(head.bytes, rel) && !!head.sig && utf8(head.sig) === relSig
+    // a held head of this version (scripts/release/hold.ts) stays held: a re-run must not lift the hold by itself
+    const held = !!head && head.feed.version === o.version && !!head.feed.rollout?.hold && !same(head.bytes, rel)
+    if (held) log(`${headKey} holds ${o.version} (paused since ${head!.feed.rollout!.hold!.at}): left as it is; \`bun scripts/release/hosting.ts resume ${o.channel}\` gives the roll-out back`)
+    const headDone = held || (!!head && same(head.bytes, rel) && !!head.sig && utf8(head.sig) === relSig)
     if (headDone && !todo.length) {
       log(`${o.channel} is already at ${o.version} with these files`)
       if (!o.dryRun) await verifyFeed({ feed, channel: o.channel, version: o.version, keys: o.keys, fetch: o.store.fetch, builds, retry: o.retry })
