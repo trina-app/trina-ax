@@ -1012,7 +1012,6 @@ export const ja: Record<MessageKey, string> = {
   'projects.open': "開く",
   'projects.items': "{n, plural, one {#個の項目} other {#個の項目}}",
   'projects.itemsMore': "{n}個以上の項目",
-  'projects.lastChat': "最後のチャット {when}",
   'projects.missing': "このプロジェクトが見つからないか、アクセス権がありません。",
   'projects.deleteTitle': "プロジェクト\"{name}\"を削除しますか？",
   'projects.deleteBody': "プロジェクトのみ削除されます。フォルダーとチャットは残ります。",

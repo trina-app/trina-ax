@@ -222,12 +222,10 @@ test.describe('TC-254: project screens on a phone', () => {
     await expect(page.getByTestId('project-new')).toHaveCount(1)
     await shot(page, 'projects')
     await audit(page, 'Projects (phone)')
-    // a row, not a card (QA TC-380): its ··· is not on a touch screen; a long press opens the same menu as a sheet
-    // (phone-member-pages.cases.ts)
+    // a row, not a card (QA TC-380, phone-member-pages.cases.ts); its ···: 44 px
     const launchRow = page.getByTestId('project-row').filter({ hasText: 'Launch' })
-    await expect(launchRow).toBeVisible()
     await expect(page.getByTestId('project-card')).toHaveCount(0)
-    await expect(page.getByTestId('project-card-menu')).toBeHidden()
+    expect((await launchRow.getByTestId('project-card-menu').boundingBox())!).toMatchObject({ width: 44, height: 44 })
     // "+" opens the form: 44 px radio rows, no resize grip
     await plus.click()
     const dialog = page.getByRole('dialog')

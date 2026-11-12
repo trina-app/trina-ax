@@ -1036,7 +1036,6 @@ export const ko = {
   'projects.open': '열기',
   'projects.items': '{n}개 항목',
   'projects.itemsMore': '{n}개 이상',
-  'projects.lastChat': '마지막 채팅 {when}',
   'projects.missing': '프로젝트를 찾을 수 없거나 볼 권한이 없어요.',
   'projects.deleteTitle': '"{name}" 프로젝트를 삭제할까요?',
   'projects.deleteBody': '프로젝트만 지워지고 폴더와 기록은 그대로 남아요.',

@@ -33,8 +33,7 @@
 // was deleted for good) and 완전히 삭제, and has no name menu there.
 // Phones (below 768 px; QA TC-254, TC-380): the list has "+" in the top bar (components/phone/PhoneBarAction.tsx) and no
 // intro or button in the page, and is a phone list (components/phone/PhoneList.tsx), not cards: one row per project with
-// its name, who sees it and when its last chat was, and a chevron; a long press on a row opens the card's menu as a sheet
-// (as the Chats list's rows do). A project's page has one bar, "‹ 프로젝트 · name · ···" (the name in the bar's title,
+// its name, who sees it, the card's "···" (44 px; a long press opens it too) and a chevron. A project's page has one bar, "‹ 프로젝트 · name · ···" (the name in the bar's title,
 // the name's menu as the bar's "···" sheet; the big name for screen readers only); its files line is one row that opens
 // the project's files on a screen of the 트리나 tab (ProjectFiles below, /projects/:id/files, with no folder path line),
 // so Back returns to the project.
@@ -197,18 +196,24 @@ function useRenameProject() {
 }
 
 /** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
- * it shows on hover and keyboard focus, on a touch screen always. A phone's row (`row`: useRowMenu's signals) opens it
- * with a long press, and its "…" shows over the row's end only where a mouse points, as the Chats list's rows have it. */
+ * it shows on hover and keyboard focus, on a touch screen always. A phone's row (`row`: useRowMenu's signals) has it
+ * always, 44 px, before the chevron (as the AI chat rows in ☰ have theirs), and a long press opens it too. */
 function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void; row?: { openSignal: number; openRequest: number } }) {
   const t = useT()
   const phone = useMediaQuery(PHONE)
   const { copy } = useCopy()
   const remove = useDeleteProject()
   const renameProject = useRenameProject()
-  // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there
+  // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there; a "…" not on
+  // screen (none should be) gives the keyboard to its row's link instead of losing it
   const more = useRef<HTMLButtonElement>(null)
+  const focusBack = () => {
+    const b = more.current
+    if (b && b.offsetParent !== null) b.focus()
+    else b?.closest('li')?.querySelector<HTMLElement>('[data-row-focus]')?.focus()
+  }
   const select = (fn: () => unknown) => () => {
-    more.current?.focus()
+    focusBack()
     void fn()
   }
   const rename = async () => {
@@ -232,10 +237,11 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
         tip={t('rooms.menu.label')}
         items={items}
         sheetTitle={p.name}
-        // over the row's chevron, in the row's hover colour; a touch screen has the long press instead
-        className="absolute inset-y-0 right-2 flex items-center"
-        buttonClassName="bg-hover opacity-0 pointer-coarse:hidden group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
+        // in the room the row keeps for it before its chevron (phone/PhoneList.tsx): 44 px from the screen's edge
+        className="absolute inset-y-0 right-11 flex items-center"
+        buttonClassName="size-11 hover:bg-surface"
         buttonRef={more}
+        focusBack={focusBack}
         openSignal={row.openSignal}
         openRequest={row.openRequest}
         testId="project-card-menu"
@@ -292,27 +298,14 @@ function ProjectCardLines({ project: p }: { project: Project }) {
   )
 }
 
-/** When each project's newest chat changed, from the chats the app already holds (the AI's history: my chats and the
- * shared ones I wrote in, newest first): a phone's row says it. None for a project whose chats are not among them. */
-function useLastChats(): Map<string, string> {
-  const chats = useChats((s) => s.chats)
-  return useMemo(() => {
-    const last = new Map<string, string>()
-    for (const c of chats) if (c.projectId && !c.deletedAt && (last.get(c.projectId) ?? '') < c.updatedAt) last.set(c.projectId, c.updatedAt)
-    return last
-  }, [chats])
-}
-
 /** A project on a phone's list (QA TC-380): a row like Settings' (components/phone/PhoneList.tsx) with its name (a lock
- * after it when I may not see its contents), who sees it in its 멤버 line's words ("in the trash" while it is) and when
- * its last chat was, and a chevron; a long press opens the card's menu as a sheet. No instructions here (the page has
- * them). */
-function ProjectRow({ project: p, lastChat, onRenamed, onDeleted, onMembers }: { project: Project; lastChat?: string; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }) {
+ * after it when I may not see its contents), who sees it in its 멤버 line's words ("in the trash" while it is), the
+ * card's "···" (44 px; a long press opens it too) and a chevron. No instructions here (the page has them), and no
+ * time: the project has no last-activity field, and the chats this app holds are only mine, so a time would mislead. */
+function ProjectRow({ project: p, onRenamed, onDeleted, onMembers }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }) {
   const t = useT()
-  const locale = useLocale()
   const menu = useRowMenu()
   const who = whoSeesProject(t, p, 'projects.whoMembers')
-  const lines = [who, p.inTrash ? t('chat.project.inTrash') : null, lastChat ? t('projects.lastChat', { when: formatRelative(lastChat, locale) }) : null].filter(Boolean)
   return (
     <PhoneListRow
       icon={<FolderKanban size={16} className="text-accent-text" />}
@@ -329,7 +322,13 @@ function ProjectRow({ project: p, lastChat, onRenamed, onDeleted, onMembers }: {
               </>
             )}
           </span>
-          {lines.length > 0 && <span className="block truncate text-xs text-faint" data-testid="project-row-sub">{lines.join(' · ')}</span>}
+          {/* the card's words and their test ids (ProjectCardLines) */}
+          {(who || p.inTrash) && (
+            <span className="block truncate text-xs text-faint" data-testid="project-row-sub">
+              <span data-testid="project-card-who">{who}</span>
+              {p.inTrash && <span data-testid="project-card-state">{who ? ' · ' : ''}{t('chat.project.inTrash')}</span>}
+            </span>
+          )}
         </span>
       }
       menu={{ row: menu.row, guard: menu.guard, node: <ProjectCardMenu project={p} onRenamed={onRenamed} onDeleted={onDeleted} onMembers={onMembers} row={menu} /> }}
@@ -371,7 +370,6 @@ export function ProjectList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const phone = useMediaQuery(PHONE)
-  const lastChats = useLastChats()
   const renamed = (r: Project) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
   const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
     // in the trash: the card stays, saying so
@@ -416,7 +414,7 @@ export function ProjectList() {
           )}
           {!!items?.length && (
             <PhoneListGroup>
-              {items.map((p, i) => <ProjectRow key={p.id} project={p} lastChat={lastChats.get(p.id)} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />)}
+              {items.map((p, i) => <ProjectRow key={p.id} project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />)}
             </PhoneListGroup>
           )}
         </div>

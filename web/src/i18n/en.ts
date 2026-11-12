@@ -1037,7 +1037,6 @@ export const en: Record<MessageKey, string> = {
   'projects.open': 'Open',
   'projects.items': '{n, plural, one {# item} other {# items}}',
   'projects.itemsMore': '{n}+ items',
-  'projects.lastChat': 'Last chat {when}',
   'projects.missing': "This project can't be found, or you don't have access to it.",
   'projects.deleteTitle': 'Delete the project "{name}"?',
   'projects.deleteBody': 'Only the project is deleted; its folder and chats stay.',

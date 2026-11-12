@@ -30,9 +30,10 @@ const chevronIcon = <ChevronRight size={16} className="shrink-0 text-faint" aria
  * something needs a look ("2 to fix"). `wrap`: the name may take two lines (a "needs attention" sentence). `below`:
  * buttons under the name (an attention row that can be acted on here). `end`: a control in place of the chevron.
  * `menu`: a row that opens a page and has a menu of its own (components/rooms/RoomMenu.tsx useRowMenu): `row` on the
- * row (a long press or a right-click opens the menu, a sheet on a phone), `guard` on its link (the finger lifting after
- * a long press opens no page), `node` the menu with its button over the row's end where a mouse points. Its link is
- * where the keyboard goes after a row above it was removed (admin/common.tsx useFocusAfterRemove). */
+ * row (a long press or a right-click opens the menu too, a sheet on a phone), `guard` on its link (the finger lifting
+ * after a long press opens no page), `node` the menu with its 44 px "···", always shown, just before the chevron (the
+ * row keeps that room free). `testId` is then the whole row's (the link and its "···"). Its link is where the keyboard
+ * goes after a row above it was removed (admin/common.tsx useFocusAfterRemove). */
 export function PhoneListRow({ icon, title, value, badge, to, state, onClick, chevron, wrap, below, end, testId, disabled, ariaLabel, expanded, menu }: {
   icon?: ReactNode
   title: ReactNode
@@ -58,6 +59,8 @@ export function PhoneListRow({ icon, title, value, badge, to, state, onClick, ch
     <span className="flex min-h-12 min-w-0 flex-1 items-center gap-3 border-t border-line py-2.5 pr-4 group-first/row:border-t-0">
       <span className={clsx('min-w-0 flex-1', wrap ? 'line-clamp-2' : 'truncate')}>{title}</span>
       {shown}
+      {/* the room of the row's "···" (`menu`: it sits over this, outside the link) */}
+      {menu && <span className="w-11 shrink-0" aria-hidden />}
       {mark}
     </span>
   )
@@ -79,9 +82,9 @@ export function PhoneListRow({ icon, title, value, badge, to, state, onClick, ch
   }
   if (to && menu)
     return (
-      <li className="group/row relative" {...menu.row}>
+      <li className="group/row relative" {...menu.row} data-testid={testId}>
         {/* no text selection or the phone's own link menu under a long press; marked while its menu is open */}
-        <Link to={to} state={state} onClick={menu.guard} className={clsx(rowCls, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]/row:bg-hover')} aria-label={ariaLabel} data-testid={testId} data-row-focus>{iconCell}{content}</Link>
+        <Link to={to} state={state} onClick={menu.guard} className={clsx(rowCls, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]/row:bg-hover')} aria-label={ariaLabel} data-row-focus>{iconCell}{content}</Link>
         {menu.node}
       </li>
     )

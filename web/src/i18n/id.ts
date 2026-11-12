@@ -1037,7 +1037,6 @@ export const id: Record<MessageKey, string> = {
   'projects.open': 'Buka',
   'projects.items': '{n} item',
   'projects.itemsMore': '{n}+ item',
-  'projects.lastChat': 'Chat terakhir {when}',
   'projects.missing': 'Proyek tidak ditemukan atau kamu tidak punya akses.',
   'projects.deleteTitle': 'Hapus proyek "{name}"?',
   'projects.deleteBody': 'Hanya proyeknya yang dihapus; folder dan chat tetap ada.',

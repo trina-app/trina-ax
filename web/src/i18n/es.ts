@@ -1012,7 +1012,6 @@ export const es: Record<MessageKey, string> = {
   'projects.open': "Abrir",
   'projects.items': "{n, plural, one {# elemento} other {# elementos}}",
   'projects.itemsMore': "{n}+ elementos",
-  'projects.lastChat': "Último chat {when}",
   'projects.missing': "No se encuentra este proyecto o no tiene acceso a él.",
   'projects.deleteTitle': "¿Eliminar el proyecto \"{name}\"?",
   'projects.deleteBody': "Solo se elimina el proyecto; su carpeta y sus chats se conservan.",

@@ -161,10 +161,12 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     // Bob's project, with a file and a chat of the owner from before (her own chats stay hers)
     const made = await page.request.post('/__test/project', { data: { name: 'Falcon', by: 'bob', instructions: '# Falcon\n\nContracts only.', files: { 'plan.md': 'plan' }, chats: [['olga', 'My old notes']] } })
     const { id } = (await made.json()) as { id: string }
-    // the list: her card, no "not a member" tag
+    // the list: her card (a phone's row, QA TC-380), no "not a member" tag
     await page.goto('/projects')
-    await expect(page.getByTestId('project-card').filter({ hasText: 'Falcon' })).toBeVisible()
-    await page.getByTestId('project-card').filter({ hasText: 'Falcon' }).getByRole('link').click()
+    const item = page.getByTestId(/^project-(card|row)$/).filter({ hasText: 'Falcon' })
+    await expect(item).toBeVisible()
+    await expect(item).not.toContainText('멤버가 아니')
+    await item.getByRole('link').click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
     const block = page.getByTestId('project-members-only')
     await expect(block).toContainText('멤버만 이 프로젝트를 열 수 있어요. 나를 멤버로 추가하면 파일을 볼 수 있어요.')

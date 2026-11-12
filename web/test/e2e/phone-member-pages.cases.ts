@@ -1,8 +1,9 @@
 // Member screens on a phone (390×844, touch), the QA rows' steps as they say them
 // (docs/AGENTS/plan/20261112-0412-phone-projects-profile.md):
-// - TC-380: "Trina ☰ › Projects" → one row per project (its name, who sees it, its last chat, ›), no bordered card with
-//   "No instructions."; "A project › Files" → no raw path line ("projects/QA 프로젝트"). A long press on a row opens its
-//   menu as a sheet (the card's "···" before).
+// - TC-380: "Trina ☰ › Projects" → one row per project (its name, who sees it, ›), no bordered card with "No
+//   instructions."; "A project › Files" → no raw path line ("projects/QA 프로젝트"). The row keeps the card's "···" (44 px,
+//   always shown, before ›), and a long press opens the same menu as a sheet. No last-chat time: the project has no such
+//   field and the chats the app holds are only mine.
 // - TC-381 (Settings part): "Me › Security & devices › Other devices" and "› Change password" → ‹ names the page it
 //   returns to ("Security & devices" / "보안·기기"). Both pages pass that name; the bar shows it whole where it fits
 //   beside the centred title (Korean), and "Security & devices" in English once the bar moves the title over instead
@@ -87,7 +88,7 @@ async function backNamed(page: Page, name: string, fits: boolean) {
 export function memberPageCases() {
   test.use(PHONE)
 
-  test('TC-380: ☰ › Projects is one row per project (name, who sees it, last chat, ›), no card or "No instructions."; a long press opens its menu', async ({ page }) => {
+  test('TC-380: ☰ › Projects is one row per project (name, who sees it, ···, ›), no card or "No instructions."; ··· and a long press open its menu', async ({ page }) => {
     await reset(page, { teamLocale: 'en', usersFollowTeam: true })
     await signIn(page)
     const { qa, launch } = await twoProjects(page)
@@ -104,19 +105,34 @@ export function memberPageCases() {
     await expect(page.getByText(en['projects.noInstructions'])).toHaveCount(0)
     await expect(page.getByText('Answer in short bullet points.')).toHaveCount(0)
     const row = rows.filter({ hasText: 'QA 프로젝트' })
-    // its name, who sees it and its last chat on the line under it, and a chevron
-    await expect(row.getByTestId('project-row-sub')).toHaveText(/^.+ · Last chat .+$/)
-    await expect(row.locator('svg.lucide-chevron-right')).toBeVisible()
-    await expect(rows.filter({ hasText: 'Launch' }).getByTestId('project-row-sub')).not.toContainText('Last chat')
+    // its name, who sees it on the line under it (no folder path, no time), and a chevron
+    await expect(row.getByTestId('project-card-who')).not.toHaveText('')
+    await expect(row.getByTestId('project-row-sub')).not.toContainText('projects/')
+    const chevron = row.locator('svg.lucide-chevron-right')
+    await expect(chevron).toBeVisible()
+    // the card's "···": shown on a touch screen, 44 px, just before the chevron, named after the project
+    const more = row.getByTestId('project-card-menu')
+    await expect(more).toBeVisible()
+    await expect(more).toHaveCSS('opacity', '1')
+    expect(await box(more)).toMatchObject({ width: 44, height: 44 })
+    expect((await box(more)).x + 44).toBeLessThanOrEqual((await box(chevron)).x)
+    await expect(more).toHaveAccessibleName(en['rooms.menu.rowLabel'].replace('{name}', 'QA 프로젝트'))
     // a row from edge to edge, at least 48 px tall, with no frame of its own (the list's hairlines)
     const b = await box(row)
     expect(b.x).toBeLessThanOrEqual(1)
     expect(b.x + b.width).toBeGreaterThanOrEqual(389)
     expect(Math.round(b.height)).toBeGreaterThanOrEqual(48)
     expect(await row.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('0px')
-    // the "···" is not on a touch screen's row: a long press opens the same menu as a sheet
-    await longPress(page, row)
+    // a tap on "···" opens its sheet; Back closes it, still on the list
+    await more.click()
     const sheet = page.getByRole('menu')
+    await expect(sheet.getByTestId('menu-sheet-title')).toHaveText('QA 프로젝트')
+    await page.goBack()
+    await expect(sheet).toHaveCount(0)
+    await expect(page).toHaveURL(/\/projects$/)
+    // a long press opens the same menu as a sheet
+    await page.waitForTimeout(400)
+    await longPress(page, row)
     await expect(sheet.getByTestId('menu-sheet-title')).toHaveText('QA 프로젝트')
     await expect(sheet.getByTestId('project-card-rename')).toBeVisible()
     await expect(sheet.getByTestId('project-card-copy-link')).toBeVisible()

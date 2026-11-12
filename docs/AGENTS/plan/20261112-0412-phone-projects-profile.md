@@ -14,8 +14,8 @@ The owner, testing the iPhone app: "아직도 우리 모바일 화면이 많이 
 많은데". Member screens still look like a shrunk desktop page. QA rows:
 
 1. TC-380: ☰ › Projects shows bordered cards with "No instructions."; a project's Files shows the raw folder path
-   ("projects/QA 프로젝트"). Phones get one row per project (name, who sees it, when its last chat was, ›) and no path
-   line on the project's files.
+   ("projects/QA 프로젝트"). Phones get one row per project (name, who sees it, ···, ›) and no path line on the project's
+   files.
 2. TC-381 (Settings part): Me › Security & devices › Other devices and › Change password show ‹ without its name in
    English ("Security & devices" does not fit beside the centred title, so the bar hides it). ‹ names the page it
    returns to. Admin's pages are another session's.
@@ -27,8 +27,9 @@ The owner, testing the iPhone app: "아직도 우리 모바일 화면이 많이 
 ## Scope
 
 In:
-- `Projects.tsx` list on a phone: a phone list (components/phone/PhoneList.tsx) of rows; a long press on a row opens
-  its menu as a sheet (rename, members, copy link, delete), as the Chats list does; the "+" stays in the bar.
+- `Projects.tsx` list on a phone: a phone list (components/phone/PhoneList.tsx) of rows; each row keeps the card's
+  "···" (44 px, always shown, as the AI chat rows in ☰ have it) and a long press opens it too (rename, members, copy
+  link, delete); the "+" stays in the bar.
 - `Projects.tsx` ProjectFiles: no path line.
 - Settings › Profile on a phone: the photo block, the fields as rows, Save in the bar (SettingsBar.tsx), username and
   role as list rows. Save stays one button that appears after a change and saves name, title, photo and email.
@@ -41,7 +42,8 @@ In:
 - Strings in 5 locales, phone e2e (Chromium + WebKit), 1440 screenshots before/after, changes fragment.
 
 Out: Admin pages (another session), `pages/Connectors.tsx`, the desktop layouts, the profile's save model, server
-changes (the list's last-chat time comes from the chats the app already holds).
+changes. No last-chat time or file count on a row: the Project API has no such field, and the chats the app holds are
+only the caller's own (a time from them would mislead on a team project).
 
 ## Steps
 
@@ -64,8 +66,10 @@ phone e2e (Chromium and WebKit) and the phone specs that cover these screens.
 ## Result
 
 PR #566 (replaces #562, which had #560 merged in). Built as planned:
-- Projects on a phone: PhoneList rows (name, who sees it, "Last chat …" from the chats the app holds, ›); the menu by a
-  long press; `PhoneListRow` got one optional `menu` prop. A project's Files: no path line.
+- Projects on a phone: PhoneList rows (name, who sees it, a 44 px "···" always shown, ›; a long press opens the menu
+  too); `PhoneListRow` got one optional `menu` prop. A project's Files: no path line. Review (#566): the "Last chat"
+  time was dropped (no project field for it; my own chats only would mislead), the "···" made visible on phones, and
+  the list's e2e (project-list-menu, project-page, sticky-headers) ported to the rows.
 - Profile on a phone: centred photo (picker, or a sheet with change/remove when there is one), name/title/email as rows
   of one group, username/role as list rows, Save in the bar submitting the same form (`form` attribute; Enter still
   saves). Change password: full-width button.
