@@ -4289,7 +4289,7 @@ export const id: Record<MessageKey, string> = {
   "slack.signin.cancelled": "Masuk ke Slack tidak diselesaikan.",
   "slack.signin.outsider": "Itu bukan akun Slack di workspace ini. Masuklah ke workspace yang dipakai tim Anda.",
   "slack.signin.taken": "Akun Slack ini sudah tertaut ke akun orang lain.",
-  "slack.signin.off": "\"Masuk dengan Slack\" tidak bisa dipakai sekarang. Minta pemilik tim memeriksa Admin › Slack.",
+  "slack.signin.off": "\"Masuk dengan Slack\" tidak bisa dipakai sekarang. Minta pemilik tim memeriksa Admin › Aplikasi terhubung › Slack.",
   "slack.signin.failed": "Tidak bisa menautkan lewat masuk Slack. Coba lagi sebentar lagi.",
   "slack.mine.signInHow": "Masuk dengan akun Slack Anda di {workspace} untuk menautkannya.",
   "slack.link.useSignIn": "Masuk dengan Slack di bawah untuk menautkannya.",

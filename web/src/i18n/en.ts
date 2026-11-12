@@ -4289,7 +4289,7 @@ export const en: Record<MessageKey, string> = {
   "slack.signin.cancelled": "The Slack sign-in was not finished.",
   "slack.signin.outsider": "That is not a Slack account of this workspace. Sign in to the workspace your team uses.",
   "slack.signin.taken": "This Slack account is already linked to someone else's account.",
-  "slack.signin.off": "\"Sign in with Slack\" cannot be used now. Ask your team owner to check Admin › Slack.",
+  "slack.signin.off": "\"Sign in with Slack\" cannot be used now. Ask your team owner to check Admin › Connected apps › Slack.",
   "slack.signin.failed": "Could not link with the Slack sign-in. Try again in a moment.",
   "slack.mine.signInHow": "Sign in with your Slack account of {workspace} to link it.",
   "slack.link.useSignIn": "Sign in with Slack below to link it.",

@@ -18,14 +18,15 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | Group | Pages |
 |---|---|
 | **People** | Members & invites, Groups, Folder permissions |
-| **Connections** | Providers, MCP, App connectors, AI apps, Plugins, [Slack](slack.md) (the owner only) |
+| **Connections** | Providers, Connected apps (MCP services, Google apps and, for the owner only, [Slack](slack.md)), AI apps, Plugins |
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
 **Providers** page now, and the old addresses open it. The team's AI settings (defaults, who picks the engine, members'
-own accounts, usage limits) are in **Team settings**.
+own accounts, usage limits) are in **Team settings**. **Slack** had its own menu item too; it is one row of
+**Connected apps** now, and its old address opens it there.
 :::
 
 ## Your first week

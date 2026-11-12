@@ -4288,7 +4288,7 @@ export const ko = {
   "slack.signin.cancelled": "Slack 로그인을 끝내지 않았어요.",
   "slack.signin.outsider": "이 워크스페이스의 Slack 계정이 아니에요. 팀이 쓰는 워크스페이스로 로그인해 주세요.",
   "slack.signin.taken": "이 Slack 계정은 이미 다른 사람의 계정과 연결되어 있어요.",
-  "slack.signin.off": "지금은 Slack으로 로그인해서 연결할 수 없어요. 팀장에게 관리자 › Slack을 확인해 달라고 하세요.",
+  "slack.signin.off": "지금은 Slack으로 로그인해서 연결할 수 없어요. 팀장에게 관리자 › 연결한 서비스 › Slack을 확인해 달라고 하세요.",
   "slack.signin.failed": "Slack 로그인으로 연결하지 못했어요. 잠시 뒤 다시 해 주세요.",
   "slack.mine.signInHow": "{workspace}의 Slack 계정으로 로그인하면 연결돼요.",
   "slack.link.useSignIn": "아래에서 Slack으로 로그인하면 연결할 수 있어요.",

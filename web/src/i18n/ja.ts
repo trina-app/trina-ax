@@ -4245,7 +4245,7 @@ export const ja: Record<MessageKey, string> = {
   "slack.signin.cancelled": "Slackのサインインが完了しませんでした。",
   "slack.signin.outsider": "このワークスペースのSlackアカウントではありません。チームが使うワークスペースでサインインしてください。",
   "slack.signin.taken": "このSlackアカウントはすでに別の人のアカウントと連携しています。",
-  "slack.signin.off": "現在「Slackでサインイン」は使えません。チームのオーナーに管理 › Slackを確認してもらってください。",
+  "slack.signin.off": "現在「Slackでサインイン」は使えません。チームのオーナーに管理 › 連携サービス › Slackを確認してもらってください。",
   "slack.signin.failed": "Slackのサインインで連携できませんでした。しばらくしてからもう一度お試しください。",
   "slack.mine.signInHow": "{workspace}のSlackアカウントでサインインすると連携されます。",
   "slack.link.useSignIn": "下の「Slackでサインイン」で連携できます。",
