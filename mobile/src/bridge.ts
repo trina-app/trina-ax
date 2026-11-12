@@ -111,17 +111,28 @@ export const loadStartFences = (o: { android: boolean; loading: boolean; sameUrl
  * injects a history shim that reports every pushState, replaceState and popstate of the page as a load end (with a
  * navigationType), and Android may end a step within the page too. Installing the bridge again for those gave the page
  * a new nonce and its mycel:mobile-ready, which cancelled whatever was on its way: on iOS the attach sheet's history
- * step during the photo picker dropped every pick (QA TC-251). So the app asks the page: a document with this bridge's
- * nonce says nothing (the same document, nothing to do); one without it (a new document) answers with
- * `{ mycelNewDocument: nonce }` (readNewDocument), and the app fences and installs the bridge there. */
-export function sameDocumentScript(nonce: string): string {
-  const n = JSON.stringify(nonce)
-  return `if(window.top===window.self&&!(window.mycelMobile&&window.mycelMobile.nonce===${n})&&window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify({mycelNewDocument:${n}}))}true;`
+ * step during the photo picker dropped every pick (QA TC-251). So the app asks the page about its document id, a
+ * random id that is not the nonce (documentScript, set with the bridge): the document with that id says nothing (the
+ * same document, nothing to do); any other (a new document) answers with `{ mycelNewDocument: id }` (readNewDocument),
+ * and the app fences and installs the bridge there. The question never carries the nonce: a new document that hooks
+ * postMessage or stays silent learns only the id, which opens nothing, and it cannot answer for the old bridge. */
+export const DOCUMENT_ID = /^[0-9a-f]{32}$/
+/** A new document id (16 random bytes as hex) for documentScript. */
+export const documentId = (random: Uint8Array) => Array.from(random.subarray(0, 16), b => b.toString(16).padStart(2, '0')).join('')
+/** Sets the document id on the page (with the bridge: App bootstrap). */
+export function documentScript(id: string): string {
+  if (!DOCUMENT_ID.test(id)) throw new Error('document_id')
+  return `Object.defineProperty(window,'mycelDocument',{value:'${id}',configurable:true});`
 }
-/** The page's answer to sameDocumentScript for `nonce`: a new document. Anything else: false. */
-export function readNewDocument(data: string, nonce: string): boolean {
-  if (data.length > 200 || !data.includes('mycelNewDocument')) return false
-  try { const v = JSON.parse(data) as { mycelNewDocument?: unknown }; return !!v && typeof v === 'object' && v.mycelNewDocument === nonce } catch { return false }
+/** The question for a load end: only a document without this id answers. No JSON.stringify of the page's is used. */
+export function sameDocumentScript(id: string): string {
+  if (!DOCUMENT_ID.test(id)) throw new Error('document_id')
+  return `if(window.top===window.self&&window.mycelDocument!=='${id}'&&window.ReactNativeWebView){window.ReactNativeWebView.postMessage('{"mycelNewDocument":"${id}"}')}true;`
+}
+/** The page's answer to sameDocumentScript for `id`: a new document. Anything else: false. */
+export function readNewDocument(data: string, id: string): boolean {
+  if (!DOCUMENT_ID.test(id) || data.length > 200 || !data.includes('mycelNewDocument')) return false
+  try { const v = JSON.parse(data) as { mycelNewDocument?: unknown }; return !!v && typeof v === 'object' && v.mycelNewDocument === id } catch { return false }
 }
 
 /** The script that hands a reply to the page. Delivered only if the document on screen still has the bridge the reply
