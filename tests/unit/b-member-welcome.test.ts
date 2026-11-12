@@ -164,7 +164,7 @@ describe('the join pages name the inviter', () => {
     const inv = await v.client.call('POST', '/api/admin/invites', {})
     const answers = [
       [['expiresAt', 'inviterName', 'problem', 'skillName', 'skillTitle', 'teamName', 'valid'], (await linkInfo(tokenOf(link.url))).body],
-      [['expiresAt', 'inviterName', 'role', 'teamName', 'valid'], (await inviteInfo(inv.token)).body],
+      [['expiresAt', 'full', 'inviterName', 'role', 'teamName', 'valid'], (await inviteInfo(inv.token)).body],
     ] as const
     for (const [keys, body] of answers) {
       expect(Object.keys(body).sort()).toEqual([...keys])

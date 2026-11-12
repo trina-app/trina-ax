@@ -17121,6 +17121,60 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
 
+## Getting back to earlier work, part A — 지난 작업으로 돌아가기 (feat/history-way-back-a, 2026-11-12, QA TC-419 to TC-423)
+
+넣을 곳: Team AX core (`web/src/components/SearchDialog.tsx`, `web/src/lib/sessionMarkers.ts`,
+`web/src/components/chat/ChatTitleMenu.tsx`, `web/src/pages/Chat.tsx`, `web/src/pages/Files.tsx`,
+`server/src/chat/version-chats.ts`, `server/src/routes/files.ts`, `shared/src/api`), 이유: chats, search and file history
+are core. Plan: `docs/AGENTS/plan/20261112-1621-history-way-back-a.md`. The owner (2026-11-12): getting back to earlier
+work is hard, the AI history is the only way back. Option A of the research is part of every option and is built first;
+the owner has not chosen between B and C. Nothing changes in the sidebar (rooms first, five latest plus pins, "Show
+all"; the list is never re-sorted by state: 2026-11-06/07).
+
+- **⌘K "Needs attention" = the sidebar's markers** (TC-419, a bug). It used its own rule ("is it running") and words
+  ("Answering now", "Waiting to answer"): a chat waiting for my answer said "Answering now" while the sidebar showed "?",
+  and a finished answer I had not seen was not there. Now its AI chats come from the sidebar's own list (the chat store;
+  ⌘K's own first page only until that list has loaded) with `markedChats` (`lib/sessionMarkers.ts`: `markerOf` with the
+  same view, so the chat on screen shows no dot and a card open in this window is "?"), each row with the sidebar's
+  `SessionMarker` at its right end and its words (`marker.*`, the AI's question itself while this window has its card,
+  never for a confidential chat; the hover peek's colours). Order: "?" first, then a new answer, then the ring, the latest
+  first in each; then scheduled tasks to confirm and broken connections, 5 rows in all as before. ⌘K's two labels are
+  gone from all five languages.
+- **History rows say when and where** (TC-420): on the History tab's list and in the History results of a search (on All
+  and on History), grey on the right, "2시간 전 · Launch plan": the chat's last activity (`updatedAt`, `formatRelative`, as
+  the project page's list and the sidebar's peek) and its project's name when it has one (the project is no longer
+  repeated after the title there). On a phone (below 768 px) that grey line goes under the title, so the title keeps the
+  row's width (at 390 px beside it, titles were cut to a few letters). Recents rows are unchanged.
+- **History from a project** (TC-421): opened on a project's page (its files too) or in a chat of a project, the History
+  tab lists that project's chats first (the project page's own list: `GET /api/chats?projectId=`, so my pins there and
+  its shared chats I see), then the rest of my list, each once. Anywhere else nothing changes and no project is read. A
+  chat in none of this window's lists is read once to learn its project; the list waits for that instead of moving under
+  the pointer. Search results keep their order. No new control.
+- **Pin from the chat's own title menu** (TC-422; "Pinned chats" said it was not built): "상단에 고정" / "고정 해제" is the
+  title menu's first item, the row menu's own words, icon and call (`useChatActions().togglePin`), for anyone who sees
+  the chat.
+- **"Open the chat" in a file's version history** (TC-423, security). A version (and the file as it is now) already knew
+  the AI turn of the save (`file_versions.saved_turn_id`, `file_events.turn_id`) and a turn knows its chat
+  (`turns.chat_id`): **no migration**. `GET /api/files/history` adds `savedChatId` to such a version and `chatId` to
+  `current`, each **only when the viewer may open that chat now** (`chat/version-chats.ts` `openableTurnChats`, one read
+  of the turns and one check per chat): `chatFor` 'view' (their own chat, or a shared project chat of a project they see
+  now), and not in the trash, not the server's own draft, not a room's AI, not confidential unless it is theirs (all chats
+  while safe operations are on), not an answer of a shared chat hidden from them (`AnswerSight`; no record or no answer
+  id: hidden from all but its runner), and **not in a project they do not see now, their own chat too** (stricter than
+  opening it: the link stays away from a project they lost; the chat still opens from History). Any failed check gives
+  nothing. Otherwise the answer is as before: no id, no title, nothing that says a chat exists beyond the "by AI" line
+  that was already there. The owner and admins get no more than anyone. A check that fails (a read of the turns, an
+  answer that cannot be judged) gives no link for that save and never fails the history (review). The screen shows "Open the chat" (기록 열기, a
+  link to `/c/:id`, underlined) after "saved during an AI answer" only when the id is there; it closes the dialog.
+- **Left out** (option A only): Home's "Continue" line, summaries, AI search of chats, any sidebar change, the ⌘K row
+  menu and Recents rows.
+- Tests: `tests/security/version-chat-link.test.ts` (every case above for all five people, the stored version and the
+  file as it is now, the id nowhere else in the answer, a link only where `GET /api/chats/:id` opens, and a failing
+  check),
+  `web/test/unit/search-way-back.test.tsx`, `session-markers.test.tsx` (`markedChats`), `chat-title-pin.test.tsx`; e2e
+  `session-markers.spec.ts`, `search-palette.spec.ts`, `chat-pins.spec.ts`, `files.spec.ts`.
+- Version impact: **minor** (two additive, optional fields on the file history answer).
+
 ## Onboarding v6 polish: the caret after a fill, plain copy, one name (fix/onb6-polish, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/components/chat/Composer.tsx`, `web/src/pages/Home.tsx`, `web/src/components/onboarding/`
@@ -23891,56 +23945,42 @@ Version impact: **patch** (no route, no migration).
   `web/test/unit/team-link.test.tsx`, `web/test/unit/onboarding-polish.test.tsx`, `web/test/e2e/team-link.spec.ts`;
   screenshots `web/test/e2e/shots-team-link-groups.spec.ts` (`TEAM_LINK_GROUPS_SHOTS`).
 
-## Getting back to earlier work, part A — 지난 작업으로 돌아가기 (feat/history-way-back-a, 2026-11-12, QA TC-419 to TC-423)
+## AI 답변 알림 — a push when an answer in my AI chat needs me (feat/push-ai-answer-done, 2026-11-12, QA TC-442)
 
-넣을 곳: Team AX core (`web/src/components/SearchDialog.tsx`, `web/src/lib/sessionMarkers.ts`,
-`web/src/components/chat/ChatTitleMenu.tsx`, `web/src/pages/Chat.tsx`, `web/src/pages/Files.tsx`,
-`server/src/chat/version-chats.ts`, `server/src/routes/files.ts`, `shared/src/api`), 이유: chats, search and file history
-are core. Plan: `docs/AGENTS/plan/20261112-1621-history-way-back-a.md`. The owner (2026-11-12): getting back to earlier
-work is hard, the AI history is the only way back. Option A of the research is part of every option and is built first;
-the owner has not chosen between B and C. Nothing changes in the sidebar (rooms first, five latest plus pins, "Show
-all"; the list is never re-sorted by state: 2026-11-06/07).
+넣을 곳: Team AX core (`server/src/notifications/`, `server/src/chat/turn.ts`, `shared/src/api/notifications.ts`,
+`web/pwa/sw.js`, Settings › Notifications, `push-gateway/src/text.ts`). Why: notifications and push are core.
 
-- **⌘K "Needs attention" = the sidebar's markers** (TC-419, a bug). It used its own rule ("is it running") and words
-  ("Answering now", "Waiting to answer"): a chat waiting for my answer said "Answering now" while the sidebar showed "?",
-  and a finished answer I had not seen was not there. Now its AI chats come from the sidebar's own list (the chat store;
-  ⌘K's own first page only until that list has loaded) with `markedChats` (`lib/sessionMarkers.ts`: `markerOf` with the
-  same view, so the chat on screen shows no dot and a card open in this window is "?"), each row with the sidebar's
-  `SessionMarker` at its right end and its words (`marker.*`, the AI's question itself while this window has its card,
-  never for a confidential chat; the hover peek's colours). Order: "?" first, then a new answer, then the ring, the latest
-  first in each; then scheduled tasks to confirm and broken connections, 5 rows in all as before. ⌘K's two labels are
-  gone from all five languages.
-- **History rows say when and where** (TC-420): on the History tab's list and in the History results of a search (on All
-  and on History), grey on the right, "2시간 전 · Launch plan": the chat's last activity (`updatedAt`, `formatRelative`, as
-  the project page's list and the sidebar's peek) and its project's name when it has one (the project is no longer
-  repeated after the title there). On a phone (below 768 px) that grey line goes under the title, so the title keeps the
-  row's width (at 390 px beside it, titles were cut to a few letters). Recents rows are unchanged.
-- **History from a project** (TC-421): opened on a project's page (its files too) or in a chat of a project, the History
-  tab lists that project's chats first (the project page's own list: `GET /api/chats?projectId=`, so my pins there and
-  its shared chats I see), then the rest of my list, each once. Anywhere else nothing changes and no project is read. A
-  chat in none of this window's lists is read once to learn its project; the list waits for that instead of moving under
-  the pointer. Search results keep their order. No new control.
-- **Pin from the chat's own title menu** (TC-422; "Pinned chats" said it was not built): "상단에 고정" / "고정 해제" is the
-  title menu's first item, the row menu's own words, icon and call (`useChatActions().togglePin`), for anyone who sees
-  the chat.
-- **"Open the chat" in a file's version history** (TC-423, security). A version (and the file as it is now) already knew
-  the AI turn of the save (`file_versions.saved_turn_id`, `file_events.turn_id`) and a turn knows its chat
-  (`turns.chat_id`): **no migration**. `GET /api/files/history` adds `savedChatId` to such a version and `chatId` to
-  `current`, each **only when the viewer may open that chat now** (`chat/version-chats.ts` `openableTurnChats`, one read
-  of the turns and one check per chat): `chatFor` 'view' (their own chat, or a shared project chat of a project they see
-  now), and not in the trash, not the server's own draft, not a room's AI, not confidential unless it is theirs (all chats
-  while safe operations are on), not an answer of a shared chat hidden from them (`AnswerSight`; no record or no answer
-  id: hidden from all but its runner), and **not in a project they do not see now, their own chat too** (stricter than
-  opening it: the link stays away from a project they lost; the chat still opens from History). Any failed check gives
-  nothing. Otherwise the answer is as before: no id, no title, nothing that says a chat exists beyond the "by AI" line
-  that was already there. The owner and admins get no more than anyone. A check that fails (a read of the turns, an
-  answer that cannot be judged) gives no link for that save and never fails the history (review). The screen shows "Open the chat" (기록 열기, a
-  link to `/c/:id`, underlined) after "saved during an AI answer" only when the id is there; it closes the dialog.
-- **Left out** (option A only): Home's "Continue" line, summaries, AI search of chats, any sidebar change, the ⌘K row
-  menu and Recents rows.
-- Tests: `tests/security/version-chat-link.test.ts` (every case above for all five people, the stored version and the
-  file as it is now, the id nowhere else in the answer, a link only where `GET /api/chats/:id` opens, and a failing
-  check),
-  `web/test/unit/search-way-back.test.tsx`, `session-markers.test.tsx` (`markedChats`), `chat-title-pin.test.tsx`; e2e
-  `session-markers.spec.ts`, `search-palette.spec.ts`, `chat-pins.spec.ts`, `files.spec.ts`.
-- Version impact: **minor** (two additive, optional fields on the file history answer).
+- **Problem.** Pushes reached the phone for DMs, mentions, room notices and scheduled tasks, but not when an answer in a
+  personal AI chat finished: someone who asks Trina something and puts the phone away never heard that it was there.
+- **One event, `chat.answer_done`.** The same states as the chat list's "needs you" (`shared/src/api/attention.ts`): the
+  answer finished (`done`), failed, or the AI waits for the person (a question or a yes/no card every window shows:
+  `waiting`). The notice keeps the kind (`chat_answer_notices`, migration 347, with `chat_answer_push_deliveries`); the
+  push and the lock screen say one generic line for all three ("Trina replied in your chat."), in the person's language.
+- **Who.** The person who asked that turn (`spec.userId`): in a shared project chat the asker, never its creator or the
+  other members. Never a scheduled run (schedule.* has its own), a question from Slack (answered there), a room's AI
+  (rooms have their own), an answer the person stopped or a server stop cut off, a turn the server started by itself (no client: skill drafts,
+  merges, file ranking). Not one of the server's own chats.
+- **Not while I look at it.** The server does not know which chat a window shows, but a visible window that has a chat
+  on screen marks its answer seen (POST /api/chats/:id/seen, "Session markers"). So the notice is made before the
+  chat's update goes out, and its push waits (`push_at`: 10 s; a card 30 s, since nothing marks a card seen) and goes
+  only while the answer is still unseen, or the card still open (asked again right before and after each send). A
+  shared chat keeps one seen mark, its creator's: for another asker the push goes regardless (coalesced as below).
+- **One push per answer, never per step.** The source is the turn (a card: `<turn>.ask`, one per turn however many
+  cards it opens). A finished answer of a chat whose earlier finished answer was told within 10 minutes, unread and not
+  seen since, makes none: a burst of answers is one push.
+- **Tap.** `/c/<chatId>` (the web's chat page; push-events.ts PATH rules, ids only) while the person may still open the
+  chat, else the start page (also a browser's click: the Inbox never lists these); the service worker opens the chat
+  from the signed-in fetch of the notice.
+- **Lock screen and label (TC-365).** The payload carries ids and the event code only. The iPhone's notification
+  extension acts on `room.*` only (the APNs payload is mutable for those alone), so these pushes show the gateway's
+  generic line and no chat title; no app build. The gateway gets the line in `EVENT_TEXT`; until it is deployed it shows
+  its generic `chat.*` text ("You have a new message"). The badge number is the same one count n as before.
+- **Setting.** Settings › Notifications › Tasks and connections: "AI chat answers" (`chatAnswers`, default on; column
+  `notification_preferences.chat_answers`). Off makes no notice and cancels deliveries that wait, as the other events.
+- **Not in the Inbox.** The chat list's markers already show these chats; the notices are neither listed nor counted
+  there (`LISTED` leaves the table out), only fetched by the push.
+- Left out: quiet hours (the person just asked), the chat's title on the lock screen (it would need the extension and
+  the gateway's mutable rule for `chat.*`).
+- Tests: `tests/unit/b-chat-answer-push.test.ts`, `web/test/unit/push-worker.test.ts`, `web/test/unit/room-notify.test.tsx`,
+  `tests/unit/push-gateway.test.ts`, `tests/unit/push-locale.test.ts`.
+- Version impact: **minor**.

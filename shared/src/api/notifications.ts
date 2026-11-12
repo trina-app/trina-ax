@@ -20,6 +20,9 @@ export const NotificationPreferences = z.object({
    * and where only, with the generic line. Older servers omit it (they never show the text). */
   messagePreview: z.boolean().optional(),
   quietHours: QuietHours.optional(),
+  /** a push when an answer in my own AI chat needs me: it finished, failed, or the AI waits for me (a question or a
+   * yes/no card) and I am not looking at that chat (docs/DECISIONS.md "AI 답변 알림"; default on). Older servers omit it. */
+  chatAnswers: z.boolean().optional(),
 })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
 /** A name or line from people (a person's or a room's name, a message's first line) made safe to show in one line of the
@@ -38,7 +41,10 @@ export function plainLabel(s: string, max = 80): string {
  * locked after too many wrong tries (docs/DECISIONS.md "W6"; handover_notices with their own deliveries,
  * handover_push_deliveries): no setting of their own, the owner may be away for days, and a note left only in the app
  * would reach the very session that may be stolen. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked'])
+/** chat.answer_done: an answer in my own AI chat finished, failed or waits for me (a question or a yes/no card), for the
+ * person who asked it only (chat_answer_notices with their own deliveries, chat_answer_push_deliveries; docs/DECISIONS.md
+ * "AI 답변 알림"). Pushed only: never listed in the Inbox (the chat list's markers show these chats). */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
