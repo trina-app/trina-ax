@@ -75,8 +75,9 @@ test('an AI answer is shown like a chat answer without its steps: Markdown, who 
   expect(html).toContain(translate('en', 'rooms.aiName'))
   expect(html).toContain(translate('en', 'sources.title', { n: 2 }))
   expect(html).not.toContain('data-testid="steps"')
-  // "@Trina" in the question stands out like a person's name; the answer has no quote block of its own
-  expect(html).toMatch(/<span class="font-medium text-accent-text">@Trina<\/span>/)
+  // "@Trina" in the question stands out like a person's name only while the server takes it (Me.server.roomAiMentions:
+  // room-mention-all.test.tsx); here no one is signed in, so it is plain text. The answer has no quote block of its own
+  expect(html).toContain('@Trina what changed?')
   expect(count(html, 'data-testid="message-quote"')).toBe(0)
   expect(html).not.toContain('data-testid="room-ai-preview"')
 })
