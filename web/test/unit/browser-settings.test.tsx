@@ -243,7 +243,14 @@ describe('"Allow all websites" for the AI\'s web reads (the team allows it: Me.t
       expect(translate(l, 'teamSettings.webAllowAllHint', { risk: WEB_ALLOW_ALL_RISK[l] })).toContain(WEB_ALLOW_ALL_RISK[l])
     }
     expect(translate('en', 'audit.act.web.allow_all_on')).toBe('Allow all websites turned on (web reads)')
-    expect(translate('ko', 'settings.browser.allOnFromCard')).toContain('설정 › 브라우저')
+    // the note after an address card's "Allow all websites" names the place on this screen (a phone has no Browser row,
+    // the switch is a part of 트리나에게 허용한 것 there); the card itself says only "Settings" (it cannot tell a phone)
+    expect(translate('ko', 'settings.browser.allOnFromCard', { place: translate('ko', 'settings.browser') })).toContain('설정 › 브라우저')
+    expect(translate('ko', 'settings.browser.allOnFromCard', { place: translate('ko', 'settings.allowances') })).toContain('설정 › 트리나에게 허용한 것')
+    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      const place = translate(l, 'settings.allowances')
+      expect(translate(l, 'settings.browser.allOnFromCard', { place })).toContain(place)
+    }
   })
   test('admin: one indented line under the browser switch, a boolean team setting admins can turn off, disabled while that switch is off', () => {
     expect(TeamSettings.shape.webAllowAll.safeParse(true).success).toBe(true)

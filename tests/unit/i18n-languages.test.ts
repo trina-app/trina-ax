@@ -337,3 +337,10 @@ test('storage diagnostics use Spanish decimal separators on Mac and Linux', () =
     expect(messages.en).toContain('1.5 GB')
   }
 })
+
+describe('address card "Allow all websites" (QA TC-512)', () => {
+  test('names no Browser row: a phone has none (its switch is under Allowed for Trina), and the server cannot tell a phone', () => {
+    const browser = { en: 'Browser', ko: '브라우저', id: 'Browser', ja: 'ブラウザー', es: 'Navegador' } as const
+    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) expect(URL_GATE_TEXT.all[l]).not.toContain(browser[l])
+  })
+})
