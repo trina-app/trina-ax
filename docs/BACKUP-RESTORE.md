@@ -89,16 +89,18 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
    sudo mycel-ctl update --version 0.4.0
    ```
 
-   The last line must start with `ok: 0.5.0 -> 0.4.0`. If it does not:
+   Look at the **first** line it prints (the result; lines starting with `note:` may follow, such as "root files 0.5.0 are newer than 0.4.0; kept", which is expected). It must start with `ok: 0.5.0 -> 0.4.0`. If it does not:
 
-   - It ends with `rolled_back`: the old version did not start and the server went back to the new one. Do steps 2–4 again.
-   - Any other result (`error`, `verify_failed`, `busy`): the switch did not happen. Restart nothing. Cancel the staged copy first, then read the message, fix the cause and start again at step 2:
+   - It starts with `rolled_back:`: the old version did not start and the server went back to the new one. Do steps 2–4 again.
+   - It starts with anything else (`error:`, `verify_failed:`, `busy:`): restart nothing yet, and run `sudo mycel-ctl status`. Its first line says which version runs now (`version …`).
+     - `version 0.4.0` and the `health:` line shows `ok:true`: the old version runs and the copy was put back. Go on with step 5.
+     - Otherwise, cancel the staged copy, then read the message, fix the cause and start again at step 2:
 
-     ```sh
-     sudo -u axserver rm -f /var/lib/mycel/data/restore-pending.json
-     ```
+       ```sh
+       sudo -u axserver rm -f /var/lib/mycel/data/restore-pending.json
+       ```
 
-     Without that file the server starts with the database it has, as if step 3 had not been done.
+       Without that file the server starts with the database it has, as if step 3 had not been done. Removing it does no harm when the copy was already put back (the file is gone then).
 
 5. Check:
 
@@ -166,7 +168,7 @@ When the old server is lost, set up a new one from your off-host archive (made w
    sudo stat -c '%U %a %n' /var/lib/mycel/team /var/lib/mycel/data /var/lib/mycel/config /var/lib/mycel/data/app.db
    ```
 
-   The last line must show `axserver 700` for the three folders and `axserver 600` for `app.db`.
+   The `stat` output must show `axserver 700` for the three folders and `axserver 600` for `app.db`.
 
 8. Start Trina and check it:
 

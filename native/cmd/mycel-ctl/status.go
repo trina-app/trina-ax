@@ -163,6 +163,9 @@ func rootUnfinished(e *env, rv string) []string {
 			return nil
 		}
 		rel, _ := filepath.Rel(kit, p)
+		if rel == boxdProgram {
+			return nil // the dev environment's helper: scripts/dev-env/install-trial.sh --boxd puts its own build there
+		}
 		want, ok := hashRegular(p)
 		if !ok {
 			return nil

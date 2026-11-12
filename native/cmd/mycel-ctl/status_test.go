@@ -19,6 +19,9 @@ func TestStatusSaysAnUpdateDidNotFinish(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Join(tb.base, "root/systemd"), 0o755))
 	// in the kit, not installed: not counted
 	must(t, os.WriteFile(filepath.Join(kit, "apparmor-bwrap.in"), []byte("x"), 0o644))
+	// the dev environment's mycel-boxd may be another build: not counted
+	must(t, os.WriteFile(filepath.Join(kit, "mycel-boxd"), []byte("kit boxd"), 0o755))
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("dev boxd"), 0o755))
 	for _, n := range []string{"mycel-launcher", "mycel-ctl", "set-claude-token", "systemd/server.service.in"} {
 		must(t, os.WriteFile(filepath.Join(kit, n), []byte("0.4.0 "+n), 0o755))
 		must(t, os.WriteFile(filepath.Join(tb.base, "root", n), []byte("0.4.0 "+n), 0o755))

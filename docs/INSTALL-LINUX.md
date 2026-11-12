@@ -401,9 +401,9 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 1. 자동 업데이트를 끕니다. 서버를 다시 시작하므로 맨 먼저 합니다: `sudo mycel-ctl auto-update off`
 2. 업데이트 직전 사본 찾기: `trina_admin list-backups`. `"kind": "pre-migrate"`이고 `createdAt`이 업데이트한 때인 가장 새 항목의 `id`를 적습니다(새 버전이 처음 켜질 때, 무엇이든 바꾸기 전에 만든 사본). 없으면 업데이트 전의 가장 새 `"kind": "pre-update"` 항목을 씁니다.
 3. 그 사본을 올려 둡니다(아직 아무것도 바뀌지 않음): `trina_admin stage-restore --backup <id>`. 이때부터 4단계가 끝날 때까지 서버나 컴퓨터를 다시 시작하지 않습니다. 새 버전이 켜지면 사본을 넣고 다시 바꿔서, 업데이트 뒤에 쓴 것을 잃습니다.
-4. 곧바로 예전 버전을 설치합니다. 서버를 멈추고 예전 버전으로 바꿔 켜며, 켜질 때 올려 둔 사본이 들어갑니다: `sudo mycel-ctl update --version 0.4.0`. 마지막 줄이 `ok: 0.5.0 -> 0.4.0`으로 시작해야 합니다. 아니면:
-   - `rolled_back`으로 끝남: 예전 버전이 뜨지 않아 새 버전으로 돌아갔습니다. 2~4단계를 다시 합니다.
-   - 그 밖의 결과(`error`, `verify_failed`, `busy`): 바뀌지 않았습니다. 아무것도 다시 시작하지 말고 먼저 올려 둔 사본을 취소합니다: `sudo -u axserver rm -f /var/lib/mycel/data/restore-pending.json`(이 파일이 없으면 서버는 지금 DB로 켜짐). 그다음 메시지의 원인을 고치고 2단계부터 다시 합니다.
+4. 곧바로 예전 버전을 설치합니다. 서버를 멈추고 예전 버전으로 바꿔 켜며, 켜질 때 올려 둔 사본이 들어갑니다: `sudo mycel-ctl update --version 0.4.0`. 출력의 **첫 줄**(결과. 그 뒤에 "root files 0.5.0 are newer than 0.4.0; kept" 같은 `note:` 줄이 올 수 있고 정상)이 `ok: 0.5.0 -> 0.4.0`으로 시작해야 합니다. 아니면:
+   - `rolled_back:`으로 시작: 예전 버전이 뜨지 않아 새 버전으로 돌아갔습니다. 2~4단계를 다시 합니다.
+   - 그 밖(`error:`, `verify_failed:`, `busy:`)으로 시작: 아직 아무것도 다시 시작하지 말고 `sudo mycel-ctl status`를 봅니다. 첫 줄의 `version …`이 지금 도는 버전입니다. `version 0.4.0`이고 `health:` 줄에 `ok:true`가 있으면 예전 버전이 돌고 사본도 들어갔으니 5단계로 갑니다. 아니면 올려 둔 사본을 취소합니다: `sudo -u axserver rm -f /var/lib/mycel/data/restore-pending.json`(이 파일이 없으면 서버는 지금 DB로 켜짐. 사본이 이미 들어갔으면 파일이 없으므로 지워도 해가 없음). 그다음 메시지의 원인을 고치고 2단계부터 다시 합니다.
 5. 확인: `sudo mycel-ctl status`와 `curl -s http://127.0.0.1:47820/api/health`가 예전 버전(`version 0.4.0`)을 보여 줍니다. `root files`는 더 새 버전으로 남는 것이 정상입니다(root 프로그램은 앞으로만 가고 예전 버전과도 동작). 로그인해서 업데이트 전의 대화와 파일을 엽니다.
 6. 자동 업데이트가 꺼져 있는 동안 관리자 › 홈에 새 버전과 **지금 설치** 버튼이 보입니다. 문제가 풀릴 때까지 누르지 않습니다. 문제가 풀리면 먼저 백업합니다. 그다음 새 버전을 지금 한 번만 설치하려면 `sudo mycel-ctl update`(자동 업데이트는 계속 꺼짐), 자동 업데이트를 다시 켜려면 `sudo mycel-ctl auto-update on`(다음 업데이트 시간에 새 버전이 설치됨).
 
@@ -442,7 +442,7 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
    sudo stat -c '%U %a %n' /var/lib/mycel/team /var/lib/mycel/data /var/lib/mycel/config /var/lib/mycel/data/app.db
    ```
 
-   마지막 줄이 세 폴더는 `axserver 700`, `app.db`는 `axserver 600`이어야 합니다.
+   `stat` 출력에서 세 폴더는 `axserver 700`, `app.db`는 `axserver 600`이어야 합니다.
 8. 켜고 확인합니다: `sudo systemctl start mycel-launcher mycel-server mycel-update.timer`, `sudo mycel-ctl status`
 9. 모두 예전 암호로 다시 로그인합니다. 예전 로그인·쓰지 않은 초대 링크·암호 재설정 링크는 더 이상 안 되므로 필요하면 새로 초대합니다.
 10. **관리자 › AI 계정**에서 AI 계정을 다시 연결하고 연동(Google, Slack 등)도 다시 연결합니다. 열쇠가 예전 서버의 키로 봉인되어 있고 그 키는 보관본에 없습니다. 예전 서버나 지원 첨부의 키 파일을 복사하지 않습니다.
