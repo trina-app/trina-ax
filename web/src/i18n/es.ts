@@ -3886,6 +3886,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.tooMany": "{n, plural, one {Puede enviar # archivo a la vez.} other {Puede enviar hasta # archivos a la vez.}}",
   "rooms.sending": "Enviando…",
   "rooms.sendFailed": "No se pudo enviar",
+  "rooms.notConfirmed": "No sabemos si se envió. Reintentar no lo enviará dos veces.",
   "rooms.discard": "Descartar",
   "rooms.openImage": "Abrir {name}",
   "rooms.empty": "Todavía no hay mensajes. Envíe el primero.",
