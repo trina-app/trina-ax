@@ -150,10 +150,10 @@ test.describe('each page', () => {
       await page.goto(path)
       const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
       await expect(card).toBeVisible()
-      expect((await box(card)).height).toBeLessThanOrEqual(60)
+      // the Connectors page's row (a 44 px tap and its hairline)
+      expect((await box(card)).height).toBeLessThanOrEqual(72)
       expect(await card.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
       await tall(card.getByTestId('connector-add'))
-      await expect(card.getByText(t['connectors.by'].replace('{maker}', 'Notion'))).toBeHidden()
     }
   })
 
@@ -262,12 +262,9 @@ test.describe('a computer', () => {
     await expect(page.getByTestId('group-list')).toContainText('Olga')
     await page.goto('/admin/slack')
     expect(await page.getByTestId('slack-status').locator('xpath=ancestor::section[1]').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px')
-    for (const path of ['/admin/connectors']) {
-      await page.goto(path)
-      const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
-      await expect(card.getByText(t['connectors.by'].replace('{maker}', 'Notion'))).toBeVisible()
-      expect(await card.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
-    }
+    // Admin › Connectors: the Connectors page's rows on a computer too (no tiles since the two pages share a layout)
+    await page.goto('/admin/connectors')
+    await expect(page.locator('[data-testid="connector-card"][data-id="notion"]')).toBeVisible()
     await page.goto('/settings/usage')
     await expect(page.getByRole('heading', { name: t['myUsage.title'] })).toBeVisible()
     await page.goto('/settings/providers')

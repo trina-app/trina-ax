@@ -4,6 +4,8 @@
 // way, then the About text, one line on what the AI may do, every tool as a chip, and a small details block (made by,
 // category, sign-in, privacy). Fewer boxes, the same facts. What the person does with it (Connect, the account to
 // confirm, ⋯ with Settings, Reconnect, Disconnect) comes from the caller: GoogleAppConnector.tsx and pages/Connectors.tsx.
+// Admin › Connectors shows the same page (GoogleAdminPage.tsx) inside its own column (`embedded`), its way back to
+// Admin's list (`list`), and the team's settings under the details (`children`).
 import { ChevronRight, ExternalLink, PenLine } from 'lucide-react'
 import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -15,7 +17,7 @@ export interface AppTool { name: string; title: string; description?: string; ch
 
 const label = 'text-micro font-semibold tracking-wide text-faint uppercase'
 
-export function AppDetail({ testId, state, logo, name, byLine, actions, status, about, canChange, asks, developer, category, signIn, links, tools }: {
+export function AppDetail({ testId, state, logo, name, byLine, actions, status, about, canChange, asks, developer, category, signIn, links, tools, list, embedded, children }: {
   testId: string
   /** for tests: what the page shows (connected, disconnected, flow-pending, …) */
   state: string
@@ -38,17 +40,22 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
   /** the sign-in's owner and its privacy policy and terms (what the person agrees to at its sign-in) */
   links?: { by: string; privacy: string; terms: string }
   tools: AppTool[]
+  /** the list it belongs to, for the way back (default: Connectors) */
+  list?: { to: string; name: string }
+  /** inside a page that has its own column and scrolling (Admin) */
+  embedded?: boolean
+  /** under the details: Admin's team settings */
+  children?: ReactNode
 }) {
   const t = useT()
   const titleId = useId()
   const toolsId = useId()
-  return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <article aria-labelledby={titleId} className="mx-auto w-full max-w-3xl space-y-6 px-4 pt-4 pb-10 sm:px-6 sm:pt-6" data-testid={testId} data-state={state}>
+  const page = (
+      <article aria-labelledby={titleId} className={embedded ? 'w-full max-w-3xl space-y-6 pb-10' : 'mx-auto w-full max-w-3xl space-y-6 px-4 pt-4 pb-10 sm:px-6 sm:pt-6'} data-testid={testId} data-state={state}>
         <div>
           {/* phones: the top bar names the list and has its way back */}
           <nav aria-label={t('gapps.breadcrumb')} className="mb-5 flex min-w-0 items-center gap-1 text-sm text-muted max-md:hidden" data-testid="app-breadcrumb">
-            <Link to="/connectors" className="rounded hover:text-ink hover:underline" data-testid="app-breadcrumb-connectors">{t('integrations.title')}</Link>
+            <Link to={list?.to ?? '/connectors'} className="rounded hover:text-ink hover:underline" data-testid="app-breadcrumb-connectors">{list?.name ?? t('integrations.title')}</Link>
             <ChevronRight size={14} aria-hidden className="shrink-0 text-faint" />
             <span aria-current="page" className="truncate text-ink">{name}</span>
           </nav>
@@ -100,7 +107,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
           </section>
         )}
 
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 text-sm sm:max-w-xl" data-testid="app-info">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 text-sm" data-testid="app-info">
           <Detail label={t('gapps.developer')}>{developer}</Detail>
           <Detail label={t('gapps.category')}>{category}</Detail>
           <Detail label={t('gapps.signIn')}>{signIn}</Detail>
@@ -114,9 +121,11 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
             </Detail>
           )}
         </dl>
+
+        {children}
       </article>
-    </div>
   )
+  return embedded ? page : <div className="flex h-full flex-col overflow-y-auto">{page}</div>
 }
 
 function Detail({ label: name, children }: { label: string; children: ReactNode }) {

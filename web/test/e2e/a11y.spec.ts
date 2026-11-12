@@ -293,11 +293,16 @@ async function auditIntegrations(page: Page, where: string) {
   await audit(page, `integration edit${where}`)
   await page.keyboard.press('Escape')
   await page.goto('/admin/connectors')
-  await expect(page.getByTestId('team-integrations')).toBeVisible()
-  // with the audience chips and Discover under the list
-  await expect(page.getByTestId('integration-audience').first()).toBeVisible()
+  await expect(page.getByTestId('team-connection').first()).toBeVisible()
+  // one line each (a warning on the one nobody may use) and Discover under the list
+  await expect(page.getByTestId('integration-access-warning').first()).toBeVisible()
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await audit(page, `admin/integrations${where}`)
+  // a team connection's page, with its audience chip
+  await page.getByTestId('team-connection').filter({ hasText: 'Company PM' }).getByTestId('connector-row-open').click()
+  await expect(page.getByTestId('integration-audience').first()).toBeVisible()
+  await audit(page, `admin/integrations, a team connection${where}`)
+  await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: /Olga/ }).uncheck()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()

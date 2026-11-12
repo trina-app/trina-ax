@@ -263,6 +263,8 @@ function Gate() {
           <Route path="admin/:section" element={<AdminLayout />} />
           {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}
           <Route path="admin/:section/:sub" element={<AdminLayout />} />
+          {/* a team connection's page in Admin › Connectors (/admin/connectors/mcp/<id>) */}
+          <Route path="admin/:section/:sub/:item" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
           <Route path="skills" element={<Skills />} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}

@@ -3,10 +3,11 @@ import { DRIVE_SCOPE, type DriveConfig } from '../../server/src/integrations/goo
 import { DRIVE_API, GOOGLE_TOKEN, GOOGLE_REVOKE, type DriveFetch } from '../../server/src/integrations/google-drive/client'
 import type { Database } from 'bun:sqlite'
 import { setSetting } from '../../server/src/admin/settings'
-import { DRIVE_MEMBERS } from '../../server/src/integrations/google-drive/shares'
 
-/** Admin › Connectors › Google Drive "Members can connect their own Google Drive" (off for a new team). */
-export const membersMayConnect = (db: Database, on = true) => setSetting(db, DRIVE_MEMBERS, on)
+/** The old team switch "Members can connect their own Google Drive" (`integrations.driveMembers`), as a team made
+ * before 2026-11-12 may still have it stored. The server ignores it now (docs/DECISIONS.md "No members' switch for
+ * connectors"); tests write it to show that. */
+export const membersMayConnect = (db: Database, on = true) => setSetting(db, 'integrations.driveMembers', on)
 
 export const DRIVE_CONFIG: DriveConfig = { clientId: 'synthetic-client', clientSecret: 'CANARY-client-secret', redirectUri: 'https://team.example.test/api/integrations/google-drive/callback' }
 /** In-process HTTP provider. It can only answer the fixed Google URLs; it never opens a network connection. */

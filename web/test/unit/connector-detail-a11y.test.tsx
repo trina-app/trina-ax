@@ -8,6 +8,7 @@ import type { GoogleAppId, GoogleAppView } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { GoogleAppDetail, type GoogleAppsState } from '../../src/components/integrations/GoogleAppConnector'
 import { GOOGLE_APP_IDS, MOCK_GOOGLE_TOOLS } from '../mock/googleApps'
+import { toolWords } from '../../src/lib/googleApps'
 import { installDom, mount, removeDom } from './dom-host'
 
 const view = (over: Partial<GoogleAppView> = {}): GoogleAppView => ({
@@ -23,7 +24,8 @@ afterEach(() => { useLocaleStore.getState().setLocale(before) })
 
 test('every tool with a description: a focusable chip with the description inside it for a screen reader', () => {
   const html = renderToStaticMarkup(page(view()))
-  const described = MOCK_GOOGLE_TOOLS.gmail.filter((x) => x.description)
+  // in the page's language (lib/googleApps.ts toolWords)
+  const described = toolWords((k) => translate('en', k), MOCK_GOOGLE_TOOLS.gmail).filter((x) => x.description)
   expect(described.length).toBeGreaterThan(0)
   for (const x of described) expect(html).toContain(`<span class="sr-only" data-testid="app-tool-description">${x.description!.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;')}</span>`)
   const chips = html.match(/<span[^>]*data-testid="app-tool-chip"/g) ?? []

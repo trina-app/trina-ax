@@ -96,10 +96,6 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
   const c: DriveConnection | null = s.connection
   const [note, setNote] = useState<'not' | 'unavailable' | null>(null)
   const linked = c?.status === 'connected'
-  // members may not connect theirs yet: this press turns that on too (named in the line), at the confirm. The confirm
-  // always asks for it (the owner walks these steps): the server ignores it while the switch is on, and a switch another
-  // admin turned off meanwhile is turned on as the line said
-  const turnOn = c?.personalAllowed === false
   useEffect(() => { onConnected(linked) }, [linked]) // eslint-disable-line react-hooks/exhaustive-deps
   // a sign-in this tab started before a reload: shown again where it stands
   const resumed = useRef(false)
@@ -143,7 +139,7 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
         ) : flow?.state === 'ready' ? (
           <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="welcome-tools-drive-confirm">
             <span role="status" className="min-w-0 break-words text-ink">{t('welcome.tools.confirm', { account: [flow.account?.email, flow.account?.name].find(Boolean) ?? '' })}</span>
-            <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete({ membersOn: true })} data-testid="welcome-tools-drive-yes">{t('welcome.tools.yes')}</Button>
+            <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="welcome-tools-drive-yes">{t('welcome.tools.yes')}</Button>
             <Button size="sm" variant="ghost" disabled={d.busy} onClick={() => { keep(null); setNote(null); void d.cancel() }} data-testid="welcome-tools-drive-other">{t('welcome.tools.other')}</Button>
           </div>
         ) : flow ? (
@@ -159,7 +155,7 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
           </div>
         ) : (
           <>
-            <p className="text-sm text-muted" data-testid="welcome-tools-drive-line">{t(turnOn ? 'welcome.tools.driveLineOn' : 'welcome.tools.driveLine', { ai: aiName(t) })}</p>
+            <p className="text-sm text-muted" data-testid="welcome-tools-drive-line">{t('welcome.tools.driveLine', { ai: aiName(t) })}</p>
             {note && <p className="text-label text-warn" role="alert" data-testid="welcome-tools-drive-note">{note === 'unavailable' ? t('welcome.tools.driveUnavailable', { where: connectorsPlace(t) }) : t('welcome.tools.driveNotConnected')}</p>}
           </>
         )}

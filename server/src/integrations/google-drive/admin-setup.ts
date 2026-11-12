@@ -31,7 +31,7 @@ import { isHosted } from '../../system/deployment'
 import { CALLBACK_PATH, parseDriveConfig, type DriveConfig } from './config'
 import { googleDriveOf } from './oauth'
 import { DriveError } from './store'
-import { membersCanConnect, shareRows, shareWorks } from './shares'
+import { shareRows, shareWorks } from './shares'
 
 /** the key of the client set on this page (configKey): a client.json with another key was written by someone else */
 export const DRIVE_CLIENT_BY_APP = 'integrations.googleDriveClientByApp'
@@ -52,9 +52,9 @@ export function driveAdminStatus(ctx: AppContext): DriveAdminStatus {
     ? (ctx.db.query(`SELECT count(*) n FROM drive_connections d JOIN users u ON u.id=d.user_id
         WHERE d.config_key=? AND d.status='connected' AND u.status='active' AND u.deleted_at IS NULL`).get(svc.key) as { n: number }).n
     : 0
-  // a client alone turns nothing on: members connect their own only with the switch, and shares work on their own
+  // shares work on their own; members connect their own once it is set up (no team switch)
   const sharesOn = configured ? shareRows(ctx.db).filter((r) => shareWorks(ctx.db, r, svc.key)).length : 0
-  return { configured, source, canSetUp: blocked === null, blocked, redirectUri: blocked === 'hosted' ? null : redirectUri, connectedMembers, membersCanConnect: membersCanConnect(ctx.db), sharesOn }
+  return { configured, source, canSetUp: blocked === null, blocked, redirectUri: blocked === 'hosted' ? null : redirectUri, connectedMembers, membersCanConnect: true, sharesOn }
 }
 
 /** The client from the request: Google's downloaded web-client JSON ({"web": {...}}, which must list our redirect URI),

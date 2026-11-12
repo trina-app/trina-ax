@@ -61,7 +61,7 @@ export class MockGoogleApps {
   reasonOf(a: App): GoogleAppView['reason'] {
     if (a.reason) return a.reason
     if (a.client === 'none') return 'not_set_up'
-    return a.members ? null : 'members_off'
+    return null
   }
   view(id: GoogleAppId, userId: string): GoogleAppView {
     const a = this.apps.get(id)!
@@ -76,7 +76,7 @@ export class MockGoogleApps {
     return {
       id, configured, source: a.client === 'drive' ? 'drive' : a.client === 'app' ? 'app' : 'none', canSetUp: a.blocked === null, blocked: a.blocked,
       redirectUri: a.blocked ? null : 'https://team.example.test/api/integrations/google-apps/callback', driveAppAvailable,
-      apis: APIS[id], membersCanConnect: a.members, connectedMembers: [...a.conns.values()].filter((c) => c.status === 'connected').length,
+      apis: APIS[id], membersCanConnect: true, connectedMembers: [...a.conns.values()].filter((c) => c.status === 'connected').length,
     }
   }
   /** a sign-in starts: null when this person may not connect it now */
@@ -113,7 +113,6 @@ export class MockGoogleApps {
       const a = this.apps.get(id)
       if (!a) continue
       if (body.client === 'none' || body.client === 'app' || body.client === 'drive') a.client = body.client
-      if (typeof body.members === 'boolean') a.members = body.members
       if ('reason' in body) a.reason = (body.reason as Reason | null) ?? null
       if ('blocked' in body) a.blocked = (body.blocked as Blocked) ?? null
       const c = body.connect as { userId: string; name?: string; email?: string; status?: Conn['status']; serviceDown?: boolean; writePolicy?: Conn['writePolicy'] } | undefined

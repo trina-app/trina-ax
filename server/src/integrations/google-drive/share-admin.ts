@@ -13,7 +13,7 @@ import { setSetting } from '../../admin/settings'
 import { googleDriveOf, type DriveConn } from './oauth'
 import { DriveError } from './store'
 import { notifyDriveShareReconnect } from '../../notifications/service'
-import { DRIVE_MEMBERS, foldersOf, membersCanConnect, shareByName, shareRow, shareRows, setShareAccess, shareAccess, shareView, shareWorks } from './shares'
+import { foldersOf, shareByName, shareRow, shareRows, setShareAccess, shareAccess, shareView, shareWorks } from './shares'
 
 export const FOLDER_MIME = 'application/vnd.google-apps.folder'
 const escapeQ = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
@@ -36,11 +36,10 @@ function conn(ctx: AppContext, id: string): DriveConn {
   return svc.shareConn(shareRow(ctx.db, id) ?? r)
 }
 
-export function setMembersCanConnect(ctx: AppContext, actor: string, on: boolean) {
+/** The old members' switch (an older app may still send it): changes nothing, members can always connect their own
+ * once Google Drive is set up (docs/DECISIONS.md "No members' switch for connectors"). */
+export function setMembersCanConnect(ctx: AppContext, actor: string, _on: boolean) {
   admin(ctx, actor)
-  const before = membersCanConnect(ctx.db)
-  setSetting(ctx.db, DRIVE_MEMBERS, on)
-  if (before !== on) audit(ctx.db, { actor, action: 'drive.members_switch', detail: { on } })
 }
 
 export function listShares(ctx: AppContext, actor: string): DriveShare[] {

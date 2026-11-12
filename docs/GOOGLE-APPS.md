@@ -76,9 +76,9 @@ The page cannot change a card when:
 - the server has no public address (`tunnel.host`): Google has nowhere to send people back;
 - this computer cannot run the library (the Mac app).
 
-**Members can connect their own Gmail** (and the same per app): on by default. Off: Connect is turned off, a sign-in
-is refused, and connections made before are kept but not used (`PUT /api/admin/google-apps/:app/members`, settings
-`integrations.googleApps.<app>.members`, audited `google_app.members_switch`). The switch is for everyone, admins too.
+**Everyone may connect their own Gmail** (and the same per app) once it is set up. There is no team switch any more
+(docs/DECISIONS.md "No members' switch for connectors", 2026-11-12): `PUT /api/admin/google-apps/:app/members` stays for
+older apps and changes nothing, and a stored `integrations.googleApps.<app>.members` "false" is ignored.
 
 ## What members see
 

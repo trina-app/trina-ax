@@ -437,16 +437,6 @@ describe('the card, finished in other ways', () => {
     expect(leaksIn([t.turnId])).toEqual([])
   })
 
-  test('Google Drive with members not allowed to connect their own: no card, and it says so', async () => {
-    googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: new FakeGoogleDrive().fetch }); membersMayConnect(h.ctx.db, false)
-    try {
-      const t = await start('alice', { name: 'My Drive', target: 'google_drive' })
-      const m = await doneOf(t.messageId)
-      expect(cards(t.turnId)).toEqual([])
-      expect(m.content).toContain('has not let members connect their own Google Drive')
-    } finally { membersMayConnect(h.ctx.db); googleDriveOf(h.ctx, { config: null }) }
-  })
-
   test('Google Drive: done before it is connected keeps the card; done after it says connected', async () => {
     const drive = new FakeGoogleDrive()
     const d = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: drive.fetch }); membersMayConnect(h.ctx.db)
