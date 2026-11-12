@@ -645,8 +645,10 @@ function Viewer({ open }: { open: ViewerOpen }) {
           // isolate: what a document lifts inside it (a PDF's sticky toolbar) stays under the bar and a phone's sheet
           'absolute inset-x-0 bottom-0 isolate outline-none md:right-[var(--viewer-col,0px)]',
           // a document sits under the bar on a phone too (the bar does not hide there), and scrolls as a page does
-          docMode ? 'top-[calc(var(--safe-top)+3.75rem)] md:top-14' : 'top-0 touch-none overflow-hidden md:top-14',
+          docMode ? 'top-[calc(var(--safe-top)+3.75rem)] md:top-14' : 'top-0 overflow-hidden md:top-14',
         )}
+        // a picture: its own pinch, double tap and pan (touch-action: none, index.css), never the page's zoom (QA TC-246)
+        data-own-zoom={docMode ? undefined : ''}
         {...(docMode ? {} : {
           onPointerDown,
           onPointerMove,

@@ -125,7 +125,8 @@ test('Connectors and AI apps say their name once on a phone (the bar), in Admin 
   for (const [path, bar] of [['/admin/connectors', 'admin-bar-title'], ['/settings/ai-apps', 'settings-section-title']] as const) {
     await page.goto(path)
     const name = path.endsWith('ai-apps') ? t['aiApps.title'] : t['integrations.title']
-    await expect(page.getByTestId(bar)).toHaveText(name)
+    // Admin's list names the team's own "Team connected apps" (TC-269), so the person's and the team's never look the same
+    await expect(page.getByTestId(bar)).toHaveText(path.startsWith('/admin') ? t['admin.team.integrations'] : name)
     const h2 = page.getByRole('heading', { level: 2, name, exact: true })
     await expect(h2).toBeAttached()
     expect((await h2.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1)
