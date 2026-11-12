@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
 import { clientKind } from '../../src/lib/desktop'
-import { askLater, laterHides, LATER_MS, phonePushView, registerMobilePush, setMobilePushSession, usePhonePush } from '../../src/lib/mobile-push'
+import { askLater, laterHides, LATER_MS, OFF_HERE_PREFIX, phonePushView, registerMobilePush, setMobilePushSession, turnOffPhonePush, usePhonePush } from '../../src/lib/mobile-push'
+import { clearLocalData } from '../../src/lib/localData'
 import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
@@ -284,6 +285,43 @@ test('appearance-v1: the page tells the app its look when the bridge is ready an
     win.dispatchEvent(new Event('mycel:theme')); await settle()
     expect(messages).toHaveLength(0)
   } finally { Reflect.deleteProperty(doc, 'documentElement') }
+})
+
+test("Settings' switch off for this phone is one person's: not registered again for them by itself, another person on the phone is, and signing out forgets it", async () => {
+  const server = pushServer({ enabled: true, native: { available: true, deviceId: 'device-1', gateway: 'push.example.test' } })
+  const pushFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'DELETE') { server.calls.push(`DELETE ${new URL(String(input), 'https://team.example').pathname}`); return new Response(null, { status: 204 }) }
+    return pushFetch(input, init)
+  }) as typeof fetch
+  const registered = () => messages.filter((m) => m.type === 'push-token').length
+  try {
+    handler = withPermission('granted')
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('alice:s1')
+    await settle(() => messages.some((m) => m.type === 'push-registered'))
+    expect(registered()).toBe(1)
+    // Alice turns this phone off in Settings
+    await turnOffPhonePush('device-1')
+    expect(server.calls).toContain('DELETE /api/push/devices/device-1')
+    expect(server.stored.get(`${OFF_HERE_PREFIX}alice`)).toBe('1')
+    // the app starts again for her: not registered by itself, and no question
+    messages = []
+    setMobilePushSession('alice:s2')
+    await settle()
+    await settle()
+    expect(registered()).toBe(0)
+    expect(usePhonePush.getState().ask).toBe(false)
+    // Bob signs in on the same phone: his push is not off
+    setMobilePushSession('bob:s3')
+    await settle(() => messages.some((m) => m.type === 'push-registered'))
+    expect(registered()).toBe(1)
+    // signing out forgets every person's choice on this phone
+    const store = { getItem: (k: string) => server.stored.get(k) ?? null, setItem: (k: string, v: string) => void server.stored.set(k, v), removeItem: (k: string) => void server.stored.delete(k), key: (i: number) => [...server.stored.keys()][i] ?? null, get length() { return server.stored.size } }
+    clearLocalData(store)
+    expect([...server.stored.keys()].filter((k) => k.startsWith(OFF_HERE_PREFIX))).toEqual([])
+    expect(server.stored.get('mycel.phonePush.granted')).toBe('1') // the phone's own answers stay
+  } finally { server.restore() }
 })
 
 test('store builds 1 and 2: a session that already has a registered phone gets no question and registers again quietly', async () => {

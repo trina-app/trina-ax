@@ -6,6 +6,8 @@ const DRAFT_PREFIX = 'mycel.draft:'
 /** lib/sendQueue.ts QUEUE_KEY_PREFIX (not imported: this file stays free of the API schemas) */
 const QUEUE_PREFIX = 'mycel.queue:'
 export const UPLOADS_KEY = 'mycel.uploads'
+/** lib/mobile-push.ts OFF_HERE_PREFIX: a person switched push off for this phone (Settings › Notifications) */
+const PUSH_OFF_HERE_PREFIX = 'mycel.phonePush.offHere:'
 /** the phone's other tabs' stacks (lib/screenHistory.ts), in sessionStorage: the addresses that person opened */
 export const TAB_STACKS_KEY = 'mycel.tabStacks'
 
@@ -35,15 +37,15 @@ export function writeDraft(userId: string, id: string, text: string, s: Store | 
   } catch { /* storage full or blocked */ }
 }
 
-/** Forget drafts, waiting messages and remembered uploads of everyone on this browser, and this tab's saved phone
- * stacks (sign-out). */
+/** Forget drafts, waiting messages and remembered uploads of everyone on this browser, the phone app's "push off on this
+ * phone" choices, and this tab's saved phone stacks (sign-out). */
 export function clearLocalData(s: Store | null = local()) {
   if (!s) return
   try {
     const keys: string[] = []
     for (let i = 0; i < s.length; i++) {
       const k = s.key(i)
-      if (k && (k.startsWith(DRAFT_PREFIX) || k.startsWith(QUEUE_PREFIX) || k === UPLOADS_KEY)) keys.push(k)
+      if (k && (k.startsWith(DRAFT_PREFIX) || k.startsWith(QUEUE_PREFIX) || k === UPLOADS_KEY || k.startsWith(PUSH_OFF_HERE_PREFIX))) keys.push(k)
     }
     for (const k of keys) s.removeItem(k)
   } catch { /* storage blocked */ }
