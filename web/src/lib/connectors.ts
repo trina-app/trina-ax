@@ -66,6 +66,13 @@ export const CONNECTORS_HOME = '/settings/connectors'
 export const connectorHref = (id: string) => `${CONNECTORS_HOME}/${encodeURIComponent(id)}`
 export const connectionHref = (id: string) => `${CONNECTORS_HOME}/mcp/${encodeURIComponent(id)}`
 
+/** Connectors' old addresses (/connectors, /connectors/<id>, /connectors/mcp/<id>, until 2026-11-12 a page of the
+ * sidebar), which App.tsx opens as Settings over the page they came from. Not an outside app's consent page
+ * (/connectors/authorize). */
+export const isOldConnectorsPath = (path: string) => (path === '/connectors' || path.startsWith('/connectors/')) && !/^\/connectors\/authorize(\/|$)/.test(path)
+/** Where an old address leads: the same place in Settings, its query and hash kept. */
+export const oldConnectorsTarget = (pathname: string, search = '', hash = '') => `/settings${pathname}${search}${hash}`
+
 /** What a listed service's page shows before it is connected (QA TC-132): its privacy policy, terms and MCP help page,
  * and, where the service itself lists them, the tools it offers (their names as the service writes them, the same
  * names its page shows once connected) with the page that lists them. Only values checked on the service's own pages

@@ -44,6 +44,7 @@ import { AppDetail } from '../components/integrations/AppDetail'
 import { GoogleAppDetail, Note, useGoogleApps } from '../components/integrations/GoogleAppConnector'
 import { useDriveConnection } from '../components/settings/DriveConnection'
 import { SlackAccount } from '../components/settings/SlackAccount'
+import { SettingsHold } from '../components/settings/SettingsBar'
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
@@ -106,6 +107,12 @@ function ConnectorsProvider({ children }: { children: ReactNode }) {
   const s = useConnectorsState()
   const navigate = useNavigate()
   const { dialog, setDialog, actions, list } = s
+  // a Google sign-in under way (Drive's or an app's): Settings stays open against a stray click beside it or Esc, so its
+  // confirm step is not lost (components/settings/SettingsBar.tsx SettingsHold)
+  const hold = useContext(SettingsHold)
+  const signingIn = s.drive.d.inProgress || Object.values(s.google.flows).some((f) => f.inProgress)
+  useEffect(() => { hold(signingIn) }, [hold, signingIn])
+  useEffect(() => () => hold(false), [hold])
   return (
     <Ctx.Provider value={s}>
       {children}
@@ -348,7 +355,7 @@ function DrivePage() {
     </>
   ) : null
   return (
-    <AppDetail embedded testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
+    <AppDetail embedded inSettings testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
       actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} onWithdraw={() => void asks.withdraw(id)} />
         : inApp ? appActions
         : p.action}

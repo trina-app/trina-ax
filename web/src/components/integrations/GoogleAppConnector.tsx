@@ -180,7 +180,7 @@ export function GoogleAppDetail({ v, g, ask }: { v: GoogleAppView; g: GoogleApps
   const state = flow ? `flow-${flow.state}` : !v.available && !linked ? 'unavailable' : v.status
   return (
     <>
-      <AppDetail embedded testId="gapp-detail" state={state} logo={builtInLogo(v.id)} name={name} byLine={t('gapps.byLine', { line: t(lineKey(v.id)) })}
+      <AppDetail embedded inSettings testId="gapp-detail" state={state} logo={builtInLogo(v.id)} name={name} byLine={t('gapps.byLine', { line: t(lineKey(v.id)) })}
         actions={actions}
         status={<>
           {linked && v.account && !flow && (

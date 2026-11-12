@@ -30,8 +30,9 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 | **App** | Notifications, Apps, About |
 
 **Connectors** holds your connections to other services: Google Drive, Gmail and the other Google apps, Slack, and the
-listed services. Open one to connect it, see what the AI may do with it, or disconnect it; **← Connectors** goes back
-to the list. Older links such as `/connectors` open it too. See [Connectors](mcp.md).
+listed services. Open one to connect it, see what the AI may do with it, or disconnect it; **Connectors** above its name
+(on a phone **‹ Connectors**) goes back to the list. Older links such as `/connectors` open it too. See
+[MCP connections](mcp.md).
 
 :::steps
 #### Find a section

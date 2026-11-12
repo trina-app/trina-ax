@@ -6,9 +6,11 @@
 // category, sign-in, privacy). Fewer boxes, the same facts. What the person does with it (Connect, the account to
 // confirm, ⋯ with Settings, Reconnect, Disconnect) comes from the caller: GoogleAppConnector.tsx and pages/Connectors.tsx.
 // Admin › Connectors shows the same page (GoogleAdminPage.tsx) inside its own column (`embedded`), its way back to
-// Admin's list (`list`), and the team's settings under the details (`children`).
+// Admin's list (`list`), and the team's settings under the details (`children`). In Settings (`inSettings`) the page is
+// under the dialog's own title: its name is an h2 (Tools an h3), and it takes the keyboard when it opens (the card that
+// opened it is gone), as ConnectorDetail's way back does.
 import { ChevronRight, ExternalLink, PenLine } from 'lucide-react'
-import { useId, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CONNECTORS_HOME } from '../../lib/connectors'
 import { useT } from '../../i18n'
@@ -19,7 +21,7 @@ export interface AppTool { name: string; title: string; description?: string; ch
 
 const label = 'text-micro font-semibold tracking-wide text-faint uppercase'
 
-export function AppDetail({ testId, state, logo, name, byLine, actions, status, about, canChange, asks, developer, category, signIn, links, tools, list, embedded, children }: {
+export function AppDetail({ testId, state, logo, name, byLine, actions, status, about, canChange, asks, developer, category, signIn, links, tools, list, embedded, inSettings, children }: {
   testId: string
   /** for tests: what the page shows (connected, disconnected, flow-pending, …) */
   state: string
@@ -46,12 +48,18 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
   list?: { to: string; name: string }
   /** inside a page that has its own column and scrolling (Settings, Admin) */
   embedded?: boolean
+  /** a page under Settings › Connectors: an h2 under the dialog's title, focused when it opens */
+  inSettings?: boolean
   /** under the details: Admin's team settings */
   children?: ReactNode
 }) {
   const t = useT()
   const titleId = useId()
   const toolsId = useId()
+  const Title = inSettings ? 'h2' : 'h1'
+  const ToolsTitle = inSettings ? 'h3' : 'h2'
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { if (inSettings) titleRef.current?.focus({ preventScroll: true }) }, [inSettings])
   const page = (
       <article aria-labelledby={titleId} className={embedded ? 'w-full max-w-3xl space-y-6 pb-10' : 'mx-auto w-full max-w-3xl space-y-6 px-4 pt-4 pb-10 sm:px-6 sm:pt-6'} data-testid={testId} data-state={state}>
         <div>
@@ -65,7 +73,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
             <LogoTile src={logo} className="size-14 rounded-2xl p-2.5" />
             <div className="min-w-0 flex-[1_1_12rem]">
               {/* a phone: the name wraps, never cut (QA TC-266); the state and ⋯ go on their own line under it */}
-              <h1 id={titleId} className="text-2xl font-semibold tracking-tight break-words">{name}</h1>
+              <Title ref={titleRef} id={titleId} tabIndex={inSettings ? -1 : undefined} className="text-2xl font-semibold tracking-tight break-words outline-none">{name}</Title>
               <p className="mt-0.5 text-sm text-muted" data-testid="app-by">{byLine}</p>
             </div>
             {actions && <div className="flex flex-wrap items-center gap-2 max-sm:w-full max-sm:[&>button:first-child]:flex-1" data-testid="app-actions">{actions}</div>}
@@ -82,7 +90,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
 
         {tools.length > 0 && (
           <section aria-labelledby={toolsId}>
-            <h2 id={toolsId} className="mb-2.5 text-sm font-semibold">{t('gapps.tools')}</h2>
+            <ToolsTitle id={toolsId} className="mb-2.5 text-sm font-semibold">{t('gapps.tools')}</ToolsTitle>
             <ul className="flex flex-wrap gap-2" data-testid="app-tools">
               {tools.map((x) => {
                 // what it does, and that it changes things: the tooltip on hover and on keyboard focus (the chip takes

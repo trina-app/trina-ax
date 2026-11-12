@@ -223,7 +223,7 @@ export const id: Record<MessageKey, string> = {
   'settings.find.memory': "ingat",
   'settings.find.credentials': "Claude ChatGPT kunci API langganan",
   'settings.find.connectors': "aplikasi lain hubungkan",
-  'settings.find.integrations': "Google Drive Gmail Kalender Dokumen Spreadsheet Slack layanan akun hubungkan masuk putuskan",
+  'settings.find.services': "Google Drive Gmail Kalender Dokumen Spreadsheet Slack layanan akun hubungkan masuk putuskan",
   'settings.find.devEnvSites': "jaringan internet situs diizinkan internet penuh lingkungan pengembangan perintah",
   'settings.find.notifications': "push kotak masuk suara percakapan jangan ganggu utas sebutan",
   'settings.find.apps': "unduh pasang ponsel desktop iPhone Android App Store QR",

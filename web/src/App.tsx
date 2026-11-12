@@ -36,6 +36,7 @@ import { RealPath } from './lib/realPath'
 import { noteLocation } from './lib/backStack'
 import { useAppNav } from './lib/appNav'
 import { safeNext } from './lib/nav'
+import { isOldConnectorsPath, oldConnectorsTarget } from './lib/connectors'
 import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
 import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
@@ -70,10 +71,9 @@ function Splash() {
   )
 }
 
-/** Connectors' old addresses (/connectors, /connectors/<id>, /connectors/mcp/<id>): Settings › Connectors now, so they
- * open the dialog over the page they came from too. Not the outside apps' consent page (/connectors/authorize). */
-const oldConnectors = (path: string) => (path === '/connectors' || path.startsWith('/connectors/')) && !/^\/connectors\/authorize(\/|$)/.test(path)
-const isSettings = (path: string) => path === '/settings' || path.startsWith('/settings/') || oldConnectors(path)
+/** Settings' addresses, and Connectors' old ones (Settings › Connectors now: they open the dialog over the page they
+ * came from too; lib/connectors.ts) */
+const isSettings = (path: string) => path === '/settings' || path.startsWith('/settings/') || isOldConnectorsPath(path)
 
 /** Settings is a dialog over a page (components/settings/SettingsDialog.tsx): the page it was opened from, or Home when
  * its address was opened directly. `close` goes back to that page: back through the history entries Settings added on
@@ -312,6 +312,8 @@ function Gate() {
           {/* Connectors was a page of the sidebar until 2026-11-12: its addresses (notices, Slack, mails, bookmarks) lead
               to the same place in Settings, with their query */}
           <Route path="/connectors/*" element={<OldConnectors />} />
+          {/* an address under Settings that is none of these (/settings/a/b): the list, never an empty dialog-less page */}
+          <Route path="*" element={<Navigate to="/settings" replace />} />
           <Route path="/settings/:tab?" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}
@@ -361,7 +363,7 @@ export function AfterSetup() {
 /** /connectors, /connectors/<id>, /connectors/mcp/<id>: the same place in Settings, its query and hash kept. */
 function OldConnectors() {
   const { pathname, search, hash } = useLocation()
-  return <Navigate to={`/settings${pathname}${search}${hash}`} replace />
+  return <Navigate to={oldConnectorsTarget(pathname, search, hash)} replace />
 }
 
 /** An address the app does not know (a wrong or old link): a clear message and a link to Home, inside the normal layout. */

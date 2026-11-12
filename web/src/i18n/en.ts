@@ -223,7 +223,7 @@ export const en: Record<MessageKey, string> = {
   'settings.find.memory': "remember",
   'settings.find.credentials': "Claude ChatGPT API key subscription",
   'settings.find.connectors': "other apps connect",
-  'settings.find.integrations': "Google Drive Gmail Calendar Docs Sheets Slack services accounts connect sign in disconnect",
+  'settings.find.services': "Google Drive Gmail Calendar Docs Sheets Slack services accounts connect sign in disconnect",
   'settings.find.devEnvSites': "network internet allowed sites full internet dev environment commands",
   'settings.find.notifications': "push inbox alerts sound conversations do not disturb quiet hours threads mentions",
   'settings.find.apps': "download install phone desktop iPhone Android App Store QR",

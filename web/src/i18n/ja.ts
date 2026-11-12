@@ -212,7 +212,7 @@ export const ja: Record<MessageKey, string> = {
   'settings.find.memory': "記憶",
   'settings.find.credentials': "Claude ChatGPT APIキー サブスクリプション",
   'settings.find.connectors': "他のアプリ 接続",
-  'settings.find.integrations': "Google ドライブ Gmail カレンダー ドキュメント スプレッドシート Slack サービス アカウント 接続 ログイン 接続解除",
+  'settings.find.services': "Google ドライブ Gmail カレンダー ドキュメント スプレッドシート Slack サービス アカウント 接続 ログイン 接続解除",
   'settings.find.devEnvSites': "ネットワーク インターネット 許可 サイト フルインターネット 開発環境 コマンド",
   'settings.find.notifications': "プッシュ 受信箱 通知音 サウンド トーク おやすみ スレッド メンション",
   'settings.find.apps': "ダウンロード インストール スマホ デスクトップ iPhone Android App Store QR",

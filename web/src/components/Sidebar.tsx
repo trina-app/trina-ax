@@ -374,7 +374,7 @@ export default function Sidebar() {
 }
 
 /** A computer: one labeled row each, a new AI chat and search with their shortcuts, then projects, scheduled tasks, the
- * Inbox (its count on the row, in words for a screen reader), files, team skills and Connectors. Admin is in the team menu on top
+ * Inbox (its count on the row, in words for a screen reader), files and team skills (Connectors is in Settings). Admin is in the team menu on top
  * (TeamMenu.tsx), not a row. Team skills has no count of its own: a suggestion is an Inbox notice already. */
 function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat: () => void; onSearch: () => void }) {
   const t = useT()

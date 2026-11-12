@@ -40,7 +40,7 @@ const TABS: SettingsTab[] = [
   // named after the AI where the product is (트리나에게 허용한 것), else "AI에게 허용한 것"
   { id: 'allowances', label: PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi', find: 'settings.find.allowances', icon: ShieldCheck, group: 'account' },
   // the person's own connections (Google Drive, Gmail, Slack, MCP services): everyone's, with its pages under it
-  { id: 'connectors', label: 'integrations.title', find: 'settings.find.integrations', icon: Cable, group: 'connections', keywords: ['Google', 'Drive', 'Gmail', 'Slack', 'Notion', 'MCP'] },
+  { id: 'connectors', label: 'integrations.title', find: 'settings.find.services', icon: Cable, group: 'connections', keywords: ['Google', 'Drive', 'Gmail', 'Slack', 'Notion', 'MCP'] },
   { id: 'providers', label: 'settings.providers', find: 'settings.find.credentials', icon: KeyRound, group: 'connections', keywords: ['Claude', 'Codex', 'ChatGPT', 'AI'] },
   { id: 'ai-apps', label: 'aiApps.title', find: 'settings.find.connectors', icon: Bot, group: 'connections', keywords: ['Claude', 'Claude Code'] },
   { id: 'dev-env-sites', label: 'settings.devEnvSites', find: 'settings.find.devEnvSites', icon: Network, group: 'connections' },

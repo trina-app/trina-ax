@@ -39,7 +39,7 @@ import { useLogout } from '../../lib/logout'
 import { PhonePushLine } from './PushNotifications'
 import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
 import { PhonePageBar } from '../phone/PhonePageBar'
-import { SettingsBarSlot } from './SettingsBar'
+import { SettingsBarSlot, SettingsHold } from './SettingsBar'
 import type { MessageKey } from '../../i18n'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
@@ -78,7 +78,10 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
     openedFrom = null
     return el
   })
-  useFocusTrap(ref, true, onClose, returnTo)
+  // a Google sign-in under way in Connectors: a stray click beside the dialog or Esc does not close it (its ✕ does)
+  const [held, setHeld] = useState(false)
+  const softClose = () => { if (!held) onClose() }
+  useFocusTrap(ref, true, softClose, returnTo)
   // the page under the dialog is inert until it has closed, so the keyboard goes back once it is reachable again
   useEffect(() => () => void requestAnimationFrame(() => returnTo?.isConnected && returnTo.focus()), [returnTo])
   const [own, setOwn] = useState<boolean | null>(null)
@@ -113,7 +116,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const listRef = useRef<HTMLElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   useKeptScroll(listRef, 'settings-list', phone && !tab)
-  useKeptScroll(contentRef, 'settings-section', phone && !!tab && !waiting)
+  // Connectors' pages are pushed on a computer too (a connector's page from the list): each starts at the top and Back
+  // puts the list's place back
+  useKeptScroll(contentRef, 'settings-section', (phone || tab === 'connectors') && !!tab && !waiting)
   // the section's one action in a phone's bar (SettingsBar.tsx)
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
   const back = useGoBack(page ? `/settings/${tab}` : '/settings')
@@ -138,7 +143,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const fold = phone && current === 'allowances' && !page ? { browser: tabs.some((x) => x.id === 'browser'), devEnvSites: tabs.some((x) => x.id === 'dev-env-sites') } : undefined
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={softClose}>
       <div
         ref={ref}
         role="dialog"
@@ -223,7 +228,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                   {/* a phone: everything under 나 is just for you, so the line is not on every section */}
                   <p className="mb-3 text-xs text-faint max-md:hidden" data-testid="page-scope">{t('scope.you')}</p>
                   <SettingsBarSlot.Provider value={phone && tab ? barSlot : null}>
-                    <SettingsPane tab={page ?? current} fold={fold} />
+                    <SettingsHold.Provider value={setHeld}>
+                      <SettingsPane tab={page ?? current} fold={fold} />
+                    </SettingsHold.Provider>
                   </SettingsBarSlot.Provider>
                 </Suspense>
               )}

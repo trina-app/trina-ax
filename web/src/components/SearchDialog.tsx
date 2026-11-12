@@ -445,9 +445,10 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]
     const m = ok(mcp)
-    // owners and admins go straight to the add-by-address form; a member to Settings › Connectors, which lists the
-    // services to connect (the form is an admin's job). "MCP" and the section's name still find it.
-    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')}` })
+    // Settings › Connectors for everyone (it has no sidebar item): owners and admins who may add their own go straight to
+    // the add-by-address form; everyone else to the list of what they can connect (the Google apps also when members
+    // may not add their own). "MCP", "Connectors" and "Settings" find it.
+    if (m) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin && m.personalAllowed ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')} ${t('settings.title')}` })
     list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0

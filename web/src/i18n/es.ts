@@ -212,7 +212,7 @@ export const es: Record<MessageKey, string> = {
   'settings.find.memory': "recordar memoria",
   'settings.find.credentials': "Claude ChatGPT clave API suscripción",
   'settings.find.connectors': "otras apps conectar",
-  'settings.find.integrations': "Google Drive Gmail Calendar Docs Sheets Slack servicios cuentas conectar iniciar sesión desconectar",
+  'settings.find.services': "Google Drive Gmail Calendar Docs Sheets Slack servicios cuentas conectar iniciar sesión desconectar",
   'settings.find.devEnvSites': "red internet sitios permitidos internet completo entorno de desarrollo comandos",
   'settings.find.notifications': "push bandeja de entrada avisos sonido conversaciones no molestar hilos menciones",
   'settings.find.apps': "descargar instalar teléfono escritorio iPhone Android App Store QR",
