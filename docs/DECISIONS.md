@@ -23576,4 +23576,10 @@ section 5. Linux only (macOS will use the shared localhost).
   NoNewPrivileges, no capabilities): every preview check passed. The forwarder was in the run's network namespace with
   CapEff 0 and NoNewPrivs 1; two runs on port 3000 each served only their own page; the sandbox got "Operation not
   permitted" on AF_UNIX and did not see `<base>/devenv/run`.
+- **A runner race the VM found (fixed here).** `Bun.spawn` returns before systemd-run has started the scope. A tracker
+  poll in that moment saw `ActiveState=inactive`, ended the row as `lost` and deleted the settings file, and srt then
+  refused to start (a dev server ended at once, 2 of about 12 starts). A run of this process whose process lives now
+  counts as running for an unknown scope and for `inactive` (`rowStatus`, test in `dev-env-preview.test.ts`).
+- **Files from a run.** A file a run writes in the person's own folder (`users/<id>/...`) belongs to the server account
+  (mode 640), and the Files API lists it and serves it (VM check P6).
 ||||||| a932b709c
