@@ -23,7 +23,7 @@ let calls: string[] = []
 let sealingKey: unknown
 
 const base = (o: Partial<SlackAdmin> = {}): SlackAdmin => ({
-  enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0,
+  mode: 'own', official: false, enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0,
   manifest: '{"display_information":{"name":"Trina AX"}}', createUrl: 'https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D',
   signIn: false, redirectUrl: 'https://team.example/api/integrations/slack/oauth/callback', ...o,
 })
