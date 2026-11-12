@@ -96,7 +96,7 @@ function LearnMore({ short, long }: { short: ReactNode; long: ReactNode }) {
   return (
     <>
       {short}{' '}
-      <button type="button" aria-expanded={open} className="font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)}>
+      <button type="button" aria-expanded={open} className="touch-hit font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)}>
         {t(open ? 'common.less' : 'teamSettings.learnMore')}
       </button>
       <span hidden={!open} className="mt-2 block max-w-prose text-xs leading-relaxed text-faint">{long}</span>

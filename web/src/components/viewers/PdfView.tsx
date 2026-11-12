@@ -31,7 +31,7 @@ import { useT } from '../../i18n'
 import { Button, IconButton } from '../ui'
 import { pdfjsDataOptions } from '../../lib/pdfjs-assets'
 import { clamp, usePinch, type Pt } from '../../lib/usePinch'
-import { anchorAt, anchorTop, currentPage, layoutTop, pageHeight, pageLayout, pageStart, pageWindow, type PageAnchor, type PageSize, type PageView } from '../../lib/pdfPages'
+import { anchorAt, anchorTop, currentPage, layoutTop, pageHeight, pageLayout, pageStart, pageWindow, scrollLeftAfterZoom, type PageAnchor, type PageSize, type PageView } from '../../lib/pdfPages'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 // CMaps, standard fonts and the image decoders from this server: without them scanned pages (fax / JBIG2, JPEG 2000)
@@ -231,7 +231,7 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
       scrollTo(anchorTop(layout, anchor.current) - dy)
       if (pinned.current) pinned.current.top = box.scrollTop
     }
-    if (before.pageWidth !== pageWidth && box.scrollWidth > box.clientWidth) box.scrollLeft = (box.scrollLeft + dx) * (pageWidth / before.pageWidth) - dx
+    if (before.pageWidth !== pageWidth && box.scrollWidth > box.clientWidth) box.scrollLeft = scrollLeftAfterZoom(box.scrollLeft, dx, before.pageWidth, pageWidth, box.clientWidth)
     update()
   }, [layout, pageWidth, box, scrollTo, update])
   // the start page, once the pages are laid out; again for another start page of the same file

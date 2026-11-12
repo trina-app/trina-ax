@@ -563,7 +563,7 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
         href={store}
         rel="noreferrer noopener"
         onClick={tap}
-        className="flex min-h-10 w-full items-center justify-center rounded-lg bg-accent px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover"
+        className="flex min-h-10 w-full items-center justify-center rounded-lg bg-accent max-md:min-h-11 px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover"
         data-testid="get-app-store"
       >
         {t('auth.getApp')}
@@ -586,13 +586,13 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
       )}
       {(manual === 'failed' || manual === 'copied') && (
         <p className="mt-2 text-center text-sm">
-          <a href={store} rel="noreferrer noopener" className="text-accent-text underline" data-testid="get-app-go">{goLabel}</a>
+          <a href={store} rel="noreferrer noopener" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="get-app-go">{goLabel}</a>
         </p>
       )}
       <p className="mt-2 text-center text-sm text-muted" data-testid="get-app-hint">{t('auth.getAppHint')}</p>
       <OpenInApp path={path} />
       <p className="mt-4 text-center text-sm">
-        <button type="button" className="text-accent-text underline" onClick={() => setWeb(true)} data-testid="get-app-web">
+        <button type="button" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={() => setWeb(true)} data-testid="get-app-web">
           {t('auth.continueInBrowser')}
         </button>
       </p>
