@@ -133,6 +133,9 @@ export function PushNotifications() {
   const offEverywhere = async () => {
     if (await confirmDialog({ title: t('push.offEverywhereTitle'), body: t('push.offEverywhereBody'), confirm: t('push.offEverywhere'), danger: true })) void change(false)
   }
+  // "모든 기기 푸시 끄기" where a phone keeps the buttons (an iPhone's Safari tab, a browser without push, the phone app
+  // after the OS said no): it turns every device off, so it asks first there too; a computer keeps it as it was
+  const disableAll = () => void (narrow || app ? offEverywhere() : change(false))
   const view = phonePushView({ permission: phone.permission, on: !!(settings?.enabled && settings.native?.deviceId), canOpenSettings: canOpenAppSettings() })
   // the browser blocked notifications for this site: the status line says so and how to undo it
   const blocked = !app && supported && notificationPermission() === 'denied'
@@ -146,7 +149,7 @@ export function PushNotifications() {
       status = <span data-testid="phone-push-status">{t(view.status)}</span>
       if (view.action !== 'open-settings') here = { on: view.action === 'disable', disabled: busy }
       action = view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
-        : view.action === 'disable' ? <Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>
+        : view.action === 'disable' ? <Button busy={busy} onClick={disableAll} data-testid="push-disable">{t('push.disable')}</Button>
           : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>
     } else status = t('push.notConfigured')
   } else if (settings && !settings.configured) status = t('push.notConfigured')
@@ -159,7 +162,7 @@ export function PushNotifications() {
       here = { on, disabled: busy || (!on && !registration) }
       if (!on) action = <Button busy={busy} disabled={!registration} onClick={() => void change(true)}>{t('push.enable')}</Button>
     }
-    if (settings.enabled) action = <>{action}<Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button></>
+    if (settings.enabled) action = <>{action}<Button busy={busy} onClick={disableAll} data-testid="push-disable">{t('push.disable')}</Button></>
   }
   // the reason in words; the status line already says a blocked site
   const failureText = !failure ? null : app ? t('push.failed') : failure.kind === 'denied' && blocked ? null : pushFailureText(failure, t, locale, { admin: isAdmin(me) })

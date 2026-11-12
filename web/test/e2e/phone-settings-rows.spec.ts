@@ -3,6 +3,7 @@
 // out); in the phone app what only works on a computer is not offered (connecting a service, AI app setup, Mac and
 // Windows downloads); and there are no duplicate entries or loops (Activity, the AI's sites in one page, the "just for
 // you" line, the schedule-review row). A computer keeps every section as it was.
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -20,6 +21,12 @@ const tall = async (l: Locator, min = 44) => expect(Math.round((await box(l)).he
 async function fits(page: Page) {
   const over = await page.evaluate(() => [document.documentElement, ...document.querySelectorAll<HTMLElement>('[data-testid="settings-content"]')].map((e) => e.scrollWidth - e.clientWidth))
   for (const d of over) expect(d).toBeLessThanOrEqual(0)
+}
+
+/** Serious or critical accessibility problems on the page (axe, WCAG 2.2 AA), as short lines. */
+async function audit(page: Page) {
+  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
+  return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
 }
 
 /** The phone app's bridge (mobile.spec.ts): every message answered ok. */
@@ -58,6 +65,7 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     const rows = page.getByTestId('memory-item')
     await expect(rows).toHaveCount(2)
     await fits(page)
+    expect(await audit(page)).toEqual([])
     // add: the + in the bar
     const add = page.getByTestId('settings-bar-action').getByTestId('memory-add')
     await tall(add)
@@ -111,6 +119,7 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     await expect(page.getByTestId('device-row')).toContainText(t['settings.thisDevice'])
     await expect(page.getByTestId('devices-more')).toContainText('63')
     await fits(page)
+    expect(await audit(page)).toEqual([])
     // the password page: its name in the bar, ‹ back to the section
     await page.getByTestId('password-open').click()
     await expect(page).toHaveURL(/\/settings\/security\/password$/)
@@ -134,6 +143,16 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     await expect(page.getByTestId('dialog-confirm')).toBeVisible()
     await page.getByRole('button', { name: t['common.cancel'] }).last().click()
     expect(revoked).toBe(0)
+    expect(await audit(page)).toEqual([])
+    // Back from either page goes to Security & devices: the phone's own Back, and ‹ when the page was opened directly
+    await page.goBack()
+    await expect(page).toHaveURL(/\/settings\/security$/)
+    for (const sub of ['password', 'devices']) {
+      await page.goto(`/settings/security/${sub}`)
+      await expect(page.getByTestId('settings-back-label')).toHaveText(t['settings.security'])
+      await page.getByTestId('settings-back').click()
+      await expect(page).toHaveURL(/\/settings\/security$/)
+    }
   })
 
   test('3. Notifications › This device; message choice — push for this device a switch, all devices a red row that asks, checkmark rows', async ({ page }) => {
@@ -146,6 +165,7 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     await me(page, 'settings-row-notifications')
     await expect(page.getByTestId('notifications-rooms')).toBeVisible()
     await fits(page)
+    expect(await audit(page)).toEqual([])
     // this device: a switch; every device: a red row that asks first
     await expect(page.getByTestId('push-here-switch')).toBeAttached()
     await expect(page.getByTestId('push-notifications')).not.toContainText(t['push.enable'])
@@ -167,6 +187,23 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     await all.click()
     await expect(all).toHaveAttribute('aria-checked', 'true')
     await expect(page.getByTestId('notification-room-level-direct')).toHaveAttribute('aria-checked', 'false')
+  })
+
+  test('3b. Notifications on an iPhone\'s Safari tab (no switch there): turning push off on all devices asks first too', async ({ page }) => {
+    let patched = 0
+    await page.route('**/api/push', (r) => {
+      if (r.request().method() === 'PATCH') patched++
+      return r.fulfill({ json: { configured: true, enabled: true, publicKey: 'B' + 'A'.repeat(86), subscriptionId: null } })
+    })
+    await page.addInitScript(() => { Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' }) })
+    await page.goto('/settings/notifications')
+    const off = page.getByTestId('push-disable')
+    await expect(off).toBeVisible()
+    await expect(page.getByTestId('push-here-switch')).toHaveCount(0)
+    await off.click()
+    await expect(page.getByTestId('dialog-confirm')).toBeVisible()
+    await page.getByRole('button', { name: t['common.cancel'] }).last().click()
+    expect(patched).toBe(0)
   })
 
   test('4. AI accounts — an Add account row', async ({ page }) => {
@@ -196,6 +233,19 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     await expect(dark).toHaveAttribute('aria-checked', 'true')
     await expect(page.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false')
     await fits(page)
+    // a radio group: one tab stop (the chosen row); the arrow keys move to the next row and pick it
+    await expect(page.getByTestId('profile-language').getByRole('radiogroup')).toHaveAccessibleName(t['settings.language'])
+    await expect(page.getByTestId('locale-team')).toHaveAttribute('tabindex', '0')
+    await expect(english).toHaveAttribute('tabindex', '-1')
+    await dark.focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(page.getByTestId('theme-light')).toBeFocused()
+    await expect(page.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByTestId('theme-light')).toHaveAttribute('tabindex', '0')
+    await page.keyboard.press('End')
+    await expect(dark).toBeFocused()
+    await expect(dark).toHaveAttribute('aria-checked', 'true')
+    expect(await audit(page)).toEqual([])
   })
 
   test('6. Sign out — asks first', async ({ page }) => {
@@ -307,6 +357,7 @@ test.describe('TC-263: phone Settings has no duplicate entries or loops (owner, 
     await tall(page.getByTestId('dev-env-site-remove'))
     expect(await page.getByTestId('dev-env-full').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
     await fits(page)
+    expect(await audit(page)).toEqual([])
     // the old addresses open the same page
     for (const old of ['/settings/dev-env-sites', '/settings/browser']) {
       await page.goto(old)
