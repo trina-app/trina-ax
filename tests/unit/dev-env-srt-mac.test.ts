@@ -54,6 +54,25 @@ describe('the srt settings file on macOS', () => {
     const open = { ...s, filesystem: { ...s.filesystem, denyRead: s.filesystem.denyRead.filter((d) => d !== '/Users') } }
     expect(settingsProblems(open, input).join()).toContain('a host path is not hidden: /Users')
   })
+  test('the person\'s own folder: its root is writable (only skills/ in it stays read-only), and no deny in the team folder covers it', () => {
+    const team = fs.mkdtempSync(path.join(tmp, 'team-'))
+    for (const d of ['users/alice/skills', 'users/bob', '.system']) fs.mkdirSync(path.join(team, d), { recursive: true })
+    const own = path.join(team, 'users/alice')
+    const inp = { ...input, teamRoot: team, start: null, work: null, view: { read: [''], write: ['users/alice'], denyRead: ['users'], denyWrite: ['users/alice/skills'] } }
+    const s = srtSettings(inp)
+    expect(s.filesystem.allowWrite).toContain(own)
+    // srt's Seatbelt profile: a deny inside an allowed folder (the team root here) wins over a deeper allow, so no deny
+    // in the team folder may hold her folder
+    for (const d of s.filesystem.denyRead.filter((x) => x.startsWith(team + '/'))) expect(own === d || own.startsWith(d + '/')).toBe(false)
+    expect(s.filesystem.denyRead).toContain(path.join(team, 'users/bob'))
+    expect(s.filesystem.denyWrite).toEqual([path.join(own, 'skills')])
+    expect(settingsProblems(s, inp)).toEqual([])
+  })
+  test('the folder ACL of the dev accounts: write and mode changes (writesecurity), never chown', () => {
+    const perms = /^PERMS=(.*)$/m.exec(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt-mac.sh'), 'utf8'))![1]!.split(',')
+    for (const p of ['read', 'write', 'delete', 'add_file', 'add_subdirectory', 'writesecurity', 'file_inherit', 'directory_inherit']) expect(perms).toContain(p)
+    expect(perms).not.toContain('chown')
+  })
   test('the environment: Homebrew in PATH, a Mac locale, nothing from the server', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null, platform: 'darwin' })
     expect(e.PATH).toBe('/opt/trina/node/bin:/opt/trina/python3/bin:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin')

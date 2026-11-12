@@ -171,7 +171,12 @@ install -o root -g wheel -m 440 "$TMP/sudoers" "/etc/sudoers.d/$ID-devenv"
 visudo -c >/dev/null || { rm -f "/etc/sudoers.d/$ID-devenv"; die "sudoers is not valid with the rule; removed it"; }
 
 # ---- the ACL of the run folders ----
-PERMS=list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,read,write,append,execute,delete,file_inherit,directory_inherit
+# writesecurity: a run may change the mode (and ACL) of a team file it may write that another account owns (the server,
+# or an earlier run's dev account). Without it, overwriting such a file with Python's shutil.copy, cp -p or rsync -a ends
+# in EPERM when the mode is copied (Mac mini, 2026-11-12). Seatbelt allows mode and ACL changes only in the run's
+# writable folders (checked: shared/, the team root and users/ refuse them), and their parents team/ and users/ stay
+# closed to every other account of the Mac, so a wider entry there reaches no one new. No chown right.
+PERMS=list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,writesecurity,read,write,append,execute,delete,file_inherit,directory_inherit
 ACES=("group:$PREFIX allow $PERMS" "user:$SRV_USER allow $PERMS")
 SRV_GRP=$(id -gn "$SRV_USER")
 for d in team devenv; do

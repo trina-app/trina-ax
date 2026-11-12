@@ -23604,6 +23604,14 @@ isolation on a Mac. Office mode (no sudo) has no dev environment.
   server account read and write there; srt's settings decide what one run may open. A file the server moves in from
   elsewhere has no inherited entry, so the runner adds the ACL again to the run's writable folders before each run
   (`chmod -R +a` adds nothing that is there).
+  The entry has `writesecurity` (no `chown`): a run must be able to change the mode of a file it may write that another
+  account owns (the server, or an earlier run's dev account); without it Python's `shutil.copy`, `cp -p` and `rsync -a`
+  over such a file end in EPERM (Mac mini, 2026-11-12: a run could not save over `users/pras/chart.png`). The right also
+  covers the file's ACL. Checked with srt: Seatbelt refuses mode and ACL changes outside the run's writable folders
+  (`shared/`, the team root, `users/`), and `team/` and `users/` stay closed to every other account of the Mac, so a
+  wider entry a run puts on its own files reaches no one new. Not chosen: copying the mode only when it is ours (not in
+  our hands: the AI's tools do the copy), or the server taking files over after each run (a run would still fail on a
+  file the server owns, such as an upload).
 - **The person's own folder (Mac mini, 2026-11-12).** srt's Seatbelt profile writes a deny that lies inside an allowed
   folder after the allows, so it wins over a deeper allow (bwrap: the deepest rule wins). With users/ hidden as a whole,
   an admin's run (the team root is readable) could not read or write her own `users/<id>`: `ls` and `cp` gave EPERM and
