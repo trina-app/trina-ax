@@ -37,8 +37,10 @@ export function protectMentions(body: string, mentions: MessageMention[]): { sou
   for (let i = 0; i < clean.length; ) {
     const hit = clean[i] === '@' && (mentionCanStart(clean, i) || MARKS.test(clean[i - 1] ?? '')) ? names.find((m) => clean.startsWith(m.name, i + 1)) : undefined
     if (hit) {
-      found.push({ text: `@${hit.name}`, mention: hit })
-      source += `${OPEN}${found.length - 1}${CLOSE}`
+      // one placeholder per name, so "[@Ben]" and its "[@Ben]: …" definition still match
+      let n = found.findIndex((f) => f.mention === hit)
+      if (n < 0) n = found.push({ text: `@${hit.name}`, mention: hit }) - 1
+      source += `${OPEN}${n}${CLOSE}`
       i += hit.name.length + 1
     } else source += clean[i++]
   }
@@ -54,6 +56,8 @@ interface Node {
   value?: string
   url?: string
   alt?: string | null
+  label?: string | null
+  identifier?: string
   title?: string | null
   children?: Node[]
   position?: { start: { offset?: number }; end: { offset?: number } }
@@ -93,7 +97,48 @@ function split(value: string, found: Found[], inLink: boolean): Node[] {
 }
 
 /** Nodes whose children are blocks (where an HTML block can stand). */
-const FLOW = new Set(['root', 'blockquote', 'listItem', 'footnoteDefinition'])
+const FLOW = new Set(['root', 'blockquote', 'listItem'])
+
+/** The text of a node and what is in it, its placeholders back as the names typed. */
+const textOf = (n: Node, found: Found[]): string => restore(n.type === 'text' || n.type === 'inlineCode' ? (n.value ?? '') : (n.children ?? []).map((c) => textOf(c, found)).join(''), found)
+
+/** The host a link opens, without "www." (null: no address) */
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url, 'http://localhost').host.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return null
+  }
+}
+
+/** What one child becomes before its words are read:
+ * - raw HTML is words: a block of it a paragraph of text, inline HTML text (its mentions, addresses and line breaks are
+ *   kept as in the rest of the message; nothing of it is ever HTML);
+ * - GFM's autolink literals ("https://…", "www.…", "a@b.c" with no [ ] or < >) are their text again (textLinks rules);
+ * - a footnote ("x[^1]", "[^1]: note") is its text: its links and ids would jump out of the room ("/#user-content-fn-1")
+ *   and repeat in every message; a link to "#…" the same;
+ * - a link whose words are another site's address ("[https://bank.com](https://evil.example)") shows where it really
+ *   goes: its words as text, then the real address as a link in brackets. */
+function expand(c: Node, flow: boolean, src: string, found: Found[]): Node[] {
+  const text = (value: string): Node => ({ type: 'text', value })
+  if (c.type === 'html') return [flow ? { type: 'paragraph', children: [text(c.value ?? '')] } : text(c.value ?? '')]
+  if (c.type === 'footnoteReference') return [text(`[^${c.label ?? c.identifier ?? ''}]`)]
+  if (c.type === 'footnoteDefinition') {
+    const kids = [...(c.children ?? [])]
+    const mark = text(`[^${c.label ?? c.identifier ?? ''}]: `)
+    if (kids[0]?.type === 'paragraph') kids[0] = { ...kids[0], children: [mark, ...(kids[0].children ?? [])] }
+    else kids.unshift({ type: 'paragraph', children: [mark] })
+    return kids
+  }
+  if (c.type !== 'link') return [c]
+  const at = c.position?.start.offset
+  if ((at !== undefined && src[at] !== '[' && src[at] !== '<') || (c.url ?? '').startsWith('#')) return c.children ?? []
+  const shown = linkParts(textOf(c, found)).find((p) => p.href)
+  const real = restore(c.url ?? '', found)
+  if (shown && hostOf(shown.href!) !== hostOf(real))
+    return [...(c.children ?? []), text(' ('), { type: 'link', url: real, title: null, children: [text(real)], data: { hProperties: { dataPlain: '' } } }, text(')')]
+  return [c]
+}
 
 /** The remark step for a person's words (after remark-gfm); `found`: what protectMentions took out. */
 export function personWords({ found }: { found: Found[] }) {
@@ -101,17 +146,11 @@ export function personWords({ found }: { found: Found[] }) {
     const src = typeof file.value === 'string' ? file.value : ''
     const walk = (node: Node, inLink: boolean) => {
       if (node.children) {
-        // GFM's autolink literals ("https://…", "www.…", "a@b.c" with no [ ] or < >) back to text, then neighbouring
-        // texts joined, so lib/textLinks.ts reads the address with the words around it as before
-        // raw HTML is words: a block of it a paragraph of text, inline HTML text (so its mentions, addresses and line
-        // breaks are kept as in the rest of the message; nothing of it is ever HTML)
+        // (expand), then neighbouring texts joined, so lib/textLinks.ts reads an address with the words around it
         const flow = FLOW.has(node.type)
         const kids: Node[] = []
         for (const c0 of node.children) {
-          const c: Node = c0.type !== 'html' ? c0 : flow ? { type: 'paragraph', children: [{ type: 'text', value: c0.value ?? '' }] } : { type: 'text', value: c0.value ?? '' }
-          const at = c.position?.start.offset
-          const literal = c.type === 'link' && at !== undefined && src[at] !== '[' && src[at] !== '<'
-          for (const k of literal ? (c.children ?? []) : [c]) {
+          for (const k of expand(c0, flow, src, found)) {
             const prev = kids.at(-1)
             if (k.type === 'text' && prev?.type === 'text' && !prev.data) prev.value = (prev.value ?? '') + (k.value ?? '')
             else kids.push(k.type === 'text' ? { type: 'text', value: k.value ?? '' } : k)

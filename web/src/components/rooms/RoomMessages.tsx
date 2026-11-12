@@ -378,7 +378,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       .remove(roomId, m.id)
       .catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   }
-  const meta = m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint select-none">{t('rooms.edited')}</span> : null
+  // (one element while nothing changes: PersonMarkdown is memo'd and would read the Markdown again for a new one)
+  const meta = useMemo(() => (m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint select-none">{t('rooms.edited')}</span> : null), [m.editedAt, deleted, t])
   // ⋮ 더 보기 (the hover bar) and the end of the long-press sheet: copy; my own message's edit; delete what I may (my own,
   // an AI answer I asked for, any AI answer for an owner or admin), with the confirm
   const moreItems: MenuItem[] = [

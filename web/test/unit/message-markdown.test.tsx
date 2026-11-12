@@ -138,3 +138,20 @@ test('"edited" stays on the last line; a quote and a message being sent stay pla
   const pending = html.slice(html.indexOf('room-pending-message'))
   expect(pending).toContain('*sending* `x`')
 })
+
+test('footnotes and "#…" links are text (no jump out of the room, no repeated ids); a link names where it really goes', () => {
+  const f = words('x[^1] and [top](#top)\n\n[^1]: note')
+  expect(f).not.toContain('<a ')
+  expect(f).not.toContain('user-content')
+  expect(f).toContain('x[^1] and top')
+  expect(f).toContain('[^1]: note')
+  // the words name one site, the link goes to another: both are shown, each a link to itself
+  const d = words('[https://bank.com/login](https://evil.example/x)')
+  expect(d).toMatch(/<a href="https:\/\/bank\.com\/login"[^>]*>https:\/\/<wbr\/>bank\.com\/<wbr\/>login<\/a> \(<a href="https:\/\/evil\.example\/x"/)
+  // the same site, or words that are no address: a link as written
+  expect(words('[https://trina.app/docs](https://www.trina.app/docs#a)')).toMatch(/<a href="https:\/\/www\.trina\.app\/docs#a"[^>]*>https:\/\/trina\.app\/docs<\/a>/)
+  expect(words('[report.pdf](https://example.com/r.pdf)')).toMatch(/<a href="https:\/\/example\.com\/r\.pdf"[^>]*>report\.pdf<\/a>/)
+  expect(words('[x](javascript:alert(1)) [https://a.com](javascript:alert(1))')).not.toMatch(/href="javascript/)
+  // a reference link whose label is a mention still finds its definition
+  expect(words('[@Cy Park]\n\n[@Cy Park]: https://example.com/cy', [CY.id])).toMatch(/<a href="https:\/\/example\.com\/cy"[^>]*><span class="font-medium text-accent-text">@Cy Park<\/span><\/a>/)
+})
