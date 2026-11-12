@@ -19,14 +19,15 @@
 //    the Dock or taskbar of a computer, an iPhone's Home Screen): the exact n; at 0 a plain dot while some room I did
 //    not turn off or hide has unread messages n does not count (lib/sessionMarkers.ts iconBadge, as Slack and Discord), else
 //    cleared (the service worker's dot from a push while no window was open turns into it). A normal tab: the browser
-//    ignores it. The phone app has its own (native) badge.
+//    ignores it. The phone app gets the same n over its bridge (badge-v1, lib/mobile.ts setAppBadgeCount): a number only
+//    (an iPhone icon has no dot), and while the app is closed the server's number in each push (notifications/badge.ts).
 import { create } from 'zustand'
 import { useMemo } from 'react'
 import { API, plainLabel, type Chat, type Room, type RoomMessage, type ServerEvent } from '@mycel/shared/api'
 import { api } from '../lib/api'
 import { onWindowFocus, unwatchWindowFocus, watchWindowFocus, windowFocused } from '../lib/attention'
 import { desktop } from '../lib/desktop'
-import { mobileApp } from '../lib/mobile'
+import { mobileApp, setAppBadgeCount } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
 import { plainLine, roomTitle, roomWantsMe } from '../lib/rooms'
@@ -287,6 +288,8 @@ function setWebBadge(nav: BadgeNavigator, b: IconBadge) {
 /** a burst of changes (a resync, many rooms at once) sets the web badge once */
 export const WEB_BADGE_MS = 250
 let webBadge: BadgeNavigator | null = null
+/** this window keeps the phone app's icon number (a page outside the desktop app) */
+let phoneBadge = false
 let started = false
 const offs: (() => void)[] = []
 /** visibility, the desktop app's focus and notification clicks, /seen when the list changes, the dock badge
@@ -339,6 +342,21 @@ export function startSessionMarkers() {
     offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
     apply()
   }
+  // the phone app (badge-v1): the same n on its icon, a number only; when it changes (a burst waits WEB_BADGE_MS) and at
+  // once now. Not gated on the bridge: it may come after this starts, and lib/mobile.ts sends the latest n when it does
+  // (and after a reset, and when the app comes back to the foreground); outside the app nothing is sent
+  if (!app) {
+    let shown: number | undefined, timer: ReturnType<typeof setTimeout> | undefined
+    const apply = () => {
+      timer = undefined
+      const n = currentCount().n
+      if (n !== shown) { shown = n; setAppBadgeCount(n) }
+    }
+    const later = () => { if (timer === undefined) timer = setTimeout(apply, WEB_BADGE_MS) }
+    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
+    phoneBadge = true
+    apply()
+  }
 }
 
 export function stopSessionMarkers() {
@@ -351,7 +369,10 @@ export function stopSessionMarkers() {
   if (started) desktop()?.setBadgeCount?.(0)
   // signed out (or the page closing its live state): no count of this person stays on the icon
   if (started && webBadge) setWebBadge(webBadge, 0)
+  // and none on the phone app's icon either (the app clears it too when the session ends)
+  if (started && phoneBadge) setAppBadgeCount(0)
   webBadge = null
+  phoneBadge = false
   started = false
 }
 

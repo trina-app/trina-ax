@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText, appPicksPhotos, pickPhotosFromApp } from '../../src/lib/mobile'
+import { appBadgeOff, initMobile, mobileApp, onAppBadgeOff, sendFileToApp, setAppBadgeCount, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText, appPicksPhotos, pickPhotosFromApp } from '../../src/lib/mobile'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../src/lib/share'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, OFF_HERE_PREFIX, phonePushView, registerMobilePush, setMobilePushSession, turnOffPhonePush, usePhonePush } from '../../src/lib/mobile-push'
@@ -8,7 +8,7 @@ import { clearLocalData } from '../../src/lib/localData'
 import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
 import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
 import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -782,4 +782,43 @@ test('photo-pick-v1: a sign-out or another person during the pick stops it; no c
   expect(messages.filter((m) => m.type === 'photo-chunk')).toHaveLength(0)
   reply(second!, { files: [{ name: 'b.jpg', mime: 'image/jpeg', size: 3 }], tooBig: [] })
   expect((await again).files.map((f) => f.name)).toEqual(['b.jpg'])
+})
+
+test('badge-v1: the icon number goes when it changes, when the bridge comes, after a reset and in the foreground; badgeOff reaches Settings', async () => {
+  const counts = () => messages.filter(m => m.type === 'badge').map(m => (m as { count: number }).count)
+  // an app without badge-v1 hears nothing (an older build would never answer)
+  setAppBadgeCount(3); await settle()
+  expect(counts()).toEqual([])
+  win.mycelMobile = { ...config, nonce: 'e'.repeat(64), capabilities: [...MOBILE_CAPABILITIES, BADGE_CAPABILITY] }
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => counts().length > 0)
+  expect(counts()).toEqual([3])
+  expect(messages.at(-1)).toMatchObject({ v: 1, type: 'badge', count: 3, nonce: 'e'.repeat(64) })
+  // the same number again is not sent; a change is; a number out of range is brought into it
+  setAppBadgeCount(3); await settle()
+  setAppBadgeCount(12345); await settle(() => counts().length > 1)
+  expect(counts()).toEqual([3, 9999])
+  // back in the foreground: a push may have set the server's number meanwhile, so the page's goes again
+  win.dispatchEvent(new Event('mycel:mobile-foreground'))
+  await settle(() => counts().length > 2)
+  expect(counts()).toEqual([3, 9999, 9999])
+  // a reset (a sign-in) fences the old generation: sent again after it
+  messages = []
+  setMobileSession('user:badge-after-reset')
+  await settle(() => counts().length > 0)
+  expect(messages.map(m => m.type)).toEqual(['session-reset', 'badge'])
+  // iOS has badges off: the answer says so, and the settings line hears it; on again: it goes
+  let heard = 0
+  const off = onAppBadgeOff(() => { heard++ })
+  handler = m => reply(m, m.type === 'badge' ? { badgeOff: true } : {})
+  setAppBadgeCount(2); await settle(() => appBadgeOff())
+  expect(appBadgeOff()).toBe(true)
+  handler = m => reply(m)
+  setAppBadgeCount(1); await settle(() => !appBadgeOff())
+  expect(appBadgeOff()).toBe(false)
+  expect(heard).toBe(2)
+  off()
+  // signed out: 0
+  setAppBadgeCount(0); await settle(() => counts().at(-1) === 0)
+  expect(counts().at(-1)).toBe(0)
 })

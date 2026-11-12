@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { Locale, PushSettings } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { disablePush, disablePushHere, enablePush, isBrave, logPushFailure, notificationPermission, PushError, pushFailure, pushRegistration, pushRetryHelps, pushSupport, type PushFailure } from '../../lib/push'
 import { askLater, mobilePushApp, phonePushView, refreshPhonePush, registerMobilePush, turnOffPhonePush, usePhonePush } from '../../lib/mobile-push'
-import { canOpenAppSettings, mobileApp, openAppSettings } from '../../lib/mobile'
+import { appBadgeOff, canOpenAppSettings, mobileApp, onAppBadgeOff, openAppSettings } from '../../lib/mobile'
 import { isStandalone, platform, pushNeedsInstall, type Platform } from '../../lib/pwa'
 import { isDesktop } from '../../lib/desktop'
 import { useRealPath } from '../../lib/realPath'
@@ -41,14 +41,17 @@ export function pushFailureText(f: PushFailure, t: ReturnType<typeof useT>, loca
 
 /** An installed web app (display-mode: standalone, or an iPhone's Home Screen) whose browser can put a number on its
  * icon (the Badging API; store/sessionMarkers.ts sets it): where the system lets that number show, when it does not.
- * Elsewhere (a tab, the desktop app with its own badge, the phone app, a browser without the API): null. */
-export function badgeHintKey(o: { installed: boolean; badging: boolean; app: boolean; p: Platform }): 'push.badgeHint.mac' | 'push.badgeHint.windows' | 'push.badgeHint.ios' | 'push.badgeHint.other' | null {
+ * The iPhone app when iOS has badges off for it while notifications are on (badge-v1's answer, `appBadgeOff`): the same
+ * line. Elsewhere (a tab, the desktop app with its own badge, the phone app with badges on, a browser without the API):
+ * null. */
+export function badgeHintKey(o: { installed: boolean; badging: boolean; app: boolean; p: Platform; appBadgeOff?: boolean }): 'push.badgeHint.mac' | 'push.badgeHint.windows' | 'push.badgeHint.ios' | 'push.badgeHint.other' | null {
+  if (o.appBadgeOff) return 'push.badgeHint.ios'
   if (!o.installed || !o.badging || o.app) return null
   return o.p === 'mac' ? 'push.badgeHint.mac' : o.p === 'windows' ? 'push.badgeHint.windows' : o.p === 'ios' ? 'push.badgeHint.ios' : 'push.badgeHint.other'
 }
-const badgeHintHere = () => badgeHintKey({
+const badgeHintHere = (appOff: boolean) => badgeHintKey({
   installed: isStandalone(), badging: typeof navigator !== 'undefined' && typeof (navigator as { setAppBadge?: unknown }).setAppBadge === 'function',
-  app: isDesktop() || !!mobileApp(), p: platform(),
+  app: isDesktop() || !!mobileApp(), p: platform(), appBadgeOff: appOff && !!mobileApp(),
 })
 
 /** 이 기기's push row (Settings › Notifications). A computer: where push stands here, with the buttons to turn it on and
@@ -66,7 +69,8 @@ export function PushNotifications() {
   const retry = useRef<(() => void) | null>(null)
   const [deviceReady, setDeviceReady] = useState(false)
   const life = useRef(0), revision = useRef(0)
-  const support = pushSupport(), supported = support === 'ok', needsInstall = pushNeedsInstall(), badgeHint = badgeHintHere()
+  const appOff = useSyncExternalStore(onAppBadgeOff, appBadgeOff, () => false)
+  const support = pushSupport(), supported = support === 'ok', needsInstall = pushNeedsInstall(), badgeHint = badgeHintHere(appOff)
   // Inside the phone app: native push through the team's push gateway instead of Web Push.
   const app = mobilePushApp(), me = useMe()
   const phone = usePhonePush()

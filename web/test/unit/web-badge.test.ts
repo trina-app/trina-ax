@@ -2,8 +2,9 @@
 // desktop app's Dock (chats and rooms that want me, a hidden room never), set once a burst of changes settles; at 0 the
 // browser's dot while a room I did not turn off or hide has unread messages n does not count, else cleared, and when
 // this window stops; never inside the desktop app (its own badge) or the phone app; no API, a refusal or a throw changes
-// nothing. The settings line (components/settings/PushNotifications.tsx badgeHintKey): only on an
-// installed web app that can badge, with the place for its system.
+// nothing. The phone app with badge-v1 gets the same n over its bridge (a number, never a dot), 0 when the window stops;
+// one without it hears nothing. The settings line (components/settings/PushNotifications.tsx badgeHintKey): only on an
+// installed web app that can badge, with the place for its system, and on the iPhone app whose badges iOS has off.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Chat, type Me } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
@@ -13,7 +14,7 @@ import { useSession } from '../../src/store/session'
 import { currentCount, startSessionMarkers, stopSessionMarkers, useSessionMarkers, WEB_BADGE_MS } from '../../src/store/sessionMarkers'
 import { badgeHintKey } from '../../src/components/settings/PushNotifications'
 import { ME, room } from './rooms-fixtures'
-import { MOBILE_CAPABILITIES, type MobileConfig } from '../../../mobile/src/protocol'
+import { BADGE_CAPABILITY, MOBILE_CAPABILITIES, type MobileConfig, type MobileMessage } from '../../../mobile/src/protocol'
 
 const chat = (o: Partial<Chat> = {}): Chat => ({ id: uuidv7(), projectId: null, title: 'Weekly report', engine: 'claude-code', model: null, createdAt: '2026-11-07T00:00:00.000Z', updatedAt: '2026-11-07T00:00:10.000Z', deletedAt: null, runState: 'idle', ...o })
 const settle = () => new Promise((r) => setTimeout(r, WEB_BADGE_MS + 30))
@@ -162,6 +163,61 @@ describe('the icon of an installed web app', () => {
     expect(calls).toEqual([])
   })
 
+  /** the phone app's bridge in a stub window; `sent` collects what the page posts to it */
+  const phoneApp = (capabilities: readonly string[], nonce: string) => {
+    const sent: MobileMessage[] = []
+    const config: MobileConfig = { protocol: 1, appVersion: '1.0.5', platform: 'ios', nonce, generation: 1, capabilities }
+    const win: Record<string, unknown> = { matchMedia: () => ({ matches: false }), mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (raw: string) => { sent.push(JSON.parse(raw)) } } }
+    win.top = win; win.self = win
+    stub('window', win)
+    return { badges: () => sent.filter((m) => m.type === 'badge').map((m) => (m as { count: number }).count) }
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 5))
+
+  test('inside the phone app with badge-v1: the same n over the bridge at once, once a burst settles, and 0 when this window stops', async () => {
+    const app = phoneApp([...MOBILE_CAPABILITIES, BADGE_CAPABILITY], '1'.repeat(64))
+    stub('navigator', badging())
+    useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 })] })
+    startSessionMarkers()
+    useSessionMarkers.setState({ visible: true, onScreen: null })
+    await flush()
+    expect(app.badges()).toEqual([1])
+    const c = chat({ unseen: true })
+    useChats.setState({ chats: [c] })
+    useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 }), room({ kind: 'group', unreadCount: 1 })] })
+    // a burst: nothing yet, then one send with the settled n
+    await flush()
+    expect(app.badges()).toEqual([1])
+    await settle()
+    expect(app.badges()).toEqual([1, 3])
+    // the same n again: nothing
+    useRooms.setState({ rooms: [...useRooms.getState().rooms] })
+    await settle()
+    expect(app.badges()).toEqual([1, 3])
+    stopSessionMarkers()
+    await flush()
+    expect(app.badges()).toEqual([1, 3, 0])
+    // never the web Badging API inside the app
+    expect(calls).toEqual([])
+  })
+
+  test('inside the phone app: n 0 with only a plain team-room message unread is 0 (an iPhone icon has no dot)', async () => {
+    const app = phoneApp([...MOBILE_CAPABILITIES, BADGE_CAPABILITY], '2'.repeat(64))
+    useRooms.setState({ rooms: [room({ kind: 'team', unreadCount: 2 })] })
+    startSessionMarkers()
+    await flush()
+    expect(app.badges()).toEqual([0])
+  })
+
+  test('a phone app without badge-v1 (builds up to 9) hears nothing', async () => {
+    const app = phoneApp([...MOBILE_CAPABILITIES], '3'.repeat(64))
+    useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 })] })
+    startSessionMarkers()
+    stopSessionMarkers()
+    await flush()
+    expect(app.badges()).toEqual([])
+  })
+
   test('no Badging API (Firefox, a phone browser tab): nothing, and nothing throws', () => {
     stub('navigator', { userAgent: 'Mozilla/5.0 Firefox/130' })
     useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 })] })
@@ -180,6 +236,9 @@ describe('the settings line', () => {
     expect(at({ installed: false })).toBeNull()
     expect(at({ badging: false })).toBeNull()
     expect(at({ app: true })).toBeNull()
+    // the iPhone app whose badges iOS has off (badge-v1's answer): the iPhone line
+    expect(at({ app: true, installed: false, badging: false, appBadgeOff: true })).toBe('push.badgeHint.ios')
+    expect(at({ app: true, installed: false, badging: false, appBadgeOff: false })).toBeNull()
     expect(translate('ko', 'push.badgeHint.mac')).toBe("Dock 아이콘에 숫자가 안 보이면 시스템 설정 › 알림 › Trina AX에서 '앱 아이콘에 배지 표시'를 켜 주세요.")
     expect(translate('ko', 'push.badgeHint.windows')).toContain('작업 표시줄 앱에 배지 표시')
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const p of ['mac', 'windows', 'ios', 'other'] as const) {
