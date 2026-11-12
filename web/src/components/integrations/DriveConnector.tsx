@@ -3,7 +3,8 @@
 //    sign-in (components/settings/DriveConnection.tsx). Back from Google, one inline line asks to confirm the account:
 //    a security step (the server holds the connection until the same person confirms it, docs/GOOGLE-DRIVE.md). Once
 //    linked it is a row among the connections (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
-//    client on this server yet: "Your admin needs to turn this on".
+//    client on this server yet: "Your admin needs to turn this on" for a member; an owner or admin is the one to set it
+//    up, so they get "not set up yet" and a button to its page in Admin (QA TC-196).
 //    An admin may not let members connect their own (Admin › Connectors › Google Drive): Connect is then off for
 //    members, and a connection made before says the admin turned it off. An owner or admin gets one button instead,
 //    "팀원도 연결할 수 있게 켜고 내 드라이브 연결하기": their own sign-in, and the switch turns on only once they confirm
@@ -15,12 +16,13 @@
 //    and below it the members' switch and the shares (DriveShares.tsx). A client alone turns nothing on.
 import { Check, Copy, FolderOpen, Upload } from 'lucide-react'
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { API, type DriveAdminStatus, type DriveConnection, type DriveTeamShare } from '@mycel/shared/api'
 import { APP_CONNECTORS, appConnectorLogo } from '../../lib/connectors'
 import { api, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { useT } from '../../i18n'
-import { isAdmin, useMe } from '../../store/session'
+import { isAdmin, isOwner, useMe } from '../../store/session'
 import { Badge, Button, Field, inputCls, Modal, useCopy } from '../ui'
 import type { DriveConnectionState } from '../settings/DriveConnection'
 import { ConnectorDetail, LogoTile } from './ConnectorsView'
@@ -48,6 +50,7 @@ export function DriveLogo({ className }: { className?: string }) {
 export function useDriveParts(s: DriveConnectionState) {
   const t = useT()
   const admin = isAdmin(useMe())
+  const navigate = useNavigate()
   const c = s.connection
   const { d } = s
   const linked = driveLinked(c)
@@ -62,7 +65,8 @@ export function useDriveParts(s: DriveConnectionState) {
 
   let line: string = t('drive.cardDesc')
   if (!c && s.loadFailed) line = t('drive.loadFailed')
-  else if (unavailable) line = t('connectors.adminNeeded')
+  // not set up on this server: a member waits for an admin; an owner or admin is the one to set it up (QA TC-196)
+  else if (unavailable) line = t(admin ? 'drive.setUpFirst' : 'connectors.adminNeeded')
   else if (off && linked) line = t('drive.membersOffLinked')
   else if (off && shares.length) line = t('drive.teamShared', { name: shares.map((x) => x.name).join(', ') })
   else if (turnOn) line = t('drive.cardDesc')
@@ -73,7 +77,9 @@ export function useDriveParts(s: DriveConnectionState) {
   const action = !c
     ? (s.loadFailed ? <Button size="sm" onClick={s.load} data-testid="drive-retry">{t('common.retry')}</Button> : null)
     : unavailable
-      ? <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
+      ? admin
+        ? <Button size="sm" variant="primary" onClick={() => navigate('/admin/connectors?drive=1')} data-testid="drive-set-up">{t('drive.goSetUp')}</Button>
+        : <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
       : turnOn
         ? (flow ? null : <Button size="sm" variant="primary" busy={d.busy} onClick={s.start} data-testid="drive-connect">{t('drive.turnOnConnect')}</Button>)
       : off
@@ -190,6 +196,7 @@ export function driveAdminLine(t: ReturnType<typeof useT>, status: DriveAdminSta
  * the one-time setup, and (children) the members' switch and the Drives shared with the team. */
 export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status: DriveAdminStatus; onSetUp: () => void; onBack: () => void; children?: ReactNode }) {
   const t = useT()
+  const owner = isOwner(useMe())
   const on = driveAdminOn(status)
   return (
     <ConnectorDetail testId="drive-admin-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={driveAdminLine(t, status)} official
@@ -198,6 +205,15 @@ export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status
         {status.canSetUp && <Button variant={status.configured ? 'secondary' : 'primary'} onClick={onSetUp} data-testid="drive-setup">{t(status.configured ? 'appConnectors.replace' : 'connectors.setUpOnce')}</Button>}
       </>}
       description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
+      {/* no public address: what to do next and who does it (QA TC-196). It is set on the server computer by whoever
+          installed it, not in the app; the owner sees it in System › 연결 방식, and only the owner sees that page */}
+      {!status.configured && status.blocked === 'public_host' && (
+        <div className="space-y-1 text-sm" data-testid="drive-public-host">
+          <p>{t('driveAdmin.publicHost.why')}</p>
+          <p>{t(owner ? 'driveAdmin.publicHost.owner' : 'driveAdmin.publicHost.admin')}</p>
+          {owner && <Link to="/admin/system" className="inline-block text-accent-text underline-offset-2 hover:underline" data-testid="drive-public-host-system">{t('driveAdmin.publicHost.openSystem')}</Link>}
+        </div>
+      )}
       {status.configured && status.source === 'server' && <p className="text-xs text-faint" data-testid="drive-by-server">{t('appConnectors.byServer')}</p>}
       {status.configured && status.source === 'service' && <p className="text-xs text-faint" data-testid="drive-by-service">{t('appConnectors.byService')}</p>}
       {status.configured && <div className={status.source === 'server' || status.source === 'service' ? 'mt-4' : undefined}>{children}</div>}
