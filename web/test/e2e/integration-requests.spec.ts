@@ -149,10 +149,11 @@ test('withdrawn and declined requests: the member\'s link says what became of it
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
 
-test('Add connection menu: ask a member in a popup, the request is a row, withdraw it; works at phone width', async ({ page }) => {
+test('Add connection menu: ask a member in a popup, the request is a row, withdraw it; a phone leaves adding to a computer', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
-  await page.setViewportSize({ width: 390, height: 844 })
+  // a phone has no Add (by address) and so no ⌄ with "Ask a member" (TC-270, phone-admin-pages.spec.ts): at a
+  // computer's width the menu, the popup and the row; at a phone's, the request row and nothing sideways
   await signIn(page)
   await page.goto('/admin/connectors')
   await page.getByTestId('integration-add-more').click()
@@ -176,8 +177,12 @@ test('Add connection menu: ask a member in a popup, the request is a row, withdr
   const row = page.getByTestId('integration-request').filter({ hasText: 'Tracker' })
   await expect(row.getByTestId('integration-request-chip')).toHaveText('요청함 · Bob')
   await expect(row).toContainText('mcp.tracker.example')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(row).toBeVisible()
+  await expect(page.getByTestId('integration-add-more')).toHaveCount(0)
   const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
   expect(sideways).toBe(false)
+  await page.setViewportSize({ width: 1360, height: 860 })
   await row.getByTestId('integration-request-withdraw').click()
   await page.getByRole('dialog').getByRole('button', { name: '철회' }).click()
   await expect(row).toHaveCount(0)

@@ -82,13 +82,18 @@ test('row → page under "‹ Admin" → ‹ and the browser\'s back return to t
   await expect(page).toHaveURL(/\/settings$/)
 })
 
-test('a pasted address: the page with the list under it, its query still doing its job; Back → the list → out', async ({ page }) => {
+test('a pasted address: the page with the lists under it, its query still doing its job; Back → the lists → out', async ({ page }) => {
   await page.goto('/admin/connectors?drive=1')
-  await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.integrations'])
-  await expect(page.getByTestId('admin-back-label')).toHaveText(t['admin.title'])
-  // ?drive=1 opened Google Drive's page (pushed again over the list with its query, the page reads it again)
+  // ?drive=1 opens Google Drive's page, which has its own address (pages/admin/adminScreens.ts): Connectors and the
+  // Admin list go under it
+  await expect(page).toHaveURL(/\/admin\/connectors\/google-drive$/)
   await expect(page.getByTestId('drive-admin-detail')).toBeVisible()
-  await expect(page).toHaveURL(/\/admin\/connectors/)
+  await expect(page.getByTestId('admin-bar-title')).toHaveText('Google Drive')
+  await expect(page.getByTestId('admin-back-label')).toHaveText(t['admin.team.integrations'])
+  await page.goBack()
+  await expect(page).toHaveURL(/\/admin\/connectors$/)
+  await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.team.integrations'])
+  await expect(page.getByTestId('admin-back-label')).toHaveText(t['admin.title'])
   await page.goBack()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
@@ -182,16 +187,19 @@ test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, a
   expect(await historyLength(page)).toBe(length)
 })
 
-test('a member: /admin goes home and leaves no list behind', async ({ page }) => {
+test('a member: /admin says it is for admins; Back never shows the Admin list', async ({ page }) => {
   await page.getByTestId('tab-me').click()
   await page.getByTestId('settings-logout').click()
   // signing out asks first on a phone
   await page.getByTestId('dialog-confirm').click()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/members')
-  await expect(page).not.toHaveURL(/\/admin/)
+  // TC-272: the admin-only notice with a way Home, in place of the page
+  await expect(page.getByTestId('admin-only')).toBeVisible()
+  // (a pasted address gets its parents under it, lib/screens.ts: a member finds the same notice there, never the list)
   await page.goBack()
-  await expect(page).not.toHaveURL(/\/admin/)
+  await expect(page.getByTestId('admin-phone-root')).toHaveCount(0)
+  await expect(page.getByTestId('admin-only').or(page.getByTestId('settings-logout'))).toBeVisible()
 })
 
 test('an admin who is not the owner: Slack\'s address goes to the list, one entry', async ({ page }) => {

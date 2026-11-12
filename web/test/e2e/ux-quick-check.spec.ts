@@ -32,7 +32,7 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   const card = await box(bob)
   expect(card.x + card.width).toBeLessThanOrEqual(PHONE.width)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.width)
-  expect(await lines(bob.locator('p').first())).toBe(1)
+  expect(await lines(bob.getByText('Bob', { exact: true }))).toBe(1)
   // the owner (yourself): the "…" has only "Folders they see" (no actions on yourself)
   await page.getByTestId('member-card-olga').getByTestId('member-more').click()
   await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['accessView.membersLink']])
