@@ -5,13 +5,15 @@
 #   - No key pair and no IAM: a new SSH key goes to the VM in its user data.
 #   - The VM, its volume and its security group carry the tag trina-test=srt-spike. The teardown runs on every exit.
 # Usage, from the repo root (commit or keep the files you want to test; untracked files are sent too):
-#   scripts/dev-env/srt/spike-vm.sh [log-file] [checks|bench]
+#   scripts/dev-env/srt/spike-vm.sh [log-file] [checks|bench|preview]
+# The preview needs a static mycel-sandbox for the VM: with go on this computer the script builds it (CGO_ENABLED=0)
+# and sends it to native/bin/linux-amd64/ on the VM.
 set -euo pipefail
 PROFILE=trina
 REGION=ap-northeast-2
 ACCOUNT=896568317806
 TAG_KEY=trina-test
-TAG_VAL=srt-spike
+TAG_VAL=${SPIKE_TAG:-srt-spike}   # another tag keeps two sessions' VMs apart
 TYPE=t3a.medium
 DEBIAN_OWNER=136693071363
 BUN_VERSION=1.3.12
@@ -52,7 +54,7 @@ AMI=$(aws_ ec2 describe-images --owners "$DEBIAN_OWNER" --filters 'Name=name,Val
 VPC=$(aws_ ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
 MYIP=$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')
 say "AMI $AMI, VPC $VPC, SSH from $MYIP/32"
-TAGS="{Key=$TAG_KEY,Value=$TAG_VAL},{Key=Name,Value=trina-srt-spike}"
+TAGS="{Key=$TAG_KEY,Value=$TAG_VAL},{Key=Name,Value=trina-$TAG_VAL}"
 SG=$(aws_ ec2 create-security-group --group-name "trina-srt-spike-$(date +%s)" --description 'srt spike: ssh from one address' --vpc-id "$VPC" \
   --tag-specifications "ResourceType=security-group,Tags=[$TAGS]" --query GroupId --output text)
 aws_ ec2 authorize-security-group-ingress --group-id "$SG" --protocol tcp --port 22 --cidr "$MYIP/32" >/dev/null
@@ -67,12 +69,16 @@ aws_ ec2 wait instance-running --instance-ids "$IID"
 IP=$(aws_ ec2 describe-instances --instance-ids "$IID" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
 SSH=(ssh -i "$WORK/key" -o ServerAliveInterval=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 "admin@$IP")
 for _ in $(seq 1 40); do "${SSH[@]}" true 2>/dev/null && break; sleep 5; done
+if command -v go >/dev/null; then
+  (cd native && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o "$WORK/mycel-sandbox" ./cmd/mycel-sandbox)
+elif [ "$MODE" = preview ]; then say "STOP: the preview needs go here to build mycel-sandbox"; exit 1; fi
 say "ssh to $IP is up; sending the repo"
 
 # the repo as it is in this folder (tracked and untracked files, no ignored ones)
 git ls-files -co --exclude-standard -z | tar --null -T - -czf "$WORK/repo.tgz"
 "${SSH[@]}" 'sudo install -d -m 755 /opt/mycel'
 "${SSH[@]}" 'sudo tar -xzf - -C /opt/mycel --no-same-owner' < "$WORK/repo.tgz"
+[ ! -f "$WORK/mycel-sandbox" ] || "${SSH[@]}" 'sudo install -d -m 755 /opt/mycel/native/bin/linux-amd64 && sudo tee /opt/mycel/native/bin/linux-amd64/mycel-sandbox >/dev/null && sudo chmod 755 /opt/mycel/native/bin/linux-amd64/mycel-sandbox' < "$WORK/mycel-sandbox"
 "${SSH[@]}" bash -s "$BUN_VERSION" <<'EOF' 2>&1 | tail -5
 set -euo pipefail
 V=$1
@@ -87,7 +93,7 @@ sudo chown -R root:root /opt/mycel && sudo chmod -R go-w /opt/mycel
 echo "bun $(/usr/local/bin/bun --version), repo ready"
 EOF
 say "CPU credits: $(aws_ ec2 describe-instance-credit-specifications --instance-ids "$IID" --query 'InstanceCreditSpecifications[0].CpuCredits' --output text)"
-say "running vm-check.sh $MODE (checks: 10 to 20 minutes; bench: about 40 minutes); log: $LOG"
+say "running vm-check.sh $MODE (checks: 10 to 20 minutes; bench: about 40 minutes; preview: about 5 minutes); log: $LOG"
 set +e
 "${SSH[@]}" "sudo /opt/mycel/scripts/dev-env/srt/vm-check.sh /opt/mycel $MODE" 2>&1 | tee "$LOG"
 CODE=${PIPESTATUS[0]}
