@@ -73,6 +73,9 @@ export const ListChatsQuery = PageQuery.extend({
   trash: QueryBool.optional(),
   /** only my chats opened from this room's side panel (✦ Trina), newest first */
   sideRoomId: Uuid7.optional(),
+  /** only my chats in this list folder of mine (docs/DECISIONS.md "List folders"), newest first; another person's
+   * folder answers 404. Not with projectId or trash. */
+  folderId: Uuid7.optional(),
 })
 export const CreateChatBody = z.object({
   projectId: Uuid7.nullable().optional(),

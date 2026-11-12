@@ -17569,6 +17569,65 @@ pins wherever a room allows it.
   pin ahead of the clock.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
 
+## List folders — my own folders for AI chats and conversations, server part (feat/nav-folders-server, 2026-11-13, product owner)
+
+넣을 곳: trina-ax core (`server/src/chat/nav-folders.ts`, `server/src/routes/nav-folders.ts`, migration 289,
+`shared/src/api/nav-folders.ts`, clean-up hooks in `server/src/routes/chats.ts`, `server/src/rooms/service.ts`,
+`server/src/admin/users.ts`), 이유: the lists they sort are core. Plan: the navigation redesign
+(`docs/AGENTS/plan/20261112-1839-nav-rail.md` once committed), phase P4a; the screens come in P4b behind the `navRail`
+flag. Nothing is visible yet, so no `changes/` fragment.
+
+The owner approved the navigation redesign (11-13): a person keeps their own AI chats, rooms and DMs in folders, like
+Slack's sections, that only they see. This entry is the server half: tables, rules and endpoints, no screen.
+
+- **Names.** Tables `nav_folders` / `nav_folder_items`, `NavFolder`, `/api/nav-folders`. Not `personal_folders`: "personal
+  folder" already means a person's files folder (`users/<name>/`); not `folders`: that is the team drive. The UI word
+  stays 폴더.
+- **The schema stops mistakes, not only the code.** `nav_folders` has `UNIQUE(id, user_id, kind)` and each item carries
+  `kind` and the person's id with `FOREIGN KEY (folder_id, user_id, kind)` to it, plus a CHECK that a chat item has a
+  chat and a room item a room: no code path can put an item in someone else's folder or a chat in a room folder. One
+  folder per item (partial unique indexes per person). Additive only (reader 1).
+- **Only the maker.** Every query is by the caller's id; another person's folder id answers 404 like an unknown one,
+  for the owner and admins too. No admin endpoint, no audit row, nothing in the activity log: folder names are personal
+  and land nowhere else. `Chat.folderId` and `Room.folderId` are the viewer's own (built per recipient in `roomOut`, so
+  another member's `room.updated` never carries my folder). `navFolders.changed` goes to my windows only; an older page
+  ignores the unknown event.
+- **One visibility check.** What a folder lists and counts, `?folderId`, `NavFolder.top` and the limit clean-up all use
+  one SQL fragment per kind (`visibleChatItems`, `VISIBLE_ROOM_ITEMS`): a chat must be my own, not in the trash, with no
+  project, not shared, not a room's AI session and not a server draft; a room must have my member row, not be archived,
+  not be hidden by me, and the row must be newer than my `joined_at`. A stale row (someone else's chat, a lost shared
+  chat, a chat moved into a project behind the folder's back) is never shown, counted or named. Plain SQL, no `chatFor`
+  per row: only own non-project chats can be filed, so 30 × 500 rows stay one query.
+- **Filing.** `PUT /api/chats/:id/folder` and `PUT /api/rooms/:id/folder` (`{ folderId }`, null = out; another folder =
+  move). A chat: `chatFor` 'view' first (404 for a chat I cannot open or in the trash), a server draft 404, a project
+  chat 409 `folder_project_chat` ("프로젝트 기록은 프로젝트 안에 있어요. 폴더에는 넣을 수 없어요.": it stays where its people
+  find it). A room: members only (404, archived included); a hidden room 409 `room_hidden` (show it first), as pins.
+- **Clean-up.** The trash drops a chat's row (restored, it is in no folder, as pins). `updateChat` drops it in the same
+  transaction when `project_id` becomes set, the only way a chat gets a project, so a filed chat can never be shared
+  from inside a folder. Leaving or being taken out of a room drops it (`forgetMember`). A hidden room **keeps** its row
+  (hidden rooms come back when something arrives; the DM stays in its folder) and an archived one too, both filtered on
+  read. A deleted account keeps its users row as a tombstone, so `deleteUser` deletes the person's rows by hand next to
+  the pins. Purges and folder deletes cascade.
+- **Order and limits.** Folders by `position` (0..n-1 per person and kind). `PUT /api/nav-folders/order` takes any subset
+  of my ids: those first in that order, the rest after in their order, unknown ids ignored, the full list returned. Two
+  devices that reorder at once both succeed and the last wins (no 400 for a folder made on the other device meanwhile).
+  Items have no order of their own: they follow the list (latest activity first). 30 folders per person and kind
+  (`nav_folders_full`), 500 items per folder (`nav_folder_full`; rows that fail the check are deleted first). Names:
+  NFC, trimmed, 1–40 characters as people see them (graphemes), none invisible or a control character, unique per
+  person and kind in any letter case (`name_key`, `nav_folder_name_taken`).
+- **Deleting a folder** deletes only the folder; its chats and rooms go back to their usual place and my windows get
+  them again without `folderId`.
+- **The list.** `GET /api/nav-folders` returns both kinds with `count` and, for chat folders, the 3 most recently active
+  chats (`top`), so a folded folder needs no other request; the rest pages through `GET /api/chats?folderId=`. Room
+  folders need no `top`: `GET /api/rooms` is not paged and carries `folderId`. `marked` (session markers of rows outside
+  `top`) is left to P2's `GET /api/chats/groups`.
+- Tests: `tests/unit/b-nav-folders.test.ts` (make, rename, delete, names, both limits, subset order, the composite key,
+  filing and moving, project and draft refusals, the trash, `updateChat`, stale rows of every kind, rooms hidden,
+  archived, left and rejoined, a route matrix for the folder's owner, another member, an admin, the owner, a person
+  who lost access and a deleted account), the security permission matrix (`tests/security/lib/nav-folders-cases.ts`,
+  every route), `web/test/unit/realtime.test.ts` (the new event).
+- Version impact: **minor** (new endpoints, additive fields and an additive migration).
+
 ## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
 
 Step (f) of the room file viewer plan (`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, question 5). The owner:

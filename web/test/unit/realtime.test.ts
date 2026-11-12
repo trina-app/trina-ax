@@ -119,6 +119,18 @@ describe('RealtimeClient', () => {
     expect(r.events.map((e) => e.seq)).toEqual([1, 2])
   })
 
+  test('navFolders.changed (docs/DECISIONS.md "List folders") is read and passed on; the stream goes on after it', () => {
+    const r = setup()
+    r.client.start()
+    const s = r.sockets[0]!
+    s.open()
+    s.recv(hello('E1', 0))
+    s.recv({ type: 'navFolders.changed', seq: 1, at: 0, data: { kind: 'rooms' } })
+    s.recv(delta(2, 0, 'Hi'))
+    expect(r.events.map((e) => [e.type, e.seq])).toEqual([['navFolders.changed', 1], ['message.delta', 2]])
+    expect(r.reloads).toEqual([])
+  })
+
   test('an event this page knows by name but cannot read (the server was updated under it): a reload of the state, at most one a minute', () => {
     const r = setup()
     r.client.start()

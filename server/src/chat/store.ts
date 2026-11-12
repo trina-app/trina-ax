@@ -4,6 +4,7 @@ import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChange
 import { knownStepTool, STEP_TEXT, stepWords } from '@mycel/shared'
 import { newId } from '../db'
 import { isConfidentialChat } from '../safe-ops/confidential'
+import { isInternalChat } from './internal-chats'
 import { isTeamFilePath, sourceCount, teamSourcePaths } from '../files/sources'
 import { skillMakerName } from '../skills/author'
 
@@ -204,6 +205,7 @@ export class ChatStore {
    * pin it shows (Chat.pinnedAt, chat/pins.ts). */
   toChat(r: ChatRow, runState: ChatRunState, waiting = false, o: { answersOf?: string | null; viewer?: string; ending?: boolean; waitingForPlace?: boolean } = {}): Chat {
     const pinned = o.viewer ? this.pinnedAt(o.viewer, r.id) : null
+    const folder = o.viewer ? this.folderOf(o.viewer, r) : null
     return {
       id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
@@ -215,6 +217,7 @@ export class ChatStore {
       ...(this.mergeWaiting(r.id) ? { mergeWaiting: true as const } : {}),
       ...(r.side_room_id ? { sideRoomId: r.side_room_id } : {}),
       ...(pinned ? { pinnedAt: iso(pinned) } : {}),
+      ...(folder ? { folderId: folder } : {}),
     }
   }
   /** The newest finished answer (done, error or stopped), in one read: whether it finished after the person last had
@@ -236,6 +239,14 @@ export class ChatStore {
   /** When `userId` pinned the chat (chat/pins.ts), or null. */
   pinnedAt(userId: string, chatId: string): string | null {
     return (this.db.query('SELECT pinned_at FROM chat_pins WHERE user_id = ? AND chat_id = ?').get(userId, chatId) as { pinned_at: string } | null)?.pinned_at ?? null
+  }
+  /** The list folder `viewer` keeps this chat in (Chat.folderId; chat/nav-folders.ts), only while that folder may show
+   * it: their own chat, not in the trash, with no project, not shared, not a room's and not a server draft (the same
+   * rule as nav-folders.ts visibleChatItems). */
+  folderOf(viewer: string, r: Pick<ChatRow, 'id' | 'user_id' | 'deleted_at' | 'project_id' | 'shared_at' | 'room_id'>): string | null {
+    if (r.user_id !== viewer || r.deleted_at || r.project_id || r.shared_at || r.room_id) return null
+    const row = this.db.query("SELECT folder_id FROM nav_folder_items WHERE user_id = ? AND chat_id = ? AND kind = 'chats'").get(viewer, r.id) as { folder_id: string } | null
+    return row && !isInternalChat(this.db, r.id) ? row.folder_id : null
   }
   /** An answer finished after the person last had the chat on screen (answerState). */
   unseen(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>): boolean { return !!this.answerState(r).unseen }

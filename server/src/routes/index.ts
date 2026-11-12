@@ -31,6 +31,7 @@ import { roomsRoutes } from './rooms'
 import { slackRoutes } from './slack'
 import { appLinksRoutes } from './app-links'
 import { oftenAskedRoutes } from './often-asked'
+import { navFoldersRoutes } from './nav-folders'
 
 export type { RouteModule } from './module'
 
@@ -43,6 +44,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   chatsRoutes, // B
   memoriesRoutes, // B
   roomsRoutes, // B (team chat rooms, docs/DECISIONS.md "대화방 v1")
+  navFoldersRoutes, // B (a person's own list folders, docs/DECISIONS.md "List folders"); after chats and rooms
   wsRoutes, // B
   browserRoutes, // B
   filesRoutes, // C

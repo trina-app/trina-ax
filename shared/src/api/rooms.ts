@@ -562,6 +562,9 @@ export const Room = z.object({
   /** when I pinned it to the top of my 대화 list ("상단에 고정", POST /api/rooms/:id/pin; docs/DECISIONS.md "Pinned
    * conversations"). Mine only: nobody else in the room sees my pin. Never with hidden. Absent = not pinned. */
   pinnedAt: IsoTime.optional(),
+  /** the list folder I keep it in (PUT /api/rooms/:id/folder; docs/DECISIONS.md "List folders"). Mine only: each
+   * member's copy of the room carries theirs. Not while hidden (it comes back with the room). Absent = in no folder. */
+  folderId: Uuid7.optional(),
 })
 export type Room = z.infer<typeof Room>
 

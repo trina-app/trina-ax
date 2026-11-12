@@ -536,6 +536,8 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   const since = viewer.joined_at > room.created_at ? viewer.joined_at : room.created_at
   // the viewer's own pin: each member's copy of the room carries theirs only
   const pinned = pinOf(db, room.id, viewer)
+  // and the viewer's own list folder (chat/nav-folders.ts): none while hidden, and only one filed during this membership
+  const folder = folderOf(db, room.id, viewer)
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -546,7 +548,16 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(aiWaiting.get(db)?.(room.id, viewer.user_id) ? { aiWaits: true as const } : {}),
     ...(viewer.hidden_at ? { hidden: true as const } : {}),
     ...(pinned ? { pinnedAt: pinned } : {}),
+    ...(folder ? { folderId: folder } : {}),
   }
+}
+
+/** The list folder this member keeps the room in (Room.folderId; docs/DECISIONS.md "List folders"), or null: never while
+ * they hide it, never a row from before they joined (the rule of chat/nav-folders.ts VISIBLE_ROOM_ITEMS). */
+export function folderOf(db: Database, roomId: string, viewer: Pick<MemberRow, 'user_id' | 'joined_at' | 'hidden_at'>): string | null {
+  if (viewer.hidden_at || !viewer.user_id) return null
+  const row = db.query("SELECT folder_id, added_at FROM nav_folder_items WHERE user_id = ? AND room_id = ? AND kind = 'rooms'").get(viewer.user_id, roomId) as { folder_id: string; added_at: string } | null
+  return row && row.added_at >= viewer.joined_at ? row.folder_id : null
 }
 
 /** When this member pinned the room to the top of their 대화 list (docs/DECISIONS.md "Pinned conversations"), or null.

@@ -42,6 +42,7 @@ import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
+import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
 import { adoptLeftoverFolders } from '../chat/members-only-once'
 import { dismissUpdateNotice, joinUpdateNoticeProjects, updateNoticeProjects } from '../chat/old-projects'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
@@ -205,11 +206,17 @@ export const chatsRoutes: RouteModule = {
       // the person's conversations: never listed or found by a search (chat/internal-chats.ts)
       const where: string[] = ['room_id IS NULL', notInternalChat(ctx.db)]
       const args: (string | number)[] = []
+      if (query.trash && query.folderId) fail('validation', undefined, { fields: { 'query.folderId': 'not with trash' } })
       if (query.trash) {
         // the trash holds my own chats (a deleted shared chat goes to its creator's) and the shared chats I deleted (an
         // editor of the project finds someone else's there too), each once and only while I may restore it (below)
         where.push('deleted_at IS NOT NULL', '(user_id = ? OR (deleted_by = ? AND shared_at IS NOT NULL AND project_id IS NOT NULL))'); args.push(me, me)
         if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }
+      } else if (query.folderId) {
+        // one of my list folders (chat/nav-folders.ts): my own chats in it with no project; another person's folder 404
+        if (query.projectId) fail('validation', undefined, { fields: { 'query.folderId': 'not with projectId' } })
+        const f = folderChatFilter(ctx.db, me, query.folderId)
+        where.push('deleted_at IS NULL', f.where); args.push(...f.args)
       } else if (query.projectId) {
         // a project's page: my chats there and every shared chat of it (each only while I see the project, below)
         where.push('deleted_at IS NULL', 'project_id = ?', '(user_id = ? OR shared_at IS NOT NULL)'); args.push(query.projectId, me)
@@ -426,10 +433,17 @@ export const chatsRoutes: RouteModule = {
       if (body.engine !== undefined) { sets.push('engine = ?'); args.push(body.engine) }
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }
       else if (body.engine !== undefined && body.engine !== chat.engine) sets.push('model = NULL')
+      let unfiled = new Set<string>()
       if (sets.length) {
         sets.push('updated_at = ?'); args.push(new Date().toISOString())
-        ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
+        ctx.db.transaction(() => {
+          ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
+          // into a project: out of every list folder (chat/nav-folders.ts), so a project chat (perhaps shared later) is
+          // never kept in a folder; the only way a chat gets a project
+          if (body.projectId) unfiled = dropChatFolderItems(ctx.db, [chat.id])
+        })()
         rt.publishChat(auth.user.id, chat.id, 'updated')
+        chatFoldersChanged(ctx, unfiled)
       }
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
     })
@@ -441,12 +455,16 @@ export const chatsRoutes: RouteModule = {
       const chat = a.row
       rt.stopChat(chat.id)
       const now = new Date()
+      let unfiled = new Set<string>()
       // who deleted it: a shared chat is in their trash too while they may restore it (listChats)
       ctx.db.transaction(() => {
         ctx.db.query('UPDATE chats SET deleted_at = ?, deleted_by = ? WHERE id = ?').run(now.toISOString(), auth.user.id, chat.id)
-        // in the trash it is in nobody's list: everyone's pin of it goes (restored, it comes back unpinned)
+        // in the trash it is in nobody's list: everyone's pin of it goes (restored, it comes back unpinned), and so does
+        // its list folder's row (chat/nav-folders.ts; restored, it comes back in no folder)
         dropChatPins(ctx.db, [chat.id])
+        unfiled = dropChatFolderItems(ctx.db, [chat.id])
       })()
+      chatFoldersChanged(ctx, unfiled)
       if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }
@@ -947,8 +965,10 @@ export const chatsRoutes: RouteModule = {
         for (const x of purged) rt.purgeChat(x.id)
         // one already in the trash keeps its time there (and who put it there)
         for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, auth.user.id, x.id)
-        // in the trash: nobody's pin of them stays (chat/pins.ts)
+        // in the trash: nobody's pin of them stays (chat/pins.ts), nor a list folder's row (none should be there: a
+        // project chat is never filed)
         dropChatPins(ctx.db, kept.map((x) => x.id))
+        dropChatFolderItems(ctx.db, kept.map((x) => x.id))
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
         // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the
