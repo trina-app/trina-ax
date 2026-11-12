@@ -1,0 +1,1 @@
+- Phones: on Home's "팀에 준비된 것", a skill's "써 보기" no longer touches the end of its chip.

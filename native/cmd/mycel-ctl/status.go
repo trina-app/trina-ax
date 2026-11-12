@@ -2,17 +2,22 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
+	"mycel/native/internal/bundle"
 	"mycel/native/internal/fwstatus"
 	"mycel/native/internal/plan"
 )
@@ -43,6 +48,10 @@ type Status struct {
 	Updates *UpdateSettings `json:"updates"`
 	// SystemPackages: the one list's sync (sync.go); nil on a server from before the list
 	SystemPackages *SystemPackagesStatus `json:"systemPackages,omitempty"`
+	// RootUnfinished: root files that are not the ones of root/VERSION's release (an update stopped while it
+	// replaced them one by one and wrote root/VERSION last: a reset or power cut, QA TC-340); empty when they all match
+	// or that release's version folder is gone
+	RootUnfinished []string `json:"rootUnfinished,omitempty"`
 }
 
 // SystemPackagesStatus is the sync of the list in root/ (root/packages.synced against root/packages.json).
@@ -93,6 +102,13 @@ func cmdStatus(e *env, args []string) (int, error) {
 		_ = json.Unmarshal(s.ServerStopped, &b)
 		fmt.Fprintf(e.stdout, "  SERVER STOPPED at %s since %s: %s\n", b.Version, b.Since, b.Detail)
 	}
+	if len(s.RootUnfinished) > 0 {
+		if updateRunning(e.root(".update.lock")) {
+			fmt.Fprintf(e.stdout, "  an update is running now: it is replacing the root files (%s so far)\n", strings.Join(s.RootUnfinished, ", "))
+		} else {
+			fmt.Fprintf(e.stdout, "  AN UPDATE DID NOT FINISH: some root files (%s) are not those of %s, the version in root/VERSION. Run the update again: sudo mycel-ctl update (with the same --version if you gave one), or on a server without internet sudo ./install-linux.sh update --from . in the kit's folder\n", strings.Join(s.RootUnfinished, ", "), orNone(s.RootVersion))
+		}
+	}
 	printUpdateSettings(e.stdout, s.Updates, in, in.Systemd && fileExists(systemdRunDir))
 	if s.SystemPackages != nil {
 		fmt.Fprintf(e.stdout, "  system packages: %s\n", s.SystemPackages.Summary)
@@ -125,6 +141,60 @@ func rootVersion(e *env) string {
 	return strings.TrimSpace(string(b))
 }
 
+// rootUnfinished lists the root files (programs, scripts, unit templates) whose content differs from the copy in
+// app/versions/<root/VERSION>/root/ (the files an update replaces one by one, update.go updateRoot). A file missing in
+// root/ is not counted (the installer leaves some of the kit's root files out), and no version folder means no check.
+// The version folders belong to the server account: no link is followed and only regular files are read (a planted
+// link to a FIFO or /dev/zero must not hang a status run as root).
+func rootUnfinished(e *env, rv string) []string {
+	if rv == "" || !bundle.ValidVersion(rv) {
+		return nil
+	}
+	kit := e.base
+	for _, c := range []string{"app", "versions", rv, "root"} {
+		kit = filepath.Join(kit, c)
+		if st, err := os.Lstat(kit); err != nil || !st.IsDir() {
+			return nil
+		}
+	}
+	var out []string
+	_ = filepath.WalkDir(kit, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return nil
+		}
+		rel, _ := filepath.Rel(kit, p)
+		if rel == boxdProgram {
+			return nil // the dev environment's helper: scripts/dev-env/install-trial.sh --boxd puts its own build there
+		}
+		want, ok := hashRegular(p)
+		if !ok {
+			return nil
+		}
+		if have, ok := hashRegular(e.root(rel)); ok && have != want {
+			out = append(out, rel)
+		}
+		return nil
+	})
+	return out
+}
+
+// hashRegular is the sha256 of a regular file opened without following a link and without blocking (a FIFO).
+func hashRegular(p string) (string, bool) {
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", false
+	}
+	return hex.EncodeToString(h.Sum(nil)), true
+}
+
 func unitNames(id string) []string {
 	return []string{id + "-firewall.service", id + "-firewall.timer", id + "-launcher.service", id + "-server.service", id + "-update.service", id + "-update.timer"}
 }
@@ -132,6 +202,7 @@ func unitNames(id string) []string {
 func collectStatus(e *env, in *Install) Status {
 	s := Status{ID: in.ID, Base: in.Base, Version: currentVersion(in.Base), RootVersion: rootVersion(e), Units: map[string]string{}, History: []json.RawMessage{},
 		Updates: collectUpdateSettings(e, in)}
+	s.RootUnfinished = rootUnfinished(e, s.RootVersion)
 	if line, synced, pending := syncStatus(e, e.now()); line != "" {
 		s.SystemPackages = &SystemPackagesStatus{Summary: line, List: listSum(e), Pending: pending, Synced: synced}
 	}

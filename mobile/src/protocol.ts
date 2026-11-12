@@ -25,6 +25,12 @@ export const APPEARANCE_CAPABILITY = 'appearance-v1'
  * `labelHash` (sha256 hex of that key), which the page registers with the token. Only iPhone builds with the extension
  * offer it (1.0.1 on); Android stays generic. */
 export const PUSH_LABEL_CAPABILITY = 'push-label-v1'
+/** Optional, versioned: `share-text` opens the phone's own share sheet with a text the page made (the team invite
+ * message: KakaoTalk, Slack, a text message). Android's WebView has no navigator.share; on the iPhone the app's sheet is
+ * the same one. An app without it: the page uses navigator.share where there is one, else copies. */
+export const SHARE_TEXT_CAPABILITY = 'share-text-v1'
+/** The longest text `share-text` carries (the invite message is a few lines). */
+export const MAX_SHARE_TEXT = 4000
 /** Optional, versioned: the page says where Back goes (`nav`: an overlay is open or its screen has one under it, and
  * whether it is on the start tab) whenever its screen or top overlay changes; the app then turns the iOS edge swipe on
  * only while Back has somewhere to go, and Android's Back goes to the start tab (`mycel:start-tab`) before it leaves the
@@ -62,6 +68,8 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'open-settings' }
   // appearance-v1: the page's look (dark or light) and whether it follows the phone's (its theme is "system")
   | { type: 'appearance'; dark: boolean; system?: boolean }
+  // share-text-v1: the phone's share sheet with this text
+  | { type: 'share-text'; text: string }
   // nav-v1: Back has somewhere to go in the page (canGoBack), and the page is on its start tab or in no tab (home)
   | { type: 'nav'; canGoBack: boolean; home?: boolean }
 ))
@@ -110,6 +118,7 @@ export function parseMessage(raw: string): MobileMessage | null {
     case 'file-abort': case 'push-token': case 'push-permission': case 'open-settings': break
     case 'session-reset': if (m.signedOut !== undefined && typeof m.signedOut !== 'boolean') return null; break
     case 'appearance': if (typeof m.dark !== 'boolean' || (m.system !== undefined && typeof m.system !== 'boolean')) return null; break
+    case 'share-text': if (typeof m.text !== 'string' || !m.text.trim() || m.text.length > MAX_SHARE_TEXT) return null; break
     case 'nav': if (typeof m.canGoBack !== 'boolean' || (m.home !== undefined && typeof m.home !== 'boolean')) return null; break
     case 'push-registered': if (!deviceId(m.deviceId) || typeof m.removeKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(m.removeKey)) return null; break
     case 'external-open': if (m.purpose !== 'google-oauth' || typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break

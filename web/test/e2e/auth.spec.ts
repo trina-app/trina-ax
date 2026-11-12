@@ -133,7 +133,8 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   const phone = await browser.newContext({ locale: 'ko-KR', viewport: { width: 390, height: 844 } })
   const p3 = await phone.newPage()
   await signInAs(p3)
-  await expect(p3).toHaveURL(/\/welcome$/)
+  // its first step has an entry of its own on a phone (Back steps through them)
+  await expect(p3).toHaveURL(/\/welcome(\?step=[a-z]+)?$/)
   await phone.close()
   // a link to somewhere else is kept: signed out on /files, signing in goes there
   const link = await browser.newContext({ locale: 'ko-KR' })

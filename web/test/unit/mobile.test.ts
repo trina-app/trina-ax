@@ -1,13 +1,14 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
+import { initMobile, mobileApp, sendFileToApp, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText } from '../../src/lib/mobile'
+import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../src/lib/share'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, OFF_HERE_PREFIX, phonePushView, registerMobilePush, setMobilePushSession, turnOffPhonePush, usePhonePush } from '../../src/lib/mobile-push'
 import { clearLocalData } from '../../src/lib/localData'
 import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
 import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
 import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -613,4 +614,56 @@ test('a registration answered after the session changed does not hand that devic
     await settle()
     expect(messages.find(m => m.type === 'push-registered' && m.deviceId === 'device-late')).toBeUndefined()
   } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
+})
+
+test('the invite to the phone\'s share sheet (QA TC-271): the app\'s own (share-text-v1), else navigator.share, else none (the page points at its copy button); never on a computer', async () => {
+  const w = win as unknown as { matchMedia?: (q: string) => { matches: boolean } }
+  const media = w.matchMedia
+  const nav = globalThis.navigator as unknown as { share?: unknown }
+  const had = Object.getOwnPropertyDescriptor(nav, 'share')
+  const setShare = (fn: ((d: unknown) => Promise<void>) | undefined) => Object.defineProperty(nav, 'share', { configurable: true, writable: true, value: fn })
+  w.matchMedia = (q: string) => ({ matches: q === SHARE_PHONE_QUERY })
+  try {
+    // today's Android app: no capability, no navigator.share: no sheet (the page copies)
+    setShare(undefined)
+    expect(appSharesText()).toBe(false)
+    expect(canShareText()).toBe(false)
+    expect(await shareText('초대해요')).toBe('failed')
+    // the iPhone app's WebView and phone browsers: navigator.share; closed is no failure, a refusal is
+    const shared: unknown[] = []
+    setShare(async (d) => { shared.push(d) })
+    expect(canShareText()).toBe(true)
+    expect(await shareText('초대해요')).toBe('shared')
+    expect(shared).toEqual([{ text: '초대해요' }])
+    setShare(async () => { throw Object.assign(new Error('closed'), { name: 'AbortError' }) })
+    expect(await shareText('초대해요')).toBe('cancelled')
+    setShare(async () => { throw Object.assign(new Error('no'), { name: 'NotAllowedError' }) })
+    expect(await shareText('초대해요')).toBe('failed')
+    // an app with share-text-v1: its own sheet first, through the bridge
+    setShare(undefined)
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, SHARE_TEXT_CAPABILITY] }
+    expect(appSharesText()).toBe(true)
+    expect(canShareText()).toBe(true)
+    expect(await shareText('초대해요\nhttps://team.example/join#t=x')).toBe('shared')
+    expect(messages.filter((m) => m.type === 'share-text')).toEqual([expect.objectContaining({ type: 'share-text', text: '초대해요\nhttps://team.example/join#t=x' })])
+    // the app could not: no second sheet after its answer (the press is spent, WebKit would refuse it): the page points
+    // at its copy button
+    handler = (m) => { if (m.type === 'share-text') reply(m, { ok: false, error: 'mobile_operation_failed' }); else reply(m) }
+    expect(await shareText('초대해요')).toBe('failed')
+    let browser = 0
+    setShare(async () => { browser++ })
+    expect(await shareText('초대해요')).toBe('failed')
+    expect(browser).toBe(0)
+    // too long for the bridge: never sent
+    const before = messages.length
+    setShare(undefined)
+    expect(await shareText('x'.repeat(MAX_SHARE_TEXT + 1))).toBe('failed')
+    expect(messages.length).toBe(before)
+    // a computer keeps its copy button
+    w.matchMedia = () => ({ matches: false })
+    expect(canShareText()).toBe(false)
+  } finally {
+    w.matchMedia = media
+    if (had) Object.defineProperty(nav, 'share', had); else Reflect.deleteProperty(nav, 'share')
+  }
 })

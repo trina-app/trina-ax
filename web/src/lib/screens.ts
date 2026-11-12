@@ -11,6 +11,7 @@
 // Admin → /settings; an Admin page and what is under it: pages/admin/adminScreens.ts; a connector → /connectors.
 import { parsePath } from 'react-router-dom'
 import { useCallback } from 'react'
+import { WELCOME_COUNTED, type WelcomeStep } from '@mycel/shared/api'
 import { useT, type MessageKey } from '../i18n'
 import { settingsPageName } from '../pages/settingsTabs'
 import { useChats } from '../store/chats'
@@ -19,6 +20,7 @@ import { useRooms } from '../store/rooms'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
 import { useFolderName } from './folderLabels'
 import { aiName, TAB_ROOT, type Tab } from './tabs'
+import { prevStep } from './welcome'
 import { adminParent } from '../pages/admin/adminScreens'
 
 export interface Screen {
@@ -90,6 +92,11 @@ export function screenOf(to: string): Screen {
       return b === 'share' && c ? s('ai', '/skills') : s('ai', '/', '/skills')
     case 'trash':
       return s('ai', '/')
+    case 'welcome':
+      // Getting started (pages/Welcome.tsx), a flow of its own over the tabs: each step a screen (?step=), under the step
+      // a phone shows before it (도구 연결 is a computer's: lib/welcome.ts prevStep), the first one (and the AI step, which
+      // is over once AI answers) under Home; the end screen under the invite
+      return s(null, welcomeParent(q(search).get('step')))
     case 'connectors':
       if (b === 'authorize') return s(null, null)
       if (b === 'mcp' && c) return s('ai', '/connectors')
@@ -127,6 +134,13 @@ export function screenOf(to: string): Screen {
   }
 }
 
+/** The step a phone shows before a Getting started step, as an address; Home for the first. */
+function welcomeParent(step: string | null): string {
+  const counted = (WELCOME_COUNTED as readonly string[]).includes(step ?? '')
+  const before = step === 'done' ? WELCOME_COUNTED.at(-1)! : counted ? prevStep(step as WelcomeStep, false) : null
+  return before ? `/welcome?step=${before}` : '/'
+}
+
 /** The parent of an address (see the top of this file), or null. */
 export const parentOf = (to: string) => screenOf(to).parent
 
@@ -154,6 +168,7 @@ const TITLES: [RegExp, MessageKey][] = [
   [/^\/trash$/, 'trash.title'],
   [/^\/admin$/, 'admin.title'],
   [/^\/rooms$/, 'tabs.chats'],
+  [/^\/welcome$/, 'welcome.eyebrow'],
 ]
 
 /**

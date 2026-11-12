@@ -92,6 +92,28 @@ describe('the table', () => {
   })
 })
 
+describe('Getting started on a phone (QA TC-271)', () => {
+  test('each step is a screen under the step a phone shows before it (no 도구 연결), the first under Home', () => {
+    const w = (s: string) => `/welcome?step=${s}`
+    expect(parentOf(w('profile'))).toBe('/')
+    expect(parentOf(w('ai'))).toBe('/')
+    expect(parentOf('/welcome')).toBe('/')
+    expect(parentOf(w('skills'))).toBe(w('profile'))
+    expect(parentOf(w('files'))).toBe(w('skills'))
+    expect(parentOf(w('invite'))).toBe(w('files'))
+    expect(parentOf(w('done'))).toBe(w('invite'))
+    expect(screenOf(w('skills')).tab).toBeNull()
+    // opened from outside (the app on a step's address): the steps before it go under it, Home at the bottom
+    expect(chainOf(w('invite'))).toEqual(['/', w('profile'), w('skills'), w('files'), w('invite')])
+    expect(sameScreen(w('skills'), w('files'))).toBe(false)
+    // the next step: a push; a step already under this one (the end screen's 지금 하기 and back): back to it
+    expect(plan(items('/', w('profile')), w('skills'))).toEqual({ back: 0, replace: undefined, push: [w('skills')] })
+    expect(plan(items('/', w('profile'), w('skills'), w('files'), w('invite'), w('done'), w('skills')), w('done'))).toEqual({ back: 1, replace: undefined, push: [] })
+    // leaving for Home from the steps: back to Home under them, no second Home
+    expect(plan(items('/', w('profile'), w('skills')), '/')).toEqual({ back: 2, replace: undefined, push: [] })
+  })
+})
+
 describe('a navigation on a phone', () => {
   test('down: a push', () => {
     expect(plan(items('/', '/projects'), '/projects/p1')).toEqual({ back: 0, replace: undefined, push: ['/projects/p1'] })

@@ -41,6 +41,8 @@ import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, 
 import { aiName } from '../../lib/tabs'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
+import { RoomOptionLabel } from '../chat/RoomRefMenu'
+import { ShareConfirm, useConfirmStep, type ConfirmAsk } from '../chat/ShareToRoom'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
@@ -535,115 +537,84 @@ function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump
   )
 }
 
-/** the skills folders: the team rules and skills the AI was given (how it works, not what it found), never named */
-const isSkills = (f: string) => f === 'skills' || f.startsWith('skills/')
-/** The folders of a private preview as people know them: the last part of each path ("마케팅팀", not
- * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words; never the skills folders (the team rules and
- * skills the AI was given: how it works, not what it found). Each with how many members (not me) cannot see it
- * (`unable`; a name of two folders keeps the larger count; undefined: a preview decided before the counts). */
-function previewFolders(p: NonNullable<RoomMessage['preview']>, words: { root: string }): { name: string; n: number | undefined }[] {
-  const out = new Map<string, number | undefined>()
-  for (const f of p.folders) {
-    if (isSkills(f)) continue
-    const name = f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f
-    const n = p.unable?.[f]
-    const had = out.get(name)
-    out.set(name, out.has(name) ? (had === undefined || n === undefined ? undefined : Math.max(had, n)) : n)
-  }
-  return [...out].map(([name, n]) => ({ name, n }))
-}
-
 /** Why a private preview is mine only, in one plain line: material some members cannot see (folders, my own folder,
  * messages from before someone joined, an earlier answer hidden from someone whose sources could be named), or the web
  * or a connected service alone; a preview that cannot be posted (it used an earlier answer hidden from someone and what
  * that used cannot all be shown to me) says so. Without a reason (an older preview): that everyone would see it. `dm`:
- * a 1:1 room, where "some people in this room" is the other person. What each reason is, with how many cannot see it,
- * is in the confirm (previewReasons). */
+ * a 1:1 room, where "some people in this room" is the other person. Who cannot see it, and where it came from, is in the
+ * server's confirm (PreviewLine). */
 export function previewLine(p: RoomMessage['preview'], t: ReturnType<typeof useT>, dm = false): string {
   if (!p) return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
   // not postable: the server refuses it too (docs/DECISIONS.md "방에 올리기…")
   if (p.hidden) return t('rooms.aiWhyHidden')
-  const material = p.folders.length > 0 || !!p.otherFolders || p.personal || !!p.joinedLater?.length || !!p.earlier
+  const material = previewMaterial(p)
   if (material) return t(dm ? 'rooms.aiPrivateWhyDm' : 'rooms.aiPrivateWhy')
   if (p.outside) return t('rooms.aiPrivateWhyOutside')
   return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
 }
 
-/** What posting a private preview would show to people who cannot see it now, one row per reason, for the confirm: each
- * folder I may open by its last part with how many members cannot see it (never who, as the share-to-room dialog);
- * folders I cannot open myself (and the skills folders) as one row without names; my own folder; messages from before
- * someone joined; the web or a connected service. `others`: the members besides me (a count of all of them reads "no
- * one else"). */
-export function previewReasons(p: RoomMessage['preview'], t: ReturnType<typeof useT>, o: { dm?: boolean; others?: number } = {}): string[] {
-  if (!p) return []
-  const rows: string[] = []
-  const folders = previewFolders(p, { root: t('rooms.aiRootFolder') })
-  for (const f of folders) {
-    rows.push(o.dm ? t('rooms.aiPostFolderDm', { folder: f.name })
-      : f.n === undefined || f.n === 0 ? t('rooms.aiPostFolderSome', { folder: f.name })
-        : o.others !== undefined && f.n >= o.others ? t('rooms.aiPostFolderAll', { folder: f.name })
-          : t('rooms.aiPostFolder', { folder: f.name, n: f.n }))
-  }
-  // folders I cannot open myself, and the skills folders, are never named
-  if (p.otherFolders || p.folders.some(isSkills)) rows.push(t(o.dm ? 'rooms.aiPostOtherFoldersDm' : 'rooms.aiPostOtherFolders'))
-  if (p.personal) rows.push(t(o.dm ? 'rooms.aiPostMineDm' : 'rooms.aiPostMine'))
-  if (p.joinedLater?.length) rows.push(t('rooms.aiPostJoined', { names: p.joinedLater.join(', ') }))
-  if (p.outside) rows.push(t('rooms.aiPostOutside'))
-  return rows
-}
-
-/** What the confirm before posting a preview says: who will see it, one row per reason (previewReasons), and a line
- * when it went through an earlier answer hidden from someone (its sources are among the rows; when none is left, every
- * member can see them now). Nothing to name (an older preview): that everyone would see it. */
-export function previewConfirm(p: RoomMessage['preview'], t: ReturnType<typeof useT>, o: { dm?: boolean; others?: number } = {}): { intro: string; rows: string[]; earlier: string | null } {
-  const rows = previewReasons(p, t, o)
-  const earlier = p?.earlier ? t(rows.length ? 'rooms.aiPostEarlier' : 'rooms.aiPostEarlierNone') : null
-  if (!rows.length && !earlier) return { intro: t(o.dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll'), rows, earlier }
-  return { intro: t(o.dm ? 'rooms.aiPostIntroDm' : 'rooms.aiPostIntro'), rows, earlier }
-}
+/** Does a private preview name material some members cannot see (folders, my own folder, messages from before someone
+ * joined or of another conversation, an earlier hidden answer's sources)? Its one line says so. */
+export const previewMaterial = (p: RoomMessage['preview']): boolean =>
+  !!p && (p.folders.length > 0 || !!p.otherFolders || p.personal || !!p.joinedLater?.length || !!p.earlier || !!p.otherRooms)
 
 /** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 방에 올리기…" (a
  * text action: not posting is the default), and under it, small, why it stayed with me in one plain line. The action
- * shows exactly when the server would post it (`!preview.hidden`, RoomAi.share) and first asks, in the app's confirm,
- * with what some members cannot see (previewReasons) and whether it went through an earlier answer hidden from someone.
- * Posting leaves out the sources some member cannot read; the server decides that again and, when the reasons changed
- * meanwhile, answers 409 with why (a toast) and sends the preview again (the line and the button follow). Putting it
- * away is in the message's "…" menu. */
+ * shows exactly when the server would post it (`!preview.hidden`, RoomAi.share). It always asks the server first
+ * (`ask`): its "confirm" opens the card of "대화방에 보내기" (chat/ShareToRoom.tsx ShareConfirm: the room, the files it
+ * used that some cannot open, how many people here cannot see that content and where it came from, never who), with
+ * "everyone in the room will see it" when nothing is at stake, a line for the web or a connected service and one when it
+ * went through an earlier answer hidden from someone; its yes posts with the key (asked again when something changed).
+ * Nothing is posted without that card. Posting leaves out the sources some member cannot read; when the reasons changed
+ * meanwhile the server answers 409 with why (a toast) and sends the preview again (the line and the button follow).
+ * Putting it away is in the message's "…" menu. */
 function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId))
   const dm = room?.kind === 'dm'
   const [busy, setBusy] = useState(false)
-  const post = async () => {
-    const c = previewConfirm(m.preview, t, { dm, others: room ? Math.max(0, room.memberCount - 1) : undefined })
-    const ok = await confirmDialog({
-      title: t('rooms.aiPostTitle'),
-      body: (
-        <div data-testid="room-ai-post-confirm">
-          <p>{c.intro}</p>
-          {c.rows.length > 0 && (
-            <ul className="mt-2 space-y-1 text-ink" data-testid="room-ai-post-reasons">
-              {c.rows.map((r) => (
-                <li key={r} className="break-keep">{r}</li>
-              ))}
-            </ul>
-          )}
-          {c.earlier && <p className="mt-2" data-testid="room-ai-post-earlier">{c.earlier}</p>}
-        </div>
-      ),
-      confirm: t('rooms.aiPostConfirm'),
-    })
-    if (!ok) return
+  const confirm = useConfirmStep<ConfirmAsk & { lines: Lines }>()
+  const button = useRef<HTMLButtonElement>(null)
+  /** ask the server (`confirmKey`: my yes on its card): posted, or its "confirm" */
+  const share = async (confirmKey?: string) => {
+    if (busy) return
     setBusy(true)
     try {
-      await useRooms.getState().shareAi(roomId, m.id)
+      const r = await useRooms.getState().shareAi(roomId, m.id, confirmKey ? { confirmKey } : { ask: true })
+      if (r.status === 'confirm') confirm.asked(r, !!confirmKey, { lines: { all: r.people === 0, outside: !!r.outside, earlier: !!r.earlier } })
+      else confirm.close()
     } catch (e) {
       // the reasons changed meanwhile (or it can no longer be posted): the server says why, and sends the preview again
+      confirm.close()
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      setBusy(false)
     }
+    setBusy(false)
   }
+  const lines = confirm.ask?.lines
+  const extra = lines && (
+    <>
+      {lines.all && <p className="text-sm leading-6 break-keep text-ink" data-testid="room-ai-post-all">{t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')}</p>}
+      {lines.outside && <p className="text-sm leading-6 break-keep text-ink" data-testid="room-ai-post-outside">{t('rooms.aiPostOutside')}</p>}
+      {lines.earlier && <p className="text-sm leading-6 break-keep text-ink" data-testid="room-ai-post-earlier">{t(confirm.ask!.provenance ? 'rooms.aiPostEarlier' : 'rooms.aiPostEarlierNone')}</p>}
+    </>
+  )
+  const card = confirm.ask && (
+    <ShareConfirm
+      title={t('rooms.aiPostTitle')}
+      target={room ? <div className="flex items-center gap-2.5"><RoomOptionLabel room={room} /></div> : null}
+      ask={confirm.ask}
+      others={room ? Math.max(0, room.memberCount - 1) : 0}
+      attach={NO_FILES}
+      onAttach={() => {}}
+      busy={busy}
+      onSend={(yes) => void share(yes.confirmKey)}
+      onCancel={() => { if (!busy) confirm.close() }}
+      returnTo={button.current}
+      sources
+      extra={extra}
+    />
+  )
   // put away (deleted): only the lock line, nothing to post
   if (m.deletedAt)
     return (
@@ -662,16 +633,22 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
         {!m.preview?.hidden && (
           <>
             <span aria-hidden>·</span>
-            <button type="button" disabled={busy} onClick={() => void post()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
+            <button ref={button} type="button" disabled={busy} onClick={() => void share()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
               {t('rooms.aiPost')}
             </button>
           </>
         )}
       </p>
       <p className="mt-0.5 break-keep" data-testid="room-ai-preview">{previewLine(m.preview, t, dm)}</p>
+      {card}
     </div>
   )
 }
+/** a preview's card attaches nothing (its sources are left out, never copied) */
+const NO_FILES: ReadonlySet<string> = new Set()
+/** the card's own lines under the side chat's: nothing at stake (everyone will see it), the web or a connected service,
+ * an earlier hidden answer */
+type Lines = { all: boolean; outside: boolean; earlier: boolean }
 
 function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   const t = useT()

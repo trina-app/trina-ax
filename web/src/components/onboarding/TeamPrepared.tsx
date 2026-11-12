@@ -199,7 +199,7 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
                   <div className="flex min-w-0 flex-1 items-center px-3 py-2"><SkillText s={s} /></div>
                 ) : (
                   // named by what it shows (the title, its line, 써 보기), so what is read out is what is seen
-                  <button type="button" onClick={() => tryIt(s)} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl py-2 pl-3 text-left transition hover:bg-hover" data-testid="team-prepared-try">
+                  <button type="button" onClick={() => tryIt(s)} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl px-3 py-2 text-left transition hover:bg-hover" data-testid="team-prepared-try">
                     <SkillText s={s} />
                     {/* what the tap does, as the files chip says 물어보기 */}
                     <span className={clsx('shrink-0 self-start text-label leading-5 font-medium', filled ? 'text-accent-text' : 'text-muted')} data-testid="team-prepared-try-label">{t('home.prepared.try')}</span>
