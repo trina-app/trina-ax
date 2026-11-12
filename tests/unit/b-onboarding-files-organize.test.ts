@@ -195,6 +195,8 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     // a notes folder already in 전사 공유 (any language) is reused by the name rules: none here, so the team's language
     // names it (another test or the team's start may have made one; CI saw "회의록")
     for (const n of Object.values(NOTES_FOLDER)) fs.rmSync(path.join(h.team, 'shared', n), { recursive: true, force: true })
+    // the team's language is set, not left to the product default (an edition build may default to Korean)
+    h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('defaultLocale', '\"en\"') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run()
     put('shared/t/주간 회의록.md')
     const t0 = Date.now()
     const plan: OrganizePlan = await run(['shared/t/주간 회의록.md'], { ask: fake({ sleep: 20_000 }), aiMs: 1_500 }).done
