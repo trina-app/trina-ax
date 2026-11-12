@@ -182,7 +182,7 @@ export function listPlace(scroller: Rect & { clientHeight: number; querySelector
 
 /** The list scrolled so that `row` is where listPlace saw it (`offset` below the list's top). False when the row is not
  * on the list (gone since): the list stays where it is. */
-export function restorePlace(scroller: Pick<HTMLElement, 'scrollTop' | 'getBoundingClientRect'>, row: Pick<Element, 'getBoundingClientRect'> | null, offset: number): boolean {
+export function restorePlace(scroller: Rect & { scrollTop: number }, row: Rect | null, offset: number): boolean {
   if (!row) return false
   scroller.scrollTop += row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset
   return true

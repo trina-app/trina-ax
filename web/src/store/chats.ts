@@ -191,12 +191,20 @@ const initial = () => ({
 })
 
 /** Where the reader was in the chats left lately (pages/Chat.tsx, lib/stickToBottom.ts listPlace), the last left
- * last: going back to one puts the same message in the same place. Only while the reader was part way up (at the bottom
- * a chat opens at the bottom), in this window's memory only, gone at sign-out with the chats. */
-const chatPlaces = new Map<string, { messageId: string; offset: number }>()
+ * last, with the chat's last message as it was then (`last`: chatEnd): going back to one puts the same message in the
+ * same place while that is unchanged (an answer that went on or a new message meanwhile: at the bottom, with it in
+ * sight). Only while the reader was part way up (at the bottom a chat opens at the bottom), in this window's memory
+ * only, gone at sign-out with the chats. */
+export interface ChatPlace { messageId: string; offset: number; last: string }
+const chatPlaces = new Map<string, ChatPlace>()
 export const CHAT_PLACES = 20
+/** a chat's last message as it is now: which one, how long, how far */
+export const chatEnd = (messages: readonly Pick<Message, 'id' | 'content' | 'status'>[]) => {
+  const m = messages.at(-1)
+  return m ? `${m.id}:${m.content.length}:${m.status}` : ''
+}
 export const chatPlace = (chatId: string) => chatPlaces.get(chatId) ?? null
-export function keepChatPlace(chatId: string, place: { messageId: string; offset: number } | null) {
+export function keepChatPlace(chatId: string, place: ChatPlace | null) {
   chatPlaces.delete(chatId)
   if (!place) return
   chatPlaces.set(chatId, place)

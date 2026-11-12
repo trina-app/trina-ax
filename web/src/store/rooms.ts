@@ -17,11 +17,12 @@ import { noteRecent } from '../lib/emoji'
 import { mentionsMe, newestSeq, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
 import { draftKey, readDraft, writeDraft } from '../lib/localData'
 import { navigateTo } from '../lib/nav'
+import { lastHeard, LIVE_QUIET_MS } from '../lib/realtime'
 import { currentLocale, t } from '../i18n'
 import { mergeOpenRequests, useChats } from './chats'
 import { useSession } from './session'
 import { useSideChats } from './sideChats'
-import { toast } from './ui'
+import { toast, useUi } from './ui'
 
 export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.thread' | 'room.reactions' | 'room.updated' | 'room.ai' | 'room.ai.run' | 'room.ai.step' | 'queue.position' }>
 
@@ -87,8 +88,12 @@ export interface PendingSend {
 export interface RoomPlace { messageId: string; offset: number }
 
 /** A room left a moment ago (KEPT_ROOMS): its timeline at the newest, kept current by the room.* events as the open
- * one is, where the reader was, and when it was left. */
-export interface KeptTimeline extends RoomTimeline { place: RoomPlace | null; leftAt: number }
+ * one is, where the reader was, when it was left and its newest message then (leftSeq). */
+export interface KeptTimeline extends RoomTimeline { place: RoomPlace | null; leftAt: number; leftSeq: number }
+
+/** Where going back to a kept room opens: where the reader left it, while nothing came since (else at the bottom, with
+ * what came in sight, as before); null: at the bottom. */
+export const keptPlace = (tl: KeptTimeline | null): RoomPlace | null => (tl?.place && newestSeq(tl.messages) === tl.leftSeq ? tl.place : null)
 
 /** how many rooms left lately keep their messages in this window's memory (never on the device), the last left first */
 export const KEPT_ROOMS = 10
@@ -141,6 +146,13 @@ function keptPatch(d: Pick<RoomsData, 'kept'>, roomId: string, f: (tl: KeptTimel
   const next = capped(f(tl))
   return next === tl ? {} : { kept: { ...d.kept, [roomId]: next } }
 }
+
+/** The kept timeline to show on going back to a room (null: read it as the first time). Only while the live connection
+ * is up and was heard lately (a link that went quiet, a computer waking from sleep, may be dead): otherwise events may
+ * be missing, the one that took me out of the room too, so the room is read again (the server answers 404 then, and
+ * nothing of it shows). */
+export const keptFor = (d: Pick<RoomsData, 'kept'>, roomId: string): KeptTimeline | null =>
+  useUi.getState().conn === 'open' && Date.now() - lastHeard() < LIVE_QUIET_MS ? (d.kept?.[roomId] ?? null) : null
 
 /** The kept rooms with this one added as the last left, the one left longest ago going past KEPT_ROOMS. */
 export function withKept(kept: Record<string, KeptTimeline> | undefined, tl: KeptTimeline, max = KEPT_ROOMS): Record<string, KeptTimeline> {
@@ -214,7 +226,10 @@ function mapViews(views: Record<string, ThreadView>, f: (tv: ThreadView) => Thre
 function mapMessages(d: RoomsData, roomId: string, f: (x: RoomMessage) => RoomMessage): Pick<RoomsData, 'timeline' | 'threadViews' | 'kept'> {
   const timeline = d.timeline && d.timeline.roomId === roomId ? { ...d.timeline, messages: d.timeline.messages.map(f) } : d.timeline
   const threadViews = mapViews(d.threadViews, (tv) => (tv.roomId === roomId ? { ...tv, root: tv.root ? f(tv.root) : tv.root, replies: tv.replies.map(f) } : tv))
-  return { timeline, threadViews, ...keptPatch(d, roomId, (tl) => ({ ...tl, messages: tl.messages.map(f) })) }
+  return { timeline, threadViews, ...keptPatch(d, roomId, (tl) => {
+    const messages = tl.messages.map(f)
+    return messages.every((m, i) => m === tl.messages[i]) ? tl : { ...tl, messages }
+  }) }
 }
 
 /** An edited or deleted message: replaced where it shows (the timeline, the threads on screen, older quotes of it, the
@@ -408,6 +423,9 @@ interface RoomsState extends RoomsData {
    * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
    * finds it there) */
   shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }) => Promise<ShareAnswerToRoomResult>
+  /** the live connection could not resume (events in between are lost): the kept rooms go, and the open one is not kept
+   * when left until its newest page is read again */
+  forgetKept: () => void
   resync: () => Promise<void>
   handleEvent: (ev: RoomEvent) => void
   reset: () => void
@@ -621,9 +639,13 @@ const memberReads = new Map<string, number>()
 let memberReadSeq = 0
 /** a newer read of the same room's messages wins over an older one still on its way */
 let timelineGen = 0
-/** the open rooms whose timeline is read again after a change the events do not carry (someone joined or left, and the
- * reactions they took with them): left before that read is in, such a room is not kept */
-const unsure = new Set<string>()
+/** the open rooms whose timeline may be out of date in a way the events do not mend: someone joined or left (the
+ * reactions they took with them, on any message: the newest page read again does not cover the older ones), or the
+ * live connection could not resume. Such a room is not kept when left, unless its newest page was read afresh since
+ * (loadNewest). */
+const unsure = new Map<string, number>()
+/** (by the read count when it was marked: only a read that started after it clears it) */
+const markUnsure = (roomId: string) => unsure.set(roomId, timelineGen)
 /** the same for each thread on screen (by placeKey; one counter for all, so a thread that went and came back never
  * takes an answer meant for its earlier showing); a thread's goes with it */
 let threadGenSeq = 0
@@ -804,7 +826,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       asked.delete(roomId)
       // a room left a moment ago: as it was, at once (the events kept it current meanwhile), and only what came after its
       // newest message is read; else its newest page
-      const kept = get().kept[roomId]
+      const kept = keptFor(get(), roomId)
       const shown: RoomTimeline = kept ? { roomId, messages: kept.messages, nextCursor: kept.nextCursor, loading: false, error: null } : { roomId, messages: [], nextCursor: null, loading: true, error: null }
       // (the threads stay: each is its panel's, opened before the page's own effect runs)
       set((s) => ({ openRoomId: roomId, timeline: shown, kept: omit(s.kept, roomId) }))
@@ -831,7 +853,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       const tl = get().timeline
       const keep = !!tl && tl.roomId === roomId && !tl.loading && !tl.error && !tl.newerCursor && tl.messages.length > 0 && !unsure.has(roomId) && get().rooms.some((r) => r.id === roomId)
       unsure.delete(roomId)
-      set((s) => ({ openRoomId: null, timeline: null, kept: keep ? withKept(s.kept, { ...tl!, place, leftAt: Date.now() }) : omit(s.kept, roomId) }))
+      set((s) => ({ openRoomId: null, timeline: null, kept: keep ? withKept(s.kept, { ...tl!, place, leftAt: Date.now(), leftSeq: newestSeq(tl!.messages) }) : omit(s.kept, roomId) }))
       // messages that came while it was on screen did not count; left without reading them, the server's count is right
       const r = get().rooms.find((x) => x.id === roomId)
       if (r && r.lastReadSeq < r.lastSeq) void get().fetchRoom(roomId).catch(() => {})
@@ -848,6 +870,8 @@ export const useRooms = create<RoomsState>((set, get) => {
         if (gen !== timelineGen || get().openRoomId !== roomId) return
         // the messages that came while it was read (my own send from a window around an older one too) stay
         set((s) => ({ timeline: replayed(s, w.changes, { timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } }).timeline }))
+        // read afresh since it was marked: kept again when left
+        if ((unsure.get(roomId) ?? Infinity) < gen) unsure.delete(roomId)
       } catch (error) {
         if (gen !== timelineGen || get().openRoomId !== roomId) return
         set((s) => ({ timeline: { roomId, messages: s.timeline?.roomId === roomId ? s.timeline.messages : [], nextCursor: s.timeline?.roomId === roomId ? s.timeline.nextCursor : null, loading: false, error } }))
@@ -892,7 +916,6 @@ export const useRooms = create<RoomsState>((set, get) => {
         if (gen !== timelineGen) return
         // in place: the older pages loaded and the reader's place stay
         set((s) => (s.timeline?.roomId === roomId && !s.timeline.newerCursor ? { timeline: replayed(s, w.changes, { timeline: { ...s.timeline, messages: mergeMessages(s.timeline.messages, page.items) } }).timeline } : {}))
-        unsure.delete(roomId)
       } catch {
         /* as it was; the next open reads it again */
       } finally {
@@ -1256,10 +1279,16 @@ export const useRooms = create<RoomsState>((set, get) => {
       return r
     },
 
+    forgetKept() {
+      const open = get().openRoomId
+      if (open) markUnsure(open)
+      set({ kept: {} })
+    },
+
     async resync() {
       // the events in between are lost: the rooms left a moment ago may have missed some, so they are read again when
-      // opened, as the first time
-      set({ kept: {} })
+      // opened, as the first time; so is the open one when it is left before its newest page is read again
+      get().forgetKept()
       await get().loadRooms()
       const open = get().openRoomId
       // the member lists: a members change missed while away is in none of them, so all go (the next open of a room reads
@@ -1339,7 +1368,7 @@ export const useRooms = create<RoomsState>((set, get) => {
             // someone joined or left: the member list, and the reactions they took with them (in place: the reader keeps
             // their place)
             if (get().openRoomId === roomId) {
-              unsure.add(roomId)
+              markUnsure(roomId)
               void get().loadMembers(roomId, true)
               void get().refreshNewest(roomId)
             }

@@ -23404,17 +23404,23 @@ at the bottom.
   reads, pinned by a server test). Usually empty; added by id, with the changes made meanwhile made again on top. More
   than a page (a gap the events did not fill): the newest page as on a first open.
 - **When unsure, read as before**: a reconnect the server could not resume (reset, resync, events it could not read)
-  drops every kept room (`live.ts` onReload and `resync()`); someone joining or leaving drops that room's (the events do
-  not say whose reactions went), and an open room left before its re-read is in is not kept. A reconnect that resumed
-  needs nothing: the server replays what was missed.
+  drops every kept room (`forgetKept`, from `live.ts` onReload and `resync()`), and the room open then is not kept when
+  left until its newest page has been read again (a read started after that). Someone joining or leaving drops that
+  room's kept copy (the events do not say whose reactions went, on any message), and the open one is not kept when left.
+  A reconnect that resumed needs nothing: the server replays what was missed.
 - **Access**: a kept room goes when the room goes from my list (taken out, left, closed: `withoutRoom`, and every list
   read), when the newer read answers 403 or 404 (the page then shows "not found" with nothing of it on screen), and at
-  sign-out or another person signing in (`reset`). Another team is another address and another page, so nothing
-  crosses teams.
+  sign-out or another person signing in (`reset`). It is shown only while the live connection is up and was heard in
+  the last 30 s (`keptFor`; a ping every 20 s gets its answer within 10 s; `lastHeard` in `lib/realtime.ts`): a link
+  that is down or went quiet (a computer waking from sleep) may have missed the event that took me out of the room, so
+  the room is read as the first time (404 then, nothing of it shown). Another team is another address and another page,
+  so nothing crosses teams.
 - **The reader's place**: leaving a room or an AI chat part way up keeps the first message in sight and its distance
-  from the top (`listPlace` in `lib/stickToBottom.ts`); going back puts it there before the first frame. At the bottom
-  it opens at the bottom as before, following new messages; a link to a message goes to that message. AI chats keep the
-  last 20 places (`chatPlaces`, `store/chats.ts`), message ids only.
+  from the top (`listPlace` in `lib/stickToBottom.ts`); going back puts it there before the first frame. At the bottom,
+  or when something came in the room since (`keptPlace`), it opens at the bottom as before, with what came in sight
+  (rooms have no "new messages" marker to point at it otherwise); a link to a message goes to that message. AI chats keep the
+  last 20 places (`chatPlaces`, `store/chats.ts`), message ids only, under the same rule: the chat's last message
+  unchanged (`chatEnd`: the same message, length and state), else the bottom.
 - After, same network: a room returns in about 40 to 50 ms with no skeleton, reading 86 bytes (the empty newer page
   and the AI's two reads) instead of about 24 KB, at the place it was left; 1440 and 390 the same.
 - **Not changed**: an AI chat still re-reads its newest page when shown again (3 small reads; about 10 KB here). Its
