@@ -8,7 +8,11 @@
 // Inbox notices that are not about a conversation (store/inbox.ts useNoticeUnread). While @트리나 waits on me in a room
 // (Room.aiWaits), 대화's pill is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers");
 // the count is the same and comes back when the wait ends (a screen reader hears both). Not shown inside a conversation
-// (a room, an AI chat): their message box needs the bottom.
+// (a room, an AI chat): their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room
+// header's ✦, the AI's face in rooms and the sidebar's "트리나에게 묻기") where the product is named after its AI, in the
+// tab's colours like the other icons; the sparkle in the core edition (as rooms/AiFace.tsx). The star is thin (it fills
+// about 4/5 of its box), so it is drawn 26 px to read as big as the 22 px icons, overhanging its 22 px slot so the bar
+// keeps its height (the owner, 2026-11-12: "모바일에서는 트리나 아이콘이 달라서 좀 헷갈리는듯").
 // A tap never adds a history entry (lib/screenHistory.ts switchTab): another tab puts its own stack back where it was
 // left, the tab on show goes back to its root, so the phone's Back never walks from one tab into another. The tab
 // marked is the stack's: a page opened from 나 (연결한 서비스, a notice's page) keeps 나 marked.
@@ -16,6 +20,7 @@ import clsx from 'clsx'
 import { FolderKanban, MessageCircle, Sparkles, UserRound } from 'lucide-react'
 import { useEffect, type MouseEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { useT } from '../i18n'
 import { useRealPath } from '../lib/realPath'
 import { badgeText, totalUnread } from '../lib/rooms'
@@ -25,6 +30,12 @@ import { useNoticeUnread } from '../store/inbox'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
+import { TrinaStar } from './TrinaStar'
+
+/** 트리나's tab icon (see the top of this file); `named`: this build's PRODUCT_NAMED_AFTER_AI, a prop for the tests */
+export function AiTabIcon({ named = PRODUCT_NAMED_AFTER_AI }: { named?: boolean }) {
+  return named ? <TrinaStar size={26} mono className="-m-0.5" /> : <Sparkles size={22} aria-hidden />
+}
 
 export function BottomTabs() {
   const t = useT()
@@ -46,7 +57,7 @@ export function BottomTabs() {
   }
   return (
     <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden in-[.keyboard-open]:hidden" data-bottom-bar data-testid="bottom-tabs">
-      <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<Sparkles size={22} aria-hidden />} label={aiName(t)} testId="tab-ai" onClick={go('ai')} />
+      <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<AiTabIcon />} label={aiName(t)} testId="tab-ai" onClick={go('ai')} />
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
         {aiWaits ? (
           <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-chats-unread" data-ai-waits="">

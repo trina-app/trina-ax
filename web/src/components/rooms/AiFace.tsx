@@ -4,8 +4,10 @@
 // neutral circle of a person without a photo; elsewhere the sparkle on the accent circle as before. A button that asks
 // it (the room header's ✦, a message's hover bar and menu, the image viewer's bar, and "트리나에게 묻기": the sidebar's
 // first row, ⌘K's action and a phone AI chat's new-chat button) has its mark without a circle (AiMark), so ✦ always
-// means asking it. The other AI sparkles (the phone's AI tab, Files' "AI에게 묻기", skills) are things to do, not someone in
-// the room, and stay. Decorative (aria-hidden): the name is next to it.
+// means asking it. The phone's 트리나 tab has the same star too (components/BottomTabs.tsx, in the tab bar's ink and
+// faint like the other tabs; the owner, 2026-11-12: "모바일에서는 트리나 아이콘이 달라서 좀 헷갈리는듯"). The other AI
+// sparkles (Files' "AI에게 묻기", skills) are things to do, not someone in the room, and stay. Decorative (aria-hidden):
+// the name is next to it.
 import clsx from 'clsx'
 import { Sparkles } from 'lucide-react'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'

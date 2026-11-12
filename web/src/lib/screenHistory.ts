@@ -28,7 +28,7 @@
 // over it), each overlay closing on its own popstate as for a Back. The entries this module writes are new entries
 // (a new key, often a new address): they don't carry over a page's overlay token (`mycelPage`).
 import { createPath, NavigationType, parsePath, UNSAFE_createBrowserHistory, type HistoryRouterProps, type Location, type To } from 'react-router-dom'
-import { stepping } from './historySteps'
+import { historySettled, stepping } from './historySteps'
 import { TAB_STACKS_KEY } from './localData'
 import { chainOf, rootTab, sameScreen, screenOf } from './screens'
 import { TAB_ROOT, type Tab } from './tabs'
@@ -424,6 +424,9 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
         write('replace', root, 0, { tab, sid: sc.sid, base: 0, root, trail: items.slice(0, 1) })
         for (let m = 1; m < items.length; m++) write('push', items[m]!, m, { tab, sid: sc.sid, base: 0, root, trail: items.slice(0, m + 1) })
         emit(NavigationType.Pop, null)
+        // the same entry on show (its key and address), now with screens under it: the phone app's Back is told again
+        // (lib/appNav.ts), which the router's own news would not do
+        historySettled()
       })
     },
   }

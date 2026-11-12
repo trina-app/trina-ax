@@ -10,11 +10,13 @@
 // - the 나 list starts with 활동 (Activity, with the count) and, for admins, 관리자; 알림 (the settings) stays in its group.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act, type ReactNode } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { Link, MemoryRouter, Route, Routes, useLocation, useNavigationType, type InitialEntry } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { BottomTabs } from '../../src/components/BottomTabs'
+import { AiTabIcon, BottomTabs } from '../../src/components/BottomTabs'
+import { TRINA_STAR } from '../../src/components/TrinaStar'
 import { PhoneTopBar } from '../../src/components/PhoneTopBar'
 import SettingsDialog from '../../src/components/settings/SettingsDialog'
 import { useBackLink } from '../../src/lib/back'
@@ -152,6 +154,25 @@ describe('the tab bar', () => {
     expect(labels.map((m) => m[2])).toEqual([aiName(ko), ko('tabs.chats'), ko('tabs.projects'), ko('tabs.me')])
     for (const m of labels) expect(m[1]).toContain('whitespace-nowrap')
     for (const m of labels) expect(m[1]).toContain('truncate')
+  })
+
+  test('트리나\'s icon: Trina\'s own star (the room header\'s ✦) in the tab\'s colours where the product is named after its AI, the sparkle elsewhere', async () => {
+    const named = renderToStaticMarkup(<AiTabIcon named />)
+    // the star's path, filled with the text colour (ink on the tab on show, faint on the others), no gradient
+    expect(named).toContain(`d="${TRINA_STAR}"`)
+    expect(named).toContain('fill="currentColor"')
+    expect(named).toContain('data-trina-star="mono"')
+    expect(named).not.toContain('linearGradient')
+    // drawn 26 px (the star is thin) in the 22 px slot of the other icons
+    expect(named).toContain('width="26" height="26"')
+    expect(named).toContain('-m-0.5')
+    const plain = renderToStaticMarkup(<AiTabIcon named={false} />)
+    expect(plain).toContain('lucide-sparkles')
+    expect(plain).toContain('width="22"')
+    expect(renderToStaticMarkup(<AiTabIcon />)).toBe(PRODUCT_NAMED_AFTER_AI ? named : plain)
+    // in the bar: the tab's colour class is on its link, the icon follows it
+    const html = await bar('/rooms')
+    expect(new RegExp(`data-testid="tab-ai"[^]*?${PRODUCT_NAMED_AFTER_AI ? 'data-trina-star="mono"' : 'lucide-sparkles'}`).test(html)).toBe(true)
   })
 
   test('the tab on screen is marked', async () => {
