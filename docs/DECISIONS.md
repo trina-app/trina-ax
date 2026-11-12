@@ -23628,10 +23628,16 @@ the Android QA app and the iPhone TestFlight build. Plan and evidence:
 - **While the page is open: the page.** New capability `badge-v1`: `{type:'badge', count}` (a whole number 0 to 9999),
   sent by `setAppBadge` (`web/src/lib/mobile.ts`) when n changes (a burst waits `WEB_BADGE_MS`), when the bridge comes,
   after a session reset and on every `mycel:mobile-foreground` even unchanged (a push may have set the server's number
-  meanwhile). The app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  meanwhile). The iPhone app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  **Android never sets a number** (`setsIconNumber`, fix/phone-badge-iphone-only, 2026-11-13, QA TC-408 on a Galaxy
+  Note10, One UI 4): expo-notifications 58.1.6 sets it through ShortcutBadger, One UI shows it only while a notification
+  is in the tray, and its `setBadgeCount(0)` only cancels the app's notifications (the whole tray) and never clears
+  Samsung's number, so the number stuck after reading and sign-out. On Android the launcher counts the notifications in
+  the tray; the page may still send `badge`, and the app takes it and does nothing. Ships with Android build 11; iOS
+  unchanged.
   In the foreground a push's number is not applied (`shouldSetBadge: false`): the page's is the newer.
-- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the app
-  (`forgetDelivered`); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
+- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the iPhone app
+  (`forgetDelivered`; on Android the cleared tray clears the launcher's count); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
   0, never the last session's number, until its own count is worked out.
 - **Permission.** The OS question asks for the badge with alerts and sounds. iOS asks once: an iPhone that said yes before
   1.0.5 is asked once more (`askBadgeAgain`, remembered in the keychain), which shows no dialog; if iOS keeps Badges off,
