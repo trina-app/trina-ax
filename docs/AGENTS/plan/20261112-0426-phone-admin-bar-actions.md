@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 04:26
 - Branch: `fix/phone-admin-bar-actions`
-- Status: in progress
+- Status: done
 - Where: `web/` (the web app the phone app shows). Why: the phone app is one WebView of the web app, so its pages'
   phone layouts are web code (see docs/REPOSITORY-RULES.md).
 - Version impact: patch, phone layout fixes with no new feature or API.
@@ -61,4 +61,9 @@ spec (Chromium and WebKit) and the older phone specs these pages had.
 
 ## Result
 
-(filled in at the end)
+Built as planned in PR #568. `pages/admin/barActions.tsx` holds the slot and the bar's +, ⋯ and words button;
+AdminLayout only provides the slot (one `action` prop). Usage's + opens Usage limits (the split button's main action,
+where that page's own + adds a limit); its ⋯ has Download CSV. Company profile: + while there is none, then "Edit".
+Members' role is words in the rows; the person's page keeps the owner's select, and ⋯ › Edit the dialog. Folder
+permissions' By person has no bar button (it had no Add folder before either). Tests: `phone-admin-bar.spec.ts`
+(Chromium) and `phone-admin-bar.webkit.spec.ts` (WebKit), plus the older phone specs adjusted to the bar.
