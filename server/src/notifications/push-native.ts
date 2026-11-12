@@ -76,17 +76,32 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
       ttlSeconds: Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))),
     }
     if (input.signal.aborted || !input.beforeSend()) throw new PushSendError('push_cancelled')
-    const { key, publicKey } = teamKey(o.dataDir)
-    const { body, authorization } = signedGatewayRequest(send, key, publicKey, (o.now ?? Date.now)())
-    const headers = { 'content-type': 'application/json', authorization, 'content-length': String(Buffer.byteLength(body)) }
-    if (new URL(url).protocol === 'http:') return postLoopback(new URL(PUSH_GATEWAY_SEND_PATH, url), headers, Buffer.from(body, 'utf8'), input.signal, input.beforeSend, o.loopbackRequest)
-    return postPinned({
-      url: new URL(PUSH_GATEWAY_SEND_PATH, url), body: Buffer.from(body, 'utf8'), signal: input.signal, beforeSend: input.beforeSend,
-      headers: { 'content-type': 'application/json', authorization, 'content-length': String(Buffer.byteLength(body)) },
-      lookup: o.lookup ?? (host => dns.lookup(host, { all: true, verbatim: true })), request: o.request,
-    })
+    const now = o.now ?? Date.now
+    const post = (s: PushGatewaySend) => {
+      const { key, publicKey } = teamKey(o.dataDir)
+      const { body, authorization } = signedGatewayRequest(s, key, publicKey, now())
+      const headers = { 'content-type': 'application/json', authorization, 'content-length': String(Buffer.byteLength(body)) }
+      if (new URL(url).protocol === 'http:') return postLoopback(new URL(PUSH_GATEWAY_SEND_PATH, url), headers, Buffer.from(body, 'utf8'), input.signal, input.beforeSend, o.loopbackRequest)
+      return postPinned({
+        url: new URL(PUSH_GATEWAY_SEND_PATH, url), body: Buffer.from(body, 'utf8'), signal: input.signal, beforeSend: input.beforeSend,
+        headers, lookup: o.lookup ?? (host => dns.lookup(host, { all: true, verbatim: true })), request: o.request,
+      })
+    }
+    const { badge, ...withoutBadge } = send
+    if (badge === undefined || (noBadge.get(url) ?? 0) > now()) return post(withoutBadge)
+    const first = await post(send)
+    if (first.statusCode !== 400) return first
+    // a gateway from before the badge field refuses the whole request (its body is strict): the same push without the
+    // number, and none to that gateway for a while, so a team server updated before its gateway keeps its pushes
+    const again = await post(withoutBadge)
+    if (again.statusCode >= 200 && again.statusCode < 300) noBadge.set(url, now() + NO_BADGE_MS)
+    return again
   }
 }
+/** gateway address -> until when it gets no badge (it refused one: an older gateway) */
+const noBadge = new Map<string, number>()
+/** how long a gateway that refused the badge field gets none (then it is tried again: it may have been updated) */
+export const NO_BADGE_MS = 3_600_000
 
 /** The configured gateway on this machine: no DNS (the host is a loopback literal or localhost, pinned to 127.0.0.1 /
  * ::1), no redirects, status only; the same last-moment beforeSend check and 10 s bound as the public path. */

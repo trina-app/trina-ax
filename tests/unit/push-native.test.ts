@@ -13,7 +13,7 @@ import { PHONE_TAKEN } from '../../server/src/notifications/text'
 import { HttpError } from '../../server/src/http/errors'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { registerPushPath } from '../../server/src/notifications/push-events'
-import { createNativeTransport, signedGatewayRequest, validGatewayUrl, type NativeSend } from '../../server/src/notifications/push-native'
+import { createNativeTransport, NO_BADGE_MS, signedGatewayRequest, validGatewayUrl, type NativeSend } from '../../server/src/notifications/push-native'
 import { loadAppConfig } from '../../server/src/app-config'
 import { parsePushGatewayAuthorization, parsePushGatewaySend, pushGatewaySigningString } from '../../shared/src/cloud-protocol/push-gateway'
 
@@ -214,6 +214,35 @@ test('the gateway request is signed with the team key over the exact body; priva
     expect(JSON.parse(sentBody).badge).toBe(sent)
     expect(parsePushGatewaySend(JSON.parse(sentBody))).not.toBeNull()
   }
+})
+
+test('a gateway from before the badge field (strict body: 400) gets the same push without it, and no badge for an hour', async () => {
+  h = await harness('push-native-old-gateway')
+  let t = 1_000_000
+  const bodies: Record<string, unknown>[] = []
+  let knowsBadge = false, refuseAll = false
+  const request = ((options: any, cb: any) => {
+    options.lookup(options.hostname, {}, () => {})
+    const req = new EventEmitter() as any; req.destroy = () => {}
+    req.end = (b: Buffer) => { const body = JSON.parse(b.toString()); bodies.push(body); queueMicrotask(() => cb({ statusCode: refuseAll || ('badge' in body && !knowsBadge) ? 400 : 200, destroy() {} })) }
+    return req
+  }) as unknown as typeof https.request
+  const send = createNativeTransport({ dataDir: h.ctx.config.dataDir, request, lookup: async () => [{ address: '8.8.8.8', family: 4 }], now: () => t })
+  const input: NativeSend = { device: { platform: 'ios', token: iosToken(), environment: 'production' }, payload: { notificationId: 'n-1', code: 'room.dm', locale: 'ko', badge: 2 }, config: gateway, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 60 }
+  expect(await send(input)).toEqual({ statusCode: 200 })
+  expect(bodies.map((b) => b.badge)).toEqual([2, undefined])
+  expect(bodies[1]).toMatchObject({ notificationId: 'n-1', code: 'room.dm' })
+  // within the hour: no badge, one request
+  expect(await send(input)).toEqual({ statusCode: 200 })
+  expect(bodies.map((b) => b.badge)).toEqual([2, undefined, undefined])
+  // the gateway was updated meanwhile: after the hour the number goes again
+  knowsBadge = true; t += NO_BADGE_MS + 1
+  expect(await send(input)).toEqual({ statusCode: 200 })
+  expect(bodies.map((b) => b.badge)).toEqual([2, undefined, undefined, 2])
+  // a 400 for a push without a number is the gateway's answer as it is: not tried again
+  refuseAll = true
+  expect(await send({ ...input, payload: { ...input.payload, badge: undefined } })).toEqual({ statusCode: 400 })
+  expect(bodies).toHaveLength(5)
 })
 
 test('gateway address setting: https host only; off by default, server.json or MYCEL_PUSH_GATEWAY turn it on', () => {
