@@ -155,8 +155,8 @@ export function parseMessage(raw: string): MobileMessage | null {
   }
   return m as unknown as MobileMessage
 }
-/** A picked file's type: a picture or a video. */
-export const pickedMime = (v: unknown): v is string => typeof v === 'string' && v.length <= 120 && /^(?:image|video)\/[\w.+-]+$/.test(v)
+/** A picked file's type: a picture or a video; never SVG (a script can ride in it; the photo pickers never give one). */
+export const pickedMime = (v: unknown): v is string => typeof v === 'string' && v.length <= 120 && /^(?:image|video)\/[\w.+-]+$/.test(v) && !/svg/i.test(v)
 /** A `photo-pick` answer: at most `limit` files, each a safe name, a picture or video type and 1 byte to MAX_FILE_BYTES,
  * together at most MAX_PICK_BYTES; and the names left out for their size. Checked on both sides. */
 export function validPicks(files: unknown, tooBig: unknown, limit: number): files is PickedFile[] {

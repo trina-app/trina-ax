@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 11:29
 - Branch: `feat/mobile-photo-picker`
-- Status: in progress
+- Status: done
 - Where: trina-ax `mobile/` and `web/` (common code, not `editions/trina/`). Why: the phone app and its bridge are
   shared by every edition, and the web attach sheet is the same in every message box (see docs/REPOSITORY-RULES.md).
 - Version impact: minor for the web app (a new optional bridge capability the page uses when the app offers it; older
@@ -69,4 +69,15 @@ Out: the camera row (it already opens the camera with no menu), the 파일 row, 
 
 ## Result
 
-Filled in at the end.
+Built as planned in https://github.com/trina-app/trina-ax/pull/607.
+
+- `photo-pick-v1`: `photo-pick` → names, types, sizes and `tooBig`; sequential `photo-chunk` (`seq`, `index`,
+  `offset`) → exactly that many base64 bytes; `photo-done` → the app deletes its copies. `mobile/src/photos.ts`
+  (pure, tested without Expo), `mobile/src/photo-io.ts` (expo-image-picker 58.0.10, expo-file-system reads), routed in
+  `MobileReceiver` and fenced with the file transfers. Startup empties the picker's cache folder.
+- Web: `pickPhotosFromApp` in `web/src/lib/mobile.ts`; `AttachSheet` uses it for 사진 보관함 when offered, with a
+  spinner on the button while the bytes come and one short message for files left out, a refusal or a failure.
+- Differences from the plan: the Android claim about location metadata was dropped (it sends the same bytes the file
+  input did); SVG is refused as a picked type; the e2e also runs in WebKit, where Playwright's route shows no file part
+  bytes, so the exact upload bytes are checked in Chromium and the size and type in both.
+- An Android QA build (edition qa, versionName 1.0.5) built; no device was connected, so it was not installed.

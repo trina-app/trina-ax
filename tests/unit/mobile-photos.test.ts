@@ -56,7 +56,7 @@ test('protocol: a pick answer is safe names, picture or video types, 1 byte to 5
   const ok = { name: 'IMG_0001.jpg', mime: 'image/jpeg', size: 1200 }
   expect(validPicks([ok, { name: 'clip.mov', mime: 'video/quicktime', size: MAX_FILE_BYTES }], ['huge.mov'], 2)).toBe(true)
   expect(validPicks([], [], 1)).toBe(true)
-  for (const bad of [{ ...ok, name: '../x.jpg' }, { ...ok, name: '' }, { ...ok, mime: 'text/html' }, { ...ok, mime: 'image/svg+xml;x' }, { ...ok, size: 0 }, { ...ok, size: MAX_FILE_BYTES + 1 }, { ...ok, size: 1.5 }, { ...ok, uri: undefined, name: 7 }])
+  for (const bad of [{ ...ok, name: '../x.jpg' }, { ...ok, name: '' }, { ...ok, mime: 'text/html' }, { ...ok, mime: 'image/svg+xml' }, { ...ok, mime: 'image/svg+xml;x' }, { ...ok, size: 0 }, { ...ok, size: MAX_FILE_BYTES + 1 }, { ...ok, size: 1.5 }, { ...ok, uri: undefined, name: 7 }])
     expect(validPicks([bad], [], 1)).toBe(false)
   expect(validPicks([ok, ok], [], 1)).toBe(false)
   expect(validPicks(Array(5).fill({ ...ok, size: MAX_FILE_BYTES }), [], 5)).toBe(false)
@@ -70,6 +70,7 @@ test('names and types: HEIC turned into JPEG gets .jpg, no name gets one, the or
   expect(pickedType({ uri: 'file:///c/ImagePicker/A.jpeg', name: 'PXL.heic', mime: 'image/heic' })).toBe('image/heic')
   expect(pickedType({ uri: 'file:///c/ImagePicker/A.mov', name: null, mime: null })).toBe('video/quicktime')
   expect(pickedType({ uri: 'file:///c/ImagePicker/A.html', name: 'a.html', mime: 'text/html' })).toBeNull()
+  expect(pickedType({ uri: 'file:///c/ImagePicker/A.svg', name: 'a.svg', mime: 'image/svg+xml' })).toBeNull()
   expect(pickedType({ uri: 'file:///c/ImagePicker/A', name: null, mime: 'application/octet-stream' })).toBeNull()
   expect(pickedName('IMG_0001.HEIC', 'image/jpeg', 0)).toBe('IMG_0001.jpg')
   expect(pickedName('IMG_0001.jpeg', 'image/jpeg', 0)).toBe('IMG_0001.jpeg')
