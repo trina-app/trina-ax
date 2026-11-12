@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 03:56
 - Branch: `fix/phone-connectors-scroll`
-- Status: in progress
+- Status: done
 - Where: web/ (pages/Connectors.tsx, components/integrations). Why: the phone app shows the web app, so the fix is in
   the web app's phone layout (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a phone layout fix with no new feature or API
@@ -52,4 +52,9 @@ phone e2e specs on their own port.
 
 ## Result
 
-Filled in at the end.
+Built as planned in PR #564. Additions while testing:
+- the app pages' "Show all tools" and the privacy and terms links (AppDetail.tsx) are 44 px on a phone too;
+- a new key `integrations.reconnectOnComputer` (5 locales) for a connection that needs a new sign-in;
+- the e2e opens Connectors from the ☰ drawer: since #534 it is not a row of Me, so the older
+  `phone-settings-rows.spec.ts` TC-262 test 1 (`settings-row-connectors`) no longer finds its row.
+1440 screenshots before and after match, apart from logo pixels that also differ between two runs of one build.
