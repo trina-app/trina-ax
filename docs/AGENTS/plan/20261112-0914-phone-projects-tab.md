@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 09:14
 - Branch: `feat/phone-projects-tab`
-- Status: in progress
+- Status: done
 - Where: trina-ax (`web/`). Why: the phone app is the web app in a web view, the tabs are the web app's, and the core
   repo is frozen, so this Trina-only change goes here with no edition flag (see docs/REPOSITORY-RULES.md)
 - Version impact: minor (a visible change to the phone app's tabs; no API or data change)
@@ -23,6 +23,8 @@ In:
   never looked up in the chat list, which may not have loaded yet. A chat opened inside the app stays on the stack it was
   opened from (a project's page: Back returns to the project).
 - New saved-stack key (`mycel.tabStacks.v2`), so stacks saved under the old `files` tab are not put back.
+- 트리나's tab icon: Trina's star (`TrinaStar`, `mono` in the tab colours) where the product is named after its AI (the
+  owner, 2026-11-12: "모바일에서는 트리나 아이콘이 달라서 좀 헷갈리는듯"); the sparkle in the core edition.
 - `BottomTabs.tsx`: the 프로젝트 tab (`tab-projects`, FolderKanban), labels on one line (`whitespace-nowrap`, truncated).
 - `pages/Projects.tsx` (phone only): a fixed "팀 폴더" row at the end of the list that opens `/files`; the empty state
   says what a project is, offers 새 프로젝트, and keeps the 팀 폴더 row below.
@@ -62,4 +64,12 @@ tests for screens, phone-nav and app-nav; the phone specs touched and the new sp
 
 ## Result
 
-Filled in at the end.
+Built as planned, in PR #596. Differences and additions:
+- The team folder's phone bar is titled **팀 폴더** (`files.root`), the name of its row on the list, with "‹ 프로젝트".
+- The empty state reuses `projects.empty` and `projects.desc`; the only new key is `tabs.projects` (`tabs.files` went).
+- `/c/:id`'s parent is always `/`: the chat list is no longer read for it (it decided the tab by whether it had loaded).
+- `knownTab`: a history entry kept from the old build (`scr.tab: 'files'`) takes its first entry's tab.
+- Found on the way: after `settleOpened` put parents under a page opened from outside, the phone app was not told where
+  Back goes (nav-v1 kept `canGoBack: false`); `historySettled()` (lib/historySteps.ts) tells it now.
+- Tests: unit (screens, phone-nav, phone-project-files, app-nav, lib), the new `phone-projects-tab` spec in Chromium and
+  WebKit, the phone specs that used `tab-files`, `text-size` with ja and es at 140 % and 360 px.
