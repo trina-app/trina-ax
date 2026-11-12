@@ -39,6 +39,10 @@ export interface SignInState {
   state: IntegrationFlow['state'] | 'starting'
   /** why it failed, in words for the person (never the server's code) */
   reason: string | null
+  /** the person came back to this page while it was still waiting (the window may have been closed): the panel says
+   * it has not finished, with 다시 시도 and 취소, instead of "finish in the new window" (QA TC-205). Not from
+   * window.closed: a sign-in page with a Cross-Origin-Opener-Policy makes an open window read as closed. */
+  away?: boolean
 }
 
 const WAITING = new Set<SignInState['state']>(['starting', 'pending', 'exchanging'])
@@ -93,9 +97,13 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
       if (active && g === generation.current) timer = setTimeout(poll, 1500)
     }
     timer = setTimeout(poll, 1000)
+    // back on this page with the sign-in not done: it may have been closed (the poll goes on: one finished late completes)
+    const back = () => setS((x) => (x && x.flowId === flowId && WAITING.has(x.state) && !x.away ? { ...x, away: true } : x))
+    window.addEventListener('focus', back)
     return () => {
       active = false
       clearTimeout(timer)
+      window.removeEventListener('focus', back)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s?.flowId, waiting])
@@ -415,7 +423,7 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
   )
 }
 
-function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: () => void; onCancel: () => void }) {
+export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: () => void; onCancel: () => void }) {
   const t = useT()
   const failed = !WAITING.has(flow.state)
   return (
@@ -425,7 +433,7 @@ function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: 
           {flow.state === 'expired' ? t('integrations.signIn.expired') : flow.reason || t('integrations.signIn.failed')}
         </p>
       ) : (
-        <p role="status">{t('integrations.signIn.waiting')}</p>
+        <p role="status">{t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')}</p>
       )}
       <div className="flex flex-wrap items-center gap-2">
         {!failed && flow.url && (
@@ -433,8 +441,8 @@ function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: 
             {t('integrations.signIn.open')}
           </a>
         )}
-        {failed && (
-          <Button size="sm" onClick={onRetry}>
+        {(failed || flow.away) && (
+          <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
             {t('common.retry')}
           </Button>
         )}
