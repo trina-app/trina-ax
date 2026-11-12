@@ -22424,8 +22424,8 @@ change).
 
 ## Linux turns get their own network namespace; the model proxy is forwarded (fix/engine-abstract-sockets, 2026-11-12, QA TC-309)
 
-On Ubuntu 24.04 (kernel 6.8) a turn connected to host services' abstract unix sockets (`@/org/kernel/linux/storage/multipathd`
-answered `show config local`, `@ISCSIADM_ABSTRACT_NAMESPACE`). bwrap ran without `--unshare-net` so the proxy's tcp-peer
+On Ubuntu 24.04 (kernel 6.8) a turn could connect to host services' abstract unix sockets (storage daemons and other
+system services listen on them). bwrap ran without `--unshare-net` so the proxy's tcp-peer
 check and the nftables uid rule would see the engine itself; abstract sockets are not IP (nftables does not see them),
 not files (bwrap's mounts do not hide them), and Landlock scopes them only from ABI 6 (Linux 6.12), while a self-install
 runs `--landlock required`. TCP, UDP, IPv6, metadata and DNS were already refused.
