@@ -122,7 +122,7 @@ describe('the card on Home', () => {
       expect(m.find('no-ai-card')).toBeNull()
       // the card sits above the greeting on a computer
       expect(m.get('home-head').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 
   test('no inviter ("Add directly"): the line without "invited you"', async () => {
@@ -132,7 +132,7 @@ describe('the card on Home', () => {
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
       expect(text(m, 'member-welcome-line')).toBe('1 person is here')
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 
   test('say hi: posts "👋 Hi, I\'m Mina" in the everyone room as them; the row is done and opens that room', async () => {
@@ -146,7 +146,7 @@ describe('the card on Home', () => {
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBe('true')
       expect(text(m, 'member-welcome-progress')).toBe('Get started · 2 of 3')
       expect(m.get('member-welcome-hi-open').getAttribute('href')).toBe(`/rooms/${EVERYONE}`)
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 
   test('say hi as the last row: the card reads the server again and says "You\'re all set" without reopening Home', async () => {
@@ -158,7 +158,7 @@ describe('the card on Home', () => {
       await m.click('member-welcome-hi-button')
       await m.until(() => m.get('member-welcome').getAttribute('data-state') === 'all-set' || null, 'all set')
       expect(called('GET /api/me/welcome').length).toBeGreaterThanOrEqual(2)
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 
   test('ask: one tap starts a normal chat with the fixed question, records it, and opens the chat', async () => {
@@ -174,7 +174,7 @@ describe('the card on Home', () => {
       expect(sent).toEqual([en('memberWelcome.askQuestion')])
       await m.until(() => called('PATCH /api/me/welcome').length > 0 || null, 'recorded')
       expect(called('PATCH /api/me/welcome')[0]!.body).toEqual({ asked: true })
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 
   test('done rows: hi, photo and asked show done; all done: "You\'re all set", Close hides it for good', async () => {
@@ -186,7 +186,7 @@ describe('the card on Home', () => {
       expect(m.get('member-welcome-photo').getAttribute('data-done')).toBe('true')
       expect(m.find('member-welcome-photo-button')).toBeNull()
       expect(text(m, 'member-welcome-progress')).toBe('Get started · 2 of 3')
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
     useMemberWelcome.getState().reset()
     welcome = card({ steps: { rooms: true, hi: true, photo: false, asked: true }, allSet: true })
     const n = await home()
@@ -197,7 +197,7 @@ describe('the card on Home', () => {
       await n.click('member-welcome-close')
       expect(n.find('member-welcome')).toBeNull()
       expect(called('PATCH /api/me/welcome').map((c) => c.body)).toEqual([{ hide: true }])
-    } finally { n.unmount() }
+    } finally { await n.unmount() }
   })
 
   test('Hide: gone at once and for good; "Ready in your team" comes back', async () => {
@@ -210,7 +210,7 @@ describe('the card on Home', () => {
       expect(m.find('member-welcome')).toBeNull()
       expect(called('PATCH /api/me/welcome').map((c) => c.body)).toEqual([{ hide: true }])
       await m.until(() => m.find('team-prepared'), 'the block')
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 
   test('a phone: the same card under the box, without a frame, 44 px targets', async () => {
@@ -226,7 +226,7 @@ describe('the card on Home', () => {
       for (const id of ['member-welcome-hide', 'member-welcome-hi-button', 'member-welcome-photo-button', 'member-welcome-rooms-open'])
         expect(m.get(id).getAttribute('class')).toContain('max-md:min-h-11')
       expect(text(m, 'member-welcome-rooms')).toContain('Your team\'s rooms are in Chats')
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 })
 
@@ -248,7 +248,7 @@ describe('no AI for the person', () => {
       expect(called('POST /api/me/ai-access/request')).toHaveLength(1)
       // the other rows work the same
       expect(m.find('member-welcome-hi-button')).not.toBeNull()
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 
   test('their own AI allowed: the row connects it; the trial credit\'s line when that is why', async () => {
@@ -262,7 +262,7 @@ describe('no AI for the person', () => {
       expect(m.get('member-welcome-connect').getAttribute('data-action')).toBe('connect_own')
       expect(text(m, 'member-welcome-connect')).toBe('Connect my AI')
       expect(m.find('no-ai-card')).toBeNull()
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 
   test('AI answers now: the row is back to the question, not done yet', async () => {
@@ -276,7 +276,7 @@ describe('no AI for the person', () => {
       await m.until(() => m.find('member-welcome-ask-button'), 'the question')
       expect(m.get('member-welcome-ask').getAttribute('data-done')).toBeNull()
       expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
 })
 
@@ -311,11 +311,11 @@ describe('the ✦ line in a room', () => {
       expect(m.find('room-ask-hint')).toBeNull()
       await m.until(() => called('PATCH /api/me').length > 0 || null, 'saved')
       expect(called('PATCH /api/me')[0]!.body).toEqual({ prefs: { roomAskHint: 'seen' } })
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
     // seen (another device, a reload): not shown
     signIn({ roomAskHint: 'seen' })
     const n = await mount(<Hint />)
-    try { expect(n.find('room-ask-hint')).toBeNull() } finally { n.unmount() }
+    try { expect(n.find('room-ask-hint')).toBeNull() } finally { await n.unmount() }
   })
   test('using ✦ from the line counts too', async () => {
     signIn()
@@ -324,7 +324,7 @@ describe('the ✦ line in a room', () => {
       await m.until(() => m.find('room-ask-hint'), 'the line')
       await m.click('room-ask-hint-open')
       expect(m.find('room-ask-hint')).toBeNull()
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
   })
   test('for an owner too, but not while the AI cannot answer them (and it is not used up)', async () => {
     signIn()
@@ -335,11 +335,11 @@ describe('the ✦ line in a room', () => {
       await new Promise((r) => setTimeout(r, 20))
       expect(m.find('room-ask-hint')).toBeNull()
       expect(called('PATCH /api/me')).toHaveLength(0)
-    } finally { m.unmount() }
+    } finally { await m.unmount() }
     useAiAccess.getState().reset()
     useSession.setState({ status: { kind: 'signed-in', me: { ...meOf(), user: { ...meOf().user, role: 'owner' } } } } as never)
     access = { usable: true, action: 'ask_owner', requested: false }
     const n = await mount(<Hint />)
-    try { await n.until(() => n.find('room-ask-hint'), 'the line for an owner') } finally { n.unmount() }
+    try { await n.until(() => n.find('room-ask-hint'), 'the line for an owner') } finally { await n.unmount() }
   })
 })
