@@ -5,7 +5,8 @@
 // (FaceStack: at most 3 and "+N"), then the count and the names in words. A phone (below 768 px) has one compact row per
 // group (components/CompactRow.tsx): the name, "N members" on the right and "…", the description under it only when
 // there is one; the row opens the group's own page (/admin/groups/<id>, adminScreens.ts): its line, its members, Edit
-// and Delete (docs/DECISIONS.md "Admin and Settings on phones").
+// and Delete (docs/DECISIONS.md "Admin and Settings on phones"). New group is the phone bar's + there (barActions.tsx;
+// QA TC-377), and the search takes the row.
 // Who may change team skills is on the Team skills page (SkillManagers.tsx), not here: a group's own skills are its
 // members' anyway (docs/DECISIONS.md "Group skills").
 import { Pencil, Plus, Trash2 } from 'lucide-react'
@@ -24,6 +25,7 @@ import { MemberMenu } from './RowMenu'
 import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
+import { AdminBarActions, BarAdd } from './barActions'
 
 export default function Groups() {
   const t = useT()
@@ -91,13 +93,18 @@ export default function Groups() {
         }
         desc={t('groups.desc')}
         testId="groups-header"
-        actions={
+        actions={phone ? undefined : (
           <Button size="sm" variant="primary" onClick={() => setEditing('new')} data-testid="group-new">
             <Plus size={14} aria-hidden /> {t('groups.new')}
           </Button>
-        }
-        controls={<SearchBox value={query} onChange={setQuery} label={t('groups.search')} testId="group-search" className="sm:w-80" />}
+        )}
+        controls={<SearchBox value={query} onChange={setQuery} label={t('groups.search')} testId="group-search" className={phone ? 'w-full' : 'sm:w-80'} />}
       />
+      {phone && (
+        <AdminBarActions>
+          <BarAdd label={t('groups.new')} onClick={() => setEditing('new')} testId="group-new" />
+        </AdminBarActions>
+      )}
       <section className="mb-8" aria-label={t('admin.groups')} ref={focus.box}>
         <Loadable state={groups}>
           {(all) => {

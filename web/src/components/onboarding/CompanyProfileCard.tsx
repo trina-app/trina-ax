@@ -1,13 +1,15 @@
 // Admin > Team settings: the team's company profile (docs/DECISIONS.md "D — Company profile from the company website"),
 // what every team chat's AI is told about the company. Shows what is saved (the brand colours as small swatches); "Create"
 // / "Edit" opens the same step the welcome wizard uses (ProfileStep.tsx) in a dialog. Owner and admins only (the page is
-// theirs; the server checks again).
+// theirs; the server checks again). A phone's Company profile page (Team settings' group) has them in the Admin bar
+// instead: + to create it, "Edit" once there is one (pages/admin/barActions.tsx, QA TC-377).
 import { useState, type ReactNode } from 'react'
 import { API, type CompanyProfile } from '@mycel/shared/api'
 import { api } from '../../lib/api'
 import { useT } from '../../i18n'
 import { Card, Loadable, useLoad } from '../../pages/admin/common'
-import { Button, Modal } from '../ui'
+import { Button, Modal, useMediaQuery } from '../ui'
+import { AdminBarActions, BarAdd, BarText } from '../../pages/admin/barActions'
 import ProfileStep, { brandColors, ColorSwatch } from './ProfileStep'
 
 export default function CompanyProfileCard() {
@@ -15,17 +17,25 @@ export default function CompanyProfileCard() {
   const state = useLoad(() => api.call(API.getCompanyProfile))
   const [open, setOpen] = useState(false)
   const profile = state.data?.profile ?? null
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <Card
       id="company-profile"
       title={t('onboarding.profile.title')}
       desc={t('onboarding.profile.cardDesc')}
-      actions={state.data && (
+      actions={state.data && !phone && (
         <Button size="sm" onClick={() => setOpen(true)} data-testid="company-profile-edit">
           {profile ? t('onboarding.profile.edit') : t('onboarding.profile.create')}
         </Button>
       )}
     >
+      {state.data && phone && (
+        <AdminBarActions>
+          {profile
+            ? <BarText label={t('onboarding.profile.edit')} onClick={() => setOpen(true)} testId="company-profile-edit" />
+            : <BarAdd label={t('onboarding.profile.createNamed')} onClick={() => setOpen(true)} testId="company-profile-edit" />}
+        </AdminBarActions>
+      )}
       <Loadable state={state} lines={2}>
         {(d) => (d.profile ? <Summary p={d.profile} /> : <p className="text-sm text-muted">{t('onboarding.profile.none')}</p>)}
       </Loadable>

@@ -3556,6 +3556,7 @@ export const en: Record<MessageKey, string> = {
   "onboarding.profile.none": "No company profile yet.",
   "onboarding.profile.create": "Create",
   "onboarding.profile.edit": "Edit",
+  "onboarding.profile.createNamed": "Create company profile",
   "onboarding.profile.cancel": "Cancel",
   "onboarding.profile.noAi": "Reading a website or a pasted text needs an AI. Without one you can answer three questions instead.",
   // the profile draft, line by line: what the server opens or skips for it (components/onboarding/ProfileStep.tsx DraftActivity)

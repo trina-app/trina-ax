@@ -92,10 +92,12 @@ test.describe('each page', () => {
     await expect(row.getByText('Olga')).toHaveCount(0)
   })
 
-  test('Folder permissions: By folder / By person and Filters on one row; the switch is under Filters', async ({ page }) => {
+  test('Folder permissions: By folder / By person on their own row, Filters in the bar; the switch is under Filters', async ({ page }) => {
     await page.goto('/admin/folders')
     const views = page.getByRole('tablist', { name: t['accessView.tabs'] })
-    await sameRow(views, page.getByTestId('tree-filters-toggle'))
+    // the two views take the row; the Filters icon sits in the bar beside + (QA TC-379, phone-admin-bar.cases.ts)
+    expect(Math.round((await box(views)).width)).toBeGreaterThanOrEqual(390 - 34)
+    await expect(page.getByTestId('phone-page-bar').getByTestId('tree-filters-toggle')).toBeVisible()
     await expect(page.getByTestId('tree-ruled-only')).toBeHidden()
     await page.getByTestId('tree-filters-toggle').click()
     await page.getByTestId('tree-filters').getByText(t['accessTree.ruledOnly']).click()
@@ -173,7 +175,7 @@ test.describe('each page', () => {
     expect(await card.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
   })
 
-  test('Usage: the range and Filters on one row, Usage limits ⌄ Download CSV, Group by in the breakdown, no frames', async ({ page }) => {
+  test('Usage: the range and Filters on one row, Usage limits + and Download CSV under ⋯ in the bar, Group by in the breakdown, no frames', async ({ page }) => {
     await page.goto('/admin/usage')
     await expect(page.getByTestId('usage-stats')).toBeVisible()
     await sameRow(page.getByTestId('usage-range-pill'), page.getByTestId('usage-filters-toggle'))
@@ -190,7 +192,7 @@ test.describe('each page', () => {
     await expect(page.getByTestId('usage-filters').getByTestId('usage-groupby')).toHaveCount(0)
     // the numbers stand without frames
     expect(await page.getByTestId('usage-stat-in').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
-    // one main button, 44 px like its ⌄; Download CSV under the ⌄
+    // the bar's + and ⋯ (QA TC-377), 44 px; Download CSV under the ⋯
     await tall(page.getByTestId('usage-limits-link'))
     await tall(page.getByTestId('usage-limits-link-more'))
     await expect(page.getByTestId('usage-csv')).toHaveCount(0)

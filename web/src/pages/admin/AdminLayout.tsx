@@ -37,6 +37,7 @@ import { APP_CONNECTORS, CONNECTORS } from '../../lib/connectors'
 import { folderName } from '../../lib/access-view'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
+import { AdminBarSlot } from './barActions'
 
 const Home = lazy(() => import('./Home'))
 const PhoneRoot = lazy(() => import('./PhoneRoot'))
@@ -218,6 +219,8 @@ export default function AdminLayout() {
   const goBack = useGoBack(up)
   // what the page on show tells the bar: an item's name as the title, a check before ‹ leaves (phoneBar.ts)
   const [bar, setBar] = useState<AdminBar | null>(null)
+  // the bar's place for the page's own buttons, + and ⋯ (barActions.tsx); a computer's page keeps its buttons
+  const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
   const back = () => {
     if (!bar?.beforeBack) return goBack()
     void bar.beforeBack().then((ok) => ok && goBack())
@@ -229,6 +232,7 @@ export default function AdminLayout() {
 
   const page = (
     <AdminBarProvider value={setBar}>
+    <AdminBarSlot value={phone ? barSlot : null}>
     <Suspense fallback={<Spinner />}>
       {section === '' && <Home />}
       {section === 'members' && <Members />}
@@ -244,6 +248,7 @@ export default function AdminLayout() {
       {section === 'settings' && <TeamSettingsPage />}
       {section === 'system' && <System />}
     </Suspense>
+    </AdminBarSlot>
     </AdminBarProvider>
   )
 
@@ -251,7 +256,8 @@ export default function AdminLayout() {
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="admin-phone">
         {/* the list's bar: ‹ back to where it came from (the 나 list: "‹ Settings"); its big title is in the list */}
-        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
+        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title"
+          action={<span ref={setBarSlot} className="contents" />} />
         <div ref={content} className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
           {section === '' ? (
             <Suspense fallback={<Spinner />}>
