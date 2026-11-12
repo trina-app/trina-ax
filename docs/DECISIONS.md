@@ -12671,6 +12671,28 @@ nothing.
 - Rejected: "@전체" as a reserved id in `mentions` (the list is user ids, checked as such by older builds); expanding it
   into every member's id when sent (the sent message would mark each person's "@name" it does not contain, and the
   stored list would grow with the room); @here (who is online is not something the rooms know).
+
+## Push gateway: an 8 s limit on FCM (fix/push-gateway-fcm-timeout, 2026-11-12, QA TC-387)
+
+- **Problem.** The FCM send call and the OAuth token call had no time limit (an APNs call ends after 15 s with no data). When FCM hung for more
+  than about 40 s, a push was lost: the team server stopped waiting after 10 s and retried 30 s later, the gateway
+  answered the retry `200` (duplicate) because the first send was still in flight, and when the first send failed the
+  gateway released the dedupe entry. Nothing sent the push again. The TC-387 hang probe lost 5 of 5 held Android pushes.
+- **Decision.** One `AbortSignal.timeout(FCM_TIMEOUT_MS)` (8 s) per FCM send, shared by the OAuth call and the send call,
+  answer read included (`push-gateway/src/fcm.ts`). A team server tries a failed push again 30 s or more later
+  (`server/src/notifications/push-service.ts`), so the first send has ended before the retry comes: the retry finds the
+  dedupe entry released (it sends) or kept after a delivery (200, correct). 8 s is also less than the team server's
+  usual 10 s wait, so that server usually gets 502 `provider_error`.
+- **Trade.** FCM may accept a message and answer after 8 s. The gateway then says 502 and the retry sends it again: the
+  phone can get it twice. Android replaces the first with the second (`collapse_key` and the notification `tag` are the
+  notificationId), so the person sees one. A lost push was the worse outcome.
+- **Not changed.** A dedupe hit while the first send is still in flight still answers `200`. With the limit, the first
+  send has ended before any retry can come (the team server waits 30 s), so a different answer is not needed now.
+- Tests: `tests/unit/push-gateway.test.ts` (a hanging FCM call and a hanging OAuth call answer 502, and the retry sends;
+  an error body that stops after the headers answers 502). The TC-387 hang probe: before 145 of 150 delivered (5 of 5
+  held Android pushes lost), after 150 of 150.
+- Version impact: **patch**.
+
 ## Microsoft Edge push through WNS (feat/edge-push, 2026-11-07)
 
 The owner approved Edge ("Edge 브라우저 푸시 ㄱㄱ"). Edge (Chromium) subscribes through the Windows Push Notification
