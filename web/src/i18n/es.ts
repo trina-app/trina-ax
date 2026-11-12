@@ -1211,6 +1211,7 @@ export const es: Record<MessageKey, string> = {
   'feed.chats': 'Menciones e hilos',
   'feed.chatsUnread': 'Hay menciones o respuestas nuevas',
   'feed.chatsEmpty': 'Aún no hay menciones ni respuestas en hilos.',
+  'feed.notInRecent': 'Nada en los últimos {n}.',
   'connectors.top': "Apps populares",
   'connectors.discover': "Descubrir",
   'connectors.connected': "Conectados",

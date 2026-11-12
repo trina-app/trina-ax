@@ -6,8 +6,8 @@ import { api, API, errorText } from '../../lib/api'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
-import { useInboxUnread } from '../../store/inbox'
-import { ErrorNote, Skeleton, Switch } from '../ui'
+import { useInboxUnread, useNoticeUnread } from '../../store/inbox'
+import { ErrorNote, Skeleton, Switch, useMediaQuery } from '../ui'
 import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { DesktopNotifications } from './DesktopNotifications'
@@ -165,7 +165,11 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
 export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
-  const unread = useInboxUnread()
+  // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
+  // counts (store/inbox.ts); a computer, the whole Inbox (as the sidebar)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const whole = useInboxUnread(), notices = useNoticeUnread()
+  const unread = phone ? notices : whole
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)

@@ -1239,6 +1239,7 @@ export const en: Record<MessageKey, string> = {
   'feed.chats': 'Mentions & threads',
   'feed.chatsUnread': 'New mentions or replies',
   'feed.chatsEmpty': 'No mentions or thread replies yet.',
+  'feed.notInRecent': 'Nothing in the latest {n}.',
   'connectors.top': "Popular apps",
   'connectors.discover': "Discover",
   'connectors.connected': "Connected",
