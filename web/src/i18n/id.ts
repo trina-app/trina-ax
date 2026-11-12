@@ -3091,6 +3091,7 @@ export const id: Record<MessageKey, string> = {
   'integrations.signIn.badUrl': 'Alamat masuk dari layanan tidak aman, jadi tidak dibuka.',
   'integrations.signIn.phone': 'Masuklah dari komputer, lewat browser atau aplikasi desktop.',
   "integrations.onComputer": "Hubungkan {name} di komputer.",
+  "integrations.reconnectOnComputer": "Hubungkan kembali {name} di komputer.",
   "integrations.onComputerNew": "Hubungkan layanan baru di komputer.",
   "integrations.onComputerHint": "Setelah terhubung di browser atau aplikasi desktop, Anda juga bisa memakainya di ponsel.",
   'integrations.signIn.next': 'Setelah disimpan, jendela baru terbuka untuk masuk ke layanan.',

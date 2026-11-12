@@ -3047,6 +3047,7 @@ export const ja: Record<MessageKey, string> = {
   'integrations.signIn.badUrl': "サービスから返されたログインアドレスが安全でないため、開きませんでした。",
   'integrations.signIn.phone': "コンピューターのブラウザーまたはデスクトップアプリからログインしてください。",
   "integrations.onComputer": "{name}の接続はパソコンで行います。",
+  "integrations.reconnectOnComputer": "{name}の再接続はパソコンで行います。",
   "integrations.onComputerNew": "新しいサービスの接続はパソコンで行います。",
   "integrations.onComputerHint": "パソコンのブラウザかデスクトップアプリで接続すると、スマートフォンでもすぐ使えます。",
   'integrations.signIn.next': "保存後、サービスにログインするための新しいウィンドウが開きます。",

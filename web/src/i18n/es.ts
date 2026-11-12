@@ -3047,6 +3047,7 @@ export const es: Record<MessageKey, string> = {
   'integrations.signIn.badUrl': "La dirección de inicio de sesión enviada por el servicio no es segura, por lo que no se abrió.",
   'integrations.signIn.phone': "Inicie sesión desde una computadora, en un navegador o en la aplicación de escritorio.",
   "integrations.onComputer": "Conecte {name} desde un ordenador.",
+  "integrations.reconnectOnComputer": "Vuelva a conectar {name} desde un ordenador.",
   "integrations.onComputerNew": "Conecte servicios nuevos desde un ordenador.",
   "integrations.onComputerHint": "Una vez conectado en un navegador o en la app de escritorio, también puede usarlo en el teléfono.",
   'integrations.signIn.next': "Después de guardar, se abre una nueva ventana para iniciar sesión en el servicio.",
