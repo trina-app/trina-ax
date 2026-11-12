@@ -3,6 +3,7 @@ import type { AppContext } from '../context'
 import { ROOM_PUSH_EVENTS, type NotificationPreferences } from '@mycel/shared/api'
 import { eventEnabled } from './preferences'
 import { noticeWanted } from '../rooms/alerts'
+import { chatAnswerPath } from './chat-answers'
 type Stop = (scope: { userId?: string; sessionId?: string }) => void
 const listeners = new WeakMap<AppContext, Stop>()
 export function onPushCancellation(ctx: AppContext, stop: Stop) { listeners.set(ctx, stop); return () => { if (listeners.get(ctx) === stop) listeners.delete(ctx) } }
@@ -14,6 +15,9 @@ export function cancelDisabledPushDeliveries(ctx: AppContext, userId: string, pr
   const disabled = (['schedule.success', 'schedule.failure', 'connection.reconnect'] as const).filter(event => !eventEnabled(preferences, event))
   if (disabled.length) ctx.db.query(`UPDATE push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM notification_inbox WHERE user_id=? AND event_type IN (${disabled.map(() => '?').join(',')}))`).run(userId, ...disabled)
+  // an AI chat's answers have their own deliveries (migration 347): "AI answers" off stops what waits for a push
+  if (!eventEnabled(preferences, 'chat.answer_done')) ctx.db.query(`UPDATE chat_answer_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
+    (SELECT id FROM chat_answer_notices WHERE user_id=?)`).run(userId)
   // room notices have their own deliveries (migration 241); each room's level decides (rooms/alerts.ts noticeWanted), so
   // a default of 받지 않음 or a narrower level stops what waits for a push
   const waiting = ctx.db.query(`SELECT DISTINCT d.notification_id id FROM room_push_deliveries d JOIN room_notices n ON n.id=d.notification_id
@@ -40,6 +44,8 @@ const roomPath: PushPath = (ctx, id) => {
 for (const code of ROOM_PUSH_EVENTS) pushPaths.set(code, roomPath)
 // a lead join opens Home, where the owner's handover card is (the card checks again that it still holds)
 pushPaths.set('owner.lead_joined', () => '/')
+// an AI chat's answer opens that chat (/c/<chatId>) while the person may still open it (notifications/chat-answers.ts)
+pushPaths.set('chat.answer_done', chatAnswerPath)
 // the owner's locked password check opens the Inbox (the notice there says what to do), as the older events do
 pushPaths.set('owner.reauth_locked', () => '/settings/notifications')
 export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }

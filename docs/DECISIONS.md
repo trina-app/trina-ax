@@ -23833,6 +23833,40 @@ Supersedes the Admin menu item "Slack" (c964122e3, 2026-11-05). The owner: "설�
   `admin-home.spec.ts` and `settings-ia.spec.ts`, the phone specs that open Slack's page.
 - Version impact: **minor** (a visible move in Admin; no API change).
 
+## Admins manage Slack too (fix/slack-admins, 2026-11-13, the owner)
+
+Supersedes "Owner only, for every Admin › Slack route: the app answers as every linked person, which is more than an
+admin's own reach" ("Slack 커넥터", 2026-11-05) and the "Who" line of "Slack inside Admin › Connected apps" (2026-11-12).
+The owner (2026-11-13, final): "Admins may manage Slack too." They agreed with the reasoning that admins already add
+team connections and change members' access, and that Slack answers as a person only after that person links their own
+Slack account.
+- **Admins and the owner:** Slack in Admin › Connected apps (Connected or Discover), its state and linked count, "Add to
+  Slack" through the official app, Reconnect (Add to Slack again), Turn off / Turn on, and Remove of the official app.
+  Routes `GET /api/admin/slack`, `POST /api/admin/slack/enabled`, `DELETE /api/admin/slack` and
+  `POST /api/admin/slack/official/install` are `auth: 'admin'`; the "Add to Slack" return finishes only for the person
+  who pressed it if they are still the owner or an admin.
+- **The owner only:** the team's own Slack app, i.e. pasting its bot and app-level tokens and its client secret
+  (`PUT /api/admin/slack/tokens` stays `auth: 'owner'`), and removing it while it is saved (`DELETE` answers an admin
+  403 `owner_only`, nothing changes): removing it would destroy the owner's setup, which an admin could not restore. An
+  admin's Turn off / on of the own app is allowed (it touches no token). No answer reveals a token to anyone, as before.
+  Picked as the option that widens access least where the decision did not say (Remove of the own app).
+- **Screens.** An admin gets the same Slack page without the own app's parts: no "Use your own Slack app instead", no
+  four steps, no "Replace tokens" and no Remove of it; one plain line says "Only the team owner can change or remove
+  this Slack app." (set up) or "Only the team owner can connect Slack here." (nothing added and no Add to Slack). The old
+  `/admin/slack` opens Slack's page for admins too. Members: unchanged.
+- **Races and role changes.** An install is never kept over an own app saved while Slack was asked (checked again in
+  the write), an admin's Remove never deletes an own app saved while the hosting service was asked (409
+  `own_app_saved`), and an install waiting for Slack's check is dropped when the person who pressed it is no longer the
+  owner or an admin. An admin whose own-app connection fails is told to ask the owner, not pointed at "Replace tokens";
+  Discover shows an admin the Slack card only where Add to Slack is offered.
+- **Audit.** Unchanged: every change (`slack.installed`, `slack.enabled`, `slack.disabled`, `slack.removed`) names who
+  made it.
+- Tests: `tests/unit/c-slack.test.ts` (route levels pinned; admin sees, turns off, refused on tokens and on removing the
+  own app), `tests/unit/c-slack-official.test.ts` (admin adds, turns off and on, removes; demoted meanwhile: not added),
+  the security route matrix (`tests/security/lib/slack-cases.ts`, by level), `web/test/unit/slack-screens.test.tsx`,
+  `web/test/e2e/slack-in-connectors.spec.ts`, `web/test/e2e/phone-admin.spec.ts`.
+- Version impact: **minor** (a wider role on existing routes; no new route).
+
 ## Files onboarding: follow-ups from hands-on QA (fix/files-onboarding-qa, 2026-11-13, QA)
 
 넣을 곳: trina-ax core (`web/src/components/onboarding/SkillShareCard.tsx`, `server/src/onboarding/form-skill.ts`,
@@ -23891,36 +23925,42 @@ Version impact: **patch** (no route, no migration).
   `web/test/unit/team-link.test.tsx`, `web/test/unit/onboarding-polish.test.tsx`, `web/test/e2e/team-link.spec.ts`;
   screenshots `web/test/e2e/shots-team-link-groups.spec.ts` (`TEAM_LINK_GROUPS_SHOTS`).
 
-## Admins manage Slack too (fix/slack-admins, 2026-11-13, the owner)
+## AI 답변 알림 — a push when an answer in my AI chat needs me (feat/push-ai-answer-done, 2026-11-12, QA TC-442)
 
-Supersedes "Owner only, for every Admin › Slack route: the app answers as every linked person, which is more than an
-admin's own reach" ("Slack 커넥터", 2026-11-05) and the "Who" line of "Slack inside Admin › Connected apps" (2026-11-12).
-The owner (2026-11-13, final): "Admins may manage Slack too." They agreed with the reasoning that admins already add
-team connections and change members' access, and that Slack answers as a person only after that person links their own
-Slack account.
-- **Admins and the owner:** Slack in Admin › Connected apps (Connected or Discover), its state and linked count, "Add to
-  Slack" through the official app, Reconnect (Add to Slack again), Turn off / Turn on, and Remove of the official app.
-  Routes `GET /api/admin/slack`, `POST /api/admin/slack/enabled`, `DELETE /api/admin/slack` and
-  `POST /api/admin/slack/official/install` are `auth: 'admin'`; the "Add to Slack" return finishes only for the person
-  who pressed it if they are still the owner or an admin.
-- **The owner only:** the team's own Slack app, i.e. pasting its bot and app-level tokens and its client secret
-  (`PUT /api/admin/slack/tokens` stays `auth: 'owner'`), and removing it while it is saved (`DELETE` answers an admin
-  403 `owner_only`, nothing changes): removing it would destroy the owner's setup, which an admin could not restore. An
-  admin's Turn off / on of the own app is allowed (it touches no token). No answer reveals a token to anyone, as before.
-  Picked as the option that widens access least where the decision did not say (Remove of the own app).
-- **Screens.** An admin gets the same Slack page without the own app's parts: no "Use your own Slack app instead", no
-  four steps, no "Replace tokens" and no Remove of it; one plain line says "Only the team owner can change or remove
-  this Slack app." (set up) or "Only the team owner can connect Slack here." (nothing added and no Add to Slack). The old
-  `/admin/slack` opens Slack's page for admins too. Members: unchanged.
-- **Races and role changes.** An install is never kept over an own app saved while Slack was asked (checked again in
-  the write), an admin's Remove never deletes an own app saved while the hosting service was asked (409
-  `own_app_saved`), and an install waiting for Slack's check is dropped when the person who pressed it is no longer the
-  owner or an admin. An admin whose own-app connection fails is told to ask the owner, not pointed at "Replace tokens";
-  Discover shows an admin the Slack card only where Add to Slack is offered.
-- **Audit.** Unchanged: every change (`slack.installed`, `slack.enabled`, `slack.disabled`, `slack.removed`) names who
-  made it.
-- Tests: `tests/unit/c-slack.test.ts` (route levels pinned; admin sees, turns off, refused on tokens and on removing the
-  own app), `tests/unit/c-slack-official.test.ts` (admin adds, turns off and on, removes; demoted meanwhile: not added),
-  the security route matrix (`tests/security/lib/slack-cases.ts`, by level), `web/test/unit/slack-screens.test.tsx`,
-  `web/test/e2e/slack-in-connectors.spec.ts`, `web/test/e2e/phone-admin.spec.ts`.
-- Version impact: **minor** (a wider role on existing routes; no new route).
+넣을 곳: Team AX core (`server/src/notifications/`, `server/src/chat/turn.ts`, `shared/src/api/notifications.ts`,
+`web/pwa/sw.js`, Settings › Notifications, `push-gateway/src/text.ts`). Why: notifications and push are core.
+
+- **Problem.** Pushes reached the phone for DMs, mentions, room notices and scheduled tasks, but not when an answer in a
+  personal AI chat finished: someone who asks Trina something and puts the phone away never heard that it was there.
+- **One event, `chat.answer_done`.** The same states as the chat list's "needs you" (`shared/src/api/attention.ts`): the
+  answer finished (`done`), failed, or the AI waits for the person (a question or a yes/no card every window shows:
+  `waiting`). The notice keeps the kind (`chat_answer_notices`, migration 347, with `chat_answer_push_deliveries`); the
+  push and the lock screen say one generic line for all three ("Trina replied in your chat."), in the person's language.
+- **Who.** The person who asked that turn (`spec.userId`): in a shared project chat the asker, never its creator or the
+  other members. Never a scheduled run (schedule.* has its own), a question from Slack (answered there), a room's AI
+  (rooms have their own), an answer the person stopped or a server stop cut off, a turn the server started by itself (no client: skill drafts,
+  merges, file ranking). Not one of the server's own chats.
+- **Not while I look at it.** The server does not know which chat a window shows, but a visible window that has a chat
+  on screen marks its answer seen (POST /api/chats/:id/seen, "Session markers"). So the notice is made before the
+  chat's update goes out, and its push waits (`push_at`: 10 s; a card 30 s, since nothing marks a card seen) and goes
+  only while the answer is still unseen, or the card still open (asked again right before and after each send). A
+  shared chat keeps one seen mark, its creator's: for another asker the push goes regardless (coalesced as below).
+- **One push per answer, never per step.** The source is the turn (a card: `<turn>.ask`, one per turn however many
+  cards it opens). A finished answer of a chat whose earlier finished answer was told within 10 minutes, unread and not
+  seen since, makes none: a burst of answers is one push.
+- **Tap.** `/c/<chatId>` (the web's chat page; push-events.ts PATH rules, ids only) while the person may still open the
+  chat, else the start page (also a browser's click: the Inbox never lists these); the service worker opens the chat
+  from the signed-in fetch of the notice.
+- **Lock screen and label (TC-365).** The payload carries ids and the event code only. The iPhone's notification
+  extension acts on `room.*` only (the APNs payload is mutable for those alone), so these pushes show the gateway's
+  generic line and no chat title; no app build. The gateway gets the line in `EVENT_TEXT`; until it is deployed it shows
+  its generic `chat.*` text ("You have a new message"). The badge number is the same one count n as before.
+- **Setting.** Settings › Notifications › Tasks and connections: "AI chat answers" (`chatAnswers`, default on; column
+  `notification_preferences.chat_answers`). Off makes no notice and cancels deliveries that wait, as the other events.
+- **Not in the Inbox.** The chat list's markers already show these chats; the notices are neither listed nor counted
+  there (`LISTED` leaves the table out), only fetched by the push.
+- Left out: quiet hours (the person just asked), the chat's title on the lock screen (it would need the extension and
+  the gateway's mutable rule for `chat.*`).
+- Tests: `tests/unit/b-chat-answer-push.test.ts`, `web/test/unit/push-worker.test.ts`, `web/test/unit/room-notify.test.tsx`,
+  `tests/unit/push-gateway.test.ts`, `tests/unit/push-locale.test.ts`.
+- Version impact: **minor**.

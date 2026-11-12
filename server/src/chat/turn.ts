@@ -49,6 +49,7 @@ import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf } from '../notifications/service'
+import { noteChatAnswer } from '../notifications/chat-answers'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
@@ -1848,7 +1849,8 @@ export class TurnExec {
    *   file, a copy, a move or rename into it) by an AI turn;
    * - a folder's name (a listing's sub-folder, a folder on the way to a file shown): its newest create, and the first
    *   event at or under it (a folder made on the way to a new file has no event of its own).
-   * `folders`: folders whose files' names were shown (TurnFiles.namePaths); `subfolders`: folders shown by name
+   * `folders`: folders whose files' names were shown (TurnFiles.namePaths; a path a room call named that is a file counts
+   * as that file's name); `subfolders`: folders shown by name
    * (TurnFiles.listedNames); `files`: files shown (TurnFiles.readPaths). Each is looked at once per turn.
    */
   private noteOwnNames(folders: Iterable<string>, subfolders: Iterable<string>, files: Iterable<string>) {
@@ -1857,7 +1859,15 @@ export class TurnExec {
     const items: [kind: 'file' | 'folder' | 'children', path: string][] = []
     const above = (p: string) => { const segs = p.split('/'); for (let n = 3; n < segs.length; n++) items.push(['folder', segs.slice(0, n).join('/')]) }
     for (const f of files) if (inside(f)) { items.push(['file', f]); above(f) }
-    for (const d of folders) if (d === root || inside(d)) { items.push(['children', d]); if (inside(d)) { items.push(['folder', d]); above(d) } }
+    // a room session's paths also hold each path a call named (noteRoomTool): one that is a file shows its own name, never
+    // a folder's file names (read as a folder it failed, and the catch below marked the whole answer as outside: QA TC-509)
+    const isFile = (p: string) => { try { return fs.lstatSync(path.join(this.rt.files.fx.root, ...p.split('/'))).isFile() } catch { return false } }
+    for (const d of folders) {
+      if (d !== root && !inside(d)) continue
+      if (inside(d) && isFile(d)) { items.push(['file', d]); above(d); continue }
+      items.push(['children', d])
+      if (inside(d)) { items.push(['folder', d]); above(d) }
+    }
     for (const d of subfolders) if (inside(d)) { items.push(['folder', d]); above(d) }
     let level = 0
     // one budget of names traced per call (a listing of thousands of sub-folders or files is not walked on the server's
@@ -3330,6 +3340,8 @@ export class TurnExec {
       if (this.room) { this.rt.rooms?.waiting?.({ roomId: this.room.roomId, userId: this.spec.userId, opened }); return }
       if (this.finishing) return
       const notify = opened && this.tells ? { notify: 'card' as const } : {}
+      // a card every window shows: the person who asked may get a push (notifications/chat-answers.ts), once per turn
+      if (opened && this.tells && this.spec.clientKind && !window) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: 'waiting' })
       if (!window) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', notify)
       else if (opened && this.tells) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', { ...notify, window })
     } catch (e) { this.rt.log.warn('session marker event failed', { err: e, turn: this.id }) }
@@ -3664,6 +3676,11 @@ export class TurnExec {
     // a question asked from Slack got its answer there: the chat is not left unseen (no dot, nothing in the count for
     // every Slack thread); a card it raised still shows its "?" (Chat.waiting) until it is answered in the app
     if (this.spec.clientKind === 'slack') { try { this.rt.store.markSeen(this.spec.chatId) } catch (e) { this.rt.log.warn('marking a Slack chat seen failed', { err: e, turn: this.id }) } }
+    // a push for the person who asked (notifications/chat-answers.ts), before the chat's update: a window that has the
+    // chat on screen then marks the answer seen after the notice, and nothing is pushed. Not an answer they stopped or
+    // a server stop cut off, a scheduled run or a question from Slack (this.tells), or a turn the server started by
+    // itself (no clientKind: skill drafts, merges, file ranking)
+    if (!this.room && status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && this.spec.clientKind) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: status === 'error' ? 'failed' : 'done' })
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
   }
 }
