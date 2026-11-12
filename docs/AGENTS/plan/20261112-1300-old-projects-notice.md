@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 13:00
 - Branch: `fix/old-projects-notice`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/old-projects.ts`, `chat/project-joins.ts`, `chat/schedules.ts`,
   `routes/chats.ts`, `notifications/service.ts`, `shared/src/api`, Admin › Home and the phone's Admin list). Why: project
   access, scheduled tasks and the admin screens are core (see docs/REPOSITORY-RULES.md)
@@ -42,7 +42,7 @@ gets more than the 0.4.0 role gave them (and the owner and admins can already Ad
 
 ## Scheduled tasks
 
-Paused already (`schedule_project_skips`, #? "Projects made on 0.4.0"). Now: the inbox notice for a task whose project
+Paused already (`schedule_project_skips`, "Projects made on 0.4.0"). Now: the inbox notice for a task whose project
 is live and the person may manage says "paused: only its members can use it now; add yourself in Projects and it
 starts again" (`membersOnly: true`), and when the person starts to read the project (`projectJoins`), a task of theirs
 that this pause turned off, untouched since, is turned on again (`schedule.resumed`, actor null, `via: project_member`).
