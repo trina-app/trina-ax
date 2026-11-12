@@ -50,7 +50,7 @@ The sign-in accepts Claude's own callback (Claude on the web, desktop and phone)
 **Settings › Use from other AI apps** lists your connected apps, with when they connected and **Disconnect**. A connection also ends when the app session that authorized it ends.
 
 Admins see whether this server's connector is on in **Admin › Use from other AI apps**. The other direction, apps Trina's AI uses with
-your own account such as **Google Drive**, is **Settings › App connectors** ([Google Drive setup](https://github.com/trina-app/trina-ax/blob/main/docs/GOOGLE-DRIVE.md)).
+your own account such as **Google Drive**, is **Connectors** in the sidebar ([Google Drive setup](https://github.com/trina-app/trina-ax/blob/main/docs/GOOGLE-DRIVE.md)).
 
 ## Protocol
 
