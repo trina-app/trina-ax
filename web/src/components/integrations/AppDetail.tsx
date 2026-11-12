@@ -109,7 +109,8 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
           </dl>
           {tools.length > 0 && (
             <div className="mt-4">
-              <button type="button" className="text-sm font-medium text-accent-text hover:underline" aria-expanded={allTools} aria-controls={toolsId} onClick={() => setAllTools((v) => !v)} data-testid="app-tools-toggle">
+              {/* a text link; on a phone 44 px tall (QA TC-262) */}
+              <button type="button" className="text-sm font-medium text-accent-text hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center" aria-expanded={allTools} aria-controls={toolsId} onClick={() => setAllTools((v) => !v)} data-testid="app-tools-toggle">
                 {allTools ? t('gapps.hideTools') : t('gapps.showTools', { count: tools.length })}
               </button>
               <ul id={toolsId} hidden={!allTools} className="mt-3 divide-y divide-line rounded-xl border border-line" data-testid="app-tools">
@@ -131,9 +132,10 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
   )
 }
 
+/** A phone: each row 44 px tall, so a link in it (privacy, terms) is a 44 px tap */
 function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 px-3 py-2.5">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 px-3 py-2.5 max-md:min-h-11 max-md:items-center max-md:py-0">
       <dt className="text-muted">{label}</dt>
       <dd className="min-w-0 text-right max-sm:text-left">{children}</dd>
     </div>
@@ -142,7 +144,7 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
 
 function ExtLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline">
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline max-md:min-h-11">
       {children} <ExternalLink size={12} aria-hidden />
     </a>
   )

@@ -270,9 +270,12 @@ test.describe('TC-262: the phone app does not offer what only works on a compute
     await signIn(page, BOB)
   })
 
-  test('1. Me › Connectors, tap + — one line "connect on a computer", no form, Save or Advanced', async ({ page }) => {
-    await me(page, 'settings-row-connectors')
-    await expect(page).toHaveURL(/\/connectors/)
+  // Connectors is in the ☰ drawer since #534 (no longer a row of Me); phone-connectors.cases.ts has the rest of the step
+  test('1. ☰ › Connectors, tap + — one line "connect on a computer", no form, Save or Advanced', async ({ page }) => {
+    await page.goto('/')
+    await page.getByTestId('menu-open').click()
+    await page.locator('[data-testid="nav-connectors"]:visible').click()
+    await expect(page).toHaveURL(/\/connectors$/)
     const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
     await card.getByTestId('connector-add').click()
     await expect(page.getByTestId('integration-on-computer')).toBeVisible()

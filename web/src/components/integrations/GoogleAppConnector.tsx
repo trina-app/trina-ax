@@ -3,7 +3,9 @@
 // opens Google at once, back from it one line asks to confirm the account, then the app is connected. Its page
 // (GoogleAppDetail, AppDetail.tsx) then offers Try in chat, Settings (ask before each change, or Always allow) and ⋯
 // (Reconnect, Disconnect). An app that cannot be connected says why in plain words, an admin gets the way to set it up,
-// and a member whose team has not set it up asks an admin to add it (AskAdmin.tsx).
+// and a member whose team has not set it up asks an admin to add it (AskAdmin.tsx). In the phone app nothing signs in to
+// Google (connecting is done on a computer, QA TC-262): the page shows what it is now, Settings and Disconnect once it is
+// connected, and one line "Connect … on a computer" when that can be done there.
 import { Settings2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -152,8 +154,19 @@ export function GoogleAppDetail({ v, g, onChat, ask }: { v: GoogleAppView; g: Go
       { label: t('drive.disconnect'), onSelect: () => void g.disconnect(v.id), danger: true, disabled: busy, testId: 'gapp-menu-disconnect' },
     ]} />
   )
+  // the phone app: no Connect, Reconnect or Try in chat; Disconnect is a button of its own (the ⋯ would hold only it)
+  const inApp = !!mobileApp() && !ask
+  const disconnect = <Button disabled={busy} onClick={() => void g.disconnect(v.id)} data-testid="gapp-disconnect">{t('drive.disconnect')}</Button>
+  const onComputer = inApp && !flow && v.available && v.status !== 'connected'
+    ? t(v.status === 'needs_reconnect' ? 'integrations.reconnectOnComputer' : 'integrations.onComputer', { name }) : null
   const actions = flow ? null
     : ask ? <AskAdminAction state={ask.state} busy={ask.busy} onAsk={ask.onAsk} />
+    : inApp ? (linked ? (
+      <>
+        {v.status === 'connected' && <Button onClick={() => setSettings(true)} data-testid="gapp-settings"><Settings2 size={15} aria-hidden /> {t('gapps.settings')}</Button>}
+        {disconnect}
+      </>
+    ) : null)
     : v.status === 'connected' ? (
       <>
         <Button variant="primary" onClick={() => onChat(examples[0]!)} data-testid="gapp-try">{t('gapps.tryInChat')}</Button>
@@ -180,6 +193,7 @@ export function GoogleAppDetail({ v, g, onChat, ask }: { v: GoogleAppView; g: Go
             </p>
           )}
           {v.status === 'needs_reconnect' && !flow && <Note tone="warn" testId="gapp-needs-reconnect">{t('gapps.needsReconnect', { name })}</Note>}
+          {onComputer && <Note testId="gapp-on-computer">{onComputer}</Note>}
           {v.status === 'connected' && v.serviceDown && <Note testId="gapp-service-down">{t('gapps.serviceDown', { name })}</Note>}
           {ask && ask.state !== 'none' && <Note testId="service-asked-note">{t('serviceRequest.waiting', { name })}</Note>}
           {ask?.error && <Note tone="warn" testId="service-ask-error">{ask.error}</Note>}
