@@ -594,6 +594,8 @@ export const en: Record<MessageKey, string> = {
   "scheduled.reason.needs_keyNamed": "Needs your own key for {name}: connect it in Connectors, then use Run now.",
   "scheduleTemplates.outcome.project_gone": "Project gone",
   "scheduled.reason.project_gone": "Not run: you no longer see the task's project. Once you see it again, or change the task, use Run now.",
+  "scheduleTemplates.outcome.members_only": "Only for project members now",
+  "scheduled.reason.members_only": "Paused: only the project's members can use it now. Add yourself to the project in Projects and it starts again.",
   'connect.team': "Team",
   'connect.key': "{name} API key",
   'connect.keyWhere': "Goes only to {host}. The AI never sees it.",

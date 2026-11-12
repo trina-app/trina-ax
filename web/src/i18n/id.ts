@@ -594,6 +594,8 @@ export const id: Record<MessageKey, string> = {
   "scheduled.reason.needs_keyNamed": "Perlu kunci Anda sendiri untuk {name}: hubungkan di Konektor, lalu pilih Jalankan sekarang.",
   "scheduleTemplates.outcome.project_gone": "Proyek hilang",
   "scheduled.reason.project_gone": "Tidak dijalankan: Anda tidak lagi melihat proyek tugas ini. Setelah bisa melihatnya lagi, atau setelah mengubah tugasnya, pilih Jalankan sekarang.",
+  "scheduleTemplates.outcome.members_only": "Sekarang hanya untuk anggota proyek",
+  "scheduled.reason.members_only": "Dijeda: sekarang hanya anggota proyek yang bisa memakainya. Tambahkan dirimu ke proyek di Proyek, lalu tugas berjalan lagi.",
   'connect.team': "Tim",
   'connect.key': "Kunci API {name}",
   'connect.keyWhere': "Hanya dikirim ke {host}. AI tidak pernah melihatnya.",

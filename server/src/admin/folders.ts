@@ -10,7 +10,7 @@ import { PRODUCT, TEMPLATES_FOLDER } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
-import { atLeast, RuleSet, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
+import { atLeast, isProjectsName, RuleSet, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
 import { projectJoins } from '../chat/project-joins'
 import { insideProject, inZone } from '../policy/zone'
 import { authorize } from '../policy/authorize'
@@ -138,9 +138,9 @@ export function assertNotInProject(rel: unknown, locale: Locale, field = 'body.p
   if (inZone(rel.replace(/\\/g, '/').trim())) fail('conflict', msg('projectMembersOnly', locale), { fields: { [field]: 'project_members_only' }, params: { reason: 'project_members_only' } })
 }
 
-/** projects/<name>: a team project folder whose participants its edit screen manages (one name below projects/, in any
- * letter case as the members-only zone compares it: policy/access.ts inProjectZone; chat/project-access.ts). */
-export const isProjectsFolder = (p: string): boolean => { const s = p.split('/'); return s.length === 2 && s[0].normalize('NFC').toLowerCase() === 'projects' && !!s[1] }
+/** projects/<name>: a team project folder whose participants its edit screen manages (one name below projects/, as the
+ * members-only zone compares it: policy/access.ts isProjectsName; chat/project-access.ts). */
+export const isProjectsFolder = (p: string): boolean => { const s = p.split('/'); return s.length === 2 && isProjectsName(s[0]) && !!s[1] }
 
 /** The folders that hold a rule of this subject (for keepProjectFloors). */
 export const foldersWithRuleOf = (db: Database, subjectType: 'user' | 'group', id: string): string[] =>

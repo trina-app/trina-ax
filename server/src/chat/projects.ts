@@ -3,7 +3,7 @@ import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FileService } from '../files/service'
-import { atLeast, type Principal } from '../policy/access'
+import { atLeast, inProjectZone, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { verifyChain } from '../policy/resolve'
@@ -67,6 +67,22 @@ export const isTeamProject = (p: Pick<ProjectSight, 'folder_path'>): boolean => 
 export function mayManageProject(files: FileService, user: Principal, p: ProjectSight & { created_by: string | null }): boolean {
   if (isTeamProject(p) && isAdminRole(user)) return true
   return p.trashed_with === null && mayEditProject(files, user, p)
+}
+
+/**
+ * A project that is still there, in projects/<name>, which this person (the owner or an admin) may add themselves to and
+ * does not read now: "only its members can use it now" (docs/DECISIONS.md "Projects from before the update: one card,
+ * Add me to these"). The Inbox notice and the Scheduled page say so of a task paused for it. Never its name or folder.
+ */
+export function membersOnlyNow(db: Database, files: FileService, userId: string, projectId: string): boolean {
+  try {
+    const r = db.query('SELECT folder_path, created_by, trashed_with FROM projects WHERE id = ?').get(projectId) as { folder_path: string; created_by: string | null; trashed_with: string | null } | null
+    if (!r || r.trashed_with !== null) return false
+    const segs = r.folder_path.split('/')
+    if (segs.length !== 2 || !inProjectZone(segs)) return false
+    const p = files.principal(userId)
+    return (p.role === 'owner' || p.role === 'admin') && mayManageProject(files, p, r) && !canSeeProject(files, p, r)
+  } catch { return false }
 }
 
 /**
