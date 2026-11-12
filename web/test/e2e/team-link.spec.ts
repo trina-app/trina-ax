@@ -127,7 +127,7 @@ test('the team link row says which groups people join; an admin changes them on 
   await edit.getByRole('checkbox', { name: 'Leads' }).uncheck()
   await edit.getByRole('checkbox', { name: 'Field' }).check()
   await edit.getByTestId('team-link-groups-save').click()
-  await expect(dialog.getByTestId('team-link-groups')).toHaveText(ko['teamLink.joins'].replace('{groups}', 'Field'))
+  await expect(dialog.getByTestId('team-link-groups')).toHaveText('Field')
   // the same address
   await expect(dialog.getByTestId('team-link-url')).toHaveText(url)
   await dialog.getByTestId('team-link-done').click()
