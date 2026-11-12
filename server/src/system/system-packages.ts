@@ -9,9 +9,11 @@ import type { Locale } from '@mycel/shared/api'
 
 export interface SyncRecord { format: 1; list: string; result: 'ok' | 'incomplete' | 'blocked'; at: string; browser?: string; detail?: string; os?: string }
 
-const read = (p: string, max: number): Buffer | null => {
+/** A regular file of at most max bytes, else null. root/'s files are read without following a link (a link there is
+ * not root's file); follow is only for the system's own os-release (see osIdentity). */
+const read = (p: string, max: number, follow = false): Buffer | null => {
   try {
-    const st = fs.lstatSync(p)
+    const st = follow ? fs.statSync(p) : fs.lstatSync(p)
     if (!st.isFile() || st.size > max) return null
     return fs.readFileSync(p)
   } catch { return null }
@@ -25,7 +27,10 @@ const OS_FILES: OsFiles = { osRelease: '/etc/os-release', machineId: '/etc/machi
  * mycel-ctl's osIdentity. A reimage that keeps the data disk (and root/packages.synced on it) gets a new machine-id.
  * "" when neither file can be read. */
 export function osIdentity(files: OsFiles = OS_FILES): string {
-  const osr = read(files.osRelease, 64 << 10)?.toString('utf8')
+  // /etc/os-release is a link to ../usr/lib/os-release on Debian and Ubuntu (both root's, in folders only root writes),
+  // and packages.sh and mycel-ctl follow it: without following it here the server read "-/<machine-id>" and Diagnostics
+  // said the list was never synced. The target must still be a regular file of at most 64 KB.
+  const osr = read(files.osRelease, 64 << 10, true)?.toString('utf8')
   const mid = read(files.machineId, 4 << 10)?.toString('utf8')
   if (osr === undefined && mid === undefined) return ''
   const field = (k: string) => {
