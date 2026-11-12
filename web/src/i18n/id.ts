@@ -1154,6 +1154,7 @@ export const id: Record<MessageKey, string> = {
   'profile.photo': 'Foto',
   'profile.photoChoose': 'Pilih foto',
   'profile.photoChange': 'Ganti foto',
+  'profile.photoAdd': 'Tambah foto',
   'profile.photoRemove': 'Hapus foto',
   "profile.photoHint": "Pilih foto. Foto dipotong menjadi persegi.",
   'profile.photoProblem': 'Berkas ini tidak bisa dipakai sebagai foto. Pilih foto PNG, JPEG, atau WebP.',
@@ -3558,6 +3559,7 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.none": "Belum ada profil perusahaan.",
   "onboarding.profile.create": "Buat",
   "onboarding.profile.edit": "Ubah",
+  "onboarding.profile.createNamed": "Buat profil perusahaan",
   "onboarding.profile.cancel": "Batal",
   "onboarding.profile.noAi": "Membaca situs web atau teks yang ditempel memerlukan AI. Tanpa AI, Anda bisa menjawab tiga pertanyaan.",
   // the profile draft, line by line: what the server opens or skips for it (components/onboarding/ProfileStep.tsx DraftActivity)

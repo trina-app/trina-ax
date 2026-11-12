@@ -1127,6 +1127,7 @@ export const es: Record<MessageKey, string> = {
   'profile.photo': 'Foto',
   'profile.photoChoose': 'Elegir una foto',
   'profile.photoChange': 'Cambiar la foto',
+  'profile.photoAdd': 'Añadir foto',
   'profile.photoRemove': 'Quitar la foto',
   "profile.photoHint": "Elija una foto. Se recorta a un cuadrado.",
   'profile.photoProblem': 'Este archivo no se puede usar como foto. Elija una foto PNG, JPEG o WebP.',
@@ -3514,6 +3515,7 @@ export const es: Record<MessageKey, string> = {
   "onboarding.profile.none": "Aún no hay perfil de la empresa.",
   "onboarding.profile.create": "Crear",
   "onboarding.profile.edit": "Editar",
+  "onboarding.profile.createNamed": "Crear perfil de la empresa",
   "onboarding.profile.cancel": "Cancelar",
   "onboarding.profile.noAi": "Leer un sitio web o un texto pegado necesita una IA. Sin ella puede responder tres preguntas.",
   // the profile draft, line by line: what the server opens or skips for it (components/onboarding/ProfileStep.tsx DraftActivity)

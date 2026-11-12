@@ -1153,6 +1153,7 @@ export const ko = {
   'profile.photo': '사진',
   'profile.photoChoose': '사진 고르기',
   'profile.photoChange': '사진 바꾸기',
+  'profile.photoAdd': '사진 넣기',
   'profile.photoRemove': '사진 지우기',
   "profile.photoHint": "사진을 고르면 정사각형으로 잘라서 올려요.",
   'profile.photoProblem': '이 파일은 사진으로 쓸 수 없어요. PNG, JPEG, WebP 사진을 골라 주세요.',
@@ -3557,6 +3558,7 @@ export const ko = {
   "onboarding.profile.none": "아직 회사 소개가 없어요.",
   "onboarding.profile.create": "만들기",
   "onboarding.profile.edit": "고치기",
+  "onboarding.profile.createNamed": "회사 소개 만들기",
   "onboarding.profile.cancel": "취소",
   "onboarding.profile.noAi": "홈페이지나 붙여 넣은 글을 읽으려면 AI가 필요해요. AI 없이도 세 가지 질문에 답해 만들 수 있어요.",
   // the profile draft, line by line: what the server opens or skips for it (components/onboarding/ProfileStep.tsx DraftActivity)

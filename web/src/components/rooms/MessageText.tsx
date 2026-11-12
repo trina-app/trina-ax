@@ -37,16 +37,18 @@ export function LinkedText({ text, cut, oneLine, menu = true }: { text: string; 
   )
 }
 
-function RoomLink({ href, text, oneLine, menu }: { href: string; text: string; oneLine?: boolean; menu: boolean }) {
+/** One link in a person's words: a plain address (`text`, its words) or a Markdown link (`children`, its label: the
+ * same opening rules; components/Markdown.tsx PersonMarkdown). A link that may not open is its words, as text. */
+export function RoomLink({ href, text, oneLine, menu, children }: { href: string; text?: string; oneLine?: boolean; menu: boolean; children?: ReactNode }) {
   const t = useT()
   const { copy } = useCopy()
   // the last touch on it: when it went down, and whether it was held long enough to open the message's menu
   const press = useRef({ down: 0, long: false })
   const l = classifyLink(href, origin())
   // (classifyLink gives no path that starts with "//": the router would open that as another site, in this tab)
-  if (l.kind === 'blocked' || (l.kind === 'app' && !/^\/(?![/\\])/.test(l.href))) return <>{text}</>
+  if (l.kind === 'blocked' || (l.kind === 'app' && !/^\/(?![/\\])/.test(l.href))) return <>{children ?? text}</>
   // (a <wbr> breaks a line even where white-space is nowrap)
-  const words: ReactNode = oneLine ? text : addressPieces(text).map((piece, i) => (
+  const words: ReactNode = children !== undefined ? children : oneLine || text === undefined ? text : addressPieces(text).map((piece, i) => (
     <Fragment key={i}>
       {i > 0 && <wbr />}
       {piece}

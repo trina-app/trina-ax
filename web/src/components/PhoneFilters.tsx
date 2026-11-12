@@ -3,7 +3,8 @@
 // number of filters away from "All", and opens them in a bottom sheet (ui.tsx Modal), so the search and the filters
 // share one row and the part that stays at the top never grows (docs/DECISIONS.md "Admin and Settings on phones"). A
 // filter changes the list at once; Done closes the sheet. A view choice (Group by) is not a filter: it is not passed
-// here.
+// here. `icon`: the button is an icon alone, 44 px (QA TC-379), with the count as a small badge on it, for inside a
+// search field (common.tsx SearchBox `end`), at the end of a row, or in the Admin bar (pages/admin/barActions.tsx).
 import clsx from 'clsx'
 import { SlidersHorizontal } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -11,11 +12,17 @@ import { useT } from '../i18n'
 import { Button, Modal, useMediaQuery } from './ui'
 
 /** `active`: how many of the filters are away from their first choice. `children`: the filters. */
-export function PhoneFilters({ active, children, testId = 'phone-filters' }: { active: number; children: ReactNode; testId?: string }) {
+export function PhoneFilters({ active, children, testId = 'phone-filters', icon, framed }: { active: number; children: ReactNode; testId?: string; icon?: boolean; framed?: boolean }) {
   const t = useT()
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [open, setOpen] = useState(false)
   if (!phone) return <>{children}</>
+  const count = active > 0 && (
+    <span className={clsx('rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink tabular-nums', icon && 'absolute top-1 right-0.5 min-w-4 text-center leading-4')} data-testid={`${testId}-count`}>
+      <span aria-hidden>{active}</span>
+      <span className="sr-only">{t('common.filtersOn', { count: active })}</span>
+    </span>
+  )
   return (
     <>
       <button
@@ -23,17 +30,24 @@ export function PhoneFilters({ active, children, testId = 'phone-filters' }: { a
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className={clsx('inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border bg-surface px-3 text-sm text-ink transition hover:bg-hover', active ? 'border-line-strong' : 'border-line')}
+        className={icon
+          // an icon alone: inside a field (no frame of its own), or `framed` beside other controls
+          ? clsx('relative grid size-11 shrink-0 place-items-center rounded-lg transition hover:bg-hover', active ? 'text-ink' : 'text-muted', framed && clsx('border bg-surface', active ? 'border-line-strong' : 'border-line'))
+          : clsx('inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border bg-surface px-3 text-sm text-ink transition hover:bg-hover', active ? 'border-line-strong' : 'border-line')}
         data-testid={`${testId}-toggle`}
       >
-        <SlidersHorizontal size={15} className="shrink-0 text-muted" aria-hidden />
-        {t('activity.filters')}
-        {active > 0 && (
-          <span className="rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink tabular-nums" data-testid={`${testId}-count`}>
-            <span aria-hidden>{active}</span>
-            <span className="sr-only">{t('common.filtersOn', { count: active })}</span>
-          </span>
+        {icon ? (
+          <>
+            <SlidersHorizontal size={18} className="shrink-0" aria-hidden />
+            <span className="sr-only">{t('activity.filters')}</span>
+          </>
+        ) : (
+          <>
+            <SlidersHorizontal size={15} className="shrink-0 text-muted" aria-hidden />
+            {t('activity.filters')}
+          </>
         )}
+        {count}
       </button>
       {/* the filters themselves, each still its own control, one under the other, 44 px to tap */}
       <Modal open={open} onClose={() => setOpen(false)} title={t('activity.filters')}

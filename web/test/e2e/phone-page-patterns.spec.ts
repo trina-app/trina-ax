@@ -1,9 +1,9 @@
 // The shared phone page patterns (docs/DECISIONS.md "Admin and Settings on phones: a list you tap into", the page
 // patterns), on Admin › Members & invites at 390×844 in a real browser: the page's name in the bar only (the page keeps
-// it for screen readers); one main button with the other ways under its ⌄ (components/PageActions.tsx); the search and
-// a Filters button on one row, the filters under it (components/PhoneFilters.tsx); compact rows, the second line only
-// when it adds something (components/CompactRow.tsx); only the search row stays at the top. A computer keeps every
-// button and the filter in the row.
+// it for screen readers); the main action the bar's + with the other ways under its ⋯ (pages/admin/barActions.tsx, QA
+// TC-377); one search field with the Filters icon in it, the filters under it (components/PhoneFilters.tsx, TC-379);
+// compact rows with the role in words, the second line only when it adds something (components/CompactRow.tsx,
+// TC-382); only the search row stays at the top. A computer keeps every button and the filter in the row.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -21,13 +21,13 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('member-card-bob').or(page.getByTestId('members-table'))).toBeVisible()
 })
 
-test('the name is in the bar, the page keeps it for screen readers; one main button, the others under its ⌄', async ({ page }) => {
+test('the name is in the bar, the page keeps it for screen readers; the bar\'s +, the others under its ⋯', async ({ page }) => {
   await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.members'])
   const heading = page.getByRole('heading', { level: 2, name: new RegExp(t['members.title']) })
   await expect(heading).toBeAttached()
   expect((await heading.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1)
-  // one button and its ⌄, not three buttons on two rows
-  await expect(page.getByTestId('invite-new')).toBeVisible()
+  // + and ⋯ in the bar, not three buttons on two rows
+  await expect(page.getByTestId('phone-page-bar').getByTestId('invite-new')).toBeVisible()
   await expect(page.getByTestId('team-link-open')).toHaveCount(0)
   await expect(page.getByTestId('member-add')).toHaveCount(0)
   const more = page.getByTestId('invite-new-more')
@@ -44,7 +44,7 @@ test('the name is in the bar, the page keeps it for screen readers; one main but
   await expect(more).toBeFocused()
 })
 
-test('the search and Filters share one row; the role filter opens under it and its count shows', async ({ page }) => {
+test('the Filters icon is in the search field; the role filter opens under it and its count shows', async ({ page }) => {
   const search = await box(page, 'member-search')
   const filters = await box(page, 'member-filters-toggle')
   expect(Math.abs(search.y + search.height / 2 - (filters.y + filters.height / 2))).toBeLessThanOrEqual(2)
@@ -59,12 +59,14 @@ test('the search and Filters share one row; the role filter opens under it and i
   await expect(page.getByTestId('member-card-bob')).toHaveCount(0)
 })
 
-test('rows: one line with the role on the right; the owner\'s choice is 44 px; a second line only for what it adds', async ({ page }) => {
+test('rows: one line with the role on the right in words; a second line only for what it adds', async ({ page }) => {
   const bob = page.getByTestId('member-card-bob')
   // "Bob" / "bob": the username adds nothing, so one line
   expect((await bob.boundingBox())!.height).toBeLessThanOrEqual(56)
+  // words, not a select (QA TC-382: the owner changes it on the person's page, phone-admin-bar.cases.ts)
   const role = bob.getByTestId('member-role-bob')
-  expect(Math.round((await role.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+  await expect(bob.locator('select')).toHaveCount(0)
+  await expect(role).toHaveText(t['role.member'])
   const name = (await bob.getByText('Bob', { exact: true }).boundingBox())!
   const r = (await role.boundingBox())!
   expect(Math.abs(name.y + name.height / 2 - (r.y + r.height / 2))).toBeLessThanOrEqual(4)
@@ -97,9 +99,10 @@ test('only the search row stays at the top while the list scrolls', async ({ pag
   const top = (await content.boundingBox())!.y
   await content.evaluate((el) => { el.scrollTop = el.scrollHeight })
   await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
-  // the controls are stuck at the top of the page's box; the line and the buttons scrolled away
+  // the controls are stuck at the top of the page's box; the line scrolled away, the bar's + stays
   expect(Math.round((await controls.boundingBox())!.y)).toBe(Math.round(top))
-  await expect(page.getByTestId('invite-new')).not.toBeInViewport()
+  await expect(page.getByTestId('members-header-desc')).not.toBeInViewport()
+  await expect(page.getByTestId('invite-new')).toBeInViewport()
 })
 
 test('an admin who is not the owner reads the roles; the other pages keep their buttons', async ({ page }) => {
@@ -110,7 +113,7 @@ test('an admin who is not the owner reads the roles; the other pages keep their 
   // read, not a choice: the owner alone changes roles
   await expect(page.getByTestId('member-card-bob').locator('select')).toHaveCount(0)
   await expect(page.getByTestId('member-role-bob')).toHaveText(t['role.member'])
-  // Usage: Download CSV sits under the ⌄ of Usage limits on a phone (phone-list-pages.spec.ts)
+  // Usage: Download CSV sits under the bar's ⋯ on a phone (phone-list-pages.spec.ts)
   for (const [path, id] of [['/admin/groups', 'group-new'], ['/admin/usage', 'usage-limits-link']] as const) {
     await page.goto(path)
     await expect(page.getByTestId(id)).toBeVisible()

@@ -123,3 +123,12 @@ describe('writeRich: both flavours on the clipboard', () => {
     expect(await writeRich(data, { clipboard: null, ClipboardItem: null, copyEvent: () => false })).toBe(false)
   })
 })
+
+test('an answer with a table of millions of cells is not rendered for the clipboard (its plain text is copied)', () => {
+  const wide = 'a|'.repeat(1500) + '\n' + '-|'.repeat(1500) + '\n' + 'x\n'.repeat(998)
+  const t = performance.now()
+  expect(() => html(wide)).toThrow()
+  expect(() => html(wide.replace(/\n/g, '\r'))).toThrow()
+  expect(performance.now() - t).toBeLessThan(200)
+  expect(html('|a|b|\r\n|-|-|\r\n|1|2|')).toContain('<table')
+})

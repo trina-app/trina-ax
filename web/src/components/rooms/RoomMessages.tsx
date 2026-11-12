@@ -1,8 +1,10 @@
 // The messages of a room, oldest first: one author's messages close together share one avatar, name and time
 // (lib/rooms.ts groupRuns; on phones the time only when it differs from the one above), and a date line starts each
 // day. Nobody is shown who has read what (docs/DECISIONS.md "스레드와 반응": no read receipts). A message's text is
-// another member's words: plain text with its line breaks, never HTML or Markdown; the @names it mentions stand out,
-// and its web addresses are links (MessageText.tsx; in its quote and while it is being sent too).
+// another member's words in Markdown, as the AI's answers are (QA TC-072; docs/DECISIONS.md "Markdown in people's
+// messages"; Markdown.tsx PersonMarkdown): bold, italic, code, lists, code blocks and links, with its line breaks kept;
+// raw HTML stays text and no picture loads by itself; the @names it mentions stand out, and its plain web addresses
+// are links (lib/messageMarkdown.ts, MessageText.tsx). Its quote and a message being sent stay plain text (with links).
 // On a computer a message's hover row has a reaction, "reply in thread" and "…" (copy, edit and delete one's own); on a
 // touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
@@ -13,14 +15,14 @@
 // document drawn as the side panel draws it, a file with no preview here as its card with the download. The chip has a
 // small download icon of its own. Both read the room's copy through the room (lib/imageViewer.ts roomItem,
 // roomFileItem) and have the download too; the viewer's bar says who sent it, when and where.
-// The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
+// The AI's answers (docs/DECISIONS.md "대화방의 트리나") are written by the AI and shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
 // 있어요 · 방에 올리기…") with why in one plain line; the action asks first, with what some members cannot see. An event line (a
 // rename, people invited, someone left or taken out: RoomMessage.event) is one quiet line in the middle, nothing more:
 // no avatar, menu, reaction or thread.
 // An answer someone sent here from their own AI chat ("대화방에 보내기", RoomMessage.sharedAnswer) is their message: their
-// note as plain text, then the answer as a quote headed "<AI> 답변", in Markdown like the AI's own answers (a team file
+// note in Markdown as their other messages, then the answer as a quote headed "<AI> 답변", in Markdown like the AI's own answers (a team file
 // in it as a link for those who may open it; for the others, a link to its copy when it went with the message
 // (RoomMessage.attachedLinks), else its name after a lock). It cannot be edited (copy and delete stay).
 // An old answer hidden from me (RoomMessage.withheld: I joined a team room or the everyone room after it, and it used
@@ -37,9 +39,9 @@ import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomAiRun, type RoomFile, typ
 import { api, API, errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
-import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
+import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, runActive, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
-import { Markdown } from '../Markdown'
+import { Markdown, PersonMarkdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { RoomOptionLabel } from '../chat/RoomRefMenu'
 import { ShareConfirm, useConfirmStep, type ConfirmAsk } from '../chat/ShareToRoom'
@@ -59,6 +61,7 @@ import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionPanel, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { LinkedText } from './MessageText'
+import type { MessageMention } from '../../lib/messageMarkdown'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
 import { StatusEmoji } from '../StatusMessage'
@@ -342,7 +345,11 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   const text = shared ? m.body.slice(0, shared.at).trim() : m.body
   // "@트리나" stands out like a person's name (the server asked the AI for it), "@전체" too (it mentions everyone); a
   // shared answer's note mentions nobody (the server keeps no mention on it)
-  const parts = useMemo(() => mentionParts(text, ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...aiMentionNames(text, mentioned)]), [text, m, mentioned, ai, shared])
+  // (the mention highlight: me, or "@전체" in someone else's message)
+  const marks = useMemo<MessageMention[]>(
+    () => (ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...aiMentionNames(text, mentioned)]).map((x) => ({ ...x, strong: x.id === meId || (x.id === ALL_MENTION_ID && m.author?.id !== meId), all: x.id === ALL_MENTION_ID })),
+    [text, m, mentioned, ai, shared, meId],
+  )
   const [press, setPress] = useState(0)
   const pressedAt = useRef(0)
   // the emoji picker from the long-press sheet's "More emoji" (a sheet of its own)
@@ -371,7 +378,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       .remove(roomId, m.id)
       .catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   }
-  const meta = m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint select-none">{t('rooms.edited')}</span> : null
+  // (one element while nothing changes: PersonMarkdown is memo'd and would read the Markdown again for a new one)
+  const meta = useMemo(() => (m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint select-none">{t('rooms.edited')}</span> : null), [m.editedAt, deleted, t])
   // ⋮ 더 보기 (the hover bar) and the end of the long-press sheet: copy; my own message's edit; delete what I may (my own,
   // an AI answer I asked for, any AI answer for an owner or admin), with the confirm
   const moreItems: MenuItem[] = [
@@ -416,20 +424,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
         <p className={clsx('text-reading leading-reading text-faint', WORDS)}>{t('rooms.deleted')}</p>
       ) : (
         <>
-          {text && (
-            <p className={clsx('text-reading leading-reading break-words whitespace-pre-wrap text-ink', WORDS)}>
-              {parts.map((p, i) =>
-                p.userId ? (
-                  <span key={i} className={clsx('font-medium text-accent-text', (p.userId === meId || (p.userId === ALL_MENTION_ID && m.author?.id !== meId)) && 'rounded bg-accent-soft px-0.5')} data-mention={p.userId === ALL_MENTION_ID ? 'all' : undefined}>
-                    {p.text}
-                  </span>
-                ) : (
-                  <LinkedText key={i} text={p.text} />
-                ),
-              )}
-              {meta}
-            </p>
-          )}
+          {text && <PersonMarkdown text={text} mentions={marks} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} after={meta} />}
           {shared && <SharedAnswer text={m.body.slice(shared.at)} openable={openable} attached={attached} />}
           {m.files.length > 0 && <Files roomId={roomId} files={m.files} />}
           {!m.body && m.editedAt && <p className="leading-5">{meta}</p>}
