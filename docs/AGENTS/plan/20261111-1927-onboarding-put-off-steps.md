@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 19:27
 - Branch: `fix/onboarding-put-off-steps`
-- Status: in progress
+- Status: done
 - Where: `web/src/pages/Welcome.tsx` (`DoneStep`, the step routing), the five locales, a short `docs/DECISIONS.md`
   section. Why: onboarding is core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: what was put off was lost from sight; nothing about the setup's rules changes
@@ -19,7 +19,7 @@ off and can return to it from one obvious place.
 Keep "W6": put off counts as answered, so the setup still finishes. The end screen (the one place every owner sees once
 the steps end) lists the steps put off under its buttons, each with **지금 하기**: the step opens right there, and once it
 is answered (or put off again) the page comes back to the end screen, which lists what is still put off. One line under
-the list says where each can be done later (스킬, 파일, 연결한 서비스, 팀 메뉴의 팀원 초대). A step not offered on this device
+the list says where each can be done later (관리자 › 팀 설정 › 회사 소개, 스킬, 파일, 연결한 서비스, 팀 메뉴의 팀원 초대). A step not offered on this device
 (도구 연결 on a phone) is not listed there.
 
 Out: bringing back the sidebar's setup row or /welcome after the setup finished.
@@ -44,4 +44,10 @@ The end screen's one primary stays one (the new buttons are not primary). Phones
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the `docs/DECISIONS.md` section "W6 follow-up: the end screen names the steps put off". The hint
+also names where the company profile is later (관리자 › 팀 설정 › 회사 소개).
+
+Checked on a local dev server: an owner with 회사 소개, 스킬, 팀 파일 and 도구 연결 put off opens on 팀원 초대; putting
+it off ends the setup and the end screen lists all five with 지금 하기 under "나중에 하기로 남겨 둔 단계예요…" (홈으로
+stays the one primary); 지금 하기 on 팀원 초대 opens it, and 완료 brings the end screen back with four left, still on
+/welcome. The welcome e2e specs were not run: on dev they fail on the mock server's missing `/api/me/welcome`.
