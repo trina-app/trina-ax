@@ -324,6 +324,7 @@ export const es: Record<MessageKey, string> = {
   'chat.error.refused': CHAT_ERROR_MESSAGES.refused.es,
   'chat.error.crash': CHAT_ERROR_MESSAGES.crash.es,
   'chat.error.interrupted': CHAT_ERROR_MESSAGES.interrupted.es,
+  'chat.error.updating': CHAT_ERROR_MESSAGES.updating.es,
   'chat.error.engine_missing': CHAT_ERROR_MESSAGES.engine_missing.es,
   'chat.error.proxy_down': CHAT_ERROR_MESSAGES.proxy_down.es,
   'chat.error.user_disabled': CHAT_ERROR_MESSAGES.user_disabled.es,

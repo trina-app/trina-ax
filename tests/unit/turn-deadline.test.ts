@@ -30,6 +30,7 @@ function setup(ms: number, at?: string) {
     store: { touchChat() {}, messageRow: () => null, userRef: () => null },
     publishChat() {}, turnFinished: (e: TurnExec) => released.push(e.id),
     turnQuarantined: (e: TurnExec) => quarantined.push(e.id),
+    launcherReady: async () => {}, launcherStopped() {}, shutdownCause: () => 'restart',
   } as unknown as ChatRuntime
   const spec: TurnSpec = { turnId: 't', chatId: 'c', userId: 'u', assistantId: 'a', userMessageId: 'm',
     engine: 'api', model: null, locale: 'en', windowId: null, clientKind: 'web', wallDeadlineAt: deadline }

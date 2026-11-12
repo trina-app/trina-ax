@@ -42,6 +42,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -471,6 +472,7 @@ func main() {
 	if *exitWithParent {
 		go func() { _, _ = io.Copy(io.Discard, os.Stdin); stopAllAndExit() }()
 	}
+	endOnSignal()          // ending.go: SIGTERM / SIGINT end the turns with a confirmed exit, then the launcher exits
 	clearSignInLeftovers() // claudelogin.go: folders of sign-ins an earlier launcher did not finish
 	_ = os.Remove(*listen)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: *listen, Net: "unix"})
@@ -534,6 +536,9 @@ func serve(c *net.UnixConn) {
 		} else {
 			forgetChat(line, o)
 		}
+		return
+	case "prepare-stop": // ending.go
+		prepareStop(line, o)
 		return
 	case "codex-status":
 		codexStatus(o)
@@ -621,6 +626,22 @@ func allowedSessionDir(chatDir, dir string) bool {
 }
 
 func run(req *request, o *out, r *bufio.Reader) error {
+	stopping := make(chan struct{}, 1)
+	var stopFired atomic.Bool
+	stop := func() {
+		stopFired.Store(true)
+		select {
+		case stopping <- struct{}{}:
+		default:
+		}
+	}
+	// an orderly stop of the launcher ends this turn too and says why in its exit event; while it stops (or a
+	// prepare-stop holds) nothing of a new turn starts (ending.go)
+	tid, closing := turns.add(stop, stopFired.Load, time.Now())
+	if closing != "" {
+		return fmt.Errorf("launcher_stopping: %s", closing)
+	}
+	defer turns.done(tid) // after the exit event below: a stop waits for it
 	ok := false
 	for _, a := range allowCmd {
 		if a == req.Cmd {
@@ -740,13 +761,6 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		return fmt.Errorf("bad session collect path")
 	}
 
-	stopping := make(chan struct{}, 1)
-	stop := func() {
-		select {
-		case stopping <- struct{}{}:
-		default:
-		}
-	}
 	go func() { // control messages from the server
 		for {
 			l, err := r.ReadBytes('\n')
@@ -954,6 +968,8 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	}
 	killGroup(syscall.SIGKILL)   // nothing of this turn survives (bridge, stray children)
 	sigName = te.finish(sigName) // Linux: cgroup.kill; "oom" / "disk_limit"
+	// "update" / "shutdown": an orderly stop of the launcher ended it (ending.go)
+	sigName = turns.exitSignal(tid, sigName, exitCode(werr), werr)
 	if *dedicated {
 		live.del(pid)
 		me := os.Getpid()

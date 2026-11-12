@@ -161,12 +161,7 @@ const HEAD_TOO_BIG: Record<Lang, { title: string; body: string; button: string; 
     button: 'Remove the extra cookies and reload',
     after: 'If this page comes back, open your browser settings, delete the cookies (site data) for %SITE%, and sign in again. A private window also works.',
   },
-  ko: {
-    title: '브라우저가 쿠키를 너무 많이 보내서 페이지를 열 수 없어요',
-    body: '같은 기본 주소를 쓰는 다른 사이트가 이 브라우저에 쿠키를 잔뜩 남겼어요. 아래 버튼을 누르면 지워져요. 로그인은 그대로 유지돼요.',
-    button: '불필요한 쿠키 지우고 다시 열기',
-    after: '이 페이지가 또 나오면 브라우저 설정에서 %SITE%의 쿠키(사이트 데이터)를 삭제한 뒤 다시 로그인해 주세요. 시크릿 창에서 열어도 돼요.',
-  },
+  ko: { title: '브라우저가 쿠키를 너무 많이 보내서 페이지를 열 수 없어요', body: '같은 기본 주소를 쓰는 다른 사이트가 이 브라우저에 쿠키를 잔뜩 남겼어요. 아래 버튼을 누르면 지워져요. 로그인은 그대로 유지돼요.', button: '불필요한 쿠키 지우고 다시 열기', after: '이 페이지가 또 나오면 브라우저 설정에서 %SITE%의 쿠키(사이트 데이터)를 삭제한 뒤 다시 로그인해 주세요. 시크릿 창에서 열어도 돼요.' },
   id: {
     title: 'Halaman ini tidak bisa dibuka: browser Anda mengirim terlalu banyak cookie',
     body: 'Sebuah situs di bawah alamat utama yang sama meninggalkan banyak cookie di browser ini. Tekan tombol di bawah untuk menghapusnya. Anda tetap masuk.',
