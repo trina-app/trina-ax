@@ -4328,7 +4328,7 @@ export const en: Record<MessageKey, string> = {
   "driveAdmin.ready": "Ready to set up",
   "driveAdmin.readyLine": "Available on this server. Nothing is on until you choose below.",
   "driveAdmin.publicHost.why": "Google Drive needs an internet address (a public address) to send people back to this server after they sign in to Google. This server doesn't have one yet.",
-  "driveAdmin.publicHost.owner": "The public address is turned on on the computer the server is installed on, not in the app. The person who installed the server (you, if you did) follows the 'internet address' step of the install guide; then it shows in System › Connection type, and you can set Drive up here.",
+  "driveAdmin.publicHost.owner": "The public address is turned on on the computer the server is installed on, not in the app. The person who installed the server (you, if you did) follows the 'public address' step of the install guide; then it shows in System › Connection type, and you can set Drive up here.",
   "driveAdmin.publicHost.admin": "The owner turns the public address on where the server is installed. Ask the owner to turn on this server's public address; then you can set Drive up here.",
   "driveAdmin.publicHost.openSystem": "Open System › Connection type",
   "driveAdmin.shares": "{count, plural, one {# shared Drive} other {# shared Drives}}",
