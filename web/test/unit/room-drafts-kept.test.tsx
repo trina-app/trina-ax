@@ -335,6 +335,39 @@ describe('two tabs of the same person', () => {
     expect(keptUnsent(r.id).map((p) => p.body).sort()).toEqual(['theirs', 'third'])
   })
 
+  test('a send the other tab let go while this tab was still sending it: failing here, it goes, never back on the device', async () => {
+    const r = room()
+    let fail: () => void = () => {}
+    globalThis.fetch = (async () => new Promise<Response>((_, reject) => { fail = () => reject(new TypeError('Failed to fetch')) })) as unknown as typeof fetch
+    useRooms.getState().send(r.id, { body: 'let go elsewhere', mentions: [], files: [] })
+    const key = draftKey(ME.id, `roomUnsent:${r.id}`)
+    expect(keptUnsent(r.id).map((p) => p.body)).toEqual(['let go elsewhere'])
+    device.removeItem(key)
+    onDeviceChange(key, null)
+    expect(useRooms.getState().pending[r.id]!.map((p) => p.state)).toEqual(['sending'])
+    fail()
+    await tick()
+    expect(useRooms.getState().pending[r.id]).toBeUndefined()
+    expect(device.getItem(key)).toBeNull()
+    expect(posts).toEqual([])
+  })
+
+  test('a draft the other tab changed is not written back here (a late echo would undo its newest keys)', () => {
+    const key = placeKey('room-1')
+    const k = draftKey(ME.id, `room:${key}`)
+    const v = JSON.stringify({ text: 'tab two types', mentions: [{ start: 0, end: 4, id: BEN.id, name: BEN.name }], at: Date.now() - 5000 })
+    device.setItem(k, v)
+    onDeviceChange(k, v)
+    // what the box and its mention effect do with it here
+    keepRoomDraft(key)
+    keepRoomDraft(key)
+    expect(device.getItem(k)).toBe(v)
+    // typed here: written, with its own time
+    roomDrafts.set(key, 'tab two types more')
+    keepRoomDraft(key)
+    expect(device.getItem(k)).not.toBe(v)
+  })
+
   test('a draft the other tab sent or changed is what this page has; a Reload here does not bring the old one back', () => {
     const key = placeKey('room-1')
     roomDrafts.set(key, 'old text')
@@ -395,6 +428,25 @@ describe('the box itself', () => {
   beforeEach(() => { useLocaleStore.setState({ locale: 'en' }) })
   afterEach(() => { useLocaleStore.setState({ locale }) })
   const setValue = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')!.set!
+
+  test('a draft another tab changed shows in the box and is not written back', async () => {
+    const r = room()
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id })
+    const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN]} meId={ME.id} onSent={() => {}} />)
+    const box = m.get('room-input') as FakeElement & { value: string }
+    const k = draftKey(ME.id, `room:${r.id}`)
+    const v = JSON.stringify({ text: 'from the other tab', mentions: [], at: Date.now() - 5000 })
+    let writes = 0
+    const setItem = device.setItem.bind(device)
+    device.setItem = (key: string, value: string) => { if (key === k) writes++; setItem(key, value) }
+    setItem(k, v)
+    await act(async () => { onDeviceChange(k, v) })
+    await m.settle()
+    expect(box.value).toBe('from the other tab')
+    expect(writes).toBe(0)
+    expect(device.getItem(k)).toBe(v)
+    await m.unmount()
+  }, 20_000)
 
   test('what was typed is in the box again after the app was closed, and sending it takes it off the device', async () => {
     const r = room()

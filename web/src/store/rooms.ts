@@ -386,18 +386,30 @@ const tooOld = (at: number) => !(at > Date.now() - ROOM_DEVICE_DAYS * 86_400_000
 const restoredUnsent = new Set<string>()
 /** the sends this page saw end (sent, settled, let go, back in the box): never written back from another tab's copy */
 const goneHere = new Set<string>()
+/** sends this page is still making that another tab of mine saw end (let go, sent): failing here, they go, not back */
+const goneElsewhere = new Set<string>()
 
 const isPicked = (x: unknown): x is PickedMention => {
   const m = x as PickedMention
   return !!m && typeof m === 'object' && typeof m.id === 'string' && typeof m.name === 'string' && Number.isInteger(m.start) && Number.isInteger(m.end)
 }
 
-/** this place's draft and its mentions as they are now (roomDrafts, roomDraftMentions) onto this device */
+/** this place's draft and its mentions as they are now (roomDrafts, roomDraftMentions) onto this device; nothing when
+ * the device has them so already (a draft another tab changed, shown here: written back with a new time, a late echo
+ * could undo that tab's newest keys) */
 export function keepRoomDraft(key: string, s?: Parameters<typeof writeDraft>[3]) {
   const me = myId()
   if (!me) return
   const text = roomDrafts.get(key) ?? ''
-  writeDraft(me, draftStoreId(key), text ? JSON.stringify({ text, mentions: roomDraftMentions.get(key) ?? [], at: Date.now() }) : '', s)
+  const mentions = roomDraftMentions.get(key) ?? []
+  const raw = readDraft(me, draftStoreId(key), s)
+  if (!text) {
+    if (raw) writeDraft(me, draftStoreId(key), '', s)
+    return
+  }
+  const there = storedDraft(raw || null)
+  if (there && there.text === text && JSON.stringify(there.mentions) === JSON.stringify(mentions)) return
+  writeDraft(me, draftStoreId(key), JSON.stringify({ text, mentions, at: Date.now() }), s)
 }
 
 /** every draft of this page onto this device (before a reload the person asked for: lib/reload-guard.ts) */
@@ -540,6 +552,7 @@ export function onDeviceChange(key: string | null, value: string | null) {
     const v = JSON.parse(value || '[]') as unknown
     there = new Set(Array.isArray(v) ? v.filter(isPendingSend).map((p) => p.clientMessageId) : [])
   } catch { return }
+  for (const p of list) if (p.state === 'sending' && !there.has(p.clientMessageId)) goneElsewhere.add(p.clientMessageId)
   const left = list.filter((p) => p.state === 'sending' || there.has(p.clientMessageId))
   if (left.length === list.length) return
   useRooms.setState((s) => ({ pending: left.length ? { ...s.pending, [roomId]: left } : omit(s.pending, roomId) }))
@@ -671,11 +684,17 @@ export const useRooms = create<RoomsState>((set, get) => {
   const post = async (roomId: string, p: PendingSend) => {
     try {
       const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}) } })
+      goneElsewhere.delete(p.clientMessageId)
       patchMessages((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
     } catch (e) {
       // its message came another way while the answer was lost (settledPending), or it was let go: nothing to show
       if (!get().pending[roomId]?.some((x) => x.clientMessageId === p.clientMessageId)) return
+      // another tab of mine let it go (or sent it) meanwhile: it goes here too (onDeviceChange)
+      if (goneElsewhere.delete(p.clientMessageId)) {
+        setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
+        return
+      }
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
       // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
@@ -1241,6 +1260,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       roomDraftMentions.clear()
       restoredUnsent.clear()
       goneHere.clear()
+      goneElsewhere.clear()
       useSideChats.getState().reset()
       timelineGen++
       threadGens.clear()
