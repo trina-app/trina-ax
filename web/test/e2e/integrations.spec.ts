@@ -499,10 +499,11 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   await expect(asked).toHaveText('요청을 보냈어요')
   await expect(asked).toBeFocused()
   await expect(detail.getByTestId('service-asked-note')).toHaveText('Gmail 준비가 끝나면 알려 드릴게요.')
-  // opened again: "already asked", and asking again (another window) sends nothing new
+  // opened again: the same "Request sent" (one word for an open request, QA final), and asking again (another window)
+  // sends nothing new
   await page.reload()
   await expect(asked).toHaveAttribute('data-state', 'already')
-  await expect(asked).toHaveText('이미 요청했어요')
+  await expect(asked).toHaveText('요청을 보냈어요')
   expect((await (await ask('gmail')).json()).state).toBe('already')
   // only the ids of the apps and listed services (request-connector.spec.ts): anything else is refused by the server
   for (const s of ['https://mcp.notion.com/mcp', 'Notion', 'slack']) expect((await ask(s)).status()).toBe(400)

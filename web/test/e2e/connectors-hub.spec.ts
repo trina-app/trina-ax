@@ -39,6 +39,12 @@ test('Discover: the Google ones first (QA TC-138, also not set up), the rest beh
   await expect(detail.getByTestId('connector-tools-listed').locator('li').first()).toHaveText('notion-search')
   await expect(detail.getByTestId('connector-tools-link')).toHaveAttribute('href', 'https://developers.notion.com/guides/mcp/mcp-supported-tools')
   await expect(detail.getByTestId('connector-privacy-link')).toHaveAttribute('href', 'https://www.notion.com/trust/privacy-policy')
+  // the rest of the listed tools in place (QA final), the service's page still linked
+  await expect(detail.getByTestId('connector-tools-listed').locator('li')).toHaveCount(12)
+  await detail.getByTestId('connector-tools-more').click()
+  await expect(detail.getByTestId('connector-tools-more')).toHaveAttribute('aria-expanded', 'true')
+  await expect(detail.getByTestId('connector-tools-listed').locator('li').last()).toHaveText('notion-calendar-cancel-events')
+  await expect(detail.getByTestId('connector-tools-link')).toBeVisible()
   await detail.getByTestId('connector-connect').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')

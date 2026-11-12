@@ -1,8 +1,8 @@
 // "Ask admin to add it" (shared/src/api/service-requests.ts): on the page of an app the team has not set up (Google
 // Drive, Gmail, Google Calendar, Google Docs, Google Sheets), a member asks the owner and the admins to add it, like an
 // app request in Slack. It takes the place of the Connect button that could not work and of the "not set up" line. After
-// the tap the button says "Request sent"; opened again (or tapped again from another window) "Already asked": the server
-// keeps one open request per app, so nothing is sent twice. Its card in the list says "Asked". Members never see who the
+// the tap, and whenever the page is opened again while the request is open, it says "Request sent" (one word for it:
+// QA final); the server keeps one open request per app, so nothing is sent twice. Its card in the list says so too. Members never see who the
 // admins are: the words say "admin" and the answers name nobody. Since QA TC-133 every service of the app's list can be
 // asked for too, and "Cancel request" under the status takes the member's own request back.
 import { Check } from 'lucide-react'
@@ -92,7 +92,8 @@ export function AskAdminAction({ state, busy, onAsk, onWithdraw }: { state: AskS
   return (
     <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span ref={status} tabIndex={-1} role="status" className="flex items-center gap-1.5 rounded-lg px-1 text-sm font-medium text-ok focus:outline-none" data-testid="service-asked" data-state={state}>
-        <Check size={16} aria-hidden /> {t(state === 'sent' ? 'serviceRequest.sent' : 'serviceRequest.already')}
+        {/* one word for an open request, whether it was sent just now or before (QA final) */}
+        <Check size={16} aria-hidden /> {t('serviceRequest.sent')}
       </span>
       {onWithdraw && (
         <button type="button" disabled={busy} className="touch-hit text-sm text-muted underline underline-offset-2 hover:text-ink disabled:opacity-60 max-md:min-h-11" onClick={() => { tapped.current = false; onWithdraw() }} data-testid="service-withdraw">

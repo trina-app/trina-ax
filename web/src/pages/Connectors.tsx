@@ -364,10 +364,13 @@ function ListedPage({ c }: { c: Connector }) {
   const { list, setDialog, asks, admin } = useConnectors()
   const mine = list.data ? splitByScope(list.data.items).mine : []
   const have = mine.filter((i) => servesAt(c, i.url))
-  // a member whose team has no connection to it they may use (at any of its official addresses): ask an admin to add
-  // it for the team (QA TC-133); one who may connect their own keeps Connect, with the ask under it
-  const teamHas = !!list.data && splitByScope(list.data.items).team.some((i) => servesAt(c, i.url))
-  const askFor = !admin && asks.ready && !!list.data && !teamHas && !have.length && isRequestableService(c.id) ? c.id : null
+  // a member whose team has no working connection to it they may use (at any of its official addresses): ask an admin
+  // to add it for the team (QA TC-133); one who may connect their own keeps Connect, with the ask under it. Their own
+  // open request always shows ("Request sent", "Cancel request"), whatever team connections exist meanwhile (one not
+  // connected yet does not end it: QA final)
+  const teamWorks = !!list.data && splitByScope(list.data.items).team.some((i) => servesAt(c, i.url) && i.status === 'connected')
+  const asked = isRequestableService(c.id) && asks.stateOf(c.id) !== 'none'
+  const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) ? c.id : null
   const own = !!list.data?.personalAllowed
   return (
     <McpShell>
