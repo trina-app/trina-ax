@@ -8,7 +8,7 @@ import { extractText, TOO_BIG_IN_PROCESS } from '../../server/src/files/extract'
 import { rgArgv } from '../../server/src/files/search'
 import {
   MEMORY_HEADROOM_MIB, Plan, TURN_MEMORY_ESTIMATE_MIB, availableMemoryMiB, backupRetentionDays, concurrencyMax, configurePlan, cpuBudget, currentPlan,
-  effectiveConcurrency, inProcessParseMax, limitsActive, memoryAdmission, onnxThreads, planFileProblem, planLimits, readMaxBytes, rgThreads, seatsUsed,
+  effectiveConcurrency, inProcessParseMax, limitsActive, memoryAdmission, planFileProblem, planLimits, readMaxBytes, rgThreads, seatsUsed,
   setAvailableMemoryForTests, setLimitsPlatformForTests, setPlanForTests, turnMemoryEstimateMiB, typstJobs, whisperThreads,
 } from '../../server/src/system/limits'
 import { setSetting } from '../../server/src/admin/settings'
@@ -70,7 +70,6 @@ describe('resource caps (L10)', () => {
     expect(limitsActive()).toBe(false)
     expect(rgThreads()).toBeNull()
     expect(rgArgv('/bin/rg', ['--files'])).toEqual(['/bin/rg', '--files'])
-    expect(onnxThreads()).toBeNull()
     expect(typstJobs()).toBeNull()
     expect(inProcessParseMax()).toBe(Infinity)
     expect(readMaxBytes()).toBe(200 * 1024 * 1024)
@@ -85,7 +84,6 @@ describe('resource caps (L10)', () => {
     expect(rgArgv('/bin/rg', ['--files'])).toEqual(['/bin/rg', '--threads', String(Math.min(2, cpuBudget())), '--files'])
     // one core less than the budget, at most 4 (one whisper.cpp at a time: jobs/whisper-turns.ts)
     expect(whisperThreads()).toBe(Math.max(2, Math.min(4, cpuBudget() - 1)))
-    expect(onnxThreads()).toEqual({ intraOpNumThreads: Math.min(2, cpuBudget()), interOpNumThreads: 1 })
     expect(typstJobs()).toBe(2)
     expect(inProcessParseMax()).toBe(32 * 1024 * 1024)
     expect(readMaxBytes()).toBe(64 * 1024 * 1024)
@@ -156,6 +154,10 @@ describe('memory: queued answers wait while memory is short', () => {
     setAvailableMemoryForTests(0)
     expect(memoryAdmission(0, 3)).toBe(1) // nothing runs: one always may, so a small machine still answers
     expect(memoryAdmission(1, 3)).toBe(1)
+    // no slot in use, but idle engines are up (answers waiting for a person): none more starts without memory
+    expect(memoryAdmission(0, 3, 2)).toBe(0)
+    setAvailableMemoryForTests(MEMORY_HEADROOM_MIB + est + 1)
+    expect(memoryAdmission(0, 3, 2)).toBe(1)
   })
   test('with a plan the estimate is its per-answer high mark', () => {
     setPlanForTests(plan({ memoryMiB: 4096, maxConcurrency: 3 }))

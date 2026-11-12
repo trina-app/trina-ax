@@ -236,7 +236,14 @@ test('People pages at phone width: stacked rows, nothing sticks out', async ({ p
   await page.goto('/admin/members')
   await expect(page.getByTestId('members-list')).toBeVisible()
   await expect(page.getByTestId('members-table')).toHaveCount(0)
-  await expect(page.getByTestId('member-card-carol')).toContainText('carol@example.com')
+  // a compact row (components/CompactRow.tsx): the username on the second line when it is not the name; the email only
+  // when the search found the person by it
+  const carol = page.getByTestId('member-card-carol')
+  await expect(carol).toContainText('carol')
+  await expect(page.getByTestId('member-email-carol')).toHaveCount(0)
+  await page.getByTestId('member-search').fill('example.com')
+  await expect(page.getByTestId('member-email-carol')).toHaveText('carol@example.com')
+  await page.getByTestId('member-search').fill('')
   await expect(page.getByTestId('member-card-bob').getByTestId('member-role-bob')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.width)
   await page.goto('/admin/groups')

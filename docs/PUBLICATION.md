@@ -19,7 +19,7 @@
 - **Git 소스:** 위 소스 권리와 필터 검사, 원 고지를 먼저 해결한다. 의존성 선언과 제3자 코드가 담긴 번들 배포를 구분한다.
 - **앱 웹 번들:** 검토 당시 web/dist에 별도 LICENSE/NOTICE 산출물이 없다. 실제 JS·폰트·worker·vendor별 버전/해시/허락·고지를 수집해 최종 산출물에 포함한다.
 - **사이트 정적 번들:** website/public/licenses의 Apache·AGPL·NOTICE와 public/fonts의 OFL을 산출물에 보존한다. 부분 글꼴의 예약 이름 문제는 Trina UI 내부명·파일·CSS 이름으로 수정했고 원 OFL/저작권은 보존했다. 이것만으로 대응 소스 제공이나 전체 권리 검토가 완료되지는 않는다.
-- **서버/office/desktop/image:** 실제 포함한 Bun·Pandoc·libvips·ONNX Runtime·Electron/Chromium 등의 고지와 버전별 제공 자료를 확인한다. GPL/LGPL의 해당 배포 방식별 대응 소스·설치/재링크 조건도 연결한다.
+- **서버/office/desktop/image:** 실제 포함한 Bun·Pandoc·Electron/Chromium 등의 고지와 버전별 제공 자료를 확인한다. GPL/LGPL의 해당 배포 방식별 대응 소스·설치/재링크 조건도 연결한다.
 - **엔진/모델:** Claude Code/Codex 바이너리나 모델 가중치를 포함한다면 해당 버전의 이용·배포 허락을 별도 확인한다. 프로젝트 AGPL은 그 권한을 부여하지 않는다.
 
 [제3자 고지 현황](THIRD-PARTY-NOTICES.md)은 준비 자료이며 완성된 SBOM/배포 고지 묶음이 아니다.

@@ -142,12 +142,12 @@ process.on('SIGTERM', () => process.exit(0))
     fs.mkdirSync(`${APP}/versions/${HOLDS}/server`); fs.writeFileSync(`${APP}/versions/${HOLDS}/server/main.js`, 'old')
     fs.writeFileSync(`${APP}/versions/${HOLDS}/web/data/keep`, 'mounted'); run(['chown', '-R', `${SRV}:${SRV}`, `${APP}/versions/${HOLDS}`])
 
-    // admin.js prune-versions with the real clock: everything was staged minutes ago, so nothing is old enough yet
+    // admin.js prune-versions with the real clock: everything was staged minutes ago, so nothing is past its grace yet (an hour for older versions)
     const env = { MYCEL_MODE: 'prod', MYCEL_CONFIG: `${BASE}/config/server.json`, MYCEL_INSTALL_BASE: BASE }
     const cli = (args: string[]) => { const r = run([BUN, '/src/server/src/system/cli.ts', 'prune-versions', ...args], { user: SRV, env }); try { return { code: r.code, j: JSON.parse(r.out) } } catch { return { code: r.code, j: null, raw: r.out + r.err } } }
     const dry = cli(['--dry-run'])
     check('admin.js prune-versions --dry-run answers JSON', dry.code === 0 && dry.j?.dryRun === true && dry.j?.skipped === null, dry)
-    check('right after staging nothing is removed (one-day grace)', dry.j?.removed?.length === 0 && dry.j?.kept?.map((k: { version: string }) => k.version).join() === '1.0.0,1.1.0,1.2.0,1.3.0', dry.j)
+    check('right after staging nothing is removed (one-hour grace for older versions)', dry.j?.removed?.length === 0 && dry.j?.kept?.map((k: { version: string }) => k.version).join() === '1.0.0,1.1.0,1.2.0,1.3.0', dry.j)
     check('the dry run is not recorded', !fs.existsSync(`${BASE}/data/prune-versions.json`))
     const real = cli([])
     check('admin.js prune-versions runs and records its result', real.code === 0 && real.j?.removed?.length === 0 && fs.existsSync(`${BASE}/data/prune-versions.json`), real)

@@ -2,7 +2,8 @@
 // address (https://attacker/?d=<secret>), and the AI that calls web_fetch may be following instructions hidden in a
 // team document. So the server, not the AI, decides when a person must confirm the full URL first:
 //   ① opened without asking: URLs that appear verbatim in what the person typed in this chat (user messages; not the
-//     messages a scheduled run sent for them, whose text the AI wrote: auto_sent), URLs the person allowed on a card
+//     messages a scheduled run sent for them, whose text the AI wrote: auto_sent; not the "> " lines of a quote, another
+//     person's words: chat/read-rooms.ts isQuoteLine), URLs the person allowed on a card
 //     (chat_seen_urls 'allowed', also those a scheduled task's card carried into its run), and learned links: web
 //     search results of this chat (this turn's and the saved steps of earlier answers) and links of an earlier
 //     web_fetch result of this chat. Learned links are within a budget: which link the AI picks can carry data out
@@ -18,8 +19,17 @@
 //     chat, for this person, outside the link budget. Never for an address with a long random-looking part (opaqueParts:
 //     it can carry data, so the card shows it highlighted every time) or a long name before the site (longSubdomain:
 //     names have no case to tell random labels by, and they reach the name servers on the way in the clear), never for
-//     one with a user name or password, never in a confidential chat. Like Claude Code's "don't ask again for this
-//     domain", but for one conversation;
+//     one with a user name or password, never in a confidential chat, never for an echo (below). Like Claude Code's
+//     "don't ask again for this domain", but for one conversation;
+//   ①d "Allow all websites" for the AI's web reads (tools/web-allow-all.ts; docs/DECISIONS.md "Allow all websites covers
+//     the AI's web reads"): the person's own switch, while the team allows it, opens the same plain addresses as ①b on
+//     any site, with no budget (the owner's call, 2026-11-11: "always allow" means no more cards for plain addresses).
+//     Always the switch of the person whose turn it is, never another member's; also in a room's AI session, a shared
+//     chat and after a room read (the owner's call, 2026-11-11: "it's a team"), only in a turn the person asked from
+//     their app and sees as it runs (not a scheduled run, a Slack question or a draft), never in a confidential chat;
+//   the order: ① typed or allowed; a plain address (plainAddress: a site, no random-looking part, no long name before
+//     the site, no user name or password, not an echo) on a site allowed here (①b); a learned link within the link
+//     budget; an echo asks; ①d; else the card;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
 //   ①c save_url only (`connection`): addresses that came back in this chat from an external-service connection the
 //     person can use now (tools/connection-urls.ts), learned links within the same budget, unless the AI had sent the
@@ -33,13 +43,17 @@
 // allow-list of ④.
 import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
-import { getDomain } from 'tldts'
+import { getDomain, parse } from 'tldts'
 import { ROOM_REF_RE, type ConfirmDetail, type Locale } from '@mycel/shared/api'
+import { ALL_SITES_ANSWER, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
+import type { CardOutcome } from '../policy/refusal'
+import { withoutQuoteLines } from '../chat/read-rooms'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
 import type { EchoCheck } from './connection-urls'
 import type { ResolveOptions } from './web-fetch'
+import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from './web-allow-all'
 
 /** ③: a query string this long always needs a person, wherever the URL came from */
 export const MAX_UNCONFIRMED_QUERY = 200
@@ -108,6 +122,9 @@ export interface TurnPerson {
   locale: Locale
   /** Show a yes / no card to the person (raised by the server, never by the AI); false = declined or no answer. */
   confirm(question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<boolean>
+  /** confirm() with how the card ended: 'yes', the person's no, no answer in time, nobody to ask, the answer stopped.
+   * A refusal says the real reason (policy/refusal.ts). Optional: askConfirm falls back to confirm(). */
+  confirmWhy?(question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<CardOutcome>
   /** A server card with more than two answers: the value picked, or null (declined, no answer). Optional: a caller
    * without it falls back to confirm() with its safest "yes". */
   choose?(question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<string | null>
@@ -115,6 +132,10 @@ export interface TurnPerson {
   turnUrls(): Iterable<string>
   /** a scheduled run: nobody is watching, so no card is raised (it could only go unanswered) */
   unattended?: boolean
+  /** the person's own chat holds messages from their team chat rooms and the room card was left to this call's own
+   * card (chat/turn.ts ownCard): the tool asks on its card every time, also where it would not ask otherwise (a
+   * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */
+  roomsSeen?: boolean
   /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
   unattendedLabel?: string
   /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/
@@ -124,6 +145,19 @@ export interface TurnPerson {
   /** a turn that shows the person each page it opens as it happens (a company profile draft: onboarding/draft.ts
    * DraftPages): web_fetch reports every call, where it ended up and how it went */
   pages?: WebPageLog
+  /** "Allow all websites" (rule ①d) may apply to this turn: asked from the person's app and shown as it runs (not a
+   * scheduled run, a Slack question, a draft or a turn the server started). Absent: never */
+  allSitesHere?(): boolean
+  /** the person's "Allow all websites" changed on this turn's card: tell their open windows */
+  webAccessChanged?(): void
+}
+
+/** How a yes / no card of `person` ended (policy/refusal.ts CardOutcome): an unattended run is not asked at all
+ * ('unattended'); a person without confirmWhy reads false as the person's no. */
+export async function askConfirm(person: TurnPerson, question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<CardOutcome> {
+  if (person.unattended) return 'unattended'
+  if (person.confirmWhy) return person.confirmWhy(question, allow, deny, extra)
+  return (await person.confirm(question, allow, deny, extra)) ? 'yes' : 'declined'
 }
 
 /** Why web_fetch did not read a page: not_linked (the gate refused an address that was neither typed nor linked),
@@ -152,8 +186,10 @@ function typedUrls(db: Database, chatId: string, userId?: string | null): Set<st
   for (const r of db.query(`SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND auto_sent = 0
     AND id NOT IN (SELECT user_message_id FROM turns WHERE chat_id = ? AND client_kind = 'schedule' AND user_message_id IS NOT NULL)
     ${shared ? 'AND author_id = ?' : ''}`).all(...(shared ? [chatId, chatId, userId!] : [chatId, chatId])) as { content: string }[]) {
-    // a "#" room token's title is a room's name (any member of a group chat sets it), not the person's typing
-    for (const u of extractUrls(r.content.replace(ROOM_REF_RE, ' '))) seen.add(u)
+    // a "#" room token's title is a room's name (any member of a group chat sets it), not the person's typing; a quote
+    // line ("Ask Trina about this" quotes another person's room message, web components/rooms/SideChatPanel.tsx
+    // withQuote) is someone else's words (chat/read-rooms.ts isQuoteLine): its links ask like any the person did not type
+    for (const u of extractUrls(withoutQuoteLines(r.content).replace(ROOM_REF_RE, ' '))) seen.add(u)
   }
   return seen
 }
@@ -327,6 +363,21 @@ function siteScope(db: Database, chatId: string | null, userId: string | null | 
   return !!chatId && !!userId && !!db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ?').get(chatId, userId) && !isConfidentialChat(db, chatId)
 }
 
+/** An address a site allowance (①b) or "Allow all websites" (①d) may cover: it has a site, no long random-looking part
+ * and no long name before the site (`marks`), no user name or password, and it is not an echo of what the AI sent (an
+ * echo always asks). */
+function plainAddress(site: string | null, marks: readonly string[], userinfo: boolean, from: Origin | null): site is string {
+  return !!site && !marks.length && !userinfo && from?.origin !== 'echo'
+}
+
+/** Rule ①d may apply to this call: a chat, the turn's own person (whose switch it is, never another member's), a turn
+ * that says so (TurnPerson.allSitesHere: watched, from the person's app) and not a confidential chat. Rooms, shared
+ * chats and chats that read rooms are included (the owner's call, 2026-11-11). */
+function allSitesChat(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null): boolean {
+  if (!chatId || !userId || !person || person.unattended || !person.allSitesHere?.()) return false
+  return !!db.query('SELECT 1 FROM chats WHERE id = ?').get(chatId) && !isConfidentialChat(db, chatId)
+}
+
 /** The sites the person allowed in this chat; none in a confidential chat, in another person's chat or without a person. */
 function allowedSites(db: Database, chatId: string | null, userId: string | null | undefined): Set<string> {
   if (!siteScope(db, chatId, userId)) return new Set()
@@ -360,72 +411,200 @@ function entropy(s: string): number {
   return e
 }
 
+/**
+ * Does a tool input carry a web address or a long random-looking part? A call that only reads can still take data out
+ * in them (a search term, an id or an address the AI made up from what it read). After a room read, a connection's read
+ * asks first when it does (chat/turn.ts confirmRoomChange). The input as the tool takes it (a text that holds a JSON
+ * object or list, call_tool's arguments, as what it holds), in its JSON as a URL parser reads it (NFKC, without the
+ * characters it drops), as written and %-decoded: an http(s) address (extractUrls), any scheme with a slash or a
+ * backslash after it ("https:/…", "https:\\…", "ws://…"), an address without one (after "//" or "www.", or a host
+ * name, an IPv4 number or a bracketed IPv6 address before a path, a query or a port; not an e-mail address's domain);
+ * a random-looking part (opaqueParts); a whole value that is a host name with a public suffix or an IPv4 address
+ * ("data.attacker.example"); any text under an argument named for an address (url, link, host, domain, site, …: any
+ * word of the name). An input it cannot read whole counts.
+ */
+export function carriesAddress(input: unknown): boolean {
+  let v: unknown, json: string
+  try { v = expandJson(input, 0); json = JSON.stringify(v ?? null) } catch { return true }
+  if (typeof json !== 'string') return true
+  // full-width letters and dots as URL parsers read them (ａｃｍｅ．ｃｏｍ is acme.com), without the characters they drop
+  // (a soft hyphen or a zero-width space inside a host: "atta\u200Bcker.com" is attacker.com)
+  json = asParsed(json)
+  const plain = json.includes('%') ? json.replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => { try { return decodeURIComponent(m) } catch { return m } }) : json
+  return [json, plain].some((t) => extractUrls(t, 1).length > 0 || SCHEME.test(t) || bareAddress(t)) || opaqueParts(json, 1).length > 0 || addressArg(v, 0) || wholeHost(v, 0)
+}
+const MAX_DEPTH = 32
+/** a text that holds a JSON object or list, as what it holds (call_tool parses its arguments so); too deep: thrown */
+function expandJson(v: unknown, depth: number): unknown {
+  if (depth > MAX_DEPTH) throw new Error('too deep')
+  if (typeof v === 'string') {
+    const t = v.trim()
+    if (!/^[[{]/.test(t)) return v
+    let x: unknown
+    try { x = JSON.parse(t) } catch { return v }
+    return x && typeof x === 'object' ? expandJson(x, depth + 1) : v
+  }
+  if (Array.isArray(v)) return v.map((x) => expandJson(x, depth + 1))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, expandJson(x, depth + 1)]))
+  return v
+}
+/** a scheme and a slash or a backslash (URL parsers read "https:/x" and "https:\\x" as https://x), or a web scheme
+ * with neither ("https:x" is https://x too) */
+const SCHEME = /(?:^|[^a-z0-9+.-])(?:[a-z][a-z0-9+.-]*:[\\/]|(?:https?|wss?|ftp):)/i
+/** the dots a host name may be written with (URL parsers map the ideographic and full-width ones to ".") */
+const DOTS = /[\u3002\uFF0E\uFF61\u2024\uFE52]/g
+/** a text as a URL parser reads a host in it: NFKC (full-width forms), the default-ignorable characters it drops removed */
+const asParsed = (s: string) => s.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+/** an IPv4 address written as one number or in parts that a URL parser takes (1572395042, 0x5db8d822, 0135.0270.0330.042,
+ * 1.1): parts in decimal, hex or octal; one decimal number only from 8 digits on (from 1.0.0.0), so a count or a page
+ * number is not one */
+function numericHost(run: string): string | null {
+  const t = run.replace(DOTS, '.').replace(/\.+$/, '')
+  if (t.length > 40) return null
+  const parts = t.split('.')
+  if (parts.length > 4 || !parts.every((p) => /^(?:0x[0-9a-f]*|\d+)$/i.test(p))) return null
+  if (parts.length === 1 && /^\d+$/.test(t) && (t.length < 8 || Number(t) > 0xffffffff)) return null
+  return t
+}
+/** a bracketed IPv6 address ("[2606:2800:220:1::248]") */
+const IPV6 = /\[[0-9a-fA-F:.]{2,45}\]/g
+/** after a host: a path (also with a backslash, which URL parsers read as "/"; written "\\" in JSON), a query, a fragment or a port */
+const AFTER_HOST = /^(?:[/?#]|:\d|\\\\)/
+/** a run of letters, digits, dots and hyphens (one class: no backtracking on a long text): a host name when it has a
+ * dot and its last label is a name, or it is an IPv4 address */
+const HOST_RUN = /[\p{L}\p{N}.\u3002\uFF0E\uFF61\u2024\uFE52-]+/gu
+function hostOf(run: string): string | null {
+  const host = run.replace(DOTS, '.').replace(/\.+$/, '')
+  const labels = host.split('.')
+  if (labels.length < 2 || labels.some((l) => !l)) return null
+  return /^\p{L}[\p{L}\p{N}-]+$/u.test(labels.at(-1)!) || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) ? host : null
+}
+function bareAddress(text: string): boolean {
+  for (const m of text.matchAll(HOST_RUN)) {
+    const at = m.index!, name = hostOf(m[0]), host = name ?? numericHost(m[0])
+    if (!host) continue
+    if (text.slice(Math.max(0, at - 2), at) === '//' || /^www\./i.test(host)) return true
+    // an e-mail address's domain, or a file in a path (docs/README.md#setup)
+    if (at > 0 && (text[at - 1] === '@' || text[at - 1] === '/')) continue
+    if (AFTER_HOST.test(text.slice(at + m[0].length, at + m[0].length + 2))) return true
+  }
+  for (const m of text.matchAll(IPV6)) {
+    if ((m[0].match(/:/g) ?? []).length >= 2 && AFTER_HOST.test(text.slice(m.index! + m[0].length, m.index! + m[0].length + 2))) return true
+  }
+  return false
+}
+/** a value that is a host name and nothing else: one with a public suffix (not "notes.txt"), or an IPv4 address; not
+ * the value of an argument named for a file ("path": "README.md") */
+function wholeHost(v: unknown, depth: number): boolean {
+  if (typeof v === 'string') {
+    const m = /^(?:\/\/)?([\p{L}\p{N}.\u3002\uFF0E\uFF61\u2024\uFE52-]+?)(?::\d+)?$/u.exec(asParsed(v).trim())
+    const host = m ? hostOf(m[1]!) : null
+    if (!host) return false
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return true
+    const p = parse(host, { allowPrivateDomains: true })
+    return !!p.publicSuffix && (p.isIcann === true || p.isPrivate === true)
+  }
+  if (!v || typeof v !== 'object' || depth > MAX_DEPTH) return false
+  return Object.entries(v).some(([k, x]) => (typeof x !== 'string' || Array.isArray(v) || !nameWords(k).some((w) => FILE_ARG.test(w))) && wholeHost(x, depth + 1))
+}
+const FILE_ARG = /^(?:paths?|files?|filenames?|filepaths?|dirs?|folders?|names?|titles?)$/
+const nameWords = (k: string) => k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+/** argument names that say the value is an address (any word of the name: pageUrl, urlToFetch, webhook_url, site) */
+const ADDRESS_ARG = /^(?:urls?|uris?|links?|hrefs?|endpoints?|hosts?|hostnames?|domains?|sites?|websites?|webhooks?)$/
+function addressArg(v: unknown, depth: number): boolean {
+  if (!v || typeof v !== 'object') return false
+  if (depth > MAX_DEPTH) return true
+  for (const [k, x] of Object.entries(v)) {
+    if (nameWords(k).some((w) => ADDRESS_ARG.test(w)) && hasText(x, depth + 1)) return true
+    if (addressArg(x, depth + 1)) return true
+  }
+  return false
+}
+const hasText = (v: unknown, depth: number): boolean =>
+  typeof v === 'string' ? v.trim() !== '' : !!v && typeof v === 'object' && (depth > MAX_DEPTH || Object.values(v).some((x) => hasText(x, depth + 1)))
+
 export const TEXT = {
   unseen: {
-    ko: 'AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The AI wants to open an address that did not appear in this conversation. An address can carry data out, so check the whole address:\n\n{url}',
-    id: 'AI ingin membuka alamat yang tidak muncul di percakapan ini. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}', ja: "AIがこの会話に出ていないアドレスを開こうとしています。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください：\n\n{url}", es: "La IA quiere abrir una dirección que no apareció en esta conversación. Una dirección puede transmitir datos al exterior; revise la dirección completa:\n\n{url}",
+    ko: "AI가 이 대화에 없던 주소를 열려고 해요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}",
+    en: "The AI wants to open an address that wasn't in this chat. Check that it doesn't contain your information.\n\n{url}",
+    id: "AI ingin membuka alamat yang tidak ada di obrolan ini. Pastikan alamat itu tidak memuat informasi Anda.\n\n{url}",
+    ja: "AIがこの会話になかったアドレスを開こうとしています。アドレスにあなたの情報が含まれていないか確認してください。\n\n{url}",
+    es: "La IA quiere abrir una dirección que no estaba en este chat. Compruebe que no contenga su información.\n\n{url}",
   },
   noEgress: {
-    ko: '팀 서버가 아직 자기 공인 주소를 몰라서, AI가 여는 주소가 서버가 있는 네트워크(공유기, 기기)로 되돌아오는지 확인할 수 없어요. 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The team server does not know its own public address yet, so it cannot tell whether this address leads back into the server\'s own network (router, devices). Check the whole address:\n\n{url}',
-    id: 'Server tim belum mengetahui alamat publiknya sendiri, jadi tidak bisa memastikan apakah alamat ini mengarah kembali ke jaringan server itu sendiri (router, perangkat). Periksa seluruh alamatnya:\n\n{url}',
-    ja: 'チームサーバーはまだ自分の公開アドレスを把握していないため、このアドレスがサーバー自身のネットワーク（ルーターや機器）に戻るか判断できません。アドレス全体を確認してください：\n\n{url}',
-    es: 'El servidor del equipo aún no conoce su propia dirección pública y no puede saber si esta dirección lleva de vuelta a su propia red (router, dispositivos). Revise la dirección completa:\n\n{url}',
+    ko: "AI가 이 주소를 열려고 해요. 내부 네트워크의 기기(공유기, 프린터 등)로 가는 주소가 아닌지 확인해 주세요.\n\n{url}",
+    en: "The AI wants to open this address. Check that it doesn't lead to a device inside your network (a router, a printer and the like).\n\n{url}",
+    id: "AI ingin membuka alamat ini. Pastikan alamat itu tidak mengarah ke perangkat di dalam jaringan Anda (router, printer, dan sejenisnya).\n\n{url}",
+    ja: "AIがこのアドレスを開こうとしています。内部ネットワークの機器（ルーター、プリンターなど）につながるアドレスでないか確認してください。\n\n{url}",
+    es: "La IA quiere abrir esta dirección. Compruebe que no lleve a un dispositivo de su red interna (un router, una impresora o similar).\n\n{url}",
   },
   longQuery: {
-    ko: 'AI가 여는 주소 뒤에 긴 내용이 붙어 있어요. 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The address the AI wants to open carries a long query. An address can carry data out, so check the whole address:\n\n{url}',
-    id: 'Alamat yang ingin dibuka AI membawa kueri panjang. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}', ja: "AIが開こうとしているアドレスには長いクエリが含まれます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください：\n\n{url}", es: "La dirección que la IA quiere abrir contiene una consulta larga. Una dirección puede transmitir datos al exterior; revise la dirección completa:\n\n{url}",
+    ko: "AI가 여는 주소 끝에 긴 내용이 붙어 있어요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}",
+    en: "The address the AI wants to open has a lot of text at the end. Check that it doesn't contain your information.\n\n{url}",
+    id: "Alamat yang ingin dibuka AI punya teks panjang di bagian akhir. Pastikan alamat itu tidak memuat informasi Anda.\n\n{url}",
+    ja: "AIが開こうとしているアドレスの末尾に長い内容が付いています。あなたの情報が含まれていないか確認してください。\n\n{url}",
+    es: "La dirección que la IA quiere abrir lleva mucho texto al final. Compruebe que no contenga su información.\n\n{url}",
   },
   budget: {
-    ko: 'AI가 웹 페이지와 검색 결과에 있던 주소를 묻지 않고 열 수 있는 만큼 다 열었어요(답변마다 {turn}개, 대화마다 {chat}개). 어떤 주소를 여느냐로도 내용을 밖으로 보낼 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The AI has opened as many addresses from web pages and search results without asking as it may ({turn} per answer, {chat} per conversation). Which address it opens can also carry data out, so check the whole address:\n\n{url}',
-    id: 'AI sudah membuka sebanyak mungkin alamat dari halaman web dan hasil pencarian tanpa bertanya ({turn} per jawaban, {chat} per percakapan). Pilihan alamat yang dibuka juga bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}',
-    ja: 'AIが確認なしで開けるウェブページや検索結果のアドレスの上限に達しました（回答ごとに{turn}件、会話ごとに{chat}件）。どのアドレスを開くかによってもデータが外部に送られる可能性があるため、アドレス全体を確認してください：\n\n{url}',
-    es: 'La IA ya abrió sin preguntar todas las direcciones de páginas web y resultados de búsqueda que puede ({turn} por respuesta, {chat} por conversación). La dirección que elige también puede sacar datos; revise la dirección completa:\n\n{url}',
+    ko: "AI가 웹 페이지와 검색 결과에 있던 주소를 묻지 않고 열 수 있는 만큼 다 열었어요(답변마다 {turn}개, 대화마다 {chat}개). 이제부터는 열기 전에 물어봐요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}",
+    en: "The AI has opened as many addresses from web pages and search results as it may without asking ({turn} per answer, {chat} per chat). From now on it asks first. Check that this one doesn't contain your information.\n\n{url}",
+    id: "AI sudah membuka sebanyak mungkin alamat dari halaman web dan hasil pencarian tanpa bertanya ({turn} per jawaban, {chat} per obrolan). Mulai sekarang AI bertanya dulu. Pastikan alamat ini tidak memuat informasi Anda.\n\n{url}",
+    ja: "AIが確認なしで開けるウェブページや検索結果のアドレスの上限に達しました（回答ごとに{turn}件、会話ごとに{chat}件）。ここからは開く前に確認します。このアドレスにあなたの情報が含まれていないか確認してください。\n\n{url}",
+    es: "La IA ya abrió sin preguntar todas las direcciones de páginas web y resultados de búsqueda que puede ({turn} por respuesta, {chat} por chat). A partir de ahora pregunta antes. Compruebe que esta no contenga su información.\n\n{url}",
   },
   echo: {
-    ko: 'AI가 연결된 서비스의 답에 나온 주소를 열려고 해요. 그런데 이 주소(또는 그 일부)는 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 서비스가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The AI wants to open an address from a connected service\'s answer, but the address (or part of it) matches what the AI had sent to a tool earlier in this conversation. The service may have repeated what it was sent, so check the whole address:\n\n{url}',
-    id: 'AI ingin membuka alamat dari jawaban layanan yang terhubung, tetapi alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Layanan mungkin mengulang apa yang dikirim kepadanya, jadi periksa seluruh alamatnya:\n\n{url}',
-    ja: 'AIが連携サービスの回答にあったアドレスを開こうとしています。ただし、このアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。サービスが受け取った内容をそのまま返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
-    es: 'La IA quiere abrir una dirección de la respuesta de un servicio conectado, pero la dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. El servicio puede haber repetido lo que recibió; revise la dirección completa:\n\n{url}',
+    ko: "AI가 연결된 서비스가 알려 준 주소를 열려고 해요. 그런데 이 주소에 AI가 이 대화에서 앞서 보낸 내용이 들어 있어요. 내 정보가 새어 나가지 않는지 확인해 주세요.\n\n{url}",
+    en: "The AI wants to open an address a connected app gave it, but the address contains something the AI sent earlier in this chat. Check that it doesn't leak your information.\n\n{url}",
+    id: "AI ingin membuka alamat yang diberikan layanan yang terhubung, tetapi alamat itu memuat sesuatu yang dikirim AI sebelumnya di obrolan ini. Pastikan informasi Anda tidak bocor.\n\n{url}",
+    ja: "AIが連携サービスから受け取ったアドレスを開こうとしています。ただし、このアドレスには、この会話でAIが先に送った内容が含まれています。あなたの情報が漏れないか確認してください。\n\n{url}",
+    es: "La IA quiere abrir una dirección que le dio un servicio conectado, pero la dirección contiene algo que la IA envió antes en este chat. Compruebe que no se filtre su información.\n\n{url}",
   },
   echoWeb: {
-    ko: 'AI가 웹 페이지나 검색 결과에 나온 주소를 열려고 해요. 그런데 이 주소(또는 그 일부)는 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 사이트가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The AI wants to open an address from a web page or a search result, but the address (or part of it) matches what the AI had sent to a tool earlier in this conversation. A site may have repeated what it was sent, so check the whole address:\n\n{url}',
-    id: 'AI ingin membuka alamat dari halaman web atau hasil pencarian, tetapi alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Situs mungkin mengulang apa yang dikirim kepadanya, jadi periksa seluruh alamatnya:\n\n{url}',
-    ja: 'AIがウェブページや検索結果にあったアドレスを開こうとしています。ただし、このアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。サイトが受け取った内容をそのまま返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
-    es: 'La IA quiere abrir una dirección de una página web o de un resultado de búsqueda, pero la dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. Un sitio puede haber repetido lo que recibió; revise la dirección completa:\n\n{url}',
+    ko: "AI가 웹 페이지나 검색 결과에 있던 주소를 열려고 해요. 그런데 이 주소에 AI가 이 대화에서 앞서 보낸 내용이 들어 있어요. 내 정보가 새어 나가지 않는지 확인해 주세요.\n\n{url}",
+    en: "The AI wants to open an address from a web page or a search result, but the address contains something the AI sent earlier in this chat. Check that it doesn't leak your information.\n\n{url}",
+    id: "AI ingin membuka alamat dari halaman web atau hasil pencarian, tetapi alamat itu memuat sesuatu yang dikirim AI sebelumnya di obrolan ini. Pastikan informasi Anda tidak bocor.\n\n{url}",
+    ja: "AIがウェブページや検索結果にあったアドレスを開こうとしています。ただし、このアドレスには、この会話でAIが先に送った内容が含まれています。あなたの情報が漏れないか確認してください。\n\n{url}",
+    es: "La IA quiere abrir una dirección de una página web o de un resultado de búsqueda, pero la dirección contiene algo que la IA envió antes en este chat. Compruebe que no se filtre su información.\n\n{url}",
   },
   redirectEcho: {
-    ko: 'AI가 여는 주소가 다른 주소로 넘어가요. 그런데 넘어가는 주소(또는 그 일부)가 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 짧은 주소 서비스처럼 사이트가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The address the AI is opening redirects to another one, and that address (or part of it) matches what the AI had sent to a tool earlier in this conversation. A site may have kept what it was sent and given it back (like a link shortener), so check the whole address:\n\n{url}',
-    id: 'Alamat yang dibuka AI dialihkan ke alamat lain, dan alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Situs mungkin menyimpan apa yang dikirim kepadanya lalu mengembalikannya (seperti pemendek tautan), jadi periksa seluruh alamatnya:\n\n{url}',
-    ja: 'AIが開こうとしているアドレスは別のアドレスに転送されます。転送先のアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。短縮URLサービスのように、サイトが受け取った内容を返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
-    es: 'La dirección que la IA quiere abrir redirige a otra, y esa dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. Un sitio puede haber guardado lo que recibió y devolverlo (como un acortador de enlaces); revise la dirección completa:\n\n{url}',
+    ko: "AI가 여는 주소가 다른 주소로 넘어가는데, 넘어가는 주소에 AI가 이 대화에서 앞서 보낸 내용이 들어 있어요. 내 정보가 새어 나가지 않는지 확인해 주세요.\n\n{url}",
+    en: "The address the AI is opening sends it on to another one, and that address contains something the AI sent earlier in this chat. Check that it doesn't leak your information.\n\n{url}",
+    id: "Alamat yang dibuka AI meneruskannya ke alamat lain, dan alamat itu memuat sesuatu yang dikirim AI sebelumnya di obrolan ini. Pastikan informasi Anda tidak bocor.\n\n{url}",
+    ja: "AIが開こうとしているアドレスは別のアドレスに転送されます。転送先のアドレスには、この会話でAIが先に送った内容が含まれています。あなたの情報が漏れないか確認してください。\n\n{url}",
+    es: "La dirección que abre la IA lleva a otra, y esa dirección contiene algo que la IA envió antes en este chat. Compruebe que no se filtre su información.\n\n{url}",
   },
   opaque: {
-    ko: '주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
-    en: 'The address contains long strings that are hard to read (highlighted). They can carry data; check what they are.',
-    id: 'Alamat ini berisi string panjang yang sulit dibaca (disorot). String itu bisa membawa data; periksa isinya.',
-    ja: 'アドレスに読み取りにくい長い文字列が含まれています（強調表示）。データを運べるため、内容を確認してください。',
-    es: 'La dirección contiene cadenas largas difíciles de leer (resaltadas). Pueden llevar datos; compruebe qué son.',
+    ko: "주소에 알아보기 어려운 긴 글자가 있어요(강조 표시). 내 정보가 숨어 있을 수 있으니 확인해 주세요.",
+    en: "The address has long strings that are hard to read (highlighted). Your information could be hidden in them; check them.",
+    id: "Alamat ini memuat teks panjang yang sulit dibaca (disorot). Informasi Anda bisa tersembunyi di sana; periksa.",
+    ja: "アドレスに読み取りにくい長い文字列があります（強調表示）。あなたの情報が隠れている可能性があるため、確認してください。",
+    es: "La dirección tiene cadenas largas difíciles de leer (resaltadas). Su información podría ir oculta en ellas; revíselas.",
   },
   longName: {
-    ko: '사이트 이름 앞에 붙은 부분이 길어요(강조 표시). 이름에도 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
-    en: 'The part of the name before the site is long (highlighted). A name can carry data too; check what it is.',
-    id: 'Bagian nama sebelum situsnya panjang (disorot). Nama juga bisa membawa data; periksa isinya.',
-    ja: 'サイト名の前に付いた部分が長くなっています（強調表示）。名前にもデータを載せられるため、内容を確認してください。',
-    es: 'La parte del nombre antes del sitio es larga (resaltada). Un nombre también puede llevar datos; compruebe qué es.',
+    ko: "사이트 이름 앞부분이 길어요(강조 표시). 내 정보가 숨어 있을 수 있으니 확인해 주세요.",
+    en: "The part before the site name is long (highlighted). Your information could be hidden in it; check it.",
+    id: "Bagian sebelum nama situs panjang (disorot). Informasi Anda bisa tersembunyi di sana; periksa.",
+    ja: "サイト名の前の部分が長くなっています（強調表示）。あなたの情報が隠れている可能性があるため、確認してください。",
+    es: "La parte anterior al nombre del sitio es larga (resaltada). Su información podría ir oculta en ella; revísela.",
   },
   site: {
-    ko: '사이트를 허용하면 이 대화에서만 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.',
-    en: 'If you allow the site, other addresses on {site} open without asking, in this conversation only. Addresses with long hard-to-read strings or a long query still ask.',
-    id: 'Jika situs diizinkan, alamat lain di {site} dibuka tanpa bertanya, hanya di percakapan ini. Alamat dengan string panjang yang sulit dibaca atau kueri panjang tetap ditanyakan.',
-    ja: 'サイトを許可すると、この会話に限り{site}の他のアドレスも確認なしで開きます。読み取りにくい長い文字列や長いクエリを含むアドレスは引き続き確認します。',
-    es: 'Si permite el sitio, otras direcciones de {site} se abren sin preguntar, solo en esta conversación. Las direcciones con cadenas largas difíciles de leer o una consulta larga siguen preguntando.',
+    ko: "사이트를 허용하면 이 대화에서는 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 물어봐요.",
+    en: "If you allow the site, other addresses on {site} open without asking, in this chat only. Addresses with long hard-to-read strings or a lot of text at the end still ask.",
+    id: "Jika situs diizinkan, alamat lain di {site} dibuka tanpa bertanya, hanya di obrolan ini. Alamat dengan teks panjang yang sulit dibaca atau teks panjang di akhir tetap ditanyakan.",
+    ja: "サイトを許可すると、この会話に限り{site}の他のアドレスも確認なしで開きます。読み取りにくい長い文字列や末尾に長い内容が付いたアドレスは引き続き確認します。",
+    es: "Si permite el sitio, otras direcciones de {site} se abren sin preguntar, solo en este chat. Las direcciones con cadenas largas difíciles de leer o mucho texto al final siguen preguntando.",
+  },
+  /** the line of the fourth answer; the risk sentence (shared WEB_ALLOW_ALL_RISK) follows it */
+  all: {
+    en: 'If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and in rooms, until you turn it off in Settings › Browser. Addresses with long hard-to-read strings or a lot of text at the end still ask, but that only catches what is easy to spot.',
+    ko: '모든 사이트를 허용하면 설정 › 브라우저에서 끌 때까지, 내가 물을 때는 내 채팅과 대화방에서 AI가 공개 웹사이트를 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 묻지만, 눈에 띄는 것만 걸러요.',
+    id: 'Jika semua situs web diizinkan, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di ruang obrolan, sampai Anda mematikannya di Pengaturan › Browser. Alamat dengan teks panjang yang sulit dibaca atau teks panjang di akhir tetap ditanyakan, tetapi itu hanya menangkap yang mudah terlihat.',
+    ja: 'すべてのサイトを許可すると、設定 › ブラウザーでオフにするまで、あなたが頼んだときはチャットでもトークルームでもAIが公開Webサイトを確認なしで開きます。読み取りにくい長い文字列や末尾に長い内容が付いたアドレスは引き続き確認しますが、見つけられるのは目立つものだけです。',
+    es: 'Si permite todos los sitios web, la IA abre sitios públicos sin preguntar cuando usted se lo pide, en sus chats y en las salas, hasta que lo desactive en Configuración › Navegador. Las direcciones con cadenas largas difíciles de leer o mucho texto al final siguen preguntando, pero eso solo detecta lo que salta a la vista.',
+  },
+  allowAll: {
+    en: 'Allow all websites (turn off in Settings)', ko: '모든 사이트 허용 (설정에서 끌 수 있어요)', id: 'Izinkan semua situs web (matikan di Pengaturan)',
+    ja: 'すべてのサイトを許可（設定でオフにできます）', es: 'Permitir todos los sitios web (desactívelo en Configuración)',
   },
   labelUrl: { ko: '주소', en: 'Address', id: 'Alamat', ja: 'アドレス', es: 'Dirección' },
   allow: { ko: '열기', en: 'Open', id: 'Buka', ja: "開く", es: "Abrir" },
@@ -436,14 +615,14 @@ export const TEXT = {
   deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir" },
 } satisfies Record<string, Record<Locale, string>>
 
-/** 'seen' and 'site' opened without a card (① and ①b), 'confirmed' after one. */
-export type GateResult = 'seen' | 'site' | 'confirmed'
+/** 'seen', 'site' and 'all' opened without a card (①, ①b and ①d), 'confirmed' after one. */
+export type GateResult = 'seen' | 'site' | 'all' | 'confirmed'
 
 /**
  * Throws ToolError unless the URL may be fetched. `person` is null outside a chat turn (no one to ask): then only ①
  * URLs pass (learned ones within the link budget). `turnId`: the answer the link budget counts for. `userId`: the
- * person of the turn; the sites they allowed in this chat (①b) count only for them (none without it).
- * Decides from the address text and the database alone: the caller looks the name up only after a yes.
+ * person of the turn; the sites they allowed in this chat (①b) and their "Allow all websites" (①d) count only for them
+ * (none without it). Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
 export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
@@ -469,11 +648,16 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   let why: 'unseen' | 'longQuery' | 'noEgress' | 'budget' | 'echo' | 'echoWeb' = long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'
   // a scheduled run, or no turn: nobody can be asked, and nobody sees the steps as they happen (the smaller budget)
   const unattended = !person || !!person.unattended
+  // ①d may apply in this turn and chat (read once, only when needed)
+  let here: boolean | undefined
+  const allSitesTurn = () => (here ??= allSitesChat(db, chatId, o.userId, person))
+  let plain = false
   if (!long && !noEgress) {
     const from = originOf(db, chatId, url, person, o)
     if (from?.origin === 'typed' || from?.origin === 'allowed') return 'seen'
-    // ①b: a site the person allowed in this conversation, outside the link budget
-    if (site && !marks.length && !userinfo && allowedSites(db, chatId, o.userId).has(site)) return 'site'
+    plain = plainAddress(site, marks, userinfo, from)
+    // ①b: a site the person allowed in this conversation, outside the link budget (never for an echo)
+    if (plain && allowedSites(db, chatId, o.userId).has(site!)) return 'site'
     if (from?.origin === 'learned') {
       if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from, unattended)) return 'seen'
       why = 'budget'
@@ -481,11 +665,13 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     // an echo of what the AI sent: always the person, whatever is left of the budget (a connection's answer, or a web
     // page / search result: their own wording)
     if (from?.origin === 'echo') why = from.conn ? 'echo' : 'echoWeb'
+    // ①d: the "Allow all websites" of the person whose turn it is (no budget: the owner's call, 2026-11-11)
+    else if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
   }
   // nobody to ask (no turn, or a scheduled run): say why, so the AI tells the person what really happened
   if (unattended) {
     const b = budgetFor(true)
-    throw new ToolError(why === 'budget'
+    throw new ToolError((why === 'budget'
       ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed where nobody can confirm them (${b.turn} per ${person ? person.unattendedLabel ?? 'scheduled run' : 'answer'}, ${b.chat} per chat), and nobody can confirm it here, so it was not opened`
       : why === 'noEgress'
         ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction' + (person?.unattendedLabel ? '' : ' (writing the address into a scheduled task does not change it)') + '; tell the user the server could not open web addresses this time'
@@ -496,6 +682,8 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
         : why === 'longQuery'
           ? `this address has a long query part (over ${MAX_UNCONFIRMED_QUERY} characters), which always needs a person to confirm it, even when it appeared in the conversation or the task, and nobody can confirm it here, so it was not opened`
           : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
+      // the person's "Allow all websites" does not reach a run nobody watches: say so, so nobody expects it to
+      + (person && webAllowAll(db, o.userId) ? ' (the user\'s "Allow all websites" setting does not apply in a run the user does not answer step by step, such as a scheduled task or a draft)' : ''))
   }
   const L = person.locale
   // a function, so "$&" or "$`" in an address is shown as written (a string replacement would expand them)
@@ -510,19 +698,27 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // chat. The next plain address of the site offers it.
   const offerSite = !!(site && person.choose && why !== 'echo' && why !== 'echoWeb' && !long && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
   if (offerSite) lines.push(TEXT.site[L].replace('{site}', () => siteLabel(site!)))
+  // "Allow all websites (turn off in Settings)": on the first card already (the owner's call, 2026-11-11, as Claude's own
+  // apps offer "always allow" at once), only where ①d could open this very address next time (a plain address, not an
+  // echo, in a turn ①d applies to), while the team allows it and the person's switch is off. Picking it opens this
+  // address and turns the switch on (read with the team's policy in one transaction)
+  const offerAll = !!(person.choose && plain && why !== 'echo' && why !== 'echoWeb' && allSitesTurn() && teamAllowsWebAll(db) && !webAllowAll(db, o.userId))
+  if (offerAll) lines.push(`${TEXT.all[L]} ${WEB_ALLOW_ALL_RISK[L]}`)
   const extra: ConfirmExtra | undefined = marks.length ? { details: [{ label: TEXT.labelUrl[L], text: readable, marks }] } : undefined
   const question = lines.join('\n\n')
-  const answer = offerSite
+  const answer = offerSite || offerAll
     ? await person.choose!(question, [
       { label: TEXT.allow[L], value: 'allow' },
-      { label: TEXT.allowSite[L].replace('{site}', () => siteLabel(site!)), value: 'site' },
+      ...(offerSite ? [{ label: TEXT.allowSite[L].replace('{site}', () => siteLabel(site!)), value: 'site' }] : []),
+      ...(offerAll ? [{ label: TEXT.allowAll[L], value: ALL_SITES_ANSWER }] : []),
       { label: TEXT.deny[L], value: 'deny' },
     ], extra)
     : (await person.confirm(question, TEXT.allow[L], TEXT.deny[L], extra)) ? 'allow' : null
-  if (answer !== 'allow' && answer !== 'site') {
+  if (answer !== 'allow' && answer !== 'site' && answer !== ALL_SITES_ANSWER) {
     throw new ToolError('the user did not allow opening this address. Do not try other addresses to get around this; tell the user what you could not do')
   }
   if (chatId && !long && !noEgress) rememberUrls(db, chatId, [url], 'allowed')
   if (answer === 'site' && offerSite) allowSite(db, chatId!, o.userId!, site!, o.turnId ?? null)
+  if (answer === ALL_SITES_ANSWER && offerAll && setWebAllowAll(db, o.userId!, true, { via: 'card', turnId: o.turnId ?? null })) person.webAccessChanged?.()
   return 'confirmed'
 }

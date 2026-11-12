@@ -27,8 +27,7 @@
 //   bun scripts/build-bundle.ts --os linux --version 0.3.0 --out dist/linux [--arch amd64|arm64] [--sign-key release.pem]
 //                               [--notes NOTES.md] (--whisper-dir DIR | --no-whisper) [--strict]
 //
-// Only on a Linux machine of the bundle's arch (onnxruntime-node's and sharp's Linux binaries must be the ones `bun
-// install` put there). Output (<out>): the install kit tree — install-linux.sh, VERSION, product.env, app/<version>/
+// Only on a Linux machine of the bundle's arch (assertLinuxHost). Output (<out>): the install kit tree — install-linux.sh, VERSION, product.env, app/<version>/
 // with bin/{bun,rg,pandoc,typst,whisper-cli[,whisper-cli-v2]} (scripts/linux/downloads.ts; whisper from the CI build),
 // fonts/ (Noto Sans CJK Regular and Bold for make_file PDFs, scripts/linux/downloads.ts LINUX_FONTS),
 // native/{mycel-gate,mycel-bridge,mycel-safeops,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
@@ -46,7 +45,6 @@ import { PRODUCT, productEnv } from '../shared/src/product'
 import { RELEASE_CHANNEL } from '../shared/src/release-channel'
 import { cachedDownload, downloadFor, extractMember, LINUX_DOWNLOADS, LINUX_FONTS, type LinuxArch } from './linux/downloads'
 import { checkEnginesLock, checkLockedCatalog, codexCatalogName, pinnedVersion } from './linux/lock-engines'
-import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { BUNDLED_FONTS, RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
@@ -77,8 +75,6 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
 
   // server: one self-contained file per entry point; migrations next to it (db.ts reads ../migrations)
   await buildServerEntries(dir, o.version)
-  // search by meaning: its runtime next to the server files (scripts/vendor-semantic.ts; arm64 / universal)
-  if (arch !== 'amd64') vendorSemantic(path.join(dir, 'server'))
   copyMigrations(dir)
   // runtime: the pinned bun that runs this script (versions.json), for the bundle's arch
   const bunFor = o.bunFor ?? bunBinary
@@ -132,7 +128,6 @@ async function buildServerEntries(dir: string, version: string): Promise<void> {
       target: 'bun',
       outdir: path.join(dir, 'server', 'src'),
       naming: out,
-      external: SEMANTIC_EXTERNAL,
       define: { 'process.env.MYCEL_BUILD_VERSION': JSON.stringify(version) },
       minify: false,
     })
@@ -265,8 +260,9 @@ export function parseBundleArgs(argv: string[], platform: string = process.platf
   return a
 }
 
-/** A Linux bundle is built on Linux of the same arch (D10: the platform binaries of onnxruntime-node and sharp are
- * the ones `bun install` put into node_modules there; a Mac has its own). */
+/** A Linux bundle is built on Linux of the same arch. (D10: it was for the Linux binaries of onnxruntime-node and sharp
+ * in node_modules, which left the bundle with search by meaning on 2026-11-11; the release jobs still build each arch on
+ * its own runner.) */
 export function assertLinuxHost(arch: string, platform: string = process.platform, host: string = hostArch()): LinuxArch {
   if (arch !== 'amd64' && arch !== 'arm64') throw new Error(`--arch must be amd64 or arm64 for a Linux bundle, not ${arch}`)
   if (platform !== 'linux' || arch !== host) {
@@ -293,8 +289,8 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
-    'server/src/hwp-preflight.js',
-    'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'server/src/deck-worker.js',
+    // every entry point built (main.js and the workers)
+    ...ENTRIES.map(([, out]) => `server/src/${out}`),
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
     ...LINUX_ROOT_SCRIPTS.map(([, d]) => `root/${d}`),
     // the list flattened, with its sha256: root reads it with awk alone (packages.sh pk__flat_file)
@@ -347,9 +343,8 @@ export async function buildLinuxBundle(o: {
   fs.mkdirSync(path.join(dir, 'bin'), { recursive: true, mode: 0o755 })
   const scratch = path.join(o.out, '.unpack')
 
-  // server: the same files as the macOS bundle, with the Linux runtime of search by meaning
+  // server: the same files as the macOS bundle
   await buildServerEntries(dir, o.version)
-  vendorSemantic(path.join(dir, 'server'), { os: 'linux', arch })
   copyMigrations(dir)
 
   // tools: pinned downloads (bun is the x64-baseline build on amd64, see scripts/linux/downloads.ts)

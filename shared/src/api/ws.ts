@@ -96,6 +96,10 @@ export const SkillWritePreview = z.object({
   skillName: z.string().nullable(),
   /** why this file does not load as a skill (the same codes as GET /api/skills/issues); absent: nothing to warn about */
   problem: SkillProblem.optional(),
+  /** a skill of the same name at another level the person sees (docs/DECISIONS.md "Project skills": a project only adds
+   * names): the line to show, in the person's language. `hidden`: this one would never run (a project skill under a
+   * wider one's name), so the card offers another name instead of saving */
+  sameName: z.object({ text: z.string().max(400), hidden: z.boolean() }).optional(),
   /** "@@ … @@" unified diff of the text (a new file: every line added), or a one-line summary for other files */
   diff: z.string(),
   added: z.number().int().nonnegative(),
@@ -106,8 +110,8 @@ export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 
 /** What a server check is about to let out, shown in full (docs/DECISIONS.md "Outbound web channels"): what a connected
  * service is sent, a scheduled task's instruction and the addresses it may open. `fields` (who receives it: to, channel,
- * repo, address …) come first; the whole `text` is shown, scrollable, with its size; `marks` are long random-looking
- * parts of it (they can carry data in an address) to highlight. */
+ * repo, address …) come first; the whole `text` is shown, scrollable, with its size (one click away with `exact`);
+ * `marks` are long random-looking parts of it (they can carry data in an address) to highlight. */
 export const ConfirmDetail = z.object({
   label: z.string(),
   text: z.string(),
@@ -115,6 +119,17 @@ export const ConfirmDetail = z.object({
   collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
+  /** `fields` show every value of `text` in full, each under a name in words (a connected service's call: "받는 사람",
+   * "제목"), and `text` is its exact form (the call's JSON): the card shows the fields and puts the text one click away
+   * ("보내는 내용 그대로 보기"), the marks highlighted in both. A client that does not know this shows the text as before. */
+  exact: z.literal(true).optional(),
+  /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
+   * (QA TC-091: "23 characters" counted the letters of a path) */
+  noSize: z.boolean().optional(),
+  /** whole lines of `text` to show in red with a short note after them (the AI's members card: a name that is not in
+   * the person's own messages, "내 메시지에 없는 이름이에요"). `text` holds them too, so a client that does not know this
+   * still shows every line. */
+  alerts: z.array(z.object({ text: z.string(), note: z.string() })).max(50).optional(),
 })
 export type ConfirmDetail = z.infer<typeof ConfirmDetail>
 
@@ -164,6 +179,9 @@ export const ConnectServiceRequest = z.object({
   template: z.object({ id: z.string(), version: z.number().int().positive() }).optional(),
   /** the AI's one line on what it is for */
   why: z.string().optional(),
+  /** the server's line shown first: why it asks (this chat holds messages from the person's conversations, which the
+   * room card would have said; docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기"); older servers omit it */
+  lead: z.string().optional(),
   /** an HTTP API's usage notes as the AI wrote them: saved with the connection exactly as here and given to the AI in
    * later chats (api_request's description), so the card shows them before the person connects */
   notes: z.string().optional(),

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { TOP_FOLDER_LABELS } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES, type Schedule } from '@mycel/shared/api'
 import { ko } from '../../src/i18n/ko'
 import { en } from '../../src/i18n/en'
@@ -29,7 +30,7 @@ test('templates stay dormant, select readable source/private output, and reuse t
   await form.getByTestId('template-kind').selectOption('weekly-summary')
   await form.getByTestId('template-source').click()
   await expect(page.getByTestId('folder-pick')).toBeDisabled()
-  await page.getByRole('dialog').getByRole('button', { name: 'shared' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '전사 공유' }).click()
   await page.getByTestId('folder-pick').click()
   await form.getByTestId('template-time').fill('08:30')
   await form.getByTestId('template-weekday').selectOption('1')
@@ -62,20 +63,23 @@ test('inbox shows generic events, persists preferences and marks items read with
   await page.route('**/api/notifications?*', route => route.fulfill({ json: { items: [item()], nextCursor: null, unreadCount: readAt ? 0 : 1 } }))
   await page.route('**/api/notifications/*/read', route => { reads++; readAt = '2026-10-27T01:10:00Z'; return route.fulfill({ json: item() }) })
   await signIn(page)
+  // the notices are on Activity; the switches stay in Settings › Notifications
+  await page.goto('/activity')
+  const feed = page.getByTestId('activity')
+  await expect(feed.getByTestId('activity-tab-all-unread')).toBeAttached()
+  await expect(feed.getByTestId('notification-item')).toContainText('예약 작업이 완료됐어요')
+  await feed.getByRole('button', { name: '읽음 표시' }).click()
+  await expect(feed.getByRole('button', { name: '읽음 표시' })).toHaveCount(0)
+  await expect(feed.getByTestId('activity-tab-all-unread')).toHaveCount(0)
+  expect(reads).toBe(1)
   await page.goto('/settings/notifications')
   const pane = page.getByTestId('notifications')
-  await expect(pane).toContainText('읽지 않은 알림 1개')
-  await expect(pane.getByTestId('notification-item')).toContainText('예약 작업이 완료됐어요')
   // a switch now (ui.tsx Switch): its track sits over the hidden checkbox, which is what a person clicks
   await pane.getByTestId('notification-pref-scheduleSuccess').uncheck({ force: true })
   await expect(pane.getByTestId('notification-pref-scheduleSuccess')).not.toBeChecked()
   expect(preferenceUpdates).toBe(1)
-  await pane.getByRole('button', { name: '읽음 표시' }).click()
-  await expect(pane).toContainText('읽지 않은 알림 0개')
-  expect(reads).toBe(1)
   await page.reload()
   await expect(pane.getByTestId('notification-pref-scheduleSuccess')).not.toBeChecked()
-  await expect(pane.getByRole('button', { name: '읽음 표시' })).toHaveCount(0)
   expect(await page.evaluate(() => (window as unknown as { permissionCalls: number }).permissionCalls)).toBe(0)
 })
 
@@ -88,12 +92,14 @@ test('access revocation drops an inbox chat link; changing locale during a save 
     return route.fulfill({ json: { scheduleSuccess: !changed, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true } })
   })
   await page.route('**/api/notifications?*', route => route.fulfill({ json: { items: [{ id: 'event-access', sourceId: 'opaque', eventType: 'schedule.success', code: 'schedule.success', createdAt: '2026-10-27T00:00:00Z', readAt: null, chatId: allowed ? 'private-result' : null, link: allowed ? 'chat' : null }], nextCursor: null, unreadCount: 1 } }))
-  await signIn(page); await page.goto('/settings/notifications')
-  const pane = page.getByTestId('notifications'), pref = pane.getByTestId('notification-pref-scheduleSuccess')
-  await expect(pane.locator('a[href="/c/private-result"]')).toBeVisible()
+  await signIn(page); await page.goto('/activity')
+  const feed = page.getByTestId('activity')
+  await expect(feed.locator('a[href="/c/private-result"]')).toBeVisible()
   allowed = false
   await page.request.post('/__test/revoke', { data: { path: 'shared' } })
-  await expect(pane.locator('a[href="/c/private-result"]')).toHaveCount(0)
+  await expect(feed.locator('a[href="/c/private-result"]')).toHaveCount(0)
+  await page.goto('/settings/notifications')
+  const pane = page.getByTestId('notifications'), pref = pane.getByTestId('notification-pref-scheduleSuccess')
   await pref.uncheck({ force: true }); await started
   const result = await page.request.patch('/api/me', { headers: { [CSRF_HEADER]: '1' }, data: { locale: 'en' } })
   expect(result.ok()).toBeTruthy()
@@ -218,7 +224,8 @@ for (const [locale, dict] of [['ko', ko], ['en', en], ['id', id]] as const) {
     await page.getByTestId('new-task-template').click()
     const form = page.getByTestId('schedule-templates')
     await form.getByTestId('template-source').click()
-    await page.getByRole('dialog').getByRole('button', { name: 'shared' }).click()
+    // shared/ by its word in the UI language (docs/DECISIONS.md "Team folder basics")
+    await page.getByRole('dialog').getByRole('button', { name: TOP_FOLDER_LABELS.shared[locale] }).click()
     await page.getByTestId('folder-pick').click()
     for (let i = 0; i < 2; i++) {
       await form.getByTestId('template-create').click()

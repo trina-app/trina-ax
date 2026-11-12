@@ -1,4 +1,4 @@
-// "프로젝트 사람들과 공유" (shared/src/api/chats.ts shareChat; docs/DECISIONS.md "Shared project chats", "An existing chat
+// "프로젝트 멤버와 공유" (shared/src/api/chats.ts shareChat; docs/DECISIONS.md "Shared project chats", "An existing chat
 // shared"): my private chat in a team project that shares its chats becomes a shared chat. The flow starts from the
 // move dialog's switch (components/chat/ChatProject.tsx) or the title menu (components/chat/ChatTitleMenu.tsx). The
 // server checks what the chat used, every branch: when nothing is narrower than the project's people, it is shared at
@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Chat, Project, ShareChatResult } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { api, API, errorText } from '../../lib/api'
-import { sharesNewChats } from '../../lib/sharedChat'
+import { seenOnceShared, sharesNewChats } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { toast } from '../../store/ui'
 import { Button, Modal } from '../ui'
@@ -74,7 +74,7 @@ export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { ch
       open
       onClose={onClose}
       width={460}
-      title={ask.audience ? t('chat.shareChat.title', { n: ask.audience }) : t('chat.shareChat.titleNobody')}
+      title={ask.audience ? t('chat.shareChat.title', { n: seenOnceShared(ask.audience) }) : t('chat.shareChat.titleNobody')}
       footer={
         <>
           <Button variant="ghost" disabled={busy} onClick={onClose} data-testid="share-chat-cancel">

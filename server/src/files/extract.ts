@@ -3,7 +3,7 @@
 // worker (office-worker.ts, a bun child process), pdftotext (pdf). The same worker makes make_file's .hwpx
 // (officeWorkerWrite, files/hwpx-write.ts).
 // Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
-// Scanned PDFs: mycel-ocr (native/ocr, Apple Vision) on macOS only, for the search index (grep text cache, semantic search)
+// Scanned PDFs: mycel-ocr (native/ocr, Apple Vision) on macOS only, for the search index (grep text cache)
 // and the read fallback when a team turned image viewing off. Linux has no OCR. An AI read of an image or a scanned page
 // gives the model the image instead (files/vision.ts).
 // Input bytes always come from an fd opened with O_NOFOLLOW and checked (nlink==1), and are fed to the

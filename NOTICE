@@ -61,6 +61,13 @@ Contributors; the icons Lucide lists as derived from Feather are MIT, Copyright
 (c) 2013-present Cole Bemis. See resources/notices/lucide/; release bundles
 carry it in licenses/lucide/.
 
+The web app's emoji picker shows emoji names and keywords in English and Korean
+from emojibase-data 18.0.0 (MIT, Copyright (c) 2017-2019 Miles Johnson), which
+compiles them from Unicode CLDR and the Unicode emoji data (Unicode License v3,
+Copyright (c) 1991-2026 Unicode, Inc.). The web build keeps a trimmed copy
+(web/scripts/emoji-data.ts). See resources/notices/unicode-emoji/; web builds
+carry it in licenses/unicode-emoji/.
+
 HWP previews use rhwp 0.8.7 (MIT) and unchanged Noto Sans KR Regular (OFL-1.1).
 Exact pins, upstream notices and source-offer details: resources/hwp/.
 Release distributions preserve these in licenses/hwp/.

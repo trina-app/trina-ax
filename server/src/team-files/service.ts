@@ -3,7 +3,7 @@
 // what the caller may not read looks exactly like what does not exist.
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
+import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FolderAudience, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { resetEngineSessions } from '../chat/runtime'
@@ -12,19 +12,23 @@ import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { CONTENT_KINDS, fileTimeline, placeNow } from '../files/timeline'
 import { HttpError } from '../http/errors'
-import { atLeast, RuleSet, type Principal } from '../policy/access'
+import { atLeast, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { inSkills } from '../skills/guard'
-import { badSegment, hiddenEntry, volumeKey } from '../policy/names'
+import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
+import { recordCarriedSkills, skillOwner, type CarriedSkill } from '../skills/changes'
+import { badSegment, foldKey, hiddenEntry, volumeKey } from '../policy/names'
+import { skillsUnder } from '../skills/switch-on'
+import { skillEntriesOnDisk } from '../chat/skills'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
 import { getTeamSettings } from '../admin/settings'
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
-import { fileError } from './errors'
+import { FileError, fileError } from './errors'
 import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
+import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
 
 /** Files the file screen treats as binary (rendered by the client from /download, never edited as text). */
@@ -43,8 +47,17 @@ export const mimeOf = (name: string): string | null => {
   return t && t !== 'application/octet-stream' ? t : (ext(name) ? 'application/octet-stream' : null)
 }
 const segsOf = (rel: string) => (rel === '' ? [] : rel.split('/'))
+/** names sameFileAt() looks at: the name and its first renamed forms (a lost answer is retried within minutes) */
+const SAME_FILE_NAMES = 20
+/** how long a person's own upload counts as "this upload, sent again" (a resumed upload, photos picked again on a phone
+ * after the network dropped); after that the same file uploaded again is a new copy, as before */
+const SAME_UPLOAD_WINDOW_MS = 24 * 60 * 60 * 1000
 const isUnder = (anc: string, p: string) => anc === '' ? p !== '' : p.startsWith(anc + '/')
 const iso = (ms: number) => new Date(ms).toISOString()
+/** A path a person typed, for a name the server makes from it (a new folder or file, a rename, a move): composed (NFC),
+ * like uploads (QA TC-225: a Mac types Korean decomposed, which Windows shows as split letters). Folders already on
+ * the way are still found in either form (policy/resolve.ts walk compares NFC), so names stored in NFD keep working. */
+const composedPath = (p: string) => (typeof p === 'string' ? p.normalize('NFC') : p)
 
 /** GET /api/files/history `current` */
 interface HistoryCurrent { version: number; sha256: string; size: number; author: UserRef | null; turnId: string | null; at: string | null }
@@ -55,6 +68,58 @@ export interface Actor { userId: string; turnId?: string | null }
 
 /** Who changes files: a person on the Files screen (default), or the AI in a chat turn (tools/file-moves.ts). */
 type By = { turnId?: string | null; tool?: string }
+
+/** One item the AI's delete_files card showed (chat/delete-files.ts): what the person's yes is bound to. */
+export interface AiTrashItem {
+  /** the path as the file layer resolved it for the person (the actual letter case and Unicode form) */
+  rel: string
+  kind: 'file' | 'folder'
+  /** files and folders inside it (a folder; 0 for a file) */
+  files: number
+  folders: number
+  /** every entry on disk, the item first (team-files/ai-trash.ts) */
+  entries: Stamp[]
+  /** who of the other active people can read it, who can write it, and their roles now (a hash) */
+  audience: string
+}
+/** What one delete_files call would put in the trash, as its card says it (TeamFiles.planAiTrash). */
+export interface AiTrashPlan {
+  items: AiTrashItem[]
+  /** entries in all, the items and everything inside them (at most AI_TRASH_MAX_ENTRIES) */
+  entries: number
+  /** the team's trash setting when the card was made; purged that many days after it goes */
+  retentionDays: number
+  /** other active people who can read at least one item now: they no longer can */
+  lost: number
+  /** of those, the people who cannot write it: they cannot see it in the trash, so cannot restore it */
+  noRestore: number
+  /** the person may see who can write it (the owner and admins: Admin › Folder permissions), so the card says how many
+   * of those who lose it cannot restore it; anyone else is told the rule without that number, which would say how many
+   * people can write the folder (delete-files.ts deleteCard). The audit keeps both numbers either way. */
+  writersShown: boolean
+  /** other people who made or changed these files, as the file history shows them to this person */
+  others: UserRef[]
+}
+/** delete_files' refusal for a skill root (also TeamFiles.remove's for every AI turn). Only for a skill folder,
+ * something in one, or a folder with one in it now: the other folders that hold a skill root by their path get the
+ * reason of what they are (AI_TRASH_FOLDER_REFUSAL). */
+export const AI_SKILL_TRASH_REFUSAL = 'a skill folder (skills/, a group\'s, a project\'s or a person\'s own skills: what people\'s AI follows), something in one, or a folder that holds one: skills are not deleted from a chat. The user deletes it on the Files screen or the Skills page'
+/** Who deletes it where a reason says so: the asker when they may (the owner or an admin; a project's creator for the
+ * project), else in general words ("an admin"). Never a person's name (docs/DECISIONS.md "Admins are never named"). */
+const deletes = (mayDelete: boolean, others = 'An admin') => (mayDelete ? 'The user deletes' : `${others} deletes`)
+/** delete_files' refusals for the other folders that never go to the trash from a chat, each by what the folder is
+ * (TeamFiles.aiFolderRefusal; QA TC-016: a project's folder got the skill reason, and the AI sent an admin to the Skills
+ * page). Each says where it is done and who may do it: `may` is whether the asker may (see `deletes`). */
+export const AI_TRASH_FOLDER_REFUSAL = {
+  project: (may: boolean) => `a project's folder, or a folder that holds one: it does not go to the trash from a chat. ${deletes(may, 'Its creator or an admin')} the project on the Projects screen, where a team project's own folder can go to the trash with it`,
+  group: (may: boolean) => `a group's folder, or a folder that holds one (what the group's members share): it does not go to the trash from a chat. ${deletes(may)} it on the Files screen; deleting the group itself keeps its folder`,
+  own: 'the user\'s own personal folder: it never goes to the trash, from a chat or on the Files screen. The files and folders in it can',
+  rule: (may: boolean) => `a folder with its own permissions, or a folder that holds one: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
+  projectsPlace: (may: boolean) => `a folder right in projects/, where a team project keeps its folder and skills: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
+  groupsPlace: (may: boolean) => `a folder right in groups/, where a group keeps its folder and skills: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
+  /** a folder holding a group, project or rule folder the asker cannot read: which kind it is would say what is there */
+  managed: (may: boolean) => `a group, project or rule folder, or a folder that holds one: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
+}
 
 export class TeamFiles {
   /** sha256 by (path, inode, size, mtime) so repeated previews of big files don't re-hash */
@@ -118,9 +183,41 @@ export class TeamFiles {
     const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
     out.sort((a, b) => (a.type === b.type ? coll.compare(a.name, b.name) : a.type === 'folder' ? -1 : 1))
     const start = decodeCursor(cursor)
-    // download-only is looked up for the returned page only (a big folder is listed whole, then paged)
-    const items = out.slice(start, start + limit).map((e) => (e.type === 'file' && this.downloadOnly(path.join(this.root, e.path)) ? { ...e, downloadOnly: true as const } : e))
+    // download-only and fixed are looked up for the returned page only (a big folder is listed whole, then paged)
+    const items = out.slice(start, start + limit).map((e) => {
+      if (e.type === 'file') return this.downloadOnly(path.join(this.root, e.path)) ? { ...e, downloadOnly: true as const } : e
+      const fixed = e.access === 'write' ? this.fixedFor(user, rules, e.path) : null
+      return fixed ? { ...e, fixed } : e
+    })
     return { path: r.rel, access: rules.access(user, r.segs), entries: items, nextCursor: start + limit < out.length ? encodeCursor(start + limit) : null }
+  }
+
+  // ---------------- audience: who can see a folder, as far as the caller may know ----------------
+  /**
+   * GET /api/files/audience (docs/DECISIONS.md "Who can see a folder, in place"). The tree's own check and answers for
+   * the path, then a folder the caller can only pass through answers like one they cannot see. The count only where a
+   * write by the caller would pass (authorize's write check, so not in a plugin's managed folder): there the copy dry
+   * run from their own folder already gives it (viewersAdded + 1). On a folder they can only read, a count would tell
+   * them about rules above folders they cannot open (a group's size), so it is left out. One RuleSet for the check and
+   * the count; active people only (as /api/people); never a name, an id, a group or how many can write.
+   */
+  audience(userId: string, rel: string): FolderAudience {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const r = authorize(this.fx, rules, user, rel, 'list')
+    if (!r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a file`, 'not_folder')
+    const access = rules.access(user, r.segs)
+    if (!atLeast(access, 'read')) throw new Denied(`not found or no access: '${typeof rel === 'string' ? rel : ''}'`)
+    let writable = false
+    try { authorize(this.fx, rules, user, r.rel, 'write'); writable = true } catch { writable = false }
+    if (!writable) return { path: r.rel, access }
+    const active = activePeople(this.ctx.db)
+    const readers = active.filter((p) => atLeast(rules.access(p, r.segs), 'read'))
+    const people = readers.length
+    // the count apart (by its rules, by role only): the owner and admins only. Beside `people`, a member would learn how
+    // many see it only as the owner or an admin (docs/DECISIONS.md "Who sees it: the project's own people first")
+    const admin = user.role === 'owner' || user.role === 'admin'
+    return { path: r.rel, access, people, everyone: people === active.length, ...(admin ? { split: splitOf(rules, readers, r.segs) } : {}) }
   }
 
   // ---------------- content ----------------
@@ -153,6 +250,22 @@ export class TeamFiles {
     return { abs: r.abs, name: r.segs[r.segs.length - 1]! }
   }
 
+  /** Replace the file at `abs`: `then` gets the sha256 of the file as it is now, and runs in the same synchronous step
+   * as the check that the file did not change (inode, size, mtime) while it was hashed, so it keeps the current file as
+   * a version and puts the new one in place with nothing in between. Hashed again when it changed (11-11 code audit,
+   * row 33: two replace uploads at once kept the first one's bytes under the hash of the file before it, and restoring
+   * that version did nothing; a hash from the cache let the other one in between too). A file that never holds still
+   * (someone outside keeps writing): conflict. */
+  private async replacing<T>(abs: string, then: (sha: string) => T): Promise<T> {
+    for (let i = 0; i < 5; i++) {
+      const st = checkRegular(abs)
+      const h = await this.sha(abs, st)
+      const now = checkRegular(abs)
+      if (now.ino === st.ino && now.dev === st.dev && now.size === st.size && now.mtimeMs === st.mtimeMs) return then(h)
+    }
+    throw new HttpError('conflict')
+  }
+
   private async sha(abs: string, st: fs.Stats): Promise<string> {
     const k = `${abs}\0${st.ino}\0${st.size}\0${st.mtimeMs}`
     const hit = this.shaCache.get(k)
@@ -167,7 +280,7 @@ export class TeamFiles {
   save(userId: string, rel: string, content: string, baseSha: string | null): SaveResult {
     const user = this.principal(userId)
     const rules = this.rules()
-    const r = authorize(this.fx, rules, user, rel, 'write', { createDirs: true })
+    const r = authorize(this.fx, rules, user, composedPath(rel), 'write', { createDirs: true })
     if (BINARY_EXT.has(ext(r.rel)) || isOffice(r.rel)) fileError('validation', 'notText', { path: r.rel })
     const data = Buffer.from(content, 'utf8')
     const ndata = sha256(data)
@@ -209,7 +322,7 @@ export class TeamFiles {
   mkdir(userId: string, rel: string): FileEntry {
     const user = this.principal(userId)
     const rules = this.rules()
-    const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: false })
+    const r = authorize(this.fx, rules, user, composedPath(rel), 'write', { mustExist: false })
     if (r.exists) fileError('conflict', 'exists', { path: r.rel })
     fs.mkdirSync(r.abs, { mode: 0o700 })
     verifyChain(this.root, r.segs)
@@ -218,11 +331,32 @@ export class TeamFiles {
     return this.entry(user, rules, r.segs)
   }
 
-  /** root, users/, users/<id>/ and .system/ never move or go to the trash; nor does a folder holding a skill pack's
-   * managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
+  /** root, users/, users/<id>/, .system/ and the top projects/ never move or go to the trash; nor does a folder holding
+   * a skill pack's managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
   private assertMovable(segs: string[]) {
-    if (segs.length === 0 || (segs[0] === 'users' && segs.length <= 2) || segs[0] === PRODUCT.systemDir) fileError('forbidden', 'protectedFolder')
-    if (this.fx.managed?.heldBelow(segs)) fileError('forbidden', 'pluginManaged', undefined, { reason: 'plugin_managed' })
+    const why = this.unmovable(segs)
+    if (why === 'protected') fileError('forbidden', 'protectedFolder')
+    if (why === 'plugin') fileError('forbidden', 'pluginManaged', undefined, { reason: 'plugin_managed' })
+  }
+  /** Why assertMovable() refuses `segs` (null: it does not); the file listing's `fixed: 'always'` asks the same. */
+  private unmovable(segs: string[]): 'protected' | 'plugin' | null {
+    if (segs.length === 0 || (segs[0] === 'users' && segs.length <= 2) || segs[0] === PRODUCT.systemDir) return 'protected'
+    // the top projects/ folder (any letter case): moved or renamed, every project folder would leave the members-only
+    // zone and open to the owner and admins (docs/DECISIONS.md "Project contents only for members")
+    if (isProjectsTop(segs)) return 'protected'
+    if (this.fx.managed?.heldBelow(segs)) return 'plugin'
+    return null
+  }
+  /**
+   * A folder the caller may write that the file screen's rename, move and trash would still refuse (QA TC-224), for the
+   * listing (`FileEntry.fixed`): 'always' when nobody may (assertMovable), 'admin' when only the owner or an admin may
+   * (assertMayChangeManaged: a group, project or rule folder, shared/, skills/, or one holding such a folder). The
+   * refusal itself says the same when pressed, so the mark tells a member nothing new; never 'admin' for an admin.
+   */
+  private fixedFor(user: Principal, rules: RuleSet, rel: string): 'admin' | 'always' | null {
+    if (this.unmovable(segsOf(rel))) return 'always'
+    if (user.role !== 'owner' && user.role !== 'admin' && this.managedInside(rules, rel)) return 'admin'
+    return null
   }
   /** A folder may move / go to the trash only if the caller can write every rule folder inside it: otherwise
    * moving it under users/<me>/ (where rules don't apply) or deleting it would reach what they cannot see. */
@@ -244,9 +378,6 @@ export class TeamFiles {
     if (rules.ruleFolders().some((f) => f === base || isUnder(base, f))) return true
     return this.managedRows(base, base)
   }
-  /** managedInside() for a path (actual names) under the current rules: a new project on a folder that is not managed
-   * yet makes it admin-only to move, and only someone who can write the folder it is in may add that (routes/chats.ts). */
-  managedFolder(rel: string): boolean { return this.managedInside(this.rules(), rel) }
   /** Is one of the folders rows at or below `rowPrefix` managed? `livePrefix`: the path `rowPrefix` stands for
    * (differs for rows parked with a trashed folder, whose projects still name the path it had). */
   private managedRows(rowPrefix: string, livePrefix: string, trashId?: string): boolean {
@@ -267,6 +398,14 @@ export class TeamFiles {
     // otherwise a project whose folder is in the trash does not use the folder now at its old path
     return !!db.query(`SELECT 1 FROM projects WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (${livePrefix === '' ? "folder_path <> ''" : "folder_path = ?1 OR substr(folder_path, 1, length(?1) + 1) = ?1 || '/'"}) LIMIT 1`)
       .get(...(livePrefix === '' ? [] : [livePrefix]))
+  }
+  /** managedInside() for what is strictly below `base` (base itself left out). */
+  private managedBelow(rules: RuleSet, base: string): boolean {
+    if (rules.ruleFolders().some((f) => f !== base && isUnder(base, f))) return true
+    const db = this.ctx.db
+    const rows = db.query("SELECT path FROM folders WHERE substr(path, 1, length(?) + 1) = ? || '/'").all(base, base) as { path: string }[]
+    for (const f of rows) if (this.managedRows(f.path, f.path)) return true
+    return !!db.query("SELECT 1 FROM projects WHERE trashed_with IS NULL AND substr(folder_path, 1, length(?) + 1) = ? || '/' LIMIT 1").get(base, base)
   }
   private assertMayChangeManaged(user: Principal, rules: RuleSet, base: string): boolean {
     const managed = this.managedInside(rules, base)
@@ -301,22 +440,22 @@ export class TeamFiles {
   }
 
   // ---------------- move / rename ----------------
-  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean } & By = {}): { entry: FileEntry } {
-    const user = this.principal(userId)
-    const rules = this.rules()
+  /** The checks of a move that come before anything else (move() runs them first): the source and the target, who may
+   * move a managed folder, a folder into itself, what never moves. `same`: a case-only rename that changes nothing. */
+  private moveChecks(user: Principal, rules: RuleSet, from: string, to: string, onExists: 'fail' | 'rename', createDirs = false) {
     const fr = authorize(this.fx, rules, user, from, 'write', { mustExist: true })
     this.assertMovable(fr.segs)
     // a group / project / rule folder (or one holding such a folder): admins and the owner only, renames included
     const managed = this.assertMayChangeManaged(user, rules, fr.rel)
     const isDir = fr.st!.isDirectory()
     if (!isDir) checkRegular(fr.abs)
-    let tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false })
-    const typed = segsOf(to.normalize('NFC'))
+    let tr = authorize(this.fx, rules, user, composedPath(to), 'write', { mustExist: false, createDirs })
+    const typedSegs = segsOf(composedPath(to))
     let target: string[]
     if (tr.exists && tr.rel === fr.rel) {
       // same entry: case-only / Unicode-form rename on a case-insensitive volume
-      target = [...fr.segs.slice(0, -1), typed[typed.length - 1]!]
-      if (target.join('/') === fr.rel) return { entry: this.entry(user, rules, fr.segs) }
+      target = [...fr.segs.slice(0, -1), typedSegs[typedSegs.length - 1]!]
+      if (target.join('/') === fr.rel) return { fr, target, isDir, managed, same: true }
     } else {
       if (tr.exists) {
         if (onExists === 'fail') fileError('conflict', 'exists', { to: tr.rel })
@@ -329,38 +468,255 @@ export class TeamFiles {
     if (isDir && (target.join('/') === fr.rel || isUnder(fr.rel, target.join('/')))) fileError('validation', 'intoItself', { to })
     this.assertMovable(target)
     if (isDir) this.assertSubtreeWritable(user, rules, fr.segs)
-    // the AI never moves anything into or out of a skill root (skills/, a group's groups/<g>/skills/; skills/guard.ts):
-    // not a folder holding a skills/ folder into groups/<g>/ (it would make that group's skills folder), nor groups/ or
-    // a groups/<g>/ that holds one anywhere (the group's skills would leave with it). What everyone's AI follows
-    // changes only through write / edit and their card (docs/DECISIONS.md "Group skills"); people on the Files screen
-    // (no turn) move as before
-    if (o.turnId != null) {
-      const fold = (n: string) => n.normalize('NFC').toLowerCase()
-      const hasSkills = (abs: string) => { try { return fs.readdirSync(abs).some((n) => fold(n) === 'skills') } catch { return true } }
-      const children = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(abs, d.name)) } catch { return null } }
-      const intoGroup = isDir && target.length === 2 && fold(target[0]!) === 'groups' && hasSkills(fr.abs)
-      const groupOut = isDir && fold(fr.segs[0] ?? '') === 'groups' && (
-        fr.segs.length === 2 ? hasSkills(fr.abs) : fr.segs.length === 1 ? (children(fr.abs)?.some(hasSkills) ?? true) : false)
-      if (inSkills(fr.rel) || inSkills(target.join('/')) || intoGroup || groupOut) throw new Denied('skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed by moving or renaming: use write / edit, which ask the user, or the Files screen')
+    return { fr, target, isDir, managed, same: false }
+  }
+
+  /**
+   * Would this move go through, and where to (skill_files' card, skills/folder-actions.ts): every check of move() but
+   * the AI's skill-root guard, and nothing changes. `narrowed`: how many others could no longer read it (a move into
+   * the caller's own folder asks first); `switchOn`: the skills a move into projects/ would switch on. `createDirs`: the
+   * target's folders may be missing (a project's skills folder made right before the move: ensureSkillsFolder).
+   */
+  checkMove(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { createDirs?: boolean } = {}): { from: string; to: string; isDir: boolean; managed: boolean; narrowed: number; switchOn: string[] } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const c = this.moveChecks(user, rules, from, to, onExists, !!o.createDirs)
+    if (c.same) fileError('conflict', 'exists', { to: c.fr.rel })
+    if (c.managed && c.target[0] === 'users') fileError('validation', 'ruleFolderToUsers', { to: 'invalid_path: a group, project or rule folder cannot move under users/' })
+    const narrowed = c.target[0] === 'users' && !(c.fr.segs[0] === 'users' && c.fr.segs[1] === c.target[1]) ? this.lostViewers(rules, user.id, c.fr.segs, c.target) : 0
+    const switchOn = c.isDir ? this.skillsSwitchingOn(c.fr, c.target)?.names ?? [] : []
+    return { from: c.fr.rel, to: c.target.join('/'), isDir: c.isDir, managed: c.managed, narrowed, switchOn }
+  }
+
+  /** Does a move of `fr` to `target` touch a skill root (skills/guard.ts): into or out of one, a folder holding a
+   * skills/ folder into groups/<g>/ or projects/<name> (it would make that group's or project's skills folder), or
+   * groups/, projects/, a groups/<g>/ or a projects/<name>/ that holds one anywhere (their skills would leave with it;
+   * docs/DECISIONS.md "Project skills"). */
+  private touchesSkills(fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean): boolean {
+    const fold = (n: string) => n.normalize('NFC').toLowerCase()
+    const hasSkills = (abs: string) => { try { return fs.readdirSync(abs).some((n) => fold(n) === 'skills') } catch { return true } }
+    const children = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(abs, d.name)) } catch { return null } }
+    // groups/<g>/skills and projects/<name>/skills are both skill roots by their path (skills/guard.ts)
+    const holder = (n: string | undefined) => fold(n ?? '') === 'groups' || fold(n ?? '') === 'projects'
+    const intoGroup = isDir && target.length === 2 && holder(target[0]) && hasSkills(fr.abs)
+    const groupOut = isDir && holder(fr.segs[0]) && (
+      fr.segs.length === 2 ? hasSkills(fr.abs) : fr.segs.length === 1 ? (children(fr.abs)?.some(hasSkills) ?? true) : false)
+    return inSkills(fr.rel) || inSkills(target.join('/')) || intoGroup || groupOut
+  }
+
+  /** `skillMove`: skills/move.ts runMove, which checked write on both places and has the person's yes for exactly these
+   * files (the AI's move_skill card or the Skills page): the AI's refusal for skill roots does not apply. `skillGrant`:
+   * skill_files' grant for exactly this move (skills/guard.ts takeSkillAction), planned again right before the rename. */
+  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean; skillMove?: boolean; skillsOk?: boolean; skillGrant?: string; askWiden?: boolean } & By = {}): { entry: FileEntry } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const { fr, target, isDir, managed, same } = this.moveChecks(user, rules, from, to, onExists)
+    if (same) return { entry: this.entry(user, rules, fr.segs) }
+    // the AI never moves anything into or out of a skill root (skills/, a group's groups/<g>/skills/, a project's
+    // projects/<name>/skills/; skills/guard.ts), nor a folder that holds one (touchesSkills), unless the person allowed
+    // exactly this move on skill_files' card (a grant for this call, with its card's token checked again right before
+    // the rename) or it is move_skill's. What everyone's AI follows changes only through those cards and write / edit's
+    // (docs/DECISIONS.md "Group skills", "Skill folders: the AI's file actions"); people on the Files screen (no turn)
+    // move as before. A grant names the exact target: never a " (2)" next to a name that is taken
+    let grant: SkillActionGrant | null = null
+    if (o.turnId != null && !o.skillMove && (o.skillGrant !== undefined || this.touchesSkills(fr, target, isDir))) {
+      if (onExists !== 'fail') throw new Denied(SKILL_FILES_REFUSAL)
+      grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'move', from: fr.rel, to: target.join('/') })
     }
     // under users/ folder rules are not read: the folder would become private to one person and the rest of the team,
     // admins included, could not see it to move it back. Nobody may do that, owner included (design tab 2 rule 3).
     if (managed && target[0] === 'users') fileError('validation', 'ruleFolderToUsers', { to: 'invalid_path: a group, project or rule folder cannot move under users/' })
+    // a project's own folder stays in projects/ (docs/DECISIONS.md "Project contents only for members"): moved out, its
+    // project would follow it out of the members-only zone and open to the owner and admins
+    if (isDir && fr.segs.length === 2 && inProjectZone(fr.segs) && !(target.length === 2 && inProjectZone(target))) fileError('conflict', 'projectFolderStays', { to: 'project_location' }, { reason: 'project_location' })
     // an ordinary item into the caller's own folder: whoever could read it and cannot any more must be confirmed
     let narrowed = 0
     if (target[0] === 'users' && !(fr.segs[0] === 'users' && fr.segs[1] === target[1])) {
       narrowed = this.lostViewers(rules, user.id, fr.segs, target)
       if (narrowed > 0 && !o.confirm) fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed })
     }
+    // the other way (QA TC-115): an item out of a personal folder to where more people can read it must be confirmed
+    // too, when the client asks (askWiden: the Files screen). The AI's own moves ask on their cards (tools/file-moves.ts)
+    let widened = 0
+    if (o.askWiden && fr.segs[0] === 'users' && !(target[0] === 'users' && target[1] === fr.segs[1])) {
+      widened = this.viewersAdded(rules, user.id, fr.segs, target)
+      if (widened > 0 && !o.confirm) fileError('conflict', 'audienceWidened', undefined, { reason: 'audience_widened', viewersAdded: widened })
+    }
+    // a project's folder moved to projects/<name> from elsewhere: the project follows it, and the skills in its skills/
+    // folder start to count in its chats (docs/DECISIONS.md "Project skills"). Said first, with their names (409
+    // project_skills_on unless skillsOk), and each recorded as a skill change once moved
+    const switchOn = isDir ? this.skillsSwitchingOn(fr, target) : null
+    if (switchOn?.names.length && !o.skillsOk) fileError('conflict', 'projectSkillsOn', undefined, { reason: 'project_skills_on', skills: switchOn.names.slice(0, 20).join('\n'), count: switchOn.names.length })
     const toRel = target.join('/')
     const readers = this.readersOf(rules, fr.segs)
-    this.relocate(userId, fr, target, isDir, { ...o, narrowed })
+    // the skills below a moved folder whose place as a skill changes with it: each recorded once moved, on or off
+    const carried = isDir ? this.carriedSkills(fr, target) : []
+    // "I" and a skill's folder renamed (skill_files): the bytes its card showed, made ready as new files beside the
+    // target first; they go into place in the move's own step (relocate), so a process that kept the moved files open
+    // cannot change the skill, and nothing lands half done. A file whose bytes change (a renamed skill's SKILL.md)
+    // keeps its old ones as a version, and is recorded as changed once moved
+    const fresh = grant?.fresh ? this.freshTree(target, isDir, grant.fresh, fr.abs) : null
+    const changed = grant?.fresh ? this.freshChanges(fr, isDir, grant.fresh) : []
+    let aside: string | null = null
+    try {
+      // the card's plan again, right before the rename: files, hashes, target, readers and editors as shown
+      grant?.recheck()
+      // the old bytes of a changed file as a version, in the move's own transaction (after its history was moved, so at
+      // the new path)
+      const inTx = changed.length ? () => { for (const c of changed) saveVersion(this.ctx.db, this.root, [...target, ...c.segs].join('/'), c.old, { userId, turnId: o.turnId ?? null }) } : undefined
+      aside = this.relocate(userId, fr, target, isDir, { ...o, narrowed, widened, ...(fresh ? { fresh } : {}), ...(inTx ? { inTx } : {}) })
+    } catch (e) { if (fresh) fs.rmSync(fresh, { recursive: true, force: true }); throw e }
+    // what was moved: the files the card showed go; anything else (written after the last check) goes to the trash
+    if (aside && grant?.fresh) {
+      const was = new Map(changed.map((c) => [c.segs.join('/'), sha256(c.old)]))
+      this.settleAside(userId, aside, fr, isDir, new Map(grant.fresh.map((f) => [f.segs.join('/'), was.get(f.segs.join('/')) ?? sha256(f.bytes)])), o.turnId ?? null)
+    }
+    for (const c of changed) {
+      const rel = [...target, ...c.segs].join('/')
+      fileEvent(this.ctx.db, { turnId: o.turnId ?? null, userId, path: rel, action: 'update', size: c.bytes.length, sha256: sha256(c.bytes), detail: { tool: o.tool ?? 'file-screen' } })
+      this.dropTextCache(rel, false)
+      this.publish([{ path: rel, action: 'update', by: this.by(userId), turnId: o.turnId ?? null }])
+    }
+    if (carried.length) recordCarriedSkills(this.ctx, userId, carried, { turnId: o.turnId ?? null, tool: o.tool ?? null })
     const after = this.rules()
     this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
     // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
     this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
     return { entry: this.entry(user, rules, target) }
   }
+
+  /**
+   * The skill entries below a moved folder whose place as a skill changes with it (docs/DECISIONS.md "Skill folders:
+   * the AI's file actions", M5): every SKILL.md folder, and in a group's skills folder every .md, of a skills/ folder in
+   * the moved folder or one level below it, by its path before and after. `off`: it leaves the skill roots (a project's
+   * folder moved out of projects/, a group's out of groups/), `on`: it comes into one, `moved`: it stays one somewhere
+   * else (a group's or project's folder renamed). A skills folder itself, or a folder in one, that leaves the skill
+   * roots: each skill in it, as stopped (its own file event records the folder: skills/changes.ts skillChangeOf).
+   */
+  private carriedSkills(fr: { rel: string; abs: string }, target: string[]): CarriedSkill[] {
+    const toRel = target.join('/')
+    if (inSkills(fr.rel)) {
+      // a skills folder itself, or a folder in one, moved out of the skill roots: each skill at or below it stops (its
+      // folder event says that the folder moved); within the skill roots its folder event says it all. The skills as
+      // the loader finds them (chat/skills.ts skillEntriesOnDisk), single-file skills in subfolders included
+      if (inSkills(toRel)) return []
+      const root = skillRootOf(fr.rel)!
+      const rootRel = fr.rel.split('/').slice(0, root.kind === 'team' ? 1 : 3).join('/')
+      const owner = skillOwner(this.ctx, `${fr.rel}/x`)
+      return skillEntriesOnDisk(this.root, rootRel).map((e) => `${rootRel}/${e.path}`).filter((p) => p === fr.rel || p.startsWith(fr.rel + '/'))
+        .map((p) => ({ from: p, to: toRel + p.slice(fr.rel.length), state: 'off' as const, owner }))
+    }
+    const dir = (abs: string) => { try { return fs.lstatSync(abs).isDirectory() } catch { return false } }
+    const roots: string[] = []
+    if (dir(path.join(fr.abs, SKILLS_DIR))) roots.push(SKILLS_DIR)
+    let kids: fs.Dirent[] = []
+    try { kids = fs.readdirSync(fr.abs, { withFileTypes: true }) } catch { kids = [] }
+    for (const k of kids) if (k.isDirectory() && !k.name.startsWith('.') && dir(path.join(fr.abs, k.name, SKILLS_DIR))) roots.push(`${k.name}/${SKILLS_DIR}`)
+    const out: CarriedSkill[] = []
+    for (const r of roots) {
+      const before = `${fr.rel}/${r}`, after = `${toRel}/${r}`
+      const a = inSkills(before), b = inSkills(after)
+      if (!a && !b) continue
+      // whose skills they were, read now: the group or project follows the folder when it moves
+      const owner = a && !b ? skillOwner(this.ctx, `${before}/x`) : undefined
+      // the skills as the loader finds them there (as the skills folder it is now, or the one it becomes)
+      for (const e of skillEntriesOnDisk(this.root, before, a ? before : after)) out.push({ from: `${before}/${e.path}`, to: `${after}/${e.path}`, state: a && b ? 'moved' : a ? 'off' : 'on', ...(owner ? { owner } : {}) })
+    }
+    return out
+  }
+
+  /** "I": the bytes skill_files' card showed (`files`, segments below the moved folder; [] for a single file), written as
+   * new files under a server temp name beside where the move goes (the parent folder exists: the move needs it). */
+  private freshTree(target: string[], isDir: boolean, files: { segs: string[]; bytes: Uint8Array; exec?: boolean }[], fromAbs: string): string {
+    const tmp = path.join(this.root, ...target.slice(0, -1), PRODUCT.tmpPrefix + crypto.randomUUID())
+    try {
+      if (isDir) {
+        fs.mkdirSync(tmp, { mode: 0o700 })
+        // the folders as they are, empty ones too (a folder's rules or a project may name one); never through a link
+        const dirs = (abs: string, segs: string[]) => {
+          for (const d of fs.readdirSync(abs, { withFileTypes: true })) {
+            if (!d.isDirectory() || d.isSymbolicLink() || d.name === '.' || d.name === '..' || d.name.includes('/')) continue
+            fs.mkdirSync(path.join(tmp, ...segs, d.name), { mode: 0o700 })
+            dirs(path.join(abs, d.name), [...segs, d.name])
+          }
+        }
+        dirs(fromAbs, [])
+        for (const f of files) {
+          if (!f.segs.length || f.segs.some((x) => !x || x === '.' || x === '..' || x.includes('/') || x.includes('\\'))) throw new Denied('bad path in a skill folder')
+          fs.mkdirSync(path.join(tmp, ...f.segs.slice(0, -1)), { recursive: true, mode: 0o700 })
+          fs.writeFileSync(path.join(tmp, ...f.segs), f.bytes, { mode: f.exec ? 0o700 : 0o600, flag: 'wx' })
+        }
+      } else {
+        if (files.length !== 1 || files[0]!.segs.length) throw new Denied('bad file in a skill folder')
+        fs.writeFileSync(tmp, files[0]!.bytes, { mode: files[0]!.exec ? 0o700 : 0o600, flag: 'wx' })
+      }
+    } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
+    return tmp
+  }
+
+  /**
+   * After skill_files placed the card's files (relocate `fresh`): what was moved, put aside under a server temp name.
+   * The files the card showed, as they were then (`shown`: hash by path below it), are removed; anything else, written
+   * there after the last check (by a dev-environment job, say), goes to the trash at the path it was moved from, where
+   * the person can look at it and restore it (never removed for good). A failure here never undoes the move.
+   */
+  private settleAside(userId: string, aside: string, fr: { rel: string; segs: string[] }, isDir: boolean, shown: Map<string, string>, turnId: string | null) {
+    const same = (abs: string, key: string) => { try { return shown.get(key) === sha256(readRegular(abs).bytes) } catch { return false } }
+    try {
+      if (!isDir) { if (same(aside, '')) { fs.rmSync(aside, { force: true }); return } }
+      else {
+        const prune = (abs: string, segs: string[]) => {
+          for (const d of fs.readdirSync(abs, { withFileTypes: true })) {
+            const p = path.join(abs, d.name), key = [...segs, d.name].join('/')
+            if (d.isDirectory()) { prune(p, [...segs, d.name]); try { fs.rmdirSync(p) } catch { /* something left in it */ } }
+            else if (d.isFile() && same(p, key)) fs.rmSync(p, { force: true })
+          }
+        }
+        prune(aside, [])
+        if (!fs.readdirSync(aside).length) { fs.rmdirSync(aside); return }
+      }
+      const storage = moveIntoTrash(this.root, [...fr.segs.slice(0, -1), path.basename(aside)])
+      const id = newId()
+      const size = isDir ? treeSize(path.join(this.root, ...storage.split('/'))).bytes : fs.lstatSync(path.join(this.root, ...storage.split('/'))).size
+      const purgeAt = iso(Date.now() + getTeamSettings(this.ctx.db).trashRetentionDays * DAY)
+      this.ctx.db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+        .run(id, fr.rel, storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
+      fileEvent(this.ctx.db, { turnId, userId, path: fr.rel, action: 'delete', size, detail: { folder: isDir, trashId: id, leftAfterSkillMove: true } })
+      this.ctx.log.warn('files written after a skill placement\'s last check went to the trash', { path: fr.rel, trashId: id })
+    } catch (err) { this.ctx.log.warn('moved files not settled after a skill placement', { err, path: fr.rel }) }
+  }
+
+  /** The fresh files whose bytes differ from the file they replace (a renamed skill's SKILL.md with its new name line),
+   * with the bytes there now (kept as a version). */
+  private freshChanges(fr: { rel: string; abs: string }, isDir: boolean, files: { segs: string[]; bytes: Uint8Array }[]): { from: string; segs: string[]; old: Buffer; bytes: Uint8Array }[] {
+    const out: { from: string; segs: string[]; old: Buffer; bytes: Uint8Array }[] = []
+    for (const f of files) {
+      const abs = isDir ? path.join(fr.abs, ...f.segs) : fr.abs
+      let old: Buffer
+      try { old = readRegular(abs).bytes } catch { continue }
+      if (sha256(old) !== sha256(f.bytes)) out.push({ from: isDir ? [fr.rel, ...f.segs].join('/') : fr.rel, segs: f.segs, old, bytes: f.bytes })
+    }
+    return out
+  }
+
+  /**
+   * The skills a move of folder `fr` to `target` turns on (docs/DECISIONS.md "Project skills"): `target` is
+   * projects/<name>, `fr` is not one already, a live project's folder is `fr` (the project follows it), and its skills/
+   * holds SKILL.md folders. Their names and their paths below the folder; null when the move turns nothing on.
+   */
+  private skillsSwitchingOn(fr: { rel: string; segs: string[]; abs: string }, target: string[]): { names: string[]; paths: string[]; project: { id: string; name: string } } | null {
+    const fold = (n: string) => n.normalize('NFC').toLowerCase()
+    if (target.length !== 2 || fold(target[0]!) !== 'projects') return null
+    if (fr.segs.length === 2 && fold(fr.segs[0]!) === 'projects') return null
+    // the live project on that folder, letter case and Unicode form folded (as the guard compares names)
+    const k = foldKey(fr.rel)
+    const project = (this.ctx.db.query('SELECT id, name, folder_path FROM projects WHERE trashed_with IS NULL ORDER BY created_at, id').all() as { id: string; name: string; folder_path: string }[])
+      .find((p) => foldKey(p.folder_path) === k)
+    if (!project) return null
+    const found = skillsUnder(this.root, fr.rel)
+    return found.names.length ? { ...found, project: { id: project.id, name: project.name } } : null
+  }
+
 
   /**
    * A deleted member's personal folder `fromRel` (users/<id>) goes to `toRel` in the owner's personal folder (the
@@ -390,9 +746,10 @@ export class TeamFiles {
    * trash items of the moved path follow it, two file events record it, then the rename and the text cache. move()
    * checks the caller's access first; archiveFolder() is the server's own move of a deleted member's folder.
    */
-  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number }) {
+  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; widened?: number; fresh?: string; inTx?: () => void }): string | null {
     const toRel = target.join('/')
     const narrowed = o.narrowed ?? 0
+    const widened = o.widened ?? 0
     const db = this.ctx.db
     if (isDir && toRel.toLowerCase() !== fr.rel.toLowerCase()) {
       const clash = db.query('SELECT path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || \'/\'').get(toRel, toRel, toRel) as { path: string } | null
@@ -400,6 +757,7 @@ export class TeamFiles {
     }
     verifyChain(this.root, fr.segs)
     verifyChain(this.root, target, true)
+    const aside = path.join(path.dirname(fr.abs), PRODUCT.tmpPrefix + crypto.randomUUID())
     // DB first, the rename last inside the same transaction: if anything fails nothing has moved
     db.transaction(() => {
       const under = (col: string) => `(${col} = ? OR substr(${col}, 1, length(?) + 1) = ? || '/')`
@@ -450,10 +808,24 @@ export class TeamFiles {
           .run(toRel, fr.rel, fr.rel, fr.rel)
       }
       fileEvent(db, { turnId: o.turnId ?? null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: o.tool ?? 'file-screen' } })
-      fileEvent(db, { turnId: o.turnId ?? null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: o.tool ?? 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
-      fs.renameSync(fr.abs, path.join(this.root, ...target))
+      fileEvent(db, { turnId: o.turnId ?? null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: o.tool ?? 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}), ...(widened ? { audienceWidened: widened } : {}) } })
+      const toAbs = path.join(this.root, ...target)
+      if (!o.fresh) fs.renameSync(fr.abs, toAbs)
+      else {
+        // skill_files: the new files (the card's bytes) go where the move goes, and what moved is put aside to be
+        // removed: either both happen or neither (the database part rolls back with them)
+        o.inTx?.()
+        fs.renameSync(o.fresh, toAbs)
+        try { fs.renameSync(fr.abs, aside) } catch (e) {
+          // the card's files never stay without the move: put back, or else removed
+          try { fs.renameSync(toAbs, o.fresh) } catch { fs.rmSync(toAbs, { recursive: true, force: true }) }
+          throw e
+        }
+      }
     })()
     this.moveTextCache(fr.rel, toRel, isDir)
+    // what was moved, put aside: the caller settles it (settleAside)
+    return o.fresh ? aside : null
   }
 
   /**
@@ -462,12 +834,15 @@ export class TeamFiles {
    * of them now and could not in `toFolder` (lost). Counted once per person, never named. Every path is checked like
    * the move / copy itself (a path the caller may not use throws: the tool checks them one by one first).
    */
-  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number; fingerprint: string } {
+  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number; fingerprint: string; isNew: boolean; folder: string } {
     const user = this.principal(userId)
     const rules = this.rules()
     const srcs = from.map((f) => authorize(this.fx, rules, user, f, mode === 'move' ? 'write' : 'read', { mustExist: true }).segs)
-    const to = authorize(this.fx, rules, user, toFolder, 'write', { mustExist: true })
-    if (!to.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    // a folder that is not there yet is made by the tool (ensureFolder) after the card: its readers are those its
+    // nearest existing folder's rules give it (a new folder has no rules of its own), under the same write check as a
+    // new file's folders (docs/DECISIONS.md "move_files and copy_files make the target folder")
+    const to = authorize(this.fx, rules, user, toFolder, 'write', { mustExist: false, createDirs: true })
+    if (to.exists && !to.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let added = 0, lost = 0
     const audience: string[] = []
     for (const p of activePeople(this.ctx.db)) {
@@ -479,7 +854,44 @@ export class TeamFiles {
     }
     // Compare identities as well as counts without exposing reader names to the tool.
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify(audience.sort())).digest('hex')
-    return { added, lost, fingerprint }
+    return { added, lost, fingerprint, isNew: !to.exists, folder: to.rel }
+  }
+
+  /**
+   * The AI's move_files / copy_files into a folder that is not there yet (docs/DECISIONS.md "move_files and copy_files
+   * make the target folder"): the missing folders are made one by one under the same checks as a new file's folders
+   * (write access, names, look-alike names: authorize createDirs). Before, the AI was told to write a README.md into a
+   * new folder first, a file nobody asked for. Returns the folder as on disk and the folders made (none when it was
+   * there); the caller records them once something went in (recordFolders), or takes them away again (dropFolders).
+   */
+  ensureFolder(userId: string, rel: string): { path: string; created: string[] } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const r = authorize(this.fx, rules, user, composedPath(rel), 'write', { mustExist: false, createDirs: true })
+    if (r.exists) {
+      if (!r.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+      return { path: r.rel, created: [] }
+    }
+    const created: string[] = []
+    try {
+      for (let i = r.existing; i < r.segs.length; i++) {
+        const segs = r.segs.slice(0, i + 1)
+        verifyChain(this.root, segs, true)
+        try { fs.mkdirSync(path.join(this.root, ...segs), { mode: 0o700 }) } catch (e: any) { if (e.code !== 'EEXIST') throw e; continue }
+        verifyChain(this.root, segs)
+        created.push(segs.join('/'))
+      }
+    } catch (e) { this.dropFolders(created); throw e }
+    return { path: r.rel, created }
+  }
+  /** The folders ensureFolder made, each a new folder of this turn in the file history and on the Files screen. */
+  recordFolders(userId: string, created: string[], o: By = {}) {
+    for (const at of created) fileEvent(this.ctx.db, { turnId: o.turnId ?? null, userId, path: at, action: 'create', detail: { folder: true, tool: o.tool ?? 'file-screen' } })
+    if (created.length) this.publish(created.map((p) => ({ path: p, action: 'mkdir' as const, by: this.by(userId), turnId: o.turnId ?? null })))
+  }
+  /** The folders ensureFolder made, taken away again while still empty (nothing went in), the deepest first. */
+  dropFolders(created: string[]) {
+    for (const at of [...created].reverse()) { try { fs.rmdirSync(path.join(this.root, ...at.split('/'))) } catch { /* not empty, or gone: left */ } }
   }
 
   // ---------------- copy: sharing a personal file / project (design tab 2 rule 3, tab 4 POST /api/files/copy) ----------------
@@ -500,7 +912,7 @@ export class TeamFiles {
    * dryRun: nothing is copied; how many more people would see the copy than see the original.
    * A source the caller cannot read answers exactly like a missing one (not_found).
    */
-  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename' } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
+  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename'; skillGrant?: string } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
     const user = this.principal(userId)
     const rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
@@ -514,9 +926,14 @@ export class TeamFiles {
     const pr = authorize(this.fx, rules, user, typed.slice(0, -1).join('/'), 'write', { mustExist: true })
     if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let r = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
-    // the AI never copies into a skill root (skills/, a group's skills; as move above): only write / edit and their card
-    // put a file there. People on the Files screen (no turn) copy as before
-    if (o.turnId != null && inSkills(r.rel)) throw new Denied('skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed by copying: use write / edit, which ask the user, or the Files screen')
+    // the AI never copies into or out of a skill root (skills/, a group's or a project's skills; as move above) without
+    // the person's yes for exactly this copy on skill_files' card (a grant for this call, its card's plan checked again
+    // right before the copy, never next to a name that is taken). People on the Files screen (no turn) copy as before
+    let grant: SkillActionGrant | null = null
+    if (o.turnId != null && (o.skillGrant !== undefined || inSkills(r.rel) || inSkills(fr.rel))) {
+      if ((o.onExists ?? 'rename') !== 'fail' || o.dryRun) throw new Denied(SKILL_FILES_REFUSAL)
+      grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'copy', from: fr.rel, to: r.rel })
+    }
     const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
     if (o.dryRun) return { viewersAdded: added }
     // with a plan, the team disk near full or over the plan's limit (system/storage.ts): a tool gets a tool error, the
@@ -525,25 +942,35 @@ export class TeamFiles {
     const onExists = o.onExists ?? 'rename'
     let replaced = false
     let conflictOf: string | null = null
+    let out: ReturnType<typeof copyTeamFile> | null = null
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
       if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
       if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name, false, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))].join('/'), 'write', { mustExist: false })
       else {
-        const cur = await this.sha(r.abs, checkRegular(r.abs))
-        if (o.baseSha256 && o.baseSha256 !== cur) {
+        const target = r
+        out = await this.replacing(target.abs, (cur) => {
+          if (o.baseSha256 && o.baseSha256 !== cur) return null
+          // the copy follows the snapshot in the same step (replacing)
+          grant?.recheck()
+          snapshotVersion(this.ctx.db, this.root, target.rel, { userId, turnId: null }, 'edit', cur)
+          replaced = true
+          return copyTeamFile(this.root, fr.abs, target.segs)
+        })
+        if (!out) {
           // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
           let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db), teamTimeZone(this.ctx.db))
           if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
           conflictOf = r.rel
           r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })
-        } else {
-          snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
-          replaced = true
         }
       }
     }
-    const out = copyTeamFile(this.root, fr.abs, r.segs)
+    if (!out) {
+      // the card's plan again, right before the copy
+      grant?.recheck()
+      out = copyTeamFile(this.root, fr.abs, r.segs)
+    }
     const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
     // a conflict copy is told to both people and listed in the original's history, like a conflicting save
     const turnId = o.turnId ?? null, tool = o.tool ?? 'file-screen'
@@ -555,9 +982,104 @@ export class TeamFiles {
   }
 
   /**
+   * A skill copied to another level (skills/move.ts runCopy, after the person's yes on its card or the Skills page):
+   * `files` are the bytes the card was bound to (by their hashes), placed at `to`, a folder (`folder`: a SKILL.md folder,
+   * each file at `segs` inside it) or a single file that is not there yet, where the caller may write. Built under a
+   * server temp name beside it, then renamed into place. One event for it, with where it was copied from (`copiedFrom`:
+   * skills/changes.ts lists it as the change's `from`; null for a person's own skill, never named to others).
+   */
+  writeSkillCopy(userId: string, from: string | null, to: string, files: { segs: string[]; bytes: Uint8Array }[], o: { folder: boolean; turnId?: string | null; tool?: string }): void {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false })
+    if (tr.exists) fileError('conflict', 'exists', { to: tr.rel })
+    const size = files.reduce((n, f) => n + f.bytes.length, 0)
+    if (currentPlan()) { if (o.turnId != null) assertStorageRoomForAI(size); else assertStorageRoom(size) }
+    this.placeTree(tr, files, o.folder)
+    const turnId = o.turnId ?? null
+    fileEvent(this.ctx.db, { turnId, userId, path: tr.rel, action: 'create', size, detail: { folder: o.folder, copiedFrom: from, ...(from ? { sourcePaths: [from] } : {}), ...(o.folder ? { files: files.length } : {}), tool: o.tool ?? 'skill_copy' } })
+    for (const f of files) this.extractText(o.folder ? [...tr.segs, ...f.segs].join('/') : tr.rel)
+    this.publish([{ path: tr.rel, action: o.folder ? 'mkdir' : 'create', by: this.by(userId), turnId }])
+  }
+
+  /**
+   * skill_files' "I" for a copy (skills/folder-actions.ts): `files`, the bytes its card showed (a SKILL.md folder's
+   * files, or one media file), placed at `to` in a skill root as new files, only with the grant for exactly this
+   * placement (its card's plan checked again right before the rename into place). The folders above it are made when a
+   * skills folder is not there yet. One event for it, with where it was copied from (`from`: skills/changes.ts lists it
+   * as the change's `from`).
+   */
+  placeSkillTree(userId: string, from: string, to: string, files: { segs: string[]; bytes: Uint8Array; exec?: boolean }[], o: { folder: boolean; turnId: string; tool: string; skillGrant: string }): { path: string } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false, createDirs: true })
+    if (tr.exists) fileError('conflict', 'exists', { to: tr.rel })
+    const grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'place', from, to: tr.rel })
+    const size = files.reduce((n, f) => n + f.bytes.length, 0)
+    if (currentPlan()) assertStorageRoomForAI(size)
+    // a project's first skill: its skills folder is made (it has no rules of its own, so its folder's rules apply), and
+    // taken away again when nothing is placed (never an empty skills folder left behind)
+    const parent = tr.segs.slice(0, -1)
+    const parentAbs = path.join(this.root, ...parent)
+    verifyChain(this.root, parent, true)
+    const made = !fs.existsSync(parentAbs)
+    if (made) fs.mkdirSync(parentAbs, { mode: 0o700 })
+    try { this.placeTree(tr, files, o.folder, () => grant.recheck()) } catch (e) { if (made) this.dropEmptySkillsFolder(parent.join('/')); throw e }
+    fileEvent(this.ctx.db, { turnId: o.turnId, userId, path: tr.rel, action: 'create', size, detail: { folder: o.folder, copiedFrom: from, sourcePaths: [from], ...(o.folder ? { files: files.length } : {}), tool: o.tool } })
+    for (const f of files) this.extractText(o.folder ? [...tr.segs, ...f.segs].join('/') : tr.rel)
+    this.publish([{ path: tr.rel, action: o.folder ? 'mkdir' : 'create', by: this.by(userId), turnId: o.turnId }])
+    return { path: tr.rel }
+  }
+
+  /** Files built under a server temp name beside `tr`, then renamed into place (`folder`: each at its segments inside
+   * it; else the one file). `last`: run right before the rename (a card's plan checked again). Nothing is left when
+   * anything fails. */
+  private placeTree(tr: Authorized, files: { segs: string[]; bytes: Uint8Array; exec?: boolean }[], folder: boolean, last?: () => void) {
+    const dir = path.join(this.root, ...tr.segs.slice(0, -1))
+    const tmp = path.join(dir, PRODUCT.tmpPrefix + crypto.randomUUID())
+    try {
+      if (folder) {
+        fs.mkdirSync(tmp, { mode: 0o700 })
+        for (const f of files) {
+          if (!f.segs.length || f.segs.some((s) => !s || s === '.' || s === '..' || s.includes('/') || s.includes('\\'))) throw new Denied('bad path in a skill copy')
+          fs.mkdirSync(path.join(tmp, ...f.segs.slice(0, -1)), { recursive: true, mode: 0o700 })
+          fs.writeFileSync(path.join(tmp, ...f.segs), f.bytes, { mode: f.exec ? 0o700 : 0o600, flag: 'wx' })
+        }
+      } else fs.writeFileSync(tmp, files[0]?.bytes ?? new Uint8Array(), { mode: files[0]?.exec ? 0o700 : 0o600, flag: 'wx' })
+      verifyChain(this.root, tr.segs, true)
+      if (fs.existsSync(tr.abs)) fileError('conflict', 'exists', { to: tr.rel })
+      last?.()
+      fs.renameSync(tmp, tr.abs)
+    } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
+  }
+
+  /** skill_files' "I" into a skills folder that is not there yet (a project's first skill): made now, right before the
+   * move, under the same write check as any new folder; true when it was made (dropEmptySkillsFolder takes it away
+   * again when the move then fails: never an empty skills folder left behind). */
+  ensureSkillsFolder(userId: string, rel: string): boolean {
+    const user = this.principal(userId)
+    const r = authorize(this.fx, this.rules(), user, rel, 'write', { mustExist: false })
+    if (r.exists) return false
+    const k = (n: string | undefined) => (n ?? '').normalize('NFC').toLowerCase()
+    const rootFolder = (r.segs.length === 1 && k(r.segs[0]) === SKILLS_DIR) || (r.segs.length === 3 && (k(r.segs[0]) === 'groups' || k(r.segs[0]) === 'projects') && k(r.segs[2]) === SKILLS_DIR)
+    if (!rootFolder) throw new Denied(SKILL_FILES_REFUSAL)
+    verifyChain(this.root, r.segs, true)
+    fs.mkdirSync(r.abs, { mode: 0o700 })
+    verifyChain(this.root, r.segs)
+    return true
+  }
+  /** The skills folder ensureSkillsFolder made, taken away again while it is still empty. */
+  dropEmptySkillsFolder(rel: string) {
+    try { fs.rmdirSync(path.join(this.root, ...rel.split('/'))) } catch { /* not empty, or gone: left */ }
+  }
+
+  /**
    * Copy a whole folder the caller can read into `toParent` (a folder the caller can write), under the same name
    * (" (2)" when taken). Only what the caller can read is copied (links, hard links, odd names and hidden entries are
    * left out); at most `limits` files / bytes (413 beyond). Built under a hidden temp name, then renamed into place.
+   * One file_events row for the whole copy (create {folder, sourcePaths}); the files inside get none. The history walk
+   * (files/timeline.ts fileTimelineWalk) follows a file inside to its source through that row, so the outside mark of
+   * the source's content and names goes with the copy (chat/turn.ts noteOwnReads, noteOwnNames).
    */
   copyFolderTree(userId: string, from: string, toParent: string, o: { dryRun?: boolean; maxFiles?: number; maxBytes?: number } = {}): { path: string; files: number; bytes: number } | { viewersAdded: number } {
     const user = this.principal(userId)
@@ -578,6 +1100,19 @@ export class TeamFiles {
     const tr = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
     const added = this.viewersAdded(rules, user.id, fr.segs, tr.segs)
     if (o.dryRun) return { viewersAdded: added }
+    const { files, bytes } = this.copyTree(user, rules, fr, pr.abs, (tmp) => { verifyChain(this.root, tr.segs, true); fs.renameSync(tmp, tr.abs) }, o)
+    fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
+    for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
+    this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
+    return { path: tr.rel, files: files.length, bytes }
+  }
+
+  /**
+   * The readable files and listable folders of `fr`, copied into a temporary folder made in `intoAbs` (a server temp
+   * name: nobody sees it), which `place` then puts where it goes. Walked without following anything; refused past
+   * `maxFiles` / `maxBytes`; the temporary folder goes again when anything fails.
+   */
+  private copyTree(user: Principal, rules: RuleSet, fr: Authorized, intoAbs: string, place: (tmp: string) => void, o: { maxFiles?: number; maxBytes?: number }): { files: { segs: string[]; size: number }[]; bytes: number } {
     const maxFiles = o.maxFiles ?? SHARE_MAX_FILES, maxBytes = o.maxBytes ?? SHARE_MAX_BYTES
     // what to copy: readable regular files and listable folders, walked without following anything
     const dirs: string[][] = [], files: { segs: string[]; size: number }[] = []
@@ -602,7 +1137,7 @@ export class TeamFiles {
     }
     walk([])
     if (currentPlan()) assertStorageRoom(bytes)
-    const tmp = path.join(pr.abs, PRODUCT.tmpPrefix + crypto.randomUUID())
+    const tmp = path.join(intoAbs, PRODUCT.tmpPrefix + crypto.randomUUID())
     fs.mkdirSync(tmp, { mode: 0o700 })
     try {
       for (const d of dirs) fs.mkdirSync(path.join(tmp, ...d), { mode: 0o700 })
@@ -615,13 +1150,34 @@ export class TeamFiles {
         if (after.ino !== before.ino || after.dev !== before.dev || fs.lstatSync(dst).size !== after.size) throw new Denied('path changed while copying')
         fs.chmodSync(dst, 0o600)
       }
-      verifyChain(this.root, tr.segs, true)
-      fs.renameSync(tmp, tr.abs)
+      place(tmp)
     } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
-    fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
+    return { files, bytes }
+  }
+
+  /**
+   * Copy what is inside the caller's folder `from` into the empty folder `to` (a team project folder the server just
+   * made for sharing a personal project, routes/chats.ts shareProject): read as the caller, written where the caller may
+   * write (the new folder's rules let its creator write). Same limits as copyFolderTree. The caller takes `to` away
+   * when this fails.
+   */
+  copyFolderInto(userId: string, from: string, to: string, o: { maxFiles?: number; maxBytes?: number } = {}): { files: number; bytes: number } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
+    if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: true })
+    if (!tr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    if (tr.rel === fr.rel || isUnder(fr.rel, tr.rel) || isUnder(tr.rel, fr.rel)) fileError('validation', 'intoItself', { to })
+    if (fs.readdirSync(tr.abs).length) fileError('conflict', 'exists', { to })
+    const { files, bytes } = this.copyTree(user, rules, fr, tr.abs, (tmp) => {
+      for (const name of fs.readdirSync(tmp)) fs.renameSync(path.join(tmp, name), path.join(tr.abs, name))
+      fs.rmdirSync(tmp)
+    }, o)
+    fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], files: files.length, tool: 'file-screen' } })
     for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
     this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
-    return { path: tr.rel, files: files.length, bytes }
+    return { files: files.length, bytes }
   }
 
   /**
@@ -661,44 +1217,417 @@ export class TeamFiles {
   }
 
   // ---------------- delete -> trash ----------------
-  remove(userId: string, rel: string, turnId: string | null = null): { trashId: string; purgeAt: string } {
-    const user = this.principal(userId)
+  /**
+   * `turnId`: an AI turn's delete (chat/delete-files.ts, the only one): it never takes a skill root, something in one
+   * or a folder that holds one, whatever the role (fail closed here, not only in the tool), and nothing without `ai`,
+   * the item its card showed. With `ai` the item must still be exactly that: the same entry, still one the AI may put
+   * in the trash, the same people reading and writing it, the same entries on disk (checked right before the move and
+   * again where it went, in the same synchronous block as moveIntoTrash), and the same trash setting. A folder that
+   * changed between the two checks goes back where it was (`AiTrashChanged`); one that cannot go back (something took
+   * its place meanwhile) stays in the trash with its row, nothing lost, and `changed` says so.
+   */
+  remove(userId: string, rel: string, turnId: string | null = null, o: { projectFolder?: boolean; manager?: true; ai?: { item: AiTrashItem; retentionDays: number } } = {}): { trashId: string; purgeAt: string; changed?: true } {
+    // `manager`: a team project's own folder, put in the trash by whoever manages the project without reading it (the
+    // owner or an admin who is not a member: routes/chats.ts deleteProject checked mayManageProject and that `rel` is
+    // exactly its projects/<name>). The checks run as the system; the trash row and the events name the person.
+    const user = o.manager && o.projectFolder && turnId === null && rel.split('/').length === 2 && inProjectZone(rel.split('/')) ? SYSTEM_PRINCIPAL : this.principal(userId)
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: true })
     this.assertMovable(r.segs)
-    // trashing a group / project / rule folder takes it from everyone who works there: admins and the owner only
-    this.assertMayChangeManaged(user, rules, r.rel)
+    if (turnId !== null) {
+      if (aiSkillPath(r.rel)) throw new Denied(AI_SKILL_TRASH_REFUSAL)
+      // a folder that holds a skill root by its path, whatever it holds now; the reason says what it is
+      if (r.st!.isDirectory() && holdsSkillRoot(r.segs)) throw new Denied(this.aiFolderRefusal(user, rules, r.segs) ?? AI_SKILL_TRASH_REFUSAL)
+      if (!o.ai) throw new Denied('an AI turn puts things in the trash only with delete_files, after the user\'s yes on its card')
+    }
+    // trashing a group / project / rule folder takes it from everyone who works there: admins and the owner only. Not
+    // asked for the folder of a team project its editor deletes along with it (routes/chats.ts deleteProject: the
+    // project's creator or an admin, a projects/<name> folder they write; a folder inside it they cannot write still
+    // stops it, below)
+    if (!o.projectFolder) this.assertMayChangeManaged(user, rules, r.rel)
+    // the project's own folder is its editor's to trash; anything managed inside it (a rule folder, a group's folder,
+    // another project's folder) stays admin-only, as for any other trash (review: another project went to the trash)
+    else if (user.role !== 'owner' && user.role !== 'admin' && this.managedBelow(rules, r.rel)) fileError('forbidden', 'ruleFolder')
     const isDir = r.st!.isDirectory()
     let size: number
     if (isDir) { this.assertSubtreeWritable(user, rules, r.segs); size = treeSize(r.abs).bytes }
     else size = checkRegular(r.abs).size
+    const ai = o.ai
+    if (ai) this.aiItemStill(user, rules, ai.item, r)
+    const days = getTeamSettings(this.ctx.db).trashRetentionDays
+    if (ai && days !== ai.retentionDays) throw new AiTrashChanged(r.rel)
     const id = newId()
-    const purgeAt = iso(Date.now() + getTeamSettings(this.ctx.db).trashRetentionDays * DAY)
+    const purgeAt = iso(Date.now() + days * DAY)
     const db = this.ctx.db
     const readers = this.readersOf(rules, r.segs)
-    db.transaction(() => {
-      const storage = moveIntoTrash(this.root, r.segs)
+    let changed = false
+    /** the item's rows in the trash list, as one set of writes (inside the move's transaction, or again in a rescue) */
+    const record = (storage: string, rescued: boolean) => {
+      db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+        .run(id, r.rel, storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
+      // the folder's rules go with it (parked under its trash path): a new folder made at the same path does not
+      // inherit them, and the deleted one gets them back wherever it is restored
+      if (isDir) rebaseFolders(db, r.rel, storage)
+      // the team projects of this folder and below go with it: nobody reads them until it comes back, the owner and admins
+      // manage them (chat/projects.ts canSeeProject, mayManageProject), and they follow it when it is restored. A project already marked keeps the
+      // folder trashed first. Personal projects are their person's in the trash too.
+      if (isDir && r.segs[0] !== 'users') db.query("UPDATE projects SET trashed_with = ? WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (folder_path = ? OR substr(folder_path, 1, length(?) + 1) = ? || '/')").run(id, r.rel, r.rel, r.rel)
+      fileEvent(db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id, ...(ai ? { tool: 'delete_files' } : {}), ...(changed ? { changedWhileMoving: true } : {}), ...(rescued ? { rescued: true } : {}) } })
+    }
+    // an item that went to the trash storage, whose rows then failed and which could not go back (something took its place)
+    const out: { stranded: { storage: string; cause: unknown } | null } = { stranded: null }
+    try {
+      db.transaction(() => {
+        if (ai && !this.aiSameOnDisk(r.abs, ai.item)) throw new AiTrashChanged(r.rel)
+        const storage = moveIntoTrash(this.root, r.segs)
+        const storageAbs = path.join(this.root, ...storage.split('/'))
+        // a folder can still change between that check and the move: a dev-environment job writes project folders from
+        // outside this process (devenv/srt/access.ts). Checked again where it is now; put back when it differs
+        if (ai && !this.aiSameOnDisk(storageAbs, ai.item)) {
+          if (this.putBack(storageAbs, r.segs)) throw new AiTrashChanged(r.rel)
+          changed = true
+          this.ctx.log.warn('an item the AI put in the trash changed while it moved and could not go back; it stays in the trash', { path: r.rel, turn: turnId })
+        }
+        try { record(storage, false) } catch (e) {
+          // back where it was, and never over what took that place meanwhile (a writer outside this process); when it
+          // cannot go back it must not stay without a row (below)
+          if (!this.putBack(storageAbs, r.segs)) out.stranded = { storage, cause: e }
+          throw e
+        }
+      })()
+    } catch (e) {
+      const s = out.stranded
+      if (!s) throw e
+      // the rows were rolled back and the item could not go back: it sits in the trash storage. Logged at error level with
+      // where it is, then its rows are written once more, and failing that the trash row alone, so it can be restored
+      this.ctx.log.error('an item in the trash storage could not go back and its trash rows failed; writing them again', { path: r.rel, storage: s.storage, err: s.cause })
+      let rescued = false
+      try { db.transaction(() => record(s.storage, true))(); rescued = true } catch (again) {
+        // the row alone only for an item that carries no folders rows and no project: a folder's rules (and a project's
+        // place) stay at the old path without rebaseFolders, so whatever took that place would get them, and the item
+        // would come back from the trash with none (review of #278: a closed folder's files readable by every member
+        // after a restore). Such an item stays only in the trash storage, logged above, for an admin to recover
+        if ((isDir && this.holdsFolderRows(r.rel)) || inProjectZone(r.segs)) {
+          // also anything inside a team project: a bare row is judged by its old path alone, which falls back to the
+          // rules above the project's folder once that is renamed or gone (docs/DECISIONS.md "Project contents only for
+          // members")
+          this.ctx.log.error('the trash rows failed again and the folder carries folder rules or a project (or the item is inside one): it stays only in the trash storage', { path: r.rel, storage: s.storage, err: again })
+        } else {
+          this.ctx.log.error('the trash rows failed again; writing the trash row alone', { path: r.rel, storage: s.storage, err: again })
+          try {
+            db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+              .run(id, r.rel, s.storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
+            rescued = true
+          } catch (last) { this.ctx.log.error('no trash row could be written: the item is only in the trash storage', { path: r.rel, storage: s.storage, err: last }) }
+        }
+      }
+      if (!rescued) throw new TrashStranded(r.rel, s.storage)
+    }
+    const followUp = () => {
+      this.dropTextCache(r.rel, isDir)
+      // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
+      const t = this.trashRow(id)
+      const after = this.rules()
+      this.dropSessionsOf(readers.filter((p) => !t || !this.trashVisible(p, after, t)), { path: r.rel })
+      // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
+      this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
+    }
+    // the AI's delete: it is in the trash now, with its row, whatever a listener does next; the call says so (its trash
+    // id goes into the audit row)
+    if (ai) { try { followUp() } catch (e) { this.ctx.log.warn('after the AI put an item in the trash, a follow-up failed', { err: e, path: r.rel }) } }
+    else followUp()
+    return { trashId: id, purgeAt, ...(changed ? { changed: true as const } : {}) }
+  }
+
+  /** Any folders row (rules, a group's folder, a stamp versions are judged by) or any project at `rel` or below it. Fails
+   * closed: a table that cannot be read counts as rows. */
+  private holdsFolderRows(rel: string): boolean {
+    const db = this.ctx.db
+    // exact, and on a case-insensitive volume also without letter case (SQLite folds ASCII only; the exact form covers
+    // the names as the file layer resolved them)
+    const one = (c: string) => `(${c} = ?1 OR substr(${c}, 1, length(?1) + 1) = ?1 || '/')`
+    const under = (col: string) => this.fx.caseInsensitive ? `(${one(col)} OR ${one(`lower(${col})`).replaceAll('?1', 'lower(?1)')})` : one(col)
+    try {
+      return !!db.query(`SELECT 1 FROM folders WHERE ${under('path')} LIMIT 1`).get(rel) || !!db.query(`SELECT 1 FROM projects WHERE ${under('folder_path')} LIMIT 1`).get(rel)
+    } catch { return true }
+  }
+
+  /** Put an item the AI was moving into the trash back at `segs` (it changed on the way). Only where nothing took its
+   * place meanwhile and the folders above are still folders: a rename would replace a file or an empty folder made
+   * there. false: it could not go back. */
+  private putBack(fromAbs: string, segs: string[]): boolean {
+    try {
+      verifyChain(this.root, segs, true)
+      const to = path.join(this.root, ...segs)
+      try { fs.lstatSync(to); return false } catch (e: any) { if (e?.code !== 'ENOENT') return false }
+      fs.renameSync(fromAbs, to)
+      return true
+    } catch { return false }
+  }
+
+  // ---------------- the AI's delete_files (chat/delete-files.ts) ----------------
+  /**
+   * Why the AI may not put `segs` in the trash, for every role (admins and the owner included), or null. Never the
+   * team root, a top-level folder, .system, chat attachments, someone else's personal folder, a hidden item, a skill
+   * root, something in one or a folder that holds one, an instruction file, a group / project / rule folder or a
+   * folder that holds one (managedInside), a plugin's folder or one that holds it, or the target of an open upload
+   * link. The Files screen keeps its own rules (assertMovable, assertMayChangeManaged): this is on top of them. A
+   * reason says where it is done and who may do it, never a person's name (AI_TRASH_FOLDER_REFUSAL).
+   */
+  private aiTrashRefusal(user: Principal, rules: RuleSet, segs: string[], isDir: boolean): string | null {
+    const rel = segs.join('/')
+    const fold = (x: string) => x.normalize('NFC').toLowerCase()
+    const manager = user.role === 'owner' || user.role === 'admin'
+    if (segs.length === 0 || fold(segs[0]!) === fold(PRODUCT.systemDir)) return 'the team root and the system folder never go to the trash'
+    if (segs.some((x) => fold(x) === '.attachments')) return 'chat attachments (.attachments) go with their chats, not to the trash'
+    if (fold(segs[0]!) === 'users' && segs.length >= 2 && segs[1] !== user.id) return 'another person\'s folder'
+    if (isDir && segs.length === 1) return `a top-level folder never goes to the trash from a chat; ${manager ? 'the user deletes' : 'an admin deletes'} it on the Files screen`
+    if (aiSkillPath(rel)) return AI_SKILL_TRASH_REFUSAL
+    // a folder by what it is: a project's, a group's, the person's own, a rule folder, one that holds a skill root
+    const folder = isDir ? this.aiFolderRefusal(user, rules, segs) : null
+    if (folder) return folder
+    if (segs.some((x) => x.startsWith('.'))) return 'a hidden item; the user deletes it on the Files screen'
+    if (instructionFile(rel)) return 'an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md: what an AI follows); the user deletes it on the Files screen'
+    // a file is never a rule folder; asked as before all the same
+    if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule(manager)
+    if (this.fx.managed?.managerOf(segs) || this.fx.managed?.heldBelow(segs)) return 'a plugin\'s folder, or one that holds it: an admin turns the plugin off in Admin > Plugins'
+    if (this.linkTarget(rel, isDir)) return 'an open upload link points here; it can go to the trash once the link is used or expires'
+    return null
+  }
+
+  /**
+   * Why the folder `segs` never goes to the trash from a chat, by what it is, or null. The same folders as before
+   * (QA TC-016 changed only the words): every folder that holds a skill root by its path (holdsSkillRoot: groups/<g>,
+   * projects/<p>, users/<id>, whatever is in it now), a live project's folder or one that holds one (personal projects
+   * too: managedInside leaves users/ out, and the project would lose its folder), and a group, project or rule folder
+   * or one that holds one (managedInside). What the folder is comes before what it holds; the skill reason only when a
+   * skills folder is in it now. Another person's folder never reaches here (aiTrashRefusal).
+   */
+  private aiFolderRefusal(user: Principal, rules: RuleSet, segs: string[]): string | null {
+    const rel = segs.join('/')
+    const top = segs[0]!.normalize('NFC').toLowerCase()
+    const manager = user.role === 'owner' || user.role === 'admin'
+    if (top === 'users' && segs.length === 2) return AI_TRASH_FOLDER_REFUSAL.own
+    const projects = this.liveProjects()
+    const project = this.placeAmong(rel, projects.map((p) => p.folder_path))
+    const group = this.placeAmong(rel, this.groupFolders())
+    // the project's creator deletes it too (routes/chats.ts deleteProject): every project there is the asker's
+    const mine = () => manager || projects.filter((p) => this.placeAmong(rel, [p.folder_path])).every((p) => p.created_by === user.id)
+    if (project === 'at') return AI_TRASH_FOLDER_REFUSAL.project(mine())
+    if (group === 'at') return AI_TRASH_FOLDER_REFUSAL.group(manager)
+    const holder = holdsSkillRoot(segs)
+    if (holder && this.skillsFolderIn(segs)) return AI_SKILL_TRASH_REFUSAL
+    // a managed folder inside it that the asker cannot read: the generic words, so the kind does not tell what is there
+    if (this.unreadableManagedBelow(user, rules, rel, projects.map((p) => p.folder_path))) return AI_TRASH_FOLDER_REFUSAL.managed(manager)
+    if (project) return AI_TRASH_FOLDER_REFUSAL.project(mine())
+    if (group) return AI_TRASH_FOLDER_REFUSAL.group(manager)
+    if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule(manager)
+    if (holder) return top === 'groups' ? AI_TRASH_FOLDER_REFUSAL.groupsPlace(manager) : AI_TRASH_FOLDER_REFUSAL.projectsPlace(manager)
+    return null
+  }
+
+  /** A project's, a group's or a rule folder strictly inside `rel` that `user` cannot read. */
+  private unreadableManagedBelow(user: Principal, rules: RuleSet, rel: string, projectFolders: readonly string[]): boolean {
+    const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const me = k(rel)
+    const below = [...projectFolders, ...this.groupFolders(), ...rules.ruleFolders()].filter((f) => k(f).startsWith(me + '/'))
+    return below.some((f) => !atLeast(rules.access(user, segsOf(f)), 'read'))
+  }
+
+  /** `rel` among `folders`: 'at' (it is one of them), 'above' (one is inside it) or null; letter case and Unicode form
+   * as this volume compares names. */
+  private placeAmong(rel: string, folders: readonly string[]): 'at' | 'above' | null {
+    const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const me = k(rel)
+    let above = false
+    for (const f of folders) {
+      const p = k(f)
+      if (p === me) return 'at'
+      if (p.startsWith(me + '/')) above = true
+    }
+    return above ? 'above' : null
+  }
+  /** The live projects (not in the trash), personal projects included: their folders and who made them. */
+  private liveProjects(): { folder_path: string; created_by: string }[] {
+    return this.ctx.db.query('SELECT folder_path, created_by FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string; created_by: string }[]
+  }
+  /** The groups' folders. */
+  private groupFolders(): string[] {
+    return (this.ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id').all() as { path: string }[]).map((x) => x.path)
+  }
+  /** A skill root is in the folder `segs` now: an entry named skills, in any letter case or Unicode form (the guard
+   * reads its path that way). Unreadable: counted as one. */
+  private skillsFolderIn(segs: string[]): boolean {
+    let d: fs.Dir | null = null
+    try {
+      d = fs.opendirSync(path.join(this.root, ...segs))
+      for (let e = d.readSync(); e !== null; e = d.readSync()) if (e.name.normalize('NFC').toLowerCase() === SKILLS_DIR) return true
+      return false
+    } catch { return true } finally { try { d?.closeSync() } catch {} }
+  }
+
+  /** An unused, unexpired upload link of the app connector (connectors/remote-mcp/upload-link.ts) points at `rel` (or,
+   * for a folder, somewhere inside it). Fails closed: a link table that cannot be read counts as a link. */
+  private linkTarget(rel: string, isDir: boolean): boolean {
+    const k = (p: string) => volumeKey(p.split('/').filter((x) => x !== '' && x !== '.').join('/'), this.fx.caseInsensitive)
+    const me = k(rel)
+    let rows: { path: string }[]
+    try { rows = this.ctx.db.query('SELECT path FROM remote_mcp_upload_links WHERE used_at IS NULL AND expires_at > ?').all(Date.now()) as { path: string }[] } catch { return true }
+    return rows.some((x) => { const p = k(x.path); return p === me || (isDir && p.startsWith(me + '/')) })
+  }
+
+  /** The other active people who can read `segs` now and who can write it (they see it in the trash and may restore
+   * it), with a hash of who they are, what they may do and their role. */
+  private aiAudience(rules: RuleSet, self: string, segs: string[]): { fingerprint: string; readers: string[]; writers: string[] } {
+    const rows: string[] = [], readers: string[] = [], writers: string[] = []
+    for (const p of activePeople(this.ctx.db)) {
+      if (p.id === self) continue
+      const a = rules.access(p, segs)
+      const read = atLeast(a, 'read'), write = a === 'write'
+      rows.push(JSON.stringify([p.id, p.role, read, write]))
+      if (read) readers.push(p.id)
+      if (write) writers.push(p.id)
+    }
+    return { fingerprint: crypto.createHash('sha256').update(JSON.stringify(rows.sort())).digest('hex'), readers, writers }
+  }
+
+  /** The people (not `user`) who made or changed the file `rel`, as its history shows it to `user` (history(): only
+   * where they may read the place it happened, judged where that place is now). */
+  private historyPeople(user: Principal, rules: RuleSet, rel: string, into: Set<string>) {
+    const db = this.ctx.db
+    const readable = (p: string) => atLeast(rules.access(user, segsOf(p)), 'read')
+    for (const e of fileTimeline(db, rel, { limit: 50 })) {
+      if (!CONTENT_KINDS.has(e.kind) || !e.userId || e.userId === user.id || into.has(e.userId) || !readable(e.path)) continue
+      const now = placeNow(db, e.path, e.id)
+      if ('at' in now ? now.at === e.path || readable(now.at) : isStaff(user) && !inProjectZone(segsOf(e.path))) into.add(e.userId)
+    }
+  }
+
+  /**
+   * Is `item` still exactly what the card showed: the same entry for this person (`r`, resolved again), still one the
+   * AI may put in the trash, the same audience, the same entries on disk? Throws AiTrashChanged (or the access error).
+   */
+  private aiItemStill(user: Principal, rules: RuleSet, item: AiTrashItem, r?: Authorized) {
+    const now = r ?? authorize(this.fx, rules, user, item.rel, 'write', { mustExist: true })
+    if (now.rel !== item.rel) throw new AiTrashChanged(item.rel)
+    const isDir = now.st!.isDirectory()
+    if ((item.kind === 'folder') !== isDir) throw new AiTrashChanged(item.rel)
+    const no = this.aiTrashRefusal(user, rules, now.segs, isDir)
+    if (no) throw new Denied(no)
+    if (this.aiAudience(rules, user.id, now.segs).fingerprint !== item.audience) throw new AiTrashChanged(item.rel)
+    if (!this.aiSameOnDisk(now.abs, item)) throw new AiTrashChanged(item.rel)
+  }
+  /** The entries at `abs` (the item where it is, or where it went in the trash) are exactly the card's. */
+  private aiSameOnDisk(abs: string, item: AiTrashItem): boolean {
+    try { return sameStamps(stampTree(abs, item.entries.length), item.entries) } catch { return false }
+  }
+
+  /**
+   * What one delete_files call would put in the trash, before its card: each path resolved for the person like the
+   * Files screen's delete (write access, the same normalization as every file tool: no absolute paths, no '..', the
+   * actual letter case and Unicode form), then the AI's own refusals (aiTrashRefusal). Any refused path refuses the
+   * whole call (`refused`, each with its reason): the card shows only a call that runs as asked. Duplicates (another
+   * spelling of the same entry) and items inside a listed folder go once. Every entry is walked and counted, inside
+   * folders too, and the walk stops past AI_TRASH_MAX_ENTRIES (a ToolError). Nothing changes.
+   */
+  planAiTrash(userId: string, paths: readonly string[]): { plan: AiTrashPlan } | { refused: { path: string; error: string }[] } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const refused: { path: string; error: string }[] = []
+    const found: { r: Authorized; isDir: boolean }[] = []
+    for (const p of paths) {
       try {
-        db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
-          .run(id, r.rel, storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
-        // the folder's rules go with it (parked under its trash path): a new folder made at the same path does not
-        // inherit them, and the deleted one gets them back wherever it is restored
-        if (isDir) rebaseFolders(db, r.rel, storage)
-        // the team projects of this folder and below go with it: admins and the owner only until it comes back
-        // (chat/projects.ts canSeeProject), and they follow it when it is restored. A project already marked keeps the
-        // folder trashed first. Personal projects are their person's in the trash too.
-        if (isDir && r.segs[0] !== 'users') db.query("UPDATE projects SET trashed_with = ? WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (folder_path = ? OR substr(folder_path, 1, length(?) + 1) = ? || '/')").run(id, r.rel, r.rel, r.rel)
-        fileEvent(db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id } })
-      } catch (e) { fs.renameSync(path.join(this.root, ...storage.split('/')), r.abs); throw e }
-    })()
-    this.dropTextCache(r.rel, isDir)
-    // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
-    const t = this.trashRow(id)
-    const after = this.rules()
-    this.dropSessionsOf(readers.filter((p) => !t || !this.trashVisible(p, after, t)), { path: r.rel })
-    // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
-    this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
-    return { trashId: id, purgeAt }
+        const r = authorize(this.fx, rules, user, p, 'write', { mustExist: true })
+        const isDir = r.st!.isDirectory()
+        if (!isDir) checkRegular(r.abs)
+        const no = this.aiTrashRefusal(user, rules, r.segs, isDir)
+        if (no) refused.push({ path: r.rel, error: no })
+        else found.push({ r, isDir })
+      } catch (e) { refused.push({ path: p, error: aiReason(e) }) }
+    }
+    if (refused.length) return { refused }
+    const key = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const uniq = new Map<string, { r: Authorized; isDir: boolean }>()
+    for (const f of found) if (!uniq.has(key(f.r.rel))) uniq.set(key(f.r.rel), f)
+    const all = [...uniq.values()]
+    const listed = all.filter((f) => !all.some((g) => g !== f && g.isDir && key(f.r.rel).startsWith(key(g.r.rel) + '/')))
+    const tooMany = `more than ${AI_TRASH_MAX_ENTRIES} files and folders (everything inside a folder counts), so nothing was moved to the trash. Ask the user to delete fewer at once, or to delete it on the Files screen`
+    let total = 0
+    const items: AiTrashItem[] = []
+    const lost = new Set<string>(), noRestore = new Set<string>(), others = new Set<string>()
+    for (const f of listed) {
+      let entries: Stamp[] | null
+      try { entries = stampTree(f.r.abs, AI_TRASH_MAX_ENTRIES - total) } catch { return { refused: [{ path: f.r.rel, error: 'it could not be read through' }] } }
+      if (!entries) throw new ToolError(tooMany, 'too_many')
+      total += entries.length
+      // inside a folder too: no skill root, no chat attachments, no instruction file, nothing a plugin manages
+      for (const e of entries) {
+        if (!e.rel) continue
+        const full = `${f.r.rel}/${e.rel}`
+        const segs = segsOf(full)
+        const no = aiSkillPath(full) ? AI_SKILL_TRASH_REFUSAL : segs.at(-1)!.normalize('NFC').toLowerCase() === '.attachments' ? 'it holds chat attachments (.attachments)'
+          : instructionFile(full) ? `it holds an instruction file (${full}); the user deletes it on the Files screen` : this.fx.managed?.managerOf(segs) ? 'it holds a plugin\'s folder' : null
+        if (no) return { refused: [{ path: f.r.rel, error: no }] }
+      }
+      const aud = this.aiAudience(rules, user.id, f.r.segs)
+      for (const id of aud.readers) { lost.add(id); if (!aud.writers.includes(id)) noRestore.add(id) }
+      for (const e of entries) if (e.kind === 'file') this.historyPeople(user, rules, e.rel ? `${f.r.rel}/${e.rel}` : f.r.rel, others)
+      items.push({
+        rel: f.r.rel, kind: f.isDir ? 'folder' : 'file',
+        files: f.isDir ? entries.filter((e) => e.kind !== 'dir').length : 0, folders: entries.filter((e) => e.rel && e.kind === 'dir').length,
+        entries, audience: aud.fingerprint,
+      })
+    }
+    const refs = this.userRefs([...others])
+    const coll = new Intl.Collator(undefined, { sensitivity: 'base' })
+    return {
+      plan: {
+        items, entries: total, retentionDays: getTeamSettings(this.ctx.db).trashRetentionDays, lost: lost.size, noRestore: noRestore.size,
+        writersShown: user.role === 'owner' || user.role === 'admin',
+        others: [...others].map((id) => refs.get(id) ?? { id, name: id }).sort((a, b) => coll.compare(a.name, b.name)),
+      },
+    }
+  }
+
+  /**
+   * After the person's yes on delete_files' card: every item checked again first (aiItemStill, the trash setting), in
+   * this one synchronous block, so no other call of this server (a move_files of the same turn, a save) runs between
+   * the checks and the moves; any item that changed since the card stops the whole call before anything moves
+   * (`changed`, nothing trashed). Then each item goes with remove(), which checks it once more around the move itself
+   * (a writer outside this process, devenv/srt/access.ts). What went, what changed on the way (put back, or kept in
+   * the trash when it could not go back) and what failed.
+   */
+  trashAiPlan(userId: string, plan: AiTrashPlan, turnId: string): { trashed: { path: string; trashId: string; purgeAt: string; changed?: true }[]; changed: string[]; failed: { path: string; error: string }[]; stranded: { path: string; storage: string }[] } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    if (getTeamSettings(this.ctx.db).trashRetentionDays !== plan.retentionDays) return { trashed: [], changed: plan.items.map((i) => i.rel), failed: [], stranded: [] }
+    for (const item of plan.items) {
+      try { this.aiItemStill(user, rules, item) }
+      catch (e) {
+        if (e instanceof AiTrashChanged || (e instanceof ToolError && e.code === 'not_found') || e instanceof Denied) return { trashed: [], changed: [item.rel], failed: [], stranded: [] }
+        throw e
+      }
+    }
+    const out: ReturnType<TeamFiles['trashAiPlan']> = { trashed: [], changed: [], failed: [], stranded: [] }
+    for (const item of plan.items) {
+      try { out.trashed.push({ path: item.rel, ...this.remove(userId, item.rel, turnId, { ai: { item, retentionDays: plan.retentionDays } }) }) }
+      catch (e) {
+        if (e instanceof AiTrashChanged) out.changed.push(item.rel)
+        // moved out of its place, but no trash row could be written: not "not moved" (remove(); the log says where)
+        else if (e instanceof TrashStranded) out.stranded.push({ path: item.rel, storage: e.storage })
+        else out.failed.push({ path: item.rel, error: aiReason(e) })
+      }
+    }
+    return out
+  }
+
+  /** A path an AI turn put in the trash (still there), or one inside such a folder: never a "new" file for a room's
+   * grant (chat/turn.ts roomGrantTarget). Rooms do not get delete_files; this keeps it so if that ever changes. */
+  aiTrashed(rel: string): boolean {
+    const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const me = k(rel)
+    const rows = this.ctx.db.query('SELECT original_path FROM trash_items WHERE restored_at IS NULL AND turn_id IS NOT NULL').all() as { original_path: string }[]
+    return rows.some((t) => { const p = k(t.original_path); return p === me || me.startsWith(p + '/') })
   }
 
   // ---------------- history ----------------
@@ -708,8 +1637,12 @@ export class TeamFiles {
     // and every folder that held it and went to the trash after it, were still in place. The live rules alone no
     // longer have them, so the path fell back to shared/ and every member read old versions of a restricted folder's
     // files (security round 3).
+    // the owner and admins: a version saved inside a team project (path_at_save in the members-only zone) only while they
+    // read that place, also when the file left it since or its folder row is one above the project's folder (a project
+    // folder without rules of its own; docs/DECISIONS.md "Project contents only for members")
+    if (isStaff(user) && row.path_at_save && inProjectZone(segsOf(row.path_at_save)) && !atLeast(rules.access(user, segsOf(row.path_at_save)), 'read')) return false
     const parked = row.folder_id ? this.parkedView(row.folder_id) : null
-    if (parked === 'unknown') return user.role === 'owner' || user.role === 'admin'
+    if (parked === 'unknown') return isStaff(user) && !inProjectZone(segsOf(row.path)) && !(row.path_at_save && inProjectZone(segsOf(row.path_at_save)))
     if (parked) return atLeast(parked.rules.access(user, segsOf(parked.path)), 'read') && atLeast(parked.rules.access(user, segsOf(row.path)), 'read')
     const f = row.folder_id ? this.folderLivePath(row.folder_id) : null
     if (f !== null) return atLeast(rules.access(user, segsOf(f)), 'read')
@@ -726,12 +1659,13 @@ export class TeamFiles {
    * Also: the current file's hash (to tell which versions differ) and whether the caller may restore (write access to
    * the path, the rule restoreVersion checks; false for a path hidden from the caller).
    */
-  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean; current: HistoryCurrent | null; events: FileHistoryEvent[] }> {
+  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean; restoreBlocked: 'folderInTrash' | null; current: HistoryCurrent | null; events: FileHistoryEvent[] }> {
     const user = this.principal(userId)
     const rules = this.rules()
     let at = parseInput(rel).join('/') // malformed input is refused the same way for everyone
     let exists = false
     let canRestore = false
+    let placeTrashed = false
     let currentSha256: string | null = null
     let currentSize = 0
     try {
@@ -745,13 +1679,21 @@ export class TeamFiles {
       if (r.exists && r.st!.isFile()) { try { const st = checkRegular(r.abs); currentSha256 = await this.sha(r.abs, st); currentSize = st.size } catch {} }
     } catch (e) {
       if (!(e instanceof Denied) && !(e instanceof ToolError && e.code === 'not_found')) throw e
+      // not_found: a folder on the way is gone (the caller may read the place, else Denied); in the trash, the
+      // versions wait for it (below), and whoever may write the place is told why
+      if (e instanceof ToolError) placeTrashed = this.placeInTrash(segsOf(at)) && atLeast(rules.access(user, segsOf(at)), 'write')
     }
     const db = this.ctx.db
     const rows = (db.query('SELECT id, path, version, sha256, size, author_id, turn_id, saved_by, saved_turn_id, kind, conflict_path, storage_path, created_at, folder_id, path_at_save FROM file_versions WHERE path = ? ORDER BY version DESC LIMIT 500').all(at) as VersionRow[])
       .filter((v) => this.versionVisible(user, rules, v))
     if (!exists && rows.length === 0) throw new HttpError('not_found')
-    // versions whose folder is in the trash cannot be restored until the folder is (restoreVersion refuses them)
-    if (rows.length && rows.every((v) => this.versionInTrash(v))) canRestore = false
+    // versions whose folder is in the trash cannot be restored until the folder is (restoreVersion refuses them); the
+    // history says why, to whoever could restore them otherwise
+    let restoreBlocked: 'folderInTrash' | null = null
+    if (rows.length && (placeTrashed || rows.every((v) => this.versionInTrash(v)))) {
+      if (canRestore || placeTrashed) restoreBlocked = 'folderInTrash'
+      canRestore = false
+    }
     // the changes of the file (moves followed back), each only where the caller may read the path it happened at:
     // a file moved out of a private folder does not show what happened in there, nor that folder's name
     const readable = (p: string) => atLeast(rules.access(user, segsOf(p)), 'read')
@@ -763,7 +1705,8 @@ export class TeamFiles {
       if (!p || !readable(p)) return false
       const now = placeNow(db, p, id)
       if ('at' in now) return now.at === p || readable(now.at)
-      return user.role === 'owner' || user.role === 'admin'
+      // its place is in the trash or purged: the owner and admins, never inside a team project
+      return isStaff(user) && !inProjectZone(segsOf(p))
     }
     const timeline = exists ? fileTimeline(db, at).filter((e) => seen(e.path, e.id)) : []
     // who made the content as it is now: the newest content change, when it made exactly this content
@@ -776,6 +1719,7 @@ export class TeamFiles {
       path: at,
       currentSha256,
       canRestore,
+      restoreBlocked,
       current: exists && currentSha256 ? {
         version: top + 1, sha256: currentSha256, size: currentSize,
         author: headKnown ? ref(head!.userId) : null, turnId: headKnown ? head!.turnId : null, at: headKnown ? normIso(head!.at) : null,
@@ -795,6 +1739,18 @@ export class TeamFiles {
   /** the folder the version was saved under is in the trash (or parked with a trash item that is gone) */
   private versionInTrash(v: Pick<VersionRow, 'folder_id'>): boolean {
     return !!v.folder_id && this.parkedView(v.folder_id) !== null
+  }
+
+  /**
+   * The file's folder is not there and a folder above it is in the trash: its versions wait for the folder (QA TC-229).
+   * A plain folder has no folders row, so versionInTrash does not see it, and restoring a version made the folder
+   * again outside the trash (the trash's own restore then became "<name> (restored)"). A folder made again under the
+   * same name is there, so a version can go into it.
+   */
+  private placeInTrash(segs: readonly string[]): boolean {
+    try { if (fs.statSync(path.join(this.root, ...segs.slice(0, -1))).isDirectory()) return false } catch {}
+    return !!this.ctx.db.query(`SELECT 1 FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL
+      AND (original_path = '' OR substr(?1, 1, length(original_path) + 1) = original_path || '/') LIMIT 1`).get(segs.join('/'))
   }
 
   private versionRow(user: Principal, rules: RuleSet, versionId: string): VersionRow {
@@ -824,20 +1780,24 @@ export class TeamFiles {
     // so write access fell back to the folder above (shared/: everyone write) and the restored file came back with no
     // rule at all, readable and writable by the whole team (security round 4). The folder comes back first, with its
     // rules; then the version.
-    if (this.versionInTrash(v)) fileError('conflict', 'folderInTrash', { path: r.rel })
+    if (this.versionInTrash(v) || this.placeInTrash(r.segs)) fileError('conflict', 'folderInTrash', { path: r.rel })
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const blob = path.join(this.root, ...v.storage_path.split('/'))
     const size = checkRegular(blob).size
-    let cur: string | null = null
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-      const st = checkRegular(r.abs)
-      cur = await this.sha(r.abs, st)
-      if (cur === v.sha256) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
+      const same = await this.replacing(r.abs, (cur) => {
+        if (cur === v.sha256) return true
+        if (currentPlan()) assertStorageRoom(size)
+        snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
+        installFile(this.root, r.segs, blob, { keepSource: true })
+        return false
+      })
+      if (same) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
+    } else {
+      if (currentPlan()) assertStorageRoom(size)
+      installFile(this.root, r.segs, blob, { keepSource: true })
     }
-    if (currentPlan()) assertStorageRoom(size)
-    if (cur) snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
-    installFile(this.root, r.segs, blob, { keepSource: true })
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: v.size, sha256: v.sha256, detail: { versionId, version: v.version } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
@@ -982,13 +1942,19 @@ export class TeamFiles {
     }
   }
 
-  restoreTrash(userId: string, id: string): { entry: FileEntry } {
-    const user = this.principal(userId)
+  restoreTrash(userId: string, id: string, o: { manager?: true } = {}): { entry: FileEntry } {
+    const person = this.principal(userId)
     const rules = this.rules()
     const t = this.trashRow(id)
-    if (!t || !this.trashVisible(user, rules, t)) throw new HttpError('not_found')
+    const home = t ? this.trashHome(t) : null
+    // a team project's own folder comes back into projects/, where nobody but the system makes a new entry (the
+    // members-only zone has no rule for its name yet): the person may restore it (trashVisible, or `manager`: the owner
+    // or an admin restoring a project they manage, routes/chats.ts restoreProject), the system puts it back
+    const projectFolder = !!t && t.kind === 'folder' && home !== null && segsOf(home).length === 2 && inProjectZone(segsOf(home))
+    if (!t || !(o.manager && projectFolder ? isStaff(person) : this.trashVisible(person, rules, t))) throw new HttpError('not_found')
+    const user = projectFolder ? SYSTEM_PRINCIPAL : person
     const isDir = t.kind === 'folder'
-    const want = segsOf(this.trashHome(t)!)
+    const want = segsOf(home!)
     // the original parent may be gone: it is created again (names were valid when the item was deleted).
     // A taken name (exactly or nearly) gets " (restored)" in the team's default language.
     const parentRel = want.slice(0, -1).join('/')
@@ -1035,7 +2001,7 @@ export class TeamFiles {
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: t.size, detail: { trashId: id, folder: isDir, originalPath: t.original_path } })
     if (!isDir) this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
-    return { entry: this.entry(user, rules, r.segs) }
+    return { entry: this.entry(person, this.rules(), r.segs) }
   }
   /**
    * A folder came back from the trash at `to` (its old path, or a " (restored)" name): the projects that went to the
@@ -1067,9 +2033,11 @@ export class TeamFiles {
 
   /** Admin or owner (route auth), and like every trash action only for items the caller could restore: an admin has
    * no access to other people's users/<id>/, so their trashed files stay out of reach too. */
-  purgeTrash(id: string, byUserId: string) {
+  purgeTrash(id: string, byUserId: string, o: { manager?: true } = {}) {
     const t = this.trashRow(id)
-    if (!t || !this.trashVisible(this.principal(byUserId), this.rules(), t)) throw new HttpError('not_found')
+    // `manager`: a team project's own folder, deleted for good with its project by whoever manages it (routes/chats.ts
+    // deleteProject checked mayManageProject and that this is the project's trash item)
+    if (!t || !(o.manager ? t.kind === 'folder' : this.trashVisible(this.principal(byUserId), this.rules(), t))) throw new HttpError('not_found')
     this.purgeRow(t)
     this.ctx.db.query('INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?,?,?,?)').run(byUserId, 'trash.purge', t.original_path, JSON.stringify({ trashId: id, size: t.size, kind: t.kind }))
   }
@@ -1098,9 +2066,14 @@ export class TeamFiles {
   /**
    * Put an uploaded file (already on disk at `src`, server-owned) into `folder/name`. onExists: fail -> conflict,
    * replace -> the current file becomes a version, rename -> "name (2).ext". `event`: how the file event is recorded
-   * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from).
+   * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from), or what
+   * an upload's event carries (a computer file attached in a shared chat: its attachment and chat, uploads/shared-chat.ts).
+   * `taken` (with rename): names that count as taken though nothing has them (an instruction file's name), so the next
+   * free one is used. `keepSame` (with rename; the file screen's uploads): when the name holds this person's own upload
+   * of this very file from the last 24 hours (sameFileAt), that file is kept and answered, with no "(2)" copy: a retry
+   * whose first answer was lost on the way, or the same photos picked again after a dropped connection (QA TC-223).
    */
-  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create'; detail: Record<string, unknown> }): Promise<FileEntry> {
+  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create' | 'upload'; detail: Record<string, unknown> }, o: { taken?: (name: string) => boolean; keepSame?: boolean } = {}): Promise<FileEntry> {
     const user = this.principal(userId)
     const rules = this.rules()
     const bad = name.includes('/') ? 'names cannot contain "/"' : badSegment(name.normalize('NFC'))
@@ -1108,21 +2081,50 @@ export class TeamFiles {
     const fr = authorize(this.fx, rules, user, folder, 'write', { mustExist: true })
     if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let finalName = name.normalize('NFC')
-    if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n))
+    if (onExists === 'rename' && o.keepSame) {
+      const same = await this.sameFileAt(user, rules, fr.segs, finalName, fs.statSync(src).size, sha)
+      if (same) return same
+    }
+    if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n), o.taken)
     const r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
     let action: FileChange['action'] = 'create'
+    const size = fs.statSync(src).size
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { name: r.rel })
-      const st = checkRegular(r.abs)
-      snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', await this.sha(r.abs, st))
+      await this.replacing(r.abs, (cur) => {
+        snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
+        installFile(this.root, r.segs, src)
+      })
       action = 'update'
-    }
-    const size = fs.statSync(src).size
-    installFile(this.root, r.segs, src)
+    } else installFile(this.root, r.segs, src)
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: event?.action ?? 'upload', size, sha256: sha, detail: { replaced: action === 'update', ...event?.detail } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action, by: this.by(userId), turnId: null }])
     return this.entry(user, rules, r.segs)
+  }
+
+  /** The entry of this person's own upload of this very file in the last 24 hours (SAME_UPLOAD_WINDOW_MS: the upload
+   * event names them, the path and this sha256, and the file is still that content, `size` bytes) at `name` or at one
+   * of the names a rename would have given it then ("name (2).ext", "name (3).ext"…, up to the first free one: a retry
+   * whose first answer was lost, where another file already had the name). Null otherwise: another file; the same
+   * content uploaded by someone else, made another way, or longer ago (a team template uploaded again to get one's own
+   * copy gets its copy, never the shared original); a folder, a link, or a name the person cannot see or read. */
+  private async sameFileAt(user: Principal, rules: RuleSet, folder: string[], name: string, size: number, sha: string): Promise<FileEntry | null> {
+    const [base, ext] = splitExt(name, false)
+    for (let i = 1; i <= SAME_FILE_NAMES; i++) {
+      const cand = i === 1 ? name : `${base} (${i})${ext}`
+      const segs = [...folder, cand]
+      const abs = path.join(this.root, ...segs)
+      let st: fs.Stats
+      try { st = fs.lstatSync(abs) } catch { return null } // the first free name: nothing after it is this upload's
+      if (!st.isFile() || st.nlink !== 1 || st.size !== size) continue
+      if (!siblingVisible(this.fx, rules, user, folder, cand) || !atLeast(rules.access(user, segs), 'read')) continue
+      if ((await this.sha(abs, st)) !== sha) continue
+      const since = new Date(Date.now() - SAME_UPLOAD_WINDOW_MS).toISOString()
+      const mine = this.ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND user_id = ? AND action = 'upload' AND sha256 = ? AND at >= ? LIMIT 1").get(segs.join('/'), user.id, sha, since)
+      if (mine) return this.entry(user, rules, segs, st)
+    }
+    return null
   }
 
   // ---------------- retention ----------------
@@ -1142,6 +2144,9 @@ export class TeamFiles {
     return { trash, versions }
   }
 }
+
+/** The reason a delete_files path failed, for the AI: the checks' own words; anything else is not shown. */
+const aiReason = (e: unknown) => (e instanceof Denied || e instanceof ToolError || e instanceof HttpError || e instanceof FileError ? e.message : 'internal error')
 
 /** Every active person with their groups (who could be affected by an audience change). */
 export function activePeople(db: AppContext['db']): Principal[] {

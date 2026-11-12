@@ -1,7 +1,8 @@
 // @트리나 in a room reads shared project chats (docs/DECISIONS.md "대화방의 트리나가 공유 프로젝트 채팅을 읽는다"):
 // project_chats lists or searches the shared project chats the asker may view, project_chat reads one. The project is on
-// projects/falcon: alice writes it, the finance group (bob) reads it, carol (admin) and dana (owner) see everything;
-// erin is not in its audience. projects/atlas is finance's (bob), which alice cannot see. Covered: what the list holds
+// projects/falcon: alice writes it, the finance group (bob) reads it; carol (admin) and dana (owner) are not its members,
+// so they do not see its chats (docs/DECISIONS.md "Project contents only for members"); erin is not in its audience.
+// projects/atlas is finance's (bob), which alice cannot see (nor the owner and admins). Covered: what the list holds
 // and leaves out (other projects, personal, unshared, confidential, deleted chats, a project in the trash), the search,
 // the same refusal for every chat the asker may not read, the answer going to the room when every member is in the
 // audience and staying private (no title in steps, frames or notices) when one is not, the audience changing between
@@ -10,6 +11,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, uuidv7, type RoomAiRun, type RoomMessage } from '@mycel/shared/api'
 import { addTestPerson, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { readTranscript, recordOlderAnswers } from '../../server/src/chat/shared'
 import { withheldFrom } from '../../server/src/chat/shared-answers'
@@ -47,10 +49,10 @@ beforeAll(async () => {
   let t = Date.now()
   roomsOf(h.ctx).clock = () => (t += 60_000)
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  falcon = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon 견적', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })).id
+  falcon = (await oldProject(h, 'alice', { name: 'Falcon 견적', folderPath: 'projects/falcon', instructions: '' })).id
   unsharedChat = (await h.api('alice').call(API.createChat, { body: { projectId: falcon, title: 'UNSHARED-TITLE before sharing' } })).id
   await h.api('alice').call(API.updateProject, { params: { id: falcon }, body: { shareChats: true } })
-  atlas = (await h.api('bob').call(API.createProject, { body: { name: 'Atlas', folderPath: 'projects/atlas', scope: 'team', participants: [], instructions: '' } })).id
+  atlas = (await oldProject(h, 'bob', { name: 'Atlas', folderPath: 'projects/atlas', instructions: '' })).id
   await h.api('bob').call(API.updateProject, { params: { id: atlas }, body: { shareChats: true } })
   quoteChat = await sharedChat('alice', falcon, 'QUOTE-TITLE 견적 회의', [['alice', 'QUOTE-ALICE we need a price for 40 units'], ['bob', 'QUOTE-BOB decided: 1,200 a unit, delivery in March']])
   launchChat = await sharedChat('bob', falcon, 'LAUNCH-TITLE launch plan', [['bob', 'LAUNCH-BOB the launch is on the 9th']])
@@ -178,7 +180,7 @@ describe('what a listing counts', () => {
     expect(events(run.turnId).filter((e) => e.tool === 'project_chats').map((e) => e.summary)).toEqual(['project_chats -> search (all), 0 shown', 'project_chats -> search (all), 0 shown'])
     // a project alice sees with no shared chat at all counts too (else a member would learn which of her projects have
     // one): in a room with alice and bob, a project on groups/marketing (alice reads it, bob does not) keeps it private
-    const emptyProject = (await h.api('alice').call(API.createProject, { body: { name: 'Empty Mine', folderPath: 'groups/marketing', scope: 'team', participants: [], instructions: '' } })).id
+    const emptyProject = (await oldProject(h, 'alice', { name: 'Empty Mine', folderPath: 'groups/marketing', instructions: '' })).id
     try {
       const r1 = await room(['alice', 'bob'])
       const one = await ask('alice', r1, `@트리나 none\n${fake({ tool: 'project_chats', args: { project: 'NoSuchProjectName', include_all: true }, sayResult: true })}`)
@@ -257,15 +259,23 @@ describe('project_chat: one chat the asker may view', () => {
     expect(a.visibility).toBe('room')
     expect(new Set(steps('alice', run.turnId).filter((s) => s.tool === 'project_chat').map((s) => s.label))).toEqual(new Set(['Read project chat']))
     expect(events(run.turnId).filter((e) => e.tool === 'project_chat').every((e) => e.summary === 'project_chat -> not found')).toBe(true)
-    // the owner and admins see every project, but not a chat in a project in the trash
+    // a chat in a project in the trash: nobody, its members included (bob still reads atlas's); the owner and admins see
+    // no project they are not members of, so dana finds neither (docs/DECISIONS.md "Project contents only for members")
     h.ctx.db.query("UPDATE projects SET trashed_with = 'trash-x' WHERE id = ?").run(falcon)
     try {
-      const r2 = await room(['dana'])
-      const d = await ask('dana', r2, `@트리나 x\n${fake({ tool: 'project_chats', args: {}, sayResult: true }, { say: SEP }, { tool: 'project_chat', args: { chat: quoteChat }, sayResult: true })}`)
-      const body = (await answerTo('dana', r2, d.q))!.body
+      const both = `@트리나 x\n${fake({ tool: 'project_chats', args: {}, sayResult: true }, { say: SEP }, { tool: 'project_chat', args: { chat: quoteChat }, sayResult: true })}`
+      const r2 = await room(['bob'])
+      const b = await ask('bob', r2, both)
+      const body = (await answerTo('bob', r2, b.q))!.body
       expect(body).toContain('ATLAS-TITLE')
       expect(body).not.toContain('QUOTE-TITLE')
       expect(body).toContain('No shared project chat with that id')
+      const r3 = await room(['dana'])
+      const d = await ask('dana', r3, both)
+      const forDana = (await answerTo('dana', r3, d.q))!.body
+      for (const no of ['ATLAS-TITLE', 'QUOTE-TITLE', 'LAUNCH-TITLE']) expect(forDana).not.toContain(no)
+      expect(forDana).toContain('No shared project chat found')
+      expect(forDana).toContain('No shared project chat with that id')
     } finally { h.ctx.db.query('UPDATE projects SET trashed_with = NULL WHERE id = ?').run(falcon) }
   })
 
@@ -471,7 +481,8 @@ describe('an answer hidden from someone who sees the chat (docs/DECISIONS.md "Pe
     addTestPerson('gina', { id: 'gina', name: 'Gina Han', role: 'member', locale: 'en' })
     ws.gina = await h.ws('gina')
     await ws.gina.next('hello')
-    // alice reads marketing in a falcon chat on the read card (bob cannot read it): it covers alice, bob, carol, dana
+    // alice reads marketing in a falcon chat on the read card (bob cannot read it): it covers alice and bob (the owner and
+    // admins are not members)
     hiddenChat = (await h.api('alice').call(API.createChat, { body: { projectId: falcon, title: 'HIDDEN-TALK' } })).id
     const started = await h.api('alice').call(API.sendMessage, { params: { id: hiddenChat }, body: { content: fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === started.turnId, 15_000)
@@ -508,21 +519,32 @@ describe('an answer hidden from someone who sees the chat (docs/DECISIONS.md "Pe
     expect(mine.visibility).toBe('private')
     expect(await answerTo('gina', roomId, b.q)).toBeUndefined()
     // a room's answer goes by what its members may read, as for a file: bob saw the answer in the chat but may not read
-    // the place, so with carol it stays his (the folder is not named to him: he may not open it)
+    // the place, and carol (admin) is not a member of Falcon, so with her it stays his. The project's folder is named to
+    // him (he may open it, carol may not: she is not a member); marketing is not (he may not open it)
     const both = await room(['bob', 'carol'])
     const c = await ask('bob', both, `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true })}`)
     expect(await answerTo('carol', both, c.q)).toBeUndefined()
     const his = (await messages('bob', both)).find((m) => m.authorKind === 'ai' && m.replyTo?.id === c.q.id)!
     expect(his.visibility).toBe('private')
-    expect(his.preview).toMatchObject({ folders: [], otherFolders: true })
-    // alice and carol may read it: to the room, the search's find too
+    expect(his.preview).toMatchObject({ folders: ['projects/falcon'], otherFolders: true, unable: { 'projects/falcon': 1 } })
+    // carol, not a member, cannot read the chat herself either: one refusal, nothing of it
     const readers = await room(['carol', 'alice'])
-    const d = await ask('carol', readers, `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true }, { say: SEP }, { tool: 'project_chats', args: { query: 'Autumn' }, sayResult: true })}`)
-    const theirs = (await answerTo('alice', readers, d.q))!
-    expect(theirs.visibility).toBe('room')
-    expect(theirs.body.split(SEP.trim())[1]).toContain('HIDDEN-TALK')
-    // what it was built on went with it: a member who joins that room later is judged by it (rooms/history.ts)
-    const scope = JSON.stringify(h.ctx.db.query('SELECT scope FROM room_ai_turns WHERE answer_id = ?').get(theirs.id))
-    expect(scope).toContain('f_groups_marketing')
+    const ask1 = `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true }, { say: SEP }, { tool: 'project_chats', args: { query: 'Autumn' }, sayResult: true })}`
+    const refused = await ask('carol', readers, ask1)
+    const forCarol = (await answerTo('carol', readers, refused.q))!.body
+    expect(forCarol).toContain('No shared project chat with that id that the user can see')
+    for (const leak of ['HIDDEN-TALK', CANARY]) expect(forCarol).not.toContain(leak)
+    // once a member (she reads marketing too), alice and carol may read it: to the room, the search's find too
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('rooms-carol', 'f_projects_falcon', 'user', 'carol', 'read')").run()
+    try {
+      const again = await room(['carol', 'alice'])
+      const d = await ask('carol', again, ask1)
+      const theirs = (await answerTo('alice', again, d.q))!
+      expect(theirs.visibility).toBe('room')
+      expect(theirs.body.split(SEP.trim())[1]).toContain('HIDDEN-TALK')
+      // what it was built on went with it: a member who joins that room later is judged by it (rooms/history.ts)
+      const scope = JSON.stringify(h.ctx.db.query('SELECT scope FROM room_ai_turns WHERE answer_id = ?').get(theirs.id))
+      expect(scope).toContain('f_groups_marketing')
+    } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'rooms-carol'").run() }
   })
 })

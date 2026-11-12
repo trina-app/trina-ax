@@ -47,7 +47,28 @@ export interface FolderSystem {
   realpath(path: string): Promise<string>
   /** the folder's identity, links followed */
   identity(path: string): Promise<FolderIdentity>
+  /** Lists the folder's first entry and nothing more (macOS only, after a pick: FolderGrants.problem). Rejects with the
+   * file system's error (EPERM when macOS privacy keeps the app out of Documents, Desktop or Downloads). Optional: a
+   * system without it never reports a problem. */
+  readable?(path: string): Promise<void>
 }
+
+/**
+ * Why a picked folder gave the team page nothing to read, for the page's own words (shared/src/desktop-bridge.ts
+ * folderProblem): 'mac-blocked', macOS privacy keeps the app out of it (the person said Don't Allow, or Files and Folders
+ * has the app off). The page reads only an empty folder then and would say "이 폴더엔 문서가 없어요" (QA TC-049).
+ */
+export type FolderProblem = 'mac-blocked'
+
+/** A read error macOS privacy (TCC) gives: EPERM, or EACCES, on macOS only. Never the error's own text. */
+export function macBlocked(err: unknown, platform: string): boolean {
+  if (platform !== 'darwin') return false
+  const code = (err as { code?: unknown } | null)?.code
+  return code === 'EPERM' || code === 'EACCES'
+}
+
+/** How long the page's question waits for the readability check (a slow network folder): then no problem is told. */
+export const FOLDER_PROBLEM_MS = 5000
 
 /** what Electron sends with a 'fileSystem' request (PermissionRequest + FilesystemPermissionRequest) */
 export interface FolderRequest {
@@ -167,6 +188,8 @@ export class FolderGrants {
   private owner: string | null = null
   /** bumped by every change of person: a pick still being checked when the person changes is not remembered */
   private generation = 0
+  /** each origin's newest pick on macOS: its folder's name and whether macOS let the app read it (problem) */
+  private readonly lastPick = new Map<string, { name: string; problem: Promise<FolderProblem | null> }>()
 
   constructor(
     private readonly platform: string,
@@ -184,7 +207,40 @@ export class FolderGrants {
     let folders = this.picked.get(origin)
     if (!folders) this.picked.set(origin, (folders = new Set()))
     folders.add(folderKey(d.filePath, this.platform))
+    this.probe(origin, d.filePath)
     return true
+  }
+
+  /** macOS: does the app itself get into the picked folder (its first entry only)? Not on Windows or Linux. */
+  private probe(origin: string, path: string) {
+    if (this.platform !== 'darwin' || !this.sys.readable) {
+      this.lastPick.delete(origin)
+      return
+    }
+    const problem = this.sys.readable(path).then(
+      () => null,
+      (e: unknown): FolderProblem | null => (macBlocked(e, this.platform) ? 'mac-blocked' : null),
+    )
+    this.lastPick.set(origin, { name: posix.basename(folderKey(path, this.platform)).normalize('NFC'), problem })
+  }
+
+  /**
+   * The page found nothing to read in the folder it picked last (by the folder's name, as its handle gives it): why,
+   * when macOS kept the app out of it ('mac-blocked'); null for anything else (an empty folder, another origin, another
+   * folder, not macOS, no answer in FOLDER_PROBLEM_MS).
+   */
+  async problem(requestingOrigin: string, name: string, allowedOrigins: readonly string[], waitMs = FOLDER_PROBLEM_MS): Promise<FolderProblem | null> {
+    const origin = originOf(requestingOrigin)
+    if (!origin || !allowedOrigins.includes(origin)) return null
+    const last = this.lastPick.get(origin)
+    if (!last || !name || last.name !== name.normalize('NFC')) return null
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<null>((done) => { timer = setTimeout(() => done(null), waitMs) })
+    try {
+      return await Promise.race([last.problem, late])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   /** A read: the origin is still allowed, and the folder (or one it is inside) was picked for that origin. */
@@ -202,6 +258,7 @@ export class FolderGrants {
     const change = browserOwnerChange(this.owner, me)
     if (change.clear) {
       this.picked.clear()
+      this.lastPick.clear()
       this.generation++
     }
     this.owner = change.owner
@@ -221,4 +278,17 @@ export async function restrictedFolderAction(d: RestrictedFolder, allowedOrigins
   const path = folderKey(d.path, platform)
   if (!roots.some((r) => r && folderKey(r, platform) === path)) return 'deny'
   return (await opensHome(d.path, sys, platform)) ? 'deny' : 'allow'
+}
+
+/**
+ * Why a folder restrictedFolderAction refused was refused, for the message the app shows (main/app-window.ts): the
+ * page only gets an AbortError, the same as Cancel, so it said nothing and the person did not know why (QA TC-219).
+ * 'home': the home folder or a folder that holds it (or one whose place cannot be told: opensHome counts it as home);
+ * 'blocked': anything else Chromium blocks (~/Library, system folders). null: no message, the refusal stays silent:
+ * not a folder picked by the team page's top frame at an allowed origin (another page never raises the app's dialogs).
+ */
+export async function refusedFolderReason(d: RestrictedFolder, allowedOrigins: readonly string[], platform: string, sys: FolderSystem): Promise<'home' | 'blocked' | null> {
+  const origin = originOf(d.origin)
+  if (!d.isTopFrame || !d.isDirectory || !d.path || !origin || !allowedOrigins.includes(origin)) return null
+  return (await opensHome(d.path, sys, platform)) ? 'home' : 'blocked'
 }

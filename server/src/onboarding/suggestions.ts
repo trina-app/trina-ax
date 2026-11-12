@@ -19,7 +19,7 @@
 // A suggestion the person closed never comes back for them (suggestion_dismissals, migration 229, per person).
 import fs from 'node:fs'
 import path from 'node:path'
-import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, PPT_SUGGEST_CHARS, type ResultSuggestion } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, PPT_SUGGEST_CHARS, teamHome, type ResultSuggestion } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
@@ -75,9 +75,10 @@ function firstLandingRun(ctx: Db, userId: string, turnId: string, path: string):
   return first?.id === turnId
 }
 
-/** The team folder a member can put files in (docs/DECISIONS.md "MC", "M"): the welcome steps' team group's folder
- * (groups/<team>/: the team link puts joiners in that group) when they can write it, else the folder of another group
- * of theirs they can write; null when there is none (no files part). */
+/** The team folder a member can put files in (docs/DECISIONS.md "MC", "M", "Team folder basics"): the folder the welcome
+ * steps put the company's material in (shared/; on a row from before, the team group's groups/<team>/: the team link
+ * puts joiners in that group) when they can write it, else the folder of another group of theirs they can write; null
+ * when there is none (no files part). */
 export function memberTeamFolder(ctx: AppContext, userId: string): string | null {
   const p = loadPrincipal(ctx.db, userId)
   if (!p) return null
@@ -86,7 +87,7 @@ export function memberTeamFolder(ctx: AppContext, userId: string): string | null
     try { return atLeast(rules.access(p, folder.split('/')), 'write') && fs.statSync(path.join(ctx.files.fx.root, ...folder.split('/'))).isDirectory() } catch { return false }
   }
   let team: string | null = null
-  try { team = readWelcome(ctx)?.teamGroup?.folder?.replace(/\/+$/, '') ?? null } catch { team = null }
+  try { const g = readWelcome(ctx)?.teamGroup; team = g ? teamHome(g).replace(/\/+$/, '') : null } catch { team = null }
   if (team && writes(team)) return team
   const own = ctx.db.query(`SELECT f.path FROM group_members m JOIN groups g ON g.id = m.group_id JOIN folders f ON f.id = g.folder_id
     WHERE m.user_id = ? ORDER BY g.name`).all(userId) as { path: string }[]

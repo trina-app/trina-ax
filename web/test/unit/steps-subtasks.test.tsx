@@ -55,7 +55,7 @@ describe('sub-task steps', () => {
     expect(html).toContain('12 tool uses · 1m 20s')
     expect(html).toContain('data-testid="subtask-latest"')
     // the team's folders in words, the path in the tooltip
-    expect(html).toContain('title="shared/">Search &quot;fee&quot; · Shared folder</span>')
+    expect(html).toContain('title="shared/">Search &quot;fee&quot; · Company-wide</span>')
     // the earlier child of the working sub-task and the finished sub-task's children stay folded
     expect(html).not.toContain('shared/contract-1.md')
     expect(html).not.toContain('users/alice/draft.md')

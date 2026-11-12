@@ -23,7 +23,7 @@ import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -50,8 +50,7 @@ type Screen = WelcomeStep | 'done'
 
 const STEP_LABEL: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progress.ai', profile: 'welcome.progress.profile', skills: 'welcome.progress.skills', files: 'welcome.progress.files', tools: 'welcome.progress.tools', invite: 'welcome.progress.invite' }
 
-/** A phone: skills live on a computer (내 스킬 가져오기 shows its phone version and can be put off for a computer), and
- * 도구 연결 is walked past (recorded as put off: its sign-ins do not come back to the phone app yet). */
+/** A phone: 도구 연결 is walked past (recorded as put off: its sign-ins do not come back to the phone app yet). */
 export const PHONE_QUERY = '(max-width: 767.98px)'
 
 /** At most this many intro files on 회사 소개 ("소개 자료가 있으면 같이 넣기"): a company intro or a deck is enough, and each
@@ -62,9 +61,10 @@ function WelcomeSteps() {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
-  // the goal card's [팀원 초대] while the steps are unfinished (GoalCard.tsx INVITE_STEP_STATE): the invite step itself,
-  // not where the steps would resume (it needs no AI)
-  const askedInvite = (useLocation().state as { step?: unknown } | null)?.step === 'invite'
+  // the goal card's [팀원 초대] while the steps are unfinished (GoalCard.tsx INVITE_STEP_STATE), or the team menu's or
+  // ⌘K's "팀원 초대" (TeamMenu.tsx): the invite step itself, not where the steps would resume (it needs no AI)
+  const location = useLocation()
+  const askedInvite = (location.state as { step?: unknown } | null)?.step === 'invite'
   const me = useMeStrict()
   // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (lib/welcome.ts)
   useEffect(() => { markStepsSeen(me.user.id) }, [me.user.id])
@@ -80,6 +80,9 @@ function WelcomeSteps() {
   const [brandNote, setBrandNote] = useState(false)
   const region = useRef<HTMLDivElement>(null)
   const computer = !useMediaQuery(PHONE_QUERY)
+  // a step put off and opened again from the end screen: once it is answered, back to the end screen (which lists what
+  // is still put off), not Home (QA TC-206)
+  const fromDone = useRef(false)
 
   const open = async () => {
     setLoadError(null)
@@ -105,6 +108,12 @@ function WelcomeSteps() {
     }
   }
   useEffect(() => { void open() }, []) // once, on arrival
+  // asked again while the steps are on screen (the team menu on this page): a new entry, the same page; go to the
+  // invite step (the steps are unfinished, or the ask would have opened the invite dialog instead)
+  const arrival = useRef(location.key)
+  useEffect(() => {
+    if (location.key !== arrival.current && askedInvite && step && step !== 'done') setStep('invite')
+  }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // a new step (not the first): its region takes the focus, so keyboard and screen-reader users hear where they are
   const first = useRef(true)
@@ -125,6 +134,7 @@ function WelcomeSteps() {
   const go = async (p: WelcomeProgress, from: WelcomeStep) => {
     for (const id of phoneSkips(p, from, computer)) p = await useWelcome.getState().update({ step: { id, state: 'skipped' } })
     setBrandNote(false)
+    if (fromDone.current) { fromDone.current = false; return setStep('done') }
     const n = nextStep(p, from, computer)
     if (n) return setStep(n)
     if (!p.doneShownAt) return setStep('done')
@@ -163,9 +173,6 @@ function WelcomeSteps() {
     await go(await w.update({ step: { id: 'profile', state } }), 'profile')
     setBrandNote(brandFailed)
   })
-  /** 내 스킬 가져오기 shared something: the server recorded the step done (it does for a share applied anywhere); the copy
-   * here is read again */
-  const applied = () => { void useWelcome.getState().load(true).catch(() => {}) }
 
   if (loadError)
     return (
@@ -201,7 +208,7 @@ function WelcomeSteps() {
         {gate && <AiStep busy={busy} onLater={() => navigate('/')} />}
         {!gate && step === 'profile' && <ProfileWizardStep progress={progress} busy={busy} onContinue={(brandFailed) => void leaveProfile('done', brandFailed)} onSkip={() => void leaveProfile('skipped')} />}
         {!gate && step === 'skills' && (
-          <SkillsStep team={progress.teamGroup?.name ?? me.team.name} nextLabel={nextLabel('skills')} busy={busy} onApplied={applied}
+          <SkillsStep nextLabel={nextLabel('skills')} busy={busy}
             onNext={() => void mark('skills', 'done')} onSkip={() => void mark('skills', 'skipped')}
             // the brand materials did not go in: said once, under the step's heading (FLOW-v6 §1A)
             note={brandNote ? <p className="text-label text-warn" role="status" data-testid="welcome-brand-failed">{t('welcome.brand.failed')}</p> : undefined} />
@@ -209,7 +216,7 @@ function WelcomeSteps() {
         {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
         {!gate && step === 'tools' && <ToolsStep busy={busy} done={progress.steps.tools === 'done'} nextLabel={nextLabel('tools')} onDone={() => void mark('tools', 'done')} onSkip={() => void mark('tools', 'skipped')} />}
         {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} onStep={(s) => { setError(null); setStep(s) }} />}
-        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} />}
+        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} computer={computer} onStep={(s) => { fromDone.current = true; setError(null); setStep(s) }} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
     </Page>
@@ -426,8 +433,9 @@ interface Picked {
   error?: string
 }
 
-/** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6"): picked files go up at once into the team's brand folder
- * (groups/<team>/브랜드/, only this team sees it; the team's start first when it is missing), each on its own, a name
+/** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6", "Team folder basics"): picked files go up at once into the
+ * team's brand folder (shared/브랜드/, everyone in the team sees it; groups/<team>/브랜드/ on a team that started before;
+ * the team's start first when it is missing), each on its own, a name
  * already there renamed; 회사 소개서, 카드뉴스 and 홍보 영상 read them, and no 회사 소개.md is written beside them. */
 function useIntroFiles(progress: WelcomeProgress) {
   const t = useT()
@@ -569,8 +577,10 @@ const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
  * A press opens that skill's form on 팀 스킬 only (`/skills?run=`, the form members land on; its defaults read the
  * company intro and the brand folder): nothing runs until its own 실행, and closing it stays on 팀 스킬. This screen never
  * waits on a result. A row whose deck started earlier keeps its one line about where the deck is.
+ * Under it, the steps put off (QA TC-206), each with 지금 하기: the step opens here and, answered, comes back to this
+ * screen. Put off still counts as answered (the setup is finished), as W6 decided.
  */
-function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: boolean }) {
+function DoneStep({ progress, aiReady, computer, onStep }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; onStep: (s: WelcomeStep) => void }) {
   const t = useT()
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE_QUERY)
@@ -597,6 +607,8 @@ function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: b
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [own, title])
   const home = () => navigate('/')
+  // the steps put off (still counted as answered, docs/DECISIONS.md "W6"): named, each with a way back now (QA TC-206)
+  const later = countedSteps(progress, aiReady).filter((s) => s !== 'ai' && progress.steps[s] === 'skipped' && offeredHere(s, computer))
   const tryOwn = aiReady && !!own
   const make = aiReady && !own && !!kept
   return (
@@ -622,6 +634,20 @@ function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: b
           <button type="button" className={clsx(quietLink, 'text-sm max-sm:w-full')} onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</button>
         )}
       </div>
+      {later.length > 0 && (
+        <div data-testid="welcome-done-later">
+          <p className="text-sm text-muted">{t('welcome.done.later')}</p>
+          <ul className="mt-2 divide-y divide-line rounded-xl border border-line">
+            {later.map((s) => (
+              <li key={s} className="flex items-center gap-3 px-4 py-2 text-sm" data-testid="welcome-done-later-step" data-step={s}>
+                <span className="min-w-0 flex-1">{t(STEP_LABEL[s]!)}</span>
+                <Button size="sm" onClick={() => onStep(s)} data-testid="welcome-done-later-open">{t('welcome.done.laterOpen')}</Button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-faint">{t('welcome.done.laterHint')}</p>
+        </div>
+      )}
     </div>
   )
 }

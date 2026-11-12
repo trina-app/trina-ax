@@ -1,5 +1,5 @@
 // The text cache's background re-extraction (files/search.ts OfficeCache: what a search left to the background queue,
-// upgradeOld, the semantic re-index) runs its converters below interactive work: tools/isolate.ts backgroundPrefix
+// upgradeOld) runs its converters below interactive work: tools/isolate.ts backgroundPrefix
 // (Linux nice 10 + ionice best-effort 7, macOS taskpolicy -c utility) and a longer wall clock. A job that a person's
 // grep joined before a converter started runs that converter at normal priority. A converter that a limit stopped (a
 // background one waiting for the CPU on a busy Mac) leaves the document without text for a while, never with an empty

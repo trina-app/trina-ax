@@ -1,0 +1,8 @@
+Office lease summary (사무실 임대차 요약)
+
+Address: 12 Example-ro, Gangnam-gu, Seoul (fictional)
+Lease ends: 2028-06-30
+Monthly rent: 18,500,000 KRW
+Deposit: 185,000,000 KRW (보증금 1억 8,500만 원)
+Notice to renew: at least 6 months before the end date.
+Parking: 4 spaces included.

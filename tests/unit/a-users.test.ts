@@ -35,6 +35,25 @@ describe('invites', () => {
     const viaOrigin = await admin.call('POST', '/api/admin/invites', {}, { origin: 'http://team.localhost' })
     expect(viaOrigin.url.startsWith('http://team.localhost/invite/')).toBe(true)
   })
+  test('a join with an invite is told: the owners and the invite\'s maker in Activity, and one line in the everyone room (no unread)', async () => {
+    const everyone = async (c: Client) => ((await c.call('GET', '/api/rooms')).items as any[]).find((r) => r.kind === 'all')
+    const before = await everyone(owner)
+    const { token } = await admin.call('POST', '/api/admin/invites', {})
+    const r = await h.client().call('POST', `/api/invites/${token}/accept`, { username: 'nora', name: 'Nora New', password: 'tulip meadow 2026' })
+    const joinedId = r.me.user.id
+    for (const c of [owner, admin]) {
+      const item = (await c.call('GET', '/api/notifications')).items.find((x: any) => x.code === 'team.joined' && x.sourceId === joinedId)
+      expect(item).toMatchObject({ eventType: 'team.joined', joined: { name: 'Nora New' } })
+    }
+    const room = await everyone(owner)
+    const page = await owner.call('GET', `/api/rooms/${room.id}/messages`)
+    const line = (page.items as any[]).at(-1)
+    expect(line).toMatchObject({ event: { type: 'joined' }, author: { id: joinedId } })
+    // an event line is never unread, and the room keeps its place
+    expect(room.unreadCount).toBe(before?.unreadCount ?? 0)
+    expect(room.activityAt ?? null).toBe(before?.activityAt ?? null)
+  })
+
   test('info -> accept: account with the invite\'s role and groups, personal folder, signed in; one use only', async () => {
     const { token } = await admin.call('POST', '/api/admin/invites', { groupIds: [groupId] })
     const guest = h.client()
@@ -133,6 +152,43 @@ describe('members and role guards', () => {
     h.advance(24 * 3600_000 + 1)
     expect((await g.try('POST', `/api/password-resets/${l3.token}`, { newPassword: 'another harbor 78' })).status).toBe(410)
     expect((await g.try('GET', `/api/password-resets/${'y'.repeat(43)}`)).status).toBe(404)
+  })
+  test('a reset link stops working once the password changes another way, or the account is disabled', async () => {
+    const g = h.client()
+    const valid = async (token: string) => (await g.call('GET', `/api/password-resets/${token}`)).valid
+    // the person changes their own password: the link pasted in the wrong chat no longer takes the account over
+    const m = await addMember(h, owner, { username: 'sven' })
+    const own = await admin.call('POST', `/api/admin/users/${m.id}/reset-link`)
+    expect(await valid(own.token)).toBe(true)
+    await m.client.call('POST', '/api/auth/password', { currentPassword: m.password, newPassword: 'quiet meadow lamp 31' })
+    expect(await valid(own.token)).toBe(false)
+    expect((await g.try('POST', `/api/password-resets/${own.token}`, { newPassword: 'taken over 4 good' })).status).toBe(410)
+    expect((await m.client.call('GET', '/api/me')).user.id).toBe(m.id)
+    // an admin gives a temporary password instead
+    const temp = await admin.call('POST', `/api/admin/users/${m.id}/reset-link`)
+    await admin.call('POST', `/api/admin/users/${m.id}/reset-password`)
+    expect(await valid(temp.token)).toBe(false)
+    expect((await g.try('POST', `/api/password-resets/${temp.token}`, { newPassword: 'taken over 4 good' })).status).toBe(410)
+    // disabled and enabled again: the link does not come back
+    const n = await addMember(h, owner, { username: 'vera' })
+    const off = await admin.call('POST', `/api/admin/users/${n.id}/reset-link`)
+    await owner.call('PATCH', `/api/admin/users/${n.id}`, { status: 'disabled' })
+    await owner.call('PATCH', `/api/admin/users/${n.id}`, { status: 'active' })
+    expect(await valid(off.token)).toBe(false)
+    // a wrong current password changes nothing and leaves the link alone
+    const kept = await admin.call('POST', `/api/admin/users/${n.id}/reset-link`)
+    const nc = h.client()
+    await nc.login('vera', n.password)
+    expect((await nc.try('POST', '/api/auth/password', { currentPassword: 'not it at all', newPassword: 'purple new garden 99' })).status).toBe(403)
+    expect(await valid(kept.token)).toBe(true)
+    // made an admin: an owner-made link for the member would now open an admin account
+    const promo = await owner.call('POST', `/api/admin/users/${n.id}/reset-link`)
+    await owner.call('PATCH', `/api/admin/users/${n.id}`, { role: 'admin' })
+    expect(await valid(promo.token)).toBe(false)
+    await owner.call('PATCH', `/api/admin/users/${n.id}`, { role: 'member' })
+    // a link made after all this still works
+    const fresh = await admin.call('POST', `/api/admin/users/${n.id}/reset-link`)
+    expect(await valid(fresh.token)).toBe(true)
   })
   test('owner transfer needs the password again; the old owner becomes admin', async () => {
     const t = await addMember(h, owner, { username: 'tom' })

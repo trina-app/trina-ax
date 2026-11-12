@@ -28,8 +28,10 @@ test('External services: every tool of a big service is listed with its switch; 
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page, OWNER)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   const add = async (name: string, url: string) => {
+    // a new connection opens its own page; Add is on the list
+    if (!/\/connectors$/.test(new URL(page.url()).pathname)) await page.goto('/connectors')
     await page.getByTestId('integration-add').click()
     await page.getByTestId('integration-name').fill(name)
     await page.getByTestId('integration-url').fill(url)

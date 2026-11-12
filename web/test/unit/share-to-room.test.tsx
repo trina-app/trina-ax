@@ -406,7 +406,7 @@ test('in the room: my note, then the answer as a quote headed "<AI> 답변" in M
   expect(html.replace(/&#x27;/g, "'")).toContain(`${en('shareRoom.quoteHead', { ai: aiName((k) => en(k)) })}</figcaption>`)
   // Markdown: a list, a link to a file I may open; the other file's name after a lock, and why for a screen reader
   expect(html).toMatch(/<ul>\s*<li>first step<\/li>/)
-  expect(html).toMatch(/data-testid="team-file-text"><svg[^]*?data-testid="team-file-lock"[^]*?<\/svg>budget<span class="sr-only"> \(You don(&#x27;|')t have access\)<\/span><\/button>/)
+  expect(html).toMatch(/data-testid="team-file-text"><svg[^]*?data-testid="team-file-lock"[^]*?<\/svg>budget<span class="sr-only"> \(Can(&#x27;|')t open: moved, deleted or no access\)<\/span><\/button>/)
   expect(html).not.toContain('finance%2Fbudget')
   // the note's text does not show the answer's Markdown, and the answer is not in the note's paragraph
   expect(html).not.toContain('- first step')

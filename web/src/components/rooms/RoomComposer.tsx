@@ -1,7 +1,8 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
-// button sends, like the AI chat's box), files (the clip, paste or drop; each is uploaded at once with POST
-// /api/rooms/:id/files and sent by id; a picture shows as itself at once, a 64 px square, while it uploads), and "@"
+// button sends, like the AI chat's box), files (the clip, paste, or a drop anywhere on the room's column or the thread
+// around the box: components/FileDropZone.tsx; each is uploaded at once with POST /api/rooms/:id/files and sent by id;
+// a picture shows as itself at once, a 64 px square, while it uploads), and "@"
 // for the room's members: a picked name (or "@트리나") stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
 // room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
@@ -12,18 +13,21 @@
 // text (never a voice message, never sent by themselves). A room names no chat: while every chat is confidential and
 // voice input goes to an outside service, the mic says so instead (lib/voice.ts voiceBlockedInRoom).
 // The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
+// Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
+// one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
 import clsx from 'clsx'
 import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
+import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
-import { placeKey, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
+import { keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
@@ -35,6 +39,8 @@ import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
+import { useFileDrop } from '../chat/ComposerFiles'
+import { useDropTarget } from '../FileDropZone'
 
 interface Upload {
   key: number
@@ -53,28 +59,46 @@ const picture = (u: Upload) => isLocalImage(u.file) || (u.roomFile?.kind === 'im
 /** From this many members (me included) a message with "@전체" asks before it goes. */
 export const MENTION_ALL_CONFIRM = 10
 
-export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean }) {
+/** the boxes on screen for each place (placeKey), each with how it reads the place's draft again */
+const boxesOf = new Map<string, Set<() => void>>()
+// another tab of mine changed a place's draft (sent it, typed in it): the boxes of that place here show it too
+onRoomDraftElsewhere((key) => {
+  for (const f of boxesOf.get(key) ?? []) f()
+})
+
+/** `above`: one quiet line over the box (a DM's status line, components/StatusMessage.tsx) */
+export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false, above }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean; above?: ReactNode }) {
   const t = useT()
   const locale = useLocale()
   // the room's box and each thread's box keep their own draft
   const key = placeKey(roomId, threadRootId)
-  const [text, setTextState] = useState(() => drafts.get(key) ?? '')
+  // (the draft this device kept for the place when this page has none: the app was closed, or the page loaded again)
+  const [text, setTextState] = useState(() => {
+    restoreRoomDraft(key)
+    return drafts.get(key) ?? ''
+  })
   const [alsoInRoom, setAlsoInRoom] = useState(false)
   const [files, setFiles] = useState<Upload[]>([])
-  const [drag, setDrag] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   const setText = (s: string) => {
     setTextState(s)
     if (s) drafts.set(key, s)
     else drafts.delete(key)
+    keepRoomDraft(key)
   }
+  // a reply typed here (store/rooms.ts roomDrafts, kept on this device too): while there is one, the page does not
+  // reload by itself (after an update, or once the connection is back: lib/reload-guard.ts), as the chat's box does
+  useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   // "@전체": everyone else in the room, where it is offered (useEveryone)
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
-  const mention = useMentionMenu({ text, setText, input, members, meId, ai: true, initial: roomDraftMentions.get(key), everyone })
-  const [asking, setAsking] = useState(false)
   const me = useMe()
+  // "@트리나" in the "@" list only while the server still takes it (Me.server.roomAiMentions; off by default: the
+  // side chat, ✦ in the room's header, asks the AI beside the room)
+  const aiMentions = !!me?.server?.roomAiMentions
+  const mention = useMentionMenu({ text, setText, input, members, meId, ai: aiMentions, initial: roomDraftMentions.get(key), everyone })
+  const [asking, setAsking] = useState(false)
   // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
   const mic = micState(me)
   const [voiceError, setVoiceError] = useState<string | null>(null)
@@ -102,11 +126,30 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useEffect(() => {
     if (mention.picked.length) roomDraftMentions.set(key, mention.picked)
     else roomDraftMentions.delete(key)
+    keepRoomDraft(key)
   }, [key, mention.picked])
+  // another box of this place (the same thread beside a file in the viewer) goes: what it left is this box's draft now
+  const mentionNow = useRef(mention)
+  mentionNow.current = mention
+  useEffect(() => {
+    const reread = () => {
+      const d = drafts.get(key) ?? ''
+      if (d !== latest.current) mentionNow.current.restore(d, roomDraftMentions.get(key) ?? [])
+    }
+    const set = boxesOf.get(key) ?? new Set<() => void>()
+    boxesOf.set(key, set)
+    set.add(reread)
+    return () => {
+      set.delete(reread)
+      if (!set.size) boxesOf.delete(key)
+      for (const f of set) f()
+    }
+  }, [key])
   // a send the server refused (the AI still answering my last question, …) comes back here, not as a failed bubble
+  // (into one box: the first to take it)
   const back = useRooms((s) => s.returned[key])
   useEffect(() => {
-    if (!back) return
+    if (!back || useRooms.getState().returned[key] !== back) return
     useRooms.getState().takeReturned(key)
     mention.putBack(back.body, back.mentions, !!back.mentionsAll)
     if (back.alsoInRoom) setAlsoInRoom(true)
@@ -120,7 +163,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
   const behindPanel = usePanelExpanded()
-  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')
+  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t(aiMentions ? 'rooms.placeholderEmpty' : 'rooms.placeholderEmptySide') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
@@ -163,6 +206,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     for (const u of added) void upload(u)
   }
 
+  // files dropped on the column around the box (the room's, the thread's: FileDropZone) come here, with its checks: a box
+  // with no room left for one more refuses the whole drop. Outside every column the box takes drops on itself.
+  const inZone = useDropTarget({ files: addFiles, refusal: () => (files.length >= ROOM_FILES_MAX ? t('rooms.tooMany', { n: ROOM_FILES_MAX }) : null) })
+  const { drag, dropProps } = useFileDrop({ files: inZone ? undefined : addFiles })
+
   const removeFile = (u: Upload) => {
     u.abort.abort()
     setFiles((list) => list.filter((x) => x.key !== u.key))
@@ -196,23 +244,12 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }
 
   return (
-    <div ref={root} className="shrink-0 pb-[max(0.75rem,var(--safe-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
+    <div ref={root} className="shrink-0 pb-[var(--box-bottom)] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
       <VoiceLive voice={voice} />
+      {above}
       <div
         className={clsx('mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
-        onDragOver={(e) => {
-          if (![...e.dataTransfer.types].includes('Files')) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'copy'
-          setDrag(true)
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return
-          e.preventDefault()
-          setDrag(false)
-          addFiles(Array.from(e.dataTransfer.files))
-        }}
+        {...dropProps}
         data-testid="room-composer"
       >
         {!voice.recording && mention.list}
@@ -275,15 +312,16 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         )}
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
-          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:px-3" />
+          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:pr-3 max-md:pl-2" />
         ) : (
           <>
             <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
             {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
-                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last */}
-            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
+                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last. A phone: 8 px on the
+                left, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
+            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:pr-3 max-md:pl-2">
               <div className="flex h-composer-line shrink-0 items-center">
-                <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="room-attach">
+                <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
                   <Paperclip size={18} />
                 </IconButton>
               </div>
@@ -359,6 +397,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       {voiceError && (
         <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">
           {voiceError}
+          {voice.settingsFor === voiceError && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
         </p>
       )}
       {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}

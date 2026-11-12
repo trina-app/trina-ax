@@ -12,7 +12,7 @@
 // owner's own "card-news" in another folder is the team's skill, not Trina's, and shows as one of the other skills.
 import fs from 'node:fs'
 import path from 'node:path'
-import { BRAND_FOLDER, isSystemName, skillSummary, skillTitle, TEAM_FOLDER_COUNT_MAX, type Locale, type PreparedSkill, type TeamPrepared } from '@mycel/shared/api'
+import { BRAND_FOLDER, isSystemName, SHARED_HOME, skillSummary, skillTitle, TEAM_FOLDER_COUNT_MAX, type Locale, type PreparedSkill, type TeamPrepared } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { groupFolder } from '../admin/groups'
 import { teamDefaultLocale } from '../admin/settings'
@@ -114,11 +114,17 @@ export function cachedDocuments(ctx: Pick<AppContext, 'files'>, user: Principal,
   return value
 }
 
-/** The team group's folder and what in it is the steps' own (the brand folder, the group's skills), as names inside
- * it: from the welcome row, the group's folder as it is now (a renamed group keeps its id). null: no team group yet. */
+/** The team's folder of company material and what in it is the steps' own (the brand folder, the group's skills), as
+ * names inside it, from the welcome row: shared/ for a team whose start ran since docs/DECISIONS.md "Team folder basics"
+ * (everyone in the team counts it), else the team group's folder as it is now (a renamed group keeps its id). null: no
+ * team group yet. */
 function teamGroupFolder(ctx: AppContext): { folder: string; without: string[] } | null {
   const tg = readWelcome(ctx)?.teamGroup
   if (!tg) return null
+  if (tg.home === SHARED_HOME) {
+    const inside = tg.brandFolder?.startsWith(`${SHARED_HOME}/`) ? tg.brandFolder.slice(SHARED_HOME.length + 1) : BRAND_FOLDER[teamDefaultLocale(ctx.db)]
+    return { folder: SHARED_HOME, without: [inside] }
+  }
   const folder = groupFolder(ctx, tg.id)
   if (!folder) return null
   // the brand folder as recorded, moved with a renamed group; a row from before it records none: the name the steps

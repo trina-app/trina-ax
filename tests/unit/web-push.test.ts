@@ -1,11 +1,14 @@
 import { afterEach, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { harness, withOwner, type Harness } from './a-lib'
 import { PushService, type PushOptions } from '../../server/src/notifications/push-service'
 import { notificationsOf } from '../../server/src/notifications/service'
+import { padPrivateKey, readPushConfig, pushConfigPath } from '../../server/src/notifications/push-config'
 import { HttpError } from '../../server/src/http/errors'
 import { PUSH_KEY_REASON } from '@mycel/shared/api'
-const generateVAPIDKeys=()=>{const e=crypto.createECDH('prime256v1');e.generateKeys();return {publicKey:e.getPublicKey().toString('base64url'),privateKey:e.getPrivateKey().toString('base64url')}}
+const generateVAPIDKeys=()=>{const e=crypto.createECDH('prime256v1');e.generateKeys();return {publicKey:e.getPublicKey().toString('base64url'),privateKey:padPrivateKey(e.getPrivateKey().toString('base64url'))}}
 let h: Harness, p: PushService
 const nowBase=Date.now(); let now=nowBase
 const key=()=>{const e=crypto.createECDH('prime256v1');e.generateKeys();return e.getPublicKey().toString('base64url')}
@@ -165,4 +168,20 @@ test('WNS 406 (throttled) is tried again later, like 429; 404 and 410 remove the
     const sid2=await setup({transport:async()=>({statusCode})});p.subscribe('olga',sid2,wnsInput());now+=10;event(`gone-${statusCode}`);await p.tick()
     expect(h.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions').get()).toEqual({n:0})
   }
+})
+
+test('a private key that lost its leading zero byte is padded back to 32 bytes; random keys are always 32',()=>{
+  const lost=crypto.randomBytes(31).toString('base64url')
+  expect(Buffer.from(padPrivateKey(lost),'base64url').length).toBe(32)
+  expect(Buffer.from(padPrivateKey(lost),'base64url').subarray(1).toString('hex')).toBe(Buffer.from(lost,'base64url').toString('hex'))
+  const full=crypto.randomBytes(32).toString('base64url');expect(padPrivateKey(full)).toBe(full)
+  for(let i=0;i<2000;i++)expect(Buffer.from(generateVAPIDKeys().privateKey,'base64url').length).toBe(32)
+})
+
+test('a stored push key whose private part is 31 bytes loads as 32 bytes',async()=>{
+  h=await harness('web-push')
+  let e=crypto.createECDH('prime256v1');for(;;){e=crypto.createECDH('prime256v1');e.generateKeys();if(e.getPrivateKey().length===31)break}
+  const file=pushConfigPath(h.ctx);fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700})
+  fs.writeFileSync(file,JSON.stringify({enabled:true,subject:'mailto:push@example.test',publicKey:e.getPublicKey().toString('base64url'),privateKey:e.getPrivateKey().toString('base64url')}),{mode:0o600})
+  const c=readPushConfig(h.ctx);expect(c).not.toBeNull();expect(Buffer.from(c!.privateKey,'base64url').length).toBe(32)
 })

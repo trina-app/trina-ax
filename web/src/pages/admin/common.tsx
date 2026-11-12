@@ -1,37 +1,46 @@
 // Small helpers shared by the admin screens.
 import clsx from 'clsx'
-import { Search } from 'lucide-react'
+import { Building2, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
-import { errorText } from '../../lib/api'
+import type { Locale } from '@mycel/shared/api'
+import { ApiError, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
+import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls } from '../../components/ui'
+import { Button, Field, Modal, Skeleton, StickyHeader, inputCls, useMediaQuery } from '../../components/ui'
+import { LoadError } from '../../components/LoadError'
 
 /** Team settings, scrolled to Usage limits (TeamAiSettings.tsx reads #ai-limits). */
 export const USAGE_LIMITS_LINK = '/admin/settings#ai-limits'
 
+/** `error`: the failure in words (kept until a read works); `cause`: what was thrown, for Loadable's notice. */
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const t = useT()
   const locale = useLocale()
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [cause, setCause] = useState<unknown>(null)
   const reload = useCallback(async () => {
     try {
       setData(await fn())
       setError(null)
+      setCause(null)
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
+      setCause(e)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   useEffect(() => {
     void reload()
   }, [reload])
-  return { data, error, reload, setData }
+  return { data, error, cause, reload, setData }
 }
 
-export function Loadable<T>({ state, children, lines = 4 }: { state: { data: T | null; error: string | null; reload: () => Promise<void> }; children: (d: T) => ReactNode; lines?: number }) {
-  if (state.error) return <ErrorNote onRetry={() => void state.reload()}>{state.error}</ErrorNote>
+/** A read that failed: the connection gets the calm notice that reads again by itself, anything else the red note with
+ * the server's words (components/LoadError.tsx). */
+export function Loadable<T>({ state, children, lines = 4 }: { state: { data: T | null; error: string | null; cause?: unknown; reload: () => Promise<void> }; children: (d: T) => ReactNode; lines?: number }) {
+  if (state.error) return <LoadError error={state.cause} text={state.error} onRetry={state.reload} />
   if (state.data === null) return <Skeleton lines={lines} />
   return <>{children(state.data)}</>
 }
@@ -124,18 +133,48 @@ export function useOneAtATime<K>() {
  * go under it. Engines, Usage and Activity log started this pattern; the other pages use it too now, so all admin
  * pages look the same.
  */
-/** "For the whole team": every Admin page says so next to its title (Settings pages say "Just for you", SettingsDialog.tsx) */
-export function PageScope() {
+/** "Applies to everyone in <team>": above every Admin page (AdminLayout.tsx), the pair of Settings' "Just for you"
+ * (SettingsDialog.tsx), in the same size and colour. The shell says whose a page is, so the titles keep the same nouns
+ * as Settings' (Connectors, Providers, AI apps). */
+export function AdminScope() {
   const t = useT()
-  return <span className="text-xs text-faint" data-testid="page-scope">{t('scope.team')}</span>
+  const me = useMeStrict()
+  return (
+    // mb-3: the title rows under it start 12px higher (-mt-3) to stay put when stuck, and would cover its descenders
+    <p className="mb-3 flex items-center gap-1.5 text-xs text-faint" data-testid="page-scope">
+      <Building2 size={13} className="shrink-0" aria-hidden /> {t('scope.teamName', { team: me.team.name })}
+    </p>
+  )
 }
 
 export function AdminPageHeader({ title, desc, actions, children, controls, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; controls?: ReactNode; testId?: string; className?: string; still?: boolean }) {
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  if (phone) {
+    // A phone (docs/DECISIONS.md "Admin and Settings on phones"): the bar above says the page's name (AdminLayout's
+    // PhonePageBar), so the title is for screen readers only; the line keeps two lines (More) with the page's buttons
+    // under it (PageActions: one, the rest under its ⌄); only the search and filters row stays at the top while the page
+    // scrolls (the whole header stuck took a third of the screen)
+    return (
+      <>
+        <div className={clsx('mb-3', className)} data-testid={testId}>
+          <h2 className="sr-only">{title}</h2>
+          {children && <div className="mb-2 flex flex-wrap items-center gap-2">{children}</div>}
+          {/* the line on its own (two lines, then More), the buttons under it: beside them it was cut to a few words */}
+          {desc && <OneLine className="text-xs text-muted" twoOnPhone testId={testId ? `${testId}-desc` : undefined}>{desc}</OneLine>}
+          {actions && <div className={clsx('flex flex-wrap items-center gap-2', desc && 'mt-2.5')} data-testid={testId ? `${testId}-actions` : undefined}>{actions}</div>}
+        </div>
+        {controls && (
+          <StickyHeader className="mb-3 flex flex-wrap items-center gap-2 py-2" testId={testId ? `${testId}-controls` : undefined}>
+            {controls}
+          </StickyHeader>
+        )}
+      </>
+    )
+  }
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <h2 className="flex items-center text-lg font-semibold tracking-tight">{title}</h2>
-        <PageScope />
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
@@ -162,7 +201,7 @@ export function CountBadge({ n, testId }: { n: number | null | undefined; testId
 /** A search box for a list on the page (it filters what is already loaded), in the height of the filter pills. */
 export function SearchBox({ value, onChange, label, testId, className }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string }) {
   return (
-    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-sm:min-h-10 max-sm:w-full', className)}>
+    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-11 max-md:flex-1', className)}>
       <Search size={15} className="shrink-0 text-faint" aria-hidden />
       <input
         type="search"
@@ -193,19 +232,30 @@ export const matches = (q: string, locale: string, ...texts: (string | null | un
 const FlatCards = createContext(false)
 export const FlatCardsProvider = FlatCards.Provider
 
+/** The name the phone's bar shows for this page (a group of Team settings on a phone): a section or card with the same
+ * title keeps it for screen readers only, so the name is not said twice on screen. */
+const BarTitle = createContext<string | null>(null)
+export const BarTitleProvider = BarTitle.Provider
+const useInBar = (title: ReactNode) => {
+  const bar = useContext(BarTitle)
+  return bar !== null && title === bar
+}
+
 /** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove.
  * No title, no line and no buttons: the card has no header row (the page header above names it).
- * flat: below the md width no frame, a section that ends with a hairline (like the team invite link on Members), for a
- * page whose cards would stack frame on frame on a phone. Its content must not reach into the card's padding. */
-export function Card({ title, actions, children, desc, headingRef, testId, flat }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string; flat?: boolean }) {
+ * flat: below the md width no frame, a section that ends with a hairline (none after the page's last), for a page whose
+ * cards would stack frame on frame on a phone (Slack, Settings › Providers). Its content must not reach into
+ * the card's padding. */
+export function Card({ title, actions, children, desc, headingRef, testId, flat, id }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string; flat?: boolean; id?: string }) {
   const head = title || desc || actions
+  const inBar = useInBar(title)
   if (useContext(FlatCards)) {
     return (
-      <section className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId}>
+      <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId}>
         {head && (
           <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-2">
             <div className="min-w-0 flex-1 max-sm:basis-full">
-              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium">{title}</h2>}
+              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-base font-medium', inBar && 'sr-only')}>{title}</h2>}
               {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
             </div>
             {actions}
@@ -216,7 +266,7 @@ export function Card({ title, actions, children, desc, headingRef, testId, flat 
     )
   }
   return (
-    <section className={clsx('mb-6 rounded-2xl border border-line bg-surface', flat && 'max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:bg-transparent max-md:pb-6')} data-testid={testId}>
+    <section id={id} className={clsx('mb-6 rounded-2xl border border-line bg-surface', flat && 'max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:bg-transparent max-md:pb-6 max-md:last:border-b-0')} data-testid={testId}>
       {head && (
         <header className={clsx('flex flex-wrap items-center gap-2 border-b border-line px-4 py-3', flat && 'max-md:border-b-0 max-md:px-0 max-md:pt-0')}>
           {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
@@ -259,7 +309,7 @@ export function OneLine({ children, className, testId, twoOnPhone }: { children:
         {children}
       </p>
       {(cut || open) && (
-        <button type="button" aria-expanded={open} className="shrink-0 font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)}>
+        <button type="button" aria-expanded={open} className="touch-hit shrink-0 font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)}>
           {t(open ? 'common.less' : 'common.more')}
         </button>
       )}
@@ -283,11 +333,44 @@ export function SecretBox({ label, value, note, testId = 'secret-value', large }
   )
 }
 
-/** Ask for the owner's password again (update / restore / connection / owner transfer). */
-export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; onClose: () => void; onConfirm: (password: string) => Promise<void> }) {
+/**
+ * The words for a password the server refused (owner-reauth / admin-reauth: 403 with fields['body.password']), to show
+ * under the dialog's password field; null for any other error (that one is a toast).
+ */
+export function passwordRefusal(e: unknown, locale: Locale): string | null {
+  return e instanceof ApiError && e.body.fields?.['body.password'] ? errorText(e, locale, '') : null
+}
+
+/**
+ * Run a ReauthDialog's request: `{ value }` when it worked, `{ refused }` with the words for a refused password (give
+ * them back to the dialog, which stays open), null for any other error (toasted; close the dialog).
+ */
+export function useReauthCall() {
+  const t = useT()
+  const locale = useLocale()
+  return async <T,>(fn: () => Promise<T>): Promise<{ value: T } | { refused: string } | null> => {
+    try {
+      return { value: await fn() }
+    } catch (e) {
+      const refused = passwordRefusal(e, locale)
+      if (refused) return { refused }
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      return null
+    }
+  }
+}
+
+/**
+ * Ask for the owner's password again (update / restore / connection / owner transfer). `onConfirm` may give back the
+ * words for a refused password (passwordRefusal): they show under the field, the dialog stays open and the field is
+ * selected for another try (QA TC-221: restore closed the dialog and the owner started over).
+ */
+export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; onClose: () => void; onConfirm: (password: string) => Promise<string | null | void> }) {
   const t = useT()
   const [pw, setPw] = useState('')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const input = useRef<HTMLInputElement>(null)
   return (
     <Modal
       open
@@ -302,10 +385,17 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
             variant={danger ? 'danger' : 'primary'}
             busy={busy}
             disabled={!pw}
+            data-testid="reauth-confirm"
             onClick={async () => {
               setBusy(true)
-              await onConfirm(pw)
+              setError(null)
+              const refused = await onConfirm(pw)
               setBusy(false)
+              if (refused) {
+                setError(refused)
+                input.current?.focus()
+                input.current?.select()
+              }
             }}
           >
             {confirm}
@@ -314,8 +404,8 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
       }
     >
       <div className="mb-3 text-sm text-muted">{body}</div>
-      <Field label={t('system.passwordAgain')}>
-        <input data-autofocus className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
+      <Field label={t('system.passwordAgain')} error={error ?? undefined}>
+        <input ref={input} data-autofocus data-testid="reauth-password" className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => { setPw(e.target.value); setError(null) }} />
       </Field>
     </Modal>
   )
@@ -325,11 +415,12 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
  * `actions`: a button beside the heading (Add limit). `headingRef`: the heading takes the focus when a link opens the
  * page at this group (#ai-limits). */
 export function SettingsSection({ title, desc, actions, children, testId, id, headingRef }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children: ReactNode; testId?: string; id?: string; headingRef?: Ref<HTMLHeadingElement> }) {
+  const inBar = useInBar(title)
   return (
     <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium focus:outline-none">{title}</h2>
+          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-base font-medium focus:outline-none', inBar && 'sr-only')}>{title}</h2>
           {desc && <div className="mt-1 text-sm text-muted">{desc}</div>}
         </div>
         {actions}
@@ -340,19 +431,21 @@ export function SettingsSection({ title, desc, actions, children, testId, id, he
 }
 
 /**
- * One setting as one row: its name, a short line on what it does under it, and the control on the right (stacked on a
- * phone). `id` is the control's id: the name labels it and the line describes it. `more`: the longer details, behind
- * "Learn more" (kept in the page, hidden, so the row reads short). `heading`: the name is a heading, for a row whose
- * control is not one field (the team logo). `below`: under the line, always shown (an error, a state).
+ * One setting as one row: its name, a short line on what it does under it, and the control on the right. Below 768 px
+ * a wide control (a select, a text field, the logo's buttons) goes under the line; an `inline` one (a switch, a short
+ * number) stays on the right of the name, as on a phone's Settings, with the line under the name. `id` is the control's
+ * id: the name labels it and the line describes it. `more`: the longer details, behind "Learn more" (kept in the page,
+ * hidden, so the row reads short). `heading`: the name is a heading, for a row whose control is not one field (the team
+ * logo). `below`: under the line, always shown (an error, a state).
  */
-export function SettingRow({ id, title, desc, more, control, below, heading, testId, attrs }: {
-  id?: string; title: ReactNode; desc?: ReactNode; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; testId?: string; attrs?: Record<string, string>
+export function SettingRow({ id, title, desc, more, control, below, heading, inline, testId, attrs }: {
+  id?: string; title: ReactNode; desc?: ReactNode; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; inline?: boolean; testId?: string; attrs?: Record<string, string>
 }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const descId = id ? `${id}-desc` : undefined
   return (
-    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:gap-8" data-testid={testId} {...attrs}>
+    <div className={clsx('flex py-4 md:flex-row md:items-start md:gap-8', inline ? 'items-start gap-4' : 'flex-col gap-3')} data-testid={testId} {...attrs}>
       <div className="min-w-0 flex-1">
         {heading ? <h3 className="text-sm font-medium text-ink">{title}</h3> : <label htmlFor={id} className="text-sm font-medium text-ink">{title}</label>}
         {(desc || more) && (
@@ -360,7 +453,7 @@ export function SettingRow({ id, title, desc, more, control, below, heading, tes
             {desc && <span id={descId}>{desc}</span>}
             {desc && more && ' '}
             {more && (
-              <button type="button" aria-expanded={open} className="font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
+              <button type="button" aria-expanded={open} className="touch-hit font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
                 {t(open ? 'common.less' : 'teamSettings.learnMore')}
               </button>
             )}
@@ -369,7 +462,7 @@ export function SettingRow({ id, title, desc, more, control, below, heading, tes
         {more && <div hidden={!open} className="mt-2 max-w-prose text-xs leading-relaxed text-faint">{more}</div>}
         {below}
       </div>
-      {control && <div className="flex shrink-0 justify-start sm:justify-end sm:pt-0.5">{control}</div>}
+      {control && <div className={clsx('flex shrink-0 md:justify-end md:pt-0.5', inline ? 'pt-0.5 max-md:items-center max-md:gap-2' : 'justify-start')}>{control}</div>}
     </div>
   )
 }

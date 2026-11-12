@@ -3,7 +3,7 @@
 // CREDENTIALS (AI connections, registered from ./credentials.ts, the same owner)
 // Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
-import { API, EngineId, type EngineId as EngineIdT } from '@mycel/shared/api'
+import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
@@ -13,14 +13,16 @@ import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
-  actualFolderPath, afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, keepOfRow, listFolders,
+  actualFolderPath, afterAccessChange, assertNotInProject, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, keepOfRow, listFolders,
   previewRules, replaceRules, resolveFolderPath, rulesHashAt, rulesOf, toFolder, validateRules, type FolderRow,
 } from '../admin/folders'
 import { rulesHash } from '../admin/access-edit'
 import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
-import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
+import { oftenAskedSwitched } from '../chat/often-asked'
+import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
+import { teamPolicyOff } from '../tools/web-allow-all'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { credentialsOf, noticeOwners } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
@@ -37,6 +39,7 @@ import { codexIsBeta } from '../chat/engines'
 import { ENGINE_CHOICE_CHANGED, codexOffHere, engineOn, limitFallbackAvailable, limitFallbackOn, memberChoice, setLimitFallback, setMemberChoice } from '../admin/engine-choice'
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 import { listSkillManagers, setSkillManager } from '../skills/managers'
+import { auditSight } from '../admin/audit-sight'
 import { listSkillChanges } from '../skills/changes'
 import { addressOf, hasStoredApiKey, readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
@@ -134,6 +137,8 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.createFolder, ({ c, body, auth }) => {
       const locale = c.get('locale')
+      // a project's folder and anything in it: its members are changed on its page (before anything else is looked at)
+      assertNotInProject(body.path, locale)
       validateRules(ctx.db, body.rules, locale)
       // judged before anything is made on disk (create: true)
       const typed = actualFolderPath(ctx, body.path)
@@ -143,7 +148,8 @@ export const adminRoutes: RouteModule = {
       const { path: p, created } = resolveFolderPath(ctx, body.path, { create: body.create, locale })
       const existing = getFolderByPath(ctx.db, p)
       if (body.expectedHash !== undefined) sameRules(rulesHashAt(ctx.db, p), body.expectedHash, locale)
-      if (existing && rulesOf(ctx.db, existing.id).length) fail('conflict', msg('folderExists', locale))
+      // a row with rules made meanwhile (a screen that read the folder list before it): told apart from a bare conflict
+      if (existing && rulesOf(ctx.db, existing.id).length) fail('conflict', msg('folderExists', locale), { params: { reason: 'folder_exists' } })
       const before = captureState(ctx.db)
       const f = ctx.db.transaction(() => {
         const row = ensureFolderRow(ctx.db, p)
@@ -194,6 +200,7 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.putFolderRules, ({ c, params, body, auth }) => {
       const f = editableRow(params.id)
+      assertNotInProject(f.path, c.get('locale'), 'params.id')
       // a folder moved into users/ keeps its row; rules there are ignored, so refuse to edit them as if they worked
       if (f.path === 'users' || f.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
       keepsRules(f.path, body.rules, c.get('locale'))
@@ -211,6 +218,7 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.deleteFolder, ({ c, params, auth }) => {
       const f = editableRow(params.id)
+      assertNotInProject(f.path, c.get('locale'), 'params.id')
       const keep = keepOfRow(ctx, f)
       if (keep === 'team') fail('conflict', msg('teamFolderKeepsRules', c.get('locale')))
       if (keep === 'group') fail('conflict', msg('groupFolderKeepsRow', c.get('locale')))
@@ -223,19 +231,25 @@ export const adminRoutes: RouteModule = {
       afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
     })
 
-    kit.handle(API.previewRules, ({ c, body }) => previewRules(ctx, body.changes, c.get('locale')))
+    kit.handle(API.previewRules, ({ c, body }) => {
+      for (const [i, x] of body.changes.entries()) assertNotInProject(x.path, c.get('locale'), `body.changes.${i}.path`)
+      return previewRules(ctx, body.changes, c.get('locale'))
+    })
     // who sees a folder and why, what one person sees and why (admin/access-explain.ts; read only)
     kit.handle(API.explainFolderAccess, ({ c, query }) => explainFolder(ctx, query, c.get('locale')))
     kit.handle(API.explainPersonAccess, ({ params, query }) => explainPerson(ctx, params.id, query))
     kit.handle(API.explainNewPersonAccess, ({ c, body }) => explainNewPerson(ctx, body, c.get('locale')))
     kit.handle(API.explainAccessTree, ({ c, query }) => explainTree(ctx, query, c.get('locale')))
     // the edit panel: what saving these rules would change (admin/access-edit.ts; nothing is saved)
-    kit.handle(API.previewFolderEdit, ({ c, body }) => explainEdit(ctx, body, c.get('locale')))
+    kit.handle(API.previewFolderEdit, ({ c, body }) => {
+      assertNotInProject(body.path, c.get('locale'))
+      return explainEdit(ctx, body, c.get('locale'))
+    })
 
     // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------
     kit.handle(API.listSkillManagers, () => listSkillManagers(ctx))
     kit.handle(API.setSkillManager, ({ c, body, auth }) => setSkillManager(ctx, auth.user.id, body, c.get('locale')))
-    kit.handle(API.listSkillChanges, ({ query, auth }) => listSkillChanges(ctx.db, auth.user.id, query))
+    kit.handle(API.listSkillChanges, ({ query, auth }) => listSkillChanges(ctx.db, auth.user.id, query, auditSight(ctx, auth.user.id)))
 
     // ---------------- engines ----------------
     kit.handle(API.engines, ({ c }) => enginesResponse(ctx, engineCache, c.get('locale')))
@@ -371,11 +385,29 @@ export const adminRoutes: RouteModule = {
       assertConcurrencyAllowed(body.concurrency, c.get('locale')) // plan (system/limits.ts)
       const cur = getTeamSettings(ctx.db)
       if (body.teamName !== undefined && body.teamName !== cur.teamName && auth.user.role !== 'owner') fail('forbidden', msg('ownerTeamName', c.get('locale')))
+      // how long the audit log, file history and both trashes keep things, and the update channel, are the owner's: an
+      // admin who shortens them could have the nightly sweep erase the audit trail and old file versions
+      // (docs/DECISIONS.md "Retention and the update channel are owner-only"). Saving the same value again is fine.
+      if (auth.user.role !== 'owner') {
+        const owned = OWNER_ONLY_SETTINGS.filter((k) => body[k] !== undefined && body[k] !== cur[k])
+        if (owned.length) fail('forbidden', msg('ownerOnlySetting', c.get('locale')), { fields: Object.fromEntries(owned.map((k) => [`body.${k}`, 'owner only'])) })
+      }
       if (body.defaultEngine !== undefined && !engineOn(ctx, body.defaultEngine)) fail('conflict', msg('engineDisabled', c.get('locale')))
       if (body.defaultEngine === 'codex' && codexIsBeta(ctx)) fail('conflict', msg('codexBetaDefault', c.get('locale')))
-      const next = updateTeamSettings(ctx.db, body)
+      // the settings and, when "Allow all websites" for web reads stops being allowed, everyone's switch off with the
+      // policy epoch raised (tools/web-allow-all.ts): one transaction, so a crash between them leaves no row on
+      let turnedOff: string[] = []
+      const next = ctx.db.transaction(() => {
+        const n = updateTeamSettings(ctx.db, body)
+        if ((cur.browserAllowAll && cur.webAllowAll) && !(n.browserAllowAll && n.webAllowAll)) turnedOff = teamPolicyOff(ctx.db, auth.user.id)
+        // "Show what the team often asks": off, every list goes at once; on, counting starts again from now
+        if (n.oftenAsked !== cur.oftenAsked) oftenAskedSwitched(ctx.db, n.oftenAsked)
+        return n
+      })()
       const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v))
       if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'settings.update', target: null, detail: changed })
+      // the people whose switch went off (audited above) are told
+      for (const id of turnedOff) ctx.services.realtime.publish(id, WEB_ACCESS_CHANGED)
       // everyone's screen shows "Team default (…)", and people without their own language switch with it
       if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
       // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)
@@ -384,7 +416,7 @@ export const adminRoutes: RouteModule = {
       if ('timeZone' in changed) ctx.services.realtime.publishEach(() => ROOM_ALERTS_CHANGED)
       if ('concurrency' in changed) getChatRuntime(ctx).schedule()
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
-      if ('browserAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
+      if ('browserAllowAll' in changed || 'webAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
       // composers show or hide the mic (Me.team.voiceInput)
       if ('speechProvider' in changed) ctx.services.realtime.publishEach(() => SPEECH_CHANGED)
       return next
@@ -430,6 +462,7 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.usage, ({ query }) => usage(ctx.db, query))
-    kit.handle(API.audit, ({ query, auth }) => listAudit(ctx.db, query, auth.user.id))
+    // nothing inside a team project the viewer does not read (admin/audit-sight.ts)
+    kit.handle(API.audit, ({ query, auth }) => listAudit(ctx.db, query, auth.user.id, auditSight(ctx, auth.user.id)))
   },
 }

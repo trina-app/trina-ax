@@ -330,7 +330,9 @@ describe('a chat turn with the api engine', () => {
     script.push(() => new Response('bad gateway', { status: 502 }))
     const b = await send(chat.id, 'two', 'api' as EngineId)
     expect(b.m.error).toMatchObject({ params: { reason: 'provider_error', status: 502 } })
-    expect(b.m.error.message).toBe(`${CHAT_ERROR_MESSAGES.provider_error.en} (HTTP 502)`)
+    // the status for diagnostics, never in the words
+    expect(b.m.error.message).toBe(CHAT_ERROR_MESSAGES.provider_error.en)
+    expect(b.m.error.params).toMatchObject({ reason: 'provider_error', status: 502 })
   })
 
   test('the team\'s own API engine never touches a trial credit: no max_tokens, no hold, nothing counted against it', async () => {

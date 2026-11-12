@@ -39,6 +39,10 @@
 ## 1. 배포하는 법
 
 ```sh
+# 0) PR이 changes/에 남긴 변경 기록 조각을 CHANGELOG.md의 "## Unreleased"로 옮긴다(changes/README.md).
+#    Fold the changelog fragments into CHANGELOG.md, then name the section for the version.
+bun run changelog:fold
+
 # 1) 버전을 올린다: server/package.json과 desktop/package.json의 version. 자리는 위 "버전 번호"로 고른다 (예: 0.3.0-beta.1)
 git commit -am "0.3.0-beta.1"
 git push origin main

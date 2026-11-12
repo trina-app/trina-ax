@@ -59,6 +59,23 @@ describe('Available skills', () => {
     for (const k of ['skills.review', 'skills.register', 'skills.reject', 'common.delete', 'skills.edit'] as const) expect(html).not.toContain(`>${translate('ko', k)}<`)
   })
 
+  test('a project\'s section with its line; a row a wider skill hides says where; it never sits in the team\'s section', () => {
+    setLocale('ko')
+    const p = { id: 'p1', name: '견적' }
+    const html = render([
+      ...items,
+      { path: 'projects/quote/skills/estimate/SKILL.md', name: 'estimate', description: '견적서 초안', project: p },
+      { path: 'projects/quote/skills/weekly/SKILL.md', name: 'weekly', description: 'project weekly', project: p, shadowedBy: { tier: 'team' } },
+    ])
+    expect(html).toContain('data-testid="skill-project-p1"')
+    expect(html).toContain(`>${translate('ko', 'skills.fromProject', { project: '견적' })}<`)
+    expect(html).toContain(translate('ko', 'skills.projectHint'))
+    expect((html.match(/data-testid="skill-same-name"/g) ?? []).length).toBe(1)
+    expect(html).toContain(`>${translate('ko', 'skills.sameName', { where: translate('ko', 'skills.where.team') })}<`)
+    // not in the "hidden by the same name" section either: it stays in its project's
+    expect(html).not.toContain('data-testid="skill-shadowed"')
+  })
+
   test('search: by name or description, and it says so when nothing matches', () => {
     setLocale('en')
     expect((render(items, 'FRIDAY').match(/data-testid="skill-row"/g) ?? []).length).toBe(1)

@@ -3,7 +3,7 @@
 //   follows a rename saved in this window, is asked again when the window comes back, and goes for a project the person
 //   cannot see;
 // - the move dialog says when the chat's project is one the person can no longer see;
-// - a 409 that names the project already on a folder offers to open it.
+// - a 409 that names the project already on a folder offers to open it (a personal project on a named folder).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
@@ -99,8 +99,8 @@ describe('a project whose folder is in the trash (an admin\'s view)', () => {
     const sent: unknown[] = []
     routes = {
       [`PATCH /api/projects/${P1}`]: (init) => { sent.push(JSON.parse(String(init?.body))); return json(200, { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: false }) },
-      'GET /api/files/tree': () => json(200, { path: 'shared/acme-launch', access: 'write', entries: [], nextCursor: null }),
-      'GET /api/admin/access/folder': () => json(200, { path: 'shared/acme-launch', exists: true, ruleFolder: 'shared', people: [], total: 9, nextCursor: null, summary: { access: { none: 2, read: 3, write: 4 }, sources: [] }, inactive: [] }),
+      'GET /api/files/tree': () => json(200, { path: 'projects', access: 'write', entries: [], nextCursor: null }),
+      'GET /api/admin/access/folder': () => json(200, { path: 'projects', exists: true, ruleFolder: 'projects', people: [], total: 9, nextCursor: null, summary: { access: { none: 2, read: 3, write: 4 }, sources: [] }, inactive: [] }),
     }
     const marked = { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: true }
     // an admin: only admins see such a project, and only they may choose its folder
@@ -113,7 +113,7 @@ describe('a project whose folder is in the trash (an admin\'s view)', () => {
     await m.until(() => sent.length, 'the save', 2000)
     expect(sent[0]).not.toHaveProperty('folderPath')
     await m.unmount()
-    // the admin chooses the old path in the picker: that is pointing the project at the folder now there
+    // the admin chooses a folder in the picker (it opens at projects/, the only place a project may point to)
     sent.length = 0
     const n = await mount(<MemoryRouter><ProjectForm project={marked} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
     await n.click('project-folder-choose')
@@ -122,10 +122,10 @@ describe('a project whose folder is in the trash (an admin\'s view)', () => {
     // picked: no "saving keeps it as it is" any more, but who will see it, with how many people read the folder
     expect(n.find('project-form-in-trash')).toBeNull()
     const opens = await n.until(() => { const w = n.find('project-form-opens'); return w?.textContent?.includes('7') ? w : null }, 'the count', 2000)
-    expect(opens.textContent).toBe(translate('en', 'projects.inTrashOpensCount', { folder: 'shared/acme-launch', n: 7 }))
+    expect(opens.textContent).toBe(translate('en', 'projects.inTrashOpensCount', { folder: 'projects', n: 7 }))
     await n.click('project-save')
     await n.until(() => sent.length, 'the save', 2000)
-    expect(sent[0]).toMatchObject({ folderPath: 'shared/acme-launch' })
+    expect(sent[0]).toMatchObject({ folderPath: 'projects' })
     await n.unmount()
     useSession.setState({ status: before })
     // a project in place sends no folder when it did not change
@@ -221,39 +221,53 @@ describe('only the latest answer counts', () => {
 })
 
 describe('the project dialog after a 409', () => {
+  const mine = () => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'u1', role: 'member' }, groups: [], team: { projectCreators: 'members' } } } } as never)
   test('the project already on the folder can be opened from the message', async () => {
+    const before = useSession.getState().status
+    mine()
     routes = {
       'POST /api/projects': () => json(409, { error: { code: 'conflict', message: "This folder is already the project 'Acme launch'. Open that project, or pick another folder.", params: { reason: 'project_folder_taken', projectId: P1 } } }),
+      'POST /api/projects/access-preview': () => json(200, { people: 2, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }),
+      'GET /api/people': () => json(200, { people: [] }),
     }
-    const m = await mount(<MemoryRouter><ProjectForm initialFolder="shared/acme-launch" initialName="acme-launch" onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    const m = await mount(<MemoryRouter><ProjectForm onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.type('project-name', 'acme-launch')
     await m.click('project-save')
     const link = await m.until(() => m.find('project-taken-open'), 'the open-project link', 2000)
     expect(link.getAttribute('href')).toBe(`/projects/${P1}`)
     expect(link.textContent).toBe(translate('en', 'files.openProject'))
     await m.unmount()
+    useSession.setState({ status: before })
   })
 
   test('a 409 that does not name the project (the caller cannot see it) offers no link', async () => {
-    routes = { 'POST /api/projects': () => json(409, { error: { code: 'conflict', message: 'Another project already uses this folder. Pick another folder.', params: { reason: 'project_folder_taken' } } }) }
-    const m = await mount(<MemoryRouter><ProjectForm initialFolder="shared/acme-launch" onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    const before = useSession.getState().status
+    mine()
+    routes = {
+      'POST /api/projects': () => json(409, { error: { code: 'conflict', message: 'Another project already uses this folder. Pick another folder.', params: { reason: 'project_folder_taken' } } }),
+      'POST /api/projects/access-preview': () => json(200, { people: 2, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }),
+      'GET /api/people': () => json(200, { people: [] }),
+    }
+    const m = await mount(<MemoryRouter><ProjectForm onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.type('project-name', 'acme-launch')
     await m.click('project-save')
     await m.until(() => m.html().includes('Another project already uses this folder'), 'the message', 2000)
     expect(m.find('project-taken-open')).toBeNull()
     await m.unmount()
+    useSession.setState({ status: before })
   })
 })
 
 describe('the picker of a project whose folder is in the trash', () => {
-  test('opens at the nearest folder above the missing old path', async () => {
+  test('opens at projects/, the only place it may point to', async () => {
     const asked: string[] = []
-    // the tree answers by path: the old path and its parent are gone, shared/ is there
     const realFetch2 = globalThis.fetch
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const u = String(input)
       if (u.startsWith('/api/files/tree')) {
         const p = new URL(u, 'http://x').searchParams.get('path') ?? ''
         asked.push(p)
-        return p === 'shared' ? json(200, { path: 'shared', access: 'write', entries: [], nextCursor: null }) : json(404, { error: { code: 'not_found', message: 'not found' } })
+        return p === 'projects' ? json(200, { path: 'projects', access: 'write', entries: [], nextCursor: null }) : json(404, { error: { code: 'not_found', message: 'not found' } })
       }
       return realFetch2(input, init)
     }) as unknown as typeof fetch
@@ -263,8 +277,7 @@ describe('the picker of a project whose folder is in the trash', () => {
       const m = await mount(<MemoryRouter><ProjectForm project={{ ...project(P1, 'Acme launch', 'shared/acme/launch'), inTrash: true }} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
       await m.click('project-folder-choose')
       await m.until(() => { const b = m.find('folder-pick'); return b && !b.hasAttribute('disabled') ? b : null }, 'the picker', 2000)
-      expect(asked.slice(0, 3)).toEqual(['shared/acme/launch', 'shared/acme', 'shared'])
-      expect(asked.at(-1)).toBe('shared')
+      expect(asked[0]).toBe('projects')
       await m.unmount()
     } finally {
       globalThis.fetch = realFetch2

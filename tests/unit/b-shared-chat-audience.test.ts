@@ -1,8 +1,10 @@
 // People who see a shared project chat later (docs/DECISIONS.md "People who see a shared chat later"): an answer stays
 // visible to its runner, to the people who saw the chat when it read what it used, and to anyone who may read those
 // places now; everyone else gets one line in its place and nothing of it anywhere. The project is on projects/falcon:
-// alice writes it, the finance group (bob) reads it, carol (admin) and dana (owner) see everything. gina (finance, added
-// here) joins later and cannot read groups/marketing; erin (marketing) gets the project later and reads it. Covered: a
+// alice writes it, the finance group (bob) reads it; carol (admin) and dana (owner) are not its members, so they do not
+// see its chats (docs/DECISIONS.md "Project contents only for members"; a test that needs carol in its audience makes her
+// a member). gina (finance, added here) joins later and cannot read groups/marketing; erin (marketing) gets the project
+// later and reads it. Covered: a
 // confirmed read and a read nobody had to confirm, the covered viewer, the viewer who reads the place, an answer built
 // on a hidden one, a later reader continuing the chat (nothing hidden reaches their engine, and their answer is not
 // hidden from the others), search, the sources list, artifacts, export, older answers, a missing record, and a
@@ -12,6 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiError, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { addTestPerson } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { recordOlderAnswers, WITHHELD_ANSWER } from '../../server/src/chat/shared'
@@ -32,7 +35,7 @@ beforeAll(async () => {
   h.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('gina', 'gina', 'Gina Han', 'member')").run()
   addTestPerson('gina', { id: 'gina', name: 'Gina Han', role: 'member', locale: 'en' })
   for (const u of ['alice', 'bob', 'carol', 'erin', 'gina']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  projectId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })).id
+  projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
@@ -66,6 +69,10 @@ const leave = () => db().query("DELETE FROM group_members WHERE group_id = 'fina
 /** erin gets the project (she reads groups/marketing already) */
 const erinJoins = () => db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('aud-erin', 'f_projects_falcon', 'user', 'erin', 'read')").run()
 const erinLeaves = () => db().query("DELETE FROM folder_rules WHERE id = 'aud-erin'").run()
+/** carol (admin) is added as a member (a person rule on the project folder): the owner and admins see a project's chats
+ * only as members */
+const carolJoins = () => db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('aud-carol', 'f_projects_falcon', 'user', 'carol', 'read')").run()
+const carolLeaves = () => db().query("DELETE FROM folder_rules WHERE id = 'aud-carol'").run()
 
 /** what a hidden answer shows: its place, nothing of it */
 const shell = (m: Message) => ({ withheld: m.withheld, content: m.content, steps: m.steps, files: m.files, model: m.model, sourceCount: m.sourceCount, error: m.error })
@@ -75,9 +82,10 @@ describe('a read the card confirmed', () => {
   let chatId: string, answerId: string, questionId: string
   beforeAll(async () => {
     chatId = (await newShared()).id
-    // four people see the chat; bob cannot read groups/marketing: the card, and alice says yes
+    // two people see the chat (alice and bob: the owner and admins are not members); bob cannot read groups/marketing:
+    // the card, and alice says yes
     const r = await askWithCard('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), 'share')
-    expect(r.card.question).toContain('Of the 4 people in the project who see this chat, 1 cannot see this place')
+    expect(r.card.question).toContain('Of the 2 members who see this chat, 1 cannot see this place')
     expect(r.done.content).toContain(CANARY)
     answerId = r.done.id
     questionId = r.started.userMessage!.id
@@ -86,7 +94,8 @@ describe('a read the card confirmed', () => {
   afterAll(() => { leave(); erinLeaves() })
 
   test('a later reader who cannot read the place gets one line in its place; the question stays', async () => {
-    expect((await h.api('gina').call(API.getChat, { params: { id: chatId } })).shared?.audience).toBe(5)
+    // alice, bob and gina
+    expect((await h.api('gina').call(API.getChat, { params: { id: chatId } })).shared?.audience).toBe(3)
     const forGina = await messages('gina', chatId)
     expect(forGina.find((m) => m.id === questionId)!.content).toContain(BRIEF)
     expect(shell(forGina.find((m) => m.id === answerId)!)).toEqual(HIDDEN)
@@ -109,6 +118,10 @@ describe('a read the card confirmed', () => {
     expect(await found('gina', 'Autumn')).not.toContain(chatId)
     // the question is everyone's to find
     expect(await found('gina', 'campaign-brief')).toContain(chatId)
+    // every word must be found through what the person sees: a word of the hidden answer does not count
+    expect(await found('bob', 'campaign-brief Autumn')).toContain(chatId)
+    expect(await found('gina', 'campaign-brief Autumn')).not.toContain(chatId)
+    expect(await found('gina', 'Autumn campaign-brief')).not.toContain(chatId)
     expect(await h.api('gina').call(API.messageSources, { params: { id: chatId, messageId: answerId } })).toEqual({ files: [], unavailable: 0 })
     const forBob = await h.api('bob').call(API.messageSources, { params: { id: chatId, messageId: answerId } })
     expect(forBob.unavailable + forBob.files.length).toBeGreaterThan(0)
@@ -121,7 +134,8 @@ describe('a read the card confirmed', () => {
     // her answer records that the hidden one was not in its context
     expect(answerRecord(db(), r.done.id)!.left).toEqual([answerId])
     expect((await answerFor('bob', chatId, r.done.id)).withheld).toBeUndefined()
-    expect((await answerFor('carol', chatId, r.done.id)).withheld).toBeUndefined()
+    // carol (admin) is not a member: she does not see the chat at all
+    expect((await errOf(messages('carol', chatId))).status).toBe(404)
     // bob (covered) asks next: his engine had alice's answer, so his answer is hidden from gina, not from erin
     const b = await ask('bob', chatId, 'summary?\n' + fake({ say: 'BOB-SUMMARY' }))
     expect(b.done.content).toBe('BOB-SUMMARY')
@@ -140,18 +154,23 @@ describe('a read the card confirmed', () => {
 
 describe('a read nobody had to confirm', () => {
   test('everyone who saw the chat read the place: a later reader who cannot read it gets the line', async () => {
-    // bob is out of the project for a moment: alice, carol and dana all read groups/marketing, no card
+    // bob is out of the project for a moment, carol (admin) a member: alice and carol both read groups/marketing, no card
     db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
+    carolJoins()
     let chatId: string, answerId: string
     try {
-      chatId = (await newShared()).id
-      const r = await ask('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
-      expect(r.done.content).toContain(CANARY)
-      answerId = r.done.id
-    } finally { db().query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
-    expect(shell(await answerFor('bob', chatId, answerId))).toEqual(HIDDEN)
-    expect((await answerFor('carol', chatId, answerId)).content).toContain(CANARY)
-    expect(withheldFrom(db(), h.ctx.files.rules(), chatId, 'bob').has(answerId)).toBe(true)
+      try {
+        chatId = (await newShared()).id
+        const r = await ask('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
+        expect(r.done.content).toContain(CANARY)
+        answerId = r.done.id
+      } finally { db().query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
+      expect(shell(await answerFor('bob', chatId, answerId))).toEqual(HIDDEN)
+      expect((await answerFor('carol', chatId, answerId)).content).toContain(CANARY)
+      expect(withheldFrom(db(), h.ctx.files.rules(), chatId, 'bob').has(answerId)).toBe(true)
+    } finally { carolLeaves() }
+    // no longer a member, she does not see the chat (her role does not bring her back)
+    expect((await errOf(messages('carol', chatId))).status).toBe(404)
   })
 
   test('an answer that read only what everyone may read stays visible to a later reader', async () => {
@@ -196,7 +215,9 @@ describe('around the transcript', () => {
     const edited = await h.api('alice').call(API.editMessage, { params: { id: chatId, messageId: first.started.userMessage!.id }, body: { content: fake({ tool: 'artifact', args: { action: 'update', key: 'brief', type: 'markdown', edits: [{ old: 'XB-BODY', new: 'XB-BODY v2' }] } }, { say: 'updated' }), clientMessageId: cm(), attachmentIds: [] } })
     await ws.alice!.next('message.done', (f) => f.data.messageId === edited.assistantMessage.id, 30_000)
     await waitFor(() => !h.rt().activeTurn(chatId), { timeoutMs: 15_000 })
-    const all = (await h.api('carol').call(API.listChatArtifacts, { params: { id: chatId } })).items[0]!.versions
+    // (carol, an admin who is not a member, does not see them; alice, who ran both, sees both)
+    expect((await errOf(h.api('carol').call(API.listChatArtifacts, { params: { id: chatId } }))).status).toBe(404)
+    const all = (await h.api('alice').call(API.listChatArtifacts, { params: { id: chatId } })).items[0]!.versions
     expect(all.map((v) => [v.version, v.title])).toEqual([[2, 'XB-TITLE'], [1, 'XB-TITLE']])
     join()
     try {
@@ -208,7 +229,8 @@ describe('around the transcript', () => {
   })
 
   test("export: the creator's own shared chat with an answer hidden from them has the line in its place", async () => {
-    // bob makes the chat, is out of the project while alice reads marketing (no card: alice, carol, dana read it)
+    // bob makes the chat, is out of the project while alice reads marketing (no card: alice, the only one who sees it
+    // then, reads it)
     const chatId = (await newShared('bob')).id
     await ask('bob', chatId, 'start\n' + fake({ say: 'BOB-START' }))
     db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
@@ -247,6 +269,44 @@ describe('around the transcript', () => {
   })
 })
 
+describe('search by words never counts a word of an answer hidden from me', () => {
+  test('a title word with a hidden word; the project page, my own list, my trash, and my chat once no longer shared', async () => {
+    // bob's shared chat: his question, then alice's answer that read marketing while bob was out of the project (no
+    // card: everyone then could read it), hidden from bob
+    const chatId = (await newShared('bob')).id
+    await ask('bob', chatId, 'WORDS-START\n' + fake({ say: 'BOB-WORDS' }))
+    db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
+    try { await ask('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true })) }
+    finally { db().query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
+    await h.api('bob').call(API.updateChat, { params: { id: chatId }, body: { title: 'TITLEWORD notes' } })
+    const list = async (user: string, q: string, extra: { projectId?: string; trash?: 'true' } = {}) =>
+      (await h.api(user).call(API.listChats, { query: { q, ...extra } })).items.map((c) => c.id)
+    // shared: on the project's page and in his own list. Every word through what he sees, never through the answer
+    for (const extra of [{ projectId }, {}]) {
+      expect(await list('bob', 'TITLEWORD WORDS-START', extra)).toContain(chatId)
+      expect(await list('bob', 'BOB-WORDS titleword', extra)).toContain(chatId)
+      // one word only in the title, the other only in the hidden answer
+      expect(await list('bob', 'TITLEWORD Autumn', extra)).not.toContain(chatId)
+      // one in his question, the other only in the hidden answer
+      expect(await list('bob', 'WORDS-START Autumn', extra)).not.toContain(chatId)
+      // alice ran the answer: hers to find, on the page and in her list (she wrote in the chat)
+      expect(await list('alice', 'TITLEWORD Autumn', extra)).toContain(chatId)
+    }
+    // the project is deleted (routes/chats.ts deleteProject): the chat goes to its creator's trash, no longer shared;
+    // others wrote in it, so it is still found only through what he sees (the rollback guard: severalAuthors)
+    db().query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = ?, deleted_by = ? WHERE id = ?').run(new Date().toISOString(), 'bob', chatId)
+    expect(await list('bob', 'TITLEWORD WORDS-START', { trash: 'true' })).toContain(chatId)
+    expect(await list('bob', 'TITLEWORD Autumn', { trash: 'true' })).not.toContain(chatId)
+    expect(await list('bob', 'Autumn', { trash: 'true' })).not.toContain(chatId)
+    // restored: his own chat with several authors, not shared
+    db().query('UPDATE chats SET deleted_at = NULL, deleted_by = NULL WHERE id = ?').run(chatId)
+    expect(await list('bob', 'TITLEWORD WORDS-START')).toContain(chatId)
+    expect(await list('bob', 'TITLEWORD Autumn')).not.toContain(chatId)
+    expect(await list('bob', 'WORDS-START Autumn')).not.toContain(chatId)
+    expect(await list('bob', 'Autumn')).not.toContain(chatId)
+  })
+})
+
 describe("a group's skills in a shared chat are its members' only (as in a room)", () => {
   test('not on the list while someone who sees the chat is not in the group; loading it asks with its own words', async () => {
     // a group of alice and erin, its folder groups/<name>/ (the owner and admins read it too), a project on that folder
@@ -255,7 +315,7 @@ describe("a group's skills in a shared chat are its members' only (as in a room)
     const abs = path.join(h.team, folder, 'skills/brief-writer.md')
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, '---\nname: GROUP-BRIEF-SKILL\ndescription: write a brief\n---\nGROUP-SKILL-BODY-55\n')
-    const p = await h.api('alice').call(API.createProject, { body: { name: 'Briefs', folderPath: folder, scope: 'team', participants: [], instructions: '' } })
+    const p = await oldProject(h, 'alice', { name: 'Briefs', folderPath: folder, instructions: '' })
     await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
     const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
     // alice, erin, carol and dana see it; carol and dana read the folder but are not in the group
@@ -264,7 +324,7 @@ describe("a group's skills in a shared chat are its members' only (as in a room)
     expect(sys.done.content).not.toContain('GROUP-BRIEF-SKILL')
     const r = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'GROUP-BRIEF-SKILL' }, sayResult: true }), 'skip')
     expect(r.card.question).toContain('The AI wants to use a skill in')
-    expect(r.card.question).toContain('Of the 4 people in the project who see this chat, 2 cannot use this skill')
+    expect(r.card.question).toContain('Of the 4 members who see this chat, 2 cannot use this skill')
     expect(r.done.content).not.toContain('GROUP-SKILL-BODY-55')
     const yes = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'GROUP-BRIEF-SKILL' }, sayResult: true }), 'share')
     expect(yes.done.content).toContain('GROUP-SKILL-BODY-55')

@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, mediaKind, ReadInput, WriteInput, type MediaKind } from '@mycel/shared'
-import { mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
+import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, teamDefaultLocale, teamTimeZone } from '../admin/settings'
@@ -13,10 +13,12 @@ import { audit } from '../admin/audit'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
+import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
 import type { SourceLoc } from '@mycel/shared/api'
@@ -33,7 +35,7 @@ import { recoverPublications } from '../safe-ops/publication'
 import { confidentialTurn, relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
-import { imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
+import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, pagesToRead, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
   PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock,
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
@@ -184,6 +186,9 @@ export interface ToolCtx {
    * they refuse whenever the target is wider than the sources.
    */
   confirmWidening?: (target: string, sources: string[], binding?: string) => Promise<string | null>
+  /** checked right before a produced file is placed (tools/make-file.ts placeProduced): a scheduled run's save its task's
+   * card covered is checked again there, after a long conversion (chat/schedule-cover.ts); throws to refuse */
+  beforePlace?: () => void
 }
 export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 'image/jpeg'; data: string }[]; text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
 
@@ -204,6 +209,8 @@ export class FileService {
   speechFree: () => { leftSec: number } | null = () => null
   /** transcripts of video and audio reads by content (files/media.ts) */
   readonly transcripts: media.TranscriptCache
+  /** files the AI's tools show that are not on disk (the file list's _FILES.md, file-list/service.ts); null: none */
+  virtual: VirtualFiles | null = null
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
@@ -262,6 +269,17 @@ export class FileService {
         shownFiles++
       }
     }
+    // the file list of this folder for this person (file-list/): shown in place of a real file of that name
+    const v = this.virtualAt(ctx, rules, [...r.segs, FILE_LIST_NAME])
+    if (v) {
+      const name = (l: string) => l.replace(/ {2}\(.*$/, '').replace(/\/$/, '')
+      const kept = lines.filter((l) => l.endsWith('/') || !isFileListName(name(l)))
+      if (kept.length < lines.length) shownFiles--
+      const at = kept.findIndex((l) => name(l).localeCompare(FILE_LIST_NAME) > 0)
+      kept.splice(at < 0 ? kept.length : at, 0, `${FILE_LIST_NAME}  (${human(Buffer.byteLength(v.text))}, ${new Date(v.mtimeMs || Date.now()).toISOString().slice(0, 16).replace('T', ' ')})`)
+      lines.splice(0, lines.length, ...kept)
+      shownFiles++
+    }
     // file names are the folder's own (only its readers see them); a folder the person may only list (the team root for
     // a member, a folder on the way to theirs) shows sub-folders and nothing of its own
     if (shownFiles) ctx.files.namePaths.add(r.rel)
@@ -274,10 +292,51 @@ export class FileService {
     return { rules, r, isFile: !r.st!.isDirectory() }
   }
 
+  /** The person's file list at this path (actual names), or null. Never throws: a broken provider shows nothing. */
+  private virtualAt(ctx: ToolCtx, rules: RuleSet, segs: readonly string[]): VirtualFile | null {
+    if (!this.virtual || !segs.length || !isFileListName(segs[segs.length - 1]!)) return null
+    try { return this.virtual.at(ctx.user, rules, [...segs.slice(0, -1), FILE_LIST_NAME]) } catch { return null }
+  }
+  /** The person's file lists in a folder and below it (`accept`: only these paths). */
+  private virtualUnder(ctx: ToolCtx, rules: RuleSet, base: readonly string[], accept?: (path: string) => boolean): Map<string, VirtualFile> {
+    if (!this.virtual) return new Map()
+    try { return this.virtual.under(ctx.user, rules, base, accept) } catch { return new Map() }
+  }
+  /** A tool path that names a file list: its folder's actual names, the list's path and the person's list (or null when
+   * there is none for them: the path is then an ordinary one). */
+  private virtualPath(ctx: ToolCtx, input: string | undefined): { rules: RuleSet; rel: string; segs: string[]; file: VirtualFile } | null {
+    if (!this.virtual || typeof input !== 'string') return null
+    const parts = input.normalize('NFC').split('/').filter((x) => x && x !== '.')
+    if (!parts.length || !isFileListName(parts[parts.length - 1]!)) return null
+    const rules = this.rules()
+    let folder: Authorized
+    try { folder = authorize(this.fx, rules, ctx.user, parts.slice(0, -1).join('/'), 'list') } catch { return null }
+    if (!folder.st!.isDirectory()) return null
+    const segs = [...folder.segs, FILE_LIST_NAME]
+    const file = this.virtualAt(ctx, rules, segs)
+    return file ? { rules, rel: segs.join('/'), segs, file } : null
+  }
+
   async glob(ctx: ToolCtx, a: { pattern: string; path?: string }): Promise<ToolOutput> {
     if (a.pattern.startsWith('/') || a.pattern.split('/').includes('..')) throw new Denied('glob patterns must be relative and must not contain ..')
     const { rules, r, isFile } = this.base(ctx, a.path)
     const res = await globFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office }, r.segs, isFile, a.pattern.normalize('NFC'))
+    // the person's file lists that the pattern matches come first (they stand in for a real file of that name)
+    if (!isFile) {
+      const fold = (x: string) => (this.fx.caseInsensitive ? x.toLowerCase() : x)
+      const g = new Bun.Glob(fold(a.pattern.normalize('NFC')))
+      const prefix = r.segs.length ? r.segs.join('/') + '/' : ''
+      const match = (p: string) => g.match(fold(p.startsWith(prefix) ? p.slice(prefix.length) : p)) || g.match(fold(p))
+      const lists = [...this.virtualUnder(ctx, rules, r.segs, match).keys()].sort()
+      if (lists.length) {
+        // a real file of that name (any letter case) in a folder with a list: the list stands in for it
+        const shadowed = new Set(lists.map((l) => l.slice(0, l.lastIndexOf('/'))))
+        const rest = res.files.filter((f) => !(isFileListName(f.slice(f.lastIndexOf('/') + 1)) && shadowed.has(f.slice(0, Math.max(0, f.lastIndexOf('/'))))))
+        const all = [...lists, ...rest]
+        res.truncated ||= all.length > 100
+        res.files = all.slice(0, 100)
+      }
+    }
     const text = res.files.length ? res.files.join('\n') + (res.truncated ? '\n(Results are truncated. Use a more specific path or pattern.)' : '') : 'No files found'
     // the folders the names came from (one per folder: the rules are on folders)
     for (const f of res.files) ctx.files.namePaths.add(f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '')
@@ -285,20 +344,25 @@ export class FileService {
   }
 
   async grep(ctx: ToolCtx, a: any): Promise<ToolOutput> {
-    const { rules, r, isFile } = this.base(ctx, a.path)
+    // a file list named as the path: its lines only (it is not on disk)
+    const vp = this.virtualPath(ctx, a.path)
+    const { rules, r, isFile } = vp ? { rules: vp.rules, r: authorize(this.fx, vp.rules, ctx.user, vp.segs.slice(0, -1).join('/'), 'list'), isFile: false } : this.base(ctx, a.path)
+    const virtual = vp ? new Map([[vp.rel, vp.file.text]]) : isFile ? new Map<string, string>() : new Map([...this.virtualUnder(ctx, rules, r.segs)].map(([k, v]) => [k, v.text]))
     const ctxN = a['-C'] ?? 0
     // the person's own background share, not the shared "system" owner (one AI grep must not fill the queue for all)
-    const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office }, r.segs, isFile, {
+    const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office, virtual, virtualOnly: !!vp }, r.segs, isFile, {
       officeOwner: ctx.user.id, pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
       lang: personLocale(this.db, ctx.user.id),
     })
-    for (const f of res.files) ctx.files.readPaths.add(f)
-    // content mode: the files whose lines the AI saw (names alone, files_with_matches and count, are not content)
+    // a file list's lines are read like its folder's files (same access): its folder joins the read scope (the list is
+    // not on disk, so it cannot be looked up as a file), never as an answer's source: the answer cites the real file
+    // the AI opens next
+    for (const f of res.files) ctx.files.readPaths.add(virtual.has(f) ? f.slice(0, Math.max(0, f.lastIndexOf('/'))) : f)
     if ((a.output_mode ?? 'files_with_matches') === 'content') {
       const locs = new Map<string, SourceLoc[]>()
       for (const h of res.hits) if (h.loc) locs.set(h.path, [...(locs.get(h.path) ?? []), h.loc])
-      for (const f of res.files) ctx.files.sources.note(f, 'grep', { agent: ctx.files.agent, locs: locs.get(f) })
+      for (const f of res.files) if (!virtual.has(f)) ctx.files.sources.note(f, 'grep', { agent: ctx.files.agent, locs: locs.get(f) })
     }
     return { text: res.text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${res.text === 'No matches' ? 0 : res.text.split('\n').length} lines, filtered=${res.stats.filtered}` }
   }
@@ -310,6 +374,13 @@ export class FileService {
   visionTools(): VisionTools { return visionTools({ nativeBin: this.cfg.nativeBin, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, which }) }
 
   async read(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    // the person's file list (not on disk): its lines, numbered; read like its folder's files, never an answer's source
+    const vp = this.virtualPath(ctx, a.file_path)
+    if (vp) {
+      // its folder joins the read scope (same access as the list; the list itself is not on disk)
+      ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
+      return numberedLines(vp.rel, vp.file.text, a)
+    }
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
@@ -385,11 +456,9 @@ export class FileService {
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const src = this.boundSource(ctx, r, readMaxBytes())
     const tools = this.visionTools()
-    const block = visionBlock(this.db, ctx.turnId)
     // macOS when no pixels may go (image viewing off, the API engine, a connection): Apple Vision text for scanned
     // pages, as before image reads
-    const ocrText = !!block && !!this.cfg.ocr
-    const why = (b: VisionBlock) => visionText(this.db, ctx.user.id, b)
+    const ocrText = !!visionBlock(this.db, ctx.turnId) && !!this.cfg.ocr
     const record = (locs: SourceLoc[] = []) => {
       ctx.files.readHashes.set(src.rel, src.hash)
       ctx.files.readPaths.add(src.rel)
@@ -407,29 +476,69 @@ export class FileService {
       const lines = cached ?? layerText(layers)
       record(partLocs(src.rel, lines, a))
       const out = numberedLines(src.rel, lines, a)
-      const scanned = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
-      if (scanned.length) out.text += `\n\n${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(scanned) })} ${block ? why(block) : visionText(this.db, ctx.user.id, 'scannedHint', { first: scanned[0]! })}`
+      const scanned = this.scannedNote(ctx, layers)
+      if (scanned) out.text += `\n\n${scanned.text}`
       return out
     }
 
     const layers = await pdfLayer(src.bytes, tools, ctx.signal)
     const n = layers.length
-    let pages: number[]
-    if (a.pages !== undefined) pages = parsePages(a.pages, n)
-    else if (n > PDF_PAGES_WITHOUT_RANGE) {
-      throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or lines of its text layer with offset/limit (the lines grep reports).`, 'pages_required')
-    } else pages = Array.from({ length: n }, (_, i) => i + 1)
+    const pages = pagesToRead(a.pages, n)
+    if (!pages) throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or lines of its text layer with offset/limit (the lines grep reports).`, 'pages_required')
 
+    const { content, notes, images } = await this.pdfPagesForModel(ctx, { label: src.rel, bytes: src.bytes, layers }, pages, { asImages: a.as_images })
+    for (const t of notes) appendText(content, t)
+    const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
+    beforeDelivery?.()
+    // the pages of a read by pages; a read of the whole (short) file is the file
+    record(a.pages !== undefined ? pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) : [])
+    const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
+    return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
+  }
+
+  /**
+   * After a PDF's text (a read by lines, a room file's text): the pages without a text layer and how to see them, in
+   * the person's language: with `pages` as page images; on a Mac when no pixels may go, with `pages` as Apple Vision
+   * text (pdfPagesForModel recognizes them then); otherwise why they cannot be shown. null: every page has text.
+   */
+  scannedNote(ctx: Pick<ToolCtx, 'turnId'> & { user: { id: string } }, layers: string[]): { text: string; pages: number[] } | null {
+    const pages = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
+    if (!pages.length) return null
+    const block = visionBlock(this.db, ctx.turnId)
+    const first = pages[0]!
+    const how = !block ? visionText(this.db, ctx.user.id, 'scannedHint', { first }) : this.cfg.ocr ? visionText(this.db, ctx.user.id, 'scannedOcrHint', { first }) : visionText(this.db, ctx.user.id, block)
+    return { text: `${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(pages) })} ${how}`, pages }
+  }
+
+  /**
+   * The pages of a PDF for this turn's model, as a read gives them (readPdf; a file sent in a room, chat/room-tools.ts):
+   * bytes the caller has checked and bound, their text layers (pdfLayer) and the pages to show. Each page's text layer
+   * comes as text, a page without one (a scan, a picture) as a page image, and with `asImages` a text page too. No pixels
+   * when the team's switch is off, for the text-only API engine or a connection without a chat turn (visionBlock): a Mac
+   * reads the scanned pages with Apple Vision then, a Linux server names them in `notes`. The per-turn image budget
+   * (40 images / 10 MB, counted here) and the tool output limit (READ_OUTPUT_TOKENS, `reserve` tokens of the caller's
+   * own text included): page images that would not fit are named in `notes` with the `pages` to read them with.
+   * `fileText`: how text from the file itself is put in the result (a room file neutralises our block tags). The caller
+   * re-checks access before delivery when `images` > 0 and puts `notes` after the pages.
+   */
+  async pdfPagesForModel(ctx: ToolCtx, doc: { label: string; bytes: Uint8Array; layers: string[] }, pages: number[], o: { asImages?: boolean; reserve?: number; fileText?: (t: string) => string } = {}): Promise<{ content: McpContent[]; notes: string[]; images: number }> {
+    const { bytes, layers } = doc
+    const n = layers.length
+    const tools = this.visionTools()
+    const block = visionBlock(this.db, ctx.turnId)
+    // macOS when no pixels may go (image viewing off, the API engine, a connection): Apple Vision text for scanned
+    // pages, as before image reads
+    const ocrText = !!block && !!this.cfg.ocr
+    const why = (b: VisionBlock) => visionText(this.db, ctx.user.id, b)
+    const own = o.fileText ?? ((t: string) => t)
     const content: McpContent[] = []
     // the result as the engine measures it (READ_OUTPUT_TOKENS): page images that would not fit wait for another call
-    let tokens = 0
+    let tokens = o.reserve ?? 0
     const text = (t: string) => {
       tokens += textTokens(t) + 1
-      const last = content[content.length - 1]
-      if (last?.type === 'text') last.text += '\n\n' + t
-      else content.push({ type: 'text', text: t })
+      appendText(content, t)
     }
-    text(`PDF ${src.rel}: ${n} page${n === 1 ? '' : 's'}; ${pages.length === n ? 'all pages' : `pages ${pageList(pages)}`} below.`)
+    text(`PDF ${doc.label}: ${n} page${n === 1 ? '' : 's'}; ${pages.length === n ? 'all pages' : `pages ${pageList(pages)}`} below.`)
     let chars = 0
     let images = 0
     const blocked: number[] = []
@@ -442,23 +551,23 @@ export class FileService {
       if (!scanned) {
         const room = PDF_TEXT_MAX - chars
         const body = layer.replace(/\s+$/, '')
-        text(`--- Page ${p} ---\n${room <= 0 ? '(text not shown: this read already holds the most text; read fewer pages)' : body.length > room ? body.slice(0, room) + '\n… (page text cut; read fewer pages)' : body}`)
+        text(`--- Page ${p} ---\n${room <= 0 ? '(text not shown: this read already holds the most text; read fewer pages)' : body.length > room ? own(body.slice(0, room)) + '\n… (page text cut; read fewer pages)' : own(body)}`)
         chars += Math.min(body.length, Math.max(0, room))
       }
-      if (!scanned && !a.as_images) continue
+      if (!scanned && !o.asImages) continue
       const head = scanned ? `--- Page ${p} (no text layer: shown as an image) ---` : `--- Page ${p} as an image ---`
       if (block) {
         if (!scanned) noPixels = true
         else if (ocrText) {
           let t: string
           try {
-            const png = await pdfPagePng(src.bytes, p, tools, ctx.signal)
+            const png = await pdfPagePng(bytes, p, tools, ctx.signal)
             t = (await extractText('page.png', png, { pandoc: null, pdftotext: null, ocr: this.cfg.ocr }, ctx.signal)).trim()
           } catch (e) {
             ctx.signal?.throwIfAborted()
             t = e instanceof ToolError && e.code.startsWith('vision_') ? this.visionFailure(ctx, e) : `(${e instanceof ToolError ? e.message : 'the page could not be read'})`
           }
-          text(`--- ${visionText(this.db, ctx.user.id, 'ocrPage', { page: p })} ---\n${t}`)
+          text(`--- ${visionText(this.db, ctx.user.id, 'ocrPage', { page: p })} ---\n${own(t)}`)
         } else blocked.push(p)
         continue
       }
@@ -467,7 +576,7 @@ export class FileService {
       const full = this.imageBudget(ctx, 0)
       if (full) { text(`--- Page ${p} ---\n${full}`); continue }
       let jpeg: Buffer
-      try { jpeg = await this.pdfPageImage(src.bytes, p, ctx.signal) } catch (e) {
+      try { jpeg = await this.pdfPageImage(bytes, p, ctx.signal) } catch (e) {
         ctx.signal?.throwIfAborted()
         text(`--- Page ${p} ---\n${this.visionFailure(ctx, e)}`)
         continue
@@ -483,15 +592,11 @@ export class FileService {
       ctx.files.imageCount++
       images++
     }
-    if (later.length) text(`Not shown in this read: the image${later.length === 1 ? '' : 's'} of page${later.length === 1 ? '' : 's'} ${pageList(later)} (with them the result would pass the tool output limit). Read ${later.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(later).replace(/ /g, '')}"${a.as_images ? ', as_images: true' : ''}.`)
-    if (blocked.length) text(`${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(blocked) })} ${why(block!)}`)
-    else if (noPixels) text(why(block!))
-    const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
-    beforeDelivery?.()
-    // the pages of a read by pages; a read of the whole (short) file is the file
-    record(a.pages !== undefined ? pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) : [])
-    const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
-    return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
+    const notes: string[] = []
+    if (later.length) notes.push(`Not shown in this read: the image${later.length === 1 ? '' : 's'} of page${later.length === 1 ? '' : 's'} ${pageList(later)} (with them the result would pass the tool output limit). Read ${later.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(later).replace(/ /g, '')}"${o.asImages ? ', as_images: true' : ''}.`)
+    if (blocked.length) notes.push(`${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(blocked) })} ${why(block!)}`)
+    else if (noPixels) notes.push(why(block!))
+    return { content, notes, images }
   }
 
   /**
@@ -1109,7 +1214,13 @@ export class FileService {
   }
 
   // ---------------- write / edit ----------------
+  /** The AI's write and edit leave the person's file list alone: the server writes its lines. */
+  private notTheList(ctx: ToolCtx, p: string) {
+    if (this.virtualPath(ctx, p)) throw new ToolError(`'${FILE_LIST_NAME}' here is the file list the server keeps every night: it cannot be written or edited`, 'file_list')
+  }
+
   write(ctx: ToolCtx, a: { file_path: string; content: string }): ToolOutput {
+    this.notTheList(ctx, a.file_path)
     const data = Buffer.from(a.content, 'utf8')
     return this.writeBytes(ctx, a.file_path, data, ctx.files.readHashes, 'write')
   }
@@ -1148,6 +1259,7 @@ export class FileService {
 
   edit(ctx: ToolCtx, a: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }): ToolOutput {
     if (a.old_string === a.new_string) throw new ToolError('old_string and new_string are the same')
+    this.notTheList(ctx, a.file_path)
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'write', { mustExist: true })
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
     if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
@@ -1185,9 +1297,10 @@ export class FileService {
   }
 
   private limits(ctx: ToolCtx, rel: string, size: number) {
-    if (ctx.files.bytesWritten + size > this.cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+    // the numbers and "continue in the next message" (policy/refusal.ts writeLimitText)
+    if (ctx.files.bytesWritten + size > this.cfg.maxWriteBytesPerTurn) throw new ToolError(writeLimitText('bytes', this.cfg.maxWriteBytesPerTurn, rel))
     assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
-    if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= this.cfg.maxFilesWrittenPerTurn) throw new ToolError('file count limit for this turn reached')
+    if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= this.cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', this.cfg.maxFilesWrittenPerTurn, rel))
   }
 
   /** Someone changed the file after this writer read it: leave the original alone, save a conflict copy. */

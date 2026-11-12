@@ -7,8 +7,9 @@ import path from 'node:path'
 import { API, ApiError, CHAT_ERROR_MESSAGES, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { LANGUAGE_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
+import { FIND_FILE_RULE, LANGUAGE_RULE, NO_BROWSER_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
 import { FILE_TOOLS } from '../../shared/src/tools'
+import { unansweredStep } from '../../shared/src/step-labels'
 import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
 
 setDefaultTimeout(30_000)
@@ -402,7 +403,7 @@ describe('tools', () => {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'web_fetch', args: { url: 'https://example.com' }, sayResult: true }))
       // set_title: the first message of a new chat (chat/title.ts)
-      expect(r.done.content.split(' | ')[0]).toBe('ask_user,connect_service,edit,edit_files,find_skills,forget,glob,grep,list,read,remember,room_file,room_read,rooms,save_room_file,set_title,skill,web_fetch,write')
+      expect(r.done.content.split(' | ')[0]).toBe('ask_user,change_project_members,connect_service,delete_files,edit,edit_files,find_skills,forget,glob,grep,list,move_skill,post_to_room,read,remember,room_file,room_read,rooms,save_room_file,set_title,skill,skill_files,web_fetch,write')
       expect(r.done.content).toContain(`fetched https://example.com for alice in ${chat.id}`)
       const audit = h.ctx.db.query("SELECT tool, ok FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(r.started.turnId)
       expect(audit).toEqual([{ tool: 'web_fetch', ok: 1 }])
@@ -436,6 +437,10 @@ describe('tools', () => {
     const chat = await newChat()
     const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'ask_user', args: { question: 'Anyone?' }, sayResult: true }), { ms: 20_000 })
     expect(r.done.content).toBe('{"skipped":true}')
+    // the step says nobody answered (the web app gives it its own mark, not a success check: unansweredStep)
+    const st = r.done.steps.find((x) => x.tool === 'ask_user')!
+    expect(st).toMatchObject({ label: 'Question: Anyone?', detail: 'Not answered' })
+    expect(unansweredStep(st)).toBe(true)
     await alice.next('turn.request.closed', (f) => f.data.turnId === r.started.turnId && f.data.reason === 'timeout')
   })
 })
@@ -465,10 +470,13 @@ describe('memories', () => {
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
     expect(card.data.request.kind).toBe('ask_user')
     expect((card.data.request as { question: string }).question).toContain('Works on ARR reports')
+    // while the card waits, its step says so, not "Remembered" yet (QA TC-214)
+    await alice.next('message.step', (f) => f.data.messageId === r.assistantMessage.id && f.data.step.tool === 'remember' && f.data.step.label === 'Asking whether to remember: Works on ARR reports')
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'yes' } })
     const d = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
     const { id } = JSON.parse(d.data.message.content) as { id: string }
     expect((h.ctx.db.query('SELECT source FROM memories WHERE id = ?').get(id) as { source: string }).source).toBe('user')
+    expect(d.data.message.steps.find((st) => st.tool === 'remember')).toMatchObject({ label: 'Remembered: Works on ARR reports', detail: `memory:${id}`, status: 'ok' })
     // same (tainted) chat, declined
     const r2 = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'remember', args: { text: 'Likes durian' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const card2 = await alice.next('turn.request', (f) => f.data.turnId === r2.turnId)
@@ -476,6 +484,10 @@ describe('memories', () => {
     const d2 = await alice.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).toContain('did not confirm')
     expect((h.ctx.db.query("SELECT COUNT(*) n FROM memories WHERE text = 'Likes durian'").get() as { n: number }).n).toBe(0)
+    // a "no" is an answer: the step says it was not remembered, not that nobody answered
+    const declined = d2.data.message.steps.find((st) => st.tool === 'remember')!
+    expect(declined).toMatchObject({ label: 'Not remembered: Likes durian', status: 'ok' })
+    expect(declined.detail).toBeUndefined()
   })
 
   test('a safety check of the server takes only its own options: typed text is refused and the card stays open', async () => {
@@ -528,7 +540,10 @@ describe('instructions', () => {
     expect(s).toContain('### skills/team-rules.md')
     expect(s).toContain('## Project: Falcon')
     expect(s).toContain('<project_instructions>\nAlways cite the plan file.\n</project_instructions>')
-    expect(s).not.toContain('## Browser')
+    // alice's own chat on the web: no browser here, so the AI is told the desktop app has one (QA TC-242, #460); never
+    // the desktop app's browser rules (tests/unit/b-browser.test.ts: the desktop app gets those and not this)
+    expect(s).toContain(NO_BROWSER_RULE)
+    expect(s).not.toContain('## Browser (desktop app)')
     expect(s).not.toContain('CANARY')
   })
 
@@ -561,6 +576,17 @@ describe('instructions', () => {
     // what the person asks for in another language (an English email in a Korean chat), code, file names and quotes
     // are content, not narration
     expect(LANGUAGE_RULE).toContain('Content the user asks for in another language (an email, a translation), code, file names and quotes stay as they are.')
+  })
+
+  // asked for a file that is there, the AI wrote a new one or asked where it was (docs/AGENTS/plan/20261111-0843-find-
+  // never-creates.md); the rule's own words: tests/unit/b-prompt-find-file.test.ts
+  test('asked for an existing file: search first, never a new file in its place: Claude and Codex', async () => {
+    const claude = await newChat()
+    expect((await ask(h, alice, 'alice', claude.id, fake({ echo: 'system' }))).done.content).toContain(FIND_FILE_RULE)
+    const codex = await newChat('alice', { engine: 'codex' })
+    const c = await ask(h, alice, 'alice', codex.id, fake({ echo: 'system' }))
+    expect(c.done.engine).toBe('codex')
+    expect(c.done.content).toContain(FIND_FILE_RULE)
   })
 })
 

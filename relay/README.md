@@ -39,6 +39,8 @@ Pulls if the host allows it. Behind a local `cloudflared` tunnel the peer is loo
 | | `RELAY_SILENCE_MS` | 45000 | half-open control connection limit |
 | | `RELAY_RESPONSE_TIMEOUT_MS` | 100000 | from the end of the request body to the response head |
 | | `RELAY_BODY_IDLE_MS` | 60000 | a request body that stops arriving is aborted (408) |
+| | `RELAY_CLIENT_STALL_MS` | 30000 | an answer the visitor stopped reading is cut (stream reset, socket closed); 0 = never |
+| | `RELAY_MAX_STREAMS_PER_IP` | half of `RELAY_MAX_STREAMS` (256) | HTTP streams one visitor (IPv4 address, IPv6 /64) may have open to one team; over it 503 `team_busy` at once; 0 = no cap. Needs the real visitor address: behind a local tunnel set `--trusted-proxies` |
 | | `RELAY_STALL_MS`, `RELAY_PONG_TIMEOUT_MS` | 5000, 10000 | stall probe |
 | | `RELAY_WINDOW` | 262144 | per-stream window |
 | | `RELAY_CLIENT_WS_CAP` | 4194304 | browser WebSocket backlog cap (close 1009) |

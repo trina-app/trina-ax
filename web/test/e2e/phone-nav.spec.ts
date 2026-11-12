@@ -13,6 +13,8 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true
 const t = DICTS.ko
 const ai = PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName
 const historyLength = (page: Page) => page.evaluate(() => history.length)
+/** React Router's index of the entry on show: 0 is the document's first (lib/screenHistory.ts: a tab's root) */
+const historyIdx = (page: Page) => page.evaluate(() => (history.state as { idx?: number } | null)?.idx ?? null)
 
 test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action per tab', async ({ page }) => {
   await reset(page)
@@ -39,8 +41,10 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await expect(page.getByTestId('topbar-new-dm')).toBeVisible()
   await expect(page.getByTestId('menu-open')).toHaveCount(0)
   await expect(page.getByTestId('rooms-ai')).toBeHidden()
+  // ⊕ asks for the people list with ?new=1, which opens it and leaves the address (Back closes it: lib/backCloses.ts)
   await page.getByTestId('topbar-new-dm').click()
-  await expect(page).toHaveURL(/\/rooms\?new=1$/)
+  await expect(page.getByRole('dialog', { name: t['rooms.newChat'] })).toBeVisible()
+  await expect(page).toHaveURL(/\/rooms$/)
   await page.getByRole('dialog', { name: t['rooms.newChat'] }).getByRole('button', { name: t['common.close'] }).click()
   await expect(page).toHaveURL(/\/rooms$/)
 
@@ -50,23 +54,25 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await expect(page.getByRole('heading', { level: 1, name: t['files.title'] })).toBeVisible()
   await expect(page.getByTestId('phone-topbar')).toHaveCount(0)
 
-  // 나: 알림함 first, 관리자 right below for the owner; the list's own 알림 row is not there
+  // 나: 활동 (Activity) first, 관리자 right below for the owner; 알림 (the settings) stays in its group
   await page.getByTestId('tab-me').click()
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   await expect(dialog.getByTestId('settings-inbox')).toBeVisible()
   await expect(dialog.getByTestId('settings-phone-top').getByRole('link')).toHaveText([t['inbox.title'], t['sidebar.admin']])
-  await expect(dialog.getByTestId('settings-menu').getByRole('link', { name: t['notifications.title'], exact: true })).toBeHidden()
+  await expect(dialog.getByTestId('settings-menu').getByRole('link', { name: t['notifications.title'], exact: true })).toBeVisible()
   await dialog.getByTestId('settings-inbox').click()
-  await expect(page).toHaveURL(/\/settings\/notifications$/)
-  await expect(dialog.getByTestId('settings-section-title')).toHaveText(t['inbox.title'])
-  await dialog.getByTestId('settings-back').click()
+  await expect(page).toHaveURL(/\/activity$/)
+  await expect(page.getByTestId('topbar-title')).toHaveText(t['inbox.title'])
+  await expect(page.getByTestId('tab-me')).toHaveAttribute('aria-current', 'page')
+  await page.getByTestId('tab-me').click()
   await dialog.getByTestId('settings-admin').click()
   await expect(page).toHaveURL(/\/admin$/)
-  await expect(page.getByTestId('topbar-title')).toHaveText(t['admin.title'])
+  // Admin's list draws its own bar: ‹ named after the 나 list (docs/DECISIONS.md "Admin and Settings on phones")
+  await expect(page.getByTestId('admin-back-label')).toHaveText(t['settings.title'])
   await expect(page.getByTestId('tab-me')).toHaveAttribute('aria-current', 'page')
   // ‹ goes back to the 나 list it came from, not a new entry
   const before = await historyLength(page)
-  await page.getByTestId('topbar-back').click()
+  await page.getByTestId('admin-back').click()
   await expect(page).toHaveURL(/\/settings$/)
   expect(await historyLength(page)).toBe(before)
 })
@@ -98,12 +104,15 @@ test('the drawer is the AI\'s history: no new chat, Inbox or Admin rows, 44 px r
   await page.getByTestId('topbar-back').click()
   await expect(page).toHaveURL(/\/$/)
   expect(await historyLength(page)).toBe(before)
-  // opened from outside (a link): ‹ replaces it with the tab's list
+  // opened from outside (a link): the tab's list is put under it (lib/screenHistory.ts), and ‹ goes back to it
   await page.goto('/scheduled')
+  await expect.poll(() => historyIdx(page)).toBe(1)
   const opened = await historyLength(page)
+  await expect(page.getByTestId('topbar-back-label')).toHaveText(ai)
   await page.getByTestId('topbar-back').click()
   await expect(page).toHaveURL(/\/$/)
   expect(await historyLength(page)).toBe(opened)
+  expect(await historyIdx(page)).toBe(0)
 })
 
 test('an AI chat\'s ‹ goes back where it came from; the browser\'s back then never returns to the chat', async ({ page }) => {
@@ -115,6 +124,13 @@ test('an AI chat\'s ‹ goes back where it came from; the browser\'s back then n
   const chat = page.url()
   await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1, { timeout: 20_000 })
   await expect(page.getByTestId('bottom-tabs')).toHaveCount(0)
+  // the header's new chat (트리나에게 묻기) is the ✦ of a room's header (rooms/AiFace.tsx AiMark): drawn 24 (the sparkle
+  // 18) in its 44 px button
+  const ask = page.getByTestId('chat-new')
+  await expect(ask).toHaveAccessibleName(t['sidebar.askAi'].replace('{name}', ai))
+  expect(await ask.locator('svg').evaluate((e, named) => (named ? e.hasAttribute('data-trina-star') : e.classList.contains('lucide-sparkles')), PRODUCT_NAMED_AFTER_AI)).toBe(true)
+  expect((await ask.locator('svg').boundingBox())!.width).toBe(PRODUCT_NAMED_AFTER_AI ? 24 : 18)
+  expect((await ask.boundingBox())!).toMatchObject({ width: 44, height: 44 })
   const before = await historyLength(page)
   await page.getByTestId('chat-back').click()
   await expect(page).toHaveURL(/\/$/)
@@ -180,7 +196,7 @@ test('a room\'s ‹ goes back to the list; from a notice it replaces the room wi
   expect(await historyLength(page)).toBe(opened)
 })
 
-test('a thread on a phone: the phone\'s back goes thread → room → 대화 → Home, ‹ walks the same steps, and from a notice nothing loops', async ({ page }) => {
+test('a thread on a phone: the phone\'s back goes thread → room → 대화, the tab\'s first entry; ‹ walks the same steps, and from a notice nothing loops', async ({ page }) => {
   await reset(page)
   const id = uuidv7(), rootId = uuidv7()
   const now = new Date().toISOString()
@@ -212,16 +228,15 @@ test('a thread on a phone: the phone\'s back goes thread → room → 대화 →
     await expect(page.getByTestId('room-thread')).toBeVisible()
   }
 
-  // the phone's own back (Android: the WebView's history): thread → room → 대화 → Home, never the thread again
+  // the phone's own back (Android: the WebView's history): thread → room → 대화, never the thread again; 대화 is the
+  // tab's first entry (a tab tap adds none, so Back never walks into 트리나: lib/screenHistory.ts)
   await open()
   await page.goBack()
   await expect(page).toHaveURL(inRoom)
   await expect(page.getByTestId('room-thread')).toHaveCount(0)
   await page.goBack()
   await expect(page).toHaveURL(/\/rooms$/)
-  await page.goBack()
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('composer-input')).toBeVisible()
+  expect(await historyIdx(page)).toBe(0)
 
   // the app's own ‹ (the thread's, then the room's) walks the same steps without adding any
   await open()
@@ -231,12 +246,12 @@ test('a thread on a phone: the phone\'s back goes thread → room → 대화 →
   await page.getByTestId('room-back').click()
   await expect(page).toHaveURL(/\/rooms$/)
   expect(await historyLength(page)).toBe(before)
-  await page.goBack()
-  await expect(page).toHaveURL(/\/$/)
+  expect(await historyIdx(page)).toBe(0)
 
-  // a thread opened from a notice (a new page): ‹ puts the room in its place, then the list in the room's
+  // a thread opened from a notice (a new page): the room and the list are put under it, and ‹ walks back over them
   await page.goto(`/rooms/${id}/t/${rootId}`)
   await expect(page.getByTestId('room-thread')).toBeVisible()
+  await expect.poll(() => historyIdx(page)).toBe(2)
   const opened = await historyLength(page)
   await page.getByTestId('thread-back').click()
   await expect(page).toHaveURL(inRoom)

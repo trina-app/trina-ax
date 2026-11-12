@@ -49,3 +49,19 @@ service sets it in the server.json it writes.
 in Admin > System (and how the server tells it from a self-hosted relay), the claim-code hint, and the relay's account
 and status links. The official relay must be under `teamDomain`. Not changed: LaunchDaemon labels and bundle ids
 (`app.treesoop.*`, they are on installed machines) and the contract test vectors in `shared/src/cloud-protocol/`.
+
+## Where people get the apps (2026-11-10)
+
+Settings › Apps lists the phone and desktop apps with one way to get each. An edition sets the addresses in
+`editions/<name>/branding/apps.json`:
+
+```json
+{ "page": "https://example.app/download", "iphone": "https://apps.apple.com/app/…?platform=iphone", "android": "", "mac": "", "windows": "" }
+```
+
+`page` is one web page with every app (a computer shows its QR code for phones); the others are the store listings
+(App Store for iPhone and Mac, Google Play, Microsoft Store). Each is an https address or `""` for none; a row without
+its listing falls back to `page`, and an edition with neither shows only its team server's own installers. Use only
+web pages that stay the same across versions; an installer file (`.exe`, `.dmg`, `.apk`, …) is refused. `bun scripts/edition-apps.ts editions/<name>/branding/apps.json --apply`
+writes them into `shared/src/app-downloads.ts`; `tests/unit/edition-apps.test.ts` checks the applied values.
+

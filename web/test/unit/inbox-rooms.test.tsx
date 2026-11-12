@@ -7,7 +7,7 @@ import { InboxNotification, uuidv7, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { Notifications } from '../../src/components/settings/Notifications'
+import Activity from '../../src/pages/Activity'
 import { isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '../../src/components/settings/RoomNoticeRow'
 import { installDom, mount, removeDom } from './dom-host'
 import { ME, room } from './rooms-fixtures'
@@ -102,7 +102,7 @@ test('the Inbox: a thread row with its count, an unnamed group chat named from t
   const older = notice({ code: 'room.mention', eventType: 'room.mention', room: { id: ROOM, from: '하은', thread: ROOT } })
   const gone = notice({ link: null })
   items = [grouped, unnamed, older, gone]
-  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  const m = await mount(<MemoryRouter><Activity /></MemoryRouter>)
   try {
     await m.until(() => m.find('notification-room-row'), 'the rows')
     const body = m.container.ownerDocument!.body
@@ -130,5 +130,34 @@ test('the Inbox: a thread row with its count, an unnamed group chat named from t
     await m.click(links[0]!)
     await m.until(() => reads.length > 0, 'the read')
     expect(reads).toEqual([grouped.id])
+  } finally { await m.unmount() }
+})
+
+test('Activity\'s tabs never move the page: the scroll bar\'s room is kept, a tab is as wide as when bold, its focus ring is drawn inside it', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  items = [row({ reason: 'mention' })]
+  const m = await mount(<MemoryRouter><Activity /></MemoryRouter>)
+  try {
+    await m.until(() => m.find('notification-room-row'), 'the rows')
+    const body = m.container.ownerDocument!.body
+    // a short tab (no scroll bar) keeps the column where a long one has it (Windows, a Mac with a mouse)
+    expect(body.querySelector('[data-testid="activity"]')!.className).toContain('[scrollbar-gutter:stable]')
+    // the tab list scrolls sideways and cuts what is drawn outside it: the ring is inside the tab, keyboard focus only
+    // (index.css draws it for :focus-visible, never on a mouse click)
+    const tabs = [...body.querySelectorAll('[role="tab"]')]
+    expect(tabs).toHaveLength(4)
+    for (const tab of tabs) {
+      expect(tab.className).toContain('focus-visible:-outline-offset-2')
+      expect(tab.className).not.toMatch(/(^|\s)(focus:|outline-offset-2)/)
+      // the label and an invisible bold copy in one cell: the selected tab is as wide as before
+      const cell = [...tab.children].find((c) => (c.getAttribute('class') ?? '').split(' ').includes('grid'))!
+      expect(cell.children).toHaveLength(2)
+      expect(cell.children[1]!.getAttribute('aria-hidden')).toBe('true')
+      expect(cell.children[1]!.className).toContain('invisible')
+      expect(cell.children[1]!.className).toContain('font-semibold')
+      expect(cell.children[0]!.textContent).toBe(cell.children[1]!.textContent)
+    }
+    // the copy is hidden from screen readers: each label is heard once
+    expect([...tabs[2]!.querySelectorAll('[aria-hidden="true"]')].map((x) => x.textContent)).toContain(ko('feed.tab.mentions'))
   } finally { await m.unmount() }
 })

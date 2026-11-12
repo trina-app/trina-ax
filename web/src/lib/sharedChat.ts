@@ -27,10 +27,33 @@ export function sharedRights(chat: Pick<Chat, 'shared'> | null | undefined, me: 
 export const sharesNewChats = (p: Pick<Project, 'shareChats' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
   !!p?.shareChats && !p.inTrash && !safeOps
 
+/**
+ * Who sees a chat, as the line under its box says it (docs/DECISIONS.md "Who sees it, always"). `shared`: the shared
+ * chat's (Chat.shared) or the project's whose new chat will be shared (Project); null for a chat of one person, which
+ * nobody else ever sees, admins included.
+ * - 'me': a chat of one person, or a shared one whose count is 1;
+ * - 'admins': a shared one nobody else sees by a rule of its folder (`alone`): besides me only the owner and admins. Only
+ *   a project made before outside projects/: in projects/ the owner and admins see it only as members (docs/DECISIONS.md
+ *   "Project contents only for members"), so there `alone` comes only with a count of 1;
+ * - 'people': how many see it (in projects/ its members, as the project's 멤버 line counts them).
+ */
+export type WhoSees = { kind: 'me' } | { kind: 'admins' } | { kind: 'people'; n: number }
+export function whoSees(shared: { audience?: number; alone?: boolean } | null | undefined): WhoSees {
+  if (!shared) return { kind: 'me' }
+  const n = shared.audience ?? 0
+  if (n <= 1) return { kind: 'me' }
+  return shared.alone ? { kind: 'admins' } : { kind: 'people', n }
+}
+
+/** How many people in the project see a chat once it is shared, counted as the line under its box and the copy-link
+ * toast count them (Chat.shared.audience: everyone who sees the project, me included). The share check's `audience`
+ * (ShareChatResult) is the others, so the share dialog adds me (QA TC-070: the dialog said 2 where the line and the
+ * toast said 3). */
+export const seenOnceShared = (others: number): number => others + 1
+
 /** The refusals about shared chats and the words the screens use for them (the server sends the same, localized; these
  * keep one wording where the screen already says it). */
 const REASONS: Record<string, MessageKey> = {
-  shared_chat_upload: 'chat.sharedTeamFiles',
   shared_chat_move: 'chat.sharedNoMove',
   project_personal: 'projects.shareChatsPersonal',
 }

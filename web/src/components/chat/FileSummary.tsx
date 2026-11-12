@@ -1,10 +1,12 @@
-// "파일 3개 저장 · 1개 충돌 사본 · 1개 권한 없음" under an answer (turn file_events). Open it to see each file;
-// a click previews it. Rejected writes explain why and offer to ask the AI to save into the person's own folder.
+// "파일 3개 저장 · 1개 충돌 사본 · 1개 권한 없음" under an answer (turn file_events: files only, a moved one marked
+// 옮김). Open it to see each file; a click previews it. Rejected writes explain why and offer to ask the AI to save into
+// the person's own folder.
 import { ChevronDown, ChevronRight, FileCheck2, FileWarning, Ban } from 'lucide-react'
 import { useState } from 'react'
 import type { FileChangeSummary } from '@mycel/shared/api'
 import { openTeamFile } from '../../lib/sidePanel'
 import { useT } from '../../i18n'
+import { useFolderWords } from '../../lib/folderLabels'
 import { Button } from '../ui'
 
 export function summaryCounts(f: FileChangeSummary) {
@@ -14,6 +16,7 @@ export function summaryCounts(f: FileChangeSummary) {
 // defaultOpen: tests render the open list without a click
 export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOpen = false }: { files: FileChangeSummary; onAskOwnFolder: (path: string) => void; disabled?: boolean; defaultOpen?: boolean }) {
   const t = useT()
+  const words = useFolderWords()
   const [open, setOpen] = useState(defaultOpen)
   const c = summaryCounts(files)
   if (!c.saved && !c.conflicts && !c.rejected) return null
@@ -29,7 +32,7 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
         <ul className="space-y-1 border-t border-line px-3 py-2">
           {files.saved.map((s) => (
             <li key={s.path} className="flex items-center gap-2">
-              <span className="w-14 shrink-0 text-xs text-faint">{t(s.action === 'create' ? 'files.summary.created' : 'files.summary.updated')}</span>
+              <span className="w-14 shrink-0 text-xs text-faint">{t(s.moved ? 'files.summary.moved' : s.action === 'create' ? 'files.summary.created' : 'files.summary.updated')}</span>
               <button type="button" className="min-w-0 truncate text-left text-accent-text hover:underline" onClick={() => openTeamFile(s.path)}>
                 {s.path}
               </button>
@@ -52,7 +55,7 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
             <li key={`${x.path}-${i}`} className="space-y-1 rounded-lg bg-danger-soft px-2 py-1.5 text-xs text-danger">
               <span className="flex items-start gap-1.5">
                 <Ban size={13} className="mt-0.5 shrink-0" aria-hidden />
-                <span>{x.path ? t('files.summary.rejectedLine', { path: x.path }) : t('files.summary.rejectedHidden')}</span>
+                <span title={x.path || undefined}>{x.path ? t('files.summary.rejectedLine', { path: words.path(x.path, ' › ') }) : t('files.summary.rejectedHidden')}</span>
               </span>
               <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onAskOwnFolder(x.path)}>
                 {t('files.summary.askOwnFolder')}

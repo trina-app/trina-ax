@@ -14,17 +14,23 @@
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
 import crypto from 'node:crypto'
 import { z } from 'zod'
-import { TEAM_TOOL_PREFIX } from '@mycel/shared'
-import { INTEGRATION_TOOLS_OLD_MAX } from '@mycel/shared/api'
+import { STEP_WORDS_OTHER, TEAM_TOOL_PREFIX } from '@mycel/shared'
+import { INTEGRATION_TOOLS_OLD_MAX, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
 import { addSources } from '../../chat/read-scope'
+import { tr } from '../../chat/i18n'
+import { cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
+import { askConfirm, carriesAddress, opaqueParts } from '../../tools/url-gate'
+import { parse as parseHost } from 'tldts'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
 import { bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type Row } from './store'
 import { noteScheduleUse } from './schedule-needs'
-import { HIDDEN, secretHider } from './hide'
+import { pinForm } from '../../chat/schedule-scope'
+import { HIDDEN } from './hide'
 import { say } from './text'
+import { cardLines, fieldWord, methodWord, toolTitle } from './card-lines'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
 import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
@@ -32,6 +38,9 @@ import { answerUrls, recordSent, rememberConnectionUrls } from '../../tools/conn
 import { KINDS } from '../../tools/sniff'
 import { imageSize } from '../../uploads/image'
 import { normalizeForModel, visionBlock, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES } from '../../files/vision'
+import { audit } from '../../admin/audit'
+import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
+import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 
 export const MAX_RESULT_CHARS = 40_000
 /** connection tools offered as tools of their own in one answer: at most this many, with at most MAX_TURN_TOOL_CHARS of
@@ -117,18 +126,31 @@ function turnChat(ctx: AppContext, tc: TurnToolContext): string {
 /** The service answered: the chat now holds what this connection's people may see, and outside content. */
 function noteAnswer(ctx: AppContext, chat: string, row: Row) {
   ctx.db.transaction(() => {
-    addSources(ctx.db, chat, [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id!, via: 'connection' } : { type: 'integration', id: row.id }])
+    // a Google app's answer (the person's mail, calendar, documents) is also from outside the team files: in a room it
+    // keeps the answer private to the person who asked (rooms/ai.ts decide)
+    addSources(ctx.db, chat, row.google_app ? [{ type: 'user', id: row.owner_user_id!, via: 'connection' }, { type: 'integration', id: row.id }]
+      : [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id!, via: 'connection' } : { type: 'integration', id: row.id }])
     ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chat)
   })()
 }
 
-/** What a write sends: the whole text and the parts that say where it goes (shown first on the card). */
-interface Sent { text: string; fields: { name: string; value: string }[] }
+/** What a write sends: the whole text and the parts that say where it goes (counted for the card's size limit); `dest`:
+ * every value that says where it goes, for a scheduled run's pinned recipients (pinTargets); `lines`: what the card shows
+ * in the person's language (card-lines.ts), `exact` when those lines show all of `text`, which then sits behind "보내는
+ * 내용 그대로 보기" (ConfirmDetail.exact); `request`: an HTTP API call (the card names a request). */
+interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: { name: string; value: string }[]; exact: boolean }; request?: boolean }
+
+/** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
+ * cannot show all of it (cardLines null: the JSON stays open). */
+function argLines(args: unknown, L: Locale): { fields: { name: string; value: string }[]; exact: boolean } {
+  const all = cardLines(args, L, (k) => RECIPIENT.test(k))
+  return all ? { fields: all, exact: true } : { fields: recipientFields(args).map((f) => ({ name: f.name.split('.').map((k) => fieldWord(k, L)).join(' › '), value: f.value })), exact: false }
+}
 
 /** more than this cannot be checked on a card: such a write is refused, never shown cut */
 export const MAX_CARD_PAYLOAD = 100_000
 /** argument names that say where something goes or who sees it */
-const RECIPIENT = /^(to|cc|bcc|recipients?|emails?|email_?address(es)?|channels?|channel_?(id|name)|chat_?id|conversation(_?id)?|thread(_?id)?|repo(sitory)?|owner|org(anization)?|project(_?(id|key))?|space(_?key)?|team(_?id)?|workspace|url|link|webhook(_?url)?|endpoint|address|domain|host|users?(_?(id|name)s?)?|assignees?|share_?with|visibility|public|parent(_?id)?|folder(_?id)?|page_?id|database_?id|list_?id|board_?id)$/i
+export const RECIPIENT = /^(to|cc|bcc|recipients?|emails?|email_?address(es)?|channels?|channel_?(id|name)|chat_?id|conversation(_?id)?|thread(_?id)?|repo(sitory)?|owner|org(anization)?|project(_?(id|key))?|space(_?key)?|team(_?id)?|workspace|url|link|webhook(_?url)?|endpoint|address|domain|host|users?(_?(id|name)s?)?|assignees?|share_?with|visibility|public|parent(_?id)?|folder(_?id)?|page_?id|database_?id|list_?id|board_?id)$/i
 
 /** Recipient-like arguments (two levels deep), for the top of the card. */
 export function recipientFields(args: unknown): { name: string; value: string }[] {
@@ -145,8 +167,151 @@ export function recipientFields(args: unknown): { name: string; value: string }[
   return out
 }
 
+/** Argument names whose text is what a write says, not where it goes (long content: any value passes). */
+const CONTENT_LONG = /^(text|body|content|contents|html|markdown|message|plain_?text|rich_?text|paragraph|caption|description|summary|comment|comments)$/i
+/** Short content names (a title, a label, a time): a value passes unless it is a whole e-mail or web address, which a
+ * contact-picker tool may take as the addressee. */
+const CONTENT_SHORT = /^(subject|title|name|note|notes|label|labels|tags?|emoji|icon|colou?r|priority|status|due|due_?date|date|time|date_?time|start|end|time_?zone|language|alt|alt_?text|heading|mime_?type|format|parse_?mode)$/i
+/** Discriminators (`type`, `object`, `kind`) whose value only says what a block is (Notion rich text, Slack Block Kit,
+ * a Notion parent's kind); never `anyone`, `domain` or anything else, which has to be pinned. */
+const KIND_KEY = /^(type|object|kind)$/i
+const SAFE_KIND = /^(text|mention|equation|section|mrkdwn|plain_text|rich_text|paragraph|heading_[1-6]|header|bulleted_list_item|numbered_list_item|to_do|quote|code|divider|callout|toggle|block|context|image|list|table|table_row|markdown|page_id|database_id|block_id|data_source_id)$/i
+/** Settings whose number or yes/no says nothing about where a write goes or who sees it. */
+const SETTING = /^(limit|page_?size|per_?page|count|offset|page|max|max_?results|timeout|index|position|order|sort|bold|italic|code|strikethrough|underline|checked|done|completed|level|width|height)$/i
+/** A whole e-mail or web address. */
+const ADDRESS = /^(?:mailto:)?[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$|^[a-z][a-z0-9+.-]*:\/\/\S+$/i
+/** a pinned send's arguments deeper than this, or with more values than PIN_VALUES_MAX that may say where it goes:
+ * refused, never cut (a long list would push a real recipient past the end) */
+const PIN_DEPTH_MAX = 8
+const PIN_VALUES_MAX = 50
+
+/**
+ * Every value of a call that may say where it goes, for a scheduled run's pinned recipients (Q2 a), or null when the
+ * call cannot be checked (nested deeper than PIN_DEPTH_MAX, or more than PIN_VALUES_MAX such values). A value may say
+ * where it goes unless its own argument says otherwise: text under a long content name (CONTENT_LONG), text under a
+ * short one (CONTENT_SHORT) that is not a whole e-mail or web address, a block's kind (KIND_KEY with a SAFE_KIND value),
+ * a number or a yes/no of a setting (SETTING). Everything else, `false` included (`private: false` makes a thing
+ * public), has to be pinned: a destination under a name the server does not know (`peer_id`, `receiver_uuids`) still
+ * needs a pin, and a decoy `to` next to it does not help. Each once in the form pins are compared in (pinForm). [] when
+ * there is none: the server cannot tell where the call goes, and a pinned send refuses it.
+ */
+export function pinTargets(args: unknown): string[] | null {
+  const out = new Map<string, string>()
+  let bad = false
+  const add = (v: string) => { const k = pinForm(v); if (k && !out.has(k)) out.set(k, v.trim()) }
+  const walk = (v: unknown, key: string, depth: number) => {
+    if (bad || v === null || v === undefined || v === '') return
+    if (depth > PIN_DEPTH_MAX) { bad = true; return }
+    if (Array.isArray(v)) { for (const x of v) walk(x, key, depth + 1); return }
+    if (typeof v === 'object') { for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1); return }
+    if (typeof v === 'string') {
+      const t = v.trim()
+      if (!t || CONTENT_LONG.test(key) || (KIND_KEY.test(key) && SAFE_KIND.test(t))) return
+      if (CONTENT_SHORT.test(key) && !ADDRESS.test(t)) return
+      add(t)
+      return
+    }
+    if (SETTING.test(key)) return
+    add(String(v))
+  }
+  walk(args, '', 0)
+  return bad || out.size > PIN_VALUES_MAX ? null : [...out.values()]
+}
+
+/** The recipients a scheduled run's task pinned for the person's own connection `row` on its card (Q2 a), with the
+ * addresses the card showed for its runs (allowed_urls), or null: the card did not list it (then nobody can be asked,
+ * as before). */
+function pinsFor(ctx: AppContext, turnId: string, row: Row): { pins: string[]; urls: string[] } | null {
+  const r = ctx.db.query('SELECT s.personal_sends AS p, s.allowed_urls AS u FROM turns t JOIN schedules s ON s.id = t.schedule_id AND s.user_id = t.user_id WHERE t.id = ? AND s.confirmed_at IS NOT NULL AND s.template_id IS NULL').get(turnId) as { p: string | null; u: string | null } | null
+  try {
+    const all = JSON.parse(r?.p ?? '[]') as { connectionId?: unknown; pins?: unknown }[]
+    const hit = Array.isArray(all) ? all.find((x) => x && x.connectionId === row.id && Array.isArray(x.pins)) : undefined
+    const pins = hit ? (hit.pins as unknown[]).filter((p): p is string => typeof p === 'string') : []
+    const urls = (JSON.parse(r?.u ?? '[]') as unknown[]).filter((u): u is string => typeof u === 'string')
+    return pins.length ? { pins, urls } : null
+  } catch { return null }
+}
+
+/** A name no registrar issues: its registrable label has an underscore ("주간보고_2026-11-11_2.md"), so it cannot be a
+ * public host. A one-label name with a file-type suffix ("report.md", "evil.md", "attacker.zip") can be registered and is
+ * auto-linked by chats and mail, so it stays a host unless this run saved a file of exactly that name (savedNames). */
+const unregistrable = (p: ReturnType<typeof parseHost>): boolean => !!p.domainWithoutSuffix?.includes('_')
+
+/** Does any text of `v` name a host with a public suffix in the middle of other words ("mail data.attacker.example")? A
+ * chat links such a name and fetches its preview. Not one: a name with an underscore (unregistrable), or a word that is,
+ * exactly as written (NFC, same case, plain dots), the name of a file this run saved (`saved`, savedNames): a run that
+ * saves a report and sends its summary names the file. */
+function hostNamesIn(v: unknown, saved: ReadonlySet<string> = new Set(), depth = 0): boolean {
+  if (depth > 32) return true
+  if (typeof v === 'string') {
+    const asWritten = v.normalize('NFC')
+    for (const m of v.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '').matchAll(/[\p{L}\p{N}_-]+(?:[.\u3002\uFF0E\uFF61][\p{L}\p{N}_-]+)+/gu)) {
+      const host = m[0].replace(/[\u3002\uFF0E\uFF61]/g, '.')
+      // a dotted IPv4 address with nothing after it ("send to 203.0.113.9") is a host too
+      if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return true
+      const p = parseHost(host)
+      if (!p.domain || !p.isIcann || unregistrable(p)) continue
+      if (m[0] === host && saved.has(host) && asWritten.includes(host)) continue
+      return true
+    }
+    return false
+  }
+  if (Array.isArray(v)) return v.some((x) => hostNamesIn(x, saved, depth + 1))
+  if (v && typeof v === 'object') return Object.values(v as Record<string, unknown>).some((x) => hostNamesIn(x, saved, depth + 1))
+  return false
+}
+
+/** The names (last path part, NFC) of the files this turn created or changed (file_events): never decided from the text. */
+function savedNames(ctx: AppContext, turnId: string | null | undefined): Set<string> {
+  if (!turnId) return new Set()
+  const rows = ctx.db.query("SELECT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'update')").all(turnId) as { path: string }[]
+  return new Set(rows.map((r) => (r.path.split('/').at(-1) ?? '').normalize('NFC')).filter(Boolean))
+}
+
+/** A call's arguments without the pinned recipients and the task's own addresses (a value that is one of them is
+ * emptied, and each is cut out of longer text), for the check that nothing else in it can take data out. */
+function withoutPinned(v: unknown, pins: readonly string[], cut: readonly string[], depth = 0): unknown {
+  if (depth > 32) return v
+  if (typeof v === 'string') {
+    if (pins.some((p) => pinForm(p) === pinForm(v))) return ''
+    let t = v
+    for (const x of cut) if (x) t = t.split(x).join(' ')
+    return t
+  }
+  if (Array.isArray(v)) return v.map((x) => withoutPinned(x, pins, cut, depth + 1))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, withoutPinned(x, pins, cut, depth + 1)]))
+  return v
+}
+
+/** A scheduled run's write to the person's own connection that its card listed: refused (the reason) unless every value
+ * of the call that may say where it goes is one of the pinned recipients (pinTargets); a call whose recipients cannot be
+ * told, or cannot be checked, is refused (fails closed). null: send. */
+function pinnedRefusal(row: Row, pinned: { pins: string[]; urls: string[] }, dest: readonly string[] | null | undefined, raw: unknown, saved: ReadonlySet<string> = new Set()): string | null {
+  const { pins, urls } = pinned
+  const why = (w: string, next: string) => refusal({ done: `Nothing was sent to ${row.name}.`, why: { kind: 'mode', mode: 'this scheduled run', why: w }, next, names: [row.name] })
+  if (dest === null) return why(`this call has more arguments than the server can check against the recipients the card pinned (more than ${PIN_VALUES_MAX} values that may say where it goes, or nested more than ${PIN_DEPTH_MAX} levels deep)`, 'send less at once, with only the pinned recipients, and say in the summary what was not sent')
+  if (!dest?.length) return why('the server cannot tell where this call sends (none of its arguments names a recipient it knows), so it cannot check the recipients the card pinned', `say so in the summary; send only with an argument that names one of the pinned recipients (${pins.map((p) => `'${p}'`).join(', ')})`)
+  const allowed = new Set(pins.map(pinForm))
+  const other = dest.filter((v) => !allowed.has(pinForm(v)))
+  if (other.length) return why(`the task's card allows ${row.name} only at ${pins.map((p) => `'${p}'`).join(', ')}, and this call also names ${other.slice(0, 5).map((v) => `'${clip(v.replace(/\s+/g, ' '), 120)}'`).join(', ')}`, 'send only to the pinned recipients, and say in the summary what was not sent; the user can send the rest in a chat')
+  // what it says may not take data out either: a link in a message's text is fetched for its preview (a chat), a
+  // picture in a page or a mail is loaded when it is opened, so a pinned recipient still reaches the address in it. Any
+  // web address, host name, address-like argument or long random-looking part (tools/url-gate.ts carriesAddress) that is
+  // not a pinned recipient or one of the task's own addresses (the card showed them) is refused
+  const rest = withoutPinned(raw ?? {}, pins, [...pins, ...urls])
+  if (carriesAddress(rest) || hostNamesIn(rest, saved)) return why('this call carries a web address, a host name or a long random-looking part that is not one of the recipients the card pinned or the addresses the task may open (a link or a picture in what is sent can take data out when the service shows a preview or someone opens it)', 'send it without links, addresses or random-looking parts, and say in the summary what was left out; the user can send it in a chat')
+  return null
+}
+
 /** A scheduled run may send to an "allow" connection only when the person allowed that on the schedule's card, which
  * offers only the connections the task names (tools/schedules.ts taskConnections). */
+/** Where a connection's settings are changed, by whom (E6, E11): a team connection by an admin, a personal one by its
+ * owner. */
+function connectionSettings(row: Pick<Row, 'scope' | 'google_app' | 'name'>, L: Locale): string {
+  if (row.google_app) return `in ${SCREEN.connectors(L, row.name)} › Settings`
+  return row.scope === 'team' ? `in ${SCREEN.adminMcp(L)}` : `in ${SCREEN.connectors(L)}`
+}
+
 function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string): boolean {
   const r = ctx.db.query('SELECT s.write_connections AS w FROM turns t JOIN schedules s ON s.id = t.schedule_id WHERE t.id = ?').get(turnId) as { w: string | null } | null
   try { const ids = JSON.parse(r?.w ?? '[]'); return Array.isArray(ids) && ids.includes(connectionId) } catch { return false }
@@ -154,26 +319,73 @@ function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string)
 
 /**
  * Anything that changes something at the service: refused ('deny'), asked on the server's card ('ask'), or sent
- * ('allow', team connections only: a personal one asks). The card shows everything that is sent, in full, with the
+ * ('allow', team connections and a person's own Google app: any other personal one asks). The card shows everything that is sent, in full, with the
  * recipient-like fields first; a write too large for that is refused. In a scheduled run nobody is asked: an "allow"
- * connection sends only when the schedule's card allowed it (tools/schedules.ts), everything else is refused.
+ * connection sends only when the schedule's card allowed it (tools/schedules.ts), everything else is refused. In the
+ * person's own chat after it read their team chat rooms (TurnPerson.roomsSeen) this card is the call's only one:
+ * 'allow' asks too, and the person's card leads with the room line (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
  */
-async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: BuildCtx, tc: TurnToolContext): Promise<boolean> {
-  if (row.write_policy === 'deny') throw new CallError(`${row.name} is set to refuse changes from the AI, so nothing was sent. Tell the user; whoever manages the connection can change that in its settings.`, 'refused (write policy deny)')
-  if (row.write_policy === 'allow' && row.scope === 'team') {
+async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent: Sent, b: BuildCtx, tc: TurnToolContext): Promise<boolean | 'always'> {
+  if (row.write_policy === 'deny') {
+    throw new CallError(refusal({
+      done: `Nothing was sent to ${row.name}.`,
+      why: { kind: 'permission', what: `${row.name} is set to refuse changes from the AI`, grant: [row.scope === 'team' ? 'an admin' : 'the user themselves'], how: connectionSettings(row, tc.locale) },
+      next: 'tell the user; once the setting allows it, ask again', names: [row.name],
+    }), 'refused (write policy deny)')
+  }
+  if (row.write_policy === 'allow' && row.scope === 'team' && !tc.files.person?.roomsSeen) {
     if (!b.scheduled || scheduleMayWrite(ctx, b.turnId, row.id)) return false
     throw new CallError(`this is a scheduled run and this scheduled task may not send to ${row.name} (its card offers sending only to the connections the task names, and only when the user allows it there), so nothing was sent. Say so in the summary; the user can do it in a chat, or edit the task in Scheduled tasks (or create it again) naming ${row.name} and allow sending to it.`, 'refused (scheduled run not allowed)')
   }
+  // a person's own Google app set to Always allow (docs/DECISIONS.md "Gmail, Google Calendar, Google Docs and Google
+  // Sheets as built-in connectors"):
+  // sent without a card in their own chat. Not in a scheduled run (the rules below, as for any own connection), not in
+  // a room's session and not after a room read (other people's words could have asked for it: the card asks)
+  if (row.google_app && row.write_policy === 'allow' && !b.scheduled && !b.room && !tc.files.person?.roomsSeen) return false
+  // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
+  const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
+  if (pins) {
+    const no = pinnedRefusal(row, pins, sent.dest, sent.raw, savedNames(ctx, b.turnId))
+    if (no) throw new CallError(no, 'refused (scheduled run: not a pinned recipient)')
+    return false
+  }
   const person = b.scheduled ? null : tc.files.person
-  if (!person) throw new CallError(`this would change something at ${row.name} and nobody can confirm it here (a scheduled run), so nothing was sent. Ask the user to do it in a chat.`, 'refused (nobody to ask)')
+  if (!person || person.unattended) {
+    throw new CallError(refusal({
+      done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
+      also: `this would change something at ${row.name}, which needs the user's yes on a card`,
+      next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
+    }), 'refused (nobody to ask)')
+  }
   // the address (an api_request query can be long) counts as well: everything the card shows
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const L = person.locale
-  const question = `${say('confirm', L, { name: row.name, what })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
-  const details = [{ label: say('sendsLabel', L), text: sent.text.trim() ? sent.text : say('nothing', L), ...(sent.fields.length ? { fields: sent.fields } : {}) }]
-  if (!(await person.confirm(question, say('yes', L), say('no', L), { details }))) {
-    throw new CallError(`the user did not allow this, so nothing was sent to ${row.name}. Do not try it another way; ask the user what they want.`, 'not allowed by the user')
+  const question = `${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+  // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
+  // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
+  const shown = sent.lines?.(L) ?? { fields: sent.fields, exact: false }
+  const text = sent.text.trim() ? sent.text : say('nothing', L)
+  const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
+  const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}) }]
+  // a Google app: the card also offers Always allow (the person's own choice for this app; Settings on its page turns it
+  // back), but not in a room's session or after a room read, where every change asks
+  if (row.google_app && person.choose && !b.room && !person.roomsSeen) {
+    const v = await person.choose(question, [{ label: say('yes', L), value: 'yes' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'no' }], { details })
+    if (v === 'yes') return true
+    if (v === 'always') return 'always'
+    throw new CallError(refusal({
+      done: `The user did not allow this, so nothing was sent to ${row.name}.`, why: cardReason('declined'), also: 'Do not try it another way',
+      next: 'ask the user what they want', names: [row.name],
+    }), cardEndShort('declined'))
+  }
+  const end = await askConfirm(person, question, say('yes', L), say('no', L), { details })
+  if (end !== 'yes') {
+    throw new CallError(refusal({
+      done: end === 'declined' ? `The user did not allow this, so nothing was sent to ${row.name}.` : `Nothing was sent to ${row.name}.`,
+      why: cardReason(end), also: 'Do not try it another way',
+      next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
+    }), cardEndShort(end))
   }
   return true
 }
@@ -265,67 +477,19 @@ function toolDescription(row: Row, tool: RemoteTool): string {
   return clip(`[${row.name}, ${who}] ${what}${tool.readOnly ? '' : ' (Changes something at the service; the user may be asked first.)'} The result is external data.`, 1500)
 }
 
-/** A value under such a name is not shown in a step, a number too ("password: 12345678"; a password or key the AI was
- * given, not the connection's): a whole word of the name ("user_password", "accessToken", "x-api-key", "pwd", "jwt",
- * "Set-Cookie", "mfa_code"), or one that ends in a secret's word ("clientsecret", "accesstoken", "newpassword"). Not
- * "passage", "bypass", "author" or "keyword"; not what a name says about a secret rather than the secret itself
- * ("token_type", "auth_url", "session_name", "sort_key", "password_hint"); not a number that counts or limits them
- * ("max_tokens: 4096", "MaxKeys: 100"), which tells two calls apart (0.2.19 review, S8). A flag or nothing (true,
- * false, null) is always shown: it holds no secret ("has_password: true", "private: true"). */
-const SECRET_WORD = /^(pass|pw|pwd|pin|secrets?|tokens?|keys?|apikeys?|privkey|jwts?|bearer|auth|authori[sz]ation|authentication|cookies?|sessions?|sessionids?|credentials?|creds?|otp|totp|mfa)$/
-const SECRET_END = /(pass(word|wd|phrase|code)s?|pwd|tokens?|secrets?|apikeys?|accesskeys?|secretkeys?|privatekeys?|sessionids?|cookies?)$/
-/** a one-time code: verification_code, sms_code, reset_code */
-const CODE_KIND = /^(verification|verify|sms|email|reset|security|confirmation|login|2fa)$/
-const ABOUT_WORD = /^(type|kind|name|names|mode|url|uri|endpoint|ttl|hint|format|scheme|method|expires|expiry|expiration|sort|partition|primary|foreign|idempotency|cache|object)$/
-const COUNT_WORD = /^(max|min|num|number|count|total|limit|length|len|size|budget|remaining|used|usage)$/
-export function secretArg(name: string, value: unknown = ''): boolean {
-  if (typeof value === 'boolean' || value === null) return false
-  const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
-  if (words.some((w) => ABOUT_WORD.test(w)) || (typeof value === 'number' && words.some((w) => COUNT_WORD.test(w)))) return false
-  return words.some((w) => SECRET_WORD.test(w) || SECRET_END.test(w)) || (words.includes('code') && words.some((w) => CODE_KIND.test(w)))
-}
-
-/** Secrets inside a text whatever its name, hidden before the text is cut: a URL's password ("postgres://u:•••@db"), a
- * bearer or other Authorization value, a JWT, and a query parameter named like a secret ("?access_token=•••"). */
-export function hideSecretsInText(t: string): string {
-  return t
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]*):[^\s/@]+@/gi, '$1:•••@')
-    .replace(/\b(authorization\s*[:=]\s*)((?:bearer|basic|digest|token)\s+)?[^\s"',;]+/gi, (_, a: string, b?: string) => `${a}${b ?? ''}•••`)
-    .replace(/\b(bearer\s+)[^\s"',;]{8,}/gi, '$1•••')
-    .replace(/\beyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]*/g, '•••')
-    .replace(/([?&])([^=&#\s]+)=([^&#\s]+)/g, (m, sep: string, k: string) => secretArg(k) ? `${sep}${k}=•••` : m)
-}
-
-/** A connection tool's step: the connection, the tool and a short look at its arguments, like Claude Code's tool
- * inputs ('Studio · generate_image (get_cost: true, model: "z_image", prompt: "a leaf…")'), so a price check and the
- * paid run it was for are told apart. The AI's own values: flags and numbers first, so a long text does not push out
- * what tells two calls apart; a text cut to 40 characters, an object or a list not opened, all of it at most 100
- * characters. `hide` hides the person's connection secrets in each whole text before it is cut (the turn hides them in
- * its steps too, redact.ts, but a cut one would no longer be found), then secrets a text carries (hideSecretsInText); a
- * value under a secret's name shows as "•••" (secretArg). */
-export function argsPreview(args: unknown, hide: (text: string) => string = (t) => t): string {
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return ''
-  const rank = (v: unknown) => (v === null || typeof v === 'boolean' || typeof v === 'number' ? 0 : typeof v === 'string' ? 1 : 2)
-  const value = (k: string, v: unknown) => secretArg(k, v) ? '•••' : typeof v === 'string' ? JSON.stringify(clip(oneLine(hideSecretsInText(hide(v))), 40))
-    : Array.isArray(v) ? '[…]' : v && typeof v === 'object' ? '{…}' : String(v)
-  const parts = Object.entries(args).sort((x, y) => rank(x[1]) - rank(y[1])).map(([k, v]) => `${clip(oneLine(hide(k)), 40)}: ${value(k, v)}`)
-  return parts.length ? clip(parts.join(', '), 100) : ''
-}
-/** the person's connection secrets, hidden in step arguments: made once per turn, when its first step needs it */
-const stepHiders = new WeakMap<BuildCtx, (text: string) => string>()
-function stepOf(ctx: AppContext, b: BuildCtx, row: Row, tool: string, args: unknown): string {
-  let hide = stepHiders.get(b)
-  if (!hide) { hide = secretHider(integrationsOf(ctx).secretsFor(b.userId)); stepHiders.set(b, hide) }
-  const a = argsPreview(args, hide)
-  return `${row.name} · ${tool}${a ? ` (${a})` : ''}`
-}
+/** A connection tool's step: the connection and the tool by its title ("Notion · Create page"), never its id or the AI's
+ * arguments (docs/DECISIONS.md "Plain words in errors, cards and steps"; the card before a write shows every value). */
+const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'>) => `${row.name} · ${toolTitle(tool)}`
 
 function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name: string): TurnTool {
   return {
     name,
     description: toolDescription(row, tool),
     inputSchema: tool.inputSchema,
-    label: (args) => stepOf(ctx, b, row, tool.name, args),
+    label: () => stepOf(row, tool),
+    // a write of this connection (a tool not marked read-only, as saved now; a tool that is gone: none)
+    sendsTo: () => (savedTools(ctx.db, row).find((x) => x.name === tool.name)?.readOnly === false ? row.id : null),
+    readOnly: tool.readOnly,
     call: hiding(ctx, [row], async (args, tc, h) => {
       const svc = integrationsOf(ctx)
       let confirmed = false
@@ -338,23 +502,59 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         const t = savedTools(ctx.db, current).find((x) => x.name === tool.name)
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
         // turned off since the turn began: the person who manages the connection said no to this tool
-        if (disabledTools(current).has(t.name)) throw new CallError(`${tool.name} of ${current.name} was turned off for the AI, so it did not run. Do not try it another way; tell the user (whoever manages the connection can turn it on in its settings).`, 'tool off')
-        if (!t.readOnly) {
-          confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args) }, b, tc)
+        if (disabledTools(current).has(t.name)) {
+          throw new CallError(refusal({
+            done: `${tool.name} of ${current.name} did not run.`,
+            why: { kind: 'permission', what: `${tool.name} was turned off for the AI in the connection's settings`, grant: [current.scope === 'team' ? 'an admin' : 'the user themselves'], how: connectionSettings(current, tc.locale) },
+            also: 'Do not try it another way', next: 'tell the user who can turn it on', names: [current.name],
+          }), 'tool off')
+        }
+        // a Google app's Gmail send or draft whose attachment is given by web address or file path: the library would
+        // fetch the address or read a file on this server (docs/GOOGLE-APPS.md "Security")
+        if (current.google_app && SENDING_TOOLS.has(t.name) && addressedAttachments(args)) {
+          throw new CallError(`nothing was sent: ${current.name} takes attachments only with their content (base64 "content" and a "filename"), never a "url" or a "path"`, 'refused (attachment by address)')
+        }
+        // the attachment tool: its bytes come back inline and are read here (google-apps/attachments.ts); the file name
+        // is Trina's own argument, never sent
+        let fileName: string | null = null
+        if (current.google_app && t.name === ATTACHMENT_TOOL && args && typeof args === 'object') {
+          const { [ATTACHMENT_NAME_ARG]: n, [ATTACHMENT_SIZE_ARG]: size, return_base64: _b, ...rest } = args as Record<string, unknown>
+          fileName = typeof n === 'string' ? n : null
+          // larger than one answer can carry (its base64 would come back cut off): not fetched at all
+          if (typeof size === 'number' && size > ATTACHMENT_MAX_BYTES) throw new CallError(tooLargeMessage(fileName), 'attachment too large')
+          args = { ...rest, return_base64: true }
+        }
+        // after a room read, a tool that was a write when the turn began raised no room card: it asks even if the
+        // service calls it read-only now
+        if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
+          const answer = await gate(ctx, current, () => toolTitle(t), { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args), dest: pinTargets(args), raw: args, lines: (L) => argLines(args ?? {}, L) }, b, tc)
+          confirmed = answer !== false
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== asked) throw new CallError('the connection changed while the user was asked; try again', 'changed')
+          // Always allow on the card: the person's own Google app sends without asking from now on (this call included)
+          if (answer === 'always' && current.google_app) {
+            ctx.db.query("UPDATE integrations SET write_policy='allow', version=version+1, updated_at=? WHERE id=? AND version=?").run(new Date().toISOString(), current.id, current.version)
+            audit(ctx.db, { actor: tc.userId, action: 'google_app.write_policy', target: current.id, detail: { app: current.google_app, writePolicy: 'allow', via: 'card' } })
+            current = h.use(svc.forCall(tc.userId, row.id))
+          }
         }
-        const r = await svc.callTool(current, t.name, args, tc.signal)
+        const r = await svc.callTool(current, t.name, args, tc.signal).catch((e) => {
+          // an attachment whose answer was cut off at the size limit: said plainly (the connection is fine)
+          if (current!.google_app && t.name === ATTACHMENT_TOOL && e instanceof CallError && e.kind === 'too_large') throw new CallError(tooLargeMessage(fileName), 'attachment too large')
+          throw e
+        })
         // the person's access is checked again before the answer is delivered
         svc.forCall(tc.userId, row.id)
         noteAnswer(ctx, chat, current)
         const { text: raw, isError, links, kept } = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
-        const text = h.hide(raw)
+        // a Gmail attachment: its bytes as text or a picture (the existing readers), never base64 to the model
+        const attachment = current.google_app && t.name === ATTACHMENT_TOOL && !isError ? await readAttachment(ctx, tc, { chatId: chat, integrationId: current.id }, h.hide(raw), fileName) : null
+        const text = h.hide(attachment ? attachment.text : raw)
         // the addresses the answer names (as the AI sees them) may be saved with save_url without a card
         rememberConnectionUrls(ctx.db, chat, answerUrls(text, links.map(h.hide)), { integrationId: current.id, userId: tc.userId, turnId: tc.turnId })
-        const images = await modelImages(ctx, tc, kept)
+        const images = [...(attachment?.images ?? []), ...await modelImages(ctx, tc, kept)]
         return {
           content: [{ type: 'text', text: wrap(current, `Answer of ${t.name} from ${current.name}${isError ? ' (the service reported an error)' : ''}.${images.length ? ` ${images.length === 1 ? 'Its image is' : 'Its images are'} shown below.` : ''}`, text) }, ...images],
           ...(isError ? { isError: true } : {}),
@@ -380,6 +580,14 @@ export const ApiRequestInput = z.object({
 }).strict()
 
 const bad = (why: string) => new CallError(`path ${why}`, 'bad path')
+
+/** The address of one api_request as the person may see it on a card: their own connection's in full; a team's or a
+ * template's without a query its admin set (as store.ts view and the AI's tool list show it). `whole`: nothing was left
+ * out. A path call() would refuse is shown as the AI gave it. */
+function shownUrl(row: Row, path: string, query?: Record<string, unknown>): { url: string; whole: boolean } {
+  const base = row.scope === 'personal' && !row.template_id ? row.url : bareUrl(row.url)
+  try { return { url: buildUrl(base, path, query), whole: base === row.url } } catch { return { url: path, whole: base === row.url } }
+}
 
 /** The address of one api_request: under the connection's own address only (same origin, below its path). */
 export function buildUrl(base: string, rawPath: string, query?: Record<string, unknown>): string {
@@ -473,12 +681,48 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       required: ['connection', 'method', 'path'],
       additionalProperties: false,
     },
-    label(args) {
+    // a write: any method but GET and HEAD, of the connection it names
+    sendsTo(args) {
+      const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+      const m = typeof a.method === 'string' ? a.method.toUpperCase() : ''
+      return m && m !== 'GET' && m !== 'HEAD' && typeof a.connection === 'string' ? resolve(a.connection)?.id ?? null : null
+    },
+    // the connection and what the method does ("Tasks · 보내기"), never the AI's path or query
+    label(args, locale) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const r = typeof a.connection === 'string' ? resolve(a.connection) : undefined
-      const path = typeof a.path === 'string' ? a.path.split('?')[0]! : ''
-      return `${r?.name ?? 'API'} · ${String(a.method ?? '').toUpperCase()} ${clip(path, 80)}`.trim()
+      return `${r?.name ?? STEP_WORDS_OTHER[locale]} · ${methodWord(String(a.method ?? ''), locale)}`
     },
+    // the room card after a room read (chat/turn.ts confirmRoomChange): what it does at which service in words ("Read from
+    // Tasks"), the address it calls and the body's values, the exact request one click away (QA TC-233); never the
+    // connection's key name or the AI's arguments as they are. null (the shared words): a call call() would refuse
+    card(args, L) {
+      const raw = args && typeof args === 'object' && typeof (args as { method?: unknown }).method === 'string' ? { ...(args as object), method: (args as { method: string }).method.toUpperCase() } : args
+      const parsed = ApiRequestInput.safeParse(raw ?? {})
+      if (!parsed.success) return null
+      const a = parsed.data
+      const row = resolve(a.connection)
+      if (!row) return null
+      const read = a.method === 'GET' || a.method === 'HEAD'
+      // the address as call() builds it, without a query a team's admin set (shownUrl): then the request below is not
+      // "exactly what is sent" and stays open
+      const { url, whole } = shownUrl(row, a.path, a.query)
+      const body = read || a.body === undefined || a.body === null ? null : a.body
+      const lines = body !== null && typeof body === 'object' ? argLines(body, L) : { fields: [], exact: body === null }
+      lines.exact = lines.exact && whole
+      const text = [`${a.method} ${url}`, body === null ? '' : typeof body === 'string' ? body : JSON.stringify(body)].filter(Boolean).join('\n\n')
+      const what = say(read ? 'cardRead' : 'cardChange', L, { name: row.name })
+      // a read names the address it reads ("주소"); a change where it sends ("보내는 곳", as the connection's own card)
+      const fields = [{ name: tr('roomAiChangeAction', L), value: what }, { name: read ? tr('roomAiChangeAddress', L) : say('fieldAddress', L), value: url }, ...lines.fields]
+      const marks = opaqueParts([text, ...fields.map((f) => f.value)].join('\n'))
+      return { what, details: [{ label: say(read ? 'readsLabel' : 'sendsLabel', L), text, fields, ...(marks.length ? { marks } : {}), ...(lines.exact ? { exact: true as const } : {}) }] }
+    },
+    // GET and HEAD only read (the method as call() takes it); every other method asks on the card (gate). The method is
+    // the AI's choice and some APIs act on a GET, so after a room read a GET still raises the room card. A scheduled
+    // run's result also counts a failed GET as a look-up (chat/schedule-outcome.ts); that never hides a refused change
+    // of our own tools, only a call to this API
+    readOnly: (args) => { const m = (args as { method?: unknown } | null)?.method; return typeof m === 'string' && ['GET', 'HEAD'].includes(m.toUpperCase()) },
+    readsNeedCard: true,
     call: hiding(ctx, [], async (raw, tc, h) => {
       const svc = integrationsOf(ctx)
       const input = raw && typeof raw === 'object' && typeof (raw as { method?: unknown }).method === 'string' ? { ...(raw as object), method: (raw as { method: string }).method.toUpperCase() } : raw
@@ -500,7 +744,14 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         const u = new URL(url)
         let current = row
         if (a.method !== 'GET' && a.method !== 'HEAD') {
-          confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)] }, b, tc)
+          // the address it calls first, then the body's values (a JSON body as lines; a text body stays open)
+          // the address as the person may see it (shownUrl: a team admin's query left out), on the card only
+          const seen = shownUrl(row, a.path, a.query).url
+          const lines = (L: Locale) => {
+            const body = a.body !== undefined && a.body !== null && typeof a.body === 'object' ? argLines(a.body, L) : { fields: [], exact: false }
+            return { fields: [{ name: say('fieldAddress', L), value: seen }, ...body.fields], exact: body.exact }
+          }
+          confirmed = false !== await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: seen }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true }, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }
@@ -575,6 +826,7 @@ function findToolsTool(ctx: AppContext, entries: TurnEntry[]): TurnTool {
       required: ['query'],
       additionalProperties: false,
     },
+    readOnly: true,
     call: hiding(ctx, [], async (raw, tc, h) => {
       const parsed = findInput.safeParse(raw ?? {})
       if (!parsed.success) return invalid(FIND_TOOLS, parsed.error)
@@ -631,11 +883,25 @@ function callToolTool(ctx: AppContext, b: BuildCtx, index: ReadonlyMap<string, T
       required: ['name'],
       additionalProperties: false,
     },
-    label(args) {
+    // a write of the one tool it names (not marked read-only as saved now)
+    sendsTo(args) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const hit = typeof a.name === 'string' ? resolve(a.name) : []
-      const given = callInput.shape.arguments.safeParse(a.arguments)
-      return hit.length === 1 ? stepOf(ctx, b, hit[0]!.row, hit[0]!.tool.name, given.success ? given.data : undefined) : `${CALL_TOOL} · ${clip(String(a.name ?? ''), 80)}`
+      return hit.length === 1 && hit[0]!.tool.readOnly === false ? hit[0]!.row.id : null
+    },
+    // the tool it names, as its own step says it; a name not found (the AI's own text, the call fails): the word for a
+    // step, never that text
+    label(args, locale) {
+      const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+      const hit = typeof a.name === 'string' ? resolve(a.name) : []
+      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool) : STEP_WORDS_OTHER[locale]
+    },
+    // the tool it names, as it was when the turn began (mcpTool asks for a write either way); an unknown or ambiguous
+    // name is no read
+    readOnly(args) {
+      const n = (args as { name?: unknown } | null)?.name
+      const hit = typeof n === 'string' ? resolve(n) : []
+      return hit.length === 1 && hit[0]!.tool.readOnly
     },
     async call(raw, tc) {
       const parsed = callInput.safeParse(raw ?? {})
@@ -691,7 +957,9 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
   return {
     name: 'integrations',
     build(b) {
-      const rows = integrationsOf(ctx).usable(b.userId)
+      // a team chat room's session: only the asker's own Google apps (owner decision 10); their answers stay private to
+      // the asker (noteAnswer: rooms/ai.ts decide). Every other connection stays out of rooms (rooms/ai-tools.ts)
+      const rows = integrationsOf(ctx).usable(b.userId).filter((r) => !b.room || (r.google_app && r.scope === 'personal' && r.owner_user_id === b.userId))
       const tools: TurnTool[] = []
       const taken = new Set<string>()
       const http: Row[] = []
@@ -707,7 +975,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) {
           // made from an admin's template: the person connects their own key again on a card in the chat
           if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
-          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in Settings > MCP)`)
+          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in ${row.google_app ? `Connectors › ${row.name}, Reconnect` : 'Connectors in the sidebar'})`)
           continue
         }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }
@@ -748,7 +1016,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       // admins' templates for this person that they have not connected yet: the AI offers the card for their own key
       // when they ask for the service (connect_service with the template's id). Never another member's connection.
       const mine = new Set(rows.map((r) => r.template_id).filter(Boolean))
-      const templates = ctx.db.query('SELECT id, name FROM integration_templates ORDER BY name, id').all() as { id: string; name: string }[]
+      const templates = b.room ? [] : ctx.db.query('SELECT id, name FROM integration_templates ORDER BY name, id').all() as { id: string; name: string }[]
       for (const t of templates) {
         if (mine.has(t.id) || !templateCovers(ctx.db, t.id, b.userId)) continue
         lines.push(`- ${t.name} (team template, not connected yet: each person connects their own key): when the user asks for ${t.name}, call connect_service with template "${t.id}" and name "${t.name}" so they can connect it (not in a scheduled run)`)

@@ -1,5 +1,6 @@
 // Team settings: name, default language, update channel and window, retention periods, whether people may turn on
-// "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it), whether
+// "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it) and, under
+// it, whether that also covers the AI's web reads (on by default; the server enforces it), whether
 // members may add their own external-service connections (Settings > External services), whether AI reads send images
 // and PDF pages to the AI (server/src/files/vision.ts), how many tool rounds one answer may take (Claude Code
 // --max-turns, docs/DECISIONS.md "Tool rounds per answer"), voice input (off, OpenRouter
@@ -9,179 +10,295 @@
 // logo (the computer's sidebar header; the tab and app icons stay the product's; shared/src/team-icon.ts), the
 // company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
 // (DevEnvTeam.tsx, hidden when the server has it off), and whether a room's change card may offer "이 방에서는 항상 허용"
-// (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). The owner hands the role over from Admin › Members'
+// (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"), whether members make team projects (projectCreators,
+// docs/DECISIONS.md "Projects live only in projects/"). The owner hands the role over from Admin › Members'
 // "…" (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
-// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the knowledge graph (KnowledgeGraph.tsx,
-// #knowledge-graph), which save on their own. The OpenRouter key is sealed in the
-// browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
+// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the file list (FileList.tsx, #file-list), which
+// save on their own. The OpenRouter key is
+// sealed in the browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
+// On a phone (below 768 px) the page is a list of its groups, each its own page at /admin/settings/<group>
+// (teamSettingsGroups.ts); this one component draws the list and every group, so the form's draft stays while they
+// change, and it keeps a phone's unsaved changes when Team settings is left.
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
-import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
+import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, confirmDialog, Field, inputCls, Switch } from '../../components/ui'
-import { AdminPageHeader, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
+import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
+import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
+import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
+import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
+import { changesOf, keepChanges, takeChanges, useDraftOwner } from '../../lib/keptDraft'
 import { legacyWindow } from '../../lib/officeUpdate'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
 import TeamAiSettings from './TeamAiSettings'
-import KnowledgeGraphSettings from './KnowledgeGraph'
+import FileListSettings from './FileList'
 
 export default function TeamSettingsPage() {
   const t = useT()
   const me = useMeStrict()
   const signedIn = useSession((s) => s.signedIn)
   const act = useAction()
+  const navigate = useNavigate()
+  const { hash } = useLocation()
+  // a phone: the list of the groups (no `sub`) or one group's page (teamSettingsGroups.ts); a computer: the one page
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const sub = useParams().sub
+  const group = phone ? teamSettingsGroup(sub, me.server.devEnv) : undefined
+  const list = phone && !group
+  const shows = (id: string) => !phone || group?.id === id
   const state = useLoad(() => api.call(API.settings))
   // an office Mac only: what runs while the update window is empty (UpdateWindowField); no other server is asked
   const office = useLoad(async () => (me.server.features?.officeUpdate ? api.call(API.officeUpdateStatus) : null))
   const [f, setF] = useState<TeamSettings | null>(null)
   const [busy, setBusy] = useState(false)
-  // the form starts from the loaded settings once; saves keep it (a key save must not throw away other drafts)
+  const who = useDraftOwner()
+  // the form starts from the loaded settings once, with a phone's unsaved changes from the last visit laid over them
+  // (lib/keptDraft.ts: the save bar comes back with them); saves keep it (a key save must not throw away other drafts)
   useEffect(() => {
-    if (state.data) setF((x) => x ?? state.data)
+    if (!state.data) return
+    setF((x) => x ?? takeChanges('team-settings', who, state.data!) ?? state.data)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.data])
+  const latest = useRef({ f, saved: state.data, phone, who })
+  latest.current = { f, saved: state.data, phone, who }
+  useEffect(() => () => {
+    const { f, saved, phone, who } = latest.current
+    // left before the settings loaded: what was kept stays kept
+    if (phone && f && saved) keepChanges('team-settings', who, saved, f)
+  }, [])
   const num = (k: keyof TeamSettings, min: number, max: number) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => (x ? { ...x, [k]: Math.max(min, Math.min(max, Math.floor(Number(e.target.value) || min))) } : x))
   const windowOk = TeamSettings.shape.updateWindow.safeParse(f?.updateWindow).success
   const save = async () => {
     if (!f || !state.data || !windowOk) return
     setBusy(true)
     const g = { ...f, speechModel: f.speechModel || DEFAULT_SPEECH_MODEL }
-    const changed = Object.fromEntries(Object.entries(g).filter(([k, v]) => state.data![k as keyof TeamSettings] !== v))
+    const changed = changesOf(g, state.data)
     const r = await act(() => api.call(API.updateSettings, { body: changed }), t('common.saved'))
     setBusy(false)
     if (r) { state.setData(r); setF(r) }
     if (r && ('updateWindow' in changed || 'timeZone' in changed)) void office.reload()
     // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once,
     // and the chat retention that the chat delete, chat trash and member delete dialogs name (read from /api/me)
-    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined)) await api.call(API.me).then(signedIn, () => {})
+    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined || changed.projectCreators !== undefined)) await api.call(API.me).then(signedIn, () => {})
   }
   // what is not saved yet (text fields and switches alike), and what blocks Save: the save bar says both
   const unsaved = !!f && !!state.data && Object.entries(f).some(([k, v]) => state.data![k as keyof TeamSettings] !== v)
   const nameOk = !!f?.teamName.trim()
   const fix = !windowOk ? 'window' : !nameOk ? 'name' : null
-  const goToFix = () => {
+  // "Go to the field" from another group: General opens, then the field gets the focus
+  const fixing = useRef(false)
+  const showFix = () => {
     const el = document.querySelector<HTMLElement>(fix === 'window' ? '[data-team-field="update-window"]' : '[data-team-field="name"]')
     el?.scrollIntoView({ block: 'center' })
     el?.focus({ preventScroll: true })
   }
+  // both fields are in General: on a phone elsewhere, that page opens first
+  const goToFix = () => {
+    if (!phone || group?.id === 'general') return showFix()
+    fixing.current = true
+    navigate('/admin/settings/general')
+  }
+  useEffect(() => {
+    if (!fixing.current) return
+    fixing.current = false
+    if (group?.id === 'general') showFix()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?.id])
+  // a link to a part of the page (#speech, #ts-time, #company-profile; #ai and #ai-limits bring their own group in):
+  // that part into view, on a computer's one page and on a phone's group. The parts above it load their own data and
+  // grow, and a part may come late (the dev environment): it is put in view again while it moves, for up to 2 s, until
+  // the person scrolls
+  const page = useRef<HTMLDivElement>(null)
+  const loaded = !!f
+  useEffect(() => {
+    const id = safeHash(hash)
+    if (!id || id === 'ai' || id === 'ai-limits' || !loaded) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let last: number | null = null
+    const start = Date.now()
+    const stop = () => clearTimeout(timer)
+    const tick = () => {
+      const el = document.getElementById(id)
+      if (el && page.current?.contains(el)) {
+        const top = el.getBoundingClientRect().top
+        if (top !== last) {
+          el.scrollIntoView({ block: 'start' })
+          last = el.getBoundingClientRect().top
+        }
+      }
+      if (Date.now() - start < 2000) timer = setTimeout(tick, 100)
+    }
+    tick()
+    const opts = { passive: true } as const
+    for (const e of ['wheel', 'touchstart', 'keydown'] as const) window.addEventListener(e, stop, opts)
+    return () => {
+      stop()
+      for (const e of ['wheel', 'touchstart', 'keydown'] as const) window.removeEventListener(e, stop)
+    }
+  }, [hash, loaded, group?.id])
   const owner = isOwner(me)
+  // one Save for the whole form, switches too, in a bar that shows only while something is not saved (or a field needs
+  // a fix, with a button that goes to it). It stays at the bottom of the screen. The logo and the voice input key save
+  // at once, on their own buttons. A phone: on the list and on the groups that hold the form's fields (the others
+  // save on their own)
+  const saveBar = (unsaved || fix) && (!group || group.form) && (
+    <div className="sticky bottom-3 z-10 mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface px-4 py-2.5 shadow-lg" data-testid="team-settings-savebar">
+      <p className="min-w-0 flex-1 text-sm" role="status">
+        {fix ? (
+          <span className="text-danger">
+            {t('adminux.settings.needsFix')}{' '}
+            <button type="button" className="font-medium underline" onClick={goToFix} data-testid="team-settings-go-fix">
+              {t('adminux.settings.goToField')}
+            </button>
+          </span>
+        ) : (
+          <span className="text-muted">{t('teamSettings.unsaved')}</span>
+        )}
+      </p>
+      <Button variant="ghost" disabled={busy} onClick={() => setF(state.data)} data-testid="team-settings-cancel">
+        {t('common.cancel')}
+      </Button>
+      <Button variant="primary" busy={busy} disabled={!!fix} onClick={save}>
+        {t('common.save')}
+      </Button>
+    </div>
+  )
+  if (list)
+    return (
+      <>
+        <AdminPageHeader title={t('admin.settings')} />
+        {/* the page's groups, each its own page; the list reaches the screen's edges like Admin's */}
+        <div className="-mx-4 -mt-4" data-testid="team-settings-list">
+          <PhoneListGroup>
+            {teamSettingsGroups(me.server.devEnv).map((g) => (
+              <PhoneListRow key={g.id} icon={<g.icon size={16} />} title={t(g.label)} to={`/admin/settings/${g.id}`} testId={`team-settings-row-${g.id}`} />
+            ))}
+          </PhoneListGroup>
+        </div>
+        {saveBar}
+      </>
+    )
   return (
     <FlatCardsProvider value>
-      <AdminPageHeader title={t('admin.settings')} />
-      <div className="max-w-3xl" data-testid="team-settings">
-        <Loadable state={state}>
-          {() =>
-            f && (
-              <>
-                <SettingsSection title={t('teamSettings.section.general')} id="ts-general" testId="team-settings-general">
-                  <SettingRow id="ts-name" title={t('setup.teamName')} desc={owner ? t('teamSettings.row.nameDesc') : t('teamSettings.nameOwnerOnly')}
-                    control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'sm:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />} />
-                  <SettingRow id="ts-locale" title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')}
-                    control={
-                      <select id="ts-locale" aria-describedby="ts-locale-desc" className={clsx(inputCls, 'sm:w-64')} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
-                        {LOCALES.map((l) => (
-                          <option key={l.id} value={l.id} lang={l.id}>
-                            {l.label}
-                          </option>
-                        ))}
-                      </select>
-                    } />
-                  <TeamIconRow />
-                </SettingsSection>
-                <SettingsSection title={t('teamSettings.section.time')} id="ts-time" testId="team-settings-time">
-                  <SettingRow id="ts-time-zone" title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')}
-                    control={
-                      <select id="ts-time-zone" aria-describedby="ts-time-zone-desc" className={clsx(inputCls, 'sm:w-64')} value={f.timeZone} onChange={(e) => setF({ ...f, timeZone: e.target.value })} data-testid="team-time-zone">
-                        {timeZoneOptions(f.timeZone).map((z) => (
-                          <option key={z} value={z}>
-                            {z}
-                          </option>
-                        ))}
-                      </select>
-                    } />
-                  {/* the update window drives every automatic update of this server: the app's own (Linux), the root update
-                      timer (mycel-ctl) and an office Mac's update agent, in the team time zone. A hosted server is updated
-                      by its control plane, so it has none. (No channel here: the channel is the installation's own,
-                      server.json on Linux and `teamax update channel` on an office Mac; update audit O1.) */}
-                  {me.server.features?.selfUpdate !== false && (
-                    <UpdateWindowField value={f.updateWindow} ok={windowOk} legacy={legacyWindow(office.data, state.data?.updateWindow)} onChange={(v) => setF({ ...f, updateWindow: v })} />
-                  )}
-                </SettingsSection>
-                <SettingsSection title={t('teamSettings.section.data')} id="ts-data" testId="team-settings-data">
-                  <DaysRow id="ts-audit" title={t('teamSettings.row.audit')} desc={t('teamSettings.row.auditDesc')} value={f.auditRetentionDays} min={7} max={3650} onChange={num('auditRetentionDays', 7, 3650)} />
-                  <DaysRow id="ts-history" title={t('teamSettings.row.history')} desc={t('teamSettings.row.historyDesc')} value={f.fileHistoryRetentionDays} min={1} max={3650} onChange={num('fileHistoryRetentionDays', 1, 3650)} />
-                  <DaysRow id="ts-trash" title={t('teamSettings.row.trash')} desc={t('teamSettings.row.trashDesc')} value={f.trashRetentionDays} min={1} max={365} onChange={num('trashRetentionDays', 1, 365)} />
-                  <DaysRow id="ts-chat-trash" title={t('teamSettings.row.chatTrash')} desc={t('teamSettings.row.chatTrashDesc')} value={f.chatTrashRetentionDays} min={1} max={365} onChange={num('chatTrashRetentionDays', 1, 365)} />
-                </SettingsSection>
-                <SettingsSection title={t('teamSettings.section.ai')} id="ts-ai" testId="team-settings-ai">
-                  <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
-                  <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
-                  <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
-                  <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
-                  <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
-                  <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
-                  <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
-                </SettingsSection>
-                <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
-                  onSaved={(r) => { state.setData(r); setF((x) => (x && x.speechProvider !== r.speechProvider ? { ...x, speechProvider: r.speechProvider, aiMediaTranscripts: r.aiMediaTranscripts } : x)) }} />
-                {/* one Save for the whole form, switches too, in a bar that shows only while something is not saved (or a
-                    field needs a fix, with a button that goes to it). It stays at the bottom of the screen. The logo and
-                    the voice input key save at once, on their own buttons. */}
-                {(unsaved || fix) && (
-                  <div className="sticky bottom-3 z-10 mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface px-4 py-2.5 shadow-lg" data-testid="team-settings-savebar">
-                    <p className="min-w-0 flex-1 text-sm" role="status">
-                      {fix ? (
-                        <span className="text-danger">
-                          {t('adminux.settings.needsFix')}{' '}
-                          <button type="button" className="font-medium underline" onClick={goToFix} data-testid="team-settings-go-fix">
-                            {t('adminux.settings.goToField')}
-                          </button>
-                        </span>
-                      ) : (
-                        <span className="text-muted">{t('teamSettings.unsaved')}</span>
-                      )}
-                    </p>
-                    <Button variant="ghost" disabled={busy} onClick={() => setF(state.data)} data-testid="team-settings-cancel">
-                      {t('common.cancel')}
-                    </Button>
-                    <Button variant="primary" busy={busy} disabled={!!fix} onClick={save}>
-                      {t('common.save')}
-                    </Button>
-                  </div>
-                )}
-              </>
-            )
-          }
-        </Loadable>
-        {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second tab).
-            After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay */}
-        {state.data && <TeamAiSettings />}
-        {/* the code map the AI uses (knowledge_explore; server/src/knowledge-graph/): saves on its own, like the AI groups */}
-        {state.data && <KnowledgeGraphSettings />}
-        {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
-        <CompanyProfileCard />
-        <DevEnvTeamCard />
-      </div>
+      <BarTitleProvider value={group ? t(group.label) : null}>
+        {/* a phone's group says its name in the bar; its first section keeps it for screen readers (BarTitle), or
+            the page does when no section has that name */}
+        {!group ? <AdminPageHeader title={t('admin.settings')} /> : group.heading && <h2 className="sr-only">{t(group.label)}</h2>}
+        <div ref={page} className="max-w-3xl" data-testid="team-settings" data-group={group?.id}>
+          {(!group || group.form) && (
+            <Loadable state={state}>
+              {() =>
+                f && (
+                  <>
+                    {shows('general') && (
+                      <>
+                        <SettingsSection title={t('teamSettings.section.general')} id="ts-general" testId="team-settings-general">
+                          <SettingRow id="ts-name" title={t('setup.teamName')} desc={owner ? t('teamSettings.row.nameDesc') : t('teamSettings.nameOwnerOnly')}
+                            control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'md:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />} />
+                          <SettingRow id="ts-locale" title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')}
+                            control={
+                              <select id="ts-locale" aria-describedby="ts-locale-desc" className={clsx(inputCls, 'md:w-64')} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
+                                {LOCALES.map((l) => (
+                                  <option key={l.id} value={l.id} lang={l.id}>
+                                    {l.label}
+                                  </option>
+                                ))}
+                              </select>
+                            } />
+                          <TeamIconRow />
+                        </SettingsSection>
+                        <SettingsSection title={t('teamSettings.section.time')} id="ts-time" testId="team-settings-time">
+                          <SettingRow id="ts-time-zone" title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')}
+                            control={
+                              <select id="ts-time-zone" aria-describedby="ts-time-zone-desc" className={clsx(inputCls, 'md:w-64')} value={f.timeZone} onChange={(e) => setF({ ...f, timeZone: e.target.value })} data-testid="team-time-zone">
+                                {timeZoneOptions(f.timeZone).map((z) => (
+                                  <option key={z} value={z}>
+                                    {z}
+                                  </option>
+                                ))}
+                              </select>
+                            } />
+                          {/* the update window drives every automatic update of this server: the app's own (Linux), the root
+                              update timer (mycel-ctl) and an office Mac's update agent, in the team time zone. A hosted server
+                              is updated by its control plane, so it has none. (No channel here: the channel is the
+                              installation's own, server.json on Linux and `teamax update channel` on an office Mac; update
+                              audit O1.) */}
+                          {me.server.features?.selfUpdate !== false && (
+                            <UpdateWindowField value={f.updateWindow} ok={windowOk} legacy={legacyWindow(office.data, state.data?.updateWindow)} onChange={(v) => setF({ ...f, updateWindow: v })} />
+                          )}
+                        </SettingsSection>
+                      </>
+                    )}
+                    {shows('data') && (
+                      <SettingsSection title={t('teamSettings.section.data')} id="ts-data" testId="team-settings-data">
+                        <DaysRow id="ts-audit" title={t('teamSettings.row.audit')} desc={t('teamSettings.row.auditDesc')} value={f.auditRetentionDays} min={7} max={3650} ownerOnly={!owner} onChange={num('auditRetentionDays', 7, 3650)} />
+                        <DaysRow id="ts-history" title={t('teamSettings.row.history')} desc={t('teamSettings.row.historyDesc')} value={f.fileHistoryRetentionDays} min={1} max={3650} ownerOnly={!owner} onChange={num('fileHistoryRetentionDays', 1, 3650)} />
+                        <DaysRow id="ts-trash" title={t('teamSettings.row.trash')} desc={t('teamSettings.row.trashDesc')} value={f.trashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('trashRetentionDays', 1, 365)} />
+                        <DaysRow id="ts-chat-trash" title={t('teamSettings.row.chatTrash')} desc={t('teamSettings.row.chatTrashDesc')} value={f.chatTrashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('chatTrashRetentionDays', 1, 365)} />
+                      </SettingsSection>
+                    )}
+                    {shows('members') && (
+                      <SettingsSection title={t('teamSettings.section.ai')} id="ts-ai" testId="team-settings-ai">
+                        <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
+                        <WebAllowAllSwitch value={f.webAllowAll} parentOn={f.browserAllowAll} onChange={(v) => setF({ ...f, webAllowAll: v })} />
+                        <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
+                        <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
+                        <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
+                        <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
+                        {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
+                        <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
+                        {/* Home's "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"): on by default */}
+                        <SwitchRow id="ts-often-asked" testId="team-often-asked" value={f.oftenAsked} onChange={(v) => setF({ ...f, oftenAsked: v })} title={t('teamSettings.oftenAsked')} desc={t('teamSettings.row.oftenAskedDesc')} />
+                        <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
+                        <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
+                      </SettingsSection>
+                    )}
+                    {shows('voice') && (
+                      <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
+                        onSaved={(r) => { state.setData(r); setF((x) => (x && x.speechProvider !== r.speechProvider ? { ...x, speechProvider: r.speechProvider, aiMediaTranscripts: r.aiMediaTranscripts } : x)) }} />
+                    )}
+                    {saveBar}
+                  </>
+                )
+              }
+            </Loadable>
+          )}
+          {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second
+              tab). After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay; a phone
+              shows them as two groups of their own (no form above them) */}
+          {!phone && state.data && <TeamAiSettings />}
+          {group?.id === 'ai' && <TeamAiSettings part="engine" />}
+          {group?.id === 'limits' && <TeamAiSettings part="limits" />}
+          {/* the file list the AI greps first (server/src/file-list/): saves on its own, like the AI groups */}
+          {(phone ? group?.id === 'file-list' : !!state.data) && <FileListSettings />}
+          {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
+          {shows('company') && <CompanyProfileCard />}
+          {shows('dev-env') && <DevEnvTeamCard />}
+        </div>
+      </BarTitleProvider>
     </FlatCardsProvider>
   )
 }
 
-/** A retention period: a small number field with "days" after it. */
-function DaysRow({ id, title, desc, value, min, max, onChange }: { id: string; title: string; desc: string; value: number; min: number; max: number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
+/** A retention period: a small number field with "days" after it. Only the owner changes one (the server refuses an
+ * admin: a shorter period makes the nightly sweep erase the audit log or old file versions); an admin sees it read-only. */
+function DaysRow({ id, title, desc, value, min, max, ownerOnly, onChange }: { id: string; title: string; desc: string; value: number; min: number; max: number; ownerOnly: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
   const t = useT()
   return (
-    <SettingRow id={id} title={title} desc={desc}
+    <SettingRow id={id} title={title} desc={ownerOnly ? `${desc} ${t('teamSettings.ownerOnlyField')}` : desc} inline
       control={
         <span className="inline-flex items-center gap-2">
-          <input id={id} aria-describedby={`${id}-desc`} className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" min={min} max={max} value={value} onChange={onChange} />
+          <input id={id} aria-describedby={`${id}-desc`} className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" min={min} max={max} value={value} disabled={ownerOnly} onChange={onChange} />
           <span className="text-sm text-muted">{t('teamSettings.days')}</span>
         </span>
       } />
@@ -205,6 +322,8 @@ export function TeamIconRow() {
   const [error, setError] = useState<string | null>(null)
   const [previews, setPreviews] = useState(false)
   const input = useRef<HTMLInputElement>(null)
+  // a phone: where the logo shows, in a phone's words (the sidebar previews are a computer's)
+  const phone = useMediaQuery('(max-width: 767.98px)')
 
   const upload = async (file: File) => {
     setError(null)
@@ -241,7 +360,7 @@ export function TeamIconRow() {
   return (
     <div data-testid="team-icon" data-version={version ?? ''}>
       <SettingRow heading title={t('teamIcon.title')}
-        desc={<>{t('teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
+        desc={<>{t(phone ? 'teamIcon.descPhone' : 'teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
         more={t('teamIcon.hint')}
         control={
           <span className="inline-flex flex-wrap items-center gap-2">
@@ -275,10 +394,10 @@ export function TeamIconRow() {
                 {error}
               </p>
             )}
-            <button type="button" aria-expanded={previews} className="mt-2 text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setPreviews(!previews)} data-testid="team-icon-previews">
+            {!phone && <button type="button" aria-expanded={previews} className="mt-2 text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline max-md:min-h-11" onClick={() => setPreviews(!previews)} data-testid="team-icon-previews">
               {previews ? t('teamIcon.hidePreviews') : t('teamIcon.showPreviews')}
-            </button>
-            <div hidden={!previews} className="mt-3 grid max-w-md grid-cols-2 gap-3">
+            </button>}
+            <div hidden={!previews || phone} className="mt-3 grid max-w-md grid-cols-2 gap-3">
               {/* the sidebar header as it is drawn (the 20 px logo, cropped square, beside the team name) on the sidebar's
                   background and text colour of each look (theme.edition.css --c-subtle, --c-ink, --c-line) */}
               {(['light', 'dark'] as const).map((scheme) => (
@@ -302,6 +421,8 @@ export function TeamIconRow() {
  * the field: saving would turn it into a team setting nobody chose. */
 export function UpdateWindowField({ value, ok, legacy, onChange }: { value: string | null; ok: boolean; legacy: { window: string; zone: string } | null; onChange: (v: string | null) => void }) {
   const t = useT()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  if (phone) return <UpdateWindowTimes value={value} ok={ok} legacy={legacy} onChange={onChange} />
   return (
     <SettingRow id="ts-update-window" title={t('teamSettings.updateWindow')}
       desc={legacy ? t('teamSettings.updateWindowLegacy', legacy) : t('teamSettings.row.updateWindowDesc')}
@@ -309,15 +430,46 @@ export function UpdateWindowField({ value, ok, legacy, onChange }: { value: stri
       below={ok ? null : <p id="ts-update-window-error" role="alert" className="mt-1.5 text-xs text-danger">{t('teamSettings.updateWindowBad')}</p>}
       control={
         <input id="ts-update-window" aria-describedby={ok ? 'ts-update-window-desc' : 'ts-update-window-error'} aria-invalid={ok ? undefined : true}
-          className={clsx(inputCls, 'sm:w-64', !ok && 'border-danger focus:border-danger focus:ring-danger')} data-team-field="update-window" placeholder={legacy?.window ?? '02:00-05:00'} value={value ?? ''} onChange={(e) => onChange(e.target.value.trim() || null)} />
+          className={clsx(inputCls, 'md:w-64', !ok && 'border-danger focus:border-danger focus:ring-danger')} data-team-field="update-window" placeholder={legacy?.window ?? '02:00-05:00'} value={value ?? ''} onChange={(e) => onChange(e.target.value.trim() || null)} />
       } />
+  )
+}
+
+/** A phone's update window: two time pickers (the phone's own wheel), start and end, instead of typing "02:00-05:00".
+ * The window changes once both are set, or both are cleared (the default); one alone waits for the other. */
+function UpdateWindowTimes({ value, ok, legacy, onChange }: { value: string | null; ok: boolean; legacy: { window: string; zone: string } | null; onChange: (v: string | null) => void }) {
+  const t = useT()
+  const parse = (v: string | null) => {
+    const m = /^(\d{2}:\d{2})-(\d{2}:\d{2})$/.exec(v ?? '')
+    return m ? { from: m[1]!, to: m[2]! } : { from: '', to: '' }
+  }
+  const [times, setTimes] = useState(() => parse(value))
+  // a draft put back or saved elsewhere: the pickers follow it
+  useEffect(() => { if (value !== `${times.from}-${times.to}` && (value !== null || times.from || times.to)) setTimes(parse(value)) }, [value]) // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (next: { from: string; to: string }) => {
+    setTimes(next)
+    if (next.from && next.to) onChange(`${next.from}-${next.to}`)
+    else if (!next.from && !next.to) onChange(null)
+  }
+  const field = (which: 'from' | 'to') => (
+    <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted">
+      {t(which === 'from' ? 'teamSettings.updateWindowFrom' : 'teamSettings.updateWindowTo')}
+      <input type="time" className={clsx(inputCls, 'min-h-11', !ok && 'border-danger')} value={times[which]} placeholder={legacy?.window.split('-')[which === 'from' ? 0 : 1]}
+        onChange={(e) => set({ ...times, [which]: e.target.value })} data-testid={`update-window-${which}`} />
+    </label>
+  )
+  return (
+    <SettingRow id="ts-update-window" heading title={t('teamSettings.updateWindow')}
+      desc={legacy ? t('teamSettings.updateWindowLegacy', legacy) : t('teamSettings.updateWindowPhone')}
+      below={ok ? null : <p id="ts-update-window-error" role="alert" className="mt-1.5 text-xs text-danger">{t('teamSettings.updateWindowBad')}</p>}
+      control={<span className="flex w-full items-end gap-3" data-team-field="update-window">{field('from')}{field('to')}</span>} />
   )
 }
 
 /** One team switch as a settings row: the name labels it, the short line describes it, the long text is "Learn more". */
 function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: string; value: boolean; onChange: (v: boolean) => void; title: string; desc: string; more?: string; testId: string }) {
   return (
-    <SettingRow id={id} title={title} desc={desc} more={more} testId={testId} attrs={{ 'data-on': value ? 'true' : 'false' }}
+    <SettingRow id={id} title={title} desc={desc} more={more} testId={testId} attrs={{ 'data-on': value ? 'true' : 'false' }} inline
       control={<Switch id={id} external describedBy={`${id}-desc`} checked={value} onChange={onChange} label={title} />} />
   )
 }
@@ -329,6 +481,26 @@ function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: str
 export function BrowserPolicySwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return <SwitchRow id="ts-browser-allow-all" testId="team-browser-allow-all" value={value} onChange={onChange} title={t('teamSettings.browserAllowAll')} desc={t('teamSettings.row.browserAllowAllDesc')} more={t('teamSettings.browserAllowAllHint')} />
+}
+
+/**
+ * "Also for web pages the AI opens" (webAllowAll, default on; docs/DECISIONS.md "Allow all websites covers the AI's web
+ * reads"): one indented line under the switch above, which it needs. On: members' "Allow all websites" also lets the AI
+ * open web pages and save files from the web without the address card, in their chats and rooms (scheduled tasks still
+ * ask). "Learn more" carries the risk sentence. Off (or the switch above off): nobody's works, and everyone's is turned off.
+ */
+export function WebAllowAllSwitch({ value, parentOn, onChange }: { value: boolean; parentOn: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const id = 'ts-web-allow-all'
+  const on = value && parentOn
+  return (
+    <div className="ml-4 border-l-2 border-line pl-4 sm:ml-6" data-testid="team-web-allow-all-line">
+      <SettingRow id={id} testId="team-web-allow-all" attrs={{ 'data-on': on ? 'true' : 'false' }} inline title={t('teamSettings.webAllowAll')} desc={t('teamSettings.row.webAllowAllDesc')}
+        more={t('teamSettings.webAllowAllHint', { risk: WEB_ALLOW_ALL_RISK[locale] })}
+        control={<Switch id={id} external describedBy={`${id}-desc`} checked={on} disabled={!parentOn} onChange={onChange} label={t('teamSettings.webAllowAll')} />} />
+    </div>
+  )
 }
 
 /** "Members can add their own connections" (Settings > MCP), default on. Off: none can be added and the ones there are
@@ -368,7 +540,7 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
     if (v !== value) onChange(v)
   }
   return (
-    <SettingRow id="ts-answer-step-limit" testId="team-answer-step-limit" title={t('teamSettings.answerStepLimit')} desc={t('teamSettings.row.answerStepLimitDesc', { def: DEFAULT_ANSWER_STEP_LIMIT })}
+    <SettingRow id="ts-answer-step-limit" testId="team-answer-step-limit" inline title={t('teamSettings.answerStepLimit')} desc={t('teamSettings.row.answerStepLimitDesc', { def: DEFAULT_ANSWER_STEP_LIMIT })}
       more={t('teamSettings.answerStepLimitHint', { min: ANSWER_STEP_LIMIT_MIN, max: ANSWER_STEP_LIMIT_MAX, def: DEFAULT_ANSWER_STEP_LIMIT })}
       control={
         <input id="ts-answer-step-limit" aria-describedby="ts-answer-step-limit-desc" className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" inputMode="numeric" min={ANSWER_STEP_LIMIT_MIN} max={ANSWER_STEP_LIMIT_MAX} step={1} value={text}
@@ -383,7 +555,7 @@ export function DeckTierField({ value, onChange }: { value: TeamSettings['introD
   return (
     <SettingRow id="ts-deck-tier" testId="team-deck-tier" title={t('teamSettings.deckTier')} desc={t('teamSettings.row.deckTierDesc')} more={t('teamSettings.deckTierHint')}
       control={
-        <select id="ts-deck-tier" aria-describedby="ts-deck-tier-desc" className={clsx(inputCls, 'sm:w-64')} value={value ?? DEFAULT_DECK_TIER} onChange={(e) => onChange(e.target.value as TeamSettings['introDeckTier'])}>
+        <select id="ts-deck-tier" aria-describedby="ts-deck-tier-desc" className={clsx(inputCls, 'md:w-64')} value={value ?? DEFAULT_DECK_TIER} onChange={(e) => onChange(e.target.value as TeamSettings['introDeckTier'])}>
           <option value="quick">{t('teamSettings.deckTierQuick')}</option>
           <option value="standard">{t('teamSettings.deckTierStandard')}</option>
           <option value="deep">{t('teamSettings.deckTierDeep')}</option>
@@ -412,7 +584,7 @@ export function MediaTranscriptsSwitch({ provider, value, host, hostedKey = fals
   const local = provider === 'local'
   const perMinute = host.localSecPerSec === null ? null : host.localSecPerSec * 60
   return (
-    <SettingRow id="ts-media-transcripts" testId="team-media-transcripts" attrs={{ 'data-on': on ? 'true' : 'false' }} title={t('speech.mediaTranscripts')}
+    <SettingRow id="ts-media-transcripts" testId="team-media-transcripts" inline attrs={{ 'data-on': on ? 'true' : 'false' }} title={t('speech.mediaTranscripts')}
       desc={<span className={local ? undefined : hostedKey ? undefined : 'text-warn'}>{local ? t('speech.mediaTranscriptsLocal', { sec: host.localPieceSec }) : hostedKey ? t('speech.mediaTranscriptsHostedKey') : t('speech.mediaTranscriptsOpenRouter')}</span>}
       control={<Switch id="ts-media-transcripts" external describedBy="ts-media-transcripts-desc" checked={on} onChange={onChange} label={t('speech.mediaTranscripts')} />}
       below={
@@ -483,7 +655,7 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
         below={provider === 'openrouter' ? <p className={`mt-1 text-sm ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p>
           : missing.length > 0 ? <p id="ts-speech-local-missing" className="mt-1 text-sm text-warn" data-testid="team-speech-local-missing">{t('speech.localMissing', { tools: new Intl.ListFormat(locale, { type: 'conjunction' }).format(missing) })}</p> : null}
         control={
-          <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'sm:w-64')} value={provider}
+          <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'md:w-64')} value={provider}
             onChange={(e) => { const next = e.target.value as SpeechProvider; onChange({ speechProvider: next, aiMediaTranscripts: transcriptsAfterProvider(next, saved) }) }} data-testid="team-speech-provider">
             {PROVIDERS.map((p) => <option key={p} value={p}>{t(`speech.${p}`)}</option>)}
           </select>
@@ -496,7 +668,7 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
       {/* the hosting service's key is for its one model; the team picks a model for its own key */}
       {provider === 'openrouter' && !hostedKey && (
         <SettingRow id="ts-speech-model" title={t('speech.model')}
-          control={<input id="ts-speech-model" className={clsx(inputCls, 'sm:w-64')} value={model} placeholder={DEFAULT_SPEECH_MODEL} spellCheck={false} maxLength={128} onChange={(e) => onChange({ speechModel: e.target.value.trim() })} onBlur={() => { if (!model) onChange({ speechModel: DEFAULT_SPEECH_MODEL }) }} />} />
+          control={<input id="ts-speech-model" className={clsx(inputCls, 'md:w-64')} value={model} placeholder={DEFAULT_SPEECH_MODEL} spellCheck={false} maxLength={128} onChange={(e) => onChange({ speechModel: e.target.value.trim() })} onBlur={() => { if (!model) onChange({ speechModel: DEFAULT_SPEECH_MODEL }) }} />} />
       )}
       {provider === 'openrouter' && (
         <Loadable state={key} lines={1}>

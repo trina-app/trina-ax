@@ -1,10 +1,11 @@
 // Pick a folder of the team folder (only what the person can see). Used by "save to the team folder", move,
 // projects and the admin folder rules.
 import clsx from 'clsx'
-import { ChevronRight, Folder, FolderPlus, Home, Lock } from 'lucide-react'
+import { ChevronRight, Folder, FolderPlus, Home, Lock, Signpost } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FileEntry, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
+import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
 import { crumbs, joinPath, nameProblem } from '../lib/paths'
 import { useLocale, useT } from '../i18n'
 import { Button, ErrorNote, Modal, Skeleton, promptDialog } from './ui'
@@ -33,6 +34,7 @@ export default function FolderPicker({
 }) {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
   const [path, setPath] = useState(initial)
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -57,7 +59,8 @@ export default function FolderPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, path, rev])
 
-  const folders = tree?.entries.filter((e: FileEntry) => e.type === 'folder') ?? []
+  // at the team root 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first, as on the file screen
+  const folders = topFoldersFirst(tree?.entries.filter((e: FileEntry) => e.type === 'folder') ?? [], path)
   const inRoot = !selectableRoot || path === selectableRoot || path.startsWith(selectableRoot + '/')
   const canPick = !!tree && tree.access !== 'none' && (!needWrite || tree.access === 'write') && inRoot
 
@@ -108,7 +111,7 @@ export default function FolderPicker({
           <span key={c.path} className="inline-flex items-center gap-1">
             <ChevronRight size={13} className="text-faint" aria-hidden />
             <button type="button" className="rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => setPath(c.path)}>
-              {c.name}
+              {words.name(c.path, c.name)}
             </button>
           </span>
         ))}
@@ -126,10 +129,17 @@ export default function FolderPicker({
                 onClick={() => setPath(f.path)}
               >
                 <Folder size={15} className="text-accent-text" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                {f.access !== 'write' && (
+                <span className="min-w-0 flex-1 truncate" title={f.name}>{words.name(f.path, f.name)}</span>
+                {/* a folder listed with no access of its own is one you pass through to folders inside that are open to
+                    you (a project, a group): said as on the Files screen, not "No access" (QA TC-157) */}
+                {f.access === 'read' && (
                   <span className="inline-flex items-center gap-1 text-xs text-faint">
-                    <Lock size={12} aria-hidden /> {t(f.access === 'read' ? 'files.readOnly' : 'files.noAccess')}
+                    <Lock size={12} aria-hidden /> {t('files.readOnly')}
+                  </span>
+                )}
+                {f.access !== 'write' && f.access !== 'read' && (
+                  <span className="inline-flex items-center gap-1 text-xs text-faint" title={t('files.navigationOnly')} data-testid="picker-pass-through">
+                    <Signpost size={12} aria-hidden /> {t('files.passThroughShort')}
                   </span>
                 )}
               </button>

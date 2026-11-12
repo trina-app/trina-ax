@@ -2,11 +2,13 @@
 // docs/DECISIONS.md "Shared project chats", "The faces on the project page"): the people who sent a question there, its
 // creator included, the most recent first, at most 3, and how many in all. Only in a project's chat list, only for the
 // shared chats the viewer sees there (the list's own filter), and from one grouped query for the whole page over
-// messages_author_chat, never one per chat. The project is on projects/falcon: alice writes it, bob (finance) reads it,
-// carol (admin) and dana (owner) see everything, erin does not see it.
+// messages_author_chat, never one per chat. The project is on projects/falcon: alice writes it, bob (finance) reads it;
+// carol (admin) and dana (owner) are not its members, so they do not see its chats (docs/DECISIONS.md "Project contents
+// only for members"); erin does not see it.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, CHAT_PEOPLE_SHOWN, type Chat } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { chatPeople } from '../../server/src/chat/shared'
 
 setDefaultTimeout(60_000)
@@ -19,7 +21,7 @@ let projectId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'b-shared-chat-people', turnTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  const p = await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })
+  const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })
   projectId = p.id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
@@ -46,11 +48,14 @@ describe('the people of a shared chat on its project page', () => {
     expect((await inList('bob', chat.id))?.shared).toMatchObject({ by: { id: 'alice' }, people: [], peopleCount: 0 })
     await ask('alice', chat.id, 'first question')
     await ask('bob', chat.id, 'second question')
-    expect((await inList('carol', chat.id))?.shared).toMatchObject({ people: [{ id: 'bob', name: 'Bob Lee' }, { id: 'alice', name: 'Alice Kim' }], peopleCount: 2 })
+    expect((await inList('bob', chat.id))?.shared).toMatchObject({ people: [{ id: 'bob', name: 'Bob Lee' }, { id: 'alice', name: 'Alice Kim' }], peopleCount: 2 })
+    // carol (admin) is not a member: the project's list does not have it for her, faces and all
+    expect(await inList('carol', chat.id)).toBeUndefined()
     // the same person again moves to the front, and is counted once
     await ask('alice', chat.id, 'third question')
     expect(names(await inList('bob', chat.id))).toEqual(['alice', 'bob'])
-    // five people: the three most recent, and 5
+    // five people: the three most recent, and 5 (carol and dana wrote there as admins before "Project contents only for
+    // members": their questions are still in the chat, so they count, as erin's below)
     wrote('carol', chat.id)
     wrote('dana', chat.id)
     // erin lost the project since (she is not in its audience): her questions are still in the chat, so she counts

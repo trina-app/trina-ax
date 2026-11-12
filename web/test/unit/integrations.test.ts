@@ -4,10 +4,10 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  authorizationUrl, authOf, covers, dropsSecret, emptyForm, formFrom, lastCheckNote, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, validate, withKind,
+  appPatch, audienceOf, authorizationUrl, authOf, canSignIn, covers, flowReasonKey, storedSecretStays, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
 
 const at = '2026-10-28T00:00:00.000Z'
 function connection(o: Partial<Integration> = {}): Integration {
@@ -39,14 +39,17 @@ describe('the address', () => {
 })
 
 describe('the form', () => {
-  test('a new MCP server signs in by default; an API asks for a key; sign-in is for MCP servers only', () => {
+  test('a new MCP server signs in by default; an API asks for a key; an API signs in only with its own app', () => {
     expect(emptyForm('mcp').method).toBe('oauth')
     expect(emptyForm('http').method).toBe('key')
     expect(withKind(emptyForm('mcp'), 'http').method).toBe('key')
+    expect(methodsFor('http')).toContain('oauth')
     expect(withKind({ ...emptyForm('mcp'), method: 'none' }, 'http').method).toBe('none')
     expect(authOf({ method: 'key', header: 'bearer' })).toBe('bearer')
     expect(authOf({ method: 'key', header: 'custom' })).toBe('header')
-    expect(validate({ ...filled(), method: 'oauth' })).toHaveProperty('method')
+    // sign-in at an API needs its own app: the client ID and both addresses
+    expect(validate({ ...filled(), method: 'oauth' })).toMatchObject({ clientId: 'integrations.error.clientId', authUrl: 'integrations.error.url', tokenUrl: 'integrations.error.url' })
+    expect(validate({ ...emptyForm('mcp'), name: 'Mail', url: 'https://mail.example.com/mcp', method: 'none' })).toEqual({})
   })
   test('checks: name, address, header name, key, notes', () => {
     expect(validate(filled())).toEqual({})
@@ -124,6 +127,79 @@ describe('editing', () => {
   })
 })
 
+describe('your own app at the service (sign-in where apps do not register themselves)', () => {
+  const app = { clientId: 'app-1.apps.example', authorizationUrl: null, tokenUrl: null, scope: 'mail.read', hasSecret: true }
+  const google = (o: Partial<Integration> = {}) => connection({ kind: 'mcp', name: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1', auth: 'oauth', notes: null, oauthClient: app, ...o })
+  test('an MCP server offers it behind a choice; an API always signs in with one, with its addresses', () => {
+    const mcp = { ...emptyForm('mcp'), name: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1' }
+    expect(usesApp(mcp)).toBe(false)
+    expect(toInput(mcp)).not.toHaveProperty('oauthClient')
+    const own = { ...mcp, ownApp: true, clientId: ' app-1 ', clientSecret: ' s3cret ', scope: ' a b ' }
+    expect(validate(own)).toEqual({})
+    expect(toInput(own).oauthClient).toEqual({ clientId: 'app-1', clientSecret: 's3cret', scope: 'a b' })
+    expect(validate({ ...own, clientId: 'app 1' }).clientId).toBe('integrations.error.clientId')
+    expect(validate({ ...own, authUrl: 'https://as.example/authorize' }).tokenUrl).toBe('integrations.error.url')
+    const api = { ...filled(), method: 'oauth' as const, secret: '', clientId: 'works-app', clientSecret: 'x', authUrl: 'https://auth.example.com/oauth2/v2.0/authorize', tokenUrl: 'https://auth.example.com/oauth2/v2.0/token', scope: 'calendar' }
+    expect(usesApp(api)).toBe(true)
+    expect(validate(api)).toEqual({})
+    const body = toInput(api)
+    expect(body).toMatchObject({ auth: 'oauth', oauthClient: { clientId: 'works-app', authorizationUrl: api.authUrl, tokenUrl: api.tokenUrl, scope: 'calendar' } })
+    expect(body).not.toHaveProperty('secret')
+    expect(IntegrationInput.safeParse(body).success).toBe(true)
+    expect(IntegrationInput.safeParse({ ...body, oauthClient: undefined }).success).toBe(false)
+    expect(canSignIn(connection({ auth: 'oauth' }))).toBe(true)
+  })
+  test('editing: the stored secret is never in the form; the same app sends nothing; another one drops the sign-in', () => {
+    const f = formFrom(google())
+    expect(f).toMatchObject({ ownApp: true, clientId: app.clientId, clientSecret: '', scope: 'mail.read' })
+    expect(toPatch(f, google())).toEqual({})
+    expect(dropsSecret(f, google())).toBe(false)
+    const scoped = { ...f, scope: 'mail.read mail.send' }
+    expect(toPatch(scoped, google())).toEqual({ oauthClient: { clientId: app.clientId, scope: 'mail.read mail.send' } })
+    expect(dropsSecret(scoped, google())).toBe(true)
+    // a new secret only when typed after "replace"; another client ID needs its own
+    expect(toPatch({ ...f, clientSecret: 'ignored' }, google())).toEqual({})
+    expect(toPatch({ ...f, clientSecretAction: 'replace', clientSecret: 'new' }, google()).oauthClient).toMatchObject({ clientSecret: 'new' })
+    expect(toPatch({ ...f, clientId: 'other', clientSecret: 'other-secret' }, google()).oauthClient).toMatchObject({ clientId: 'other', clientSecret: 'other-secret' })
+    // back to the service's own registration
+    expect(toPatch({ ...f, ownApp: false }, google())).toEqual({ oauthClient: null })
+    expect(appPatch({ ...f, method: 'key' }, app)).toBeUndefined()
+    expect(IntegrationPatch.safeParse(toPatch(scoped, google())).success).toBe(true)
+    // a member's connection made from a template: the template's app, never theirs to change
+    const member = connection({ kind: 'mcp', auth: 'oauth', templateId: 't1', oauthClient: null })
+    expect(toPatch(formFrom(member), member)).toEqual({})
+  })
+  test('a stored secret stays only where it went before (the server\'s rule): another address asks for it again', () => {
+    const f = formFrom(google())
+    expect(storedSecretStays(f, app, google().url)).toBe(true)
+    // another service address, token address or client ID
+    expect(storedSecretStays({ ...f, url: 'https://other.example/mcp' }, app, google().url)).toBe(false)
+    expect(storedSecretStays({ ...f, clientId: 'other' }, app, google().url)).toBe(false)
+    const given = { ...app, authorizationUrl: 'https://as.example/a', tokenUrl: 'https://as.example/t' }
+    const g = { ...f, authUrl: 'https://as.example/a', tokenUrl: 'https://as.example/t' }
+    expect(storedSecretStays(g, given, google().url)).toBe(true)
+    // with given addresses too: the people who sign in through the app send their tokens to the service address
+    expect(storedSecretStays({ ...g, url: 'https://other.example/mcp' }, given, google().url)).toBe(false)
+    expect(validate({ ...g, url: 'https://other.example/mcp' }, google({ oauthClient: given })).clientSecret).toBe('integrations.error.clientSecretAgain')
+    expect(storedSecretStays({ ...g, tokenUrl: 'https://evil.example/t' }, given, google().url)).toBe(false)
+    // there, a secret typed in the empty field goes with the change
+    expect(toPatch({ ...g, tokenUrl: 'https://evil.example/t', clientSecret: 's2' }, google({ oauthClient: given })).oauthClient).toMatchObject({ clientSecret: 's2' })
+    // moved where the stored secret does not follow: it is asked for again
+    expect(validate({ ...f, url: 'https://other.example/mcp' }, google()).clientSecret).toBe('integrations.error.clientSecretAgain')
+    expect(validate({ ...f, url: 'https://other.example/mcp', clientSecret: 'again' }, google())).toEqual({})
+    expect(validate({ ...f, name: 'Gmail 2' }, google())).toEqual({})
+    // MCP -> API -> MCP: the own app is not left chosen with nothing filled in
+    expect(withKind(withKind(emptyForm('mcp'), 'http'), 'mcp').ownApp).toBe(false)
+  })
+  test('a template\'s app fills the form for the admin', () => {
+    const t = { id: 't1', kind: 'http' as const, name: 'Works', url: 'https://www.worksapis.com/v1.0', auth: 'oauth' as const, authHeader: null, notes: null, access: { everyone: true, groups: [], users: [] },
+      oauthClient: { clientId: 'works-app', authorizationUrl: 'https://auth.example.com/a', tokenUrl: 'https://auth.example.com/t', scope: 'calendar', hasSecret: true }, connected: 2, createdBy: null, createdAt: at, updatedAt: at }
+    const f = formFromTemplate(t)
+    expect(f).toMatchObject({ method: 'oauth', ownApp: true, clientId: 'works-app', authUrl: 'https://auth.example.com/a', tokenUrl: 'https://auth.example.com/t', scope: 'calendar', clientSecret: '' })
+    expect(appPatch(f, t.oauthClient)).toBeUndefined()
+  })
+})
+
 describe('who may use a team connection', () => {
   const olga = { id: 'olga', groupIds: ['g1'] }
   test('everyone, a group the person is in, or the person; admins are not implied', () => {
@@ -137,6 +213,24 @@ describe('who may use a team connection', () => {
     expect(sameAccess({ everyone: false, groups: ['a', 'b'], users: ['x'] }, { everyone: false, groups: ['b', 'a'], users: ['x', 'x'] })).toBe(true)
     expect(sameAccess({ everyone: true, groups: ['a'], users: [] }, { everyone: true, groups: [], users: [] })).toBe(true)
     expect(normalAccess({ everyone: true, groups: ['a'], users: ['b'] })).toEqual({ everyone: true, groups: [], users: [] })
+  })
+  // Admin › Connectors: one chip after the name (components/integrations/IntegrationRow.tsx AudienceChip)
+  test('in one chip: everyone, the first group and how many more, one person by name, or how many people; nothing for nobody', () => {
+    const groups = [{ id: 'g1', name: 'Design' }, { id: 'g2', name: 'Finance' }]
+    const users = [{ id: 'olga', name: 'Olga' }, { id: 'bob', name: 'Bob' }, { id: 'ann', name: 'Ann' }]
+    expect(audienceOf({ everyone: true, groups: ['g1'], users: [] }, groups, users)).toEqual({ kind: 'everyone' })
+    expect(audienceOf({ everyone: false, groups: ['g1'], users: [] }, groups, users)).toEqual({ kind: 'named', name: 'Design', more: 0, all: 'Design' })
+    expect(audienceOf({ everyone: false, groups: ['g1', 'g2'], users: ['bob'] }, groups, users)).toEqual({ kind: 'named', name: 'Design', more: 2, all: 'Design, Finance, Bob' })
+    expect(audienceOf({ everyone: false, groups: [], users: ['bob'] }, groups, users)).toEqual({ kind: 'named', name: 'Bob', more: 0, all: 'Bob' })
+    expect(audienceOf({ everyone: false, groups: [], users: ['olga', 'bob', 'ann'] }, groups, users)).toEqual({ kind: 'people', n: 3, all: 'Olga, Bob, Ann' })
+    expect(audienceOf({ everyone: false, groups: [], users: [] }, groups, users)).toBeNull()
+    // a group deleted since: "?" as in the details, still counted, and a known name goes first
+    expect(audienceOf({ everyone: false, groups: ['gone', 'g2'], users: [] }, groups, users)).toEqual({ kind: 'named', name: 'Finance', more: 1, all: '?, Finance' })
+    expect(audienceOf({ everyone: false, groups: ['gone'], users: [] }, groups, users)).toEqual({ kind: 'named', name: '?', more: 0, all: '?' })
+    expect(translate('en', 'integrations.audience.more', { name: 'Design', n: 2 })).toBe('Design +2')
+    expect(translate('en', 'integrations.audience.people', { n: 3 })).toBe('3 people')
+    expect(translate('es', 'integrations.audience.people', { n: 1 })).toBe('1 persona')
+    expect(translate('ko', 'integrations.audience.people', { n: 3 })).toBe('3명')
   })
 })
 
@@ -192,4 +286,26 @@ describe('a connection whose last check failed', () => {
     for (const d of Object.values(DICTS)) for (const k of ['integrations.checkFailedKept', 'integrations.lastCheckFailed'] as const) expect(d[k]).toContain('{reason}')
     for (const d of Object.values(DICTS)) expect(d['integrations.checkFailedKept']).toContain('{date}')
   })
+})
+
+test('TC-020: why a sign-in failed, in words in every language; an unknown code is the plain "could not sign in", never the code', () => {
+  expect(flowReasonKey('client')).toBe('integrations.signIn.reason.client')
+  expect(flowReasonKey('client_template')).toBe('integrations.signIn.reason.clientTemplate')
+  expect(flowReasonKey('denied')).toBe('integrations.signIn.reason.denied')
+  expect(flowReasonKey('changed')).toBe('integrations.signIn.reason.changed')
+  expect(flowReasonKey('superseded')).toBe('integrations.signIn.reason.superseded')
+  expect(flowReasonKey('exchange')).toBe('integrations.signIn.reason.exchange')
+  expect(flowReasonKey('invalid')).toBe('integrations.signIn.reason.exchange')
+  expect(flowReasonKey('something_new')).toBe('integrations.signIn.failed')
+  expect(flowReasonKey(null)).toBe('integrations.signIn.failed')
+  // a refused Client ID or Secret says where to look: the Secret under Advanced (고급), in that screen's own words
+  for (const l of Object.keys(DICTS) as (keyof typeof DICTS)[]) {
+    const words = translate(l, 'integrations.signIn.reason.client')
+    expect(words).toContain(translate(l, 'integrations.advanced'))
+    expect(words).not.toMatch(/\b(client|exchange|invalid_client)\b/)
+    // a template's app: the member cannot see it, so the words send them to whoever set it up, not to Advanced
+    const theirs = translate(l, 'integrations.signIn.reason.clientTemplate')
+    expect(theirs).not.toContain(translate(l, 'integrations.advanced'))
+    expect(theirs).not.toMatch(/\b(client_template|invalid_client)\b/)
+  }
 })

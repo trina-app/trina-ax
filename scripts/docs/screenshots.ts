@@ -52,9 +52,9 @@ const SHOTS: Shot[] = [
   { file: 'files/folder-permissions', path: '/admin/folders', crop: 'main' },
   { file: 'skills/team-skills', path: '/skills', crop: 'main' },
   { file: 'mcp/connected', path: '/settings/integrations', crop: '[data-testid="settings-dialog"]' },
-  { file: 'mcp/discover', path: '/settings/integrations', prepare: async (p) => { await p.getByRole('tab', { name: /Discover/ }).first().click(); await p.waitForTimeout(600) }, crop: '[data-testid="settings-dialog"]' },
+  // Discover is on the same page, under the connections
+  { file: 'mcp/discover', path: '/settings/integrations', prepare: async (p) => { await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'start' }), '[data-testid="connector-discover-title"]'); await p.waitForTimeout(600) }, crop: '[data-testid="settings-dialog"]' },
   { file: 'mcp/add', path: '/settings/integrations', prepare: async (p) => {
-    await p.getByRole('tab', { name: /Discover/ }).first().click(); await p.waitForTimeout(600)
     await p.locator('[data-testid="connector-add"]').first().click(); await p.waitForTimeout(700)
   }, crop: '[role="dialog"]:not([data-testid="settings-dialog"]) >> nth=-1' },
   { file: 'scheduled/list', path: '/scheduled' },

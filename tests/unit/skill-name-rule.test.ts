@@ -11,6 +11,7 @@ import { listSkills, skillFileProblem, skillIssues, skillWriteNote } from '../..
 import { TurnExec } from '../../server/src/chat/turn'
 import { sha256 } from '../../server/src/files/store'
 import { newId } from '../../server/src/db'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 setDefaultTimeout(60_000)
 
@@ -78,7 +79,10 @@ describe('at the save', () => {
     expect(skillFileProblem(root, 'skills/acme-quote/SKILL.md', md('other-name'))).toBe('name_folder')
     expect(skillFileProblem(root, 'skills/acme-ok/SKILL.md', md('acme-ok'))).toBeNull()
     expect(skillFileProblem(root, 'skills/rule.md', 'A rule without a header')).toBeNull()
-    expect(skillFileProblem(root, 'projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBeNull()
+    // a project's skills folder is a skill root (docs/DECISIONS.md "Project skills"): the same rule; a SKILL.md for
+    // another tool anywhere else is just a file
+    expect(skillFileProblem(root, 'projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBe('name')
+    expect(skillFileProblem(root, 'shared/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBeNull()
     expect(skillFileProblem(root, 'projects/acme-video/notes.md', '---\nbroken\n---\nBody')).toBeNull()
   })
 
@@ -122,6 +126,10 @@ describe('at the save', () => {
     const c = env.ctx('carol', 'no-note')
     env.db.query("INSERT INTO chats (id,user_id) VALUES ('chat-no-note','carol')").run()
     env.db.query("INSERT INTO turns (id,chat_id,user_id,engine) VALUES ('no-note','chat-no-note','carol','claude-code')").run()
+    // an admin writes in a team project only as its member (docs/DECISIONS.md "Project contents only for members")
+    expect((await env.files.call('write', { file_path: 'projects/acme-video/tools/x/SKILL.md', content: md('한글') }, c)).isError).toBe(true)
+    expect(fs.existsSync(path.join(env.fx.team, 'projects/acme-video/tools/x/SKILL.md'))).toBe(false)
+    legacyProjectFolder(env.db, env.fx.team, 'projects/acme-video', [{ subjectType: 'user', subjectId: 'carol', access: 'write' }])
     const r = await env.files.call('write', { file_path: 'projects/acme-video/tools/x/SKILL.md', content: md('한글') }, c)
     expect(r.isError).toBeFalsy()
     expect(r.text).not.toContain('does not load')

@@ -90,7 +90,7 @@ export function RoomNoticeRow({ item, onOpen }: { item: RoomNotice; onOpen: () =
 }
 
 /** The newest writer's photo (the AI's mark for an answer of the AI). */
-function Face({ room }: { room: RoomOf }) {
+export function Face({ room }: { room: RoomOf }) {
   const user = useAvatarOf(room.fromId && room.from ? { id: room.fromId, name: room.from } : null)
   if (room.ai) return <AiFace size={36} className="mt-0.5" />
   return user ? <Avatar user={user} size={36} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-9 shrink-0 rounded-full bg-hover" />

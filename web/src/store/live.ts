@@ -5,6 +5,7 @@ import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
 import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
+import { conflictText, toldHere } from '../lib/conflictNotice'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
@@ -35,8 +36,14 @@ export const accessChanged = new Emitter<void>()
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
 export const notificationsChanged = new Emitter<void>()
+/** one of my connections went without me (an admin changed or deleted the template it was made from, or it is no longer
+ * for me): the Connectors page reads its lists again */
+export const integrationsChanged = new Emitter<void>()
 /** this window changed a scheduled task (resumed one from its card): the "paused for review" banner recounts */
 export const schedulesChanged = new Emitter<void>()
+/** the team's AI connections or engine choice changed (engine_choice_changed): Admin › AI providers checks its engines
+ * again (a browser sign-in that finished turns "Sign-in needed" into "Connected" at once) */
+export const enginesChanged = new Emitter<void>()
 /** a ChatGPT sign-in this person started (Admin / Settings > AI providers): its address, code and result */
 export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */
@@ -53,6 +60,15 @@ let relay: BrowserRelay | null = null
 /** this window's own activity for the team's online status (lib/presence.ts) */
 let activity: ReturnType<typeof startActivity> | null = null
 let firstServerVersion: string | null = null
+
+/** A hello from the server: the first one sets the version this page runs with; a later one with another version says
+ * once that a new version is ready. Reconnects that say it again add no second notice (QA TC-273: four were stacked). */
+export function serverHello(serverVersion: string) {
+  if (firstServerVersion === null) { firstServerVersion = serverVersion; return }
+  if (serverVersion === firstServerVersion || useUi.getState().updateReady) return
+  useUi.getState().setUpdateReady(true)
+  toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => { keepUnsentAsDrafts(); location.reload() } } })
+}
 
 /** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
 export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: false }) {
@@ -110,9 +126,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       useRooms.getState().handleEvent(ev)
       return
     case 'files.conflict': {
-      // a save met a newer version (mine or someone else's): both people hear about the conflict copy
+      // a save met a newer version (mine or someone else's): both people hear about the conflict copy, once each
+      // (lib/conflictNotice.ts: a save from this window already said it)
       const copy = ev.data.copyPath
-      toast({ level: 'warn', text: t('files.conflictNotice', { path: ev.data.path, copy, by: ev.data.by?.name ?? '' }), sticky: true, action: { label: t('files.openCopy'), run: () => openTeamFile(copy) } })
+      if (toldHere(ev.data.path)) return
+      toast({ level: 'warn', text: conflictText(ev.data.path, ev.data.by), sticky: true, action: { label: t('files.openCopy'), run: () => openTeamFile(copy) } })
       return
     }
     case 'job.progress':
@@ -132,6 +150,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         notificationsChanged.emit()
         return
       }
+      if (ev.data.code === 'integrations_changed') {
+        // quiet: the inbox notice says what to do (connect it again); an open Connectors page drops the old row
+        integrationsChanged.emit()
+        return
+      }
       if (ev.data.code === 'room_alerts_changed') {
         // my notification settings changed (here or on another device): every room's level and my quiet hours come with
         // the rooms list (the bell, the sound, the muted marks follow)
@@ -144,11 +167,20 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         void useEngines.getState().load(true)
         // an AI connection was added or lost: the "no AI" banner follows
         void useAiAccess.getState().load(true)
+        enginesChanged.emit()
         return
       }
       if (ev.data.code === 'browser_policy_changed') {
         // an admin changed whether people may turn on "Allow all websites": Settings > Browser follows, and the desktop
         // app re-reads the policy from the team server itself when the setting is read (it never takes it from here)
+        void useSession.getState().refreshMe()
+        void browserSettingsBridge()?.get().catch(() => null)
+        return
+      }
+      if (ev.data.code === 'web_access_changed') {
+        // my "Allow all websites" for the AI's web reads changed (Settings in another window, an address card, the team
+        // turning it off): Settings > Browser follows, and the desktop app re-reads GET /api/me itself when the setting is
+        // read (it follows an off, never an on)
         void useSession.getState().refreshMe()
         void browserSettingsBridge()?.get().catch(() => null)
         return
@@ -254,11 +286,7 @@ export function startLive() {
     onHello: ({ serverVersion }) => {
       // the server takes a window that has just connected as in use: say how this one is
       activity?.connected()
-      if (firstServerVersion === null) firstServerVersion = serverVersion
-      else if (serverVersion !== firstServerVersion) {
-        useUi.getState().setUpdateReady(true)
-        toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => { keepUnsentAsDrafts(); location.reload() } } })
-      }
+      serverHello(serverVersion)
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))

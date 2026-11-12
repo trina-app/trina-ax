@@ -12,8 +12,9 @@ import { fail } from '../http/errors'
 import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
-import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath, type SeenStates } from './folders'
+import { afterAccessChange, captureState, ensureFolderRow, foldersWithRuleOf, keepProjectFloors, resolveFolderPath, type SeenStates } from './folders'
 import { notifyTemplateOffers } from '../notifications/service'
+import { noTeamRoom } from '../rooms/service'
 import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
 
 type In<T extends z.ZodType> = z.output<T>
@@ -42,11 +43,16 @@ export interface ChangeFrom { via?: 'connector'; seen?: SeenStates }
 const viaOf = (o: ChangeFrom) => (o.via ? { via: o.via } : {})
 const byOf = (actor: string, target: string, o: ChangeFrom) => ({ actor, target, ...viaOf(o), ...(o.seen ? { seen: o.seen } : {}) })
 
-function checkMembers(ctx: AppContext, ids: readonly string[], locale: Locale): string[] {
+/** The members asked for, checked: people who exist. A disabled account is never added to a group (it keeps a group it is
+ * already in, `keep`): its access is not counted while it is off, so a group it joined then would let it into team
+ * projects unseen when it comes back (docs/DECISIONS.md "Project contents only for members"; enabling it again records
+ * the projects it joins, admin/users.ts). As chat/project-access.ts checkParticipants does for a project's people. */
+function checkMembers(ctx: AppContext, ids: readonly string[], locale: Locale, keep: ReadonlySet<string> = new Set()): string[] {
   const uniq = [...new Set(ids)]
   if (!uniq.length) return []
-  const found = (ctx.db.query(`SELECT id FROM users WHERE deleted_at IS NULL AND id IN (${uniq.map(() => '?').join(',')})`).all(...uniq) as { id: string }[]).length
-  if (found !== uniq.length) fail('validation', msg('unknownUsers', locale), { fields: { 'body.memberIds': 'unknown person' } })
+  const found = ctx.db.query(`SELECT id, status FROM users WHERE deleted_at IS NULL AND id IN (${uniq.map(() => '?').join(',')})`).all(...uniq) as { id: string; status: string }[]
+  if (found.length !== uniq.length) fail('validation', msg('unknownUsers', locale), { fields: { 'body.memberIds': 'unknown person' } })
+  if (found.some((u) => u.status !== 'active' && !keep.has(u.id))) fail('validation', msg('switchedOffNoGroups', locale), { fields: { 'body.memberIds': 'disabled account' }, params: { reason: 'account_disabled' } })
   return uniq
 }
 
@@ -85,8 +91,10 @@ export function groupFolder(ctx: AppContext, id: string): string | null {
 }
 
 /** Make a group as `actorId` (Admin › Groups, and the welcome steps' team group): the group, its folder groups/<name>/
- * with its folders row and the rule "this group writes", audited as group.create. */
-export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[] }, locale: Locale, from: ChangeFrom = {}): Group {
+ * with its folders row and the rule "this group writes", audited as group.create. `room: false` (the welcome steps' team
+ * group): no team room — its room row is written archived with the group, so rooms/service.ts sync (run at the end,
+ * afterAccessChange) never makes one (docs/DECISIONS.md "One room for the whole team"). */
+export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[]; room?: false }, locale: Locale, from: ChangeFrom = {}): Group {
   const auth = { user: { id: actorId } }
   if (nameTaken(ctx, b.name)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
   const memberIds = checkMembers(ctx, b.memberIds, locale)
@@ -102,6 +110,7 @@ export function createGroupAs(ctx: AppContext, actorId: string, b: { name: strin
       ON CONFLICT(folder_id, subject_type, subject_id) DO UPDATE SET access = 'write', updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
       .run(newId(), f.id, id, auth.user.id, new Date().toISOString())
     audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds, ...viaOf(from) } })
+    if (b.room === false) noTeamRoom(ctx.db, id)
   })()
   afterAccessChange(ctx, before, byOf(auth.user.id, id, from))
   // templates for this group reach its members now (security review 2, #1)
@@ -119,7 +128,7 @@ export function updateGroupAs(ctx: AppContext, actorId: string, id: string, b: {
   const g = ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow | null
   if (!g) fail('not_found')
   if (b.name !== undefined && nameTaken(ctx, b.name, id)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
-  const memberIds = b.memberIds ? checkMembers(ctx, b.memberIds, locale) : undefined
+  const memberIds = b.memberIds ? checkMembers(ctx, b.memberIds, locale, new Set((ctx.db.query('SELECT user_id FROM group_members WHERE group_id = ?').all(id) as { user_id: string }[]).map((m) => m.user_id))) : undefined
   const before = captureState(ctx.db)
   ctx.db.transaction(() => {
     if (b.name !== undefined) ctx.db.query('UPDATE groups SET name = ? WHERE id = ?').run(b.name, id)
@@ -149,7 +158,10 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
   const before = captureState(ctx.db)
   let pruned: Pruned[] = []
   ctx.db.transaction(() => {
+    const ruled = foldersWithRuleOf(ctx.db, 'group', id)
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    // a project folder in projects/ never ends with no rules (admin/folders.ts keepProjectFloors)
+    keepProjectFloors(ctx.db, ruled, actorId)
     ctx.db.query('DELETE FROM groups WHERE id = ?').run(id)
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // team connections' and templates' rules: a group nobody can see any more would block every later change of them

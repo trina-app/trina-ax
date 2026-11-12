@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { API, type DriveAdminStatus, type DriveFlow, type DriveShare, type DriveShareFolder, type IntegrationAccess } from '@mycel/shared/api'
 import { api, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
+import { driveSignInUrl } from '../../lib/driveSignIn'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -23,12 +24,6 @@ import { AccessPicker } from './IntegrationDialog'
 import { DriveLogo } from './DriveConnector'
 
 const NOBODY: IntegrationAccess = { everyone: false, groups: [], users: [] }
-
-function googleAuthorization(value: string): string {
-  const u = new URL(value)
-  if (u.origin !== 'https://accounts.google.com' || u.pathname !== '/o/oauth2/v2/auth' || u.username || u.password) throw new Error('invalid authorization URL')
-  return u.href
-}
 
 /** A Google sign-in for a share: a window reserved during the click, polled until Google sent the account back. */
 function useShareFlow() {
@@ -61,7 +56,7 @@ function useShareFlow() {
     try {
       const r = await api.call(API.authorizeDriveShare, { body: shareId ? { shareId } : {} })
       if (g !== generation.current) return
-      const href = googleAuthorization(r.authorizationUrl)
+      const href = driveSignInUrl(r, !!mobileApp())
       setUrl(href)
       setFlow({ flowId: r.flowId, state: 'pending', account: null, expiresAt: r.expiresAt, reason: null })
       if (mobileApp()) await openExternal(href, { purpose: 'google-oauth' })

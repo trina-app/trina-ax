@@ -2,8 +2,9 @@
 //  - Settings › Connectors: a card first in Discover; its + (or Connect on its page, DriveDetail) goes straight to Google
 //    sign-in (components/settings/DriveConnection.tsx). Back from Google, one inline line asks to confirm the account:
 //    a security step (the server holds the connection until the same person confirms it, docs/GOOGLE-DRIVE.md). Once
-//    linked it is a row in Yours (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
-//    client on this server yet: "Your admin needs to turn this on".
+//    linked it is a row among the connections (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
+//    client on this server yet: "Your admin needs to turn this on" for a member; an owner or admin is the one to set it
+//    up, so they get "not set up yet" and a button to its page in Admin (QA TC-196).
 //    An admin may not let members connect their own (Admin › Connectors › Google Drive): Connect is then off for
 //    members, and a connection made before says the admin turned it off. An owner or admin gets one button instead,
 //    "팀원도 연결할 수 있게 켜고 내 드라이브 연결하기": their own sign-in, and the switch turns on only once they confirm
@@ -13,14 +14,16 @@
 //    is on yet) or On (members may connect their own, or a Drive is shared with the team), with the one-time setup (or
 //    Replace) in a small dialog (DriveSetupDialog) when this page may do it (integrations/google-drive/admin-setup.ts),
 //    and below it the members' switch and the shares (DriveShares.tsx). A client alone turns nothing on.
-import { Check, Copy, FolderOpen, Upload } from 'lucide-react'
+import { Check, Copy, ExternalLink, FolderOpen, Upload } from 'lucide-react'
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { API, type DriveAdminStatus, type DriveConnection, type DriveTeamShare } from '@mycel/shared/api'
+import { Link, useNavigate } from 'react-router-dom'
+import { FILE_STEP_VERB } from '@mycel/shared'
+import { API, type DriveAdminStatus, type DriveConnection, type DriveTeamShare, type Locale } from '@mycel/shared/api'
 import { APP_CONNECTORS, appConnectorLogo } from '../../lib/connectors'
 import { api, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { useT } from '../../i18n'
-import { isAdmin, useMe } from '../../store/session'
+import { useLocale, useT } from '../../i18n'
+import { isAdmin, isOwner, useMe } from '../../store/session'
 import { Badge, Button, Field, inputCls, Modal, useCopy } from '../ui'
 import type { DriveConnectionState } from '../settings/DriveConnection'
 import { ConnectorDetail, LogoTile } from './ConnectorsView'
@@ -41,13 +44,14 @@ export function DriveLogo({ className }: { className?: string }) {
   return <LogoTile src={appConnectorLogo(DRIVE)} className={className} />
 }
 
-/** What Google Drive shows for one person, wherever it is (the row in Connectors › Yours, its page): the line under the
+/** What Google Drive shows for one person, wherever it is (its row among the connections in Connectors, its page): the line under the
  * name, the action on the right, and the steps while Google is open. Connect goes straight to Google; back from it, one
  * inline line asks to confirm the account (a security step: the server holds the link until the same person confirms
  * it, so a Google sign-in started by someone else can never land in this person's Drive connection). */
 export function useDriveParts(s: DriveConnectionState) {
   const t = useT()
   const admin = isAdmin(useMe())
+  const navigate = useNavigate()
   const c = s.connection
   const { d } = s
   const linked = driveLinked(c)
@@ -62,7 +66,8 @@ export function useDriveParts(s: DriveConnectionState) {
 
   let line: string = t('drive.cardDesc')
   if (!c && s.loadFailed) line = t('drive.loadFailed')
-  else if (unavailable) line = t('connectors.adminNeeded')
+  // not set up on this server: a member waits for an admin; an owner or admin is the one to set it up (QA TC-196)
+  else if (unavailable) line = t(admin ? 'drive.setUpFirst' : 'connectors.adminNeeded')
   else if (off && linked) line = t('drive.membersOffLinked')
   else if (off && shares.length) line = t('drive.teamShared', { name: shares.map((x) => x.name).join(', ') })
   else if (turnOn) line = t('drive.cardDesc')
@@ -73,7 +78,9 @@ export function useDriveParts(s: DriveConnectionState) {
   const action = !c
     ? (s.loadFailed ? <Button size="sm" onClick={s.load} data-testid="drive-retry">{t('common.retry')}</Button> : null)
     : unavailable
-      ? <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
+      ? admin
+        ? <Button size="sm" variant="primary" onClick={() => navigate('/admin/connectors?drive=1')} data-testid="drive-set-up">{t('drive.goSetUp')}</Button>
+        : <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
       : turnOn
         ? (flow ? null : <Button size="sm" variant="primary" busy={d.busy} onClick={s.start} data-testid="drive-connect">{t('drive.turnOnConnect')}</Button>)
       : off
@@ -145,7 +152,7 @@ export function DriveTeamShares({ shares }: { shares: DriveTeamShare[] }) {
   )
 }
 
-/** The person's own Google Drive as one row (Connectors › Yours): the account, Connected and ⋯. */
+/** The person's own Google Drive as one row among the connections in Connectors: the account, Connected and ⋯. */
 export function DriveCard({ s }: { s: DriveConnectionState }) {
   const p = useDriveParts(s)
   return (
@@ -158,14 +165,17 @@ export function DriveCard({ s }: { s: DriveConnectionState }) {
 
 /** The tools the AI gets from Google Drive here (server/src/tools/drive.ts): read only. */
 export const DRIVE_TOOLS = ['drive_search', 'drive_list', 'drive_read']
+/** the tools as people read them (the step words under an answer), not their code names (QA TC-204) */
+export const driveToolWords = (locale: Locale) => DRIVE_TOOLS.map((n) => FILE_STEP_VERB[n]![locale])
 
 /** Google Drive's page in Connectors (a member's): Connect goes straight to Google. */
 export function DriveDetail({ s, onBack }: { s: DriveConnectionState; onBack: () => void }) {
   const t = useT()
+  const locale = useLocale()
   const p = useDriveParts(s)
   return (
     <ConnectorDetail testId="drive-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={p.line} official action={p.action}
-      description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
+      description={t('connectors.drive.about')} tools={driveToolWords(locale)} onBack={onBack}>
       {p.steps}
       {p.shares.length > 0 && <div className={p.steps ? 'mt-3' : undefined}><DriveTeamShares shares={p.shares} /></div>}
     </ConnectorDetail>
@@ -190,6 +200,8 @@ export function driveAdminLine(t: ReturnType<typeof useT>, status: DriveAdminSta
  * the one-time setup, and (children) the members' switch and the Drives shared with the team. */
 export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status: DriveAdminStatus; onSetUp: () => void; onBack: () => void; children?: ReactNode }) {
   const t = useT()
+  const locale = useLocale()
+  const owner = isOwner(useMe())
   const on = driveAdminOn(status)
   return (
     <ConnectorDetail testId="drive-admin-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={driveAdminLine(t, status)} official
@@ -197,7 +209,16 @@ export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status
         <Badge tone={on ? 'ok' : 'neutral'} className="shrink-0"><span data-testid="drive-admin-state" data-state={on ? 'on' : status.configured ? 'ready' : 'not_set_up'}>{t(on ? 'appConnectors.on' : status.configured ? 'driveAdmin.ready' : 'appConnectors.notSetUp')}</span></Badge>
         {status.canSetUp && <Button variant={status.configured ? 'secondary' : 'primary'} onClick={onSetUp} data-testid="drive-setup">{t(status.configured ? 'appConnectors.replace' : 'connectors.setUpOnce')}</Button>}
       </>}
-      description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
+      description={t('connectors.drive.about')} tools={driveToolWords(locale)} onBack={onBack}>
+      {/* no public address: what to do next and who does it (QA TC-196). It is set on the server computer by whoever
+          installed it, not in the app; the owner sees it in System › 연결 방식, and only the owner sees that page */}
+      {!status.configured && status.blocked === 'public_host' && (
+        <div className="space-y-1 text-sm" data-testid="drive-public-host">
+          <p>{t('driveAdmin.publicHost.why')}</p>
+          <p>{t(owner ? 'driveAdmin.publicHost.owner' : 'driveAdmin.publicHost.admin')}</p>
+          {owner && <Link to="/admin/system" className="inline-block text-accent-text underline-offset-2 hover:underline" data-testid="drive-public-host-system">{t('driveAdmin.publicHost.openSystem')}</Link>}
+        </div>
+      )}
       {status.configured && status.source === 'server' && <p className="text-xs text-faint" data-testid="drive-by-server">{t('appConnectors.byServer')}</p>}
       {status.configured && status.source === 'service' && <p className="text-xs text-faint" data-testid="drive-by-service">{t('appConnectors.byService')}</p>}
       {status.configured && <div className={status.source === 'server' || status.source === 'service' ? 'mt-4' : undefined}>{children}</div>}
@@ -205,32 +226,106 @@ export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status
   )
 }
 
-/** Set up Google Drive: the Google OAuth web client (the file Google Cloud downloads, or its ID and secret). */
-export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAdminStatus; onClose: () => void; onSaved: (s: DriveAdminStatus) => void }) {
+/** The Google OAuth web client an admin gives: the file Google Cloud downloads, or its client ID and secret. */
+export interface ClientInput { file: { name: string; text: string } | null; clientId: string; clientSecret: string }
+export const emptyClient: ClientInput = { file: null, clientId: '', clientSecret: '' }
+export const clientReady = (c: ClientInput) => !!c.file || (c.clientId.trim() !== '' && c.clientSecret.trim() !== '')
+export const clientBody = (c: ClientInput) => (c.file ? { file: c.file.text } : { clientId: c.clientId.trim(), clientSecret: c.clientSecret.trim() })
+/** What the server said about a client that it refused, in words. */
+export const clientErrorKey = (e: unknown) => {
+  const m = e instanceof ApiError ? e.message : ''
+  return m.includes('client_redirect') ? 'driveSetup.error.redirect' as const : m.includes('client_invalid') ? 'driveSetup.error.invalid' as const : 'driveSetup.error.failed' as const
+}
+
+/** The redirect URI to add in Google Cloud (with Copy), then the client file or its ID and secret: Google Drive's setup
+ * and each Google app's (GoogleAppAdmin.tsx). */
+export function GoogleClientFields({ redirectUri, value, onChange, onError }: { redirectUri: string | null; value: ClientInput; onChange: (c: ClientInput) => void; onError: (text: string | null) => void }) {
   const t = useT()
-  const [file, setFile] = useState<{ name: string; text: string } | null>(null)
-  const [clientId, setClientId] = useState(''), [clientSecret, setClientSecret] = useState('')
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const { copied, copy } = useCopy()
-  const ready = !!file || (clientId.trim() !== '' && clientSecret.trim() !== '')
   const pick = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     e.target.value = ''
     if (!f) return
-    if (f.size > 16_384) { setError(t('driveSetup.error.invalid')); return }
-    setFile({ name: f.name, text: await f.text() }); setError(null)
+    if (f.size > 16_384) { onError(t('driveSetup.error.invalid')); return }
+    onChange({ ...value, file: { name: f.name, text: await f.text() } }); onError(null)
   }
+  return (
+    <>
+      {redirectUri && (
+        <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs text-muted">{t('driveSetup.redirect')}</span>
+            <code className="block text-xs break-all" data-testid="drive-setup-redirect">{redirectUri}</code>
+          </span>
+          <Tooltip label={t('common.copy')}>
+            <Button size="sm" variant="ghost" onClick={() => void copy(redirectUri)} aria-label={t('common.copy')} data-testid="drive-setup-copy">
+              {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+            </Button>
+          </Tooltip>
+        </div>
+      )}
+      <div>
+        <input ref={input} type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void pick(e)} data-testid="drive-setup-file" aria-label={t('driveSetup.file')} />
+        <Button onClick={() => input.current?.click()} data-testid="drive-setup-upload"><Upload size={14} aria-hidden />{value.file ? value.file.name : t('driveSetup.file')}</Button>
+        {value.file && <Button size="sm" variant="ghost" className="ml-2" onClick={() => onChange({ ...value, file: null })}>{t('driveSetup.clearFile')}</Button>}
+      </div>
+      {!value.file && (
+        <>
+          <p className="text-xs text-muted">{t('driveSetup.orPaste')}</p>
+          <Field label={t('driveSetup.clientId')}><input className={inputCls} value={value.clientId} onChange={(e) => onChange({ ...value, clientId: e.target.value })} autoComplete="off" spellCheck={false} data-testid="drive-setup-id" /></Field>
+          <Field label={t('driveSetup.clientSecret')}><input className={inputCls} type="password" value={value.clientSecret} onChange={(e) => onChange({ ...value, clientSecret: e.target.value })} autoComplete="off" spellCheck={false} data-testid="drive-setup-secret" /></Field>
+        </>
+      )}
+    </>
+  )
+}
+
+/** What an admin does in Google Cloud for Drive, in order, each with the page it happens on (QA TC-197): a project, the
+ * Drive API, the sign-in (consent) screen, a web client with this server's address, and its JSON file. Google's own
+ * labels are quoted in the words, as the person has to find them there. */
+export const DRIVE_CLOUD_STEPS = [
+  { key: 'driveSetup.step.project', link: 'driveSetup.link.project', href: 'https://console.cloud.google.com/projectcreate' },
+  { key: 'driveSetup.step.api', link: 'driveSetup.link.api', href: 'https://console.cloud.google.com/apis/library/drive.googleapis.com' },
+  { key: 'driveSetup.step.consent', link: 'driveSetup.link.consent', href: 'https://console.cloud.google.com/apis/credentials/consent' },
+  { key: 'driveSetup.step.client', link: 'driveSetup.link.client', href: 'https://console.cloud.google.com/apis/credentials/oauthclient' },
+  { key: 'driveSetup.step.json', link: null, href: null },
+] as const
+
+function DriveCloudSteps() {
+  const t = useT()
+  return (
+    <div data-testid="drive-setup-steps">
+      <p className="text-sm font-medium">{t('driveSetup.stepsTitle')}</p>
+      <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm">
+        {DRIVE_CLOUD_STEPS.map((x) => (
+          <li key={x.key} data-testid="drive-setup-step">
+            {t(x.key)}
+            {x.href && x.link && (
+              <> <a href={x.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 whitespace-nowrap text-accent-text underline-offset-2 hover:underline" data-testid="drive-setup-step-link">
+                {t(x.link)}<ExternalLink size={12} aria-hidden />
+              </a></>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+/** Set up Google Drive: the steps in Google Cloud, then the Google OAuth web client (the file Google Cloud downloads, or
+ * its ID and secret). */
+export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAdminStatus; onClose: () => void; onSaved: (s: DriveAdminStatus) => void }) {
+  const t = useT()
+  const [client, setClient] = useState<ClientInput>(emptyClient)
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
+  const ready = clientReady(client)
   const save = async () => {
     if (busy || !ready) return
     setBusy(true); setError(null)
-    try {
-      const body = file ? { file: file.text } : { clientId: clientId.trim(), clientSecret: clientSecret.trim() }
-      onSaved(await api.call(API.setDriveClient, { body }))
-    } catch (e) {
-      const m = e instanceof ApiError ? e.message : ''
-      setError(t(m.includes('client_redirect') ? 'driveSetup.error.redirect' : m.includes('client_invalid') ? 'driveSetup.error.invalid' : 'driveSetup.error.failed'))
-    } finally { setBusy(false) }
+    try { onSaved(await api.call(API.setDriveClient, { body: clientBody(client) })) }
+    catch (e) { setError(t(clientErrorKey(e))) }
+    finally { setBusy(false) }
   }
   return (
     <Modal open title={t(status.configured ? 'driveSetup.replaceTitle' : 'driveSetup.title')} onClose={onClose} width={480}
@@ -239,31 +334,8 @@ export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAd
         <Button variant="primary" busy={busy} disabled={!ready} onClick={() => void save()} data-testid="drive-setup-save">{t('common.save')}</Button>
       </>}>
       <div className="space-y-4" data-testid="drive-setup-dialog">
-        {status.redirectUri && (
-          <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
-            <span className="min-w-0 flex-1">
-              <span className="block text-xs text-muted">{t('driveSetup.redirect')}</span>
-              <code className="block text-xs break-all" data-testid="drive-setup-redirect">{status.redirectUri}</code>
-            </span>
-            <Tooltip label={t('common.copy')}>
-              <Button size="sm" variant="ghost" onClick={() => void copy(status.redirectUri!)} aria-label={t('common.copy')} data-testid="drive-setup-copy">
-                {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
-              </Button>
-            </Tooltip>
-          </div>
-        )}
-        <div>
-          <input ref={input} type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void pick(e)} data-testid="drive-setup-file" aria-label={t('driveSetup.file')} />
-          <Button onClick={() => input.current?.click()} data-testid="drive-setup-upload"><Upload size={14} aria-hidden />{file ? file.name : t('driveSetup.file')}</Button>
-          {file && <Button size="sm" variant="ghost" className="ml-2" onClick={() => setFile(null)}>{t('driveSetup.clearFile')}</Button>}
-        </div>
-        {!file && (
-          <>
-            <p className="text-xs text-muted">{t('driveSetup.orPaste')}</p>
-            <Field label={t('driveSetup.clientId')}><input className={inputCls} value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" spellCheck={false} data-testid="drive-setup-id" /></Field>
-            <Field label={t('driveSetup.clientSecret')}><input className={inputCls} type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} autoComplete="off" spellCheck={false} data-testid="drive-setup-secret" /></Field>
-          </>
-        )}
+        <DriveCloudSteps />
+        <GoogleClientFields redirectUri={status.redirectUri} value={client} onChange={setClient} onError={setError} />
         {status.configured && <p className="text-xs text-muted">{t('driveSetup.replaceNote')}</p>}
         {error && <p className="text-sm text-danger" role="alert" data-testid="drive-setup-error">{error}</p>}
       </div>

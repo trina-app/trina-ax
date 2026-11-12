@@ -1,31 +1,32 @@
-// Connectors, like Claude's (pages/Integrations.tsx, pages/admin/Integrations.tsx, components/integrations/ConnectorsView.tsx):
-// MCP and Google Drive in one section with Yours and Discover; "Top connectors" (Drive first) and the rest behind Show
-// all; a card opens the connector's page (big logo, Connect, what it does, its tools); the add dialog is one column, Name
-// and Server URL, with type, sign-in, write rule and (Admin) who connects and who may use it under a collapsed Advanced.
-// Google Drive's own flow: drive.spec.ts and admin-app-connectors.spec.ts.
+// Connectors (pages/Connectors.tsx in the sidebar, pages/admin/Integrations.tsx, components/integrations/ConnectorsView.tsx):
+// MCP and Google's apps on one page, Your connectors first and Discover under it (what can be added now first, what is
+// not set up yet last, the rest behind Show all); a card opens the connector's page, /connectors/<id> (big logo, Connect, what it does, its tools),
+// and its way back returns to the page; Admin keeps Discover; the add dialog is one column, Name and Server URL, with type, sign-in, write rule and (Admin)
+// who connects and who may use it under a collapsed Advanced. Google Drive's own flow: drive.spec.ts and
+// admin-app-connectors.spec.ts.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const header = (page: Page) => page.getByTestId('connectors-header')
-const discover = (page: Page) => header(page).getByRole('tab', { name: '둘러보기' }).click()
+/** Discover is on the page under the connections: its heading is there */
+const discover = (page: Page, title = '둘러보기') => expect(page.getByTestId('connector-discover-title')).toHaveText(title)
 const card = (page: Page, id: string) => page.locator(`[data-testid="connector-card"][data-id="${id}"]`)
 
-test('Discover: Top connectors with Google Drive first, the rest behind Show all; a card opens its page with Connect', async ({ page }) => {
+test('Discover: what can be added now first (Google not set up here: last), the rest behind Show all; a card opens its page with Connect', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  await page.goto('/settings/connectors')
-  await expect(header(page).getByRole('tab', { name: '내 커넥터' })).toHaveAttribute('aria-selected', 'true')
+  await page.goto('/connectors')
+  // no tabs
+  await expect(header(page).getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
+  await expect(header(page).getByRole('tab')).toHaveCount(0)
   await discover(page)
   const top = page.getByTestId('connector-list').getByTestId('connector-card')
-  await expect(top).toHaveCount(8)
-  await expect(top.first()).toHaveAttribute('data-id', 'google-drive')
-  await expect(card(page, 'notion')).toContainText('Notion 제공')
-  await expect(page.getByTestId('connector-list-more')).toBeHidden()
+  await expect(top).toHaveCount(10)
+  await expect(top.first()).toHaveAttribute('data-id', 'notion')
   await page.getByTestId('connector-show-all').click()
-  await expect(page.getByTestId('connector-list-more')).toBeVisible()
-  await expect(page.getByTestId('connector-list-more').getByTestId('connector-card').first()).toBeVisible()
+  await expect(top).not.toHaveCount(10)
 
   // a card opens its page: big logo, the line, Connect, what it does, and its tools once connected
   await card(page, 'notion').getByTestId('connector-open').click()
@@ -41,18 +42,20 @@ test('Discover: Top connectors with Google Drive first, the rest behind Show all
   await expect(dialog.getByTestId('integration-write-ask')).toBeHidden()
   await expect(dialog.getByTestId('integration-advanced-summary')).toContainText('매번 묻기')
   await dialog.getByRole('button', { name: '취소' }).click()
+  // back: the list again
   await detail.getByTestId('connector-back').click()
-  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(page).toHaveURL(/\/connectors$/)
+  await discover(page)
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Add custom connector: Name and Server URL, the rest under Advanced; an API key connection lands in Yours', async ({ page }) => {
+test('Add custom connector: Name and Server URL, the rest under Advanced; an API key connection lands in the connections', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   await header(page).getByTestId('integration-add').click()
-  const dialog = page.getByRole('dialog', { name: '직접 커넥터 추가' })
+  const dialog = page.getByRole('dialog', { name: '주소로 서비스 추가' })
   await expect(dialog.getByTestId('integration-name')).toBeVisible()
   await expect(dialog.getByTestId('integration-url')).toBeVisible()
   await expect(dialog.getByTestId('integration-kind-mcp')).toBeHidden()
@@ -71,7 +74,7 @@ test('Add custom connector: Name and Server URL, the rest under Advanced; an API
 test('a field that needs fixing under Advanced opens it', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   await header(page).getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog')
   await dialog.getByTestId('integration-name').fill('Sample API')
@@ -89,7 +92,7 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await reset(page)
   await signIn(page)
   await page.goto('/admin/connectors')
-  await discover(page)
+  await discover(page, '둘러보기')
   await card(page, 'linear').getByTestId('connector-open').click()
   const detail = page.getByTestId('connector-detail')
   await detail.getByTestId('integration-add-more').click()
@@ -104,13 +107,32 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await expect(page.getByRole('dialog').getByTestId('integration-who-team')).toBeChecked()
 })
 
+test('Connectors is in the sidebar, not in Settings; the old Settings address leads to it', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await page.goto('/admin/connectors')
+  await page.getByTestId('account-menu').click()
+  await page.getByTestId('account-settings').click()
+  const settings = page.getByTestId('settings-dialog')
+  await expect(settings.getByTestId('settings-menu')).toBeVisible()
+  await expect(settings.getByTestId('settings-menu').getByRole('link', { name: '커넥터', exact: true })).toHaveCount(0)
+  await page.goto('/settings/connectors')
+  await expect(page).toHaveURL(/\/connectors$/)
+  await expect(page.getByTestId('settings-dialog')).toHaveCount(0)
+  await expect(header(page).getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
+  await expect(page.getByTestId('nav-connectors')).toHaveAttribute('aria-current', 'page')
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('the old Admin addresses lead to Connectors', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/integrations')
   await expect(page).toHaveURL(/\/admin\/connectors$/)
+  // App connectors' old address opens Google Drive's page, which has an address of its own
   await page.goto('/admin/app-connectors')
-  await expect(page).toHaveURL(/\/admin\/connectors$/)
+  await expect(page).toHaveURL(/\/admin\/connectors\/google-drive$/)
   await expect(page.getByTestId('drive-admin-detail')).toBeVisible()
 })
 
@@ -118,9 +140,9 @@ test('phone width: Discover and a connector page fit without sideways scrolling'
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await signIn(page)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   await discover(page)
-  await expect(card(page, 'google-drive')).toBeVisible()
+  await expect(card(page, 'notion')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await card(page, 'notion').getByTestId('connector-open').click()
   await expect(page.getByTestId('connector-detail')).toBeVisible()
@@ -132,17 +154,18 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
     await signIn(page)
-    await page.goto('/settings/connectors')
+    await page.goto('/connectors')
     const audit = async () => {
       const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
       return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
     }
     await discover(page)
-    await expect(card(page, 'google-drive')).toBeVisible()
+    await expect(card(page, 'notion')).toBeVisible()
     expect(await audit()).toEqual([])
     await card(page, 'notion').getByTestId('connector-open').click()
     await expect(page.getByTestId('connector-detail')).toBeVisible()
     expect(await audit()).toEqual([])
+    await page.getByTestId('connector-back').click()
     await header(page).getByTestId('integration-add').click()
     await page.getByRole('dialog').getByTestId('integration-advanced').click()
     expect(await audit()).toEqual([])

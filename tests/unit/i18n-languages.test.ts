@@ -26,6 +26,7 @@ import { MD_WORDS } from '../../server/src/system/export'
 import { RESTORED } from '../../server/src/team-files/place'
 import { TEXT as URL_GATE_TEXT } from '../../server/src/tools/url-gate'
 import { TEXT as FILE_MOVE_TEXT } from '../../server/src/tools/file-moves'
+import { DELETE_TEXT } from '../../server/src/chat/delete-files'
 import { TEXT as SAVE_URL_TEXT } from '../../server/src/tools/save-url'
 import { TEXT as SCHEDULE_CARD_TEXT } from '../../server/src/tools/schedules'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
@@ -69,6 +70,7 @@ describe('server and relay texts', () => {
     checkTable('engines', ENGINE_TEXT)
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
+    checkTable('delete_files card', DELETE_TEXT)
     checkTable('save_url cards and refusals', SAVE_URL_TEXT, 6)
     checkTable('scheduled task card', SCHEDULE_CARD_TEXT, 10)
     checkTable('external-service connections', INTEGRATION_TEXT)
@@ -117,8 +119,8 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'desktop/src/main/pane/page-script.js': { why: 'Korean synonyms the AI\'s "find" understands on Korean pages (not screen text)', also: /./ },
   'relay/src/pages.ts': { why: 'relay page texts (ko next to en/id/ja/es)', also: /if \(lang === 'ko'\)/ },
   'shared/src/api/common.ts': { why: 'the name 한국어 in language pickers', also: /ko: '한국어'/ },
-  'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$/ },
-  'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$/ },
+  'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
+  'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
   'shared/src/honorific.ts': { why: 'the honorifics a name may already end with (님, 씨) and the Korean particles after them (grammar, not screen text)', also: /^const (HONORIFICS|RO|PARTICLES)\b/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
@@ -159,12 +161,16 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/team-files/place.ts': { why: 'restored names (ko next to en/id/ja/es)', also: /복원됨\|/ },
   'server/src/tools/make-file.ts': { why: 'a wide-character range for table widths', also: /가-힣|\\uAC00|ᄀ/ },
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en/id/ja/es)' },
+  'shared/src/web-allow-all.ts': { why: 'the "Allow all websites" risk sentence, one versioned text for the address card, Settings and the desktop window (ko next to en/id/ja/es)' },
   'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en/id/ja/es)' },
+  'server/src/policy/refusal.ts': { why: 'the screen names a refusal points the person to, as the app shows them (ko next to en/id/ja/es)' },
+  'server/src/chat/delete-files.ts': { why: 'the delete_files card (ko next to en/id/ja/es)' },
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
   'server/src/integrations/slack/text.ts': { why: 'what the Slack connector says in Slack and its screens\' refusals (ko next to en/id/ja/es)' },
   'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en/id/ja/es)' },
   'server/src/auth/profiles.ts': { why: 'profile photo upload refusals (ko next to en/id/ja/es)' },
+  'server/src/auth/status-plan.ts': { why: 'status message refusals (ko next to en/id/ja/es)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en/id/ja/es)' },
   'server/src/tools/save-url.ts': { why: 'the large-download card and the disk refusal (ko next to en/id/ja/es)' },
   'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en/id/ja/es)' },
@@ -181,6 +187,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/onboarding/file-rank.ts': { why: '팀 파일\'s AI picks: the pick chat\'s title and request (ko next to en/id/ja/es)' },
   'server/src/onboarding/welcome-result.ts': { why: 'the first result\'s chat title, messages, file names and the company intro file\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ head: \(n\) => / },
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
+  'shared/src/folder-labels.ts': { why: 'the top folders\' words on screen and the templates and archive folder names (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-packs.ts': { why: 'the kept skills\' one line in the catalog (ko next to en/id/ja/es)' },
   'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^const AI_OWN_NAMES = \['트리나', / },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
@@ -203,7 +210,9 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/skills/share-check.ts': { why: 'Korean words that tell the AI to run a script (matched in a SKILL.md, not screen text)', also: /^\s*\/스크립트\[/ },
   'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },
   'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
-  'server/src/knowledge-graph/documents/text.ts': { why: 'Korean particles, endings, stopwords and generic document titles for the knowledge graph\'s search tokenizer, and its Hangul range (word lists, not screen text)', also: /^const (HANGUL|KO_SUFFIX) = |^\s+'[^']*'(, '[^']*')*(,|\]\)?)$/ },
+  'server/src/chat/project-members.ts': { why: 'the members card\'s words (ko next to en/id/ja/es), and the Korean particles that may follow a name in the person\'s own words (a word list the red mark\'s check matches, not screen text), the honorifics and group words a name given may end with (word lists the name match strips, not screen text)', also: /^const (PARTICLE|HONORIFICS|GROUP_WORDS) = / },
+  'server/src/chat/often-asked.ts': { why: '"what my group often asks": the Korean titles and particles after a name that make a plain word stand for a person (patterns the name check matches, not screen text)', also: /^const KO_TITLES = |\(\?:한테\|에게\|께서\||\(\?:의\|과\|와\|하고\|도\)\)/ },
+  'server/src/chat/often-asked-words.ts': { why: '"what my group often asks": the Korean function words, plain verbs and endings a sentence is read with (word lists, not screen text), and the Korean first lines of the app\'s own box prompts (matched, checked against web/src/i18n by b-often-asked-words.test.ts)', also: /^ {2}[가-힣 ]+$|^ {4}"(?:[^"\\]|\\.)*",$/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

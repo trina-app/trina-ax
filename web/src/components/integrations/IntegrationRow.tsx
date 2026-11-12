@@ -6,15 +6,16 @@
 // turned off is not offered to the AI, server/src/integrations/connections/tools.ts; tools the service adds later are
 // on), and for people who manage it check again / sign in / edit / delete. Signing in stays on the line while it is what
 // the connection needs. Signing in (MCP OAuth) opens the service's page in a window reserved during the click and polls
-// the flow until the server has the tokens.
+// the flow until the server has the tokens. In the phone app a connection is changed on a computer: its row keeps its
+// state, Check again and Delete (44 px), with no Edit.
 import clsx from 'clsx'
 import { Check, ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import type { Integration, IntegrationFlow } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
-import { authorizationUrl, canSignIn, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
+import { audienceOf, authorizationUrl, canSignIn, flowReasonKey, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -36,13 +37,20 @@ export interface SignInState {
   flowId: string | null
   url: string | null
   state: IntegrationFlow['state'] | 'starting'
+  /** why it failed, in words for the person (never the server's code) */
   reason: string | null
+  /** the person came back to this page while it was still waiting (the window may have been closed): the panel says
+   * it has not finished, with 다시 시도 and 취소, instead of "finish in the new window" (QA TC-205). Not from
+   * window.closed: a sign-in page with a Cross-Origin-Opener-Policy makes an open window read as closed. */
+  away?: boolean
 }
 
 const WAITING = new Set<SignInState['state']>(['starting', 'pending', 'exchanging'])
 
-/** Signing in at one connection's service at a time: start (with a window reserved during the click), poll, cancel. */
-export function useSignIn(onCompleted: (id: string) => void) {
+/** Signing in at one connection's service at a time: start (with a window reserved during the click), poll, cancel.
+ * `onGone`: the connection is not there any more (404: its template changed or went while the page was open); the
+ * row's failed state is not kept, the caller reads the list again. */
+export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void) {
   const t = useT()
   const locale = useLocale()
   const [s, setS] = useState<SignInState | null>(null)
@@ -50,6 +58,8 @@ export function useSignIn(onCompleted: (id: string) => void) {
   const generation = useRef(0)
   const done = useRef(onCompleted)
   done.current = onCompleted
+  const goneRef = useRef(onGone)
+  goneRef.current = onGone
   useEffect(() => () => {
     generation.current++
     popup.current?.close()
@@ -74,7 +84,8 @@ export function useSignIn(onCompleted: (id: string) => void) {
         if (f.state === 'failed' || f.state === 'expired') {
           popup.current?.close()
           popup.current = null
-          setS((x) => (x && x.flowId === flowId ? { ...x, state: f.state, reason: f.reason } : x))
+          // the server's reason is a code: shown in words (never the code itself)
+          setS((x) => (x && x.flowId === flowId ? { ...x, state: f.state, reason: f.state === 'failed' ? t(flowReasonKey(f.reason)) : null } : x))
           return
         }
         setS((x) => (x && x.flowId === flowId && x.state !== f.state ? { ...x, state: f.state } : x))
@@ -86,9 +97,13 @@ export function useSignIn(onCompleted: (id: string) => void) {
       if (active && g === generation.current) timer = setTimeout(poll, 1500)
     }
     timer = setTimeout(poll, 1000)
+    // back on this page with the sign-in not done: it may have been closed (the poll goes on: one finished late completes)
+    const back = () => setS((x) => (x && x.flowId === flowId && WAITING.has(x.state) && !x.away ? { ...x, away: true } : x))
+    window.addEventListener('focus', back)
     return () => {
       active = false
       clearTimeout(timer)
+      window.removeEventListener('focus', back)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s?.flowId, waiting])
@@ -117,6 +132,11 @@ export function useSignIn(onCompleted: (id: string) => void) {
       if (g !== generation.current) return
       popup.current?.close()
       popup.current = null
+      if (isApiError(e, 'not_found') && goneRef.current) {
+        setS(null)
+        goneRef.current()
+        return
+      }
       setS({ id, flowId: null, url: null, state: 'failed', reason: errorText(e, locale, t('error.network')) })
     }
   }
@@ -139,6 +159,17 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
   const [checking, setChecking] = useState<string | null>(null)
   // one tool on or off for the AI (a second click while its request is on its way is ignored)
   const switching = useRef(new Set<string>())
+  /** a connection that is not there any more (404: an admin changed or deleted the template it was made from while
+   * this page was open): say so and read the lists again, instead of "not found" on a row that stays */
+  const goneNow = () => {
+    toast({ level: 'info', text: t('integrations.gone') })
+    reload()
+  }
+  const gone = (e: unknown) => {
+    if (!isApiError(e, 'not_found')) return false
+    goneNow()
+    return true
+  }
   const setTool = async (i: Integration, name: string, enabled: boolean) => {
     const key = `${i.id}\n${name}`
     if (switching.current.has(key)) return
@@ -146,6 +177,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     try {
       replace(await api.call(API.setIntegrationTool, { params: { id: i.id }, body: { name, enabled } }))
     } catch (e) {
+      if (gone(e)) return
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
       switching.current.delete(key)
@@ -159,6 +191,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
       // connected with a reason: the check failed, the tools saved before stay (the row says so)
       toast(r.status === 'connected' && !r.lastError ? { level: 'success', text: t('integrations.checked') } : { level: 'warn', text: t('integrations.checkFailed') })
     } catch (e) {
+      if (gone(e)) return
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
       setChecking(null)
@@ -172,13 +205,14 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
       toast({ level: 'success', text: t('integrations.deleted') })
       reload()
     } catch (e) {
+      if (gone(e)) return
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
   const signIn = useSignIn(() => {
     toast({ level: 'success', text: t('integrations.signIn.done') })
     reload()
-  })
+  }, goneNow)
   /** the dialog saved `i`: show it, then sign in at the service (in the window reserved during the click) or say how
    * the check went: connected, sign-in still to do, or saved but failing (the row says why) */
   const saved = (i: Integration, next: { window: Window | null } | null, created: boolean) => {
@@ -195,12 +229,34 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
 
 export type IntegrationActions = ReturnType<typeof useIntegrationActions>
 
-export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: {
+/** Admin › Connectors: who may use a team connection or template, as one quiet chip after its name ("Everyone",
+ * "Design +2", "3 people"), every name in its tip. Nothing when nobody may (the row warns instead), or until the
+ * groups and people have loaded. */
+export function AudienceChip({ access, groups, users }: { access: IntegrationAccess; groups: Group[] | null; users: User[] | null }) {
+  const t = useT()
+  if (!groups || !users) return null
+  const a = audienceOf(access, groups, users)
+  if (!a) return null
+  const label = a.kind === 'everyone' ? t('integrations.audience.everyone')
+    : a.kind === 'people' ? t('integrations.audience.people', { n: a.n })
+    : a.more ? t('integrations.audience.more', { name: a.name, n: a.more }) : a.name
+  return (
+    <span className="inline-flex min-w-0" title={a.kind === 'everyone' ? undefined : t('integrations.users', { who: a.all })} data-testid="integration-audience">
+      <Badge className="max-w-48"><span className="min-w-0 truncate">{label}</span></Badge>
+    </span>
+  )
+}
+
+export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, alert, extra }: {
   i: Integration
   actions: IntegrationActions
   onEdit: () => void
-  /** mark team connections (Settings lists them under one's own) */
-  teamBadge?: boolean
+  /** no managing here, even for whoever may (Settings' "From <team>": an admin manages them in Admin › Connectors) */
+  readOnly?: boolean
+  /** what this person gets, on the right instead of the connection's state (Settings' "From <team>": Ready, Off for you) */
+  state?: ReactNode
+  /** right after the name (Admin: who may use it, AudienceChip) */
+  audience?: ReactNode
   /** a warning that stays on the line, not in the details (Admin: nobody may use it, or not the admin looking at it) */
   alert?: ReactNode
   /** more lines under the details (Admin: who may use it) */
@@ -212,12 +268,16 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
   const [open, setOpen] = useState(false)
   const detailsId = useId()
   const toolsId = useId()
+  const manage = i.canManage && !readOnly
   const flow = actions.signIn.state?.id === i.id ? actions.signIn.state : null
   const checking = actions.checking === i.id
   const phone = !!mobileApp()
   const KindIcon = i.kind === 'mcp' ? Waypoints : Globe
   const listed = connectorFor(i.url)
-  const kindLabel = t(i.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')
+  // the line under the name: what a known service does ("Search, read and update your pages…"), the kind ("MCP server",
+  // "API") only for one added by its address, which only owners and admins add (docs/DECISIONS.md "Plain words for
+  // members")
+  const kindLabel = listed ? t(`integrations.catalog.${listed.id}`) : t(i.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')
   const off = i.tools.filter((x) => x.enabled === false).length
   const short = toolsShortfall(i)
   const note = lastCheckNote(i)
@@ -226,7 +286,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
   if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
   if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
   meta.push(i.lastUsedAt ? t('integrations.lastUsed', { date: formatDateTime(i.lastUsedAt, locale) }) : t('integrations.neverUsed'))
-  const signInButton = canSignIn(i) && !phone && !flow && (
+  const signInButton = manage && canSignIn(i) && !phone && !flow && (
     <Button size="sm" variant={i.status === 'needs_auth' ? 'primary' : 'secondary'} className="shrink-0" onClick={() => void actions.signIn.start(i.id)} data-testid="integration-signin-start">
       <LogIn size={14} aria-hidden /> {t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn')}
     </Button>
@@ -250,7 +310,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="max-w-full truncate text-sm font-medium" title={i.name}>{i.name}</span>
-              {teamBadge && i.scope === 'team' && <Badge tone="accent">{t('integrations.teamBadge')}</Badge>}
+              {audience}
               {i.writePolicy === 'allow' && <Badge tone="warn">{t('integrations.write.allow')}</Badge>}
               {alert}
             </span>
@@ -258,7 +318,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
               {i.lastError ?? kindLabel}
             </span>
           </span>
-          {i.status === 'connected' ? (
+          {state ?? (i.status === 'connected' ? (
             <Tooltip label={t('integrations.status.connected')}>
               <span className="flex shrink-0 items-center text-ok">
                 <Check size={16} aria-hidden />
@@ -268,7 +328,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
           ) : (
             // beside a sign-in button a phone's width goes to the name: the button says the same
             <Badge tone={STATUS_TONE[i.status]} className={clsx('shrink-0', signInButton && 'max-sm:hidden')}>{t(`integrations.status.${i.status}`)}</Badge>
-          )}
+          ))}
           <ChevronDown size={15} className={clsx('shrink-0 text-faint transition-transform', details && 'rotate-180')} aria-hidden />
         </button>
         {i.status === 'needs_auth' && signInButton}
@@ -291,18 +351,20 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
             {meta.join(' · ')}
           </p>
           {i.writePolicy === 'deny' && <p className="mt-1"><Badge>{t('integrations.write.deny')}</Badge></p>}
-          {canSignIn(i) && phone && <p className="mt-1 text-xs text-muted">{t('integrations.signIn.phone')}</p>}
+          {manage && canSignIn(i) && phone && <p className="mt-1 text-xs text-muted">{t('integrations.signIn.phone')}</p>}
           {extra}
-          {i.canManage && (
+          {manage && (
             <div className="mt-2 flex flex-wrap items-center gap-1">
               {i.status !== 'needs_auth' && signInButton}
               <Button size="sm" disabled={checking} onClick={() => void actions.refresh(i)} data-testid="integration-refresh">
                 <RefreshCw size={14} className={clsx(checking && 'animate-spin')} aria-hidden /> {t('integrations.refresh')}
               </Button>
-              <IconButton label={t('integrations.edit', { name: i.name })} onClick={onEdit} data-testid="integration-edit">
-                <Pencil size={15} />
-              </IconButton>
-              <IconButton label={t('integrations.delete', { name: i.name })} danger onClick={() => void actions.remove(i)} data-testid="integration-delete">
+              {!phone && (
+                <IconButton label={t('integrations.edit', { name: i.name })} onClick={onEdit} data-testid="integration-edit">
+                  <Pencil size={15} />
+                </IconButton>
+              )}
+              <IconButton label={t('integrations.delete', { name: i.name })} danger className={phone ? 'touch-hit' : undefined} onClick={() => void actions.remove(i)} data-testid="integration-delete">
                 <Trash2 size={15} />
               </IconButton>
             </div>
@@ -329,11 +391,11 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
                                 <span className={clsx('font-medium break-all', on ? 'text-ink' : 'text-muted')}>{x.title || x.name}</span>
                                 {x.title && x.title !== x.name && <code className="break-all text-faint">{x.name}</code>}
                                 {x.readOnly && <Badge tone="ok">{t('integrations.readOnly')}</Badge>}
-                                {!on && !i.canManage && <Badge>{t('integrations.toolOff')}</Badge>}
+                                {!on && !manage && <Badge>{t('integrations.toolOff')}</Badge>}
                               </p>
                               {x.description && <p className="mt-0.5 line-clamp-3 break-words text-muted">{x.description}</p>}
                             </div>
-                            {i.canManage && (
+                            {manage && (
                               <span className="shrink-0 pt-0.5">
                                 {/* never disabled while saving: a disabled control loses keyboard focus (setTool ignores a second click) */}
                                 <Switch checked={on} hideLabel label={t('integrations.toolSwitch', { name: x.title || x.name })}
@@ -347,7 +409,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
                   )}
                   <p className="mt-1.5 text-xs text-faint">
                     {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
-                    {i.tools.length > 0 && `${t(i.canManage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
+                    {i.tools.length > 0 && `${t(manage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
                     {t('integrations.toolsHint')}
                     {i.toolsUpdatedAt && ` ${t('integrations.toolsChecked', { date: formatDateTime(i.toolsUpdatedAt, locale) })}`}
                   </p>
@@ -361,7 +423,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
   )
 }
 
-function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: () => void; onCancel: () => void }) {
+export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: () => void; onCancel: () => void }) {
   const t = useT()
   const failed = !WAITING.has(flow.state)
   return (
@@ -371,7 +433,7 @@ function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: 
           {flow.state === 'expired' ? t('integrations.signIn.expired') : flow.reason || t('integrations.signIn.failed')}
         </p>
       ) : (
-        <p role="status">{t('integrations.signIn.waiting')}</p>
+        <p role="status">{t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')}</p>
       )}
       <div className="flex flex-wrap items-center gap-2">
         {!failed && flow.url && (
@@ -379,8 +441,8 @@ function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: 
             {t('integrations.signIn.open')}
           </a>
         )}
-        {failed && (
-          <Button size="sm" onClick={onRetry}>
+        {(failed || flow.away) && (
+          <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
             {t('common.retry')}
           </Button>
         )}

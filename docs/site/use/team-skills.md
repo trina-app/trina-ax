@@ -41,9 +41,10 @@ Only skills with a known origin ship. Earlier versions also added skills for mee
 | `skills/<name>/SKILL.md` | Everyone who can read `skills/` (usually the whole team) |
 | `skills/<folder>/<name>/SKILL.md` | Only people who can read that folder, for example `skills/finance/` |
 | `groups/<group>/skills/<name>/SKILL.md` | Only the members of that group. Not the owner or admins outside it. |
+| `projects/<project>/skills/<name>/SKILL.md` | Only in that project's chats, for the people who can read the project's folder. |
 | `users/<you>/skills/<name>/SKILL.md` | Only you. Not even the owner or admins. |
 
-When two skills share a name, the closest one wins, for you only: your personal skill, then your group's, then the team's. If two of your groups have a skill with the same name, both are listed with their folder, and `/name` uses the one of the group whose name comes first.
+When two skills share a name, the closest one wins, for you only: your personal skill, then your group's, then the team's, then the project's. A project skill only adds new names. If two of your groups have a skill with the same name, both are listed with their folder, and `/name` uses the one of the group whose name comes first.
 
 ## Group skills
 
@@ -54,6 +55,14 @@ Every group has its own skills in its folder: `groups/<group>/skills/`, next to 
 - Renaming a group keeps its folder; the section in **Team skills** shows the new name at once. Deleting a group removes its skills from its members' lists.
 
 A group skill is written by the group's members, not by the team's skill managers: what one member saves there, every member's AI follows.
+
+## Project skills
+
+A team project in `projects/<project>/` can have skills of its own in its `skills/` folder, one folder with a `SKILL.md` per skill. The AI uses them only in that project's chats (yours, shared ones and scheduled tasks in the project), never in rooms or your other chats. **Team skills** shows a section per project, **<project> project skills**, and the `/` menu marks them inside the project.
+
+- Whoever can write the project's folder can add or change them; the AI asks on a card first, named for the project, and every change is recorded with the project's name.
+- A project skill only adds new names. A name the team, a group or you already use is marked **Same name: the whole team** on the page, and the AI's card offers another name instead of saving one that would never run.
+- To move a skill between the team, a group, a project and your own skills, use **Move…** in the skill's menu: it shows who gains and who loses it at each level, and the whole text before more people get it. You can also ask the AI in a project chat; it only moves a skill where fewer people get it, after a card that lists every file.
 
 ## Write a skill
 
@@ -84,7 +93,7 @@ Return decisions, an action table and open questions. Cite the source paths.
 
 ## Bring your skills from Claude Code or Codex
 
-Owners and admins can bring the skills they already use to the team: in the setup steps (under the ready-made skills), with **Bring my skills** under the list on **Available skills**, or from a proposal link. On a phone the page says this is done on a computer.
+Owners and admins can bring the skills they already use to the team with **Bring my skills** under the list on **Available skills**, or from a proposal link. The setup steps offer only the ready-made skills. On a phone the page says this is done on a computer.
 
 | From | Pick or drop | What is read |
 |---|---|---|
@@ -97,7 +106,7 @@ Or, once Claude Code or Codex is connected to the team ([the MCP connector](../a
 - The server checks every skill again and suggests the ones the whole team can use. If that check takes longer than 30 seconds, the list shows with nothing ticked and you pick yourself. Nothing reaches the team before you press the button that adds it.
 - The rule file becomes one team rule. Remote MCP servers become connection templates without keys: each member connects with their own.
 - A skill with the same name as a team skill is merged in a chat that can only read the two and save the team skill, after you confirm.
-- **To one of your groups instead.** On the proposal's page, **Share with** picks the whole team (the default) or one of your groups; Claude Code and Codex can name the group too. A proposal to a group adds skills only (no team rule, no connections) and never changes a team skill: a skill named like one of the group's is merged into it or kept beside it, and one named like a team skill becomes the group's own copy. The group's members see it under **Team skills › Review** (only what goes to the group) and any of them can add it to the group. The setup steps always share with the team.
+- **To one of your groups instead.** On the proposal's page, **Share with** picks the whole team (the default) or one of your groups; Claude Code and Codex can name the group too. A proposal to a group adds skills only (no team rule, no connections) and never changes a team skill: a skill named like one of the group's is merged into it or kept beside it, and one named like a team skill becomes the group's own copy. The group's members see it under **Team skills › Review** (only what goes to the group) and any of them can add it to the group.
 
 ## Who can change skills
 

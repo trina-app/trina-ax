@@ -67,8 +67,9 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (!r.json.reactions?.some((x: { emoji: string; mine: boolean }) => x.emoji === '👍' && x.mine)) throw new Error(`the reaction is not the caller's: ${JSON.stringify(r.json)}`)
       const spoof = await w.as[who].req('PUT', `/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/reactions`, { emoji: '👍', on: true, userId: 'dana' })
       if (spoof.status !== 400) throw new Error(`a body naming a person was not refused: ${spoof.status}`)
-      const odd = await w.as[who].req('PUT', `/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/reactions`, { emoji: '💩', on: true })
-      if (odd.status !== 400) throw new Error(`an emoji outside the set was taken: ${odd.status}`)
+      // any one emoji, never text or markup
+      const odd = await w.as[who].req('PUT', `/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/reactions`, { emoji: '<b>👍</b>', on: true })
+      if (odd.status !== 400) throw new Error(`a reaction that is not one emoji was taken: ${odd.status}`)
     },
   },
   editRoomMessage: { build: (c, w) => c.patch(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}`, { body: `${C.dmMsg} (edited)` }), scope: 'own-alice' },

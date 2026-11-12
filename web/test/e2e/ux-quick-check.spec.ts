@@ -32,7 +32,7 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   const card = await box(bob)
   expect(card.x + card.width).toBeLessThanOrEqual(PHONE.width)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.width)
-  expect(await lines(bob.locator('p').first())).toBe(1)
+  expect(await lines(bob.getByText('Bob', { exact: true }))).toBe(1)
   // the owner (yourself): the "…" has only "Folders they see" (no actions on yourself)
   await page.getByTestId('member-card-olga').getByTestId('member-more').click()
   await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['accessView.membersLink']])
@@ -71,23 +71,30 @@ test('Admin › System at 1280: the server facts are one row each, every value o
   for (const v of await values.all()) expect(await lines(v)).toBe(1)
 })
 
-test('Admin › MCP: the help line is under the title, before the list', async ({ page }) => {
+test('Admin › Connectors: "applies to everyone in the team" above the title; nothing between the title and the list', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/connectors')
-  const note = page.getByTestId('team-integrations-note')
-  await expect(note).toHaveText(t['integrations.admin.desc'])
+  const scope = page.getByTestId('admin-content').getByTestId('page-scope')
+  await expect(scope).toHaveText(t['scope.teamName'].replace('{team}', 'Acme'))
   const header = await box(page.getByTestId('connectors-header'))
-  const n = await box(note)
-  expect(n.y).toBeGreaterThanOrEqual(header.y + header.height - 1)
-  // nothing between the line and the list: no card for requests (asking a member is in Add connection's menu)
-  await expect(page.getByText(t['integrations.admin.desc'])).toHaveCount(1)
+  // above the title row, and not under it (the row is filled, it would hide the line's descenders)
+  const s = await box(scope)
+  expect(s.y + s.height).toBeLessThanOrEqual(header.y + 0.5)
+  // the title is the same noun as Settings', with nothing beside it; no line and no card for requests under it (asking a
+  // member is in Add connection's menu): Discover starts right under the title
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['admin.integrations'], exact: true })).toBeVisible()
+  await expect(page.getByTestId('page-scope')).toHaveCount(1)
+  await expect(page.getByTestId('team-integrations-note')).toHaveCount(0)
+  expect((await box(page.getByTestId('connector-discover'))).y - (header.y + header.height)).toBeLessThan(40)
 })
 
 test('Admin › Plugins: a long licence list is "Licenses", the list in its tooltip and under the line when pressed', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/plugins')
+  // the licences are on the plugin's page
+  await page.locator('[data-testid="plugin-catalog"][data-plugin="app.trina.hwp-preview"]').getByTestId('plugin-open').click()
   const button = page.getByTestId('plugin-licenses').first()
   await expect(button).toHaveText(t['plugins.licenses'])
   await expect(button).toHaveAttribute('title', /^MIT AND Apache-2\.0 AND /)
@@ -98,22 +105,11 @@ test('Admin › Plugins: a long licence list is "Licenses", the list in its tool
   await expect(page.getByTestId('plugin-license-list').first()).toContainText('LicenseRef-HWP-Notices')
 })
 
-test('a phone: a cut row of tabs fades at that edge and keeps a margin before the chosen tab', async ({ page }) => {
+test('a phone: a cut row of tabs fades at that edge', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await phone(page)
-  // the Admin menu, opened on an item far to the right
-  await page.goto('/admin/usage')
-  const nav = page.getByTestId('admin-menu')
-  await expect(nav.locator('[aria-current="page"]')).toBeVisible()
-  await expect.poll(() => fade(nav)).toEqual([true, true])
-  const r = await box(nav)
-  const active = await box(nav.locator('[aria-current="page"]'))
-  expect(active.x).toBeGreaterThanOrEqual(r.x + 16)
-  expect(active.x + active.width).toBeLessThanOrEqual(r.x + r.width - 16)
-  // the start of the menu: only the end fades
-  await page.goto('/admin')
-  await expect.poll(() => fade(nav)).toEqual([false, true])
+  // (Admin's menu was such a row; on a phone it is a list now, docs/DECISIONS.md "Admin and Settings on phones")
   // the search palette's type tabs
   await page.keyboard.press('ControlOrMeta+k')
   const tabs = page.getByTestId('search-palette').getByRole('tablist')

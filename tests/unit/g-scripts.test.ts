@@ -5,6 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { WORK } from '../lib/env'
 
 const REPO = path.resolve(import.meta.dir, '..', '..')
@@ -213,6 +214,30 @@ describe('Linux root scripts: syntax and rules', () => {
     expect(s).toMatch(/sha256sum "\$out"/)
   })
 
+  test('a minimal system (no procps): the /etc folders are made before writing, sysctl may be missing, check says so', () => {
+    // 2026-11-11: the 0.4.0 kit on a fresh debian:trixie stopped with "/etc/sysctl.d/60-mycel.conf.tmp: No such file or
+    // directory": a minimal Debian 13 has no procps, so neither /etc/sysctl.d nor sysctl
+    const s = read('scripts/install-linux.sh')
+    const before = (a: string, b: string) => {
+      expect(s.indexOf(a)).toBeGreaterThan(0)
+      expect(s.indexOf(a)).toBeLessThan(s.indexOf(b))
+    }
+    before('mkdir -p /etc/sysctl.d\n', '> "$SYSCTL_F.tmp"')
+    before('mkdir -p /etc/apparmor.d\n', 'install -o root -g root -m 644 "$T" "/etc/apparmor.d/$ID-bwrap"')
+    before('mkdir -p "$UNIT_DIR"\n', 'install -o root -g root -m 644 "$f" "$UNIT_DIR/')
+    before('mkdir -p /etc/systemd/journald.conf.d\n', 'install -o root -g root -m 644 "$ITMP/journald.conf" "$JD"')
+    // no sysctl: the value goes to /proc; the reload is not called unguarded
+    expect(s).toMatch(/if command -v sysctl >\/dev\/null 2>&1; then sysctl -q -p "\$SYSCTL_F"[^\n]*\n\s+else \{ printf '1\\n' > \/proc\/sys\/kernel\/yama\/ptrace_scope; \} 2>\/dev\/null; fi/)
+    expect(s.match(/sysctl -q -p/g)!.length).toBe(1)
+    // the check names it (and warns with --skip-apt, which installs nothing)
+    const check = s.slice(s.indexOf('if [ "$CMD" = check ]; then'), s.indexOf('if PF=$("$CTL_KIT" preflight'))
+    expect(check).toContain('sysctl not installed yet (install adds procps)')
+    expect(check).toContain('sysctl is missing (package procps) and --skip-apt installs nothing: install would stop')
+    // procps is in an always group, so every install, --minimal included, the image and docker/Dockerfile get it
+    const list = JSON.parse(read('scripts/system/packages.json')) as { groups: Record<string, { install: string; packages?: Record<string, unknown> }> }
+    expect(Object.values(list.groups).some((g) => g.install === 'always' && g.packages && 'procps' in g.packages)).toBe(true)
+  })
+
   test('--image-mode (template build, scripts/image/customize.sh): accepted, install only, enables and starts nothing', () => {
     const run = (...a: string[]) => Bun.spawnSync(['/bin/bash', path.join(REPO, 'scripts', 'install-linux.sh'), ...a], { stdout: 'pipe', stderr: 'pipe' })
     // the pilot of 2026-10-30: customize.sh passes it, and the installer stopped with "unknown option --image-mode"
@@ -231,6 +256,33 @@ describe('Linux root scripts: syntax and rules', () => {
     expect(s).toMatch(/if \[ "\$IMAGE_MODE" = 1 \]; then\n\s+say "image mode: engine firewall not loaded/)
     // an engine version it cannot read only warns for a file that matched the pinned SHA-256 (no --engine NAME=FILE)
     expect(s).toContain('if [ "$IMAGE_MODE" = 1 ] && [ -z "$got" ] && [ -z "$src" ]; then')
+  })
+
+  test('setup/code goes once the team has its owner: at a repair or update, and at an uninstall that keeps the data', () => {
+    // 11-11 code audit, row 120: the code stayed after the owner was made (the server deletes only data/setup-token)
+    const s = read('scripts/install-linux.sh')
+    const fn = s.match(/^drop_spent_setup_code\(\) \{[\s\S]*?^\}$/m)?.[0]
+    expect(fn).toBeDefined()
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'setup-code-'))
+    try {
+      const run = (o: { db: boolean; token: boolean }) => {
+        const base = fs.mkdtempSync(path.join(work, 'base-'))
+        fs.mkdirSync(path.join(base, 'setup')); fs.mkdirSync(path.join(base, 'data'))
+        fs.writeFileSync(path.join(base, 'setup', 'code'), 'code\n')
+        if (o.db) fs.writeFileSync(path.join(base, 'data', 'app.db'), '')
+        if (o.token) fs.writeFileSync(path.join(base, 'data', 'setup-token'), 'code\n')
+        const p = Bun.spawnSync(['/bin/bash', '-c', `set -euo pipefail\n${fn}\ndrop_spent_setup_code`], { env: { PATH: '/usr/bin:/bin', BASE: base }, stderr: 'pipe' })
+        expect(p.exitCode).toBe(0)
+        return fs.existsSync(path.join(base, 'setup', 'code'))
+      }
+      expect(run({ db: true, token: false })).toBe(false) // set up: spent
+      expect(run({ db: true, token: true })).toBe(true) // the database is there, nobody set the team up yet
+      expect(run({ db: false, token: false })).toBe(true) // a new install before its first start
+    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+    // called after step 11 (install, repair, update) and by an uninstall that keeps the data
+    const step11 = s.indexOf('# ---- 11) one-time setup code')
+    expect(s.indexOf('\ndrop_spent_setup_code\n', step11)).toBeGreaterThan(step11)
+    expect(s).toMatch(/elif \[ -d "\$BASE" \]; then\n\s+drop_spent_setup_code\n/)
   })
 
   test('unit templates: the spec\'s hardening, the launcher\'s sandbox flags, only known placeholders', () => {

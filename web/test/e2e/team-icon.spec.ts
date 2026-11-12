@@ -146,7 +146,8 @@ test('phone width: the previews keep the sidebar\'s logo size and the page does 
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await signIn(page)
-  await page.goto('/admin/settings')
+  // a phone: the logo is in Team settings' General (pages/admin/teamSettingsGroups.ts)
+  await page.goto('/admin/settings/general')
   await page.getByTestId('team-icon-input').setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
   await page.getByTestId('team-icon-previews').click()
@@ -163,7 +164,7 @@ test('the sidebar header shows a non-square logo cropped, not stretched', async 
   const logo = page.getByTestId('sidebar-logo')
   await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(240)
   const box = (await logo.boundingBox())!
-  expect([box.width, box.height]).toEqual([20, 20])
+  expect([box.width, box.height]).toEqual([28, 28])
   expect(await logo.evaluate((el) => getComputedStyle(el).objectFit)).toBe('cover')
 })
 

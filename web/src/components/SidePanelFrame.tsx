@@ -27,8 +27,9 @@ export default function SidePanelFrame({ children, besideThread = false, expande
         // big: the sidebar's own edge is the line on its left
         'min-w-0 border-line outline-none md:relative bg-surface',
         !expanded && 'md:border-l',
-        // phones: a full-screen sheet over everything (no edge of its own)
-        'max-md:fixed max-md:inset-0 max-md:z-40 max-md:pt-[var(--safe-top)] max-md:pb-[var(--safe-bottom)]',
+        // phones: a full-screen sheet over everything (no edge of its own), ending on the keyboard while it is up
+        // (lib/viewport.ts --kb-inset)
+        'max-md:fixed max-md:inset-0 max-md:bottom-[var(--kb-inset,0px)] max-md:z-40 max-md:pt-[var(--safe-top)] max-md:pb-[var(--safe-bottom)]',
         expanded ? 'md:flex-1' : 'md:w-[var(--panel-w,min(46%,880px))] md:min-w-[320px]',
       )}
     >

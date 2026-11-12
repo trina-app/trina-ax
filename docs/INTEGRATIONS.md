@@ -5,16 +5,24 @@ The AI can use services outside the team server with a person's or the team's ow
 - **MCP servers** (Notion, Linear, GitHub, Atlassian …): the address is enough; the server lists its tools. Sign-in
   (OAuth) or a key.
 - **HTTP APIs with a key** (an internal tool such as AI PM): address, key and a note on how to use it. The AI gets one
-  tool, `api_request`, that can only call addresses under that connection's address.
+  tool, `api_request`, that can only call addresses under that connection's address. An API that signs in with OAuth
+  (NAVER WORKS …) signs in with your own app instead of a key ("Your own app" below).
 
-Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Settings › App connectors as a
+Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Connectors (the main sidebar) as a
 card whose Connect goes straight to Google (`web/src/components/integrations/DriveConnector.tsx`; the old
 `/settings/drive` leads there), and so does asking the AI from Slack ([SLACK.md](SLACK.md)). App connectors are the
 apps this server's AI uses with a person's own account (`web/src/lib/connectors.ts` `APP_CONNECTORS`, one card each).
 Admin › App connectors shows whether the server has a Google client and how many members are connected, and an admin
 can set the client up there. These connections are the other direction from the "connectors" of
 `server/src/connectors/remote-mcp` (outside AI apps such as Claude using this server's files), which are Settings › AI
-apps and Admin › AI apps.
+apps and Admin › Use from other AI apps.
+
+Gmail, Google Calendar, Google Docs and Google Sheets are built-in connectors too
+([GOOGLE-APPS.md](GOOGLE-APPS.md)): a card each, one Google sign-in per app, the tools of the Google Workspace MCP
+server this server runs on 127.0.0.1. Each person's connection is a personal row here with `google_app` set: every rule
+below (sealed tokens, the write card, scheduled runs, per-tool switches, audit) applies, except that it is hidden from
+this list and its own page manages it, it may be set to Always allow by its owner, and its calls go only to that local
+server.
 
 ## App connectors (the other direction)
 
@@ -38,7 +46,7 @@ team app changes them only after its own confirmation, which an outside model ca
   (`mcp:rooms.write`) unticked and only with reading (a page without these boxes grants neither); `mcp:admin` comes
   with every new connection of an active owner or admin (no
   box; one line on the page says so), never a member's. The token's `scope` names exactly what was granted, and a
-  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › AI apps says so).
+  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › Use from other AI apps says so).
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
@@ -89,7 +97,7 @@ back), `server/src/routes/integrations.ts`, migration
 
 A template is a service an admin registers once for the team, without a key; each member it is for connects it with
 their own key or sign-in. One shared team key would let everyone's AI act with the key owner's rights, and the service
-would log every call under that one person; a template keeps each call under its member's own rights. In Admin › MCP,
+would log every call under that one person; a template keeps each call under its member's own rights. In Admin › Connected apps,
 "Add connection" (and a Discover card's +) asks who connects: **For the team (one key)**, a team connection as above,
 the default; or **Template: each member connects their own**, which takes the kind, name, address, sign-in method (an
 API key with its header, or OAuth), who it is for (everyone, groups, people; admins only when named) and an optional
@@ -98,9 +106,9 @@ member's key, so a key there would reach every member and the service would log 
 name reaches every member's AI, so it may not hold hidden or direction-changing characters, a double quote or control
 characters (and the note no hidden characters).
 
-- The members it is for see it in Settings › MCP under **From your team**. **Connect** opens the same dialog as an
-  admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and the write rule
-  (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
+- The members it is for see it under Connectors (the main sidebar) in **Your connectors**, with a Team label and **Connect**, which opens the same
+  dialog as an admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and
+  the write rule (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
   refused (409, "This template changed") and shown again as it is now. It becomes their own (personal) connection, made through the same create path as one they add
   themselves (`template_id` set), used only in their chats with their key. They may change only their key or sign-in
   and the write rule; the address, sign-in method, header, name and note are the template's, so a key only ever goes
@@ -121,7 +129,7 @@ characters (and the note no hidden characters).
   Its maker is not told about their own template, someone who connected it already is not told, and
   `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
   address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
-  (`integration.template_reconnect`, one per change). Both open Settings › MCP with the template's Connect
+  (`integration.template_reconnect`, one per change). Both open Connectors with the template's Connect
   (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
 - In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
   offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
@@ -174,6 +182,36 @@ after 7 days) and can withdraw a waiting request; the admin never sees the key o
 `server/src/integrations/connections/requests.ts`, migrations `220_b_integration_request_notices.sql` and
 `331_c_integration_requests.sql`. Decisions: [DECISIONS.md](DECISIONS.md) "Asking a member to connect a service as
 their own".
+
+## A member asks for an app
+
+The other direction: a member who opens an app the team has not set up (Google Drive, Gmail, Google Calendar, Google
+Docs, Google Sheets: the apps an admin sets up once for everyone) taps **Ask admin to add it** on its page, like an app
+request in Slack. It takes the place of the Connect button that could not work and of the "not set up" line; afterwards
+the page says "Request sent", opened again "Already asked", and the app's card says "Asked".
+
+- Only those five ids, only while the app is not set up (`POST /api/integrations/service-requests {service}`). The
+  server refuses any other name (400 `unknown_service`: no free text from a member reaches an admin), an app the member
+  can connect already (409 `can_connect`), one an admin turned off for members or this computer cannot run (409
+  `not_requestable`; also a setup that is not the admins' to make: a hosted team's, an operator's file), and owners
+  and admins (403: they set it up themselves). Listed MCP services are not asked for: a member adds those with their
+  own account.
+- One open request per member and app; asking again while it is open answers `already` and sends nothing. At most 10
+  new requests per member a day (429). Audited `service_request.ask`.
+- The owner and the admins get one notice per app in Activity (`service.request`, table `service_request_notices`),
+  armed again (unread, on top) by each new ask: "Alice asked to add Gmail", "Erin and 2 others asked to add Gmail". Its
+  row opens the app's setup in Admin › Connected apps. The names are read when the inbox is shown. The 30-second check
+  keeps these notices with whoever is an owner or admin now: someone who no longer is loses them, someone who became one
+  gets those of the apps asked for now.
+- Once members can connect the app (an admin set it up, or turned the members' switch on after that; also a setup made
+  elsewhere, checked every 30 seconds; not while the hosting service's Google review lets only its test users in), the
+  requests close, the admins' notice counts as read and says "Added", and each
+  member who asked gets one notice that it is ready (`service.ready`), which opens its page. Inbox only, never an OS
+  push. Requests also close after 30 days, or when their member leaves or becomes an owner or admin; then they may ask
+  again.
+- Nothing a member gets names an admin. Code: `server/src/integrations/service-requests.ts`,
+  `service-request-notices.ts`, migration `343_c_service_requests.sql`; web `components/integrations/AskAdmin.tsx`.
+  Decisions: [DECISIONS.md](DECISIONS.md) "A member asks an admin to add an app".
 
 ## Connecting from a chat
 
@@ -241,9 +279,27 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
 - **Where it is not offered.** Scheduled runs have nobody to finish a card: the tool answers "skipped" at once.
   Sub-agents never get the tool (`PARENT_ONLY_TOOLS`). Confidential chats (Safe operations) do not offer it: it is not a
   local tool, and connected services are not offered there either.
-- **A new connection's tools come with the next message.** A turn's tools are fixed when it starts (the engines'
-  tool lists and the model proxy's names for the turn), so the AI says it is connected and can use it from the
-  person's next message.
+- **The same answer goes on with the new connection** (owner decision 2026-11-12). A person asks "summarize my Notion
+  page about the launch" without Notion connected: the AI shows the card, the person connects it, and the AI goes on
+  with the same answer, using Notion, without the question being sent again. A running engine's tools are fixed (the
+  engines' tool lists, the model proxy's names, the lockdown check), so the turn goes on in a new step
+  (`chat/turn.ts`):
+  - Claude: the tool's result tells the AI to end its step; when that attempt ends normally, the turn builds its tool
+    set again (`buildToolSet`, the same person and chat, so the same filters as at the start) and resumes the same
+    engine session with the turn context (connections as they are now) and a server note as the message
+    (`continueAfterConnect`: the connection, its new tools or, when no name is new, `find_tools` / `call_tool` /
+    `api_request`, go on with the request in this answer). A new proxy token, lockdown and sub-agent list come from the
+    new set; the text goes on in the same answer message. At most `CONTINUE_MAX` (2) times per answer: a third card's
+    result says "from the next message". Each continuation gets only the tool rounds the answer has left; with fewer
+    than two the answer pauses at the round limit (`tool_limit`, "continue" goes on). The budget, the answer's time and
+    Stop apply as to any attempt (`launch`); an error, a stop or a refusal: no continuation. A retry that starts a
+    fresh session after a connect gets the new tool set from its start.
+  - The API engine (in the server): the tool set is built again before its next round and listed again.
+  - Codex (its runs start fresh, without the answer so far): unchanged, the tools come with the person's next message.
+  - Google Drive's tools are always offered, so a Drive connect never needs this.
+  The result says which (`next`); "Not now", a card whose time runs out or a stopped answer make no continuation. Only
+  the turn's person can finish the card (the route checks the owner), and the tools the answer goes on with are that
+  person's own: a room's answer (where `connect_service` is not offered) keeps only the asker's own Google apps.
 - If the person pastes a key into the chat anyway, the AI tells them not to, that it should be revoked and replaced
   at the service, and offers the card (the instructions' rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
   before sending text that almost surely holds a key, with "Send anyway" and "Edit" (`SecretWarning`), in every box
@@ -390,7 +446,101 @@ idle minutes; a 404 for it starts a new one.
 - The callback `GET /api/integrations/oauth/callback` needs a live browser session of the **same person** (any of their
   sessions); a browser without one, or another person's, changes nothing and the flow stays pending. The page is static
   text in the person's language ("you can close this window") with `no-store`, `no-referrer` and a CSP that allows only
-  its own hashed `window.close()`; the code and state are never put anywhere else.
+  its own hashed `window.close()`; the code and state are never put anywhere else. A sign-in the service did not finish
+  says why in plain words, on that page and on the connection's row (never the reason code, the service's answer or a
+  secret): access not allowed (`denied`), an own app's Client ID or Secret refused (`client`, from `invalid_client` or
+  `unauthorized_client`; `client_template` for a template's app, whose member is told to ask who set it up), the connection changed meanwhile (`changed`), or did not finish (`exchange`, `invalid`). The
+  flow is `completed` only once the connection's check after the sign-in has ended (its lifetime starts again when the
+  tokens are stored, so a long check is not swept as expired).
+
+## Your own app (client ID)
+
+Some services do not let apps register themselves (no dynamic client registration, RFC 7591), so the MCP sign-in above
+cannot start: Google's MCP servers (`https://gmailmcp.googleapis.com/mcp/v1`, `calendarmcp`, `drivemcp`, `docsmcp`,
+`sheetsmcp`, `chatmcp` … all `/mcp/v1`) and HTTP APIs that sign in with OAuth, such as NAVER WORKS
+(`https://www.worksapis.com/v1.0`). For them a connection or a template carries an app made in the service's console:
+`oauthClient { clientId, clientSecret?, authorizationUrl?, tokenUrl?, scope? }` (contract `OAuthClientInput`; the dialog's
+"Sign in with my own app").
+
+- **Where:** a personal connection (the member's own app), a team connection (an admin's), or a template (the team's
+  app: each member it is for signs in through it with their own account). Members never see a template's secret, and
+  the API shows them nothing of the app (`MyIntegrationTemplate` has no field for it, their connection's `oauthClient` is
+  null, they cannot set one on it); the client ID and scopes are in the sign-in address they open, as with any app.
+  A member signs in through a template's app only while the template is for them: checked when the sign-in starts,
+  when the browser comes back and on "check again" (a group change takes effect before the next list removes the
+  connection).
+  A request to one member cannot carry an app (a template does that).
+- **MCP server:** the client ID and secret are enough. The addresses are found from the server's address as for any MCP
+  sign-in; `scope` replaces the scopes the server lists (Google's servers list every scope they know, full mail access
+  included, so name the ones you want). With both addresses given nothing is looked up: the resource indicator stays,
+  and an empty scope asks for none. The first sign-in with a secret that works remembers the token address it used
+  (`foundTokenUrl` in `oauth_client`, never shown; `service.ts pinFound`, once the code was exchanged: a sign-in started
+  and never finished remembers nothing); a later sign-in whose server names another one is refused before anything is
+  sent ("enter the client secret again"), so a server cannot move where the secret goes. Entering the secret again (the
+  same one too, audited as `changed: ["tokenAddress"]`) or another app forgets it, and the next sign-in that works
+  remembers the new address. Of two sign-ins started before either finished, the first that works decides; the other is
+  refused, before its code is exchanged or, when the exchanges overlapped, by keeping none of its tokens. A sign-in
+  through a template's app finishes only on the template as it was when the sign-in started.
+- **HTTP API:** sign-in is a choice next to a key and needs the app with both addresses. No resource indicator is sent
+  (an API has none). `api_request` and the check send `Authorization: Bearer <token>`; a 401 refreshes the token once
+  and sends the request again (a refused request did nothing).
+- **The sign-in** is the authorization code with PKCE S256 and `state`, as above. The client secret goes only to the
+  token address, in the form body (`client_secret_post`: what Google and NAVER WORKS take) unless the server's metadata
+  lists only `client_secret_basic`. An answer's `iss` (RFC 9207) must be the issuer found or, with given addresses, on
+  the sign-in address's server (the same origin: an issuer may have a path, such as a tenant's); another is refused
+  before the code is exchanged (`oauth.ts issuerMatches`). Google (`https://accounts.google.com`) also gets
+  `access_type=offline` and `prompt=consent`: without them it hands out no refresh token and the person would sign in
+  again every hour. `expires_in` written as text (NAVER WORKS sends `"86400"`) is read as a number.
+- **Secrets:** the client secret is sealed in the connections key directory with its own AAD (`<connection AAD>:client`,
+  `template:<id>:client`; migration `338_c_integration_oauth_client.sql`, add-only); the client ID, addresses and scope
+  are kept in clear (`oauth_client`) to show them to whoever manages it. The secret is never in a response (`hasSecret`
+  only), a log line, an audit entry (`ownApp: true`, `changed: ["oauthClient"]`), a flow row or a tool result, and it is
+  hidden in what services send back like the tokens.
+- **Changes:** the secret is write-only, and a stored one only goes where it went before (`service.ts appAfter`, for
+  personal and team connections and templates alike): a change without it keeps it only with the same client ID, the
+  same sign-in and token addresses and the same service address, also when the app's addresses are given; otherwise it
+  goes unless a new one comes with the change. A second admin can neither point the token address elsewhere and have the
+  first admin's secret sent there, nor point the service address elsewhere: the members of a template would sign in at
+  the real service's consent screen for the team's app, and their tokens would then go to the new address. The secret
+  is bound to the service address it was entered or kept with (`boundUrl` in `oauth_client`, never shown): an older
+  build does not know these columns and can change the address and leave the secret (migration 338 keeps reader level
+  1), so a secret entered for another address is not used, the view says `hasSecret: false`, and the next save drops it
+  (`store.ts secretHere`). A change that leaves the app where it was never opens the secret (an unreadable key folder
+  must not cost it on a rename). Another client ID, secret, address or scope drops the sign-in, like a new address:
+  tokens are bound to the app; it is also revoked where the sign-in has a revocation address (found addresses may name
+  one; given addresses have none). Revoking sends a client secret only to the token address's own server
+  (`oauth.ts revoke`): a revocation address elsewhere is not told. This holds for any client with a secret, also one a
+  server registered and gave a secret (best effort either way). On a template it deletes the members' connections; they
+  are told to connect again. Leaving sign-in removes the app; `oauthClient: null` goes back to the service's own
+  registration.
+- **Redirect address** to register in the app at the service: `https://<team address>/api/integrations/oauth/callback`,
+  the address the app is open at (the server builds it from the page's own address; the dialog shows it with a copy
+  button). Register every address people sign in from.
+
+Setting up Google (Gmail, Calendar … MCP servers; in Google's Workspace Developer Preview Program in 2026-11):
+
+1. In a Google Cloud project, enable the product's API and its MCP service (e.g. Gmail API and Gmail MCP).
+2. OAuth consent screen: **Internal** for the company's own Google Workspace (no Google verification); otherwise
+   External with test users. Restricted scopes (`gmail.readonly`, `drive.readonly`) need Google's verification before an
+   External app may go public.
+3. Credentials › OAuth client ID › Web application, with the redirect address above.
+4. Admin › External services › add, as a template (each member signs in with their own Google account): MCP server,
+   `https://gmailmcp.googleapis.com/mcp/v1`, sign-in, "Sign in with my own app", the client ID and secret, and the scopes,
+   e.g. `https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose`.
+
+Setting up NAVER WORKS (API 2.0):
+
+1. Developer Console › the app: its Client ID and Client Secret, the Redirect URL above, the OAuth scopes the AI needs
+   (`calendar`, `mail`, `file`, `user.read` …), and the access token's lifetime.
+2. Admin › External services › add, as a template: API, `https://www.worksapis.com/v1.0`, sign-in, the client ID and
+   secret, sign-in address `https://auth.worksmobile.com/oauth2/v2.0/authorize`, token address
+   `https://auth.worksmobile.com/oauth2/v2.0/token`, the same scopes, and notes with the endpoints the AI should call.
+
+Neither has been signed in at for real yet (no app existed when this was written); the tests use the fake services.
+Code: `oauth.ts` (`ownClient`, `manualServer`, `issuerMatches`), `service.ts` (`appFrom`, `appOf`, `appAfter`,
+`pinFound`, `send`), `store.ts` (`secretHere`), `templates.ts` (`appAfter`),
+`web/src/components/integrations/IntegrationDialog.tsx` (`AppSection`). Tests:
+`tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`.
 
 ## HTTP APIs: `api_request`
 
@@ -417,6 +567,23 @@ connections with their address and the first 1,000 characters of their notes.
   "Outbound web channels"). That card offers only the `allow` team connections the task names: in its title or
   instruction, or in `schedule_create`'s `connections`; an edit's card also offers again the ones the task may already
   send to (docs/DECISIONS.md "The schedule card offers only the connections the task names").
+- After a team chat room was read in the person's own chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기"), MCP tools
+  the service marks read-only still run at once, and their arguments go to the connected service, unless the arguments
+  hold a web address or a long random-looking part: then the room card asks first. `api_request` keeps the room card
+  there, GET and HEAD included: the method is the AI's choice, and some APIs change something on a GET. A write asks on this card alone, the room's line on top
+  ("여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요."), also for an `allow` team
+  connection; `deny` still refuses. Scheduled runs are unchanged.
+- The person's own connection in a scheduled run: only when the schedule's card listed it with the recipients it may
+  send to (`schedule_create`'s `send_to`, "보낼 수 있는 곳: <connection> · '<recipient>'" on the card), and only when every
+  value of the call that may say where it goes is one of them (`pinTargets`, at any depth: every text value except
+  under a content name such as text, body or title (a whole e-mail or web address under a short one such as title or
+  name still counts) or a block's kind such as `type: "text"`, and every number and yes/no except a few settings such as
+  `limit`; for `api_request` the full address too). A call with no such value, with more than 50, or nested deeper than 8 is refused.
+  What it sends may carry no other web address, host name or long random-looking part (`carriesAddress`, and host
+  names in running text) unless it is a pinned recipient or one of the task's own addresses: a link in a message is
+  fetched for its preview. An `allow` team connection's content is not checked this way yet (a follow-up).
+  After a room read, such a write skips the room card only when every room the run read is on the schedule's card
+  (`TurnTool.sendsTo` names the connection a call writes to); an `allow` team connection keeps the room card then. docs/DECISIONS.md "Scheduled tasks: saving and sending allowed on the card".
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team
@@ -451,11 +618,15 @@ connections with their address and the first 1,000 characters of their notes.
 
 ## Discover
 
-Settings and Admin > External services have two tabs: **Connected**, one line per connection with its details a click
-away, and **Discover**, MCP servers to add by name (`web/src/lib/connectors.ts`). An entry is only a name and an address
-for the add dialog: nothing about it is special on the server, the person still chooses what the AI may change, an admin
-still chooses who may use it, and the sign-in, checks and asking are those of any other connection. "Add connection"
-and the link under the list take any MCP server or API by its address.
+Connectors (an item of the main sidebar, `/connectors`; no longer a Settings section) and Admin › Connected apps are one
+page each: first the connections, one line per connection with its details a click away (in Admin with who may use it
+in a chip after the name; on Connectors **Your connectors**: the built-in apps connected, the person's own connections and
+what the team provides, with a Team label, each with one status and its page a click away, read-only for a team one),
+then **Discover**, what is not connected yet: the built-in apps and MCP servers to add by name
+(`web/src/lib/connectors.ts`). The search filters every section. An entry is
+only a name and an address for the add dialog: nothing about it is special on the server, the person still chooses what
+the AI may change, an admin still chooses who may use it, and the sign-in, checks and asking are those of any other
+connection. "Add connection" and the link under the list take any MCP server or API by its address.
 
 The services come from the remote servers listed on [mcpservers.org](https://mcpservers.org/remote-mcp-servers), starting
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it
@@ -476,14 +647,16 @@ that service.
 
 ## Not in phase 1
 
-Gmail / Calendar / Slack style OAuth apps (each needs its own app registration), office-network APIs, file upload or
+An own app on a request to one member (a template carries one), a revocation address for an app's given addresses,
+Discover entries for Google's MCP servers (they need an app and Google's preview program), office-network APIs, file upload or
 download (binary), an admin allow-list of hosts, mobile OAuth return, multi-replica locking of refreshes
 (one active app server per team, like Drive), a rekey command for this key directory, reconnect notifications.
 
 ## Tests
 
-`tests/unit/c-integrations-{api,tools,oauth,echo}.test.ts` with `tests/lib/fake-services.ts` (an in-process https MCP
+`tests/unit/c-integrations-{api,tools,oauth,echo,own-app}.test.ts` with `tests/lib/fake-services.ts` (an in-process https MCP
 server with sessions and event streams, an OAuth authorization server with registration, PKCE, refresh and revocation,
+one without registration for own apps (`/mcp-own`, client secrets checked) and a REST API signed in at with OAuth,
 a REST API, and endpoints and MCP tools that repeat the key they got; reached through web_fetch's test-only address
 allowance), and the real-turn test at the end of
 `tests/unit/i-wiring.test.ts`. No real service is contacted.

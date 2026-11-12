@@ -17,8 +17,16 @@ export function mobilePushApp(): boolean { return !!mobileApp()?.capabilities.in
 export const usePhonePush = create<{ permission: PushPermission | null; ask: boolean; registered: number }>(() => ({ permission: null, ask: false, registered: 0 }))
 
 // This phone's answers, in the team page's own storage (per phone and team; a reinstalled app starts empty, like the
-// OS permission): granted (the OS gave a token before), denied (the OS said no), later ({n, at}: [나중에]).
+// OS permission): granted (the OS gave a token before), denied (the OS said no), later ({n, at}: [나중에]), and per
+// person offHere:<user id> (Settings' switch turned this phone off for that person: it is not registered for them again
+// by itself, at an app start, until the switch or the question turns it on; another person signing in on the phone is
+// not affected, and signing out forgets it: lib/localData.ts clearLocalData).
 const GRANTED = 'mycel.phonePush.granted', DENIED = 'mycel.phonePush.denied', LATER = 'mycel.phonePush.later'
+export const OFF_HERE_PREFIX = 'mycel.phonePush.offHere:'
+/** the person of a session key (`<user id>:<session id>`, main.tsx) */
+const offHereKey = (key: string | null) => (key ? `${OFF_HERE_PREFIX}${key.split(':')[0]}` : null)
+const offHereRead = (key: string | null) => { const k = offHereKey(key); return !!k && !!read(k) }
+const offHereWrite = (key: string | null, on: boolean) => { const k = offHereKey(key); if (k) write(k, on ? '1' : null) }
 const read = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 const write = (key: string, value: string | null) => { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value) } catch { /* storage blocked */ } }
 
@@ -106,9 +114,19 @@ export async function refreshPhonePush(): Promise<boolean> {
   const hasDevice = !!(settings.enabled && settings.native.deviceId) && !read(DENIED)
   if (os === null && hasDevice) write(GRANTED, '1')
   const permission = effective(os ?? (hasDevice ? 'granted' : null))
-  usePhonePush.setState({ permission, ask: !settings.optedOut && permission !== 'granted' && permission !== 'denied' && !laterHides(read(LATER), Date.now()) })
-  if (permission === 'granted' && !settings.optedOut && registered !== key) await registerMobilePush(turn)
+  const offHere = offHereRead(key)
+  usePhonePush.setState({ permission, ask: !settings.optedOut && !offHere && permission !== 'granted' && permission !== 'denied' && !laterHides(read(LATER), Date.now()) })
+  if (permission === 'granted' && !settings.optedOut && !offHere && registered !== key) await registerMobilePush(turn)
   return turn === epoch
+}
+
+/** Settings' switch for this phone, off: the team server forgets this phone (the person's other devices keep push), and
+ * this phone is not registered again by itself until it is turned on here (registerMobilePush). */
+export async function turnOffPhonePush(deviceId: string): Promise<void> {
+  const key = session
+  await api.call(API.unregisterPushDevice, { params: { id: deviceId } })
+  offHereWrite(key, true)
+  registered = null
 }
 
 /** Settings › Notifications in the phone app: one status line and one action. After a "no" from the OS: the way to the
@@ -142,7 +160,7 @@ async function register(turn: number): Promise<string> {
     throw error
   }
   if (turn !== epoch) throw new DOMException('Mobile operation cancelled', 'AbortError')
-  write(GRANTED, '1'); write(DENIED, null)
+  write(GRANTED, '1'); write(DENIED, null); offHereWrite(key, false)
   usePhonePush.setState({ permission: 'granted', ask: false })
   // with the hash of the label key of an iPhone app that shows who and where in a room push (push-label-v1)
   const { id, removeKey } = await api.call(API.registerPushDevice, { body: { consent: true, ...token } })

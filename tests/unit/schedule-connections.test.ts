@@ -126,7 +126,7 @@ describe('schedule_create', () => {
 
   test('a name that is not an "allow" team connection is refused before the card, nothing created', async () => {
     clear()
-    for (const name of ['Slack', 'Acme Chat', 'Bob Notes']) {
+    for (const name of ['Slack', 'Acme Chat']) {
       const asked: Asked[] = []
       const r = await create({ connections: ['Higgsfield', name] }, person('create_write', asked))
       expect(r.isError).toBe(true)
@@ -135,6 +135,13 @@ describe('schedule_create', () => {
       expect(asked).toHaveLength(0)
       expect(latest()).toBeNull()
     }
+    // the person's own connection: only with the recipients the card pins (send_to; schedule-save-scope.test.ts)
+    const asked: Asked[] = []
+    const r = await create({ connections: ['Higgsfield', 'Bob Notes'] }, person('create_write', asked))
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain("Bob Notes is the user's own connection: a run sends to it only at recipients the card pins, so give them in send_to")
+    expect(asked).toHaveLength(0)
+    expect(latest()).toBeNull()
   })
 })
 

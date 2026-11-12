@@ -1,6 +1,8 @@
-// New chat. Under the box, "팀에 준비된 것" (components/onboarding/TeamPrepared.tsx, docs/DECISIONS.md "W6.3 — What a
-// new member sees first"): the team's skills until the person ran one, the team's files while they have no chats, else
-// one ready question; a member's one filled button is there, an owner's or admin's block is all quiet. While no AI
+// New chat. Under the box, one block at a time: "팀에 준비된 것" (components/onboarding/TeamPrepared.tsx,
+// docs/DECISIONS.md "W6.3 — What a new member sees first": the team's skills until the person ran one or has 5 chats,
+// the team's files while they have no chats, else one ready question; a member's one filled button is there, an
+// owner's or admin's block is all quiet), else what people of my group (or team) often ask (components/OftenAsked.tsx,
+// docs/DECISIONS.md "Home: what my group often asks": 3 lines, More shows up to 10, a click fills the box). While no AI
 // answers a member, the block shows read-only under the no-AI card (owners and admins: the card alone). Owners and
 // admins get ONE thing at the top: on a phone the welcome steps'
 // "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
@@ -15,6 +17,10 @@
 // then the three latest AI chats as plain rows ("트리나 기록"; the whole history is behind ☰ in the top bar). The greeting and the box sit a third of
 // the way down and the rows hang below them, so opening a row moves nothing above it. A project's new
 // chat ("/?project=") shows neither: the goal and the setup row are about the team.
+// Someone who joined with a team link, an invite or "Add directly" gets the welcome card as the one thing at the top while
+// it shows (components/onboarding/MemberWelcome.tsx, docs/DECISIONS.md "A welcome for invited people"): in place of the
+// no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team"; on a phone the first row under
+// the box.
 // The owner whose lead link someone joined with gets that card as the one thing at the top instead (components/handover/
 // HandoverCard.tsx, docs/DECISIONS.md "W6"), on a phone the first row under the box.
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
@@ -38,14 +44,15 @@ import { aiName, landingPath } from '../lib/tabs'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { isUnused, SessionMarker, useChatMarker } from '../components/chat/ChatState'
 import { needsMe } from '../lib/sessionMarkers'
-import { FrequentQuestions } from '../components/FrequentQuestions'
-import { PopularSkills } from '../components/PopularSkills'
+import { OftenAsked } from '../components/OftenAsked'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
 import { HandoverCard, useLeadCard } from '../components/handover/HandoverCard'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
 import { TeamPrepared } from '../components/onboarding/TeamPrepared'
+import { MemberWelcomeCard } from '../components/onboarding/MemberWelcome'
+import { useMemberWelcome } from '../store/memberWelcome'
 
 export default function Home() {
   const t = useT()
@@ -85,14 +92,22 @@ export default function Home() {
   useEffect(() => { void useAiAccess.getState().load() }, [])
   const noAi = extras && ai.loaded && !ai.usable
   const suggest = extras && !projectId && ai.loaded && ai.usable
+  // an invited person's welcome card (docs/DECISIONS.md "A welcome for invited people"): read each time Home opens; while
+  // it shows it is the one thing at the top, in place of the no-AI card, the goal card and "Ready in your team" (its
+  // last row is the no-AI way out). The rest waits for the answer, so nothing flashes first
+  const welcomeLoaded = useMemberWelcome((s) => s.loaded)
+  const welcome = useMemberWelcome((s) => s.welcome)
+  useEffect(() => { void useMemberWelcome.getState().load() }, [])
+  const welcomeKnown = welcomeLoaded || !extras
+  const welcomeCard = extras && !projectId && welcome && <MemberWelcomeCard welcome={welcome} />
   const admin = isAdmin(me)
   /** a suggestion chosen: into the box (focused, the caret after it), never sent */
   const choose = (text: string, waits?: string) => setPreset({ text, n: (preset?.n ?? 0) + 1, waits })
-  // whether "팀에 준비된 것" shows skill rows (null: not known yet): 「자주 쓰는 스킬」 waits for the answer and stays out
-  // while they show, so two lists of skills never sit side by side
-  const [skillRows, setSkillRows] = useState<boolean | null>(null)
+  // whether "팀에 준비된 것" shows anything (null: not known yet): what the group often asks waits for the answer and
+  // stays out while it does, so one block sits under the box at a time
+  const [prepared, setPrepared] = useState<boolean | null>(null)
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
-  const top = !noAi && extras && admin && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
+  const top = !noAi && extras && admin && !projectId && ai.loaded && welcomeKnown && !welcomeCard && <HomeTop owner={isOwner(me)} />
   // someone joined with the owner's lead link (docs/DECISIONS.md "W6"): while its card shows, it is the one thing at the
   // top, in place of the setup row or the goal and of the no-AI card
   const lead = useLeadCard(extras && !projectId)
@@ -109,7 +124,7 @@ export default function Home() {
         <div className="w-full max-w-[720px] max-md:grid max-md:min-h-0 max-md:flex-1 max-md:grid-cols-1 max-md:grid-rows-[minmax(0,1fr)_auto_minmax(0,2fr)]" data-testid="home-column">
           <div className="md:hidden" aria-hidden />
           <div className="md:contents" data-testid="home-head">
-            {leadCard ? !phone && leadCard : noAi ? <NoAiCard /> : !phone && top}
+            {leadCard ? !phone && leadCard : welcomeCard ? !phone && welcomeCard : noAi ? welcomeKnown && <NoAiCard /> : !phone && top}
             {project && (
               <p className="mb-2 text-center text-sm text-muted">
                 <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -134,15 +149,13 @@ export default function Home() {
           <div className="max-md:pb-6 md:contents" data-testid="home-tail">
             {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
             {/* phones: the top row is the first row under the box */}
-            {phone && (leadCard || top) && <div className="mt-3">{leadCard || top}</div>}
+            {phone && (leadCard || welcomeCard || top) && <div className="mt-3">{leadCard || welcomeCard || top}</div>}
             {phone && extras && !projectId && <RecentChats />}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
                 read-only under a member's no-AI card */}
-            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} readOnly={noAi} onCompose={choose} onSkillRows={setSkillRows} />}
-            {suggest && <FrequentQuestions key={me.user.id} onChoose={choose} />}
-            {/* B-W7-7: the team's top skills, once two or more were used, and not while "팀에 준비된 것" lists skills
-                (W6.3). A different key from FrequentQuestions: same-key siblings render twice */}
-            {suggest && skillRows === false && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={choose} />}
+            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && welcomeKnown && !welcomeCard && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} chats={chats.length} readOnly={noAi} onCompose={choose} onShown={setPrepared} />}
+            {/* what my group often asks, in the same place once "팀에 준비된 것" has nothing (one block at a time) */}
+            {suggest && chatsLoaded && prepared === false && <OftenAsked key={`asked-${me.user.id}`} onChoose={choose} />}
           </div>
         </div>
       </div>

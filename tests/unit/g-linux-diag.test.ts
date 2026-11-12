@@ -50,7 +50,7 @@ describe('wording', () => {
     'subscriptionRejected', 'modelProxy', 'modelProxyOk', 'modelProxyPortInUse', 'modelProxyNotStarted', 'engineCodexLogin', 'engineCheckFailed', 'queue', 'queueDetail', 'queueLong',
     'firewall', 'firewallOk', 'firewallMissing', 'firewallStale', 'firewallOff', 'sandbox', 'sandboxOk', 'sandboxMissing', 'cronDeny', 'cronDenyOk', 'cronDenyMissing',
     'launcher', 'launcherOk', 'launcherDown', 'launcherNotRunning', 'launcherDenied', 'launcherTimeout', 'sockets', 'socketsOk', 'socketsTooLong', 'lan', 'lanOk', 'lanFailed',
-    'backups', 'backupNone', 'backupOld', 'backupOk', 'backupFailed', 'backupNoSpace', 'restoreFailed', 'update', 'updateOk', 'updateRolledBack', 'releaseSig', 'releaseUnsigned', 'releaseSigned',
+    'backups', 'backupNone', 'backupOld', 'backupOk', 'backupFailed', 'backupNoSpace', 'restoreFailed', 'restoreFolderRules', 'update', 'updateOk', 'updateRolledBack', 'releaseSig', 'releaseUnsigned', 'releaseSigned',
     'exitAddress', 'exitAddressKnown', 'exitAddressKnownRelay', 'exitAddressUnknown', 'exitAddressOff']
   for (const host of ['linux', 'hosted'] as const) {
     test(`${host}: no Mac, launchctl, pbpaste or /Library in what it can show`, () => {
@@ -296,6 +296,19 @@ describe('diagnostics of an installed Linux server', () => {
     expect(hd.checks.find((c) => c.id === 'sockets')).toBeUndefined()
     expect(hd.checks.find((c) => c.id === 'update')!.detail).toContain('the hosting provider installs updates')
     for (const c of hd.checks) expect(`${c.detail ?? ''}`).not.toMatch(/sudo |systemctl|journalctl/)
+  })
+  test('a restore that kept the backup\'s folder permissions asks for a check; one that kept today\'s says nothing (QA TC-195)', async () => {
+    fw({})
+    const rr = path.join(base, 'data', 'restore-result.json')
+    const at = new Date().toISOString()
+    try {
+      fs.writeFileSync(rr, JSON.stringify({ ok: true, backupId: 'b', at, folderRules: 'backup' }))
+      const c = await check({}, 'restore')
+      expect(c?.status).toBe('warn')
+      expect(c?.detail).toContain('Admin › Folder permissions')
+      fs.writeFileSync(rr, JSON.stringify({ ok: true, backupId: 'b', at, folderRules: 'kept' }))
+      expect(await check({}, 'restore')).toBeUndefined()
+    } finally { fs.rmSync(rr, { force: true }) }
   })
   test('a plan limit is a warning, a full real disk a failure: the control plane rolls an update back on a failure', async () => {
     const GiB = 1024 ** 3

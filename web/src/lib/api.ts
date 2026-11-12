@@ -61,6 +61,13 @@ export const isNetworkError = (e: unknown) => e instanceof TypeError || (e insta
 
 export const isApiError = (e: unknown, code?: ErrorCode): e is ApiError => e instanceof ApiError && (code === undefined || e.code === code)
 
+/** The connection, not the server's answer: no answer at all (isNetworkError), or a 502–504 `unavailable` with no
+ * reason of the server's own: the relay (the team server offline, restarting, busy, its link lost) or a proxy without
+ * the server's JSON. It passes by itself, so a list that could not be read tries again by itself
+ * (components/LoadError.tsx). A reason the server gives (a quarantined file, the queue draining) is not this. */
+export const isConnectionError = (e: unknown) =>
+  isNetworkError(e) || (e instanceof ApiError && e.code === 'unavailable' && e.status >= 502 && e.status <= 504 && e.body.params?.reason === undefined)
+
 /**
  * Text for an error, in the UI language. Server messages are already in the user's language (tab 4), but before
  * sign-in the server only knows the page's language header, so codes are re-translated here; network failures get our own text.

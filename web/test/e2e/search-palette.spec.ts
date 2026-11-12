@@ -1,9 +1,10 @@
 // Search (⌘K), like Claude's: type tabs, and with no text what needs attention, recent chats and projects, and actions.
 // Arrow keys move, ← → at the ends of the text change the type, Enter opens, ⌥/Alt+Enter opens a chat's menu, Esc
-// closes the menu first and then the dialog. On a phone it fills the screen and has no key hints.
+// closes the menu first and then the dialog. On a phone it fills the screen and has no key hints; its types are one
+// picker that opens a sheet (more phone checks: phone-menus-tabs.spec.ts).
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { CSRF_HEADER } from '@mycel/shared/api'
+import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
@@ -43,6 +44,10 @@ test('with no text: needs attention, recents and actions; tabs and arrow keys', 
   await expect(recents.getByRole('option', { name: /quarterly budget notes/ })).toBeVisible()
   await expect(recents.getByRole('option', { name: /Launch plan/ })).toBeVisible()
   await expect(palette(page).getByTestId('search-section-actions').getByRole('option')).toHaveCount(6) // new chat, project, schedule, MCP, files, the inbox
+  // the new chat (트리나에게 묻기) has the ✦ that asks the AI, as on the sidebar's row (rooms/AiFace.tsx AiMark)
+  const ask = palette(page).getByTestId('search-section-actions').getByRole('option').first().locator('svg')
+  expect(await ask.evaluate((e, named) => (named ? e.hasAttribute('data-trina-star') : e.classList.contains('lucide-sparkles')), PRODUCT_NAMED_AFTER_AI)).toBe(true)
+  expect((await ask.boundingBox())!.width).toBe(PRODUCT_NAMED_AFTER_AI ? 18 : 16)
   // the first row is active; ↓ moves
   await expect(palette(page).getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('ArrowDown')
@@ -104,8 +109,8 @@ test('actions run the existing flows, and a chat row has its menu (Alt+Enter, Es
   await open(page)
   await input(page).fill('MCP')
   await palette(page).getByTestId('search-section-actions').getByRole('option').first().click()
-  await expect(page).toHaveURL(/\/settings\/connectors$/)
-  await expect(page.getByRole('dialog', { name: '직접 커넥터 추가' })).toBeVisible()
+  await expect(page).toHaveURL(/\/connectors$/)
+  await expect(page.getByRole('dialog', { name: '주소로 서비스 추가' })).toBeVisible()
   await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')
 
@@ -115,7 +120,7 @@ test('actions run the existing flows, and a chat row has its menu (Alt+Enter, Es
   await expect(palette(page).getByTestId('search-hints')).toContainText(/Alt|⌥/)
   await page.keyboard.press('Alt+Enter')
   const menu = palette(page).getByTestId('search-row-menu')
-  await expect(menu.getByRole('menuitem')).toHaveCount(2)
+  await expect(menu.getByRole('menuitem')).toHaveText(['이름 바꾸기', '링크 복사', '삭제'])
   await expect(menu.getByRole('menuitem').first()).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
@@ -144,7 +149,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
 test.describe('phone width', () => {
   test.use({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true })
-  test('search fills the screen, the tabs scroll sideways and there are no key hints', async ({ page }) => {
+  test('search fills the screen, the types are one picker with a sheet (no row that scrolls sideways) and there are no key hints', async ({ page }) => {
     await reset(page)
     await signIn(page)
     await page.getByRole('button', { name: '메뉴 열기' }).click()
@@ -154,10 +159,10 @@ test.describe('phone width', () => {
     expect(box.width).toBeGreaterThanOrEqual(389)
     expect(box.height).toBeGreaterThanOrEqual(779)
     await expect(palette(page).getByTestId('search-hints')).toBeHidden()
-    const tabs = palette(page).getByRole('tablist')
-    expect(await tabs.evaluate((el) => getComputedStyle(el).overflowX)).toBe('auto')
-    await palette(page).getByTestId('search-tab-mcp').click()
-    await expect(palette(page).getByTestId('search-tab-mcp')).toHaveAttribute('aria-selected', 'true')
+    await expect(palette(page).getByRole('tablist')).toHaveCount(0)
+    await palette(page).getByTestId('search-type').click()
+    await palette(page).getByTestId('search-type-mcp').click()
+    await expect(palette(page).getByTestId('search-type')).toHaveText('서비스')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 })

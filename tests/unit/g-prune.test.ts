@@ -1,6 +1,6 @@
 // Component G: old version and engine folders (server/src/system/prune.ts). What roll-back and the bootstrap need
 // stays (app/current, the running version, state.json's current and previous, the newest staged version newer than
-// current, anything changed in the last day); every other version folder, day-old .staging-* / *.partial leftovers and
+// current, a newer version folder changed in the last day, an older one changed in the last hour); every other version folder, day-old .staging-* / *.partial leftovers and
 // engine folders current no longer points to are removed, without ever following a link. A pending update skips the
 // run. Roll-back to `previous` still works afterwards; the diagnostics show what is kept.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -84,15 +84,37 @@ describe('which version folders stay', () => {
     expect(left(app)).toEqual(['1.0.0', '1.1.0', '1.3.0'])
   })
 
-  test('a version folder changed in the last day stays (mycel-ctl update copied it and is about to switch)', async () => {
+  test('a newer version folder changed in the last day stays (mycel-ctl update copied it and is about to switch)', async () => {
     const app = await install({ versions: ['2.0.0', '2.1.0', '2.2.0', '2.3.0'], current: '2.0.0' })
     fresh(path.join(app, 'versions', '2.1.0'))
     const r = await prune(app)
     expect(kept(r)).toEqual({ '2.0.0': ['current', 'running', 'state-current'], '2.1.0': ['recent'], '2.3.0': ['available'] })
     expect(left(app)).toEqual(['2.0.0', '2.1.0', '2.3.0'])
-    // right after staging, nothing is a day old: the real clock removes nothing
+    // right after staging, nothing is an hour old: the real clock removes nothing
     const app2 = await install({ versions: ['2.0.0', '2.1.0', '2.2.0'], current: '2.2.0' })
     expect((await prune(app2, { now: () => new Date() })).removed).toEqual([])
+  })
+
+  test('an older version folder goes once it is an hour old, not a day (a server that updates 40 times a day)', async () => {
+    // dev builds: <package version>.dev.<UTC time>, in time order
+    const vs = ['0.5.0-beta.1.dev.20261110072823', '0.5.0-beta.1.dev.20261110074547', '0.5.0-beta.1.dev.20261110083310', '0.5.0-beta.1.dev.20261110090412', '0.5.0-beta.1.dev.20261110092059', '0.5.0-beta.1.dev.20261110093000']
+    const [a, b, c, d, e, f] = vs as [string, string, string, string, string, string]
+    const app = await install({ versions: vs, current: e, previous: d })
+    const at = later()
+    const ago = (v: string, ms: number) => { const t = new Date(at.getTime() - ms); fs.utimesSync(path.join(app, 'versions', v), t, t) }
+    ago(a, 5 * 3600_000); ago(b, 2 * 3600_000) // older, changed hours ago (inside the old one-day grace): they go
+    ago(c, 10 * 60_000) // older, changed 10 minutes ago (a switch back to it may be in progress): it stays
+    ago(f, 2 * 3600_000) // newer, changed 2 hours ago: the one-day grace still holds it
+    const r = await prune(app, { now: () => at })
+    expect(r.removed.map((x) => x.path)).toEqual([`versions/${a}`, `versions/${b}`])
+    expect(kept(r)).toEqual({ [c]: ['recent'], [d]: ['previous'], [e]: ['current', 'running', 'state-current'], [f]: ['available'] })
+    // a newer one that is not the newest: kept by the one-day grace alone
+    const app2 = await install({ versions: ['3.0.0', '3.1.0', '3.2.0', '3.3.0'], current: '3.1.0' })
+    const at2 = later()
+    for (const v of ['3.0.0', '3.2.0']) { const t = new Date(at2.getTime() - 2 * 3600_000); fs.utimesSync(path.join(app2, 'versions', v), t, t) }
+    const r2 = await prune(app2, { now: () => at2 })
+    expect(r2.removed.map((x) => x.path)).toEqual(['versions/3.0.0'])
+    expect(kept(r2)).toEqual({ '3.1.0': ['current', 'running', 'state-current'], '3.2.0': ['recent'], '3.3.0': ['available'] })
   })
 
   test('a pending update skips the whole run; so do a missing or unreadable state.json and an odd app/current', async () => {
@@ -241,7 +263,7 @@ describe('another process at work during the run', () => {
     await Bun.sleep(50)
     expect(r.removed.map((x) => x.path)).toEqual(['versions/9.1.0'])
     const why = r.left.find((x) => x.path === 'versions/9.0.0')?.why
-    expect([REPLACED, 'changed in the last 24 hours (an update may be using it)']).toContain(why!)
+    expect([REPLACED, 'changed in the last hour (a switch back to it may be in progress)']).toContain(why!)
     await verifyBundleDir(path.join(app, 'versions', '9.0.0'), { keys: [], allowUnsigned: true })
   })
 

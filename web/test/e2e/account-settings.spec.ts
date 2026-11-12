@@ -44,8 +44,11 @@ test('the account menu opens above the profile line, moves with the keyboard, an
   expect((await menu.boundingBox())!.y + (await menu.boundingBox())!.height).toBeLessThanOrEqual((await button.boundingBox())!.y + 1)
   await expect(page.getByTestId('account-who')).toHaveText(/\S/)
   // first, as in Slack: set yourself away (docs/DECISIONS.md "접속 상태")
-  await expect(menu.getByRole('menuitem')).toHaveText([t['presence.setAway'], t['sidebar.settings'], t['sidebar.usage'], t['sidebar.trash'], t['auth.logout']])
+  // then my status message (docs/DECISIONS.md "상태 메시지"): "Set your status" while I have none
+  await expect(menu.getByRole('menuitem')).toHaveText([t['presence.setAway'], t['status.set'], t['sidebar.settings'], t['sidebar.usage'], t['sidebar.trash'], t['auth.logout']])
   await expect(menu.getByRole('menuitem', { name: t['presence.setAway'] })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: t['status.set'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['sidebar.settings'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
@@ -94,11 +97,9 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
     expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
   }
   // the search narrows the list by name; a section opens on the right and the address follows
-  await dialog.getByTestId('settings-search').fill('mc')
-  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([/커넥터|Connectors/])
-  await dialog.getByTestId('settings-menu').getByRole('link', { name: /커넥터|Connectors/ }).click()
-  await expect(page).toHaveURL(/\/settings\/connectors$/)
-  await expect(dialog.getByTestId('connectors-header').getByRole('heading', { name: /커넥터|Connectors/ })).toBeVisible()
+  await dialog.getByTestId('settings-search').fill(t['aiApps.title'])
+  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([t['aiApps.title']])
+  // (Connectors is not in Settings: it is its own item of the sidebar)
   await dialog.getByTestId('settings-search').fill('zzz')
   await expect(dialog.getByTestId('settings-no-match')).toBeVisible()
   // Esc: back to the page under it, and the keyboard back on the account button
@@ -126,7 +127,7 @@ test('a Settings address opened directly shows the dialog over Home; ✕ closes 
   await expect(page.getByRole('dialog').getByRole('heading', { name: t['settings.profile'] })).toBeVisible()
 })
 
-test('on a phone Settings is the 나 tab: the list first with my photo row on top, the profile one step down, the tab bar stays, no search or ✕, the rarer sections behind 더 보기, and sign-out at the end', async ({ page }) => {
+test('on a phone Settings is the 나 tab: the list first with my photo row on top, the profile one step down, the tab bar stays, no search or ✕, every section in its group, and sign-out at the end', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 760 })
   await start(page)
   await page.goto('/rooms')
@@ -145,10 +146,13 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   await expect(page).toHaveURL(/\/settings$/)
   await expect(dialog.getByTestId('settings-menu')).toBeVisible()
   await expect(dialog.getByTestId('settings-search')).toBeHidden()
+  // the connections show in their group (no "더 보기" row on a phone any more: docs/DECISIONS.md "Admin and Settings on
+  // phones")
   const menu = dialog.getByTestId('settings-menu')
-  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toBeHidden()
-  await dialog.getByTestId('settings-more').click()
-  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toBeVisible()
+  await expect(menu.getByRole('link', { name: t['aiApps.title'] })).toBeVisible()
+  await expect(dialog.getByTestId('settings-more')).toHaveCount(0)
+  // Connectors is not in Settings (it is its own item of the sidebar and the phone's drawer)
+  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toHaveCount(0)
   await audit(page, 'settings list at phone width')
   // the tab bar is the way out
   await dialog.getByTestId('tab-chats').click()
@@ -160,7 +164,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`the Settings dialog has no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await start(page)
-    for (const path of ['/settings/profile', '/settings/connectors', '/settings/notifications']) {
+    for (const path of ['/settings/profile', '/settings/ai-apps', '/settings/notifications']) {
       await page.goto(path)
       await expect(page.getByRole('dialog', { name: t['settings.title'] })).toBeVisible()
       await page.waitForTimeout(300)
@@ -338,10 +342,10 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
   await expect(page.getByTestId('chat-peek')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('chat-peek')).toHaveCount(0)
-  // the ⋯ menu has the chat's actions (a pin first; a chat of my own outside a project: the move too)
+  // the ⋯ menu has the chat's actions (a pin first, then its link; a chat of my own outside a project: the move too)
   await row.hover()
   await more.click()
-  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
 })
 
 test('no quick view on a touch screen; the filter is in the phone drawer', async ({ browser }) => {

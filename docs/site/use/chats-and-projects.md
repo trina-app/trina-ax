@@ -64,6 +64,10 @@ Conversations in **대화** (rooms, DMs and group chats) are pinned the same way
 **···**: pinned ones come first, with a small pin after the name, in the sidebar, the full list and the phone's **대화** tab.
 Only you see your pins. A pin goes when you leave the room or hide it. You can pin up to 50 conversations.
 
+On a computer the sidebar's **대화** shows up to ten pins and the five latest conversations. **Show more** (더 보기) keeps
+them where they are and lists the rest below them by kind: **Team rooms** (the everyone room first, then by name),
+**Group chats** and **Direct messages** (the latest first). A pin past the first ten comes first in its own kind.
+
 ## Projects
 
 A project is a folder of the team folder, plus instructions. Use it for work that keeps coming back to the same files: a launch, a client, a quarter's report.
@@ -84,7 +88,7 @@ Start a chat from the project's page, or move a chat in from the chat title's me
 - There is no member list. Whoever can read the folder sees the project.
 - A folder holds one project. Once it is a project, only an admin moves, renames or deletes the folder.
 - Instructions you did not write all by yourself count as outside content. The AI asks before it remembers anything after reading them.
-- **Shared chats.** In a team project's settings, its creator or an admin can turn on **이 프로젝트의 채팅을 프로젝트 사람들과 공유**. From then on, new chats in the project can be seen and continued by everyone who can read its folder (owner and admins included); the chats you had before stay yours. Every question shows the picture and name of the person who sent it, yours too. Each answer runs as the person who asked, with their access. When the AI is about to read something some of them cannot open, it asks you first (**읽고 공유하기** / **읽지 않기**). A shared chat takes team files only. Turning the setting off keeps the chats already shared.
+- **Shared chats.** In a team project's settings, its creator or an admin can turn on **이 프로젝트의 채팅을 멤버와 공유**. From then on, new chats in the project can be seen and continued by everyone who can read its folder (owner and admins included); the chats you had before stay yours. Every question shows the picture and name of the person who sent it, yours too. Each answer runs as the person who asked, with their access. When the AI is about to read something some of them cannot open, it asks you first (**읽고 공유하기** / **읽지 않기**). A file you attach from your computer (📎, a paste or a drop) is saved in the project folder's **채팅 첨부** subfolder (named in the team's language), where the project's people can open it, and a line under it says so; you need write access to the project folder (without it, the box offers team files only), and **✕** before sending moves the file to the trash. Turning the setting off keeps the chats already shared.
 
 ## Find anything
 

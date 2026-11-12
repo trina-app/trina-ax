@@ -113,6 +113,22 @@ export async function disablePush(registration: ServiceWorkerRegistration | null
   } finally { changing = false }
 }
 
+/** Settings' switch for this device on a phone (components/settings/PushNotifications.tsx): only this browser stops
+ * getting push (its subscription on the team server and in the browser); the person's other devices keep theirs. */
+export async function disablePushHere(registration: ServiceWorkerRegistration | null, subscriptionId: string | null): Promise<void> {
+  const generation = epoch
+  if (!session) throw new Error('push session unavailable')
+  if (changing) throw new Error('push busy')
+  changing = true
+  try {
+    if (subscriptionId) try { await api.call(API.unsubscribePush, { params: { id: subscriptionId } }) } catch (error) { throw new PushError('server', error) }
+    if (generation !== epoch) return
+    registration?.active?.postMessage({ type: 'push.invalidate' })
+    const subscription = await registration?.pushManager.getSubscription()
+    if (generation === epoch) await subscription?.unsubscribe()
+  } finally { changing = false }
+}
+
 /**
  * Why push could not be turned on (or off) here, from what pushRegistration, enablePush, disablePush or the settings
  * read threw (Settings › Notifications and the web ask say it: pushFailureText):

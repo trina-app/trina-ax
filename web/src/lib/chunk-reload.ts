@@ -41,13 +41,26 @@ export interface ReloadOnceDeps {
 /** Reload unless one was done less than CHUNK_RELOAD_GUARD_MS ago in this tab, something is busy, or there is no storage
  * to remember it in. true = reloading. A busy page does not use up the one reload. */
 export function reloadOnce(d: ReloadOnceDeps): boolean {
-  if (d.busy || !d.storage) return false
-  let last: number
-  try { last = Number(d.storage.getItem(CHUNK_RELOAD_KEY) ?? NaN) } catch { return false }
-  if (Number.isFinite(last) && d.now >= last && d.now - last < CHUNK_RELOAD_GUARD_MS) return false
-  try { d.storage.setItem(CHUNK_RELOAD_KEY, String(d.now)) } catch { return false }
+  if (d.busy || !guardAllows(d.storage, d.now)) return false
+  try { d.storage!.setItem(CHUNK_RELOAD_KEY, String(d.now)) } catch { return false }
   d.reload()
   return true
+}
+
+/** The guard alone: there is storage to remember a reload in, and none was made in the last CHUNK_RELOAD_GUARD_MS. */
+function guardAllows(storage: ReloadOnceDeps['storage'], now: number): boolean {
+  if (!storage) return false
+  let last: number
+  try { last = Number(storage.getItem(CHUNK_RELOAD_KEY) ?? NaN) } catch { return false }
+  return !(Number.isFinite(last) && now >= last && now - last < CHUNK_RELOAD_GUARD_MS)
+}
+
+/** Whether the guard would let this tab reload for a failed chunk now (nothing else asked): the boundary says the part
+ * loads by itself once the connection is back only then. */
+export function chunkReloadAllowed(now = Date.now()): boolean {
+  let storage: Storage | null = null
+  try { storage = window.sessionStorage } catch {}
+  return guardAllows(storage, now)
 }
 
 let reloading = false

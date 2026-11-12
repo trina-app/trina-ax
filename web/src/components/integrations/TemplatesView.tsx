@@ -1,26 +1,28 @@
 // Connection templates (server/src/integrations/connections/templates.ts): an admin registers a service once, and
 // each member it is for connects it with their own key or sign-in.
-// - Settings › MCP, "From your team": the templates shared with this member. Not connected yet: the service and Connect,
-//   which opens the member's own-key dialog (AnswerDialog.tsx OwnKeyDialog) with the template filled in. Connected: the
-//   member's own connection, like any other (check again, sign in, tools, edit their key, disconnect).
-//   ?template=<id> (an inbox notice, a scheduled run that needed it) opens that template's Connect.
-// - Admin › MCP: a template on one line, "Template · N connected", who it is for, edit and delete. "N connected" opens
-//   who it is for, each with whether they connected it and when, or whether their key stopped working. The admin never
-//   sees a member's key or anything the service returned.
-import { Globe, Pencil, Plug, Trash2, Waypoints } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+// - Connectors, "Your connectors" (useFromTeam): what the team provides to this person, one line each (ConnectorRow,
+//   with a "Team" label) among their own connections. The team's connections they may use (company accounts):
+//   "Connected" or "Needs attention", opening the connection's page. The templates shared with them: not connected yet,
+//   Connect, which opens the member's own-key dialog (AnswerDialog.tsx OwnKeyDialog) with the template filled in;
+//   connected, the member's own connection, whose page has their own key's controls (check again, sign in, tools, edit
+//   their key, disconnect). ?template=<id> (an inbox notice, a scheduled run that needed it) opens that template's Connect.
+// - Admin › Connectors: a template on one line, who it is for (one chip), "Template · N connected", edit and delete. "N
+//   connected" opens who it is for, each with whether they connected it and when, or whether their key stopped working.
+//   The admin never sees a member's key or anything the service returned.
+import { Globe, Pencil, Trash2, Waypoints } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Group, Integration, IntegrationTemplate, IntegrationTemplateMember, MyIntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
-import { connectorFor } from '../../lib/connectors'
+import { connectorFor, connectorLogo } from '../../lib/connectors'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { formatDate } from '../../lib/format'
 import { Badge, Button, IconButton, Modal, Skeleton, confirmDialog } from '../ui'
 import { OwnKeyDialog } from './AnswerDialog'
-import { ConnectorLogo } from './ConnectorsView'
-import { IntegrationRow, type IntegrationActions } from './IntegrationRow'
+import { ConnectorLogo, ConnectorRow, matchesQuery } from './ConnectorsView'
+import { AudienceChip } from './IntegrationRow'
 
 function ServiceIcon({ url, kind }: { url: string; kind: Integration['kind'] }) {
   const listed = connectorFor(url)
@@ -32,16 +34,26 @@ function ServiceIcon({ url, kind }: { url: string; kind: Integration['kind'] }) 
   )
 }
 
-/** Settings › MCP: the templates shared with this member. `version` changes: load again. `query` filters by name. */
-export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
+/** Connectors, the team's part of "Your connectors": the team's connections this person may use (`team`, read-only:
+ * "Connected" or "Needs attention"), and the templates shared with them (not connected yet: Connect, which opens the
+ * member's own-key dialog, AnswerDialog.tsx OwnKeyDialog, with the template filled in; connected: their own
+ * connection's row). Each row is one line (ConnectorRow) that opens the connection's page, where its switches, errors
+ * and "Run without asking" are. `team` is null until it has loaded. `latest`: the page's list, where a connection made
+ * from a template is kept up to date. `version` changes: the templates load again. `query` filters by name (and a
+ * connection's address). ?template=<id> (an inbox notice, a scheduled run that needed it) opens that template's
+ * Connect. Returns the rows (sorted by name, with their names for the page's own sorting), whether both lists are in,
+ * and the dialog to render. */
+export function useFromTeam({ team, latest, version, query, onOpen, onConnected }: {
+  team: Integration[] | null
+  latest?: Integration[]
   version: number
   query: string
-  actions: IntegrationActions
-  onEdit: (i: Integration) => void
+  onOpen: (i: Integration) => void
   onConnected: (i: Integration, signIn: { window: Window | null } | null) => void
 }) {
   const t = useT()
   const [items, setItems] = useState<MyIntegrationTemplate[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [open, setOpen] = useState<MyIntegrationTemplate | null>(null)
   const gen = useRef(0)
   const load = async (): Promise<MyIntegrationTemplate[] | null> => {
@@ -53,6 +65,8 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
     } catch {
       // an older server has no templates; the rest of the page works without them
       return null
+    } finally {
+      if (g === gen.current) setLoaded(true)
     }
   }
   /** Connect as the member saw the template (its version): changed since, the server says so (409) and the dialog
@@ -82,46 +96,37 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
   const q = query.trim().toLocaleLowerCase()
-  const shown = q ? items.filter((x) => x.name.toLocaleLowerCase().includes(q)) : items
-  if (!shown.length) return null
-  return (
-    <section aria-labelledby="integrations-from-team" data-testid="integrations-from-team">
-      <h3 id="integrations-from-team" className="text-sm font-semibold">{t('integrations.template.fromTeam')}</h3>
-      <p className="mt-0.5 mb-2 text-xs text-muted">{t('integrations.template.fromTeamHint')}</p>
-      <ul className="-mx-2 divide-y divide-line" data-testid="integrations-from-team-list">
-        {shown.map((x) => x.connection ? (
-          <IntegrationRow key={x.id} i={x.connection} actions={actions} onEdit={() => onEdit(x.connection!)} />
-        ) : (
-          <li key={x.id} className="flex items-center gap-3 p-2" data-testid="template-row" data-name={x.name}>
-            <ServiceIcon url={x.url} kind={x.kind} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium" title={x.name}>{x.name}</span>
-              <span className="mt-0.5 block truncate text-xs text-muted" title={x.notes ?? undefined}>
-                {x.notes || t(x.auth === 'oauth' ? 'integrations.template.signInLine' : 'integrations.template.keyLine')}
-              </span>
-            </span>
-            <Button size="sm" variant="primary" className="shrink-0" onClick={() => setOpen(x)} data-testid="template-connect">
-              <Plug size={14} aria-hidden /> {t('integrations.template.connect')}
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {open && (
-        <OwnKeyDialog
-          src={open}
-          title={t('integrations.template.connectTitle', { name: open.name })}
-          intro={t('integrations.template.connectIntro', { by: open.createdBy?.name ?? t('integrations.template.yourTeam') })}
-          submit={(body) => connect(open, body)}
-          onClose={() => setOpen(null)}
-          onConnected={(i, signIn) => {
-            setOpen(null)
-            void load()
-            onConnected(i, signIn)
-          }}
-        />
-      )}
-    </section>
+  const logoOf = (url: string) => { const c = connectorFor(url); return c ? connectorLogo(c) : undefined }
+  const rows: { name: string; row: ReactNode }[] = [
+    ...(team ?? []).filter((i) => matchesQuery(i, query)).map((i) => ({ name: i.name, row: (
+      <ConnectorRow key={i.id} id={i.id} logo={logoOf(i.url)} name={i.name} team status={i.status === 'connected' ? 'connected' : 'attention'} onOpen={() => onOpen(i)} />
+    ) })),
+    ...items.filter((x) => !q || x.name.toLocaleLowerCase().includes(q)).map((x) => {
+      const conn = x.connection && (latest?.find((i) => i.id === x.connection!.id) ?? x.connection)
+      return { name: x.name, row: conn ? (
+        <ConnectorRow key={x.id} id={conn.id} logo={logoOf(conn.url)} name={conn.name} team
+          status={conn.status === 'connected' ? 'connected' : conn.status === 'needs_auth' ? 'reconnect' : 'attention'} onOpen={() => onOpen(conn)} />
+      ) : (
+        <ConnectorRow key={x.id} id={x.id} logo={logoOf(x.url)} name={x.name} team status="connect" testId="template-row" onOpen={() => setOpen(x)} onConnect={() => setOpen(x)} />
+      ) }
+    }),
+  ].sort((a, b) => a.name.localeCompare(b.name))
+  const ready = loaded && team !== null
+  const dialog = open && (
+    <OwnKeyDialog
+      src={open}
+      title={t('integrations.template.connectTitle', { name: open.name })}
+      intro={t('integrations.template.connectIntro')}
+      submit={(body) => connect(open, body)}
+      onClose={() => setOpen(null)}
+      onConnected={(i, signIn) => {
+        setOpen(null)
+        void load()
+        onConnected(i, signIn)
+      }}
+    />
   )
+  return { rows, ready, dialog }
 }
 
 /** Admin › MCP, a template's "N connected": who it is for, each with whether they connected it and when, or whether
@@ -161,19 +166,18 @@ function TemplateMembers({ tpl, onClose }: { tpl: IntegrationTemplate; onClose: 
   )
 }
 
-/** Admin › MCP: one template. Who it is for and who made it under the name; edit and delete on the line. */
+/** Admin › Connectors: one template. Who it is for in a chip after the name (AudienceChip, as a team connection), that
+ * each member connects their own under it; edit and delete on the line. `groups` and `users`: null until loaded. */
 export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
   tpl: IntegrationTemplate
-  groups: Group[]
-  users: User[]
+  groups: Group[] | null
+  users: User[] | null
   onEdit: () => void
   onDeleted: () => void
 }) {
   const t = useT()
   const locale = useLocale()
   const a = tpl.access
-  const names = [...a.groups.map((id) => groups.find((g) => g.id === id)?.name ?? '?'), ...a.users.map((id) => users.find((u) => u.id === id)?.name ?? '?')]
-  const who = a.everyone ? t('integrations.access.everyone') : names.join(', ')
   const [members, setMembers] = useState(false)
   const remove = async () => {
     const ok = await confirmDialog({
@@ -198,15 +202,14 @@ export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="max-w-full truncate text-sm font-medium" title={tpl.name}>{tpl.name}</span>
+            <AudienceChip access={a} groups={groups} users={users} />
             <button type="button" className="inline-flex rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" onClick={() => setMembers(true)}
               aria-haspopup="dialog" title={t('integrations.template.membersOpen')} data-testid="template-badge">
               <Badge tone="accent">{t('integrations.template.badge', { n: tpl.connected })}</Badge>
             </button>
             {isEmptyAccess(a) && <Badge tone="warn">{t('integrations.users.nobody')}</Badge>}
           </span>
-          <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">
-            {isEmptyAccess(a) ? t('integrations.template.eachOwn') : t('integrations.template.forWho', { who })}
-          </span>
+          <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">{t('integrations.template.eachOwn')}</span>
         </span>
       </div>
       <IconButton label={t('common.edit')} onClick={onEdit} data-testid="template-edit"><Pencil size={15} /></IconButton>

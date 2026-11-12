@@ -31,21 +31,48 @@ export function AiAppLogo({ app, className }: { app: AiApp; className?: string }
   return <span className={`flex shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted ${className ?? ''}`}><Plug size={16} aria-hidden /></span>
 }
 
-/** One row per AI app: logo, name, where it runs, and Connect (or, with the connector off, nothing: the section says why). */
-export function AiAppRows({ on, onConnect }: { on: boolean; onConnect: (app: AiApp) => void }) {
+/** The app row that a client name belongs to: the app name, or the app name and " (…)" (Claude Code registers as
+ * "Claude Code (<server name>)"), in any case. Undefined: the generic row. */
+export function appIdFor(clientName: string): AiApp['id'] | undefined {
+  const n = clientName.trim().toLowerCase()
+  return AI_APPS.find((a) => a.name && (n === a.name.toLowerCase() || n.startsWith(`${a.name.toLowerCase()} (`)))?.id
+}
+
+/** The names of my connected apps that belong to one row (appIdFor); the generic row takes every other one (Cursor, ...).
+ * Several connections of one app count once. */
+export function connectedTo(app: AiApp, items: readonly Pick<RemoteConnectionInfo, 'clientName'>[]): string[] {
+  const names = items.map((i) => i.clientName.trim()).filter(Boolean)
+  const mine = names.filter((n) => (appIdFor(n) ?? 'other') === app.id)
+  const seen = new Set<string>()
+  return mine.filter((n) => (seen.has(n.toLowerCase()) ? false : (seen.add(n.toLowerCase()), true)))
+}
+
+/** One row per AI app: logo, name, where it runs, "✓ Connected" when I have a connection of it (QA TC-094: Admin › AI apps
+ * showed only Connect, also for apps already connected), and Connect (or, with the connector off, nothing: the section
+ * says why). Connect stays: another device or account can connect the same app. */
+export function AiAppRows({ on, onConnect, connected = [] }: { on: boolean; onConnect: (app: AiApp) => void; connected?: readonly Pick<RemoteConnectionInfo, 'clientName'>[] }) {
   const t = useT()
   return (
     <>
-      {AI_APPS.map((app) => (
+      {AI_APPS.map((app) => {
+        const mine = connectedTo(app, connected)
+        return (
         <li key={app.id} className="flex items-center gap-3 p-2" data-testid={`ai-app-${app.id}`}>
           <AiAppLogo app={app} className="size-9" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{appName(app, t)}</span>
             <span className="mt-0.5 block truncate text-xs text-muted">{t(`aiApps.${app.id}.desc`)}</span>
           </span>
-          {on && <Button size="sm" className="shrink-0" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
+          {mine.length > 0 && (
+            <span className="inline-flex max-w-[45%] shrink-0 items-center gap-1 truncate text-xs text-ok" data-testid={`ai-app-connected-${app.id}`}>
+              <Check size={14} className="shrink-0" aria-hidden />
+              <span className="truncate">{app.name ? t('aiApps.connectedBadge') : t('aiApps.connected', { name: mine.join(', ') })}</span>
+            </span>
+          )}
+          {on && <Button size="sm" variant={mine.length > 0 ? 'ghost' : undefined} className="shrink-0 max-md:h-11" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
         </li>
-      ))}
+        )
+      })}
     </>
   )
 }
@@ -113,6 +140,8 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected])
   const command = `claude mcp add --transport http ${CONNECTOR_NAME} ${resource}`
+  const codexCommand = `codex mcp add ${CONNECTOR_NAME} --url ${resource}`
+  const codexLogin = `codex mcp login ${CONNECTOR_NAME}`
   return (
     <Modal open title={t('aiApps.connectTitle', { name })} onClose={onClose} width={520}
       footer={<div className="flex justify-end"><Button variant={connected ? 'primary' : 'secondary'} onClick={onClose} data-testid="ai-app-done">{t('common.done')}</Button></div>}>
@@ -134,6 +163,13 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
               <Step n={1}><p>{t('aiApps.claude-code.step1')}</p><CopyLine text={command} testId="ai-app-command" /></Step>
               <Step n={2}><p>{t('aiApps.claude-code.step2', { server: CONNECTOR_NAME })}</p><CopyLine text="/mcp" testId="ai-app-mcp" /></Step>
               <Step n={3}><p>{t('aiApps.claude-code.step3')}</p></Step>
+            </>
+          )}
+          {app.id === 'codex' && (
+            <>
+              <Step n={1}><p>{t('aiApps.codex.step1')}</p><CopyLine text={codexCommand} testId="ai-app-command" /></Step>
+              <Step n={2}><p>{t('aiApps.codex.step2')}</p><CopyLine text={codexLogin} testId="ai-app-login" /></Step>
+              <Step n={3}><p>{t('aiApps.codex.step3')}</p><p className="text-xs text-muted">{t('aiApps.codex.step3Hint')}</p></Step>
             </>
           )}
           {app.id === 'other' && (
@@ -163,7 +199,7 @@ export function ConnectorOff({ admin }: { admin: boolean }) {
       <CopyLine label={t('aiApps.setup.installer')} text="--public-host HOST --app-connectors" testId="ai-apps-setup-installer" />
       <CopyLine label={t('aiApps.setup.serverJson')} text={'"appConnectors": true'} testId="ai-apps-setup-json" />
       <CopyLine label={t('aiApps.setup.env')} text={`${PRODUCT.envPrefix}REMOTE_MCP_ORIGIN=https://team.example.com`} testId="ai-apps-setup-env" />
-      <a href={CONNECTOR_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-accent-text hover:underline" data-testid="ai-apps-guide">
+      <a href={CONNECTOR_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-accent-text hover:underline max-md:min-h-11" data-testid="ai-apps-guide">
         {t('appConnectors.guide')}
         <ExternalLink size={12} aria-hidden />
       </a>

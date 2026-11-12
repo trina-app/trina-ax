@@ -6,7 +6,7 @@ import path from 'node:path'
 import type { AppConfig } from '../../server/src/app-config'
 import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
-import { applyPendingRestore, BackupManager } from '../../server/src/system/backup'
+import { applyPendingRestore, BackupManager, lastRestore, recordRestore } from '../../server/src/system/backup'
 import { chatMarkdown, chatPath, memoriesCsv, runExport } from '../../server/src/system/export'
 import { resolveLayout } from '../../server/src/system/layout'
 import { diffManifest, toManifest, walkTree } from '../../server/src/system/manifest'
@@ -146,6 +146,81 @@ describe('backups', () => {
     } finally { setPlanForTests(undefined); e.db.close() }
   })
 
+  test('the DB a restore replaced (before-restore-<time>/): same retention, the newest and the last restore\'s kept', async () => {
+    const e = setup('prune-before-restore')
+    const dir = e.layout.dbBackupsDir
+    const copy = (n: string) => {
+      fs.mkdirSync(path.join(dir, n, 'sessions'), { recursive: true })
+      fs.writeFileSync(path.join(dir, n, 'app.db'), 'old')
+      fs.writeFileSync(path.join(dir, n, 'sessions', 's1'), 'stash')
+    }
+    const names = ['before-restore-20260901T040000Z', 'before-restore-20260905T040000Z', 'before-restore-20260910T040000Z', 'before-restore-20260925T040000Z']
+    for (const n of names) copy(n)
+    fs.mkdirSync(path.join(dir, 'before-restore-notes'), { recursive: true }) // not a name the restore makes: left alone
+    e.setClock(new Date('2026-10-01T04:00:00Z')) // 30, 26, 21 and 6 days old
+    // a restore is staged: nothing goes until the next start has swapped the DB
+    fs.writeFileSync(path.join(e.cfg.dataDir, 'restore-pending.json'), '{}')
+    expect(e.mgr.prune()).toEqual([])
+    fs.rmSync(path.join(e.cfg.dataDir, 'restore-pending.json'))
+    // the last restore names the oldest one (a clock that went back): it stays too
+    fs.writeFileSync(path.join(e.cfg.dataDir, 'restore-result.json'), JSON.stringify({ ok: true, previousDb: path.join(dir, names[0]!) }))
+    expect(e.mgr.prune().sort()).toEqual([names[1], names[2]])
+    expect(fs.readdirSync(dir).filter((n) => n.startsWith('before-restore-')).sort()).toEqual([names[0], names[3], 'before-restore-notes'])
+    // all old, no restore result: only the newest stays
+    fs.rmSync(path.join(e.cfg.dataDir, 'restore-result.json'))
+    e.setClock(new Date('2026-11-30T04:00:00Z'))
+    expect(e.mgr.prune()).toEqual([names[0]])
+    expect(fs.existsSync(path.join(dir, names[3]!, 'sessions', 's1'))).toBe(true)
+    e.db.close()
+  })
+
+  test('a disk full of old before-restore copies: they go before the space check, so the backup runs', async () => {
+    const e = setup('prune-before-space')
+    e.setClock(new Date('2026-10-01T04:00:00Z'))
+    const dir = e.layout.dbBackupsDir
+    for (const n of ['before-restore-20260801T040000Z', 'before-restore-20260802T040000Z']) fs.mkdirSync(path.join(dir, n), { recursive: true })
+    const orig = fs.statfsSync
+    // the disk is full until the old copy is gone
+    ;(fs as unknown as { statfsSync: unknown }).statfsSync = (...a: unknown[]) => fs.existsSync(path.join(dir, 'before-restore-20260801T040000Z'))
+      ? { bavail: 10, bsize: 4096, blocks: 1e6 } : (orig as (...x: unknown[]) => unknown)(...a)
+    try {
+      await e.mgr.run({ kind: 'daily', scope: 'db' })
+    } finally {
+      ;(fs as unknown as { statfsSync: unknown }).statfsSync = orig
+    }
+    expect(fs.readdirSync(dir).filter((n) => n.startsWith('before-restore-'))).toEqual(['before-restore-20260802T040000Z'])
+    e.db.close()
+  })
+
+  test('a restore whose swap fails leaves no empty before-restore folder', async () => {
+    const e = setup('restore-swap-fails')
+    const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
+    await e.mgr.stageDbRestore(m.id, null)
+    e.db.close()
+    const r = applyPendingRestore(e.cfg.dataDir, silentLogger, { rename: (a, b) => { if (a.endsWith('restore-staged.db')) throw new Error('disk error'); fs.renameSync(a, b) } })
+    expect(r.applied).toBe(false)
+    expect(fs.existsSync(e.dbFile)).toBe(true)
+    expect(fs.readdirSync(e.layout.dbBackupsDir).filter((n) => n.startsWith('before-restore-'))).toEqual([])
+  })
+
+  test('a backup after a restore prunes the old before-restore copy and keeps the new one', async () => {
+    const e = setup('prune-after-restore')
+    e.setClock(new Date('2026-10-01T04:00:00Z'))
+    fs.mkdirSync(path.join(e.layout.dbBackupsDir, 'before-restore-20260801T040000Z'), { recursive: true })
+    const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
+    await e.mgr.stageDbRestore(m.id, null)
+    e.db.close()
+    expect(applyPendingRestore(e.cfg.dataDir, silentLogger).applied).toBe(true)
+    const db = openDb(e.dbFile)
+    const mgr = new BackupManager({ db, dbFile: e.dbFile, layout: e.layout, log: silentLogger, version: '0.1.0', now: () => new Date('2026-10-02T04:00:00Z') })
+    await mgr.run({ kind: 'manual', scope: 'db' })
+    const left = fs.readdirSync(e.layout.dbBackupsDir).filter((n) => n.startsWith('before-restore-'))
+    expect(left).toHaveLength(1)
+    expect(left[0]).not.toBe('before-restore-20260801T040000Z')
+    expect(fs.existsSync(path.join(e.layout.dbBackupsDir, left[0]!, 'app.db'))).toBe(true)
+    db.close()
+  })
+
   test('not enough disk space: the backup refuses and the failure is reported', async () => {
     const e = setup('disk')
     const { BackupManager: BM } = await import('../../server/src/system/backup')
@@ -184,6 +259,33 @@ describe('DB restore (staged, applied at the next start)', () => {
     expect(fs.readdirSync(e.layout.dbBackupsDir).some((n) => n.startsWith('before-restore-'))).toBe(true)
     expect(fs.existsSync(path.join(e.cfg.dataDir, 'restore-pending.json'))).toBe(false)
     expect(applyPendingRestore(e.cfg.dataDir, silentLogger).applied).toBe(false)
+  })
+
+  test('the start logs which backup was put back, made when, asked by whom; Admin reads it back (QA TC-208)', async () => {
+    const e = setup('restore-logged')
+    const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
+    e.setClock(new Date('2026-10-01T05:00:00Z'))
+    await e.mgr.stageDbRestore(m.id, 'olga')
+    e.db.close()
+    const r = applyPendingRestore(e.cfg.dataDir, silentLogger)
+    expect(r).toMatchObject({ applied: true, backupId: m.id, requestedBy: 'olga', requestedAt: '2026-10-01T05:00:00.000Z', backupCreatedAt: m.createdAt })
+    const db = openDb(e.dbFile)
+    expect(lastRestore(db)).toBeNull()
+    recordRestore(db, r)
+    const row = db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'backup.restore'").get() as { actor_id: string; target: string; detail: string }
+    expect(row.actor_id).toBe('olga')
+    expect(row.target).toBe(m.id)
+    expect(JSON.parse(row.detail)).toEqual({ ok: true, backupCreatedAt: m.createdAt, requestedAt: '2026-10-01T05:00:00.000Z' })
+    expect(lastRestore(db)).toMatchObject({ backupId: m.id, backupCreatedAt: m.createdAt, by: { id: 'olga', name: 'Olga' }, ok: true })
+    // a failed one: said as failed, with the reason in the row; a start without a restore writes nothing
+    recordRestore(db, { applied: false, backupId: m.id, error: 'staged copy missing', requestedBy: 'olga', requestedAt: '2026-10-01T05:00:00.000Z', backupCreatedAt: m.createdAt })
+    expect(lastRestore(db)).toMatchObject({ backupId: m.id, ok: false })
+    recordRestore(db, { applied: false })
+    expect(db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'backup.restore'").get()).toEqual({ n: 2 })
+    // a person the restored database does not know: the row has no actor
+    recordRestore(db, { ...r, requestedBy: 'gone' })
+    expect(lastRestore(db)?.by).toBeNull()
+    db.close()
   })
 
   test('a damaged staged copy is refused and the live DB stays', async () => {

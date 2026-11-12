@@ -3,11 +3,12 @@ import path from 'node:path'
 import { afterEach, expect, test } from 'bun:test'
 import { buildApp } from '../../server/src/app'
 import { remoteMcpRoutes } from '../../server/src/routes/remote-mcp'
-import { remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
+import { OAUTH_LIMITS, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
 import { challenge } from '../../server/src/connectors/remote-mcp/policy'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 const live: Harness[] = []
-afterEach(async () => { for (const h of live.splice(0)) await h.close() })
+const limits = structuredClone(OAUTH_LIMITS)
+afterEach(async () => { Object.assign(OAUTH_LIMITS, structuredClone(limits)); for (const h of live.splice(0)) await h.close() })
 const base = 'https://team.example', redirect = 'https://claude.ai/api/mcp/auth_callback', verifier = 'z'.repeat(43)
 async function fixture(name: string) {
   const h = await harness('remote-http-' + name); live.push(h)
@@ -15,7 +16,8 @@ async function fixture(name: string) {
   for (const [key, module] of h.ctx.implemented) if (module === 'remote-mcp') h.ctx.implemented.delete(key)
   const app = await buildApp(h.ctx, [remoteMcpRoutes]), oauth = remoteOAuthOf(h.ctx, { origin: base })
   // The synthetic login is a dev HTTP cookie; canonical public issuer remains independently configured HTTPS.
-  const fetch = (path: string, init: RequestInit = {}) => app.fetch(new Request('http://team.localhost' + path, init), { ip: '10.0.0.7', via: 'test' })
+  const from = (ip: string, path: string, init: RequestInit = {}) => app.fetch(new Request('http://team.localhost' + path, init), { ip, via: 'test' })
+  const fetch = (path: string, init: RequestInit = {}) => from('10.0.0.7', path, init)
   const api = (method: string, path: string, data?: unknown, cookie = owner.cookie!, csrf = true) => fetch(path, { method, headers: { cookie, 'content-type': 'application/json', ...(csrf ? { 'x-mycel-csrf': '1' } : {}) }, body: data === undefined ? undefined : JSON.stringify(data) })
   const post = (path: string, data: unknown) => fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) })
   const register = await post('/oauth/register', { redirect_uris: [redirect], client_name: 'Synthetic Claude' }), client = await register.json() as any
@@ -28,7 +30,7 @@ async function fixture(name: string) {
     return await response.json() as any
   }
   const rpc = (token: string, body: unknown, headers: Record<string, string> = {}) => fetch('/mcp', { method: 'POST', headers: { authorization: 'Bearer ' + token, accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })
-  return { h, owner, oauth, fetch, api, post, client, authorize, issue, rpc }
+  return { h, owner, oauth, from, fetch, api, post, client, authorize, issue, rpc }
 }
 
 test('discovery uses configured issuer, never hostile host; public responses and authorization redirects are no-store', async () => {
@@ -41,6 +43,17 @@ test('discovery uses configured issuer, never hostile host; public responses and
   const response = await f.authorize()
   expect(response.status).toBe(302); expect(response.headers.get('location')).toStartWith(base + '/connectors/authorize?id=')
   expect(response.headers.get('referrer-policy')).toBe('no-referrer')
+})
+test('a sign-in link of an unknown or removed app shows a page a person can read, not an OAuth error', async () => {
+  const f = await fixture('expired-link')
+  const gone = await f.fetch('/oauth/authorize?' + new URLSearchParams({ client_id: 'tax_client_removed', redirect_uri: redirect, resource: base + '/mcp', response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier) }))
+  expect(gone.status).toBe(401)
+  expect(gone.headers.get('content-type')).toStartWith('text/html')
+  expect(gone.headers.get('cache-control')).toBe('no-store')
+  expect(await gone.text()).toContain('This connection link has expired. Start the connection again from Claude or ChatGPT.')
+  // other errors keep the OAuth body
+  const bad = await f.fetch('/oauth/authorize?' + new URLSearchParams({ client_id: f.client.client_id, redirect_uri: redirect }))
+  expect(bad.headers.get('content-type')).toBe('application/json')
 })
 test('consent requires core login and CSRF; another user cannot inspect a claimed request or revoke its connection', async () => {
   const f = await fixture('consent'), other = await addMember(f.h, f.owner, { username: 'outsider' })
@@ -196,4 +209,130 @@ test('Codex CLI and ChatGPT as clients: iss support advertised, their registrati
   expect((await f.rpc(chatgpt.tokens.access_token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { origin: 'https://chatgpt.com.evil.invalid' })).status).toBe(403)
   // still nothing else: another ChatGPT path, a per-connection loopback path
   for (const uri of ['https://chatgpt.com/connector/oauth/abc', 'http://127.0.0.1:53123/callback/abc']) expect((await f.post('/oauth/register', { redirect_uris: [uri] })).status).toBe(400)
+})
+
+test('registration flood from one address: it is slowed down, an app from another address still registers', async () => {
+  const f = await fixture('register-flood'), start = Math.floor(Date.now() / 3600_000) * 3600_000 + 3600_000 // a whole hour
+  const register = (ip: string, headers: Record<string, string> = {}) => f.from(ip, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ redirect_uris: [redirect] }) })
+  let ok = 0
+  // 12 a minute and 240 an hour per address; a client-sent X-Forwarded-For changes nothing
+  for (let minute = 0; minute < 21; minute++) {
+    f.oauth.now = () => start + minute * 60_000
+    for (let i = 0; i < 14; i++) if ((await register('203.0.113.9', { 'x-forwarded-for': `198.51.100.${i}` })).status === 201) ok++
+  }
+  expect(ok).toBe(240)
+  expect((await register('203.0.113.9')).status).toBe(429)
+  // another address in the same /64 is the same sender; a different one is not
+  for (let i = 0; i < 12; i++) expect((await register(`2001:db8:1:2::${i + 1}`)).status).toBe(201)
+  expect((await register('2001:db8:1:2:ffff::1')).status).toBe(429)
+  expect((await register('198.51.100.20')).status).toBe(201)
+})
+
+test('a flood from ever new networks fills the last-resort cap; a connected person\'s tool calls still go through', async () => {
+  const f = await fixture('anonymous-flood'), { access_token: token, refresh_token: refresh } = await f.issue()
+  const minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000; f.oauth.now = () => minute + 1000 // one fixed minute
+  OAUTH_LIMITS.anonymousPerMinute = 30
+  const anonymous = (ip: string) => f.from(ip, '/mcp', { method: 'POST', headers: { authorization: 'Bearer tax_mcp_a_' + 'x'.repeat(43), accept: 'application/json, text/event-stream', 'content-type': 'application/json' }, body: '{}' })
+  const statuses: number[] = []
+  for (let i = 0; i < 40; i++) statuses.push((await anonymous(`192.0.${i}.1`)).status)
+  expect(statuses.slice(0, 30).every(s => s === 401)).toBe(true)
+  expect(statuses.slice(30).every(s => s === 429)).toBe(true)
+  // the cap is full for everyone without a token, also on the OAuth endpoints, and writes nothing more
+  const rows = (f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n
+  expect((await f.from('192.0.200.1', '/.well-known/oauth-authorization-server')).status).toBe(429)
+  expect((f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n).toBe(rows)
+  // the connected person's calls have their grant's own bucket
+  for (let id = 1; id <= 5; id++) {
+    const res = await f.rpc(token, { jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'list', arguments: { path: '' } } })
+    expect(res.status).toBe(200)
+    expect((await res.json() as any).result.isError).toBeFalsy()
+  }
+  // the app's refresh still works (a live refresh token is not anonymous); a made-up one is
+  expect((await f.post('/oauth/token', { client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: 'tax_mcp_r_' + 'y'.repeat(43), resource: base + '/mcp' })).status).toBe(429)
+  const refreshed = await f.post('/oauth/token', { client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh, resource: base + '/mcp' })
+  expect(refreshed.status).toBe(200)
+  const next = (await refreshed.json() as any).access_token
+  expect((await f.rpc(next, { jsonrpc: '2.0', id: 8, method: 'ping' })).status).toBe(200)
+  // the grant's own bucket: 5 tool calls and a ping so far
+  OAUTH_LIMITS.mcpPerGrantPerMinute = 7
+  expect((await f.rpc(next, { jsonrpc: '2.0', id: 9, method: 'ping' })).status).toBe(200)
+  expect((await f.rpc(next, { jsonrpc: '2.0', id: 10, method: 'ping' })).status).toBe(429)
+})
+
+test('an address over its own limit does not spend the shared bucket', async () => {
+  const f = await fixture('own-first'), minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000
+  f.oauth.now = () => minute + 1000
+  OAUTH_LIMITS.anonymousPerMinute = 20
+  OAUTH_LIMITS.perAddress.default = [[60_000, 5]]
+  // 50 requests, 5 of them within the address's own limit: only those 5 count in the shared 20
+  for (let i = 0; i < 50; i++) await f.from('203.0.113.51', '/.well-known/oauth-authorization-server')
+  expect((await f.from('203.0.113.52', '/.well-known/oauth-authorization-server')).status).toBe(200)
+})
+
+test('junk token requests naming a known app do not stop that app\'s live refresh', async () => {
+  const f = await fixture('token-client-flood'), { refresh_token: refresh } = await f.issue()
+  const minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000; f.oauth.now = () => minute + 1000
+  const token = (ip: string, refreshToken: string) => f.from(ip, '/oauth/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refreshToken, resource: base + '/mcp' }) })
+  // 200 junk requests from two addresses fill the app's token bucket (180 a minute)
+  for (let i = 0; i < 200; i++) await token(i % 2 ? '192.0.2.10' : '192.0.2.11', 'tax_mcp_r_' + 'q'.repeat(43))
+  expect((await token('192.0.2.12', 'tax_mcp_r_' + 'q'.repeat(43))).status).toBe(429)
+  // only for the app that holds the grant: the same refresh token naming another app is not exempt
+  const other = await (await f.post('/oauth/register', { redirect_uris: [redirect] })).json() as any
+  expect(f.oauth.liveCredential({ client_id: other.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(false)
+  expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(true)
+  expect((await token('192.0.2.12', refresh)).status).toBe(200)
+  expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(false) // used
+})
+
+// QA TC-168 (11-12): 15 addresses x 170 metadata requests in a minute, each under its own 180, filled the old fixed
+// 2,400 and every new connection got 429 for the rest of the minute
+test('a few flooding addresses make the minute busy, but a new person still connects; the flooders are refused', async () => {
+  const f = await fixture('busy-minute'), minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000
+  f.oauth.now = () => minute + 1000
+  const statuses: number[] = []
+  for (let a = 1; a <= 15; a++) for (let i = 0; i < 170; i++) statuses.push((await f.from(`198.51.${a}.1`, '/.well-known/oauth-authorization-server')).status)
+  // the busy level (2,400) is reached 20 requests into the 15th network; it may send up to 30 (its share), every
+  // later request of these networks is refused
+  expect(statuses.filter(s => s === 200).length).toBe(OAUTH_LIMITS.busyPerMinute + 10)
+  expect(statuses.filter(s => s === 429).length).toBe(15 * 170 - OAUTH_LIMITS.busyPerMinute - 10)
+  expect((await f.from('198.51.1.1', '/.well-known/oauth-protected-resource')).status).toBe(429)
+  // a fresh address in a flooding network gets no fresh share (IPv4 /24)
+  expect((await f.from('198.51.1.77', '/.well-known/oauth-authorization-server')).status).toBe(429)
+  // a new person from fresh networks: Claude's server discovers and registers, the browser signs in, tools work
+  const claude = '160.79.104.20'
+  const mcp = await f.from(claude, '/mcp', { method: 'POST', headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json' }, body: '{}' })
+  expect(mcp.status).toBe(401); expect(mcp.headers.get('www-authenticate')).toContain('resource_metadata=')
+  expect((await f.from(claude, '/.well-known/oauth-protected-resource/mcp')).status).toBe(200)
+  expect((await f.from(claude, '/.well-known/oauth-authorization-server')).status).toBe(200)
+  expect((await f.from(claude, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: [redirect] }) })).status).toBe(201)
+  const tokens = await f.issue() // authorize from the browser's 10.0.0.7, consent, token
+  expect(tokens.access_token).toBeTruthy()
+  expect((await f.rpc(tokens.access_token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status).toBe(200)
+  // the next minute is not busy: the flooders' networks are let in again (up to their own limits)
+  f.oauth.now = () => minute + 61_000
+  expect((await f.from('198.51.1.1', '/.well-known/oauth-authorization-server')).status).toBe(200)
+})
+
+test('busy minute: an IPv6 flood gets one share per /48; refused requests do not count toward the last-resort cap', async () => {
+  const f = await fixture('busy-v6'), minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000
+  f.oauth.now = () => minute + 1000
+  OAUTH_LIMITS.busyPerMinute = 20; OAUTH_LIMITS.networkPerMinute = 3; OAUTH_LIMITS.anonymousPerMinute = 40
+  const meta = async (ip: string) => (await f.from(ip, '/.well-known/oauth-authorization-server')).status
+  // one /48, ever new /64s (each its own address limit): 20 get in, then the minute is busy and the /48 is over its 3
+  const v6: number[] = []
+  const rows = () => (f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n
+  for (let i = 1; i <= 20; i++) v6.push(await meta(`2001:db8:7:${i.toString(16)}::1`))
+  const before = rows()
+  for (let i = 21; i <= 100; i++) v6.push(await meta(`2001:db8:7:${i.toString(16)}::1`))
+  expect(v6.filter(s => s === 200).length).toBe(20)
+  // the refused ones wrote nothing, also a registration (an hour-long row per address) from fresh /64s
+  for (let i = 101; i <= 110; i++) expect((await f.from(`2001:db8:7:${i.toString(16)}::1`, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: [redirect] }) })).status).toBe(429)
+  expect(rows()).toBe(before)
+  // the 80 refused ones did not spend the cap: 20 fresh networks still get in (up to 3 each), then the cap (40) holds
+  const fresh: number[] = []
+  for (let n = 1; n <= 10; n++) for (let i = 0; i < 3; i++) fresh.push(await meta(`203.0.${n}.${i + 1}`))
+  expect(fresh.filter(s => s === 200).length).toBe(20)
+  expect(fresh.slice(20).every(s => s === 429)).toBe(true)
+  // another /48 is another network, but the last-resort cap is full now
+  expect(await meta('2001:db8:8::1')).toBe(429)
 })

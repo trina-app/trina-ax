@@ -267,6 +267,27 @@ describe('links from outside (phase 2): the reader and screen ④\'s gate', () =
       expect(g.pending()).toBeNull()
     }
   })
+  test('④ after a connect that could not reach the team: the same link once more, only for its host, gone after no / another link / clear', () => {
+    for (const m of [shared, phone]) {
+      const g = new m.LinkGate(600)
+      const a = m.readAppLink(link(`https://acme.trina.app/join#t=${JOIN}`), DESK) as never
+      const evil = m.readAppLink(link('https://evil.example/'), DESK) as never
+      expect(g.retry('acme.trina.app')).toBeNull() // nothing confirmed yet
+      const o = g.put(a); g.shown(o.id, 1_000)
+      expect(g.retry('acme.trina.app')).toBeNull() // offered, but no yes yet
+      const yes = g.answer(true, 'acme.trina.app', 2_000)
+      expect(g.retry('acme.trina.app')).toEqual(yes)
+      expect(g.retry('acme.trina.app')).toEqual(yes) // Try again may be pressed more than once
+      expect(g.retry('evil.example')).toBeNull()
+      g.answer(false, 'acme.trina.app', 3_000) // Cancel after the failed connect
+      expect(g.retry('acme.trina.app')).toBeNull()
+      const o2 = g.put(a); g.shown(o2.id, 4_000); g.answer(true, 'acme.trina.app', 5_000)
+      g.put(evil) // another link came in
+      expect(g.retry('acme.trina.app')).toBeNull()
+      const o3 = g.put(a); g.shown(o3.id, 6_000); g.answer(true, 'acme.trina.app', 7_000); g.clear()
+      expect(g.retry('acme.trina.app')).toBeNull()
+    }
+  })
   test('a tapped universal link that was cut off says so; text around the address inside a scheme link is refused', () => {
     for (const m of [shared, phone]) {
       expect(m.readAppLink('https://acme.trina.app/invite/abc', PHONE_LINKS)).toEqual(err('link') as never)

@@ -29,7 +29,9 @@ async function chatWithTwoAnswers(page: Page, projectId?: string) {
   return id
 }
 
-const NOTE = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 내 채팅은 나만 볼 수 있어요.'
+const NOTE = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요.'
+/** who sees a chat of one person (docs/DECISIONS.md "Who sees it, always"): after the note on a computer, alone on a phone */
+const ONLY_ME = '나만 봐요'
 
 /** The box holds the text, the mic and the send key (the mic right before send, as in ChatGPT); attach and the engine
  * are in the row under it. */
@@ -87,7 +89,7 @@ test('answers have nothing beside them, and only the newest keeps its actions in
   await expect(page.getByTestId('composer-input')).toHaveAttribute('placeholder', '무엇이든 물어보세요')
 })
 
-test("the chat's name opens rename and delete, after the project it is in", async ({ page }) => {
+test("the chat's name opens its link, rename and delete, after the project it is in", async ({ page }) => {
   await reset(page)
   await signIn(page)
   const projectId = await newProject(page)
@@ -99,6 +101,9 @@ test("the chat's name opens rename and delete, after the project it is in", asyn
   await expect(page.getByRole('heading', { level: 1, name: 'Launch plan' })).toBeVisible()
   const name = page.getByTestId('chat-menu')
   await name.click()
+  // "링크 복사" first (every made chat has it), then Rename
+  await expect(page.getByTestId('chat-copy-link')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-rename')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   // the chat is in a project: "Change project…" sits between Rename and Delete
@@ -147,8 +152,8 @@ test('the message box is one line with a quiet send key, and the controls sit un
   await page.getByTestId('composer-input').fill('one more thing')
   await expect(send).toBeEnabled()
   await expect(send).toHaveClass(/text-ink/)
-  // the note is in the row, between the controls
-  await expect(page.getByTestId('composer-controls').getByText(NOTE)).toBeVisible()
+  // the note is in the row, between the controls, and says who sees the chat after it
+  await expect(page.getByTestId('composer-controls').getByTestId('composer-footer')).toHaveText(`${NOTE} ${ONLY_ME}`)
   await expect(page.getByText(NOTE)).toHaveCount(1)
   // while an answer runs, Stop takes the send key's place in the box
   await page.getByTestId('composer-input').fill('slow answer please, slow slow slow slow slow slow slow slow slow slow')
@@ -208,9 +213,11 @@ test('on a phone the newest answer shows its actions, an older answer or my mess
   await expect(edited.getByTestId('message-actions')).toHaveCSS('clip-path', 'none')
   await expect(edited.getByTestId('message-actions-tap')).toHaveCSS('clip-path', 'inset(50%)')
   await expect(page.getByTestId('chat-menu')).toBeVisible()
-  // on a phone the note under the message box is left out (the bottom is for the box and the keyboard); the chat's own
-  // bar (back, title, new chat) is the only bar
+  // on a phone the note under the message box is left out (the bottom is for the box and the keyboard), all but who sees
+  // the chat, one line; the chat's own bar (back, title, new chat) is the only bar
   await expect(page.getByText(NOTE)).toBeHidden()
+  await expect(page.getByTestId('composer-phone-footer')).toHaveText(ONLY_ME)
+  expect((await page.getByTestId('composer-phone-footer').boundingBox())!.height).toBeLessThanOrEqual(26)
   await expect(page.getByTestId('chat-back')).toBeVisible()
   await expect(page.getByTestId('menu-open')).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

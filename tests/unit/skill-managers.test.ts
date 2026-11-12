@@ -158,11 +158,14 @@ describe('the AI never saves under skills/ without the person confirming (fail c
     expect(h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'write'").get(r.turnId)).toEqual({ summary: 'write -> not allowed by the user (team skills)', ok: 0 })
   })
 
-  test('no answer (the card times out) = nothing written', async () => {
+  test('no answer (the card times out) = nothing written, and the AI is told it timed out, not that the person said no', async () => {
     const r = await aiTurn('carol', fake({ tool: 'write', args: { file_path: 'skills/timeout.md', content: '# t\n' }, sayResult: true }), null)
     expect(r.card!.origin).toBe('server')
-    expect(r.content).toContain('did not allow saving')
+    expect(r.content).toContain("Nothing was saved to 'skills/timeout.md' in skills/")
+    expect(r.content).toContain('did not answer the confirmation card in time')
+    expect(r.content).not.toContain('did not allow')
     expect(exists('skills/timeout.md')).toBe(false)
+    expect(h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'write'").get(r.turnId)).toEqual({ summary: 'write -> no answer in time (team skills)' })
   })
 
   test('save: written, with an audit entry (by AI) and a banner for the other admins and the owner', async () => {

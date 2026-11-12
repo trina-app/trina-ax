@@ -26,7 +26,7 @@ test('the share page: the proposer picks a group; a member of the group reviews 
   await expect(review).toHaveAttribute('data-target', 'team')
   // the team by default; the owner's group with a folder of its own is the other choice
   const pick = page.getByTestId('skill-share-target')
-  await expect(pick.locator('option')).toHaveText(['팀 전체 (Acme)', '영업팀 그룹만'])
+  await expect(pick.locator('option')).toHaveText(['팀 전체 (Acme)', '영업팀 부서만'])
   // the title and its line say the team until a group is chosen
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('팀에 공유할 스킬')
   await expect(page.getByTestId('skills-rule')).toBeVisible()
@@ -35,15 +35,15 @@ test('the share page: the proposer picks a group; a member of the group reviews 
   // a share to a group: no team rule; its primary and the who line name the group
   await expect(page.getByTestId('skills-rule')).toHaveCount(0)
   await expect(page.getByTestId('skills-share')).toContainText('영업팀에 공유')
-  await expect(page.getByTestId('skills-who')).toContainText("'영업팀' 그룹 멤버의 AI만")
+  await expect(page.getByTestId('skills-who')).toContainText("'영업팀' 부서 멤버의 AI만")
   // and the page's title and subline follow the target, as the button does
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('영업팀 그룹에 공유할 스킬')
-  await expect(page.getByTestId('skill-share-page')).toContainText('고른 것만 영업팀 그룹에 올라가요')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('영업팀 부서에 공유할 스킬')
+  await expect(page.getByTestId('skill-share-page')).toContainText('고른 것만 영업팀 부서에 올라가요')
   await expect(page.getByTestId('skill-share-page')).not.toContainText('고른 것만 팀에 올라가요')
   await pick.selectOption('')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('팀에 공유할 스킬')
   await pick.selectOption(group.id)
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('영업팀 그룹에 공유할 스킬')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('영업팀 부서에 공유할 스킬')
   // the choice is kept (the server stores it): a reload shows it
   await page.reload()
   await expect(page.getByTestId('skill-review')).toHaveAttribute('data-target', group.id, { timeout: 15_000 })
@@ -58,8 +58,8 @@ test('the share page: the proposer picks a group; a member of the group reviews 
   await expect(row).toContainText('Olga님 → 영업팀')
   await row.click()
   await expect(page.getByTestId('skill-review')).toHaveAttribute('data-status', 'ready')
-  await expect(page.getByTestId('skill-share-target-line')).toHaveText("Olga님이 '영업팀' 그룹에 공유하자고 했어요")
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('영업팀 그룹에 공유할 스킬')
+  await expect(page.getByTestId('skill-share-target-line')).toHaveText("Olga님이 '영업팀' 부서에 공유하자고 했어요")
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('영업팀 부서에 공유할 스킬')
   await expect(page.getByTestId('skill-share-target')).toHaveCount(0)
   await page.getByTestId('skills-share').click()
   await expect(page.getByTestId('skill-review')).toHaveAttribute('data-status', 'applied')

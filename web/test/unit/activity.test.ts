@@ -94,6 +94,13 @@ describe('grouped by day', () => {
 
 describe('what a row says', () => {
   const at = new Date(2026, 10, 4, 9)
+  test('an outside app\'s connection names the app, never the grant\'s id (QA TC-204)', () => {
+    const grant = (detail: Record<string, unknown> | null) => entry('g', at, { source: 'admin', action: 'remote_mcp.connected', target: 'tax_grant_0a1b2c3d4e5f', detail })
+    expect(rowItem(grant({ scopes: ['mcp:read'], app: 'Claude' }))).toEqual({ text: 'Claude', code: false })
+    // an entry written before the name was kept: the action alone
+    expect(rowItem(grant({ scopes: ['mcp:read'] }))).toBeNull()
+    expect(rowItem({ ...grant({ app: 'Claude' }), action: 'remote_mcp.disconnected' })).toEqual({ text: 'Claude', code: false })
+  })
   const tool = (action: string, summary: string) => entry('t', at, { source: 'tool', action, target: null, detail: { summary, ok: 1 } })
   test('an AI tool: its name in words and the path it worked on; a connection check and other summaries stay in the details', () => {
     expect(rowItem(tool('read', 'read shared/마케팅/plan.csv -> 4 lines'))).toEqual({ text: 'shared/마케팅/plan.csv', code: true })
@@ -111,6 +118,8 @@ describe('what a row says', () => {
       const t = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
       expect(actionLabel(t, tool('read', 'read shared/마케팅/plan.csv -> 4 lines'))).toBe('파일 읽기')
       expect(actionLabel(t, tool('(connect)', 'accepted peer={"pid":1,"uid":501}'))).toBe('AI 도구 연결')
+      // set_title has no step under an answer, but the log still names it in words (QA TC-069)
+      expect(actionLabel(t, tool('set_title', 'set_title -> ok'))).toBe('채팅 이름 짓기')
       // another service's tool keeps its own name
       expect(actionLabel(t, tool('create_issue', 'create_issue -> ok'))).toBe('create_issue')
       expect(actionLabel(t, tool('constructor', ''))).toBe('constructor')

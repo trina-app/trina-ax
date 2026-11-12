@@ -139,6 +139,9 @@ export async function startInstance(name: string): Promise<Instance> {
     teamRoot: team, dataDir, logDir: null, logLevel: 'error',
     engine: { authMode: 'local-login', modelUpstreams: { anthropic: up, openai: up + '/v1', chatgpt: up, openaiAuth: up } },
     relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: SETUP_TOKEN,
+    // the room AI cases ask it with "@트리나 …" (AppConfig.roomAiMentions, off in a real server since #247), as
+    // tests/unit/a-lib.ts and tests/lib/c-app.ts
+    roomAiMentions: true,
   }
   const db = openDb(path.join(dataDir, 'app.db'))
   const bin = fakeEngineBin(path.join(base, 'bin'))

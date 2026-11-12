@@ -11,8 +11,11 @@ import { TEAM_FILE_DRAG_TYPE } from './teamAttach'
 // ---------------- selection ----------------
 /** a navigation-only folder (access none) has no menu, so nothing to select */
 export const selectable = (e: FileEntry) => e.access !== 'none'
-/** move / trash: like the row menu's rename, move and trash */
-export const canChange = (e: FileEntry) => e.access === 'write'
+/** move / trash: like the row menu's rename, move and trash (not a folder the server marks fixed: a group's or a
+ * project's folder for a member, a personal folder; QA TC-224) */
+export const canChange = (e: FileEntry) => e.access === 'write' && !e.fixed
+/** writable but fixed: selected, it is left out of move and trash for that reason, not as read-only */
+export const isFixed = (e: FileEntry) => e.access === 'write' && !!e.fixed
 /** share (copy): files only, as the row menu offers it */
 export const canShare = (e: FileEntry) => e.type === 'file' && e.access !== 'none'
 
@@ -65,40 +68,72 @@ export function narrowedBy(err: unknown): number | null {
   return Number(err.body.params.lostViewers ?? 0)
 }
 
-type MoveBody = { from: string; to: string; onExists: 'rename'; confirm?: boolean }
+/** viewersAdded when the server refused a move out of a personal folder because more people would see the item
+ * (askWiden; QA TC-115), else null */
+export function widenedBy(err: unknown): number | null {
+  if (!(err instanceof ApiError) || err.code !== 'conflict' || err.body.params?.reason !== 'audience_widened') return null
+  return Number(err.body.params.viewersAdded ?? 0)
+}
+
+/** the skills a move would turn on (a project's folder moved to projects/<name>: docs/DECISIONS.md "Project skills"),
+ * when the server refused it for that, else null */
+export function projectSkillsOn(err: unknown): string[] | null {
+  if (!(err instanceof ApiError) || err.code !== 'conflict' || err.body.params?.reason !== 'project_skills_on') return null
+  return String(err.body.params.skills ?? '').split('\n').filter(Boolean)
+}
+
+type MoveBody = { from: string; to: string; onExists: 'rename'; confirm?: boolean; skillsOk?: boolean; askWiden?: boolean }
 
 /**
  * POST /api/files/move for each item into `folder` (a name taken there gets "name (2)"). Items the server answers
  * audience_narrowed for are not moved yet; once all others are done the person is asked once for all of them (how many
- * items, and the most people any one of them would be hidden from), then those are moved with confirm.
+ * items, and the most people any one of them would be hidden from), then those are moved with confirm. With
+ * confirmWiden, items moved out of a personal folder to where more people would see them (audience_widened) are asked
+ * about the same way, once (QA TC-115).
  */
-export async function moveMany(items: readonly FileEntry[], folder: string, o: { move: (body: MoveBody) => Promise<unknown>; confirmNarrow: (count: number, lostViewers: number) => Promise<boolean> }): Promise<Outcome> {
+export async function moveMany(items: readonly FileEntry[], folder: string, o: { move: (body: MoveBody) => Promise<unknown>; confirmNarrow: (count: number, lostViewers: number) => Promise<boolean>; confirmWiden?: (count: number, viewersAdded: number) => Promise<boolean>; confirmSkills?: (skills: string[]) => Promise<boolean> }): Promise<Outcome> {
   const out: Outcome = { done: [], failed: [], declined: [] }
   const narrowed: { entry: FileEntry; body: MoveBody; lost: number }[] = []
+  const widened: { entry: FileEntry; body: MoveBody; added: number }[] = []
   for (const entry of items) {
-    const body: MoveBody = { from: entry.path, to: joinPath(folder, entry.name), onExists: 'rename' }
+    let body: MoveBody = { from: entry.path, to: joinPath(folder, entry.name), onExists: 'rename', ...(o.confirmWiden ? { askWiden: true } : {}) }
     try {
-      await o.move(body)
+      try {
+        await o.move(body)
+      } catch (error) {
+        // a project's folder into projects/<name>: its skills turn on, asked for this one item
+        const skills = projectSkillsOn(error)
+        if (!skills || !o.confirmSkills) throw error
+        if (!(await o.confirmSkills(skills))) { out.declined.push(entry); continue }
+        body = { ...body, skillsOk: true }
+        await o.move(body)
+      }
       out.done.push(entry)
     } catch (error) {
       const lost = narrowedBy(error)
-      if (lost === null) out.failed.push({ entry, error })
-      else narrowed.push({ entry, body, lost })
+      const added = widenedBy(error)
+      if (lost !== null) narrowed.push({ entry, body, lost })
+      else if (added !== null) widened.push({ entry, body, added })
+      else out.failed.push({ entry, error })
     }
   }
-  if (!narrowed.length) return out
-  if (!(await o.confirmNarrow(narrowed.length, Math.max(...narrowed.map((x) => x.lost))))) {
-    out.declined.push(...narrowed.map((x) => x.entry))
-    return out
-  }
-  for (const { entry, body } of narrowed) {
-    try {
-      await o.move({ ...body, confirm: true })
-      out.done.push(entry)
-    } catch (error) {
-      out.failed.push({ entry, error })
+  const confirmed = async (list: { entry: FileEntry; body: MoveBody }[], ask: () => Promise<boolean>) => {
+    if (!list.length) return
+    if (!(await ask())) {
+      out.declined.push(...list.map((x) => x.entry))
+      return
+    }
+    for (const { entry, body } of list) {
+      try {
+        await o.move({ ...body, confirm: true })
+        out.done.push(entry)
+      } catch (error) {
+        out.failed.push({ entry, error })
+      }
     }
   }
+  await confirmed(narrowed, () => o.confirmNarrow(narrowed.length, Math.max(...narrowed.map((x) => x.lost))))
+  await confirmed(widened, () => o.confirmWiden!(widened.length, Math.max(...widened.map((x) => x.added))))
   return out
 }
 

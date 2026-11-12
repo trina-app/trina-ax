@@ -19,8 +19,8 @@ The engine's own shell and file tools are turned off. Its only path to the team'
 
 | Kind | Tools |
 |---|---|
-| Files | `list`, `glob`, `grep`, `read`, `write`, `edit`, plus `move_files`, `copy_files`, `rename_file`, `share_file` |
-| Search and web | `search`, `web_fetch`, `save_url` |
+| Files | `list`, `glob`, `grep`, `read`, `write`, `edit`, plus `move_files`, `copy_files`, `rename_file`, `share_file`, and `delete_files` (to the team trash after the person's yes on a card; own chat only) |
+| Web | `web_fetch`, `save_url` |
 | Documents | `make_file`, `edit_hwp`, `hwp_render`, `artifact` |
 | Skills and memory | `skill`, `find_skills`, `remember` |
 | People | `ask_user` (a card the person answers) |
@@ -34,7 +34,7 @@ The exact set depends on the engine, the team's settings and the person's connec
 - **Permissions.** Each file call is checked as the person asking. A file they cannot open does not exist for the AI.
 - **Outside content.** File contents, web pages and service answers are data, never instructions.
 - **Confirmation.** Writing restricted content where more people can see it asks the person. So does saving into `skills/`. The AI cannot answer these cards itself.
-- **Web addresses.** The server checks each one. Addresses the AI wrote itself ask the first time for each site.
+- **Web addresses.** The server checks each one. Addresses the AI wrote itself ask the first time for each site, unless the person who asked turned on "Allow all websites" (Settings › Browser): then plain public addresses open without asking, and ones with long random-looking strings, long names or long queries still ask.
 - **Records.** Every tool call is recorded. Admins see which files were read, never the chat.
 
 ## Sub-agents

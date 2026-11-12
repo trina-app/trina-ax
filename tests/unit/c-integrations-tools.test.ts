@@ -34,12 +34,14 @@ afterAll(async () => { fake?.stop(); await A?.close() })
 type Asked = { answer: boolean; questions: string[]; details: ConfirmDetail[][]; beforeAnswer?: () => Promise<void> }
 const ask = (answer: boolean): Asked => ({ answer, questions: [], details: [] })
 
-function turn(user: Person, o: { person?: Asked; scheduled?: boolean; chat?: string } = {}) {
+function turn(user: Person, o: { person?: Asked; scheduled?: boolean; chat?: string; roomsSeen?: boolean } = {}) {
   const chat = o.chat ?? A.chat(user)
   const turnId = A.turn(user, chat)
   const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
   const files = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles() } as TurnToolContext['files']
-  if (o.person) { const p = o.person; files.person = { locale: 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} } }
+  // roomsSeen: the person of a chat that read a room, for a call whose own card stands in for the room card (chat/tools.ts
+  // roomLinePerson adds the room line to the question; b-chat-rooms.test.ts sees it on the card)
+  if (o.person) { const p = o.person; files.person = { locale: 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {}, ...(o.roomsSeen ? { roomsSeen: true } : {}) } }
   const tc: TurnToolContext = { turnId, chatId: chat, userId: user, messageId: 'm', locale: 'en', signal: new AbortController().signal, files }
   const tools = new Map(built.tools.map((t) => [t.name, t]))
   const call = async (name: string, args: unknown) => {
@@ -60,9 +62,45 @@ describe('tools made per person', () => {
     expect(a.tools.get('my_tasks__create_task')!.description).toContain('Changes something')
     expect(a.tools.get('team_teamboard__search_tasks')!.description).toStartWith('[Team board, team connection]')
     // the step shows a short look at the arguments, like Claude Code's tool inputs
-    expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x' }, 'ko')).toBe('Tasks · create_task (title: "x")')
-    expect(a.tools.get('my_tasks__create_task')!.label!({}, 'ko')).toBe('Tasks · create_task')
-    expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'post', path: '/tasks?x=1' }, 'en')).toBe('AI PM · POST /tasks')
+    // the step: the connection and the tool's title, never the arguments (docs/DECISIONS.md "Plain words in errors, cards and steps")
+    expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x' }, 'ko')).toBe('Tasks · Create a task')
+    expect(a.tools.get('my_tasks__create_task')!.label!({}, 'ko')).toBe('Tasks · Create a task')
+    // what the method does, never the AI's path or query
+    expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'post', path: '/tasks?x=1' }, 'en')).toBe('AI PM · Send')
+    // the room card after a room read (QA TC-233): what it does at the service by its name, where it goes, the body's
+    // values as lines and the exact request one click away; never the connection's key name
+    const card = a.tools.get('api_request')!.card!
+    const read = card({ connection: 'my_aipm', method: 'get', path: '/tasks', query: { status: 'open' } }, 'en')!
+    expect(read.what).toBe('Read from AI PM')
+    // a read is labelled as one (QA TC-285); a change keeps "What it sends"
+    expect(read.details).toEqual([{ label: 'What it reads', text: `GET ${fake.base}/api/v1/tasks?status=open`, exact: true,
+      fields: [{ name: 'Action', value: 'Read from AI PM' }, { name: 'Address', value: `${fake.base}/api/v1/tasks?status=open` }] }])
+    expect(card({ connection: 'my_aipm', method: 'GET', path: '/tasks' }, 'ko')!.details[0]!.fields![0]).toEqual({ name: '하는 일', value: 'AI PM에서 읽어 오기' })
+    const change = card({ connection: 'my_aipm', method: 'PATCH', path: '/tasks/42', body: { title: 'Q3 plan' } }, 'en')!
+    expect(change.what).toBe('Change something in AI PM')
+    expect(change.details[0]).toMatchObject({ label: 'What it sends', text: `PATCH ${fake.base}/api/v1/tasks/42\n\n{"title":"Q3 plan"}`, exact: true })
+    expect(change.details[0]!.fields).toEqual([{ name: 'Action', value: 'Change something in AI PM' }, { name: 'Sends to', value: `${fake.base}/api/v1/tasks/42` }, { name: 'Title', value: 'Q3 plan' }])
+    // a text body is not lines: the text stays open (no "exact")
+    expect(card({ connection: 'my_aipm', method: 'POST', path: '/notes', body: 'plain text' }, 'en')!.details[0]!.exact).toBeUndefined()
+    for (const c of [read, change]) expect(JSON.stringify(c)).not.toMatch(/my_aipm|Api request|connection:/)
+    // a team connection whose admin put a query in its address: a member's card leaves it out (as the connection list
+    // and the AI's tool list do), so the request is not "exactly what is sent" and stays open
+    const now = new Date().toISOString()
+    A.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, created_at, updated_at)
+      VALUES ('qa-team-api', 'team', NULL, 'carol', 'http', 'Team API', 'teamapi', ?, 'none', 'connected', ?, ?)`).run(`${fake.base}/api/v1?tenant=acme-7`, now, now)
+    A.ctx.db.query("INSERT INTO integration_access (integration_id, subject_type, subject_id) VALUES ('qa-team-api', 'everyone', '')").run()
+    try {
+      const teamCard = turn('alice').tools.get('api_request')!.card!({ connection: 'team_teamapi', method: 'GET', path: '/tasks' }, 'en')!
+      expect(teamCard.details[0]!.fields![1]).toEqual({ name: 'Address', value: `${fake.base}/api/v1/tasks` })
+      expect(teamCard.details[0]!.exact).toBeUndefined()
+      expect(JSON.stringify(teamCard)).not.toContain('tenant')
+    } finally {
+      A.ctx.db.query("DELETE FROM integration_access WHERE integration_id = 'qa-team-api'").run()
+      A.ctx.db.query("DELETE FROM integrations WHERE id = 'qa-team-api'").run()
+    }
+    // what call() would refuse: the shared words
+    expect(card({ connection: 'nope', method: 'GET', path: '/tasks' }, 'en')).toBeNull()
+    expect(card({ connection: 'my_aipm', method: 'GET', path: '/tasks', extra: 1 }, 'en')).toBeNull()
     const api = a.tools.get('api_request')!
     expect(api.description).toContain('"my_aipm": AI PM (personal connection)')
     expect(api.description).toContain('POST /tasks makes one.')
@@ -184,7 +222,7 @@ describe('calls', () => {
     expect(r0.text).toContain('did not allow')
     expect(r0.summary).toBe('my_tasks__create_task -> not allowed by the user')
     expect(no.questions).toHaveLength(1)
-    expect(no.questions[0]).toContain('The AI wants to do this at Tasks: create_task')
+    expect(no.questions[0]).toContain('The AI wants to send this to Tasks: Create a task')
     expect(no.details[0]![0]!.text).toBe(JSON.stringify({ title: 'Quarterly plan' }, null, 2))
     expect(fake.calls.length).toBe(before)
     const yes = ask(true)
@@ -203,7 +241,9 @@ describe('calls', () => {
     const [d] = p.details[0]!
     expect(d!.text).toBe(JSON.stringify(padded, null, 2))
     expect(d!.text).toContain('SECRET-AT-THE-END')
-    expect(d!.fields).toEqual([{ name: 'to', value: 'outside@evil.example' }, { name: 'meta.channel', value: '#public-feed' }])
+    // every value as a labelled line, where it goes first; the exact JSON one click away (exact), the marks in both
+    expect(d!.fields).toEqual([{ name: 'Recipient', value: 'outside@evil.example' }, { name: 'Meta › Channel', value: '#public-feed' }, { name: 'Title', value: padded.title }])
+    expect(d!.exact).toBe(true)
     const before = fake.calls.length
     const huge = ask(true)
     const r = await turn('alice', { person: huge }).call('my_tasks__create_task', { title: 'y'.repeat(100_001) })
@@ -266,6 +306,82 @@ describe('calls', () => {
       expect(sent() - n0).toBe(2)
       A.ctx.db.query('DELETE FROM schedules WHERE id = ?').run(sid)
     } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
+  })
+
+  test('each tool says whether a call only reads: the service\'s mark, GET and HEAD (TurnTool.readOnly)', () => {
+    const a = turn('alice')
+    const reads = (name: string, args: unknown = {}) => { const r = a.tools.get(name)!.readOnly; return typeof r === 'function' ? r(args) : r }
+    expect(reads('my_tasks__search_tasks')).toBe(true)
+    expect(reads('my_tasks__create_task')).toBe(false)
+    for (const method of ['GET', 'get', 'HEAD']) expect(reads('api_request', { connection: 'my_aipm', method, path: '/tasks' })).toBe(true)
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', undefined]) expect(reads('api_request', { connection: 'my_aipm', method, path: '/tasks' })).toBe(false)
+    expect(reads('api_request', null)).toBe(false)
+    // ...but the method is the AI's choice: after a room read its GET still raises the room card (chat/turn.ts)
+    expect(a.tools.get('api_request')!.readsNeedCard).toBe(true)
+    expect(a.tools.get('my_tasks__search_tasks')!.readsNeedCard).toBeUndefined()
+  })
+
+  test('after a room read (roomsSeen) the connection\'s card is the call\'s only one: "run without asking" asks too, "deny" still refuses', async () => {
+    const sent = () => fake.calls.filter((c) => c.name === 'create_task').length
+    // a personal connection ("ask"): the same card, everything that is sent and where it goes first
+    const no = ask(false)
+    const n0 = sent()
+    const r = await turn('alice', { person: no, roomsSeen: true }).call('my_tasks__create_task', { title: 'From the room', to: 'outside@evil.example' })
+    expect(r.summary).toBe('my_tasks__create_task -> not allowed by the user')
+    expect(no.questions).toHaveLength(1)
+    expect(no.questions[0]).toStartWith('The AI wants to send this to Tasks: Create a task')
+    expect(no.details[0]![0]!.fields).toEqual([{ name: 'Recipient', value: 'outside@evil.example' }, { name: 'Title', value: 'From the room' }])
+    expect(sent()).toBe(n0)
+    // a read asks nothing
+    const read = ask(false)
+    expect((await turn('alice', { person: read, roomsSeen: true }).call('my_tasks__search_tasks', { q: 'plan' })).isError).toBe(false)
+    expect(read.questions).toHaveLength(0)
+    // a team connection that sends without asking asks here, once; an HTTP API's write too
+    const t = (await post('carol', '/api/admin/integrations', { kind: 'mcp', name: 'Team tasks', url: `${fake.base}/mcp-open`, auth: 'none', writePolicy: 'allow', access: { everyone: false, groups: [], users: ['alice'] } })).body
+    try {
+      const yes = ask(true)
+      expect((await turn('alice', { person: yes, roomsSeen: true }).call('team_teamtasks__create_task', { title: 'asked' })).summary).toContain('(confirmed by the user)')
+      expect(yes.questions).toHaveLength(1)
+      expect(yes.questions[0]).toStartWith('The AI wants to send this to Team tasks: Create a task')
+      expect(sent()).toBe(n0 + 1)
+      // without the room read it still sends without a card
+      const quiet = ask(false)
+      expect((await turn('alice', { person: quiet }).call('team_teamtasks__create_task', { title: 'not asked' })).isError).toBe(false)
+      expect(quiet.questions).toHaveLength(0)
+    } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
+    const api = ask(false)
+    const requests = fake.seen.length
+    expect((await turn('alice', { person: api, roomsSeen: true }).call('api_request', { connection: 'my_aipm', method: 'POST', path: '/tasks', body: { title: 'x' } })).isError).toBe(true)
+    expect(api.questions[0]).toStartWith('The AI wants to send this request to AI PM: Send')
+    expect(fake.seen.length).toBe(requests)
+    // "deny" refuses without a card
+    await patch('alice', tasks.id, { writePolicy: 'deny' })
+    try {
+      const denied = ask(true)
+      expect((await turn('alice', { person: denied, roomsSeen: true }).call('my_tasks__create_task', { title: 'x' })).summary).toBe('my_tasks__create_task -> refused (write policy deny)')
+      expect(denied.questions).toHaveLength(0)
+    } finally { await patch('alice', tasks.id, { writePolicy: 'ask' }) }
+    expect(sent()).toBe(n0 + 2)
+  })
+
+  test('after a room read, a tool that was a write when the turn began asks even if the service now calls it read-only', async () => {
+    const saved = fake.tools
+    const p = ask(false)
+    const a = turn('alice', { person: p, roomsSeen: true })
+    const quiet = turn('alice', { person: ask(false) })
+    fake.tools = saved.map((t: any) => (t.name === 'create_task' ? { ...t, annotations: { readOnlyHint: true } } : t))
+    try {
+      await post('alice', `/api/integrations/${tasks.id}/refresh`, {})
+      const before = fake.calls.length
+      expect((await a.call('my_tasks__create_task', { title: 'x' })).summary).toBe('my_tasks__create_task -> not allowed by the user')
+      expect(p.questions).toHaveLength(1)
+      expect(fake.calls.length).toBe(before)
+      // a chat that read no room takes the service's mark as it is now, as before
+      expect((await quiet.call('my_tasks__create_task', { title: 'y' })).isError).toBe(false)
+    } finally {
+      fake.tools = saved
+      await post('alice', `/api/integrations/${tasks.id}/refresh`, {})
+    }
   })
 
   test('a changed connection invalidates pending MCP and HTTP write approval', async () => {
@@ -410,9 +526,10 @@ describe('api_request', () => {
     const r = await a.call('api_request', { connection: 'my_aipm', method: 'POST', path: '/tasks', body: { title: 'New' } })
     expect(r.text).toContain('HTTP 201')
     expect(r.text).toContain('"type":"application/json"')
-    expect(yes.questions[0]).toContain('The AI wants to do this at AI PM: POST /api/v1/tasks')
+    expect(yes.questions[0]).toContain('The AI wants to send this request to AI PM: Send')
     expect(yes.details[0]![0]!.text).toBe('{"title":"New"}')
-    expect(yes.details[0]![0]!.fields![0]).toEqual({ name: 'URL', value: `${fake.base}/api/v1/tasks` })
+    // where it goes first, by a word no argument gets
+    expect(yes.details[0]![0]!.fields![0]).toEqual({ name: 'Sends to', value: `${fake.base}/api/v1/tasks` })
     expect(r.summary).toContain('(confirmed by the user)')
     const del = await a.call('api_request', { connection: 'my_aipm', method: 'DELETE', path: '/tasks/7' })
     expect(del.text).toContain('HTTP 204')

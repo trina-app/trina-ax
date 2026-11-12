@@ -10,6 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, type Step } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { migrate, MIGRATIONS_DIR } from '../../server/src/db'
 import { _active, placeInLine, reconcile, setSrtSystem } from '../../server/src/devenv/srt/runner'
 import { COMMAND_WAIT_MS, commandWaitFor, FULL_MESSAGE, pickNext, setCommandWait, shareOf, startOrder } from '../../server/src/devenv/srt/queue'
@@ -139,7 +140,7 @@ beforeAll(async () => {
   chatA2 = (await h.api('alice').call(API.createChat, { body: {} })).id
   chatB = (await h.api('bob').call(API.createChat, { body: {} })).id
   chatE = (await h.api('erin').call(API.createChat, { body: {} })).id
-  falconId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' } })).id
+  falconId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   chatFalcon = (await h.api('alice').call(API.createChat, { body: { projectId: falconId } })).id
   const real = h.ctx.services.realtime.publish.bind(h.ctx.services.realtime)
   h.ctx.services.realtime.publish = ((user: string, frame: never) => { publish.push({ user, frame }); return real(user, frame) }) as typeof h.ctx.services.realtime.publish

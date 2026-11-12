@@ -17,6 +17,7 @@ export default function CompanyProfileCard() {
   const profile = state.data?.profile ?? null
   return (
     <Card
+      id="company-profile"
       title={t('onboarding.profile.title')}
       desc={t('onboarding.profile.cardDesc')}
       actions={state.data && (

@@ -1,12 +1,18 @@
 import { fetch } from 'expo/fetch'
 import * as SecureStore from 'expo-secure-store'
 import { parseTeamAddress } from './address'
+import type { Slot } from './device'
 import { relayAnswer, relayRename } from './team-link'
 export { parseTeamAddress, readTeamInput } from './address'
 export { sameTeam } from './protocol'
-const KEY = 'team-ax.origin', SINCE = 'team-ax.since'
+const KEY = 'team-ax.origin', SINCE = 'team-ax.since', LEFT = 'team-ax.left-sessions'
 export async function savedTeamUrl(): Promise<string | null> {
   try { const raw = await SecureStore.getItemAsync(KEY); return raw ? parseTeamAddress(raw)?.origin ?? null : null } catch { return null }
+}
+/** Teams left on this phone whose sign-out the server has not confirmed yet (src/leave.ts). */
+export const leftSessions: Slot = {
+  get: () => SecureStore.getItemAsync(LEFT),
+  set: value => value === null ? SecureStore.deleteItemAsync(LEFT) : SecureStore.setItemAsync(LEFT, value),
 }
 /** When the current team was chosen (ms). A notification older than this may come from the previous team. */
 export async function savedTeamSince(): Promise<number> {

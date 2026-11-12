@@ -12,6 +12,7 @@ desktop/
     site-permissions.ts    "allowed sites": once (this turn) / always (saved per team) / deny; separate office scope;
                            site access "ask" (default) / "all" (every public website, office addresses still ask)
     pane-activity.ts       what goes to the activity log and the one line over the page
+    pane-width.ts          the browser's width beside the team page: limits, remembered share, the edge's keys
     browser-result.ts      pane result -> BrowserResult on the wire (<= 20 items, size caps)
     teams.ts               teams.json, partitions per team, fingerprints
     trust.ts               who may use the bridge (top frame of the app view, team origin only)
@@ -19,7 +20,8 @@ desktop/
     i18n.ts                ko / en / id / ja / es strings of the desktop's own screens
   src/main/
     main.ts                lifecycle, mycel-ui:// protocol, IPC (sender checks), menu
-    app-window.ts          window layout, teams, team page view, direct-connection switching, file chooser (store build)
+    app-window.ts          window layout (the browser's edge: drag, keys, window.json), teams, team page view,
+                           direct-connection switching, file chooser (store build)
     security.ts            webPreferences, navigation / frame guards, permissions, WebRTC, RTCPeerConnection removal
     direct.ts              /api/connect-info, pinned LAN probe, certificate pinning, session cookie mirroring
     pane/pane.ts           BrowserPane: tabs (WebContentsView), CDP tools, prompts, password and card-field refusal, cancel
@@ -43,8 +45,8 @@ desktop/
    is used (once / always / deny) and always before office-network addresses, runs the tool over CDP, and returns
    a `BrowserResult` (screenshots the AI wants to show carry `shareToChat`).
 
-The permission prompts (one at a time), the "AI is using the browser" bar (with a stop button, the AI's latest
-action and an accent frame around the page), the activity log (☰ in the toolbar: script runs, network bodies,
+The permission prompts (one at a time), the AI-control row ("Trina is using the browser": a pulsing dot, the AI's
+latest action, a Stop button and a thin accent line over the page; docs/DECISIONS.md "AI가 브라우저를 쓰는 동안"), the activity log (☰ in the toolbar: script runs, network bodies,
 requests held back or refused) with at most one dismissible line over the page for what needs the person now (a
 page load stopped at an office or this-computer address, a refused password or card field), and the settings panel (⚙:
 site access "ask for each new site" / "allow all websites", the sites allowed always) live in the desktop's own UI,
@@ -53,7 +55,11 @@ prompts. The team page's Settings > Browser shows the same setting through a nar
 (`mycelDesktop.browserSettings`): it can read it and make it stricter (ask, remove a site, clear the list); "allow
 all websites" is only a request, which the main process confirms with its own dialog before changing anything. The
 team can switch that choice off (Admin > Team settings, `Me.team.browserAllowAll`): the main process reads the policy
-from the team server itself, refuses "all" and turns a saved "all" back to "ask".
+from the team server itself, refuses "all" and turns a saved "all" back to "ask". Where the team also lets
+"Allow all websites" cover the AI's web reads (`Me.team.webAllowAll`), the person's value lives on the team server
+(`Me.user.webAllowAll`); the main process follows it only when it goes from on to off (back to "ask"), never when it
+goes on: this browser widens only after the person's click in the app's own dialog, which also shows the risk sentence
+(`WEB_ALLOW_ALL_RISK`).
 
 The pane never opens the team's own addresses (relay and office), this computer (localhost, 127.0.0.0/8, ::1) or
 non-web schemes, whatever anyone answers; its User-Agent ends with `MycelBrowser/1` (`IN_APP_BROWSER_UA_MARK`)

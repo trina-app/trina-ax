@@ -28,6 +28,7 @@ import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { getTemplate, templatesOf } from '../integrations/connections/templates'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
+import { refusal, SCREEN } from '../policy/refusal'
 import type { TurnExec } from './turn'
 
 /** The connections connect_service checks a new one against, as this person may use them now, and how many count
@@ -42,7 +43,8 @@ export function connectRows(db: Database, userId: string, scope: 'personal' | 't
 }
 
 export const CONNECT_TOOL = 'connect_service'
-/** tool names the result lists at most (the AI gets them all as tools from the next message), and each one's length */
+/** tool names the result lists at most (the AI gets them all as tools: in this answer where it goes on, else from the
+ * next message), and each one's length */
 const TOOLS_LISTED = 30
 const TOOL_NAME_MAX = 64
 /** the longest key the card takes (as IntegrationInput.secret) */
@@ -63,7 +65,7 @@ export interface ConnectCard {
   /** a connect or done of this card that is running: a second one meanwhile is refused, and the tool waits for it after
    * the card closed (its time ran out, Not now, the answer was stopped) before it says what the card made */
   running: Promise<unknown> | null
-  /** the connection this card made was changed or removed in Settings meanwhile: nothing more goes through this card */
+  /** the connection this card made was changed or removed in Connectors or Admin meanwhile: nothing more goes through this card */
   changed: boolean
   /** that connection's version after this card's own last write: a later one is a change made in Settings (a new key,
    * say), which "Not now" must not undo */
@@ -83,10 +85,19 @@ const sameAddress = (a: string, b: string) => a.replace(/\/+$/, '') === b.replac
 const stateOf = (r: Row) => r.status === 'connected' ? 'connected' : r.status === 'needs_auth' ? `needs a sign-in or a new key${r.last_error ? ` (${r.last_error})` : ''}` : `not working${r.last_error ? ` (${r.last_error})` : ''}`
 const accessFor = (a: 'me' | 'everyone', me: string): IntegrationAccess => a === 'everyone' ? { everyone: true, groups: [], users: [] } : { everyone: false, groups: [], users: [me] }
 
-/** the tool result when the card connected it */
-function connectedResult(exec: TurnExec, out: { name: string; status: string; tools?: string[] }): ToolOut {
+/** what happens next after a service was connected on the card, for the AI (TurnExec.noteConnected: owner decision
+ * 2026-11-12, the same answer goes on with the new tools where the engine can) */
+export const CONNECTED_NEXT = {
+  step: 'Its tools are offered to you as soon as you end this step. End your reply here, with no more words or tool calls: this same answer then goes on at once with the new tools, and you continue the person\'s request with them. Never ask the person to send the question again.',
+  round: 'Its tools are yours from your next step in this answer: go on with the person\'s request with them now. Never ask the person to send the question again.',
+  next: 'Its tools are offered from the person\'s next message, not in this answer: say so.',
+} as const
+
+/** the tool result when the card connected it; `drive`: Google Drive, whose tools every turn already has */
+function connectedResult(exec: TurnExec, out: { name: string; status: string; tools?: string[] }, drive = false): ToolOut {
   exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectConnected', exec.spec.locale) }))
-  return { content: json({ connected: true, ...out }), summary: `${CONNECT_TOOL} -> connected` }
+  const next = drive ? null : CONNECTED_NEXT[exec.noteConnected(out.name) ?? 'next']
+  return { content: json({ connected: true, ...out, ...(next ? { next } : {}) }), summary: `${CONNECT_TOOL} -> connected` }
 }
 /** a tool name as the service wrote it, for the AI to read: no control, format or line-separator characters (no hidden
  * text, no direction overrides), at most TOOL_NAME_MAX characters */
@@ -181,18 +192,21 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
       // not a new connection of their own: no team / personal-connections / limit / same-address checks for it
       card = templateCard(tpl, why, expiresAt())
     } else {
-      if (scope === 'team' && !isAdmin(viewer.role)) return early('Only an admin can add a team connection, and this person is not one. Offer a personal connection instead (scope personal), or tell them an admin can add it for the team.', 'team needs an admin')
+      // who can do it instead, by name, and where (docs/DECISIONS.md "Refusals say why, who and what next")
+      if (scope === 'team' && !isAdmin(viewer.role)) {
+        return early(`Only an admin can add a team connection, and this person is not one. ${refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'team connections are added by admins', grant: ['an admin'], how: SCREEN.adminMcp(L) }, next: 'offer a personal connection instead (scope personal), or tell them an admin can add it for the team' })}`, 'team needs an admin')
+      }
       if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
-        return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : 'Tell the person to ask an admin.'}`, 'personal connections off')
+        return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
       }
       const { rows, count } = connectRows(db, viewer.id, scope)
       const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-      if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? 'Settings' : 'Admin'} > MCP first.`, 'limit')
+      if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
       const dup = rows.find((r) => sameAddress(r.url, address))
       if (dup) {
         const fix = dup.status === 'connected'
           ? 'Its tools are yours in this chat; if you do not have them now, from the person\'s next message.'
-          : `It needs attention: ${dup.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix its key or sign-in in Settings'} > MCP.`
+          : `It needs attention: ${dup.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix its key or sign-in in ${SCREEN.connectors(L)}`}.`
         return early(`${dup.scope === 'team' ? 'A team connection' : 'A connection of this person'} to this address already exists: "${dup.name}", ${stateOf(dup)}. ${fix} No card was shown.`, 'already exists', dup.status !== 'connected')
       }
       // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
@@ -210,6 +224,8 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
+  // after a room read this card is the call's only one (chat/turn.ts ownCard): the room card's line goes on top
+  if (exec.ownCard(CONNECT_TOOL)) card = { ...card, lead: tr('roomsSeenWhy', L) }
   const kept: ConnectCard = { integrationId: null, running: null, changed: false, version: null, created: false }
   exec.connectCards.set(card.requestId, kept)
   let answer: unknown
@@ -218,16 +234,16 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   // never "skipped" for a connection that then appears
   if (kept.running) await kept.running.catch(() => {})
   const o = ConnectOutcome.safeParse(answer)
-  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] })
+  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true)
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
-  // changed or removed in Settings while the card was open: not the connection the card showed, so not "connected"
+  // changed or removed in Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
   // through it
   if (kept.integrationId && (!made || (card.target === 'service' && !asShown(made, card)))) { made = null; kept.changed = true }
   if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}) }) }
   exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
-  const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix it in Settings'} > MCP`
-    : kept.changed ? 'the connection this card made was changed or removed in Settings while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
+  const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix it in ${SCREEN.connectors(L)}`}`
+    : kept.changed ? 'the connection this card made was changed or removed in Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
   return { content: json({ skipped: true, ...(reason ? { reason } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
 }
 
@@ -272,7 +288,7 @@ const asShown = (row: Row, card: Card) => {
 /**
  * Before each connect or done of a service card, the rules as they are now: personal connections still allowed (an
  * admin can turn them off while a card waits), and the connection this card made still the one it showed (address,
- * kind, how it signs in and the key's header). One changed or removed in Settings meanwhile is not this card's any
+ * kind, how it signs in and the key's header). One changed or removed in Connectors or Admin meanwhile is not this card's any
  * more: refused, nothing is sent to it, "Not now" leaves it alone and the person starts again. Returns the card's
  * connection, or null before it made one.
  */

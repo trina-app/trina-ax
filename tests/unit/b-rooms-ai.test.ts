@@ -14,6 +14,10 @@ import { getChatRuntime } from '../../server/src/chat/runtime'
 import { loadPrincipal } from '../../server/src/policy/access'
 import { instructionLike, ROOM_CHANGE_FULL, roomChangeWrites } from '../../server/src/chat/turn'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, ROOM_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
+import { labeledPath } from '@mycel/shared'
+
+// a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
+const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -259,6 +263,29 @@ describe('the AI in a room', () => {
     expect(ws.alice!.frames.some((f) => (f.type === 'message.delta' || f.type === 'message.step' || f.type === 'message.created' || f.type === 'chat.updated') && 'chatId' in f.data && f.data.chatId === sessionId)).toBe(false)
   })
 
+  test('an answer that ended in an error stays listed for its asker for a day (a restart cut it while nobody was connected, QA TC-241); stopped or older ones do not, nor for anyone else', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const { run } = await ask('alice', roomId, `@트리나 hello\n${fake({ say: 'hi' })}`)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    const db = h.ctx.db
+    const error = JSON.stringify({ code: 'unavailable', message: '서버가 다시 시작되어 답변이 중단됐어요.' })
+    // as the start-up's reconcile leaves a run whose turn ended while the server was down
+    db.query("UPDATE room_ai_turns SET status = 'error', error = ?, ended_at = ? WHERE turn_id = ?").run(error, new Date().toISOString(), run.turnId)
+    const listed = (await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine
+    expect(listed.map((x) => [x.turnId, x.state, x.error?.message])).toEqual([[run.turnId, 'error', '서버가 다시 시작되어 답변이 중단됐어요.']])
+    expect((await h.api('erin').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    // a day later, or stopped by the asker: not listed
+    db.query('UPDATE room_ai_turns SET ended_at = ? WHERE turn_id = ?').run(new Date(Date.now() - 25 * 3_600_000).toISOString(), run.turnId)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    db.query("UPDATE room_ai_turns SET status = 'stopped', error = NULL, ended_at = ? WHERE turn_id = ?").run(new Date().toISOString(), run.turnId)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    // a run whose turn is gone at start-up (reconcile) is listed as failed
+    const gone = uuidv7()
+    db.query("UPDATE room_ai_turns SET turn_id = ?, status = 'active', error = NULL, ended_at = NULL WHERE turn_id = ?").run(gone, run.turnId)
+    roomAiOf(h.ctx).reconcile()
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine.map((x) => [x.turnId, x.state])).toEqual([[gone, 'error']])
+  })
+
   test('each person has one session per room: the next question continues it, and it is never one of their chats', async () => {
     const roomId = await room(['alice', 'erin'])
     h.ctx.db.query("INSERT INTO memories (id, user_id, text, source, created_at) VALUES ('mem-rooms-ai', 'alice', 'ALICE-ROOM-MEMORY likes tea', 'user', ?)").run(new Date().toISOString())
@@ -394,6 +421,29 @@ describe('what an answer may carry into the room', () => {
     } finally { fs.rmSync(abs, { force: true }) }
   })
 
+  test('a project\'s skills never reach a room, even when everyone there reads the project (docs/DECISIONS.md "Project skills")', async () => {
+    const id = '01900000-0000-7000-8000-0000000a1001'
+    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(id, 'Falcon', 'projects/falcon', 'alice', new Date().toISOString())
+    const abs = path.join(h.team, 'projects/falcon/skills/room-project/SKILL.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\nname: room-project\ndescription: PROJECT-ROOM-SKILL\n---\nsteps\n')
+    try {
+      // alice writes the project's folder and bob reads it: both could read the file, the room still has no project
+      const roomId = await room(['alice', 'bob'])
+      const { q } = await ask('alice', roomId, `@트리나 which skills?\n${fake({ echo: 'system' }, { tool: 'find_skills', args: { query: 'room project' }, sayResult: true }, { tool: 'skill', args: { name: 'projects/falcon/skills/room-project/SKILL.md' }, sayResult: true })}`)
+      const body = (await answerTo('alice', roomId, q))!.body
+      expect(body).not.toContain('PROJECT-ROOM-SKILL')
+      expect(body).not.toContain('[project:')
+      expect(body).toContain('No skill called')
+      // nor "/name" in a room
+      const two = await ask('alice', roomId, `@트리나 /room-project now\n${fake({ echo: 'message' })}`)
+      expect((await answerTo('alice', roomId, two.q))!.body).not.toContain('<team_skill')
+    } finally {
+      fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })
+      h.ctx.db.query('DELETE FROM projects WHERE id = ?').run(id)
+    }
+  })
+
   test('an account that cannot read anything fails every check (fail closed)', async () => {
     const roomId = await room(['alice', 'erin'])
     const one = await ask('alice', roomId, `@트리나 glossary\n${fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: 'ok' })}`)
@@ -423,7 +473,7 @@ describe('changes asked for in a room', () => {
     await send('erin', roomId, `pls\n${fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'PWNED BY ERIN' } })}`)
     const q = await send('alice', roomId, `@트리나 hi\n${fake({ say: 'ok' })}`)
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
-    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
+    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target.split('/').at(-1)!), 15_000)
     // erin's words are in the read scope and shared/ is wider than the room: the wider-audience card is the one card,
     // and it shows what the call writes (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call)
     expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: 'skip' }], details: [{ text: 'PWNED BY ERIN' }] })
@@ -466,10 +516,10 @@ describe('changes asked for in a room', () => {
     const roomId = await room(['alice', 'erin'])
     const q = await send('alice', roomId, `@트리나 note it\n${fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'written with a yes\n' } }, { say: 'saved' })}`)
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
-    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
+    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target.split('/').at(-1)!), 15_000)
     // the card says it in words: what it does, the file, what it writes; never the call's JSON
     const details = (card.data.request as { details?: { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number }[] }).details
-    expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: target }], text: 'written with a yes\n', collapsedAt: 400 }])
+    expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: W(target) }], text: 'written with a yes\n', collapsedAt: 400 }])
     await h.api('alice').call(API.answerTurn, { params: { id: card.data.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
     await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('written with a yes\n')
@@ -482,7 +532,7 @@ describe('changes asked for in a room', () => {
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
     const d = (card.data.request as { details?: { text: string; fields?: { name: string; value: string }[] }[] }).details![0]!
-    expect(d).toMatchObject({ text: '', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: 'shared/room-ai-empty.md' }, { name: 'Content', value: '(empty)' }] })
+    expect(d).toMatchObject({ text: '', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: W('shared/room-ai-empty.md') }, { name: 'Content', value: '(empty)' }] })
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
   })
@@ -504,7 +554,7 @@ describe('changes asked for in a room', () => {
       return (c.data.request as { details?: { text: string; fields?: { value: string }[]; collapsedAt?: number }[] }).details![0]!
     }
     const plain = await card('shared/room-ai-long.md')
-    expect(plain.fields?.map((f) => f.value)).toEqual(['Save', 'shared/room-ai-long.md'])
+    expect(plain.fields?.map((f) => f.value)).toEqual(['Save', W('shared/room-ai-long.md')])
     expect(plain).toMatchObject({ text: long, collapsedAt: 400 })
     for (const file of ['skills/room-ai-rule.md', 'users/alice/skills/room-ai.md', 'shared/CLAUDE.md',
       // other spellings of the same places (the file layer drops empty and "." names)
@@ -842,7 +892,7 @@ describe('the instructions of a room session', () => {
     const input: PromptInput = {
       user, groupNames: ['ZZ-LAYOFF-COMMITTEE'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
       project: { name: 'PROJECT-CANARY', folderPath: 'projects/falcon', instructions: 'PROJECT-INSTR-CANARY' }, browser: true,
-      tools: ['make_file', 'edit_hwp', 'search'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-05T09:00:00Z'),
+      tools: ['make_file', 'edit_hwp'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-05T09:00:00Z'),
       room: { name: 'acme', kind: 'team', members: 2, asker: user.name }, roomReadable: (rel) => !rel.startsWith('projects'), skillChanges: 'SKILL-CHANGES',
     }
     const built: [ReturnType<typeof turnPromptSections>, string][] = [
@@ -869,7 +919,7 @@ describe('the instructions of a room session', () => {
       const seen = await answerTo('erin', roomId, q)
       expect(seen?.visibility).toBe('room')
       expect(seen!.body).toContain('User: Alice Kim (id alice)')
-      for (const canary of ['ALICE-PRIVATE-LAWYER-MAIL', 'ZZ-LAYOFF-COMMITTEE', 'Connected services', 'remember', 'drive_']) expect({ canary, in: seen!.body.includes(canary) }).toEqual({ canary, in: false })
+      for (const canary of ['ALICE-PRIVATE-LAWYER-MAIL', 'ZZ-LAYOFF-COMMITTEE', 'Connected services', 'remember', 'drive_', 'delete_files']) expect({ canary, in: seen!.body.includes(canary) }).toEqual({ canary, in: false })
     } finally {
       h.ctx.db.query("DELETE FROM integrations WHERE id = 'n1conn'").run()
       await h.api('dana').call(API.deleteGroup, { params: { id: g.id } })
@@ -932,7 +982,7 @@ describe('the instructions of a room session', () => {
       const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
       const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
       const req = card.data.request as { details?: { label: string; text: string }[]; requestId: string }
-      expect(req.details?.[0]?.text).toBe('shared/n6-a.md\nshared/n6-secret-b.md')
+      expect(req.details?.[0]?.text).toBe(`${W('shared/n6-a.md')}\n${W('shared/n6-secret-b.md')}`)
       await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer: 'allow' } })
       await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
       expect([fs.readFileSync(a, 'utf8'), fs.readFileSync(b, 'utf8')]).toEqual(['Z\n', 'Z\n'])
@@ -1261,9 +1311,9 @@ describe('a skill or instruction file changes from a room only with all of its c
     const src = mine('users/alice/r6-src2.md')
     try {
       const made = await call({ tool: 'make_file', args: { source: 'users/alice/r6-src2.md', format: 'docx', output: 'shared/r6.docx' } })
-      expect(made.card?.details?.[0]?.text).toBe('Not all of what it saves is on this card: it comes from users/alice/r6-src2.md.')
+      expect(made.card?.details?.[0]?.text).toBe(`Not all of what it saves is on this card: it comes from ${W('users/alice/r6-src2.md')}.`)
       const moved = await call({ tool: 'move_files', args: { paths: ['users/alice/r6-src2.md'], to_folder: 'shared' } })
-      expect(moved.card?.details?.[0]?.text).toBe('users/alice/r6-src2.md')
+      expect(moved.card?.details?.[0]?.text).toBe(W('users/alice/r6-src2.md'))
     } finally { fs.rmSync(src, { force: true }) }
   })
 })
@@ -1298,7 +1348,12 @@ describe('what makes an answer private: what some member could not see, per ques
   const allRoom = async () => (await h.api('bob').call(API.listRooms)).items.find((r) => r.kind === 'all')!.id
 
   test('a member with no group asks a general question in the everyone room: it goes to the room, and so does the next', async () => {
-    await withoutGroup(async () => {
+    // bob's search reaches projects/falcon/public, which everyone reads by its rule; the owner and admins read inside a
+    // project only as its members (docs/DECISIONS.md "Project contents only for members"), so carol and dana are
+    // falcon's members here: else they could not see it, and the answer would rightly stay private
+    const joined = ['dana', 'carol'].map((u) => `rooms-nogroup-${u}`)
+    for (const [i, u] of ['dana', 'carol'].entries()) h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_projects_falcon', 'user', ?, 'read')").run(joined[i]!, u)
+    try { await withoutGroup(async () => {
       const roomId = await allRoom()
       // another member's answer from a group folder, posted: the room now names a file bob cannot open
       const a = await ask('alice', roomId, `@트리나 brief?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { say: `[brief](/files/view?path=${encodeURIComponent(BRIEF)}) says Autumn Upgrade` })}`)
@@ -1325,7 +1380,7 @@ describe('what makes an answer private: what some member could not see, per ques
       // the private preview, posted later, is decided on what its own question used
       const p = (await answerTo('bob', roomId, mine.q))!
       expect((await h.api('bob').call(API.shareRoomMessage, { params: { id: roomId, messageId: p.id } })).visibility).toBe('room')
-    })
+    }) } finally { for (const id of joined) h.ctx.db.query('DELETE FROM folder_rules WHERE id = ?').run(id) }
   })
 
   test('a question that reads a group folder another member cannot read stays private', async () => {

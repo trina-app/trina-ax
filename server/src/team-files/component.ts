@@ -3,6 +3,7 @@
 //   componentC(ctx).attachments.byIds(...)    B: attachments of a message being sent
 //   componentC(ctx).files.remove(...)         anyone who needs the trash
 import { sweepMedia } from '../integrations/connections/media'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import { HwpPreviews } from '../files/hwp-preview'
 import { pluginsOf } from '../plugins/manager'
@@ -16,7 +17,7 @@ import { SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } 
 import { confidentialDictation } from '../safe-ops/confidential'
 import { HttpError } from '../http/errors'
 import { getTeamSettings, installId, teamDefaultLocale } from '../admin/settings'
-import { firstRefreshMs } from '../tools/search'
+import { limitsActive } from '../system/limits'
 import { credentialsOf } from '../credentials/store'
 import { readHostedSpeechKey, readSpeechKey, speechKeySource } from '../credentials/speech-key'
 import { HOSTED_SPEECH_MODEL, hostedSpeechLeft, hostedSpeechMeter } from '../credentials/hosted-speech'
@@ -51,6 +52,14 @@ export interface ComponentC {
 
 const instances = new WeakMap<AppContext, ComponentC>()
 export const SWEEP_EVERY_MS = 3600_000
+
+/** When the background remake of older document text (OfficeCache.upgradeOld) starts after a start: 20 s; where the
+ * limits apply (Linux, a plan: many teams on one host restart together after an update) 10 minutes plus 0–5 minutes
+ * from the install id, so the teams of a host do not all start at once. */
+export function upgradeStartMs(id: string): number {
+  if (!limitsActive()) return 20_000
+  return 10 * 60_000 + (createHash('sha256').update(id).digest().readUInt16BE(0) % 300) * 1000
+}
 
 export function componentC(ctx: AppContext): ComponentC {
   const have = instances.get(ctx)
@@ -88,30 +97,33 @@ export function componentC(ctx: AppContext): ComponentC {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
       const own = path.join(dir, `stt-in-${crypto.randomUUID()}`)
       fs.renameSync(file, own)
-      return jobs.start({
-        kind: 'transcribe', userId,
-        run: async (h) => {
-          try {
-            // the team's speech provider when the job runs (Admin > Team settings): off (default), OpenRouter, this server
-            const opts = { language: o.language, locale: locale(userId) }
-            const s = getTeamSettings(ctx.db)
-            // voice input also tells how fast whisper.cpp is here, before the first video read needs it
-            if (s.speechProvider === 'local') return await transcribe(stt, own, name, { ...opts, onTimed: (ms, sec) => { if (sec > 0) recordLocalSpeed(ctx.db, localModelName(stt.model), stt.threads, ms, sec) } }, h)
-            if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
-            if (!sendable()) throw SPEECH_CONFIDENTIAL()
-            const key = readSpeechKey(credentialsOf(ctx))
-            if (!key) throw SPEECH_NO_KEY()
-            // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
-            const model = speechKeySource(ctx.db) === 'hosted' ? HOSTED_SPEECH_MODEL : s.speechModel
-            // a long recording heard in an unlikely language goes once more told the team's (jobs/speech-language.ts);
-            // that, or a provider failure's second try, sends the recording again only while voice input is still on
-            // OpenRouter and the chat has not become confidential
-            return await transcribeOpenRouter(stt, key, model, own, name, { ...opts, team: teamDefaultLocale(ctx.db), again: () => getTeamSettings(ctx.db).speechProvider === 'openrouter' && sendable() }, h)
-          } finally { fs.rmSync(own, { force: true }) }
-        },
-        // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep
-        discard: () => fs.rmSync(own, { force: true }),
-      })
+      // refused (5 waiting jobs per person: 429): the caller cleans up the old path, which is empty now
+      try {
+        return jobs.start({
+          kind: 'transcribe', userId,
+          run: async (h) => {
+            try {
+              // the team's speech provider when the job runs (Admin > Team settings): off (default), OpenRouter, this server
+              const opts = { language: o.language, locale: locale(userId) }
+              const s = getTeamSettings(ctx.db)
+              // voice input also tells how fast whisper.cpp is here, before the first video read needs it
+              if (s.speechProvider === 'local') return await transcribe(stt, own, name, { ...opts, onTimed: (ms, sec) => { if (sec > 0) recordLocalSpeed(ctx.db, localModelName(stt.model), stt.threads, ms, sec) } }, h)
+              if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
+              if (!sendable()) throw SPEECH_CONFIDENTIAL()
+              const key = readSpeechKey(credentialsOf(ctx))
+              if (!key) throw SPEECH_NO_KEY()
+              // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
+              const model = speechKeySource(ctx.db) === 'hosted' ? HOSTED_SPEECH_MODEL : s.speechModel
+              // a long recording heard in an unlikely language goes once more told the team's (jobs/speech-language.ts);
+              // that, or a provider failure's second try, sends the recording again only while voice input is still on
+              // OpenRouter and the chat has not become confidential
+              return await transcribeOpenRouter(stt, key, model, own, name, { ...opts, team: teamDefaultLocale(ctx.db), again: () => getTeamSettings(ctx.db).speechProvider === 'openrouter' && sendable() }, h)
+            } finally { fs.rmSync(own, { force: true }) }
+          },
+          // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep
+          discard: () => fs.rmSync(own, { force: true }),
+        })
+      } catch (e) { fs.rmSync(own, { force: true }); throw e }
     },
     sweep() {
       const r: Record<string, number> = {}
@@ -193,14 +205,14 @@ export function startComponentC(ctx: AppContext): ComponentC {
   const timer = setInterval(() => c.sweep(), SWEEP_EVERY_MS)
   first.unref?.(); timer.unref?.()
   // the text of documents kept from the previous cache format is made again in the background (files/search.ts
-  // OfficeCache.upgradeOld; grep uses the old text meanwhile), starting when the semantic index would
+  // OfficeCache.upgradeOld; grep uses the old text meanwhile), starting after upgradeStartMs
   const stopUpgrade = new AbortController()
   const upgrade = process.env.NODE_ENV === 'test' ? null : setTimeout(() => {
     const t0 = Date.now()
     void ctx.files.office.upgradeOld({ signal: stopUpgrade.signal })
       .then((n) => { if (n) ctx.log.info('document text made again in the new format', { files: n, ms: Date.now() - t0 }) })
       .catch((e) => ctx.log.warn('document text upgrade stopped', { err: String(e) }))
-  }, firstRefreshMs(installId(ctx.db)))
+  }, upgradeStartMs(installId(ctx.db)))
   upgrade?.unref?.()
   // once, a minute after start: the JPEG thumbnails of transparent images attached before become PNG ones
   // (uploads/attachments.ts refreshThumbs)

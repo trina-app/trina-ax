@@ -13,7 +13,7 @@
 // (ensureBrand).
 import fs from 'node:fs'
 import path from 'node:path'
-import { profileName, type Locale, type WelcomeBrand, type WelcomeBrandResult } from '@mycel/shared/api'
+import { profileName, teamHome, type Locale, type WelcomeBrand, type WelcomeBrandResult } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getTeamSettings, teamDefaultLocale } from '../admin/settings'
 import { audit } from '../admin/audit'
@@ -191,7 +191,7 @@ export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body
   const group = p.teamGroup
   if (!group) throw new HttpError('conflict', TEXT.blocked[locale])
   const team = teamDefaultLocale(ctx.db)
-  const { brandFolder, imagesFolder } = brandFoldersOf(ctx, userId, group.folder, group.brandFolder)
+  const { brandFolder, imagesFolder } = brandFoldersOf(ctx, userId, teamHome(group), group.brandFolder)
   const files = [...new Set(body.files.map((f) => ownerFile(ctx, userId, f.replace(/^\/+/, ''), locale)))]
   // the website's pictures (the latest website draft of the owner that collected any)
   const draft = latestDraftChat(ctx, userId)

@@ -91,6 +91,13 @@ export function jobLabel(job: { message: string | null; progress: number | null 
   return job.progress === null || job.progress === undefined ? job.message : `${job.message} · ${Math.round(job.progress * 100)}%`
 }
 
+/** A transcription job that has not started yet: it waits for the one transcription slot (another voice input is
+ * transcribed first). Only a job known to wait counts (the REST look at once, then the server's start event moves it on);
+ * one not heard of yet shows as transcribing, which most jobs are at once. */
+export function jobWaiting(job: { status: string } | null | undefined): boolean {
+  return job?.status === 'queued'
+}
+
 /** A Space that may start a hold: pressed now (not repeating), not an IME's (Korean, Japanese), no modifier. */
 export function plainSpace(e: KeyLike): boolean {
   return e.key === ' ' && !e.repeat && !e.isComposing && e.keyCode !== 229 && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey

@@ -13,12 +13,12 @@
 // Threads (docs/DECISIONS.md "스레드와 반응"): a reply (thread_root_id) takes a seq like any message but is not in the
 // timeline (TIMELINE_SQL) unless it was sent to the room too (also_in_room). It is seen by whoever sees its root: canSee
 // and SEE_SQL go by the root's seq (thread_root_seq), so a later member sees no reply of a root from before they joined.
-// Who follows a thread and where they are in it: room_thread_follows. Reactions: room_reactions (8 fixed emoji),
-// counted for current members only, never anywhere else.
+// Who follows a thread and where they are in it: room_thread_follows. Reactions: room_reactions (any one emoji,
+// shared/src/api/rooms.ts RoomReactionEmoji), counted for current members only, never anywhere else.
 import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
 import { roomNotifyOut } from './alerts'
-import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type UserRef } from '@mycel/shared/api'
+import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
@@ -54,6 +54,7 @@ export type EventData =
   | { type: 'added'; userIds: string[] }
   | { type: 'left' }
   | { type: 'removed'; userId: string }
+  | { type: 'joined' }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string }
 
 export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut'
@@ -136,7 +137,8 @@ export const TIMELINE_SQL = '(m.thread_root_id IS NULL OR m.also_in_room = 1)'
  * line. A deleted one keeps the replies it has; new ones need it not deleted (Rooms.send). */
 export const threadable = (m: Pick<MessageRow, 'thread_root_id' | 'visibility' | 'event'>) => !m.thread_root_id && m.visibility === 'room' && !m.event
 
-function refsOf(db: Database, ids: Iterable<string | null>): Map<string, UserRef> {
+/** People by id as rooms name them (UserRef), the ones still there. */
+export function refsOf(db: Database, ids: Iterable<string | null>): Map<string, UserRef> {
   const want = [...new Set([...ids].filter((x): x is string => !!x))]
   const out = new Map<string, UserRef>()
   if (!want.length) return out
@@ -165,6 +167,7 @@ export function parseEvent(s: string | null): EventData | null {
       case 'created': case 'added': return { type: v.type, userIds: ids(v.userIds) }
       case 'renamed': return { type: 'renamed', name: typeof v.name === 'string' ? v.name : null }
       case 'left': return { type: 'left' }
+      case 'joined': return { type: 'joined' }
       case 'removed': return typeof v.userId === 'string' ? { type: 'removed', userId: v.userId } : null
     }
   } catch { /* not an event this build reads */ }
@@ -179,6 +182,7 @@ function eventOut(e: EventData, people: Map<string, UserRef>): RoomEventLine {
     case 'added': return { type: 'added', users: refs(e.userIds) }
     case 'renamed': return { type: 'renamed', name: e.name }
     case 'left': return { type: 'left' }
+    case 'joined': return { type: 'joined' }
     case 'removed': return { type: 'removed', user: people.get(e.userId) ?? null }
   }
 }
@@ -189,7 +193,7 @@ export const fileOut = (f: FileRow): RoomFile => ({
 })
 
 /** The rows of a list that are hidden from `viewer` (one of their hidden old answers, or in its thread). */
-function hiddenAmong(db: Database, rows: readonly MessageRow[], viewer: Pick<MemberRow, 'user_id'>): Set<string> {
+export function hiddenAmong(db: Database, rows: readonly MessageRow[], viewer: Pick<MemberRow, 'user_id'>): Set<string> {
   const keys = [...new Set(rows.flatMap((r) => (r.thread_root_id ? [r.id, r.thread_root_id] : [r.id])))]
   if (!viewer.user_id || !keys.length) return new Set()
   const out = new Set<string>()
@@ -321,6 +325,8 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       ...(r.thread_root_id ? { threadRootId: r.thread_root_id, ...(r.also_in_room ? { alsoInRoom: true as const } : {}), ...(followed.has(r.thread_root_id) ? { following: true as const } : {}) } : {}),
       ...(thread ? { thread } : {}),
       ...(reacted?.length ? { reactions: reacted } : {}),
+      // the id the author's app sent it with, to the author only: a send whose answer was lost is matched to it
+      ...(r.author_kind === 'user' && r.client_id && r.author_id === viewer.user_id ? { clientMessageId: r.client_id } : {}),
     }
   })
 }
@@ -366,7 +372,7 @@ export function reactionsOf(db: Database, messageIds: readonly string[], viewer:
   const marks = messageIds.map(() => '?').join(',')
   const now = 'room_reactions r JOIN room_members rm ON rm.room_id = r.room_id AND rm.user_id = r.user_id'
   const groups = db.query(`SELECT r.message_id mid, r.emoji, COUNT(*) n, MAX(r.user_id = ?) mine, MIN(r.created_at) first FROM ${now} WHERE r.message_id IN (${marks})
-    GROUP BY r.message_id, r.emoji ORDER BY r.message_id, first, r.emoji`).all(viewer.user_id, ...messageIds) as { mid: string; emoji: RoomReactionEmoji; n: number; mine: number; first: string }[]
+    GROUP BY r.message_id, r.emoji ORDER BY r.message_id, first, r.emoji`).all(viewer.user_id, ...messageIds) as { mid: string; emoji: string; n: number; mine: number; first: string }[]
   if (!groups.length) return out
   const names = db.query(`SELECT mid, emoji, uid FROM (SELECT r.message_id mid, r.emoji, r.user_id uid, ROW_NUMBER() OVER (PARTITION BY r.message_id, r.emoji ORDER BY r.created_at, r.user_id) k
     FROM ${now} WHERE r.message_id IN (${marks})) WHERE k <= ${ROOM_REACTION_NAMES} ORDER BY mid, emoji, k`).all(...messageIds) as { mid: string; emoji: string; uid: string }[]

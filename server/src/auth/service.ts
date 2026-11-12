@@ -16,6 +16,7 @@ import { getTeamSettings } from '../admin/settings'
 import { voiceInputOn, voiceInputOutside } from '../credentials/speech-key'
 import { audit } from '../admin/audit'
 import { profileOf } from './profiles'
+import { myStatusOf } from './status-messages'
 import { hashToken, newToken, verifyPassword } from './passwords'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
@@ -27,9 +28,11 @@ import { windowsAppSourceOf } from '../system/windows-app'
 import { teamAddressOf } from '../system/connection'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { devEnvFlag } from '../devenv/setting'
+import { firstSignIn } from '../onboarding/member-welcome'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
+import { webAllowAll } from '../tools/web-allow-all'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
@@ -222,6 +225,8 @@ export class AuthService implements SessionService {
     const info = c.get('info')
     if (info.ip && !(!info.tunnel && isLoopback(info.ip))) this.limiter.rememberNet(userId, limitIp(info.ip))
     const s = this.createSession(userId, client, c.req.header('user-agent') ?? null, o)
+    // someone an admin added directly joins with their first sign-in: the everyone room's line and the owners' notice
+    firstSignIn(this.ctx, userId)
     // the cookie keeps the normal lifetime either way: the server decides when a temporary sign-in ends, and a changed
     // password turns it into a normal session without a new cookie
     if (tokenMode === 'cookie') c.header('Set-Cookie', sessionCookie(c.req.url, s.token, Math.floor(SESSION_TTL_MS / 1000)), { append: true })
@@ -252,20 +257,25 @@ export class AuthService implements SessionService {
     const windowsApp = windowsAppSourceOf(this.ctx.config)
     // the team's own address for its members (Settings › 앱): the relay's or the public one, never the request's host
     const address = teamAddressOf(this.ctx)
+    // my status message, also one that starts later (docs/DECISIONS.md "상태 메시지")
+    const status = myStatusOf(this.db, u.id)
     return {
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,
         canChooseEngine: choose,
         ...profileOf(this.db, u.id),
+        ...(status ? { statusMessage: status } : {}),
+        ...(webAllowAll(this.db, u.id) ? { webAllowAll: true as const } : {}),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, ...(address ? { address } : {}) },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, projectCreators: settings.projectCreators, ...(address ? { address } : {}) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
         ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
+        ...(this.ctx.config.roomAiMentions ? { roomAiMentions: true as const } : {}),
         ...(devEnvFlag() ? { devEnv: true as const } : {}),
         ...(htmlPdfUnavailable() === null ? { htmlPdf: true as const } : {}),
         ...(this.hwpPreviewOn() ? { hwpPreview: true as const } : {}),

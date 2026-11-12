@@ -3,9 +3,11 @@
 // operations; none for a personal project); a new chat in that project is seen and continued by the project's people.
 // The chat's header has the people icon, the line under the box says how many see it, every question carries its
 // sender's picture and name (mine too; a private chat neither), the project page's row has the faces of who wrote in it
-// (the names on hover and keyboard focus), and only what the person may do is offered. While
+// (the names on hover and keyboard focus), and only what the person may do is offered. A file from the computer is saved
+// in the project folder ("채팅 첨부") with one line under the chips saying so; ✕ before sending puts it in the trash. While
 // someone else's question is answered the box keeps the text with a line saying whose; the read card goes to the person
-// who asked, the others see that it waits for them.
+// who asked, the others see that it waits for them. The line under every box says who sees the chat ("나만 봐요", "나와
+// 관리자만 봐요" or how many; docs/DECISIONS.md "Who sees it, always") and opens the members dialog for whoever may change them.
 // At 1440 and 390 px wide, with axe on each screen. The mock (test/mock/server.ts, "shared project chats"): "hold" keeps
 // an answer running until POST /__test/shared-release, "readcard" raises the read card first.
 import AxeBuilder from '@axe-core/playwright'
@@ -86,23 +88,24 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const toggle = dialog.getByTestId('project-share-chats-toggle')
       const hint = dialog.getByTestId('project-share-chats-hint')
       await expect(toggle).not.toBeChecked()
-      // Olga, Bob and the two admins read marketing/
-      await expect(hint).toHaveText('켜면 새로 여는 채팅을 이 폴더를 볼 수 있는 4명(팀장·관리자 포함)이 보고 이어갈 수 있어요. 지금까지의 채팅은 계속 나만 봐요.')
+      // Olga, Bob and the two admins read marketing/ (a project made before outside projects/: they are all its people)
+      await expect(hint).toHaveText('켜면 새로 여는 채팅을 멤버 4명이 보고 이어갈 수 있어요. 지금까지의 채팅은 계속 나만 봐요.')
       await expect(toggle).toHaveAccessibleDescription(/켜면 새로 여는 채팅을/)
       await audit(page, 'project dialog, off')
-      await dialog.getByText('이 프로젝트의 채팅을 프로젝트 사람들과 공유').click()
+      await dialog.getByText('이 프로젝트의 채팅을 멤버와 공유').click()
       await expect(toggle).toBeChecked()
       // the hint says what saving does (by the saved setting): still who will see new chats
-      await expect(hint).toHaveText(/켜면 새로 여는 채팅을 이 폴더를 볼 수 있는 4명/)
+      await expect(hint).toHaveText(/켜면 새로 여는 채팅을 멤버 4명/)
       const saved = page.waitForRequest((r) => r.method() === 'PATCH' && r.url().endsWith(`/api/projects/${id}`))
       await dialog.getByTestId('project-save').click()
       expect((await saved).postDataJSON()).toMatchObject({ shareChats: true })
       await expect(dialog).toHaveCount(0)
-      // the box says who will see a new chat, and offers team files only
-      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 4명이 볼 수 있어요.')
+      // the box says who will see a new chat, and offers a file from the computer too (it goes into the project folder)
+      await expect(seenLine(page)).toHaveText('새 채팅은 멤버 4명이 볼 수 있어요.')
       await page.getByTestId('attach-button').click()
-      await expect(page.getByTestId('attach-computer')).toHaveCount(0)
-      await expect(page.getByTestId('attach-team-only')).toHaveText('공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.')
+      await expect(page.getByTestId(vp.phone ? 'attach-camera' : 'attach-computer')).toBeVisible()
+      await expect(page.getByTestId('attach-team')).toBeVisible()
+      await expect(page.getByTestId('attach-team-only')).toHaveCount(0)
       await page.keyboard.press('Escape')
       // a save that does not touch the setting does not send it
       await page.getByTestId('project-menu').click()
@@ -127,11 +130,12 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // safe operations (1A): the switch is off-limits and says why; a new chat in the project is a chat of one person
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
-      await expect(seenLine(page)).toHaveCount(0)
+      await expect(seenLine(page)).toHaveText('나만 봐요')
+      await expect(seenLine(page).getByRole('button')).toHaveCount(0)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
       await expect(toggle).toBeDisabled()
-      await expect(hint).toHaveText('안전 작업 모드에서는 채팅을 공유할 수 없어요.')
+      await expect(hint).toHaveText('이 팀의 보안 설정 때문에 채팅을 공유할 수 없어요.')
       await audit(page, 'project dialog, safe operations')
     })
 
@@ -140,14 +144,14 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await signIn(page)
       const id = await project(page)
       await page.goto(`/projects/${id}`)
-      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
+      await expect(seenLine(page)).toHaveText('새 채팅은 멤버 2명이 볼 수 있어요.')
       await page.getByTestId('composer-input').fill('출시 일정 정리해 줘')
       await page.getByTestId('send').click()
       await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
       const chatId = page.url().split('/c/')[1]!
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
-      await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 프로젝트 사람 2명이 볼 수 있어요')
-      await expect(seenLine(page)).toHaveText(vp.phone ? '프로젝트 사람 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 프로젝트 사람 2명이 이 채팅을 볼 수 있어요.`)
+      await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 멤버 2명이 볼 수 있어요')
+      await expect(seenLine(page)).toHaveText(vp.phone ? '멤버 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 멤버 2명이 이 채팅을 볼 수 있어요.`)
       // my own message carries my name too (a screenshot passed around still says who asked); the creator renames and
       // deletes, nobody moves it
       await expect(page.getByTestId('message-author')).toHaveText('Olga')
@@ -171,8 +175,10 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await row.click()
       await expect(b.getByTestId('user-message')).toHaveCount(1)
       await expect(b.getByTestId('user-message').getByTestId('message-author')).toHaveText('Olga')
-      // not his to rename, delete, edit or answer again: a plain title, no edit, no "regenerate", no engine
-      await expect(b.getByTestId('chat-menu')).toHaveCount(0)
+      // not his to rename, delete, edit or answer again: the title's menu has 링크 복사 only, no edit, no "regenerate", no engine
+      await b.getByTestId('chat-menu').click()
+      await expect(b.getByRole('menuitem')).toHaveText(['링크 복사'])
+      await b.keyboard.press('Escape')
       await expect(b.getByTestId('chat-title')).toHaveText(/출시 일정/)
       await expect(b.getByTestId('edit-message')).toHaveCount(0)
       await expect(b.getByTestId('regenerate')).toHaveCount(0)
@@ -310,8 +316,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
         await page.keyboard.press('Tab')
         await expect(shared).toBeFocused()
         await expect(page.getByRole('tooltip')).toHaveText('Bob, Olga')
+        // the next stop is the row's "…" (링크 복사): the faces' names go, that button's own tip may show
         await page.keyboard.press('Tab')
-        await expect(page.getByRole('tooltip')).toHaveCount(0)
+        await expect(page.getByRole('tooltip').filter({ hasText: 'Bob, Olga' })).toHaveCount(0)
       }
       await audit(page, 'project page, faces')
 
@@ -390,7 +397,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('send').click()
       const card = page.getByTestId('ask-card')
       await expect(card).toHaveAttribute('data-origin', 'server')
-      await expect(card).toContainText('AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 프로젝트 사람 2명 중 1명은 이곳을 볼 수 없어요.')
+      await expect(card).toContainText('AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 멤버 2명 중 1명은 이곳을 볼 수 없어요.')
       await expect(card.getByTestId('ask-yes')).toHaveText('읽고 공유하기')
       await expect(card.getByTestId('ask-no')).toHaveText('읽지 않기')
       await audit(page, 'read card')
@@ -517,7 +524,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const chatId = await sharedChat(page, id, '출시 일정 정리해 줘')
       const b = await bob(browser)
 
-      // not his: rename, delete, another answer to Olga's question; nobody's: a move, a file from the computer
+      // not his: rename, delete, another answer to Olga's question; nobody's: a move
       const rename = await patch(b, `/api/chats/${chatId}`, { title: 'mine now' })
       expect([rename.status(), await reason(rename)]).toEqual([403, 'shared_chat_creator'])
       const remove = await del(b, `/api/chats/${chatId}`)
@@ -528,14 +535,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const other = ((await (await post(page, '/api/projects', { name: 'Other', scope: 'team', folderPath: 'docs', instructions: '' })).json()) as { id: string }).id
       const move = await patch(page, `/api/chats/${chatId}`, { projectId: other })
       expect([move.status(), await reason(move)]).toEqual([409, 'shared_chat_move'])
-      const upload = await post(page, '/api/upload-sessions', { target: { kind: 'attachment', chatId, name: 'a.txt' }, size: 3, sha256: 'a'.repeat(64) })
-      expect([upload.status(), await reason(upload)]).toEqual([409, 'shared_chat_upload'])
-
-      // a computer file given to the box anyway (dropped, pasted) is refused there with the reason
       await page.goto(`/c/${chatId}`)
-      await page.getByTestId('file-input').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('acme notes') })
-      await expect(page.getByRole('alert').filter({ hasText: '공유 채팅에는 팀 파일만 붙일 수 있어요.' })).toBeVisible()
-      await expect(page.getByTestId('attachment-chip')).toHaveCount(0)
 
       // a send refused in the moment (someone else's question began just before): the text stays, with the reason
       await page.route(`**/api/chats/${chatId}/messages`, (r) => r.request().method() === 'POST'
@@ -557,26 +557,71 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 기록은 그대로 남아요. 공유 채팅은 7일 동안 만든 사람의 "삭제한 기록"에 있어요.')
       await expect(page.getByTestId('project-delete-shared')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
-      // pointing it at another folder (admins) says who will see its shared chat there
+      // a project in place keeps its folder (docs/DECISIONS.md "Projects live only in projects/"): no folder to choose;
+      // an admin reads on its 멤버 line that this older project is outside projects/ (where its members are changed)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
-      await page.getByTestId('project-folder-choose').click()
-      const picker = page.getByRole('dialog').filter({ has: page.getByTestId('folder-pick') })
-      await picker.getByRole('button', { name: '팀 폴더' }).click()
-      await picker.getByRole('button', { name: 'docs', exact: true }).click()
-      await picker.getByTestId('folder-pick').click()
-      await expect(page.getByTestId('project-form-repoint-shared')).toHaveText(/^공유 채팅 1개를 이 폴더를 볼 수 있는 \d+명이 보게 돼요\.$/)
-      await audit(page, 'repoint')
+      await expect(page.getByTestId('project-folder-choose')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+      await expect(page.getByTestId('project-members-manage')).toHaveCount(0)
+      await page.getByTestId('project-members-toggle').click()
+      await expect(page.getByTestId('project-members-hint')).toContainText('관리자 › 폴더 권한')
 
       // safe operations (1A): a shared chat is read-only, and says where to ask instead
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
       await b.goto(`/c/${chatId}`)
-      await expect(b.getByTestId('shared-safe-ops')).toHaveText('안전 작업 모드라서 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.')
+      await expect(b.getByTestId('shared-safe-ops')).toHaveText('이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.')
       await expect(b.getByTestId('composer-input')).toHaveCount(0)
       const blocked = await post(b, `/api/chats/${chatId}/messages`, { content: 'x', clientMessageId: uuidv7() })
       expect([blocked.status(), await reason(blocked)]).toEqual([409, 'safe_ops'])
       await audit(b, 'safe operations')
+      await b.context().close()
+    })
+
+    test('a file from the computer in a project\'s new chat: saved in the project folder, one line says so; ✕ before sending puts it in the trash; sent, Bob sees it', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const id = await project(page)
+      await page.goto(`/projects/${id}`)
+      const memo = { name: '견적 메모.txt', mimeType: 'text/plain', buffer: Buffer.from('acme quote notes') }
+      const chip = page.getByTestId('attachment-chip')
+      const line = page.getByTestId('shared-upload-line')
+      // Olga and Bob read marketing/: the count is the one the line under the box gives
+      await expect(seenLine(page)).toHaveText('새 채팅은 멤버 2명이 볼 수 있어요.')
+      // 📎 > from the computer (the file input behind it): the chip as usual, one line under it, no refusal
+      await page.getByTestId('file-input').setInputFiles(memo)
+      await expect(chip).toHaveAttribute('data-status', 'done')
+      await expect(chip).toContainText('견적 메모.txt')
+      await expect(line).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 멤버 2명이 볼 수 있어요')
+      await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0)
+      const folder = async () => ((await (await page.request.get(`/api/files/tree?path=${encodeURIComponent('marketing/채팅 첨부')}`)).json()) as { entries: { name: string }[] }).entries.map((e) => e.name)
+      expect(await folder()).toEqual(['견적 메모.txt'])
+      await audit(page, 'project box with a file from the computer')
+
+      // ✕ before sending: the chip and the line go, the file goes to the trash (the button says so)
+      await page.getByRole('button', { name: '견적 메모.txt 빼기 · 프로젝트 폴더에 저장된 파일은 휴지통으로 가요' }).click()
+      await expect(chip).toHaveCount(0)
+      await expect(line).toHaveCount(0)
+      await expect.poll(folder).toEqual([])
+      const trash = ((await (await page.request.get('/api/files/trash')).json()) as { items: { originalPath: string }[] }).items.map((x) => x.originalPath)
+      expect(trash).toContain('marketing/채팅 첨부/견적 메모.txt')
+
+      // again, and sent: the question carries it as a team file of the project folder, and Bob opens the chat with it
+      await page.getByTestId('file-input').setInputFiles(memo)
+      await expect(chip).toHaveAttribute('data-status', 'done')
+      await page.getByTestId('composer-input').fill('이 메모로 견적서 초안 써 줘')
+      await page.getByTestId('send').click()
+      await expect(page).toHaveURL(/\/c\//)
+      const chatId = new URL(page.url()).pathname.split('/').at(-1)!
+      await expect(page.getByTestId('user-message').locator('[data-source="team"]')).toContainText('견적 메모.txt')
+      const b = await bob(browser)
+      await b.goto(`/c/${chatId}`)
+      await expect(b.getByTestId('user-message').locator('[data-source="team"]')).toContainText('견적 메모.txt')
+      // in the chat itself the same: a second file goes there too, with the line; a taken name gets " (2)"
+      await b.getByTestId('file-input').setInputFiles(memo)
+      await expect(b.getByTestId('attachment-chip')).toContainText('견적 메모 (2).txt')
+      await expect(b.getByTestId('shared-upload-line')).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 멤버 2명이 볼 수 있어요')
+      await audit(b, 'shared chat box with a file from the computer')
       await b.context().close()
     })
 
@@ -606,6 +651,90 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(b, 'shared chat, an answer hidden from me')
       const dir = process.env.SHOT_DIR
       if (dir) await b.screenshot({ path: `${dir}/withheld-${vp.name}.png` })
+      await b.context().close()
+    })
+
+    // docs/DECISIONS.md "Who sees it, always": the line under the box always says who sees the chat, and opens the members
+    // dialog for whoever may change them while the chat is shared. SHOT_DIR=<dir> saves light and dark screenshots.
+    test('who sees it, always: only me, a member added from the line makes it 2, a member alone in projects/ reads 나만 봐요', async ({ page, browser }) => {
+      const shots = async (p: Page, name: string) => {
+        const dir = process.env.SHOT_DIR
+        if (!dir) return
+        for (const scheme of ['light', 'dark'] as const) {
+          await p.emulateMedia({ colorScheme: scheme })
+          await p.waitForTimeout(200)
+          await p.screenshot({ path: `${dir}/who-sees-${name}-${vp.name}-${scheme}.png` })
+        }
+        await p.emulateMedia({ colorScheme: 'light' })
+      }
+      await reset(page)
+      await signIn(page)
+      // a team project of Olga (the owner) with nobody else in it, its chats shared
+      const id = ((await (await post(page, '/api/projects', { name: 'Solo', scope: 'team', instructions: '' })).json()) as { id: string }).id
+      expect((await patch(page, `/api/projects/${id}`, { shareChats: true })).ok()).toBeTruthy()
+      await page.goto(`/projects/${id}`)
+      await expect(seenLine(page)).toHaveText('나만 봐요')
+      // the 멤버 line says the same words
+      await expect(page.getByTestId('project-members')).toContainText('나만 봐요')
+      // one quiet line, on a phone too: the button is no taller than the text (its 44 px tap box is drawn outside it)
+      expect((await seenLine(page).getByTestId('who-sees').boundingBox())!.height).toBeLessThanOrEqual(20)
+      expect((await seenLine(page).boundingBox())!.height).toBeLessThanOrEqual(26)
+      await audit(page, 'project box, only me')
+      await shots(page, 'project-only-me')
+      // Olga may change the members: the line opens the dialog; Bob added (the confirm first)
+      await seenLine(page).getByRole('button', { name: '나만 봐요' }).click()
+      await expect(page.getByTestId('project-members-dialog')).toBeVisible()
+      await page.getByTestId('project-participants-search').fill('Bob')
+      await page.getByTestId('participant-add-user-bob').click()
+      await page.getByTestId('project-members-save').click()
+      await page.getByTestId('dialog-confirm').click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(seenLine(page)).toHaveText('새 채팅은 멤버 2명이 볼 수 있어요.')
+      // the 멤버 line: its members (Olga and Bob)
+      await expect(page.getByTestId('project-members')).toContainText('멤버2명')
+
+      // the open chat says it in the same place, and its line opens the same dialog: Bob out again, only me
+      await page.getByTestId('composer-input').fill('주간 보고 정리해 줘')
+      await page.getByTestId('send').click()
+      await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+      await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+      await expect(seenLine(page)).toHaveText(vp.phone ? '멤버 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 멤버 2명이 이 채팅을 볼 수 있어요.`)
+      await shots(page, 'chat-two')
+      await seenLine(page).getByRole('button', { name: '멤버 2명이 이 채팅을 볼 수 있어요.' }).click()
+      await page.getByTestId('participant-remove-user-bob').click()
+      await page.getByTestId('project-members-save').click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 봐요' : `${FOOTER_START} 나만 봐요`)
+      await audit(page, 'shared chat, only me')
+
+      // a chat without a project: only me, nothing to open
+      await page.goto('/')
+      await page.getByTestId('composer-input').fill('혼자 볼 메모')
+      await page.getByTestId('send').click()
+      await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 봐요' : `${FOOTER_START} 나만 봐요`)
+      await expect(seenLine(page).getByRole('button')).toHaveCount(0)
+      await shots(page, 'chat-only-me')
+
+      // Bob alone in a shared project of his: members only (docs/DECISIONS.md "Project contents only for members"), so
+      // the owner does not see it, and it says "나만 봐요" ("나와 관리자만" is only for a project made before outside projects/)
+      const b = await bob(browser)
+      const H = { [CSRF_HEADER]: '1' }
+      const own = ((await (await b.request.post('/api/projects', { headers: H, data: { name: 'Solo Bob', scope: 'team', instructions: '' } })).json()) as { id: string }).id
+      expect((await b.request.patch(`/api/projects/${own}`, { headers: H, data: { shareChats: true } })).ok()).toBeTruthy()
+      await b.goto(`/projects/${own}`)
+      await expect(seenLine(b)).toHaveText('나만 봐요')
+      await expect(b.getByTestId('project-members')).toContainText('나만 봐요')
+      await expect(seenLine(b).getByRole('button')).toHaveCount(1)
+      await shots(b, 'project-member-alone')
+      // Bob in Olga's project (Olga changes its members): the count, nothing to open
+      const theirs = ((await (await post(page, '/api/projects', { name: 'With Bob', scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: 'bob' }] })).json()) as { id: string }).id
+      expect((await patch(page, `/api/projects/${theirs}`, { shareChats: true })).ok()).toBeTruthy()
+      await b.goto(`/projects/${theirs}`)
+      await expect(seenLine(b)).toHaveText('새 채팅은 멤버 2명이 볼 수 있어요.')
+      await expect(b.getByTestId('project-members')).toContainText('2명')
+      await expect(seenLine(b).getByRole('button')).toHaveCount(0)
+      await audit(b, 'project box, a member who cannot change the members')
       await b.context().close()
     })
   })

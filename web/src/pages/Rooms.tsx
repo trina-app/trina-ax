@@ -2,32 +2,38 @@
 // 채팅"; called like "@트리나" in the Trina edition, with the face it has in rooms: rooms/AiFace.tsx), then my rooms by
 // latest activity, each with its last line, when, and my unread count. Rows are separated by hairlines on computers
 // and by their own spacing on phones, no cards.
-// "새 대화" opens the people list for a DM or a group chat (/rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
+// "새 대화" opens the people list for a DM or a group chat (also asked for with /rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
 // chat icon, components/Layout.tsx): no second title row here.
 // Each row has the room's "⋯" (components/rooms/RoomMenu.tsx) on hover or keyboard focus and with a right-click; on a
 // phone a long press opens it as a sheet. Rooms I hid (docs/DECISIONS.md "대화 숨기기") are not in the list: a quiet
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
 // Rooms I pinned (docs/DECISIONS.md "Pinned conversations") come right after the AI's row, all of them, the most
 // recently pinned first, with the sidebar's pin after the name; then the others by latest activity.
+// On a phone the list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
+// threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
+// count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
 import clsx from 'clsx'
-import { BellOff, ChevronDown, Plus } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
 import { pinnedFirst, plainLine, roomUnread } from '../lib/rooms'
+import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
+import { useRoomNoticeUnread } from '../store/inbox'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { AiFace } from '../components/rooms/AiFace'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
-import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
+import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
 import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, UnreadBadge } from '../components/rooms/SidebarRooms'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
-import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
+import { Button, PageHeader, Skeleton } from '../components/ui'
+import { LoadError } from '../components/LoadError'
 import { useNameOf } from '../store/people'
 import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
 import { PresenceText } from '../components/Presence'
@@ -38,14 +44,23 @@ export default function Rooms() {
   // a phone's sign-in lands here when the app opens on 대화 (lib/tabs.ts START_TAB): the owner who left the welcome
   // steps unfinished goes to them instead
   const resuming = useResumeOnLanding((useLocation().state as { landing?: unknown } | null)?.landing === true)
-  const locale = useLocale()
   const everyRoom = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
   const failed = useRooms((s) => s.failed)
-  // the people list is in the address, so the phone top bar's icon can open it too
+  // the people list: opened here, or asked for in the address (?new=1: the phone top bar's ⊕, a link), which then
+  // leaves the address. Open, it is a dialog with its own history entry on a phone (lib/backCloses.ts): Back closes it
+  // and stays on the list, and a chat opened from it takes that entry, so Back from the chat comes back to the list
   const [params, setParams] = useSearchParams()
-  const picking = params.has('new')
-  const setPicking = (on: boolean) => setParams(on ? { new: '1' } : {}, { replace: true })
+  const [picking, setPicking] = useState(false)
+  const asked = params.has('new')
+  useEffect(() => {
+    if (!asked) return
+    setPicking(true)
+    setParams((p) => {
+      p.delete('new')
+      return p
+    }, { replace: true })
+  }, [asked, setParams])
   const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
   if (resuming) return <div className="h-full" />
   const rooms = pinnedFirst(everyRoom.filter((r) => !r.hidden))
@@ -74,6 +89,7 @@ export default function Rooms() {
               </span>
             </Link>
           </li>
+          <ChatsActivityRow className={row} />
           {rooms.map((r) => (
             <RoomListRow key={r.id} room={r} className={row} />
           ))}
@@ -82,13 +98,34 @@ export default function Rooms() {
         {!loaded && <Skeleton lines={4} className="px-4 py-4 sm:px-6" />}
         {loaded && !!failed && (
           <div className="px-4 py-4 sm:px-6">
-            <ErrorNote onRetry={() => void useRooms.getState().loadRooms()}>{errorText(failed, locale, t('error.network'))}</ErrorNote>
+            <LoadError error={failed} onRetry={() => useRooms.getState().loadRooms()} what="rooms" />
           </div>
         )}
         {loaded && !failed && !everyRoom.length && <p className="px-4 py-4 text-sm text-muted sm:px-6">{t('rooms.listEmpty')}</p>}
       </div>
       <PeoplePicker open={picking} onClose={() => setPicking(false)} />
     </div>
+  )
+}
+
+/** A phone's first row: 멘션·스레드, the conversations' part of Activity (a page of this tab), a dot while one is unread. */
+function ChatsActivityRow({ className }: { className: string }) {
+  const t = useT()
+  const unread = useRoomNoticeUnread() > 0
+  return (
+    <li className="md:hidden">
+      <Link to={CHATS_ACTIVITY} className={className} data-testid="rooms-activity">
+        <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-hover text-muted">
+          <AtSign size={18} />
+        </span>
+        <span className={clsx('min-w-0 flex-1 truncate text-base text-ink', unread ? 'font-semibold' : 'font-medium')}>{t('feed.chats')}</span>
+        {unread && (
+          <span className="mr-1 size-2.5 shrink-0 rounded-full bg-accent" data-testid="rooms-activity-unread">
+            <span className="sr-only">{t('feed.chatsUnread')}</span>
+          </span>
+        )}
+      </Link>
+    </li>
   )
 }
 
@@ -163,7 +200,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}>{title}</span>
+          <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}><RoomName room={room} /></span>
           {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
           {room.muted && (
             <>

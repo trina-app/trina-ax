@@ -8,7 +8,9 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  await page.getByRole('link', { name: '관리자' }).click()
+  // Admin is in the team menu on top of the sidebar (docs/DECISIONS.md "The team menu")
+  await page.getByTestId('team-menu').click()
+  await page.getByRole('menuitem', { name: '관리자' }).click()
   // Admin opens on Home; members are first in the menu after it
   await expect(page.getByTestId('admin-home')).toBeVisible()
   await page.getByRole('navigation', { name: '관리자' }).getByRole('link', { name: DICTS.ko['admin.members'], exact: true }).click()
@@ -86,7 +88,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(page.getByTestId('invite-list')).toContainText('팀원')
 
   // groups
-  await page.getByRole('link', { name: '그룹' }).click()
+  await page.getByRole('link', { name: '부서' }).click()
   await page.getByTestId('group-new').click()
   await page.getByTestId('group-name').fill('영업팀')
   await page.getByRole('dialog').getByLabel('Bob').check()
@@ -111,11 +113,11 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
   await panel.getByTestId('edit-save').click()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 읽기')
-  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
+  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 볼 수 있음')
+  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 볼 수 있음')
 
   // engines: what is missing, in plain words
-  await page.getByTestId('admin-menu').getByRole('link', { name: '제공자', exact: true }).click()
+  await page.getByTestId('admin-menu').getByRole('link', { name: 'AI 계정', exact: true }).click()
   await expect(page.getByTestId('engine-card').first()).toContainText('연결됨')
   await expect(page.locator('[data-engine="codex"]').getByTestId('engine-detail')).toContainText('codex login --device-auth')
 
@@ -225,7 +227,14 @@ test('members cannot open admin screens', async ({ page }) => {
   await reset(page)
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await expect(page.getByRole('link', { name: '관리자' })).toHaveCount(0)
+  // no team menu either: a member's header is the team's name only
+  await expect(page.getByTestId('team-header')).toBeVisible()
+  await expect(page.getByTestId('team-menu')).toHaveCount(0)
+  // an /admin link says the page is for admins, with a way Home (QA TC-272), not a silent Home
   await page.goto('/admin/members')
+  await expect(page.getByTestId('admin-only')).toContainText('관리자만 볼 수 있어요')
+  await expect(page).toHaveURL(/\/admin\/members$/)
+  await page.getByTestId('admin-only-home').click()
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/)
   // and the API itself refuses (the hidden screens are only a convenience)
   expect((await page.request.get('/api/admin/users')).status()).toBe(403)
@@ -874,7 +883,8 @@ test('the focus ring of the admin and settings menus is not cut off by the scrol
   }
   for (const size of [{ width: 1360, height: 860 }, { width: 390, height: 780 }]) {
     await page.setViewportSize(size)
-    await page.goto('/admin/folders')
+    // a phone: Admin's list (its rows are the menu there)
+    await page.goto(size.width < 768 ? '/admin' : '/admin/folders')
     await inside('폴더 권한')
     await page.screenshot({ path: process.env.RING_SHOTS ? `${process.env.RING_SHOTS}/admin-${size.width}.png` : undefined })
     // Settings is a dialog: its list is beside the section on a wide screen, on its own on a phone (/settings)

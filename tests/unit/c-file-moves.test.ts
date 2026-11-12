@@ -5,7 +5,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeHandler } from '../../server/src/mcp/protocol'
+import { fileSummaryOf } from '../../server/src/chat/turn'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('c-file-moves') })
@@ -16,14 +18,21 @@ const has = (rel: string) => fs.existsSync(path.join(A.team, ...rel.split('/')))
 const bytes = (rel: string) => fs.readFileSync(path.join(A.team, ...rel.split('/')))
 const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff, 0x00, 0xfe])
 
-type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void> }
+type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void>; end?: 'timeout' | 'ended'; unattended?: boolean }
 let rpcId = 0
 async function call(user: Person, name: string, args: unknown, o: { person?: Asked; turn?: boolean; locale?: 'ko' | 'en' | 'es' } = {}) {
   const turnId = o.turn ? A.turn(user, A.chat(user)) : null
   const tc = A.toolCtx(user, turnId)
   if (o.person) {
     const p = o.person
-    tc.person = { locale: o.locale ?? 'ko', async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} }
+    // like chat/tools.ts turnPerson: confirmWhy says how the card ended (a timeout is not a no); a scheduled run's person
+    // is unattended and never asked
+    tc.person = {
+      locale: o.locale ?? 'ko', unattended: p.unattended,
+      async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer },
+      async confirmWhy(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer ? 'yes' : p.end ?? 'declined' },
+      *turnUrls() {},
+    }
   }
   const h = makeHandler(A.ctx.files, A.ctx.db, tc)
   const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } })
@@ -41,7 +50,7 @@ describe('move_files', () => {
     expect(r0.isError).toBe(true)
     expect(r0.text).toContain('did not allow')
     expect(no.questions).toHaveLength(1)
-    expect(no.questions[0]).toContain('2개 항목을 shared/company 폴더로 옮기려고 해요')
+    expect(no.questions[0]).toContain('2개 항목을 전사 공유 › company 폴더로 옮기려고 해요')
     expect(no.questions[0]).toMatch(/\d+명이 더 볼 수 있게 돼요/)
     expect(no.questions[0]).toContain('logo.png')
     expect(has('users/alice/.attachments/c1/logo.png')).toBe(true) // declined: nothing moved
@@ -87,7 +96,7 @@ describe('move_files', () => {
     put('shared/one-en.md', 'x')
     const en = ask(false)
     await call('alice', 'move_files', { paths: ['shared/one-en.md'], to_folder: 'users/alice' }, { person: en, locale: 'en' })
-    expect(en.questions[0]).toContain('The AI wants to move 1 item to users/alice.')
+    expect(en.questions[0]).toContain('The AI wants to move 1 item to My folder.')
     expect(en.questions[0]).not.toContain('(s)')
     const lost = /(\d+) (person|people) who can see (it|them) now will no longer be able to\. Move (it|them)\?/.exec(en.questions[0]!)
     expect(lost).not.toBeNull()
@@ -96,7 +105,7 @@ describe('move_files', () => {
     put('users/alice/one-es.md', 'x')
     const es = ask(false)
     await call('alice', 'copy_files', { paths: ['users/alice/one-es.md'], to_folder: 'shared' }, { person: es, locale: 'es' })
-    expect(es.questions[0]).toContain('La IA quiere copiar 1 archivo a shared.')
+    expect(es.questions[0]).toContain('La IA quiere copiar 1 archivo a Toda la empresa.')
     const added = /(\d+) (persona más podrá|personas más podrán) verlo\. ¿Copiarlo\?/.exec(es.questions[0]!)
     expect(added).not.toBeNull()
     expect(added![2]).toBe(added![1] === '1' ? 'persona más podrá' : 'personas más podrán')
@@ -110,11 +119,141 @@ describe('move_files', () => {
     expect(has('users/alice/private-plan.md')).toBe(true)
   })
 
+  // bug 1 (docs/DECISIONS.md "Refusals say why, who and what next"): a scheduled run's person is never asked, and the
+  // text said "the user did not allow this"
+  test('a scheduled run (an unattended person): nobody is asked, and the text says so, never "did not allow"', async () => {
+    put('users/alice/weekly.md', 'w')
+    const p: Asked = { answer: true, questions: [], unattended: true }
+    const r = await call('alice', 'move_files', { paths: ['users/alice/weekly.md'], to_folder: 'shared' }, { person: p })
+    expect(r.isError).toBe(true)
+    expect(p.questions).toHaveLength(0)
+    expect(r.text).toContain('Nothing was moved.')
+    expect(r.text).toContain('Why: nobody could be asked: this is a scheduled run with nobody watching')
+    expect(r.text).toContain('The user did not refuse anything')
+    expect(r.text).not.toContain('did not allow')
+    expect(r.text).toContain('Next step: the user can do it in a chat, where they answer the card, or on the Files screen ("파일")')
+    expect(has('users/alice/weekly.md')).toBe(true)
+  })
+
+  test('a card that timed out is not a no; a no says so', async () => {
+    put('users/alice/late.md', 'l')
+    const late: Asked = { answer: false, questions: [], end: 'timeout' }
+    const r = await call('alice', 'copy_files', { paths: ['users/alice/late.md'], to_folder: 'shared' }, { person: late })
+    expect(r.isError).toBe(true)
+    expect(late.questions).toHaveLength(1)
+    expect(r.text).toContain('Nothing was copied.')
+    expect(r.text).toContain('did not answer the confirmation card in time')
+    expect(r.text).toContain('This is not a no')
+    expect(r.text).not.toContain('did not allow')
+    const no = await call('alice', 'copy_files', { paths: ['users/alice/late.md'], to_folder: 'shared' }, { person: ask(false) })
+    expect(no.text).toContain('The user did not allow this, so nothing was copied.')
+    expect(no.text).toContain('Why: the user did not allow it: they said no on the confirmation card.')
+    expect(no.text).toContain('Next step: ask the user what they want.')
+    expect(has('shared/late.md')).toBe(false)
+  })
+
+  // B9 / bug 5: the target folder is made (the prompt told the AI to write a README.md to make one)
+  test('into a folder that is not there yet: the card says it is new, the folder is made after the yes, and nothing else is written', async () => {
+    put('users/alice/contracts/a.pdf', '%PDF-1.4 a')
+    put('users/alice/contracts/b.pdf', '%PDF-1.4 b')
+    const no = ask(false)
+    const r0 = await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf', 'users/alice/contracts/b.pdf'], to_folder: 'shared/계약서/2026' }, { person: no })
+    expect(r0.isError).toBe(true)
+    expect(no.questions[0]).toContain('AI가 2개 항목을 새로 만들 전사 공유 › 계약서 › 2026 폴더로 옮기려고 해요.')
+    expect(r0.text).toContain('shared/계약서/2026 (a new folder)')
+    // a no makes no folder
+    expect(has('shared/계약서')).toBe(false)
+
+    const en = ask(false)
+    await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf'], to_folder: 'shared/계약서/2026' }, { person: en, locale: 'en' })
+    expect(en.questions[0]).toContain('The AI wants to move 1 item to Company-wide › 계약서 › 2026, a new folder it will make.')
+
+    const yes = ask(true)
+    const r = await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf', 'users/alice/contracts/b.pdf'], to_folder: 'shared/계약서/2026' }, { person: yes, turn: true })
+    expect(r.isError).toBe(false)
+    expect(yes.questions).toHaveLength(1)
+    expect(r.text).toContain('Made the new folder shared/계약서/2026.')
+    expect(r.text).toContain('Moved 2 to shared/계약서/2026')
+    expect(fs.readdirSync(path.join(A.team, 'shared/계약서/2026')).sort()).toEqual(['a.pdf', 'b.pdf'])
+    expect(fs.readdirSync(path.join(A.team, 'shared/계약서'))).toEqual(['2026'])
+    // no README or any other file was made on the way
+    expect(has('shared/계약서/README.md') || has('shared/계약서/2026/README.md')).toBe(false)
+    // each new folder is in the file history with the turn and the tool
+    const made = A.ctx.db.query("SELECT path, detail FROM file_events WHERE turn_id = ? AND action = 'create' AND detail LIKE '%\"folder\":true%' ORDER BY id").all(r.turnId) as { path: string; detail: string }[]
+    expect(made.map((m) => m.path)).toEqual(['shared/계약서', 'shared/계약서/2026'])
+    expect(JSON.parse(made[0]!.detail)).toMatchObject({ folder: true, tool: 'move_files' })
+
+    // the same audience (no card): copy_files makes the folder too
+    put('shared/inbox-n/note.md', 'n')
+    const quiet = ask(false)
+    const c = await call('alice', 'copy_files', { paths: ['shared/inbox-n/note.md'], to_folder: 'shared/new-copies/2026' }, { person: quiet })
+    expect(c.isError).toBe(false)
+    expect(quiet.questions).toHaveLength(0)
+    expect(bytes('shared/new-copies/2026/note.md').toString()).toBe('n')
+  })
+
+  test('TC-018: the answer\'s file summary counts the moved files, not the folder made for them, and says they moved', async () => {
+    put('users/alice/tc018/a.md', 'a')
+    put('users/alice/tc018/b.md', 'b')
+    const r = await call('alice', 'move_files', { paths: ['users/alice/tc018/a.md', 'users/alice/tc018/b.md'], to_folder: 'shared/tc018/2026' }, { person: ask(true), turn: true })
+    expect(r.isError).toBe(false)
+    const rows = A.ctx.db.query('SELECT path, action, detail FROM file_events WHERE turn_id = ? ORDER BY id').all(r.turnId) as { path: string; action: string; detail: string | null }[]
+    // the turn made two folders and moved two files: two files, both moved ("3 files saved · Created" before)
+    expect(rows.filter((x) => x.action === 'create').length).toBe(4)
+    expect(fileSummaryOf(rows)).toEqual({ saved: [{ path: 'shared/tc018/2026/a.md', action: 'create', moved: true }, { path: 'shared/tc018/2026/b.md', action: 'create', moved: true }], conflicts: [], rejected: [] })
+    // only folders made (empty): nothing to show
+    expect(fileSummaryOf(rows.filter((x) => JSON.parse(x.detail ?? '{}').folder))).toBeNull()
+  })
+
+  test('the file summary of moves within one answer: a file it made and then moved is new where it is now; a changed one moved says moved; a folder that came with its files stays a row', () => {
+    const ev = (path: string, action: string, detail: Record<string, unknown> = {}) => ({ path, action, detail: JSON.stringify(detail) })
+    const rows = [
+      ev('shared/drafts', 'create', { folder: true, tool: 'make_folder' }),
+      ev('shared/drafts/new.md', 'create', { tool: 'write' }),
+      ev('shared/old.md', 'update', { tool: 'edit' }),
+      ev('shared/drafts/new.md', 'delete', { movedTo: 'shared/final/new.md', folder: false, tool: 'move_files' }),
+      ev('shared/final/new.md', 'create', { movedFrom: 'shared/drafts/new.md', folder: false, tool: 'move_files' }),
+      ev('shared/old.md', 'delete', { movedTo: 'shared/final/old.md', folder: false, tool: 'move_files' }),
+      ev('shared/final/old.md', 'create', { movedFrom: 'shared/old.md', folder: false, tool: 'move_files' }),
+      // a folder moved with its files, and a skill copied whole (one event for the folder): each still one row
+      ev('shared/box', 'delete', { movedTo: 'shared/final/box', folder: true, tool: 'move_files' }),
+      ev('shared/final/box', 'create', { movedFrom: 'shared/box', folder: true, tool: 'move_files' }),
+      ev('skills/brief', 'create', { folder: true, copiedFrom: 'users/alice/skills/brief', sourcePaths: ['users/alice/skills/brief'], files: 2, tool: 'skill_files' }),
+      ev('shared/final/copy.md', 'create', { copiedFrom: 'shared/x.md', tool: 'copy_files' }),
+    ]
+    expect(fileSummaryOf(rows)?.saved).toEqual([
+      { path: 'shared/final/new.md', action: 'create' },
+      { path: 'shared/final/old.md', action: 'create', moved: true },
+      { path: 'shared/final/box', action: 'create', moved: true },
+      { path: 'skills/brief', action: 'create' },
+      { path: 'shared/final/copy.md', action: 'create' },
+    ])
+  })
+
+  // independent review: a folder made for a call where nothing went in stayed behind, empty, as a "new folder"
+  test('a new folder where nothing went in (a folder copied, a group folder for a member) is taken away again', async () => {
+    put('shared/inbox-f/sub/a.md', 'a')
+    const c = await call('alice', 'copy_files', { paths: ['shared/inbox-f/sub'], to_folder: 'shared/never-made' }, { person: ask(true), turn: true })
+    expect(c.isError).toBe(true)
+    expect(c.text).not.toContain('Made the new folder')
+    expect(has('shared/never-made')).toBe(false)
+    const m = await call('alice', 'move_files', { paths: ['groups/marketing'], to_folder: 'shared/never-made-2/x' }, { person: ask(true), turn: true })
+    expect(m.isError).toBe(true)
+    expect(has('shared/never-made-2')).toBe(false)
+    const ev = A.ctx.db.query("SELECT COUNT(*) AS n FROM file_events WHERE path LIKE 'shared/never-made%'").get() as { n: number }
+    expect(ev.n).toBe(0)
+  })
+
+  test('a new folder where the person may not write is refused like any save there', async () => {
+    put('users/alice/x.md', 'x')
+    const r = await call('alice', 'move_files', { paths: ['users/alice/x.md'], to_folder: 'groups/finance/new' }, { person: ask(true) })
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('not found or no access')
+    expect(has('groups/finance/new')).toBe(false)
+  })
+
   test('a path the person may not use fails alone (same answer as a missing one); the rest is moved', async () => {
     put('users/bob/mine.md', 'bob')
-    const r = await call('bob', 'move_files', { paths: ['groups/marketing/campaign-brief.md', 'users/bob/mine.md', 'users/bob/nope.md'], to_folder: 'users/bob/archive-x' }, { person: ask(true) })
-    // the target folder must exist
-    expect(r.isError).toBe(true)
     fs.mkdirSync(path.join(A.team, 'users/bob/archive'), { recursive: true })
     const r2 = await call('bob', 'move_files', { paths: ['groups/marketing/campaign-brief.md', 'users/bob/mine.md', 'users/bob/nope.md'], to_folder: 'users/bob/archive' }, { person: ask(true) })
     expect(r2.isError).toBe(false)
@@ -174,6 +313,97 @@ describe('move_files', () => {
     expect(has('shared/archive/gs-sales/skills/offer.md')).toBe(true)
   })
 
+  test('the refusal points at move_skill for a move and for a copy, and forbids stand-ins (docs/DECISIONS.md "Project skills")', async () => {
+    const r = await call('carol', 'move_files', { paths: ['skills/team-rules.md'], to_folder: 'projects/falcon' }, { person: ask(true), turn: true })
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('do not move or copy with the file tools')
+    expect(r.text).toContain('use move_skill: to move it, or with keep: true to copy it when the user asks for a copy')
+    expect(r.text).toContain('Never leave a README or an empty skills folder as a stand-in')
+    // a copy the person asked for is no longer forbidden
+    expect(r.text).not.toContain('a README or a copy')
+    // the old pointer at the Files screen is gone
+    expect(r.text).not.toContain('or the Files screen')
+  })
+
+  test('a project\'s skills folder (projects/<name>/skills) cannot be made, emptied or taken along by the AI', async () => {
+    const { componentC } = await import('../../server/src/team-files/component')
+    put('projects/falcon/drafts/skills/evil/SKILL.md', '---\nname: evil\ndescription: x\n---\nsteps\n')
+    // made by a rename or a move into the project folder
+    const renamed = await call('alice', 'rename_file', { path: 'projects/falcon/drafts', new_name: 'skills' }, { person: ask(true), turn: true })
+    expect(renamed.isError).toBe(true)
+    const moved = await call('alice', 'move_files', { paths: ['projects/falcon/drafts/skills'], to_folder: 'projects/falcon' }, { person: ask(true), turn: true })
+    expect(moved.isError).toBe(true)
+    expect(has('projects/falcon/skills/evil')).toBe(false)
+    // a folder holding a skills/ folder into projects/: it would become a project's skills folder. An admin who is no
+    // member writes nothing in projects/<name> (docs/DECISIONS.md "Project contents only for members"); someone a rule
+    // on projects/ lets write there meets the skill guard
+    put('shared/kit/skills/x/SKILL.md', '---\nname: x\ndescription: x\n---\nsteps\n')
+    const turnId = A.turn('carol', A.chat('carol'))
+    const aliceTurn = A.turn('alice', A.chat('alice'))
+    expect(() => componentC(A.ctx).files.move('carol', 'shared/kit', 'projects/kit', 'fail', { turnId })).toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    A.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_moves_projects_top', 'projects')").run()
+    A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_moves_projects_top', 'f_moves_projects_top', 'user', 'alice', 'write')").run()
+    try {
+      expect(() => componentC(A.ctx).files.move('alice', 'shared/kit', 'projects/kit', 'fail', { turnId: aliceTurn })).toThrow(/do not move or copy with the file tools/)
+      // the rule on projects/ does not reach in for an admin
+      expect(() => componentC(A.ctx).files.move('carol', 'shared/kit', 'projects/kit', 'fail', { turnId })).toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    } finally {
+      A.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_moves_projects_top'").run()
+      A.ctx.db.query("DELETE FROM folders WHERE id = 'f_moves_projects_top'").run()
+    }
+    expect(has('projects/kit')).toBe(false)
+    // emptied, or carried off with the project's folder (by its member; an admin who is no member does not see it)
+    put('projects/falcon/skills/kept/SKILL.md', '---\nname: kept\ndescription: x\n---\nsteps\n')
+    const out = await call('alice', 'move_files', { paths: ['projects/falcon/skills/kept'], to_folder: 'projects/falcon/drafts' }, { person: ask(true), turn: true })
+    expect(out.isError).toBe(true)
+    expect(() => componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail', { turnId })).toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId })).rejects.toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    // carol as a member who writes all of it (person rules on its rule folders, as its members dialog adds them): the
+    // skill guard for the AI; and a project's folder never leaves projects/, also on the Files screen (409)
+    type Rule = { subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: string | null; access: 'none' | 'read' | 'write' }
+    const rulesOf = (p: string) => A.ctx.db.query('SELECT r.subject_type AS subjectType, r.subject_id AS subjectId, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = ?').all(p) as Rule[]
+    const kept = ['projects/falcon', 'projects/falcon/public'].map((p) => [p, rulesOf(p)] as const)
+    for (const [p, rules] of kept) legacyProjectFolder(A.ctx.db, A.team, p, [...rules, { subjectType: 'user', subjectId: 'carol', access: 'write' }])
+    try {
+      expect(() => componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail', { turnId })).toThrow(/do not move or copy with the file tools/)
+      await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId })).rejects.toThrow(/do not move or copy with the file tools/)
+      let err: unknown
+      try { componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail') } catch (e) { err = e }
+      expect((err as { params?: Record<string, unknown> } | undefined)?.params).toEqual({ reason: 'project_location' })
+    } finally {
+      for (const [p, rules] of kept) legacyProjectFolder(A.ctx.db, A.team, p, rules)
+    }
+    await expect(componentC(A.ctx).files.copy('alice', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId: aliceTurn })).rejects.toThrow(/do not move or copy with the file tools/)
+    expect(has('projects/falcon/skills/kept/SKILL.md')).toBe(true)
+    expect(has('shared/falcon-old')).toBe(false)
+  })
+
+  test('an admin moving a project\'s folder into projects/ is refused when no member there: nothing moves, no skill switches on', async () => {
+    const { componentC } = await import('../../server/src/team-files/component')
+    put('shared/pricing/skills/margin/SKILL.md', '---\nname: margin\ndescription: x\n---\nsteps\n')
+    put('shared/pricing/skills/README.md', '# x\n')
+    A.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run('01900000-0000-7000-8000-0000000c0001', 'Pricing', 'shared/pricing', 'carol', new Date().toISOString())
+    const svc = componentC(A.ctx).files
+    // projects/<name> is its members' (docs/DECISIONS.md "Project contents only for members"): asked first or not, an
+    // admin writes no new folder there, so the skills are never switched on there
+    for (const skillsOk of [false, true]) expect(() => svc.move('carol', 'shared/pricing', 'projects/pricing', 'fail', { skillsOk })).toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    expect(has('shared/pricing/skills/margin/SKILL.md')).toBe(true)
+    expect(has('projects/pricing')).toBe(false)
+    expect(A.ctx.db.query("SELECT 1 FROM audit_log WHERE action = 'skills.change' AND target = 'projects/pricing/skills/margin/SKILL.md'").get()).toBeNull()
+  })
+
+  test('a project\'s folder is not renamed inside projects/, also by an admin who is its member: a new name is a new entry right in projects/; its skills stay where they are', async () => {
+    const { componentC } = await import('../../server/src/team-files/component')
+    const svc = componentC(A.ctx).files
+    legacyProjectFolder(A.ctx.db, A.team, 'projects/pricing-1', [{ subjectType: 'user', subjectId: 'carol', access: 'write' }], 'carol')
+    put('projects/pricing-1/skills/margin/SKILL.md', '---\nname: margin\ndescription: x\n---\nsteps\n')
+    // nobody but the server makes an entry directly in projects/ (docs/DECISIONS.md "Project contents only for members")
+    for (const skillsOk of [false, true]) expect(() => svc.move('carol', 'projects/pricing-1', 'projects/pricing-2', 'fail', { skillsOk })).toThrow()
+    expect(has('projects/pricing-1/skills/margin/SKILL.md')).toBe(true)
+    expect(has('projects/pricing-2')).toBe(false)
+    expect(A.ctx.db.query("SELECT 1 FROM audit_log WHERE action = 'skills.change' AND target LIKE 'projects/pricing-2%'").get()).toBeNull()
+  })
+
   test('the AI cannot copy into skills/ or a group\'s skills folder (the file layer); a person can', async () => {
     const { componentC } = await import('../../server/src/team-files/component')
     put('groups/marketing/skills/.keep', '')
@@ -186,10 +416,13 @@ describe('move_files', () => {
     expect(has('skills/copied-glossary.md')).toBe(true)
   })
 
-  test('a group folder moves only for admins and owners, as on the Files screen', async () => {
+  test('a group folder moves only for admins and owners, as on the Files screen; the text says where, naming no admin (B14)', async () => {
     fs.mkdirSync(path.join(A.team, 'shared/elsewhere'), { recursive: true })
     const r = await call('alice', 'move_files', { paths: ['groups/marketing'], to_folder: 'shared/elsewhere' }, { person: ask(true) })
     expect(r.isError).toBe(true)
+    expect(r.text).toContain('can only be moved, renamed or deleted by an admin. The user is not an admin; an admin can do it on the Files screen ("파일").')
+    // roles stay hidden (the people directory shows none): no admin by name
+    expect(r.text).not.toMatch(/Dana Choi|Carol Park/)
     expect(has('groups/marketing/campaign-brief.md')).toBe(true)
   })
 
@@ -208,7 +441,7 @@ describe('copy_files', () => {
     const r = await call('alice', 'copy_files', { paths: ['users/alice/certs/business.pdf'], to_folder: 'shared/certs' }, { person: p, turn: true })
     expect(r.isError).toBe(false)
     expect(p.questions).toHaveLength(1)
-    expect(p.questions[0]).toContain('파일 1개를 shared/certs 폴더에 복사하려고 해요')
+    expect(p.questions[0]).toContain('파일 1개를 전사 공유 › certs 폴더에 복사하려고 해요')
     expect(bytes('shared/certs/business.pdf').toString()).toBe('%PDF-1.4 cert')
     expect(has('users/alice/certs/business.pdf')).toBe(true)
     const ev = A.ctx.db.query("SELECT turn_id, detail FROM file_events WHERE path = 'shared/certs/business.pdf' ORDER BY id DESC LIMIT 1").get() as { turn_id: string; detail: string }

@@ -2,7 +2,8 @@
 // the web client's mock server (web/test/mock) serves the build with exactly the same headers.
 import fs from 'node:fs'
 import path from 'node:path'
-import { PRODUCT, TEAM_ICON_PATH, type TeamIconFile } from '@mycel/shared'
+import { APP_DOWNLOADS, PRODUCT, TEAM_ICON_PATH, type TeamIconFile } from '@mycel/shared'
+import { joinPagePath, smartAppBanner } from '@mycel/shared/app-links'
 
 export const WEB_DEV_URL = 'http://localhost:19140'
 
@@ -160,17 +161,24 @@ const RECEIVER_SCRIPT = `(function () {
   // and WebKit then runs a javascript: URL into a fresh window (the frame's own location / links do not)
   lock(W, "open", off("window.open"));
   watch(D);
-  // 4. take the one document from the parent
-  var done = false;
+  // 4. take the one document from the parent, and write it once this receiver has loaded: written while the receiver
+  // was still loading, Chromium gave the frame one load for both, so the host (SandboxFrame), which counts loads to see
+  // the document leave, missed the next one (QA TC-218: a blank frame and no notice)
+  var done = false, loaded = false, html = N;
+  var render = function () {
+    call(open, D);
+    call(write, D, html.replace(/shadowrootmode/gi, "$&_"));
+    call(close, D);
+  };
+  W.addEventListener("load", function () { loaded = true; if (html !== N) W.setTimeout(render, 0); });
   W.addEventListener("message", function (e) {
     if (done || e.source !== window.parent) return;
     var d = e.data;
     if (d && d.source === "mycel-host" && d.type === "ping") { window.parent.postMessage({ source: "mycel-frame", type: "ready" }, "*"); return; }
     if (!d || d.source !== "mycel-host" || d.type !== "render" || typeof d.html !== "string") return;
     done = true;
-    call(open, D);
-    call(write, D, d.html.replace(/shadowrootmode/gi, "$&_"));
-    call(close, D);
+    html = d.html;
+    if (loaded) render();
   });
   window.parent.postMessage({ source: "mycel-frame", type: "ready" }, "*");
 })();`
@@ -290,6 +298,33 @@ const iconSvg = (p: string, file: string) => file.toLowerCase().endsWith('.svg')
 /** A path whose last part has a file extension (a static file, not a page of the app). */
 const hasExtension = (p: string) => /\.[A-Za-z0-9]{1,10}$/.test(p.slice(p.lastIndexOf('/') + 1))
 
+/** The notice index files (scripts/release-notices.ts, in web/dist/licenses/ or a bundle's web/licenses/): the
+ * manifest names the exact release and every package with its version and hashes, README.txt lists the open review
+ * items with package versions. That is the build fingerprint /api/health hides from signed-out callers on the
+ * internet (routes/web.ts decides who gets them). LICENSE, NOTICE and the package notices themselves are not here. */
+const NOTICE_INDEX = ['licenses/manifest.json', 'licenses/README.txt']
+/**
+ * Is this URL one of the notice index files? Decided by the file that would be served (device and inode), not by its
+ * name, so no spelling gets around it: `%6D`, another case on a case-insensitive disk (the office Mac, which also folds
+ * characters such as U+017F "ſ" to "s"), `licenses//`, a hard link or a symlink.
+ */
+export function isNoticeIndex(dist: string, urlPath: string): boolean {
+  // the bulk of the static requests: hashed app and vendor files, never the notice folder (safeFile refuses `..`)
+  if (urlPath.startsWith('/assets/') || urlPath.startsWith('/vendor/')) return false
+  const root = path.resolve(dist)
+  const file = safeFile(root, urlPath)
+  if (!file) return false
+  try {
+    const served = fs.statSync(file)
+    return NOTICE_INDEX.some((rel) => {
+      try {
+        const n = fs.statSync(path.join(root, rel))
+        return n.ino === served.ino && n.dev === served.dev
+      } catch { return false }
+    })
+  } catch { return false }
+}
+
 /** The handler behind GET * (also used by the web client's mock server in its end-to-end tests). */
 export function serveWeb(req: Request, o: WebOptions): Response | null {
   const url = new URL(req.url)
@@ -341,8 +376,27 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   if (p.startsWith('/assets/') || p.startsWith('/vendor/') || p.startsWith('/icons/') || (hasExtension(p) && p !== '/index.html')) {
     return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-cache' } })
   }
+  const headers: Record<string, string> = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'content-security-policy': appCsp(url.host) }
+  // an invite or team-link page opened on an iPhone: Apple's Smart App Banner ("Get" / "Open" for the phone app,
+  // docs/DECISIONS.md "Get the app"), with no app-argument, so no token. Safari on iOS shows it; a WKWebView (our own
+  // app) and computers never do, and computers get the page as before
+  if (joinPagePath(p)) {
+    headers.vary = 'User-Agent'
+    const banner = iosBrowser(req.headers.get('user-agent') ?? '') ? smartAppBanner(APP_DOWNLOADS.iphone) : null
+    if (banner) return new Response(withBanner(index, banner), { headers })
+  }
   // the app shell as built: its icon links are the product's, also with a team logo set
-  return new Response(Bun.file(index), {
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'content-security-policy': appCsp(url.host) },
-  })
+  return new Response(Bun.file(index), { headers })
 }
+
+/** index.html with the banner, kept until the file changes (a new build: its size or time differs) */
+let bannerPage: { file: string; stamp: string; html: string } | null = null
+function withBanner(index: string, banner: string): string {
+  const st = fs.statSync(index)
+  const stamp = `${st.mtimeMs}:${st.size}:${banner}`
+  if (bannerPage?.file !== index || bannerPage.stamp !== stamp) bannerPage = { file: index, stamp, html: fs.readFileSync(index, 'utf8').replace('</head>', `    ${banner}\n  </head>`) }
+  return bannerPage.html
+}
+
+/** An iPhone, iPad or iPod (an iPad in desktop mode says "Macintosh" and gets no banner, like a computer). */
+const iosBrowser = (ua: string) => /\b(iPhone|iPad|iPod)\b/.test(ua)

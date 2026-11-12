@@ -59,5 +59,44 @@ export function holdPlaceholders(cwd: string): () => void {
   }
 }
 
+const heldSkills = new Map<string, { count: number; made: boolean }>()
+
+/**
+ * The skill folders a run must not write (access.ts runSkillFolders, team-relative under `teamRoot`): an absent one is
+ * made empty for the run's life, so srt mounts it read-only and a command cannot make it and write a skill there; it
+ * goes again when the last run that held it ends, if still empty. Never through a link (the folder above must be a real
+ * folder). Returns the release function; call it once, when the run has ended.
+ */
+export function holdSkillFolders(teamRoot: string, rels: readonly string[]): () => void {
+  const keys: string[] = []
+  for (const rel of rels) {
+    const abs = path.join(teamRoot, ...rel.split('/'))
+    let h = heldSkills.get(abs)
+    if (!h) {
+      let made = false
+      try {
+        if (fs.lstatSync(path.dirname(abs)).isDirectory()) { fs.mkdirSync(abs, { mode: 0o700 }); made = true }
+      } catch { /* there already (it is then someone's), or nothing above it to write in */ }
+      h = { count: 0, made }
+      heldSkills.set(abs, h)
+    }
+    h.count++
+    keys.push(abs)
+  }
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    for (const k of keys) {
+      const h = heldSkills.get(k)
+      if (!h || --h.count > 0) continue
+      heldSkills.delete(k)
+      if (!h.made) continue
+      try { const st = fs.lstatSync(k); if (st.isDirectory() && fs.readdirSync(k).length === 0) fs.rmdirSync(k) } catch {}
+    }
+  }
+}
+
 /** for tests */
 export const _held = () => held
+export const _heldSkills = () => heldSkills

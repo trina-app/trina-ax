@@ -172,10 +172,26 @@ func (t *tenant) runAdmin(stdin []byte, timeout time.Duration, args ...string) (
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &limitedBuffer{b: &out, max: maxStdout + 1}, &limitedBuffer{b: &errb, max: 64 << 10}
 	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return nil, adminExit{code: ee.ExitCode(), msg: fmt.Sprintf("admin.js %s: %v: %s", args[0], err, tailLines(errb.String(), 3))}
+		}
 		return nil, fmt.Errorf("admin.js %s: %v: %s", args[0], err, tailLines(errb.String(), 3))
 	}
 	return out.Bytes(), nil
 }
+
+// adminExit: admin.js ended with this exit code (a code a command gives on, as reset-link's 3 owner_recovery_locked).
+type adminExit struct {
+	code int
+	msg  string
+}
+
+func (a adminExit) Error() string { return a.msg }
+
+// errOwnerRecoveryLocked: reset-link after a handover on a hosted team with handoverSafe, until owner-recovery-claimed
+// (admin.js exit 3). mycel-ctl exits 3 too, so the control plane can tell it from a failure (TENANT_COMMANDS reset-link).
+var errOwnerRecoveryLocked = errors.New("owner_recovery_locked: the team changed hands; owners and admins get no reset link until the new owner claims recovery")
 
 type limitedBuffer struct {
 	b   *bytes.Buffer
@@ -550,6 +566,25 @@ func cmdResetLink(e *env, args []string) (int, error) {
 		a = append(a, "--username", *username)
 	}
 	raw, err := t.admin(nil, 30*time.Second, a...)
+	if err != nil {
+		var ae adminExit
+		if errors.As(err, &ae) && ae.code == 3 {
+			return 3, errOwnerRecoveryLocked
+		}
+		return 1, err
+	}
+	return t.passOn(raw)
+}
+
+// owner-recovery-claimed: { ok, cleared } (admin.js owner-recovery-claimed). The control plane runs it after the new
+// owner of a hosted team claimed recovery (a recovery and billing contact) in its console: owner and admin reset links
+// may go out again. Without a lock it changes nothing (cleared false).
+func cmdOwnerRecoveryClaimed(e *env, args []string) (int, error) {
+	t := newTenant(e, "owner-recovery-claimed")
+	if c, err := t.open(args); err != nil {
+		return c, err
+	}
+	raw, err := t.admin(nil, 30*time.Second, "owner-recovery-claimed")
 	if err != nil {
 		return 1, err
 	}

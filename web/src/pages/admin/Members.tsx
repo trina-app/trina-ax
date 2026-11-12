@@ -18,8 +18,8 @@
 // "팀장 링크 · 받는 사람: …".
 import { Crown, FolderLock, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
-import { useCallback, useId, useRef, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { z } from 'zod'
 import { cleanLeadFor, type CreatedInvite as CreatedInviteSchema, type Group, type Invite, type Locale, type Me, type User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
@@ -33,16 +33,22 @@ import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { PageActions } from '../../components/PageActions'
+import { PhoneFilters } from '../../components/PhoneFilters'
+import { CompactRow } from '../../components/CompactRow'
 import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, ReauthDialog, SearchBox, SecretBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { NewPersonPreview, personViewLink } from './AccessResults'
 import { TeamLinkDialog } from '../../components/onboarding/TeamLinkPanel'
+import { LocalLinkNote } from '../../components/LocalLinkNote'
 import { HandoverDialog } from '../../components/handover/HandoverDialog'
 import { absoluteUrl, LEAD_DAYS, LeadFlag, LeadMessage, useLeadOffered } from '../../components/handover/LeadInvite'
 import { useHandover } from '../../store/handover'
 import { connectionsOnlyFor, loadConnections } from './ai-assignees'
+import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
+import { useAdminBar, useUpTo } from './phoneBar'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -177,11 +183,13 @@ export default function Members() {
       if (u.role === 'admin' && r.role === 'member') toast({ level: 'info', text: t('teamLink.adminHint') })
       await users.reload()
     })
-  const roleCell = (u: User) =>
+  /** `compact`: a phone's row, where the role sits on the right as plain words (a choice for the owner) */
+  const roleCell = (u: User, compact = false) =>
     roleEditable(u) ? (
-      <InlineRole user={u} busy={roleBusy.busy === u.id} onChange={(r) => void changeRole(u, r)} />
+      <InlineRole user={u} busy={roleBusy.busy === u.id} onChange={(r) => void changeRole(u, r)} compact={compact} />
     ) : (
-      <span className="text-sm text-ink" data-testid={`member-role-${u.username}`}>
+      // compact: the size the select has on a touch screen (16 px there, index.css), so the rows' roles line up
+      <span className={compact ? 'px-2 text-sm text-ink [@media(pointer:coarse)]:text-base' : 'text-sm text-ink'} data-testid={`member-role-${u.username}`}>
         {t(`role.${u.role}`)}
       </span>
     )
@@ -197,8 +205,48 @@ export default function Members() {
       : []),
   ]
 
+  // a phone: a person's own page (/admin/members/<id>), pushed from their row (adminScreens.ts): who they are, their
+  // role, groups and folders, and what can be done (delete last). The list stays under it, hidden, with its place
+  const sub = useParams().sub
+  const upTo = useUpTo()
+  const person = phone && sub ? users.data?.items.find((u) => u.id === sub) : undefined
+  const personGone = phone && !!sub && !!users.data && !person
+  useEffect(() => { if (personGone) upTo('/admin/members') }, [personGone]) // eslint-disable-line react-hooks/exhaustive-deps
+  useAdminBar(person?.name ?? null)
+  const personPage = person && (() => {
+    const u = person
+    const actions = canManage(u) ? menuItems(u).filter((a) => a.testId !== 'member-access-link') : []
+    const noAi = users.data?.noAi?.includes(u.id) ?? false
+    return (
+      <div className="-mx-4" data-testid="member-page" data-user={u.username}>
+        <div className="px-4">
+          <h2 className="text-lg font-semibold break-words text-ink">{u.name}</h2>
+          <p className="mt-0.5 text-sm break-all text-muted">{[u.username, u.email].filter(Boolean).join(' · ')}</p>
+          {(u.status === 'disabled' || requested(u) || u.mustChangePassword || noAi) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} /></div>
+          )}
+        </div>
+        <PhoneListGroup>
+          <PhoneListRow title={t('members.role')} end={roleCell(u, true)} testId="member-page-role" />
+          <PhoneListRow title={t('admin.groups')} value={u.groupIds.map(groupName).join(', ') || t('members.noGroups')} testId="member-page-groups" />
+          <PhoneListRow title={t('accessView.membersLink')} to={personViewLink({ person: u.id })} testId="member-page-folders" />
+          <PhoneListRow title={t('members.lastSeen')} value={u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'} />
+        </PhoneListGroup>
+        {actions.length > 0 && (
+          <PhoneListGroup testId="member-page-actions">
+            {[...actions.filter((a) => !a.danger), ...actions.filter((a) => a.danger)].map((a) => (
+              <PhoneListRow key={a.testId} icon={a.icon} title={<span className={a.danger ? 'text-danger' : 'text-ink'}>{a.label}</span>} onClick={a.onSelect} testId={a.testId} />
+            ))}
+          </PhoneListGroup>
+        )}
+      </div>
+    )
+  })()
+
   return (
     <>
+      {personPage}
+      <div hidden={!!personPage} className="contents">
       <AdminPageHeader
         title={
           <>
@@ -208,34 +256,35 @@ export default function Members() {
         }
         desc={t('members.pageDesc')}
         testId="members-header"
+        // one main button (a phone: the other ways to add under its ⌄; components/PageActions.tsx)
         actions={
-          <>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
-              <UserPlus size={14} aria-hidden /> {t('members.add')}
-            </Button>
-            <Button size="sm" onClick={() => setTeamLinkOpen(true)} data-testid="team-link-open">
-              <Link2 size={14} aria-hidden /> {t('teamLink.title')}
-            </Button>
-            <Button size="sm" variant="primary" onClick={() => setInviteOpen(true)} data-testid="invite-new">
-              <Plus size={14} aria-hidden /> {t('members.inviteToTeam')}
-            </Button>
-          </>
+          <PageActions
+            menuLabel={t('members.inviteMore')}
+            primary={{ label: t('members.inviteToTeam'), icon: <Plus size={14} aria-hidden />, onSelect: () => setInviteOpen(true), testId: 'invite-new' }}
+            more={[
+              { label: t('members.add'), icon: <UserPlus size={14} aria-hidden />, onSelect: () => setAddOpen(true), testId: 'member-add' },
+              { label: t('teamLink.title'), icon: <Link2 size={14} aria-hidden />, onSelect: () => setTeamLinkOpen(true), testId: 'team-link-open' },
+            ]}
+          />
         }
+        // a phone: the search and a Filters button share one row (components/PhoneFilters.tsx)
         controls={
           <>
             <SearchBox value={query} onChange={setQuery} label={t('members.search')} testId="member-search" className="sm:w-80" />
-            <FilterPill
-              label={t('members.role')}
-              value={roleFilter}
-              onChange={setRoleFilter}
-              options={[
-                { value: 'all', label: t('members.roleAll') },
-                { value: 'owner', label: t('role.owner') },
-                { value: 'admin', label: t('role.admin') },
-                { value: 'member', label: t('role.member') },
-              ]}
-              testId="member-role-filter"
-            />
+            <PhoneFilters active={roleFilter === 'all' ? 0 : 1} testId="member-filters">
+              <FilterPill
+                label={t('members.role')}
+                value={roleFilter}
+                onChange={setRoleFilter}
+                options={[
+                  { value: 'all', label: t('members.roleAll') },
+                  { value: 'owner', label: t('role.owner') },
+                  { value: 'admin', label: t('role.admin') },
+                  { value: 'member', label: t('role.member') },
+                ]}
+                testId="member-role-filter"
+              />
+            </PhoneFilters>
           </>
         }
       />
@@ -249,25 +298,36 @@ export default function Members() {
                   {t('members.noMatch')}
                 </p>
               )
-            // a phone: one stacked row per member instead of a squeezed table
+            // a phone: one compact row per member (components/CompactRow.tsx): the name, the role on the right (the
+            // owner's choice of member ↔ admin stays right there) and "…"; a second line only for what it adds: the
+            // username when it is not the name, the email the search found, what needs a look
             return phone ? (
               <ul className="divide-y divide-line border-y border-line" data-testid="members-list">
-                {list.map((u) => (
-                  <li key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx('flex items-start gap-2 py-3.5 text-sm', u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')} data-testid={`member-card-${u.username}`}>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{u.name}</p>
-                      <p className="truncate text-xs text-faint">
-                        {u.username}
-                        {u.email ? ` · ${u.email}` : ''}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        {roleCell(u)}
-                        <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
-                      </div>
-                    </div>
-                    <MemberMenu name={u.name} items={menuItems(u)} />
-                  </li>
-                ))}
+                {list.map((u) => {
+                  const lower = (x: string) => x.toLocaleLowerCase(locale)
+                  const username = lower(u.username) !== lower(u.name)
+                  const byEmail = !!q && !!u.email && matches(q, locale, u.email) && !matches(q, locale, u.name, u.username)
+                  const flagged = u.status === 'disabled' || requested(u) || u.mustChangePassword || !!noAi?.includes(u.id)
+                  return (
+                    <CompactRow
+                      key={u.id}
+                      onOpen={() => navigate(`/admin/members/${u.id}`)}
+                      rowRef={u.id === focusId ? focusRow : undefined}
+                      className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}
+                      testId={`member-card-${u.username}`}
+                      title={u.name}
+                      chip={roleCell(u, true)}
+                      second={(username || byEmail || flagged) && (
+                        <>
+                          {username && <span className="truncate">{u.username}</span>}
+                          {byEmail && <span className="truncate" data-testid={`member-email-${u.username}`}>{u.email}</span>}
+                          <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
+                        </>
+                      )}
+                      menu={<MemberMenu name={u.name} items={menuItems(u)} />}
+                    />
+                  )
+                })}
               </ul>
             ) : (
               <div className="overflow-x-auto">
@@ -365,6 +425,7 @@ export default function Members() {
           </div>
         </section>
       )}
+      </div>
       {teamLinkOpen && <TeamLinkDialog onClose={() => setTeamLinkOpen(false)} onChange={(r) => teamLink.setData(r)} />}
 
       {inviteOpen && (
@@ -405,6 +466,7 @@ export default function Members() {
       {resetLink && (
         <Modal open onClose={() => setResetLink(null)} title={t('members.resetLinkFor', { name: resetLink.name })} footer={<Button variant="primary" onClick={() => setResetLink(null)}>{t('common.done')}</Button>}>
           <SecretBox label={t('members.resetLink')} value={resetLink.url} note={t('members.resetLinkNote', { date: formatDateTime(resetLink.expiresAt, locale) })} />
+          <LocalLinkNote url={resetLink.url} className="mt-2" />
           <div className="mt-3">
             <CopyButton text={resetLink.url} label={t('members.copyLink')} showLabel className="border border-line" />
           </div>
@@ -470,7 +532,7 @@ function AttentionBadges({ user: u, noAi, noAiUntil, requested = false }: { user
 
 /** The role as a small select in the row (the owner's view): member ↔ admin. A change is saved at once; while it is
  * saved a second choice waits (aria-busy, not disabled, so the keyboard focus stays on it). */
-function InlineRole({ user, busy, onChange }: { user: User; busy: boolean; onChange: (r: MemberRole) => void }) {
+function InlineRole({ user, busy, onChange, compact }: { user: User; busy: boolean; onChange: (r: MemberRole) => void; compact?: boolean }) {
   const t = useT()
   // the arrow is every select's own (index.css), so none is drawn here
   return (
@@ -481,7 +543,8 @@ function InlineRole({ user, busy, onChange }: { user: User; busy: boolean; onCha
       onChange={(e) => {
         if (!busy) onChange(e.target.value as MemberRole)
       }}
-      className="h-8 cursor-pointer rounded-md border border-line bg-surface pl-2.5 text-sm text-ink hover:bg-hover focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none aria-busy:opacity-60"
+      // compact (a phone's row): the words and the arrow only, 44 px tall to tap, like a phone's settings value
+      className={clsx('cursor-pointer rounded-md text-sm focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none aria-busy:opacity-60', compact ? 'h-11 border border-transparent bg-transparent pl-2 text-ink hover:bg-hover' : 'h-8 border border-line bg-surface pl-2.5 text-ink hover:bg-hover')}
       data-testid={`member-role-${user.username}`}
     >
       <option value="member">{t('role.member')}</option>
@@ -615,11 +678,13 @@ function InviteCreated({ invite, onClose }: { invite: CreatedInvite; onClose: ()
     return (
       <Modal open onClose={onClose} title={t('handover.linkTitle')} footer={<Button onClick={onClose}>{t('common.done')}</Button>}>
         <LeadMessage url={url} leadFor={invite.invite.leadFor} expiresAt={invite.invite.expiresAt} replaced={!!invite.replacedLead} />
+        <LocalLinkNote url={url} className="mt-3" />
       </Modal>
     )
   return (
     <Modal open onClose={onClose} title={t('members.inviteReady')} footer={<Button variant="primary" onClick={onClose}>{t('common.done')}</Button>}>
       <SecretBox label={t('members.inviteLink')} value={url} note={t('members.inviteLinkNote')} />
+      <LocalLinkNote url={url} className="mt-2" />
       <div className="mt-3 flex gap-2">
         <CopyButton text={url} label={t('members.copyLink')} showLabel className="border border-line" />
         <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)}>

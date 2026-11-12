@@ -1,7 +1,9 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons; all but the icons grow with the text size), people first (docs/DECISIONS.md "Desktop
-// sidebar: rooms first"): the team's name on top, then one labeled row each (the owner, 2026-11-07: no icon row):
-// "트리나에게 묻기" (a new AI chat, ⇧⌘O), 검색 (⌘K), 프로젝트, 예약 작업, 알림함 (its count on the row), 파일, 팀 스킬, and
-// 관리자 for owners and admins; then one scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the
+// sidebar: rooms first"): the team on top and me at the bottom (docs/DECISIONS.md "The team menu"). On top the team's
+// logo and name (TeamMenu.tsx: for owners and admins a button with ▾ that opens the team menu: the team's address,
+// "Invite people" and Admin), then one labeled row each (the owner, 2026-11-07: no icon row): "트리나에게 묻기" (a new
+// AI chat, ⇧⌘O; it is also the way Home), 검색 (⌘K), 프로젝트, 예약 작업, 알림함 (its count on the row), 파일 and 팀 스킬;
+// then one scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the
 // five latest rooms and the room on screen, "더 보기 (N)" for the rest with what is unread there) and "트리나 기록" (the
 // AI's history: the five latest and the chat on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K"
 // when hidden chats show a "?" or a dot; one session marker per row from the chat list itself, chat/ChatState.tsx: "?", a
@@ -9,9 +11,10 @@
 // own row between the two. People and the AI never share a word: no bare "채팅" here. Each folds, and each one's whole
 // list stays open or closed, remembered in this browser. Then the account menu (the person's email or ID, Settings,
 // Usage (their own, in Settings), Deleted history, Sign out), which opens above the profile line. Below
-// 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top,
-// 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat is the 트리나 tab itself, the
-// Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
+// 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top
+// (not the team menu: the drawer belongs to the AI's tab), 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록
+// at the bottom. A new AI chat is the 트리나 tab itself, the Inbox and Admin are in the 나 tab, 파일 is its own tab and
+// the rooms are the 대화 tab; rows are 44 px there.
 // A shared project chat I made or wrote in (docs/DECISIONS.md "Shared project chats") is a row like any other, with the
 // people icon before its title (no section of its own); its "···" offers only what I may do there. A chat of my own has
 // "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) there too, the dialog of the chat's title menu; a shared chat stays
@@ -19,11 +22,10 @@
 // come first, the most recently pinned first, with a pin before the title and no header of their own; on a computer at
 // most ten of them above the five latest, all of them in "모두 보기" and in the phone's drawer.
 import clsx from 'clsx'
-import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { Cable, Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, Pin, Search, Settings, Smile, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { teamIconUrl } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
@@ -35,21 +37,25 @@ import { markerOf, needsMe, waitingOrRunning, type MarkerView } from '../lib/ses
 import { useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
 import { sharedRights } from '../lib/sharedChat'
+import { useChatMenuItems } from './chat/chatMenuItems'
 import { SharedIcon } from './chat/SharedChat'
 import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
-import { isAdmin, useMeStrict, useSession } from '../store/session'
+import { useMeStrict, useSession } from '../store/session'
 import { toast, useUi } from '../store/ui'
 import { PresenceDot, PresenceFace, PresenceText } from './Presence'
-import { useChatActions } from './chat/chatActions'
+import { MyStatusRow, openStatusDialog, StatusEmoji, useMyStatusWords } from './StatusMessage'
 import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
-import { MenuButton, type MenuItem } from './rooms/MenuButton'
+import { AiMark } from './rooms/AiFace'
+import { MenuButton } from './rooms/MenuButton'
 import { useRowMenu } from './rooms/RoomMenu'
 import { useRoomTitle } from './rooms/RoomIcon'
 import { useRooms } from '../store/rooms'
 import { SetupRow } from './onboarding/SetupRow'
+import { TeamMenu } from './TeamMenu'
 import { SidebarSectionTitle, useMediaQuery } from './ui'
+import { LoadError } from './LoadError'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { Tooltip } from './Tooltip'
 
@@ -124,11 +130,10 @@ export default function Sidebar() {
   // the whole history opened ("모두 보기"), remembered in this browser like the fold
   const [allChats, setAllChatsState] = useState(() => remembered(ALL_KEY, ['yes', 'no'] as const, 'no') === 'yes')
   const setAllChats = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAllChatsState(v))
-  const me = useMeStrict()
   const chats = useChats((s) => s.chats)
   // the move dialog of a row's "…" (ChatItem): kept here, not in the row, so that it stays open when the moved chat's row
   // goes to another group (a date, a project) and is made again, as the share right after the move needs
-  // (components/chat/ChatProject.tsx, the switch "프로젝트 사람들과 공유")
+  // (components/chat/ChatProject.tsx, the switch "프로젝트 멤버와 공유")
   const [moving, setMoving] = useState<Chat | null>(null)
   const loaded = useChats((s) => s.chatsLoaded)
   const cursor = useChats((s) => s.chatsCursor)
@@ -138,9 +143,13 @@ export default function Sidebar() {
   const navigate = useNavigate()
   const [more, setMore] = useState(false)
 
+  // a first read that failed: the calm notice in place of the list, which reads again by itself (components/LoadError.tsx);
+  // it spun forever before. The error stays until a read works, so the notice stays while it reads again
+  const [chatsError, setChatsError] = useState<unknown>(null)
+  const readChats = useCallback(() => loadChats(true).then(() => setChatsError(null), (e: unknown) => setChatsError(e ?? new Error('failed'))), [loadChats])
   useEffect(() => {
-    if (!loaded) void loadChats(true).catch(() => {})
-  }, [loaded, loadChats])
+    if (!loaded) void readChats()
+  }, [loaded, readChats])
 
   const [recentsOpen, setRecentsOpen] = useState(() => remembered(OPEN_KEY, ['open', 'closed'] as const, 'open') === 'open')
   const [view, setViewState] = useState<RecentsView>(rememberedView)
@@ -206,29 +215,33 @@ export default function Sidebar() {
 
   return (
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
-      <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-        <Link to="/" onClick={close} className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
-          {/* the team's logo (Admin › Team settings) sits next to the team name, from md up; object-cover crops a non-square logo as the settings previews do.
-              Below md the header names the AI, not the team, so it keeps the product's mark. */}
-          {me.team.iconVersion ? (
-            <>
-              <img src={teamIconUrl(me.team.iconVersion)} alt="" aria-hidden className="size-5 shrink-0 rounded-md object-cover max-md:hidden" data-testid="sidebar-logo" />
-              <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md md:hidden" data-testid="sidebar-logo-phone" />
-            </>
-          ) : (
-            <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md" data-testid="sidebar-logo" />
-          )}
-          {/* the phone's drawer is the AI's history: the AI's one name there, as on its tab */}
-          <span className="truncate max-md:hidden" data-testid="sidebar-team">{me.team.name}</span>
-          <span className="md:hidden">{aiName(t)}</span>
-        </Link>
-      </div>
+      {wide ? (
+        // the team on top (TeamMenu.tsx): its logo and name, and for owners and admins the team menu
+        <TeamMenu />
+      ) : (
+        // the phone's drawer is the AI's history: the AI's one name there, as on its tab, with the product's mark
+        <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
+          <Link to="/" onClick={close} className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
+            <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md" data-testid="sidebar-logo-phone" />
+            <span>{aiName(t)}</span>
+          </Link>
+        </div>
+      )}
       {wide ? (
         <DesktopNav unread={unread} onNewChat={() => navigate('/')} onSearch={() => setSearchOpen(true)} />
       ) : (
         // the phone drawer: the AI's history only (파일, the Inbox and Admin are tabs or in the 나 tab there)
         <div className="space-y-0.5 px-2">
-          <button type="button" className={clsx(nav, 'w-full')} onClick={() => setSearchOpen(true)}>
+          {/* search takes the drawer's place (and its history entry): Back closes search and shows the page */}
+          <button
+            type="button"
+            className={clsx(nav, 'w-full')}
+            onClick={() => {
+              close()
+              setSearchOpen(true)
+            }}
+            data-testid="drawer-search"
+          >
             <Search size={16} aria-hidden /> {t('sidebar.search')}
           </button>
           <NavLink to="/projects" className={active} onClick={close}>
@@ -239,6 +252,9 @@ export default function Sidebar() {
           </NavLink>
           <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
             <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
+          </NavLink>
+          <NavLink to="/connectors" className={active} onClick={close} data-testid="nav-connectors">
+            <Cable size={16} aria-hidden /> {t('integrations.title')}
           </NavLink>
         </div>
       )}
@@ -276,7 +292,8 @@ export default function Sidebar() {
           <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
         </div>
         <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
-          {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {!loaded && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" minor className="mx-1 mt-2" />}
           {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
           {loaded && chats.some((c) => !isUnused(c)) && !groups.length && !pinnedRows.length && (
             <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
@@ -347,8 +364,10 @@ export default function Sidebar() {
       {wide ? (
         <AccountMenu />
       ) : (
-        // phones: the account menu's Deleted chats, at the end of the history
+        // phones: my status (the computer's account menu has it) and the account menu's Deleted chats, at the end of the
+        // history
         <div className="border-t border-line p-2">
+          <MyStatusRow className="h-11" onOpen={close} />
           <NavLink to="/trash" className={active} onClick={close} data-testid="nav-trash">
             <Trash2 size={16} aria-hidden /> {t('sidebar.trash')}
           </NavLink>
@@ -358,13 +377,11 @@ export default function Sidebar() {
   )
 }
 
-/** A computer: the seven rows of before in two. A new AI chat (with its shortcut) and search share one row; files,
- * projects, scheduled tasks, team skills, the Inbox (its count on the bell) and Admin (owners and admins) are one row of
- * icons. Each icon is a link with its name as its label (the Inbox's with the count, so a screen reader says it) and a
- * tooltip on hover and on keyboard focus. Team skills has no count of its own: a suggestion is an Inbox notice already. */
+/** A computer: one labeled row each, a new AI chat and search with their shortcuts, then projects, scheduled tasks, the
+ * Inbox (its count on the row, in words for a screen reader), files, team skills and Connectors. Admin is in the team menu on top
+ * (TeamMenu.tsx), not a row. Team skills has no count of its own: a suggestion is an Inbox notice already. */
 function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat: () => void; onSearch: () => void }) {
   const t = useT()
-  const me = useMeStrict()
   const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover'
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
   const kbd = 'ml-auto hidden font-sans text-micro text-faint lg:inline'
@@ -372,7 +389,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
   return (
     <div className="space-y-0.5 px-2" data-testid="nav-rows">
       <button type="button" className={clsx(nav, 'w-full font-medium')} onClick={onNewChat} data-testid="new-chat">
-        <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.askAi', { name: aiName(t) })}</span>
+        <AiMark place="nav" /> <span className="truncate">{t('sidebar.askAi', { name: aiName(t) })}</span>
         <kbd className={kbd}>{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
       </button>
       <button type="button" className={clsx(nav, 'w-full')} aria-keyshortcuts={onMac() ? 'Meta+K' : 'Control+K'} onClick={onSearch} data-testid="nav-search">
@@ -385,7 +402,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
       <NavLink to="/scheduled" className={active} data-testid="nav-scheduled">
         <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
       </NavLink>
-      <NavLink to="/settings/notifications" className={active} onClick={(e) => settingsOpenedFrom(e.currentTarget)} data-testid="nav-inbox">
+      <NavLink to="/activity" className={active} data-testid="nav-inbox">
         <Bell size={16} aria-hidden /> {t('inbox.title')}
         {unread > 0 && (
           // aria-label on a plain span is not read: the number is hidden from screen readers and the words are sr-only
@@ -401,11 +418,9 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
       <NavLink to="/skills" className={active} data-testid="nav-skills">
         <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
       </NavLink>
-      {isAdmin(me) && (
-        <NavLink to="/admin" className={active} data-testid="nav-admin">
-          <Shield size={16} aria-hidden /> {t('sidebar.admin')}
-        </NavLink>
-      )}
+      <NavLink to="/connectors" className={active} data-testid="nav-connectors">
+        <Cable size={16} aria-hidden /> {t('integrations.title')}
+      </NavLink>
     </div>
   )
 }
@@ -417,8 +432,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
 function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
-  const actions = useChatActions()
-  // a shared chat: rename for its creator, delete for its creator or a project editor, never a move; a pin for anyone
+  // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx)
   const rights = sharedRights(chat, useMeStrict().user.id)
   // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row. A row that needs me ("?" or
   // the dot: what "답 필요" and the one count hold) reads in ink, the others stay muted
@@ -429,15 +443,7 @@ function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: 
   // a room's side chat (✦ Trina): the room it was asked beside, small after the title ("# design"); a room I left: none
   const sideRoom = useRooms((s) => (chat.sideRoomId ? s.rooms.find((r) => r.id === chat.sideRoomId) ?? null : null))
   const roomTitle = useRoomTitle()
-  const items: MenuItem[] = [
-    chat.pinnedAt
-      ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => void actions.togglePin(chat), testId: 'chat-row-unpin' }
-      : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => void actions.togglePin(chat), testId: 'chat-row-pin' },
-    ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void actions.rename(chat), testId: 'chat-row-rename' }] : []),
-    // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
-    ...(rights.canMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: 'chat-row-move' }] : []),
-    ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: () => void actions.remove(chat), testId: 'chat-row-delete' }] : []),
-  ]
+  const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove })
 
   return (
     <li
@@ -542,6 +548,7 @@ function AccountMenu() {
   const logout = useLogout()
   const locale = useLocale()
   const away = !!me.user.prefs.away
+  const status = useMyStatusWords()
   const toggleAway = () => {
     hide(true)
     void useSession.getState().setAway(!away).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
@@ -559,6 +566,23 @@ function AccountMenu() {
               <PresenceDot state={away ? 'online' : 'away'} size={10} />
             </span>
             {away ? t('presence.setActive') : t('presence.setAway')}
+          </button>
+          {/* my status message (docs/DECISIONS.md "상태 메시지"): what it says now, or "Set your status" */}
+          <button
+            role="menuitem"
+            type="button"
+            className={item}
+            onClick={() => {
+              const from = button.current
+              hide(false)
+              openStatusDialog(from)
+            }}
+            data-testid="account-status"
+          >
+            <span className="flex size-4 shrink-0 items-center justify-center leading-none" aria-hidden>
+              {status ? status.emoji : <Smile size={16} className="text-muted" />}
+            </span>
+            <span className="truncate">{status ? status.words : t('status.set')}</span>
           </button>
           <button
             role="menuitem"
@@ -611,7 +635,12 @@ function AccountMenu() {
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
-        onClick={() => (open ? hide(false) : setOpen(true))}
+        onClick={(e) => {
+          // a click on my status emoji opens the status dialog (the menu has the same as its item, for the keyboard)
+          if ((e.target as HTMLElement).closest?.('[data-testid="status-emoji"]')) return openStatusDialog(button.current)
+          if (open) hide(false)
+          else setOpen(true)
+        }}
         className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left [--presence-bg:var(--c-subtle)] hover:bg-hover hover:[--presence-bg:var(--c-hover)]"
         data-testid="account-menu"
       >
@@ -619,6 +648,7 @@ function AccountMenu() {
         {/* the team's name is on top of the sidebar (a computer), not said twice here */}
         <span className="flex min-w-0 flex-1 items-baseline gap-1">
           <span className="truncate text-sm font-medium">{me.user.name}</span>
+          <StatusEmoji userId={me.user.id} className="ml-0.5 self-center text-sm" />
           <PresenceText userId={me.user.id} />
         </span>
         <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
@@ -631,8 +661,66 @@ function AccountMenu() {
  * opens a menu of four rows (Status, Last activity | Group by, Sort by), each with its current value and a submenu of
  * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
  * menus sit in <body> (the Recents list scrolls and would clip them); on a narrow screen a submenu takes the menu's
- * place with a way back. */
-function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+ * place with a way back. A phone (below 768px, the drawer): bottom sheets instead (RecentsSheet). */
+function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  return phone ? <RecentsSheet {...props} /> : <RecentsDropdown {...props} />
+}
+
+/** The phone's drawer: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
+ * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
+function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+  const t = useT()
+  const [sub, setSub] = useState<ViewKey | null>(null)
+  const [ask, setAsk] = useState(0)
+  const button = useRef<HTMLButtonElement>(null)
+  const value = (k: ViewKey) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])
+  return (
+    <div className="ml-auto">
+      <MenuButton
+        label={t('sidebar.filter')}
+        heading={t('sidebar.filter')}
+        icon={
+          <span className="relative">
+            <ListFilter size={18} aria-hidden />
+            {changed && <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-accent" data-testid="recents-filter-dot" />}
+          </span>
+        }
+        buttonClassName="touch-hit"
+        buttonRef={button}
+        testId="recents-filter"
+        items={(Object.keys(VIEW) as ViewKey[]).map((k) => ({
+          label: t(VIEW[k].label),
+          hint: `· ${value(k)}`,
+          onSelect: () => {
+            setSub(k)
+            setAsk((n) => n + 1)
+          },
+          testId: `recents-view-${k}`,
+        }))}
+      />
+      {sub && (
+        <MenuButton
+          key={sub}
+          label={t(VIEW[sub].label)}
+          heading={t(VIEW[sub].label)}
+          className="contents"
+          buttonClassName="hidden!"
+          openRequest={ask}
+          focusBack={() => button.current?.focus()}
+          items={Object.entries(VIEW[sub].options as Record<string, MessageKey>).map(([id, label]) => ({
+            label: t(label),
+            checked: view[sub] === id,
+            onSelect: () => onChange({ ...view, [sub]: id }),
+            testId: `recents-${sub}-${id}`,
+          }))}
+        />
+      )}
+    </div>
+  )
+}
+
+function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState<ViewKey | null>(null)

@@ -82,6 +82,17 @@ export function localDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** YYYY-MM-DD of the calendar day in a time zone (the team's, where schedules run); without one, the person's own day.
+ * Not toISOString(): in Jakarta that is still "yesterday" until 07:00 (QA TC-075). */
+export function zoneDay(d: Date, tz: string | null | undefined): string {
+  if (!tz) return localDay(d)
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+  } catch {
+    return localDay(d)
+  }
+}
+
 /** Inclusive date inputs -> [from, to) API range. Calendar arithmetic preserves DST boundaries. */
 export function localDayRange(from: string, to: string): { from: string; to: string } {
   const end = new Date(`${to}T00:00:00`)

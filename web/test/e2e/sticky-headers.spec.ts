@@ -36,19 +36,20 @@ async function staysPut(header: Locator, line = true) {
 }
 
 for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
-  test(`MCP keeps its title row at the top in Admin and in Settings (${name})`, async ({ page }) => {
+  test(`Connectors keeps its title row at the top in Admin and on its own page (${name})`, async ({ page }) => {
     await page.setViewportSize(size)
     await start(page)
-    for (const path of ['/admin/connectors', '/settings/connectors']) {
+    for (const path of ['/admin/connectors', '/connectors']) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
-      await expect(header.getByRole('heading', { name: /^(커넥터|Connectors)$/ })).toBeVisible()
-      await header.getByRole('tab', { name: t['integrations.tabDiscover'] }).click()
+      // Admin keeps its own name (Connected apps); the page is Connectors (a phone's top bar says it there); the cards are under it
+      await expect(header.getByRole('heading', { name: path.startsWith('/admin') ? /^(연결한 서비스|Connected apps)$/ : /^(커넥터|Connectors)$/ })).toBeAttached()
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
-      await staysPut(header)
+      // Admin's title row gets its hairline once scrolled; the page's own full-width bar has its line all along
+      await staysPut(header, path.startsWith('/admin'))
       await expect(header.getByTestId('connector-search')).toBeInViewport()
-      // it looks transparent: filled with exactly the surface it sits on (the Settings panel, or the page)
-      const surface = path.startsWith('/settings') ? page.getByRole('dialog', { name: t['settings.title'] }) : page.locator('body')
+      // it looks transparent: filled with exactly the surface it sits on (the page)
+      const surface = page.locator('body')
       expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await surface.evaluate((el) => getComputedStyle(el).backgroundColor))
       // a control that gets focus near the top scrolls into view below the row, not under it
       const first = page.getByTestId('connector-add').first()
@@ -56,10 +57,6 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await expect(first).toBeFocused()
       await expect.poll(async () => (await first.boundingBox())!.y - ((await header.boundingBox())!.y + (await header.boundingBox())!.height)).toBeGreaterThanOrEqual(0)
     }
-    // Settings is a dialog: its top bar stays where it is; only the section beside the list scrolls. On a phone the bar
-    // names the section and the dialog's title is for screen readers only (SettingsDialog)
-    const dialog = page.getByRole('dialog', { name: t['settings.title'] })
-    await expect(name === 'phone' ? dialog.getByTestId('settings-section-title') : dialog.getByRole('heading', { name: t['settings.title'] })).toBeInViewport()
   })
 }
 
@@ -103,10 +100,11 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
   await start(page)
   for (const size of [{ width: 1468, height: 700 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    for (const path of ['/admin/settings', '/admin/connectors']) {
+    // a phone: Team settings is a list of its groups; its AI engine group is the long page there
+    for (const path of [size.width < 768 ? '/admin/settings/ai' : '/admin/settings', '/admin/connectors']) {
       await page.goto(path)
       await expect(page.getByTestId('admin-content')).toBeVisible()
-      if (path === '/admin/connectors') { await page.getByTestId('connectors-header').getByRole('tab').nth(1).click(); await page.getByTestId('connector-show-all').click() }
+      if (path === '/admin/connectors') await page.getByTestId('connector-show-all').click()
       const content = page.getByTestId('admin-content')
       const box = (await content.boundingBox())!
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -119,11 +117,11 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
       if (size.width >= 768) {
         const first = (await page.getByTestId('new-chat').boundingBox())!
         expect(first.y).toBeGreaterThanOrEqual(0)
+        expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       } else {
-        // Admin is a page under the 나 tab: its top bar has ‹ (no ☰ there)
-        expect((await page.getByTestId('topbar-back').boundingBox())!.y).toBeGreaterThanOrEqual(0)
+        // a phone: Admin's page has its own bar with ‹ (no ☰, no menu: the list is a step back)
+        expect((await page.getByTestId('admin-back').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       }
-      expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
     }
   }
 })

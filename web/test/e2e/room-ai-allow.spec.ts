@@ -41,7 +41,7 @@ const oldCard = (): Ask => ({
 /** one card for a call that needs both: the wider-audience card with what the call writes, no "always" */
 const widenCard = (): Ask => ({
   kind: 'ask_user', origin: 'server', requestId: 'widen-card', multiple: false, allowText: false,
-  question: `AI가 볼 수 있는 사람이 더 적은 내용(재무팀)을 읽은 뒤 ${FOLDER}/견적서_A사.md에 저장하려고 해요. 이곳은 12명이 볼 수 있어요. 저장할까요?`,
+  question: `트리나가 볼 수 있는 사람이 더 적은 내용(재무팀)을 읽은 뒤 ${FOLDER}/견적서_A사.md에 저장하려고 해요. 이곳은 12명이 볼 수 있어요. 저장할까요?`,
   options: [{ label: '저장하기', value: 'save' }, { label: '저장하지 않기', value: 'skip' }],
   details: roomCard(0).details,
 })

@@ -108,16 +108,27 @@ test('an admin who is not the owner sees the team name but cannot change it', as
   const name = page.getByLabel(t['setup.teamName'], { exact: true })
   await expect(name).toBeDisabled()
   await expect(name).toHaveAccessibleDescription(t['teamSettings.nameOwnerOnly'])
+  // how long things are kept is the owner's too (the nightly sweep erases what is older): read-only, saying so
+  for (const k of ['audit', 'history', 'trash', 'chatTrash'] as const) {
+    const days = page.getByLabel(t[`teamSettings.row.${k}`], { exact: true })
+    await expect(days).toBeDisabled()
+    await expect(days).toHaveAccessibleDescription(`${t[`teamSettings.row.${k}Desc`]} ${t['teamSettings.ownerOnlyField']}`)
+  }
 })
 
-test('phone width: rows stack, nothing scrolls sideways, the save bar stays reachable', async ({ page }) => {
+test('phone width: a group per page, a switch on the right of its name, nothing scrolls sideways, the save bar stays reachable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await open(page)
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  // a phone: Team settings is a list of its groups (pages/admin/teamSettingsGroups.ts)
+  await page.goto('/admin/settings/members')
   const row = page.getByTestId('team-ai-vision')
-  const label = await row.getByText(t['teamSettings.aiVision'], { exact: true }).boundingBox()
-  const knob = await row.locator('input[type="checkbox"] + span').boundingBox()
-  expect(knob!.y).toBeGreaterThan(label!.y)
+  const label = (await row.getByText(t['teamSettings.aiVision'], { exact: true }).boundingBox())!
+  const knob = (await row.locator('input[type="checkbox"] + span').boundingBox())!
+  expect(knob.x).toBeGreaterThan(label.x + label.width - 1)
+  expect(Math.abs(knob.y - label.y)).toBeLessThan(12)
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  await page.goto('/admin/settings/data')
   await page.getByLabel(t['teamSettings.row.audit'], { exact: true }).fill('120')
   const bar = page.getByTestId('team-settings-savebar')
   await expect(bar).toBeInViewport()

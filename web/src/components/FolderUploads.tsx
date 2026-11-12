@@ -7,6 +7,7 @@ import { api, API, errorText } from '../lib/api'
 import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls } from '../lib/folderUpload'
 import { useRuns, type Run } from '../lib/folderRuns'
 import { formatSize } from '../lib/format'
+import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
@@ -106,6 +107,7 @@ export default function FolderUploads({ here }: { here: string }) {
 
 function FolderRow({ item, here }: { item: Run; here: string }) {
   const t = useT()
+  const words = useFolderWords()
   const locale = useLocale()
   const { run, view: v } = item
   const running = v.status === 'running'
@@ -129,16 +131,18 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
   return (
     <li className="space-y-1 text-xs" data-testid="folder-upload">
       <span role="status" className="sr-only" data-testid="folder-upload-said">{said}</span>
-      <div className="flex items-center gap-2">
+      {/* a phone: the counts go to a line of their own, so 다시 시도 and ✕ stay on the row (QA TC-223: the counts pushed
+          다시 시도 off a 390 px screen) */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
         {running ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : v.status === 'done' ? <span className="text-ok">✓</span> : <FolderUp size={13} className="shrink-0 text-danger" aria-hidden />}
         <span className="min-w-0 flex-1 truncate font-medium">
-          {v.base !== here && <span className="font-normal text-faint">{baseName(v.base) || t('files.root')}/</span>}
+          {v.base !== here && <span className="font-normal text-faint">{words.name(v.base, baseName(v.base)) || t('files.root')}/</span>}
           {title}
         </span>
-        <span className="shrink-0 text-faint" data-testid="folder-upload-counts">
+        <span className="shrink-0 text-faint max-sm:order-last max-sm:basis-full max-sm:pl-5" data-testid="folder-upload-counts">
           {t('files.folderUpload.files', { done: v.done, total: v.total })} · {t('files.folderUpload.bytes', { done: formatSize(v.bytesDone, locale), total: formatSize(v.bytesTotal, locale) })}
         </span>
-        {v.failed > 0 && <span className="shrink-0 text-danger" data-testid="folder-upload-failed">{t('files.folderUpload.failed', { n: v.failed })}</span>}
+        {v.failed > 0 && <span className="shrink-0 text-danger max-sm:order-last max-sm:pl-5" data-testid="folder-upload-failed">{t('files.folderUpload.failed', { n: v.failed })}</span>}
         {v.canRetry && (
           <Button size="sm" onClick={() => settle(run, run.retry())} data-testid="folder-upload-retry">
             {t('common.retry')}

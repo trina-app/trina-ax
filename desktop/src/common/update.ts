@@ -6,7 +6,10 @@
 // or a Linux server, server/src/system/windows-app.ts, both from the signed release feed), with the team session as a
 // Bearer token because /downloads/ is for signed-in people only. Checked 20 s after start and every 4 hours, downloaded
 // in the background, installed when the app quits or when the person clicks "다시 시작". The installer is unsigned
-// NSIS: no publisherName, so electron-updater does not ask for a signature; the sha512 in latest.yml is checked.
+// NSIS (no Authenticode certificate yet, so SmartScreen warns; no publisherName, so electron-updater asks for no
+// signature). latest.yml's sha512 comes from the same server, so it proves nothing on its own: before anything
+// installs, the downloaded file must be the one the product's Ed25519-signed release names (./update-verify.ts, owner
+// decision 2026-11-11), read from the team's /downloads/<channel>.json or the release feed.
 // macOS: no automatic install (that needs an Apple-signed app); /downloads/index.json is read with the team page's
 // own cookies and a newer Mac item is announced once per version, with a link to Settings > Apps.
 // Store build (Mac App Store: process.mas; Microsoft Store: process.windowsStore, true inside an MSIX package): nothing;

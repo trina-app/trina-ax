@@ -31,8 +31,12 @@ import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { rememberUrls } from '../tools/url-gate'
 import { audit } from '../admin/audit'
 import { missingTemplateKey } from '../integrations/connections/schedule-needs'
+import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type ScopeSource } from './schedule-scope'
+import { inZone } from '../policy/zone'
+import { volumeKey } from '../policy/names'
+import { canRead } from './projects'
 
-type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key'
+type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
 export const SCHEDULES_PER_PERSON = 20
 /** a run refused because the queue was full is tried again this much later */
@@ -69,11 +73,17 @@ export interface ScheduleRow {
   confirmed_at: string | null
   /** when the server paused it because nobody confirmed it (the owner is told; cleared when they confirm it) */
   review_since: string | null
+  /** what the card let runs save and send without a card (migration 282, chat/schedule-scope.ts): the save folder as
+   * the card showed it, the places whose content may go there, the person's own connections with their pinned
+   * recipients, and a lapse (the folder moved or its rules changed: runs save in the own folder until confirmed again) */
+  save_folder?: string | null; save_folder_id?: string | null; save_rule?: string | null; save_readers?: number | null
+  save_sources?: string | null; personal_sends?: string | null; save_lapsed_at?: string | null; save_lapse_reason?: string | null
 }
 
 /** What the person approved on a scheduled task's card (tools/schedules.ts, chat/schedule-review.ts). Its presence is
- * the confirmation: a free-text task created without one never runs. */
-export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[] }
+ * the confirmation: a free-text task created without one never runs. `save`, `sources`, `personalSends`: the save
+ * folder, the places and the pinned personal connections the card showed (chat/schedule-scope.ts). */
+export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[]; save?: SaveFolder | null; sources?: ScopeSource[]; personalSends?: PersonalSend[] }
 
 /** A free-text task nobody confirmed on its card: it never runs and the switch cannot resume it (unknown = paused). */
 export function needsReview(s: Pick<ScheduleRow, 'template_id' | 'confirmed_at'>): boolean {
@@ -121,11 +131,17 @@ export function describeSchedule(s: Pick<ScheduleRow, 'repeat' | 'time' | 'weekd
   }
 }
 
-/** The block in front of a scheduled run's message (the AI must not wait for anyone). */
-export function scheduledRunBlock(title: string, when: string): string {
+/** The block in front of a scheduled run's message (the AI must not wait for anyone). `allows`: what this task's card
+ * let its runs do without a card (chat/schedule-cover.ts runAllowance), said instead of "everything is declined". */
+export function scheduledRunBlock(title: string, when: string, allows?: string | null): string {
   return [
     `<scheduled_run title="${title.replace(/["<>]/g, "'")}">`,
-    `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers; anything that needs the user's confirmation will be declined. Do the task with what you can find, save files in the user's personal folder unless the task names another folder, and end with a short summary of what you did and found.`,
+    // what cannot happen in a run, and that it is not the person's no (docs/DECISIONS.md "Refusals say why, who and what
+    // next": every run reported "the user did not allow saving to …" for a card nobody saw); then what this task's card
+    // allowed without a card (chat/schedule-cover.ts runAllowance)
+    `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers. No confirmation card is shown in a run, so a step that needs the user's yes on one is skipped: saving where more people can see it than what you read, moving or copying files to where other people see them, changing skills, any change after reading a team chat room, connecting a service, making a video, opening more web addresses than a run may open without asking. That is not the user refusing anything.${allows ? ' What the user allowed for this task on its card goes on without one:' : ''}`,
+    ...(allows ? [allows] : []),
+    'Do the task with what you can find, save files in the user\'s personal folder unless the task names another folder, and end with a short summary of what you did and found, with each skipped step and that the user can do it in a chat (or change the task on the Scheduled page).',
     '</scheduled_run>',
   ].join('\n')
 }
@@ -154,10 +170,12 @@ export class Schedules {
     const next = this.check(userId, input, now)
     const s = { repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }
     const id = newId()
-    this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections, confirmed_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
+    const scope = scopeColumns(approval?.save ?? null, approval?.sources ?? [], approval?.personalSends ?? [])
+    this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections, confirmed_at,
+      save_folder, save_folder_id, save_rule, save_readers, save_sources, personal_sends)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
       approval?.allowedUrls.length ? JSON.stringify(approval.allowedUrls) : null, approval?.writeConnections.length ? JSON.stringify(approval.writeConnections) : null,
-      approval ? now.toISOString() : null)
+      approval ? now.toISOString() : null, scope.save_folder, scope.save_folder_id, scope.save_rule, scope.save_readers, scope.save_sources, scope.personal_sends)
     return this.get(userId, id)!
   }
 
@@ -207,6 +225,9 @@ export class Schedules {
     // said now, not run without the service (integrations/connections/schedule-needs.ts)
     const need = missingTemplateKey(this.db, s)
     if (need) throw new HttpError('conflict', tr('scheduleNeedsKey', locale, { name: need.name }), { params: { reason: 'schedule_needs_key', templateId: need.templateId } })
+    // its project is gone for its owner: never run as a chat without it (docs/DECISIONS.md "Project skills"); a
+    // template's folder in a project its owner does not read now is the same
+    if ((s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(userId))) || this.templateProjectGone(s)) throw new HttpError('conflict', tr('scheduleProjectGone', locale), { params: { reason: 'schedule_project_gone' } })
     const blocked = budgetBlock(this.db, userId, locale, now)
     if (blocked) throw new HttpError('budget_exceeded', blocked.message)
     // its own occurrence key: never a whole minute, so never the key of a scheduled occurrence (turns_schedule_occurrence)
@@ -228,15 +249,27 @@ export class Schedules {
   /** The last run's result: 'done' only for a clean success; a finished run with refused/failed tools is 'problems',
    *  a finished run without an answer is 'error' (chat/schedule-outcome.ts). */
   lastOutcome(userId: string, id: string): LastOutcome | null {
-    const row = this.db.query(`SELECT code, run_outcome FROM (
+    return this.lastResult(userId, id)?.outcome ?? null
+  }
+
+  /** lastOutcome with when it came: the run's end, or when an occurrence was skipped. A "Run now" run moves only
+   *  last_chat_id (runNow), so the Scheduled page shows this time for the last run, not last_run_at. */
+  lastResult(userId: string, id: string): { outcome: LastOutcome; at: string | null } | null {
+    const row = this.db.query(`SELECT code, run_outcome, at FROM (
       SELECT status code, run_outcome, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
       UNION ALL SELECT code, NULL run_outcome, created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
       UNION ALL SELECT 'needs_key' code, NULL run_outcome, created_at at FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
-    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
+      UNION ALL SELECT 'project_gone' code, NULL run_outcome, created_at at FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null; at: string | null } | null
     if (!row) return null
-    if (row.code !== 'done') return row.code
+    if (row.code !== 'done') return { outcome: row.code, at: row.at }
     const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
-    return outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error'
+    return { outcome: outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error', at: row.at }
+  }
+
+  /** A run of this task is queued or running now (its chat is last_chat_id: start() commits it with the turn). */
+  isRunning(s: Pick<ScheduleRow, 'id' | 'user_id'>): boolean {
+    return this.runningChat(s) !== null
   }
 
   /** lastOutcome 'needs_key': the template the last skipped run needed, by the name it had then. */
@@ -277,13 +310,27 @@ export class Schedules {
         // start, and its result and the owner's inbox say which template to connect (never anyone else's key)
         const ownerActive = !!this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
         const need = ownerActive ? missingTemplateKey(this.db, s) : null
-        const chatId = need ? null : this.start(s, now, originalDue, commit)
+        // a task in a project its owner no longer sees (the folder's access was taken away, or it is in the trash): the
+        // run does not start, rather than run as a chat without the project (docs/DECISIONS.md "Project skills")
+        // A template task whose folder is in a team project its owner does not read now (docs/DECISIONS.md "Project
+        // contents only for members": an owner or admin who is not a member, after the update from 0.4.0) is the same,
+        // instead of a run that fails every day at its start
+        const gone = !ownerActive || need ? null
+          : s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) ? s.project_id
+          : this.templateProjectGone(s)
+        const chatId = need || gone ? null : this.start(s, now, originalDue, commit)
         if (chatId) started.push(s.id)
         else this.db.transaction(() => {
           commit(null)
           const active = this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
           if (!active) this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
-          if (need) {
+          if (gone) {
+            this.db.query('INSERT INTO schedule_project_skips(id,user_id,schedule_id,scheduled_for,project_id,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
+              .run(newId(), s.user_id, s.id, originalDue, gone, now.toISOString())
+            // paused after this one notice (not one at every run while the project stays gone); its owner turns it on again
+            this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
+            this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.project_gone',?,?)").run(s.id, JSON.stringify({ originalDue, project: gone, paused: true }))
+          } else if (need) {
             this.db.query('INSERT INTO schedule_template_skips(id,user_id,schedule_id,scheduled_for,template_id,template_name,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
               .run(newId(), s.user_id, s.id, originalDue, need.templateId, need.name, now.toISOString())
             this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.needs_key',?,?)").run(s.id, JSON.stringify({ originalDue, template: need.templateId }))
@@ -305,8 +352,32 @@ export class Schedules {
     return started
   }
 
+  /**
+   * A template task (Daily file index, Weekly summary) reads one folder its owner chose. When its owner cannot read
+   * that folder now (the same access check as schedule-templates.ts validateTemplateFolders) and it is in a team
+   * project (`projects/<name>/…`), the project's id, else null. Such a run could not start (validateTemplateTurn
+   * refuses the folder at dispatch), so it is skipped, paused and its owner told once, as a task whose project is gone
+   * (QA TC-360: an owner's task on an admin's project from 0.4.0 stayed on and failed every day). Only the folder the
+   * task reads counts: a member with access to just a folder inside a project keeps a working task. The project is the
+   * one on that folder as the volume compares names (projects.ts projectOnFolder), a live one first, then the oldest; a
+   * folder in projects/ that no project uses: null (unchanged).
+   */
+  private templateProjectGone(s: Pick<ScheduleRow, 'user_id' | 'template_id' | 'template_source_path'>): string | null {
+    const src = s.template_id ? s.template_source_path : null
+    if (!src || !inZone(src)) return null
+    const files = this.rt.ctx.files
+    let reads = false
+    try { reads = canRead(files, files.principal(s.user_id), src) } catch { reads = false }
+    if (reads) return null
+    const ci = files.fx.caseInsensitive
+    const segs = src.split('/')
+    const top = volumeKey(`${segs[0]}/${segs[1]}`, ci)
+    const rows = this.db.query('SELECT id, folder_path FROM projects ORDER BY trashed_with IS NOT NULL, created_at, id').all() as { id: string; folder_path: string }[]
+    return rows.find((p) => volumeKey(p.folder_path, ci) === top)?.id ?? null
+  }
+
   /** The chat of a run of this task that is queued or running now, or null. */
-  private runningChat(s: ScheduleRow): string | null {
+  private runningChat(s: Pick<ScheduleRow, 'id' | 'user_id'>): string | null {
     return (this.db.query("SELECT chat_id FROM turns WHERE schedule_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(s.id, s.user_id) as { chat_id: string } | null)?.chat_id ?? null
   }
 
@@ -325,6 +396,11 @@ export class Schedules {
     const locale = this.rt.userLocale(s.user_id)
     if (budgetBlock(this.db, s.user_id, locale, now)) { this.rt.log.info('scheduled task skipped: budget used up', { schedule: s.id }); return null }
     const project = s.project_id ? this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) : null
+    // a project gone since the caller looked: no run outside it (runDue and runNow say why)
+    if (s.project_id && !project) return null
+    // its save folder moved, renamed or deleted, its rules changed, or its owner's write access gone: kept as a lapse
+    // (one notice), and the run saves in the own folder instead (chat/schedule-scope.ts; the run is told why)
+    try { checkLapse(this.rt.ctx, s, now) } catch (e) { this.rt.log.warn('schedule save folder check failed', { schedule: s.id, err: String(e) }) }
     // the owner's AI, as for a chat they start now (admin/engine-choice.ts, the same as Slack and rooms): their own
     // default engine and model when they may pick and it is on, else the team default; decided at each run, so a later
     // change of either applies. Every run is a new chat, so there is no chat engine to keep.

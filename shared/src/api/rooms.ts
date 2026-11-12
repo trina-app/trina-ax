@@ -20,7 +20,8 @@
 // line, not deleted, for the whole room) can get replies in a thread (SendRoomMessageBody.threadRootId). Replies live in
 // the thread, not in the room's timeline, unless sent to the room too (alsoInRoom); the root carries the thread's
 // summary (RoomMessage.thread). A thread follows its root: who cannot see the root (a later member) sees none of it.
-// Reactions are 8 fixed emoji (ROOM_REACTIONS); they never notify or count. Nobody is told who has read what.
+// Reactions are any one emoji (RoomReactionEmoji), at most ROOM_REACTION_EMOJI_MAX different ones on a message; they
+// never notify or count. Nobody is told who has read what.
 //
 // Hiding (docs/DECISIONS.md "대화 숨기기"): a member hides a DM, a team room or the everyone room from their own lists
 // (setRoomHidden; a group chat is left instead). Nobody else is told. It stays a room they are in: reachable from the
@@ -34,7 +35,10 @@ import { z } from 'zod'
 import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
-import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page } from './common'
+import { emojiForm } from '../emoji-form'
+import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
+import { isStatusEmoji } from '../status-message'
+import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
@@ -112,18 +116,14 @@ export type RoomKind = z.infer<typeof RoomKind>
 export const ROOM_GROUP_MAX = 100
 /** A room's own name: at most this many characters (after trimming). */
 export const ROOM_NAME_MAX = 80
-/** What a room's name may not hold: control characters, every format character (bidirectional marks, overrides and
- * isolates, zero-width spaces and non-joiners, the byte order mark, soft hyphens, invisible operators, tag characters,
- * …) but the zero-width joiner that emoji sequences need, line and paragraph separators, and the blank letters that
- * draw nothing (the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the blank Braille pattern U+2800). */
-const NAME_FORBIDDEN = /(?!\u200d)\p{Cf}|[\p{Cc}\u2028\u2029\u115f\u1160\u3164\uffa0\u2800]/u
+/** What a room's name may not hold: ../name-chars.ts NAME_FORBIDDEN (control, invisible and blank characters). */
 /** ...and it must show something: at least one letter, number, symbol or punctuation mark (not only spaces, combining
  * marks or joiners). */
 const NAME_VISIBLE = /[\p{L}\p{N}\p{S}\p{P}]/u
 /** A room's own name as typed: trimmed, at most ROOM_NAME_MAX characters, no control characters. '' (or null) takes it
  * back to the server's name (the group's name, the app's word for everyone, a group chat's members). Always shown as
  * plain text. */
-export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s === '' || (!NAME_FORBIDDEN.test(s) && NAME_VISIBLE.test(s)), { message: 'invisible or control characters' })
+export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s === '' || (!NAME_FORBIDDEN.test(s) && NAME_VISIBLE.test(s)), { message: NAME_FORBIDDEN_FIELD })
 
 /**
  * A room picked with "#" in the person's own AI chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기"): in the message as
@@ -168,6 +168,110 @@ export const roomRefsByIdOnly = (text: string) => text.replace(ROOM_REF_RE, (_al
 /** The message as people read it: each token as "#<title>" (lists, titles, a text box to edit it in). */
 export const plainRoomRefs = (text: string) => text.replace(ROOM_REF_RE, (_all, title: string) => `#${title}`)
 
+/**
+ * The thread a side chat question is about (docs/DECISIONS.md "Trina side chat: send here"): a question about a room
+ * message (web SideChatPanel withQuote) starts with the message quoted, and the quote's header line ("> <who> · <when>")
+ * ends with ` (thread_id <id> in this room)`, the message's thread root (its own id, or its thread's first message), only
+ * when that message can have a thread. Like the file quote's `file_id`, the AI reads it as is (room_read's `thread`). The
+ * app hides it wherever it shows the question, and an answer of the side chat goes to that thread with one click. Only
+ * the first line of a message counts: the quote is always at the top.
+ */
+const THREAD_REF_RE = /^(> [^\n]*?) \(thread_id ([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}) in this room\)(?=\n|$)/
+/** The token at the end of a quote's header line. */
+export const threadRefToken = (rootId: string) => ` (thread_id ${rootId} in this room)`
+/** The thread root a question's quote names, or null. */
+export const threadRefOf = (text: string): string | null => THREAD_REF_RE.exec(text)?.[2] ?? null
+/** The question as people read it: the quote's header without the token. */
+export const hideThreadRef = (text: string): string => text.replace(THREAD_REF_RE, '$1')
+/** Does a side chat question start with a quote (a message or a file of the room asked about)? */
+export const quotesRoom = (content: string) => content.startsWith('> ')
+/**
+ * Where an answer of a side chat goes (docs/DECISIONS.md "Trina side chat: send here"), from the questions above it on its
+ * branch, the nearest first: the first that quotes something decides, its token's thread, or the room (null) when it has
+ * none (a file, a message that cannot have a thread, an older chat); a follow-up without a quote keeps what an earlier
+ * one said. No question quotes anything: the room. One rule for the button under an answer (web lib/sideChatSend.ts) and
+ * the AI's post_to_room (server chat/post-to-room.ts).
+ */
+export function nearestThreadOf(questionsNearestFirst: Iterable<string>): string | null {
+  for (const q of questionsNearestFirst) if (quotesRoom(q)) return threadRefOf(q)
+  return null
+}
+
+/** The quote a side chat question starts with (web SideChatPanel withQuote), as people read it: a message (who, when, its
+ * lines) or a file sent in the room (its name), then the question asked about it ('' when files went alone). null: the
+ * question does not start with one. The bubble shows it as a quote (web components/chat/Messages.tsx UserText) and a new
+ * chat's title is the question, not the quote (server chat/title.ts). */
+export type SideQuote =
+  | { kind: 'message'; author: string; at: string; text: string; question: string }
+  | { kind: 'file'; name: string; question: string }
+export function sideQuoteOf(content: string): SideQuote | null {
+  const shown = hideThreadRef(content)
+  if (!shown.startsWith('> ')) return null
+  const cut = shown.indexOf('\n\n')
+  const block = (cut < 0 ? shown : shown.slice(0, cut)).split('\n')
+  const question = cut < 0 ? '' : shown.slice(cut + 2)
+  if (block.some((l) => !l.startsWith('>'))) return null
+  const file = /^> 📎 (.+) \(file_id \S+ in this room\)$/.exec(block[0]!)
+  if (file) return block.length === 1 ? { kind: 'file', name: file[1]!, question } : null
+  const head = block[0]!.slice(2), at = head.lastIndexOf(' · ')
+  if (at < 0 || block.length < 2) return null
+  return { kind: 'message', author: head.slice(0, at), at: head.slice(at + 3), text: block.slice(1).map((l) => l.replace(/^> ?/, '')).join('\n'), question }
+}
+
+/** The quick questions of a side chat under a quoted message or file (web SideChatPanel): the button's word and the
+ * question it sends, in each language. One source for the app and for a new chat's title ("요약: <the quote's first
+ * words>", server chat/title.ts), which recognizes them in any language. */
+export const SIDE_CHAT_QUICK = {
+  translate: {
+    label: { ko: '번역', en: 'Translate', id: 'Terjemahkan', ja: '翻訳', es: 'Traducir' },
+    ask: { ko: '이 메시지를 한국어로 번역해 줘.', en: 'Translate this message into English.', id: 'Terjemahkan pesan ini ke bahasa Indonesia.', ja: 'このメッセージを日本語に翻訳してください。', es: 'Traduce este mensaje al español.' },
+  },
+  summarize: {
+    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir' },
+    ask: { ko: '이 메시지를 요약해 줘. 스레드가 있으면 스레드도 요약해 줘.', en: 'Summarize this message. If it has a thread, summarize the thread too.', id: 'Ringkas pesan ini. Kalau ada thread, ringkas thread-nya juga.', ja: 'このメッセージを要約してください。スレッドがあればスレッドも要約してください。', es: 'Resume este mensaje. Si tiene un hilo, resume también el hilo.' },
+  },
+  explain: {
+    label: { ko: '설명', en: 'Explain', id: 'Jelaskan', ja: '説明', es: 'Explicar' },
+    ask: { ko: '이 메시지를 쉬운 말로 설명해 줘.', en: 'Explain this message in plain words.', id: 'Jelaskan pesan ini dengan kata-kata sederhana.', ja: 'このメッセージをわかりやすく説明してください。', es: 'Explica este mensaje con palabras sencillas.' },
+  },
+  fileSummarize: {
+    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir' },
+    ask: { ko: '이 파일을 요약해 줘.', en: 'Summarize this file.', id: 'Ringkas file ini.', ja: 'このファイルを要約してください。', es: 'Resume este archivo.' },
+  },
+  fileKeyPoints: {
+    label: { ko: '핵심 정리', en: 'Key points', id: 'Poin penting', ja: '要点', es: 'Puntos clave' },
+    ask: { ko: '이 파일의 핵심(결정, 숫자, 날짜, 해야 할 일)을 정리해 줘.', en: 'List the key points of this file: decisions, numbers, dates and what someone must do.', id: 'Tulis poin penting file ini: keputusan, angka, tanggal, dan yang harus dikerjakan.', ja: 'このファイルの要点（決定事項、数字、日付、やること）をまとめてください。', es: 'Enumera los puntos clave de este archivo: decisiones, cifras, fechas y tareas.' },
+  },
+  fileCheck: {
+    label: { ko: '검토', en: 'Check it', id: 'Periksa', ja: 'チェック', es: 'Revisar' },
+    ask: { ko: '이 파일에서 틀린 곳, 빠진 곳, 이상한 곳을 검토해 줘.', en: 'Check this file for mistakes, gaps and anything that looks wrong.', id: 'Periksa file ini: kesalahan, bagian yang kurang, dan yang terlihat janggal.', ja: 'このファイルの誤り、抜け、おかしな点を確認してください。', es: 'Revisa este archivo en busca de errores, huecos y cosas que parezcan incorrectas.' },
+  },
+  fileSave: {
+    label: { ko: '팀 폴더에 저장', en: 'Save to a team folder', id: 'Simpan ke folder tim', ja: 'チームフォルダに保存', es: 'Guardar en una carpeta del equipo' },
+    ask: { ko: '이 파일을 팀 폴더에 저장해 줘.', en: 'Save this file to a team folder.', id: 'Simpan file ini ke folder tim.', ja: 'このファイルをチームフォルダに保存してください。', es: 'Guarda este archivo en una carpeta del equipo.' },
+  },
+} as const satisfies Record<string, { label: Record<Locale, string>; ask: Record<Locale, string> }>
+export type SideChatQuick = keyof typeof SIDE_CHAT_QUICK
+/** The one button under a side chat's answer (web components/rooms/SendHere.tsx), in each language: to the asked
+ * message's thread, or to the room. One source for the app and for the AI's side panel instructions (server
+ * chat/prompt.ts sideRoomSection), which name it as the person sees it. */
+export const SIDE_CHAT_SEND = {
+  thread: { ko: '스레드에 보내기', en: 'Send to thread', id: 'Kirim ke utas', ja: 'スレッドに送る', es: 'Enviar al hilo' },
+  room: { ko: '대화방에 보내기', en: 'Send to room', id: 'Kirim ke ruang', ja: 'ルームに送る', es: 'Enviar a la sala' },
+} as const satisfies Record<string, Record<Locale, string>>
+/** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
+ * save_room_file, whose card says where and who will see it) */
+export const SIDE_QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const satisfies readonly SideChatQuick[]
+export const SIDE_QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave'] as const satisfies readonly SideChatQuick[]
+/** Which quick question this text is, exactly, and in which language; null: a question of the person's own. */
+export function sideQuickOf(question: string): { key: SideChatQuick; locale: Locale } | null {
+  const q = question.trim()
+  for (const key of Object.keys(SIDE_CHAT_QUICK) as SideChatQuick[]) {
+    for (const [locale, ask] of Object.entries(SIDE_CHAT_QUICK[key].ask) as [Locale, string][]) if (ask === q) return { key, locale }
+  }
+  return null
+}
+
 /** A file or image sent in a room. Stored outside the team folder (owners and admins can read the team folder outside
  * users/<id>/); read at GET /api/rooms/:id/files/:fileId by the room's current members only, checked on every read
  * (`?thumb=1`: an image's small preview when `thumb` is true). */
@@ -183,17 +287,23 @@ export const RoomFile = z.object({
 })
 export type RoomFile = z.infer<typeof RoomFile>
 
-/** The reactions a message can get (a fixed set; the request is checked against it). */
-export const ROOM_REACTIONS = ['👍', '✅', '👀', '🙏', '😂', '🎉', '❤️', '🔥'] as const
-export const RoomReactionEmoji = z.enum(ROOM_REACTIONS)
+/** A reaction: any one emoji (docs/DECISIONS.md "Any emoji as a reaction"), by the rule of a status message's emoji
+ * (isStatusEmoji, shared/src/status-message.ts): a single emoji or one sequence (ZWJ, flag, keycap, skin tone), never
+ * text, several emoji or invisible tag letters (only the three subdivision flags carry them), at most 32 UTF-16 units.
+ * Taken in its fully qualified form (emojiForm): ❤ and ❤️ are one reaction. */
+export const RoomReactionEmoji = z.string().refine(isStatusEmoji, 'one emoji').transform(emojiForm)
 export type RoomReactionEmoji = z.infer<typeof RoomReactionEmoji>
+/** Different emoji one message may carry, at most: a new one past this is refused (409, params.reason
+ * 'reactions_full'); adding mine to one that is there always works. */
+export const ROOM_REACTION_EMOJI_MAX = 20
 /** Who reacted with one emoji: at most this many names come with it (the count is all of them). */
 export const ROOM_REACTION_NAMES = 10
 
 /** One emoji on a message: how many members put it there, whether I did, and who (the first ROOM_REACTION_NAMES, in
  * the order they reacted; only people in the room now). In the order the emoji were first used. */
 export const RoomReaction = z.object({
-  emoji: RoomReactionEmoji,
+  /** one emoji (RoomReactionEmoji; the server stores nothing else) */
+  emoji: z.string(),
   count: z.number().int().positive(),
   mine: z.boolean(),
   users: z.array(UserRef),
@@ -234,6 +344,8 @@ export const RoomEventLine = z.discriminatedUnion('type', [
   z.object({ type: z.literal('added'), users: z.array(UserRef) }),
   z.object({ type: z.literal('left') }),
   z.object({ type: z.literal('removed'), user: UserRef.nullable() }),
+  /** the author joined the team (an invite, the team link or an admin's "Add directly"): the everyone room's line, nobody notified */
+  z.object({ type: z.literal('joined') }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
   z.object({ type: z.literal('unknown') }),
 ])
@@ -324,6 +436,10 @@ export const RoomMessage = z.object({
    * (author) and when stay. Nothing can be done on it (react, reply in its thread, quote: refused like a message I do
    * not see) */
   withheld: z.literal(true).optional(),
+  /** my own message: the id my app made when it sent it (SendRoomMessageBody.clientMessageId), so a send whose answer
+   * was lost is matched to its message when that comes another way (the live event, a replay, a page read again).
+   * Only ever on the viewer's own messages */
+  clientMessageId: z.string().optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
 
@@ -377,7 +493,8 @@ export const RoomAiRun = z.object({
   createdAt: IsoTime,
 })
 export type RoomAiRun = z.infer<typeof RoomAiRun>
-/** answering: questions the AI is answering in the room now (anyone's; nobody is named); mine: my own of them */
+/** answering: questions the AI is answering in the room now (anyone's; nobody is named); mine: my own of them, and my
+ * own that ended in an error in the last 24 hours (a restart cut it while nobody was connected: QA TC-241) */
 export const RoomAiState = z.object({ answering: z.number().int().nonnegative(), mine: z.array(RoomAiRun) })
 export type RoomAiState = z.infer<typeof RoomAiState>
 
@@ -480,8 +597,8 @@ export const ListRoomMessagesQuery = PageQuery.extend({ around: Uuid7.optional()
 export const RoomMessagesPage = page(RoomMessage).extend({ newerCursor: z.string().nullable().optional() })
 export type RoomMessagesPage = z.infer<typeof RoomMessagesPage>
 
-/** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): the text as one part, in
- * any case, newest first. */
+/** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): every word of the text, in
+ * any order and any case, newest first. */
 export const ROOM_SEARCH_PAGE_MAX = 30
 export const ROOM_SEARCH_SNIPPET_MAX = 200
 export const RoomSearchQuery = z.object({
@@ -513,6 +630,21 @@ export const RoomSearchRoom = z.object({ id: Uuid7, kind: RoomKind, name: z.stri
 export type RoomSearchRoom = z.infer<typeof RoomSearchRoom>
 export const RoomSearchPage = z.object({ items: z.array(RoomSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
 export type RoomSearchPage = z.infer<typeof RoomSearchPage>
+/** A file sent in a room, found by its name (same query as RoomSearchQuery: every word in the name, any case): the file
+ * as the room shows it, and the message it was sent with, which opening it opens (a thread reply: in its thread). Only
+ * files of messages I would see by opening the room now. */
+export const RoomFileSearchHit = z.object({
+  file: RoomFile,
+  messageId: Uuid7,
+  roomId: Uuid7,
+  threadRootId: Uuid7.nullable(),
+  /** who sent it (null: someone no longer here) */
+  author: UserRef.nullable(),
+  createdAt: IsoTime,
+})
+export type RoomFileSearchHit = z.infer<typeof RoomFileSearchHit>
+export const RoomFileSearchPage = z.object({ items: z.array(RoomFileSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
+export type RoomFileSearchPage = z.infer<typeof RoomFileSearchPage>
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
@@ -561,11 +693,12 @@ export const ROOMS = {
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
-  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: the text as one part, any case; Korean by part of a word), newest first, with the text around the match and the rooms of the hits.' }),
+  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: every word, in any order and any case; Korean by part of a word), newest first, with the text around the first word found and the rooms of the hits.' }),
+  searchRoomFiles: endpoint({ method: 'GET', path: '/api/room-files', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomFileSearchPage, summary: 'Search the files sent in the rooms, 1:1 and group chats I am in now by name (q: every word, any case), only those of messages I can see, newest first, with the message each was sent with and the rooms of the hits.' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
-  reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: 'Put one of the fixed reactions on a message I can see, or take mine off. Never notifies.' }),
+  reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: `Put a reaction (any one emoji) on a message I can see, or take mine off. A message carries at most ${ROOM_REACTION_EMOJI_MAX} different emoji: a new one past that is refused (409, reason reactions_full). Never notifies.` }),
   editRoomMessage: endpoint({ method: 'PATCH', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', body: EditRoomMessageBody, response: RoomMessage, summary: 'Edit my own message.' }),
   deleteRoomMessage: endpoint({ method: 'DELETE', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Delete my own message (its text and files are removed; "deleted" stays in its place).' }),
   markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); nobody else is told.' }),

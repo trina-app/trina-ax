@@ -94,6 +94,29 @@ export function everyoneWrites(db: Database, fx: FsCtx, rules: RuleSet, roomId: 
   return true
 }
 
+/**
+ * May everyone whose words are in the room from seq `fromSeq` on still write `rel`, as members of the room? The authors
+ * of its messages there and the people who asked its AI's answers there, deleted messages too (event lines are no
+ * one's words). Someone who left the room or was taken out of it is no member: no (their messages stay, and they were
+ * never weighed as a writer; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). An account that cannot be loaded, an
+ * error: no (fails closed).
+ */
+export function authorsWrite(db: Database, fx: FsCtx, rules: RuleSet, roomId: string, fromSeq: number, rel: string): boolean {
+  try {
+    const ids = db.query(`SELECT DISTINCT CASE WHEN author_kind = 'ai' THEN asked_by ELSE author_id END AS u FROM room_messages
+      WHERE room_id = ? AND seq >= ? AND event IS NULL`).all(roomId, fromSeq) as { u: string | null }[]
+    for (const { u } of ids) {
+      // a deleted account's messages (ON DELETE SET NULL): nobody to weigh, no
+      if (!u) return false
+      if (!memberRow(db, roomId, u)) return false
+      const p = loadPrincipal(db, u)
+      if (!p) return false
+      authorize(fx, rules, p, rel, 'write', { createDirs: true })
+    }
+    return true
+  } catch { return false }
+}
+
 /** One grant's reasons to lapse now, checked in order; null: still good. The target checks are covers()'s. */
 function lapse(db: Database, fx: FsCtx, rules: RuleSet, g: GrantRow, now = Date.now()): GrantLapse | null {
   if (Date.parse(g.expires_at) <= now) return 'expired'
@@ -169,11 +192,13 @@ export function grantFor(db: Database, fx: FsCtx, rules: RuleSet, o: { userId: s
 }
 
 /** A call this answer's [이번만 허용] for its folder let through without a card: audited like a grant's use (`once`, no
- * grant), so the room's answer names its file too (grantMadeFiles). */
-export function auditOnceUse(db: Database, o: { userId: string; roomId: string; folder: string; segs: readonly string[]; tool: string; turnId: string | null }) {
-  const room = roomRow(db, o.roomId)
-  if (!room) return
-  audit(db, { actor: o.userId, action: 'room.ai_grant_use', target: null, detail: { ...roomAuditRef(room), folder: o.folder, path: o.segs.join('/'), tool: o.tool, turnId: o.turnId, once: true } })
+ * grant), so the room's answer names its file too (grantMadeFiles). `rooms`: the room of a room session, or the rooms
+ * the person's own chat read (`chat`: docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"); several are named under `rooms`,
+ * each as roomAuditRef names it. */
+export function auditOnceUse(db: Database, o: { userId: string; rooms: readonly string[]; folder: string; segs: readonly string[]; tool: string; turnId: string | null; chat?: boolean }) {
+  const refs = o.rooms.map((id) => roomRow(db, id)).filter((r): r is RoomRow => !!r).map(roomAuditRef)
+  if (!refs.length) return
+  audit(db, { actor: o.userId, action: 'room.ai_grant_use', target: null, detail: { ...(refs.length === 1 ? refs[0] : { rooms: refs }), folder: o.folder, path: o.segs.join('/'), tool: o.tool, turnId: o.turnId, once: true, ...(o.chat ? { chat: true } : {}) } })
 }
 
 /** The files this answer saved without a card through a grant or its own [이번만 허용] (its room.ai_grant_use rows whose

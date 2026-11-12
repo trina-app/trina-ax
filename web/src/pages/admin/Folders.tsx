@@ -10,7 +10,7 @@ import type { Folder, PreviewResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { isSkillsPath } from '../../lib/access-view'
-import { IconButton, Spinner, TabPanel, Tabs, confirmDialog } from '../../components/ui'
+import { IconButton, Spinner, TabPanel, Tabs, confirmDialog, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, useActionOk, useOneAtATime } from './common'
 import { FolderHeaderSlots } from './folder-slots'
 
@@ -95,8 +95,14 @@ export function RemoveRulesButton({ f, label, checking, onClick, testId }: { f: 
 export default function Folders() {
   const t = useT()
   const [params, setParams] = useSearchParams()
+  // a phone: switching between the two views adds no history (Back leaves the page, docs/DECISIONS.md "Admin and
+  // Settings on phones"); "By folder" from a folder's detail still steps back to the tree as before
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const panels = useId()
   const view = params.get('view') === 'people' ? 'people' : 'folders'
+  // a phone: a folder, its rule editor and a person are pages of their own under the bar (adminScreens.ts), without the
+  // page's line, its button and the two views' switch
+  const inDetail = phone && (params.has('folder') || params.has('rules') || (view === 'people' && (params.has('person') || params.get('new') === '1')))
   // a fresh start each way: the person, someone new's choices and the folder narrowed to stay with the person view.
   // Compared with the address itself: the router shows a change in a transition, so `view` can still be the one before
   // (two keys pressed quickly on the tabs)
@@ -104,27 +110,29 @@ export default function Folders() {
     const q = new URLSearchParams(window.location.search)
     const now = q.get('view') === 'people' ? 'people' : 'folders'
     // "By folder" again while a folder is chosen: back to the tree (the folder leaves the address)
-    if (v !== now || (v === 'folders' && q.has('folder'))) setParams(v === 'people' ? { view: 'people' } : {})
+    if (v !== now || (v === 'folders' && q.has('folder'))) setParams(v === 'people' ? { view: 'people' } : {}, { replace: phone && v !== now })
   }
   // the header stays at the top (like every admin page); the By folder detail column sticks just under it, so the
   // header's height is passed down as --folders-head
   const [actions, setActions] = useState<HTMLElement | null>(null)
   const [filter, setFilter] = useState<HTMLElement | null>(null)
   const [head, setHead] = useState(0)
+  // the part of the header that sticks: the whole header from 768 px, only its controls row on a phone
+  // (AdminPageHeader); measured again when the width crosses 768 px (the header's elements change then)
   useLayoutEffect(() => {
-    const el = document.querySelector<HTMLElement>('[data-testid="folders-header"]')
-    if (!el) return
+    const el = document.querySelector<HTMLElement>(`[data-testid="${phone ? 'folders-header-controls' : 'folders-header'}"]`)
+    if (!el) { setHead(0); return }
     const measure = () => setHead(el.getBoundingClientRect().height)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [phone])
   return (
-    <FolderHeaderSlots.Provider value={{ actions, filter }}>
+    <FolderHeaderSlots.Provider value={{ actions, filter, off: inDetail }}>
       {/* the same header as Members and Groups: title, one line, Add folder; under them the by folder / by person
           switch and the view's own filter (its switch or its person search) */}
-      <AdminPageHeader
+      {inDetail ? <h2 className="sr-only">{t('admin.folders')}</h2> : <AdminPageHeader
         title={t('admin.folders')}
         desc={t('folders.pageDesc')}
         testId="folders-header"
@@ -145,7 +153,7 @@ export default function Folders() {
             <span ref={setFilter} className="contents" />
           </>
         }
-      />
+      />}
       <TabPanel base={panels} value={view} style={{ '--folders-head': `${head}px` } as CSSProperties}>
         <Suspense fallback={<Spinner />}>{view === 'people' ? <AccessPeople /> : <AccessTree />}</Suspense>
       </TabPanel>

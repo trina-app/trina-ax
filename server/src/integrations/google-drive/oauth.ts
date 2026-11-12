@@ -127,12 +127,12 @@ export class GoogleDrive {
   }
   /** Start a Google sign-in either way: this server's own client (authorize), or the hosting service's (broker.ts),
    * which makes the Google address for this flow. The routes use this. */
-  async begin(user: string, session: string, share?: { shareId?: string }) {
+  async begin(user: string, session: string, share?: { shareId?: string }): Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }> {
     if (!this.viaBroker) return this.authorize(user, session, share)
     const p = this.prepare(user, session, share)
     try {
-      const authorizationUrl = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
-      return { flowId: p.id, authorizationUrl, expiresAt: p.expiresAt }
+      const urls = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
+      return { flowId: p.id, ...urls, expiresAt: p.expiresAt }
     } catch (e) {
       const reason = e instanceof DriveError ? e.reason : 'broker_unavailable'
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason=?,secret_enc=NULL WHERE id=? AND state='pending'").run(reason, p.id)
@@ -439,11 +439,20 @@ export class GoogleDrive {
     })()
     for (const c of this.operations.get(user) ?? []) c.abort()
     audit(this.ctx.db, { actor: user, action: 'drive.disconnected', target: row?.id })
+    // Google revokes a whole grant: while the person keeps a Gmail, Calendar, Docs or Sheets sign-in here (often the
+    // same Google app), Google is not asked (docs/GOOGLE-APPS.md "Disconnecting", owner decision 9)
+    // a team Drive share the person signed in for is often the same grant too: it would stop for the whole team
+    const others = !!this.ctx.db.query('SELECT 1 FROM integrations WHERE owner_user_id=? AND google_app IS NOT NULL AND secret_enc IS NOT NULL LIMIT 1').get(user)
+      || ownsLiveDriveShare(this.ctx.db, user)
     let revocation: 'revoked' | 'unavailable' | 'not_needed'
-    try { revocation = await this.revoke(token) } finally { this.revoking.delete(user) }
+    try { revocation = others ? 'not_needed' : await this.revoke(token) } finally { this.revoking.delete(user) }
     return { disconnected: true as const, revocation }
   }
 }
+/** The person's Google sign-in backs a team Drive share that is still live (its tokens kept): revoking their grant at
+ * Google could end it for everyone it is shared with. */
+export const ownsLiveDriveShare = (db: AppContext['db'], user: string) =>
+  !!db.query('SELECT 1 FROM drive_team_shares WHERE owner_user_id=? AND secret_enc IS NOT NULL LIMIT 1').get(user)
 const instances = new WeakMap<AppContext, GoogleDrive>()
 /** Dependencies are supplied only by offline tests, never by HTTP or model inputs. */
 export function googleDriveOf(ctx: AppContext, deps?: DriveDeps): GoogleDrive {

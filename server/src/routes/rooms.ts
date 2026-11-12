@@ -65,12 +65,14 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listRoomMessages, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.messages(auth.user.id, params.id, query) })
     // ⌘K: the messages I can see in my rooms (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기", rooms/search.ts)
     kit.handle(API.searchRoomMessages, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.search(auth.user.id, query) })
+    // and the files sent with those messages, by name (the same rule: rooms/search.ts searchRoomFiles)
+    kit.handle(API.searchRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.searchFiles(auth.user.id, query) })
     // "@트리나 …" asks the AI as the sender (rooms/ai.ts): the window for the desktop browser, the screen's language
     kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { windowId: windowOf(c), clientKind: auth.session.client, locale: c.get('locale') }))
     // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId
     kit.handle(API.listRoomThread, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.thread(auth.user.id, params.id, params.messageId, query) })
     kit.handle(API.markRoomThreadRead, ({ auth, params, body }) => rooms.markThreadRead(auth.user.id, params.id, params.messageId, body.seq))
-    kit.handle(API.reactRoomMessage, ({ auth, params, body }) => rooms.react(auth.user.id, params.id, params.messageId, body.emoji, body.on))
+    kit.handle(API.reactRoomMessage, ({ c, auth, params, body }) => rooms.react(auth.user.id, params.id, params.messageId, body.emoji, body.on, c.get('locale')))
     kit.handle(API.editRoomMessage, ({ c, auth, params, body }) => rooms.edit(auth.user.id, params.id, params.messageId, body, c.get('locale')))
     kit.handle(API.deleteRoomMessage, ({ auth, params }) => rooms.remove(auth.user.id, params.id, params.messageId))
     kit.handle(API.markRoomRead, ({ auth, params, body }) => rooms.markRead(auth.user.id, params.id, body.seq))
@@ -112,7 +114,7 @@ export const roomsRoutes: RouteModule = {
       // is not refused: the phone app saves a download through fetch (lib/mobile.ts downloadToApp)
       const dest = c.req.raw.headers.get('sec-fetch-dest')
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline' })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via })
     })
     // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,
     // isolation and cache). The inline read's checks run on every request, before the cache and the render and again

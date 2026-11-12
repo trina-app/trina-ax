@@ -7,7 +7,8 @@
 // The mirror only touches what it wrote itself (connected_files): a file someone saved into connected/<name>, or a
 // mirrored file someone changed there, is never overwritten or deleted by a sync. Only the owner connects a folder
 // (with their password): it reads a path of the server Mac. Hidden files, symbolic links, names the team folder doesn't
-// accept and files over 100 MB are skipped.
+// accept and files over 100 MB are skipped. The source is checked again at every sync and a sync never follows a link
+// out of it (people who can write to a share could otherwise point it at the server's own data).
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -97,13 +98,16 @@ export class ConnectedFolders {
   list(): ConnectedRow[] { return this.db.query('SELECT * FROM connected_folders ORDER BY name').all() as ConnectedRow[] }
   get(id: string): ConnectedRow | null { return this.db.query('SELECT * FROM connected_folders WHERE id = ?').get(id) as ConnectedRow | null }
   folderPath(c: Pick<ConnectedRow, 'name'>) { return `${CONNECTED_ROOT}/${c.name}` }
+  private sourceRules() {
+    return { home: this.o.home, teamRoot: this.root, dataDir: this.ctx.engineConfig.dataDir,
+      ...(this.o.platform ? { platform: this.o.platform } : {}), ...(this.o.linuxRoots ? { linuxRoots: this.o.linuxRoots } : {}),
+      installBase: this.ctx.config.mode === 'prod' ? resolveLayout(this.ctx.config).base : null }
+  }
 
   /** Connect a folder: everyone in the team can read it by default (change it in Folder permissions). */
   add(o: { name: string; source: string; actor: string }): ConnectedRow {
     const name = checkName(o.name)
-    const source = checkSource(o.source, { home: this.o.home, teamRoot: this.root, dataDir: this.ctx.engineConfig.dataDir,
-      ...(this.o.platform ? { platform: this.o.platform } : {}), ...(this.o.linuxRoots ? { linuxRoots: this.o.linuxRoots } : {}),
-      installBase: this.ctx.config.mode === 'prod' ? resolveLayout(this.ctx.config).base : null })
+    const source = checkSource(o.source, this.sourceRules())
     if (this.db.query('SELECT 1 FROM connected_folders WHERE name = ?').get(name)) throw new ConnectedError('name_taken')
     const rel = `${CONNECTED_ROOT}/${name}`
     const abs = path.join(this.root, CONNECTED_ROOT, name)
@@ -158,7 +162,11 @@ export class ConnectedFolders {
     const files = new Map<string, fs.Stats>()
     let skipped = 0
     const walk = (rel: string[]) => {
-      const names = fs.readdirSync(path.join(src, ...rel))
+      const dir = path.join(src, ...rel)
+      // a folder that became a link (or now resolves elsewhere) since its parent was read is never entered; the source
+      // itself changed after the check: the sync stops (an empty listing would remove the whole mirror)
+      if (!realFolder(dir)) { if (!rel.length) throw new ConnectedError('moved'); skipped++; return }
+      const names = fs.readdirSync(dir)
       for (const n of names.sort()) {
         if (files.size >= LIST_MAX) return
         if (n.startsWith('.') || n.startsWith('~$')) continue
@@ -216,10 +224,24 @@ export class ConnectedFolders {
     const now = new Date().toISOString()
     let listed: { files: Map<string, fs.Stats>; skipped: number }
     try {
-      if (!fs.statSync(c.source).isDirectory()) throw new Error('not a folder')
+      // the source is checked again at every sync, not only when it was connected: someone who can write to the share
+      // may have replaced it with a link (to the server's own data, for example). It must still be the same real folder.
+      if (!fs.lstatSync(c.source).isDirectory()) throw new ConnectedError('moved')
+      // a read error here (macOS privacy, a folder nobody may open) reaches the errno mapping below, not "not found"
+      fs.realpathSync(c.source)
+      let again: string
+      try { again = checkSource(c.source, this.sourceRules()) } catch (e) {
+        if (!(e instanceof ConnectedError)) throw e // a read error (macOS privacy, for example): reported as before
+        throw new ConnectedError(e.message.startsWith('not_found') ? 'not_found' : 'moved')
+      }
+      if (again.normalize('NFC') !== c.source.normalize('NFC')) throw new ConnectedError('moved')
       listed = this.listSource(c.source)
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code
+      if (e instanceof ConnectedError) {
+        this.db.query("UPDATE connected_folders SET last_sync_at = ?, last_status = 'error', last_error = ? WHERE id = ?").run(now, e.message, id)
+        throw e
+      }
       // macOS privacy (TCC): a background process may not read network volumes or cloud folders until allowed
       const why = code === 'EPERM' || code === 'EACCES' ? 'permission' : code === 'ENOENT' ? 'not_found' : 'unreadable'
       this.db.query("UPDATE connected_folders SET last_sync_at = ?, last_status = 'error', last_error = ? WHERE id = ?").run(now, why, id)
@@ -246,7 +268,7 @@ export class ConnectedFolders {
       if (r.copied + r.updated >= RUN_COPIES_MAX || st.size > budget || (currentPlan() && storageRoom(st.size)?.ok === false)) { r.pending = true; continue }
       const tmp = path.join(path.dirname(dst), `.mycel-sync-${process.pid}-${Date.now()}`)
       try {
-        await fs.promises.copyFile(path.join(c.source, ...rel.split('/')), tmp)
+        await copyNoFollow(path.join(c.source, ...rel.split('/')), c.source, tmp)
         await fs.promises.utimes(tmp, st.atime, st.mtime)
         await fs.promises.rename(tmp, dst)
       } catch { fs.rmSync(tmp, { force: true }); r.skipped++; continue }
@@ -263,8 +285,6 @@ export class ConnectedFolders {
     r.bytes = tot.b
     this.db.query('UPDATE connected_folders SET last_sync_at = ?, last_status = ?, last_error = NULL, files = ?, bytes = ? WHERE id = ?')
       .run(now, r.pending ? 'partial' : 'ok', r.files, r.bytes, id)
-    // the knowledge graph updates the mirror's folder (knowledge-graph/service.ts); a sync changes no folder rules
-    if (r.copied + r.updated + r.removed > 0) this.ctx.files.events.emit('tree-changed', { paths: [`${CONNECTED_ROOT}/${c.name}`] })
     return r
   }
 
@@ -276,6 +296,54 @@ export class ConnectedFolders {
     first.unref?.(); every.unref?.()
     this.ctx.onClose(() => { clearTimeout(first); clearInterval(every) })
   }
+}
+
+const nfc = (p: string) => p.normalize('NFC')
+const within = (p: string, root: string) => nfc(p) === nfc(root) || nfc(p).startsWith(nfc(root) + '/')
+
+/** A real folder at exactly this path: not a link, and no link on the way (realpath gives the same path). A folder that
+ * may not be read throws (EPERM / EACCES: reported as "permission", never skipped silently). */
+function realFolder(p: string): boolean {
+  try { return fs.lstatSync(p).isDirectory() && nfc(fs.realpathSync(p)) === nfc(p) } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'EPERM' || code === 'EACCES') throw e
+    return false
+  }
+}
+
+/** Where an open file really is, read from the open file and not from its path: Linux /proc/self/fd; macOS /dev/fd
+ * (Bun resolves it with F_GETPATH). null when the system does not tell. */
+export function openedPath(fd: number): string | null {
+  try {
+    const p = process.platform === 'linux' ? fs.readlinkSync(`/proc/self/fd/${fd}`) : fs.realpathSync(`/dev/fd/${fd}`)
+    return p.startsWith('/') && !p.startsWith('/dev/fd/') && !p.startsWith('/proc/') ? p : null
+  } catch { return null }
+}
+
+/** Copy one source file without ever following a link: not in its last name (O_NOFOLLOW), and not in a folder on the
+ * way that was swapped for a link after the listing (the opened file must really be inside the source). O_NONBLOCK:
+ * a pipe planted in place of a file cannot hang the sync. Unknown where the file is: refused. */
+async function copyNoFollow(file: string, source: string, dst: string): Promise<void> {
+  const k = fs.constants
+  const inp = await fs.promises.open(file, k.O_RDONLY | k.O_NOFOLLOW | k.O_NONBLOCK)
+  try {
+    const st = await inp.stat()
+    if (!st.isFile() || st.size > FILE_MAX) throw new Error('not a file')
+    const where = openedPath(inp.fd)
+    if (!where || !within(where, source)) throw new Error('outside the source')
+    const out = await fs.promises.open(dst, k.O_WRONLY | k.O_CREAT | k.O_EXCL | k.O_NOFOLLOW, 0o644)
+    try {
+      const buf = Buffer.allocUnsafe(Math.min(st.size + 1, 1 << 20)) // per call: syncs of two folders may run at once
+      let total = 0
+      for (;;) {
+        const { bytesRead } = await inp.read(buf, 0, buf.length, null)
+        if (bytesRead <= 0) break
+        total += bytesRead
+        if (total > FILE_MAX) throw new Error('too large')
+        await out.write(buf, 0, bytesRead)
+      }
+    } finally { await out.close() }
+  } finally { await inp.close() }
 }
 
 const SINGLETON = new WeakMap<AppContext, ConnectedFolders>()

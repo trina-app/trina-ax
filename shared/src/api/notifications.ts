@@ -4,6 +4,7 @@ import { ScheduleRunOutcome } from './schedules'
 import { QuietHours, RoomNotifyDefault } from './room-alerts'
 import { RoomKind } from './rooms'
 import { UserId } from '../ids'
+import { RequestableService } from './service-requests'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
 /** Rooms (docs/DECISIONS.md "대화방 알림 설정", room-alerts.ts): roomLevel is my default for rooms without a level of
  * their own (direct: every message of 1:1 and group chats and what mentions me elsewhere; all: every message; none:
@@ -54,8 +55,14 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (told to the owners) or to a member's own connection (told to that member; credential_change_notices), and the
  * handover's (docs/DECISIONS.md "W6"; handover_notices): owner.lead_joined to the owner when someone joins with their
  * lead link, owner.transferred to the new owner, the old owner and the other admins, owner.reauth_locked to the owner
- * when a password re-check of theirs locked after too many wrong tries. */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred'])
+ * when a password re-check of theirs locked after too many wrong tries, and a member's ask to add an app the team has
+ * not set up (service_request_notices; shared/src/api/service-requests.ts): service.request to the owners and the
+ * admins (one per app), service.ready to the member once they can connect it, and account.reset_link to a person when a password reset link
+ * was made for their account, on the server or by an admin (reset_link_notices), and things done to the team from
+ * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
+ * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
+ * taking this server's key because the team address was moved to another key. */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -72,6 +79,12 @@ export const InboxNotification = z.object({
   request: z.object({ name: z.string(), host: z.string() }).optional(),
   /** 'onboarding.ai_request' only (owners): the member who asks for an AI connection, by display name; older servers omit it */
   requester: z.object({ name: z.string() }).optional(),
+  /** 'project.joined' only (docs/DECISIONS.md "Project contents only for members"): who started to see the project (a
+   * name while the account is there) and the project while the reader of the notice still sees it (link 'project') */
+  projectJoined: z.object({ name: z.string().nullable(), project: z.object({ id: z.string(), name: z.string() }).nullable() }).optional(),
+  /** 'onboarding.ai_request' only: true when the member tried to use Trina but it is not set up yet (the AI could not
+   * start, POST /api/me/ai-not-ready/tell), not a wait for an AI connection; older servers omit it */
+  notReady: z.literal(true).optional(),
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
    * older servers omit it */
   joined: z.object({ name: z.string() }).optional(),
@@ -87,6 +100,17 @@ export const InboxNotification = z.object({
   /** 'integration.template' and 'integration.template_reconnect' only, while the template is there and still for this
    * person: its id and name (Settings › MCP opens it with ?template=<id>); older servers omit it */
   template: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** 'service.request' (the owners and the admins) and 'service.ready' (the member who asked): the app (Google Drive or a
+   * Google app, shared/src/api/service-requests.ts). service.request: the newest member who asks, by display name
+   * (null when none is left), how many others ask with them, and `open` while any request waits (the app opens its setup
+   * in Admin › Connected apps); once none waits, who asked in the round that ended last, and `added` when it ended
+   * because members can connect the app now. A viewer who is no longer an owner or admin gets the app only.
+   * service.ready: the app, which they can connect now (its page, /connectors/<id>). Never an admin's name. Older
+   * servers omit it */
+  serviceRequest: z.object({
+    service: RequestableService, name: z.string().nullable().optional(), others: z.number().int().nonnegative().optional(),
+    open: z.boolean().optional(), added: z.literal(true).optional(),
+  }).optional(),
   /** 'drive.share_reconnect' only (admins), while the share is there: its name (link 'admin_connectors' opens Google
    * Drive's page in Admin › Connectors); older servers omit it */
   driveShare: z.object({ id: z.string(), name: z.string() }).optional(),
@@ -96,6 +120,11 @@ export const InboxNotification = z.object({
   credentialChange: z.object({
     who: z.string(), action: z.string(), subject: z.string(),
   }).optional(),
+  /** 'account.reset_link' only: a password reset link was made for this account. `server`: made on the server itself
+   * (mycel-account / mycel-ctl reset-link), else by `by` (the owner's or admin's name while their account is there,
+   * null after); `open` while the link is unused, not replaced and not expired (changing the password ends it). Never
+   * the token or the link. Older servers omit it */
+  resetLink: z.object({ server: z.boolean(), by: z.string().nullable(), open: z.boolean() }).optional(),
   /** 'skills.merge_waiting' only (the owner, at the end of the welcome steps): how many skills wait to be merged into
    * team skills; link 'chat' opens the one merge chat (chatId); older servers omit it */
   merges: z.object({ n: z.number().int().positive() }).optional(),
@@ -106,6 +135,13 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
+  /** 'schedule.failure' only: the run did not start because its owner no longer sees the task's project (its folder's
+   * access was taken away, or it is in the trash); older servers omit it */
+  projectGone: z.literal(true).optional(),
+  /** 'schedule.failure' only: the task's save folder lapsed (moved, renamed, deleted, its permissions changed, or the
+   * person's write access gone); its runs save in the person's own folder until they check it again on the Scheduled
+   * page; older servers omit it */
+  saveLapsed: z.literal(true).optional(),
   /** 'room.dm' and 'room.mention' only, while the person is still in the room and may read the message: the room (link
    * 'room' opens /rooms/<id>), who wrote it, by name, and for a reply in a thread the thread's root (/rooms/<id>/t/<thread>);
    * older servers omit it. The rest says where and why (docs/DECISIONS.md "알림함의 대화 알림"; older servers omit each,
@@ -177,9 +213,11 @@ export const InboxNotification = z.object({
   }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
+/** GET /api/notifications: `unreadCount` counts every unread row; `roomUnreadCount` is its part that is conversation rows
+ * (mentions, replies in threads I follow), which the rooms list counts too (a phone's 나 tab leaves them to 대화). */
 export const NOTIFICATIONS = {
   getNotification: endpoint({ method: 'GET', path: '/api/notifications/:id', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Read an own notification without marking read; current-access filtered and never cached.' }),
-  listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative() }), summary: 'Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it.' }),
+  listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative(), roomUnreadCount: z.number().int().nonnegative().optional() }), summary: 'Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it.' }),
   markNotificationRead: endpoint({ method: 'POST', path: '/api/notifications/:id/read', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Mark an own notification read.' }),
   getNotificationPreferences: endpoint({ method: 'GET', path: '/api/notification-preferences', auth: 'user', owner: 'B', response: NotificationPreferences, summary: 'Own inbox event preferences. OS push opt-in is separate.' }),
   updateNotificationPreferences: endpoint({ method: 'PATCH', path: '/api/notification-preferences', auth: 'user', owner: 'B', body: NotificationPreferences.partial().strict(), response: NotificationPreferences, summary: 'Change own inbox event preferences and room notification settings (room default, thread replies, quiet hours).' }),

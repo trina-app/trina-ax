@@ -5,12 +5,13 @@
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Integration, IntegrationAccess, Locale, Role } from '@mycel/shared/api'
+import type { GoogleAppId, Integration, IntegrationAccess, Locale, OAuthClientView, Role } from '@mycel/shared/api'
 import { Vault, detectVersion } from '../../credentials/vault'
 import { audit } from '../../admin/audit'
 import { getTeamSettings } from '../../admin/settings'
 import type { RemoteTool } from './mcp'
 import { reasonText } from './text'
+import { membersOn } from '../google-apps/catalog'
 
 export interface Row {
   id: string; scope: 'personal' | 'team'; owner_user_id: string | null; created_by: string | null
@@ -30,6 +31,42 @@ export interface Row {
   disabled_tools: string
   /** a member's own connection made from an admin's template (templates.ts, migration 333); null otherwise */
   template_id?: string | null
+  /** sign-in through its own app (migration 338): ClientInfo as JSON, and the client secret sealed with clientAad */
+  oauth_client?: string | null
+  oauth_client_enc?: string | null
+  oauth_client_key_version?: number
+  /** a person's own Gmail, Calendar, Docs or Sheets (migration 341, google-apps/): its calls go only to the library on
+   * this machine, it is hidden from the generic list, and the app's team switch decides whether it may be used */
+  google_app?: GoogleAppId | null
+}
+
+/** what is not secret about an own app (integrations.oauth_client, integration_templates.oauth_client). foundTokenUrl:
+ * the token address its first sign-in that worked found from the server (service.ts pinFound), never shown. boundUrl: the
+ * connection's or template's address its client secret was entered for (service.ts appAfter; secretHere) */
+export interface ClientInfo { clientId: string; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl?: string | null; boundUrl?: string | null }
+/** The stored app, or null (none, or a value that is not one: the column is ours alone). */
+export function clientInfo(json: string | null | undefined): ClientInfo | null {
+  if (!json) return null
+  try {
+    const v = JSON.parse(json)
+    if (!v || typeof v.clientId !== 'string' || !v.clientId) return null
+    const str = (x: unknown) => (typeof x === 'string' && x ? x : null)
+    return {
+      clientId: v.clientId, authorizationUrl: str(v.authorizationUrl), tokenUrl: str(v.tokenUrl), scope: str(v.scope),
+      ...(str(v.foundTokenUrl) ? { foundTokenUrl: str(v.foundTokenUrl) } : {}), ...(str(v.boundUrl) ? { boundUrl: str(v.boundUrl) } : {}),
+    }
+  } catch { return null }
+}
+/** Whether an own app's stored client secret may be used with the connection or template at `url`: only at the address
+ * it was entered for. An older build (migration 338 is reader level 1) changes the address without dropping the
+ * secret; such a secret counts as not stored (never sent). An app saved before boundUrl existed has none. */
+export function secretHere(info: ClientInfo | null, enc: string | null | undefined, url: string): boolean {
+  return !!enc && !!info && (!info.boundUrl || info.boundUrl === url)
+}
+/** what whoever manages it sees of an own app (at the connection's or template's address `url`): never the secret */
+export function clientView(json: string | null | undefined, enc: string | null | undefined, url: string): OAuthClientView | null {
+  const c = clientInfo(json)
+  return c ? { clientId: c.clientId, authorizationUrl: c.authorizationUrl, tokenUrl: c.tokenUrl, scope: c.scope, hasSecret: secretHere(c, enc, url) } : null
 }
 export interface FlowRow {
   id: string; integration_id: string; integration_version: number; user_id: string; session_id: string; state_hash: string
@@ -139,6 +176,8 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
  * allows personal connections. Team: an access rule must match; being an admin is not one. */
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
+  // a Google app: its own team switch (Admin › Connectors), not the switch for members' own MCP connections
+  if (row.google_app) return row.scope === 'personal' && row.owner_user_id === userId && membersOn(db, row.google_app)
   if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))
   return !!db.query(`SELECT 1 FROM integration_access a WHERE a.integration_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
@@ -168,7 +207,7 @@ export function usable(db: Database, userId: string): Row[] {
   // a member's own connections while the team allows them; the ones made from an admin's template while it covers them
   const on = personalOn(db)
   const personal = (db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(userId) as Row[])
-    .filter((r) => (r.template_id ? templateCovers(db, r.template_id, userId) : on))
+    .filter((r) => (r.google_app ? membersOn(db, r.google_app) : r.template_id ? templateCovers(db, r.template_id, userId) : on))
   const team = (db.query(`${selectRows(db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(db, r, userId))
   return [...personal, ...team]
 }
@@ -220,12 +259,16 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     // made from an admin's template: the bare address even to its member (a query there is the admin's, never theirs)
     id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage && !row.template_id ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
-    lastError: reasonText(row.last_error, locale),
+    // in words this reader can act on: a member on a team connection, or on the address of one made from a team template
+    // (an admin changes it there), is told to tell an admin (QA TC-235)
+    lastError: reasonText(row.last_error, locale, { address: manage && (!row.template_id || isAdmin(viewer.role)), key: manage }),
     tools: ((off) => savedTools(db, row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),
     ...toolsTotalOf(db, row),
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,
     templateId: row.template_id ?? null,
+    // the app's ID and addresses are for whoever manages the connection (a template's app is the admin's)
+    oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc, row.url) : null,
   }
 }
 
@@ -258,6 +301,9 @@ export class SecretBox {
 
 export const connectionAad = (r: Pick<Row, 'id' | 'scope' | 'owner_user_id'>) => `${r.scope}:${r.owner_user_id ?? 'team'}:${r.id}`
 export const flowAad = (f: Pick<FlowRow, 'id' | 'user_id'>) => `flow:${f.user_id}:${f.id}`
+/** an own app's client secret: bound to its connection, or to its template */
+export const clientAad = (r: Pick<Row, 'id' | 'scope' | 'owner_user_id'>) => `${connectionAad(r)}:client`
+export const templateClientAad = (id: string) => `template:${id}:client`
 
 // ---------------- an admin's request to connect a service as one's own (requests.ts, migration 331) ----------------
 export interface RequestRow {

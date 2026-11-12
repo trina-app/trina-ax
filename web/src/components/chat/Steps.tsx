@@ -16,18 +16,21 @@
 // A dev environment command or job that waits in the team queue (Step.devEnvRun) shows "Waiting for the dev
 // environment… #2 in line" under its row, with the live place (lib/devEnvQueue.ts) and a Cancel button, until it
 // starts; a command that waited too long says the dev environment is full.
+// A post the AI made to a room (post_to_room, Step.posted) has 보기, like the button's sent line: the room at the message
+// or the thread at the reply. A side chat gives its own way there (StepPostView: its column, a phone's panel).
 import clsx from 'clsx'
-import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
-import { useState } from 'react'
+import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
+import { createContext, useContext, useState } from 'react'
 import { api, API, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
 import { toast } from '../../store/ui'
-import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, stepPlace } from '@mycel/shared'
+import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, stepPlace, unansweredStep } from '@mycel/shared'
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
 import { safeHref } from '../../lib/safeLinks'
 import { aiName } from '../../lib/tabs'
+import { navigateTo } from '../../lib/nav'
 import { TeamImage } from '../Markdown'
 import { Tooltip } from '../Tooltip'
 
@@ -47,8 +50,9 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
   return parts.join(' · ')
 }
 
-/** A step that only looked something up (a read, a search, a web search): its failure changed nothing. */
-const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && READ_ONLY_TOOLS.has(s.tool))
+/** A step that only looked something up (a read, a search, a web search; a removed search tool's step in an older chat):
+ * its failure changed nothing. */
+const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && (READ_ONLY_TOOLS.has(s.tool) || REMOVED_READ_ONLY_TOOLS.has(s.tool)))
 /** Tools that save a file: one that worked makes up for another that failed. */
 const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp'])
 /** What a later step must have done to make up for a failed one that changed something: the same tool (a save tool for a
@@ -75,6 +79,10 @@ export function stepsGotPast(steps: Step[]): Set<string> {
 
 /** What decides a failed step's mark: the answer still runs (`live`), the answer itself failed (`answerFailed`: status
  * 'error', an interrupted answer too), and the failed steps the AI went on past (stepsGotPast). */
+/** Where a post's 보기 goes (a room's side chat passes its own; elsewhere the room's or the thread's page). */
+export const StepPostView = createContext<((p: NonNullable<Step['posted']>) => void) | null>(null)
+const postPath = (p: NonNullable<Step['posted']>) => (p.threadRootId ? `/rooms/${p.roomId}/t/${p.threadRootId}?m=${p.messageId}` : `/rooms/${p.roomId}?m=${p.messageId}`)
+
 export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: ReadonlySet<string> }
 
 /** What a step's mark shows (docs/DECISIONS.md "A failed step the AI got past is not red"). A step that ended in an
@@ -85,14 +93,15 @@ export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: Re
  * stayed undone, a step the failing answer ended on), and a dev environment command that did not run because the
  * environment was full (the line under it says so, and the AI was told not to try again). A command the person
  * cancelled is theirs, no failure. A step the time limit or Stop cut off says so (paused, stopped); an attached
- * file's note is neither. */
-export type StepMark = 'running' | 'note' | 'paused' | 'stopped' | 'cancelled' | 'failed' | 'retried' | 'done'
+ * file's note is neither. A card that ran out without an answer (a question, remember's "may I keep this?") is no
+ * success either: a quiet mark with "답하지 않음" beside the line (unanswered). */
+export type StepMark = 'running' | 'note' | 'paused' | 'stopped' | 'cancelled' | 'failed' | 'retried' | 'unanswered' | 'done'
 export function stepMark(step: Step, o: MarkContext): StepMark {
   if (step.status === 'running' && o.live) return 'running'
   if (step.tool === 'attachment') return 'note'
   if (step.paused) return 'paused'
   if (step.stopped) return 'stopped'
-  if (step.status !== 'error') return 'done'
+  if (step.status !== 'error') return unansweredStep(step) ? 'unanswered' : 'done'
   if (step.devEnvRun?.state === 'expired') return 'failed'
   if (step.devEnvRun?.state === 'cancelled') return 'cancelled'
   if (o.gotPast.has(step.id) || o.live || (!o.answerFailed && lookedUp(step))) return 'retried'
@@ -137,6 +146,7 @@ function QueueLine({ step }: { step: Step }) {
 function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; marks: Omit<MarkContext, 'live'>; kids?: Step[] }) {
   const t = useT()
   const locale = useLocale()
+  const viewPost = useContext(StepPostView)
   // the label was written in the language the answer ran in: redraw its words in the language on screen, and the
   // team's well-known folders in words ("브랜드 이미지 폴더 › a.jpg"; the path itself in the tooltip)
   const words = localizeStep(step, locale)
@@ -147,8 +157,11 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const media = step.kind === 'tool' ? mediaStepKind(step) : null
   const Icon = subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
   const hidden = step.subtask?.hidden ?? 0
-  const expandable = !!(step.detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const mark = stepMark(step, { live, ...marks })
+  // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again
+  const unanswered = mark === 'unanswered'
+  const detail = unanswered ? undefined : words.detail
+  const expandable = !!(detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = mark === 'running'
   // a failure the AI went on past: "안 됐지만 트리나가 다른 방법으로 이어 갔어요" ("…찾고 있어요" while it answers and
   // nothing after it worked yet)
@@ -157,7 +170,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const markWords = mark === 'retried' ? retried : mark === 'failed' ? t('steps.failed') : ''
   const stats = subtask ? subtaskStats(step.subtask, t) : ''
   // cut off by the time limit or by Stop: said in words, not only by the icon
-  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : ''
+  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : unanswered ? words.detail ?? '' : ''
   // while a sub-agent works, its latest step shows under its row (like Claude Code)
   const latest = subtask && running && !open ? kids[kids.length - 1] : undefined
   // a row that opens is a button; one with nothing to open is not a control (a disabled button would also swallow the
@@ -172,6 +185,9 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
         <CirclePause size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-paused" />
       ) : mark === 'stopped' ? (
         <CircleStop size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-stopped" />
+      ) : unanswered ? (
+        // a card nobody answered: neither a success nor a failure (the words beside the line say it)
+        <CircleDashed size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-unanswered" />
       ) : mark === 'cancelled' ? (
         // a waiting command the person cancelled: the line under the row says so
         <CircleStop size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-cancelled" />
@@ -185,6 +201,12 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
       {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
       {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
       {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
+      {step.posted && !expandable ? (
+        <button type="button" onClick={() => (viewPost ? viewPost(step.posted!) : navigateTo(postPath(step.posted!)))} aria-label={t('steps.postViewLabel')}
+          className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline" data-testid="step-post-view">
+          {t('steps.postView')}
+        </button>
+      ) : null}
       {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
     </>
   )
@@ -211,7 +233,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
       )}
       {open && !subtask && (
         <div className="mt-1 mb-2 ml-6 space-y-1.5 border-l border-line pl-3">
-          {words.detail && <p className="text-xs whitespace-pre-wrap text-muted">{words.detail}</p>}
+          {detail && <p className="text-xs whitespace-pre-wrap text-muted">{detail}</p>}
           {step.sources && (
             <ul className="space-y-1" data-testid="search-sources">
               {step.sources.map((s, i) => (
@@ -291,7 +313,7 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
   }
   return (
     <div className="mb-3" data-testid="steps">
-      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="touch-hit flex items-center gap-1 rounded px-1 py-0.5 text-label text-faint hover:bg-hover hover:text-ink">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="touch-hit flex items-center gap-1 rounded px-1 py-0.5 text-label text-faint select-none hover:bg-hover hover:text-ink">
         {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
         {receiptText ? <span data-testid="steps-receipt">{receiptText}</span> : t('steps.summary', { n: top.length })}
         {showsFailures(steps, failed, marks.gotPast) && <CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" />}

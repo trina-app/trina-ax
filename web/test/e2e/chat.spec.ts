@@ -52,7 +52,7 @@ test('sub-tasks: the sub-agent\'s steps under its row, its latest step while it 
   const live = a.getByTestId('subtask')
   await expect(live).toContainText('하위 작업: 계약서 비교')
   await expect(live.getByTestId('subtask-stats')).toHaveText('도구 2번 · 2초')
-  await expect(live.getByTestId('subtask-latest')).toContainText('내용 검색 "수수료" · 공유 폴더')
+  await expect(live.getByTestId('subtask-latest')).toContainText('내용 검색 "수수료" · 전사 공유')
   await expect(live).not.toContainText('contract-1.md')
   await expect(a).toHaveAttribute('data-status', 'done')
   // folded: the answer's own steps are counted (the read before it and the sub-task)
@@ -63,9 +63,9 @@ test('sub-tasks: the sub-agent\'s steps under its row, its latest step while it 
   await row.getByRole('button', { name: /하위 작업 단계 보기/ }).click()
   const kids = row.getByTestId('subtask-steps')
   // the team's folders in words, the path in the tooltip
-  await expect(kids).toContainText('파일 읽기 · 공유 폴더 › contract-1.md')
-  await expect(kids.getByTitle('shared/contract-1.md')).toHaveText('파일 읽기 · 공유 폴더 › contract-1.md')
-  await expect(kids).toContainText('내용 검색 "수수료" · 공유 폴더')
+  await expect(kids).toContainText('파일 읽기 · 전사 공유 › contract-1.md')
+  await expect(kids.getByTitle('shared/contract-1.md')).toHaveText('파일 읽기 · 전사 공유 › contract-1.md')
+  await expect(kids).toContainText('내용 검색 "수수료" · 전사 공유')
   await expect(kids).toContainText('이 하위 작업의 앞선 단계 3개는 남기지 않았어요')
   expect(realErrors(errors)).toEqual([])
 })
@@ -135,7 +135,7 @@ test('edit the question makes a new branch; files changed in the turn are summar
   await ask(page, 'write the files please')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   const summary = lastAnswer(page).getByTestId('file-summary')
-  await expect(summary).toContainText('파일 1개 저장 · 1개 충돌 사본 · 1개 권한 없음')
+  await expect(summary).toContainText('파일 1개 저장 · 1개는 사본으로 저장 · 1개 권한 없음')
   await summary.getByRole('button').first().click()
   await expect(summary).toContainText('marketing/report.md')
   await summary.getByRole('button', { name: 'marketing/report.md' }).click()
@@ -231,8 +231,12 @@ test('ask_user card: pick an option, the answer continues', async ({ page }) => 
   await ask(page, 'please ask me something')
   const card = page.getByTestId('ask-card')
   await expect(card).toContainText('어느 분기를 볼까요?')
-  // a free-text answer goes to the AI: the card always says not to type secrets there
-  await expect(card.getByTestId('ask-no-secrets')).toHaveText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
+  // one place to type an answer (TRINA-24): the message box, which says not to type secrets; the card says to type below
+  await expect(card.getByTestId('ask-text')).toHaveCount(0)
+  await expect(card.getByTestId('ask-no-secrets')).toHaveCount(0)
+  await expect(card.getByTestId('ask-in-box')).toHaveText('직접 답하려면 아래 메시지 칸에 입력하세요.')
+  await expect(page.getByTestId('composer-no-secrets')).toHaveText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
+  await expect(page.getByText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')).toHaveCount(1)
   await card.getByLabel('4분기').check()
   await card.getByRole('button', { name: '답하기' }).click()
   await expect(card).toHaveCount(0)
@@ -270,8 +274,101 @@ test('an error answer offers retry', async ({ page }) => {
   await signIn(page)
   await ask(page, 'cause an error')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
-  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('지금은 AI 엔진을 쓸 수 없어요. 팀장에게 알려 주세요')
+  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('트리나가 아직 준비되지 않았어요.')
+  await expect(lastAnswer(page).getByTestId('retry')).toBeVisible()
 })
+
+// owner decision 2026-11-11: the AI cannot start. A member reads "not ready yet" with [Tell an admin] (then "Told"); the
+// owner reads their own words with [Connect AI], which opens Admin › AI accounts. "Try again" stays for both.
+test('the AI cannot start: a member tells an admin with one button', async ({ page }) => {
+  await reset(page)
+  await signIn(page, BOB)
+  await ask(page, 'error:engine_missing\n왜?')
+  const box = lastAnswer(page).getByTestId('answer-error')
+  await expect(box).toContainText('트리나가 아직 준비되지 않았어요.')
+  await expect(box.getByTestId('retry')).toBeVisible()
+  const button = box.getByTestId('not-ready-button')
+  await expect(button).toHaveCount(1)
+  await expect(button).toHaveText('관리자에게 알리기')
+  await button.click()
+  await expect(button).toHaveText('알렸어요')
+  await expect(button).toBeDisabled()
+})
+
+// owner decision 2026-11-12 (QA TC-188): "Told" is the server's record (the same once-an-hour limit), so it stays after a
+// reload; it is the member's own: another member still reads [Tell an admin]
+test('the AI cannot start: "Told" stays after a reload, and only for the member who told', async ({ page, browser }) => {
+  await reset(page)
+  // a second member, carol, made by the owner (her temporary password changed through the API)
+  const owner = await browser.newContext()
+  const csrf = { [CSRF_HEADER]: '1' }
+  expect((await owner.request.post('/api/auth/login', { headers: csrf, data: { username: 'olga', password: 'correct horse battery' } })).ok()).toBe(true)
+  expect((await owner.request.post('/api/admin/users', { headers: csrf, data: { username: 'carol', name: 'Carol', role: 'member', groupIds: [], temporaryPassword: 'tiger4271x' } })).ok()).toBe(true)
+  await owner.close()
+  const carol = await browser.newContext()
+  expect((await carol.request.post('/api/auth/login', { headers: csrf, data: { username: 'carol', password: 'tiger4271x' } })).ok()).toBe(true)
+  expect((await carol.request.post('/api/auth/password', { headers: csrf, data: { newPassword: 'carol password 1' } })).ok()).toBe(true)
+
+  await signIn(page, BOB)
+  await ask(page, 'error:engine_missing\n왜?')
+  const button = lastAnswer(page).getByTestId('answer-error').getByTestId('not-ready-button')
+  await expect(button).toHaveText('관리자에게 알리기')
+  await button.click()
+  await expect(button).toHaveText('알렸어요')
+  await page.reload()
+  const again = lastAnswer(page).getByTestId('answer-error').getByTestId('not-ready-button')
+  await expect(again).toHaveText('알렸어요')
+  await expect(again).toBeDisabled()
+
+  // carol's context is signed in already (the API sign-in above)
+  const other = await carol.newPage()
+  await other.goto('/')
+  await expect(other.getByTestId('composer-input')).toBeVisible()
+  await ask(other, 'error:engine_missing\n왜?')
+  const hers = lastAnswer(other).getByTestId('answer-error').getByTestId('not-ready-button')
+  await expect(hers).toHaveText('관리자에게 알리기')
+  await expect(hers).toBeEnabled()
+  await carol.close()
+})
+
+test('the AI cannot start: the owner connects the AI with one button', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'error:engine_missing\n왜?')
+  const box = lastAnswer(page).getByTestId('answer-error')
+  await expect(box).toContainText('AI를 연결하면 바로 답할 수 있어요.')
+  await expect(box.getByTestId('retry')).toBeVisible()
+  await expect(box.getByTestId('not-ready-button')).toHaveText('AI 연결하기')
+  await box.getByTestId('not-ready-button').click()
+  await expect(page).toHaveURL(/\/admin\/providers$/)
+})
+
+// docs/DECISIONS.md "Plain words in errors, cards and steps": a member reads what happened and who to tell; the owner
+// reads where to fix it, in the admin menu's own words; nobody reads an engine, a proxy or an HTTP code
+const BOB = { username: 'bob', password: 'bob password 1' }
+for (const [who, as, expected, absent] of [
+  ['member', BOB, ['안전을 위해 답을 멈췄어요. 팀장에게 알려 주세요.', '트리나가 아직 준비되지 않았어요.'], ['관리자 ›']],
+  ['owner', undefined, ['안전을 위해 답을 멈췄어요. 관리자 › AI 계정에서 원인을 볼 수 있어요.', '트리나가 아직 준비되지 않았어요. AI를 연결하면 바로 답할 수 있어요.'], ['팀장에게 알려 주세요']],
+] as const) {
+  test(`the error box speaks to the ${who}: what happened and who to tell, or where to fix it`, async ({ page }) => {
+    await reset(page)
+    await signIn(page, as)
+    for (const [i, reason] of (['lockdown', 'engine_missing'] as const).entries()) {
+      if (i) {
+        await page.getByTestId('new-chat').click()
+        // the new chat's own message box: the last chat's ("답장하기") can still be on screen for a moment
+        await expect(page).toHaveURL(/\/$/)
+        await expect(page.getByTestId('assistant-message')).toHaveCount(0)
+      }
+      await ask(page, `error:${reason}\n왜?`)
+      await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
+      const box = lastAnswer(page).getByTestId('answer-error')
+      await expect(box).toContainText(expected[i]!)
+      for (const word of absent) await expect(box).not.toContainText(word)
+      await expect(box).not.toContainText(/엔진|프록시|HTTP|API/)
+    }
+  })
+}
 
 test('attachments: an image is uploaded right away and shown as a thumbnail', async ({ page }) => {
   await reset(page)
@@ -303,7 +400,8 @@ for (const legacy of [false, true]) {
   for (const reason of ['auth', 'no_credential', 'proxy_down', 'wall_timeout'] as const) {
     test(`${legacy ? 'legacy' : 'reason-bearing'} ${reason} error follows KO → ID → EN through chat re-entry`, async ({ page }) => {
       await reset(page)
-      await signIn(page)
+      // a member's words (the owner and admins read where to fix it: the test above)
+      await signIn(page, BOB)
       const text = CHAT_ERROR_MESSAGES[reason]
       // The same official phrase in a user message must stay untouched.
       const question = `${legacy ? 'legacy ' : ''}error:${reason}\n${text.ko}`

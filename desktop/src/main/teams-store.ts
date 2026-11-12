@@ -89,7 +89,8 @@ export class TeamsStore {
     }
   }
 
-  saveWindow(v: { width: number; height: number; paneFraction: number }) {
+  /** paneFraction left out: the browser's default width (common/pane-width.ts) */
+  saveWindow(v: { width: number; height: number; paneFraction?: number }) {
     writeAtomic(join(this.dir, 'window.json'), JSON.stringify(v))
   }
 

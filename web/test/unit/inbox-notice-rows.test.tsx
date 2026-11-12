@@ -9,7 +9,8 @@ import { InboxNotification, uuidv7, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { Notifications, noticeLink, noticeText } from '../../src/components/settings/Notifications'
+import { noticeLink, noticeText } from '../../src/components/settings/Notifications'
+import Activity from '../../src/pages/Activity'
 import { installDom, mount, removeDom } from './dom-host'
 import { ME } from './rooms-fixtures'
 
@@ -45,10 +46,41 @@ test('where a row goes: the result chat of a run, the page of the rest; none whe
   expect(noticeLink(notice())).toEqual({ to: `/c/${CHAT}`, testId: 'notification-chat-link' })
   expect(noticeLink(notice({ link: null, chatId: null }))).toBeNull()
   expect(noticeLink(failure({ review: true, link: null, chatId: null }))).toEqual({ to: '/scheduled', testId: 'notification-review-link' })
-  expect(noticeLink(failure({ link: 'integrations', chatId: null, needsKey: { templateId: 't 1', name: 'Tasks' } }))).toEqual({ to: '/settings/connectors?template=t%201', testId: 'notification-template-link' })
-  expect(noticeLink(notice({ eventType: 'connection.reconnect', code: 'connection.reconnect', link: 'connections', chatId: null }))).toEqual({ to: '/settings/connectors?drive=1', testId: 'notification-connections-link' })
+  expect(noticeLink(failure({ link: 'integrations', chatId: null, needsKey: { templateId: 't 1', name: 'Tasks' } }))).toEqual({ to: '/connectors?template=t%201', testId: 'notification-template-link' })
+  expect(noticeLink(notice({ eventType: 'connection.reconnect', code: 'connection.reconnect', link: 'connections', chatId: null }))).toEqual({ to: '/connectors/google-drive', testId: 'notification-connections-link' })
   expect(noticeLink(notice({ eventType: 'dev_env.box', code: 'dev_env.box', link: 'project', chatId: null, devEnv: { projectId: 'p1', projectName: 'Site' } }))).toEqual({ to: '/projects/p1', testId: 'notification-project-link' })
   expect(noticeLink(notice({ eventType: 'team.joined', code: 'team.joined', link: null, chatId: null }))).toEqual({ to: '/admin/members', testId: 'notification-joined-link' })
+})
+
+test('someone joined a project I am in (docs/DECISIONS.md "Project contents only for members"): who and where, while there; the project\'s page', () => {
+  const joined = (projectJoined: InboxNotification['projectJoined'], link: InboxNotification['link'] = projectJoined?.project ? 'project' : null) =>
+    notice({ eventType: 'project.joined', code: 'project.joined', link, chatId: null, outcome: null, projectJoined })
+  const acme = { id: 'p1', name: 'Acme launch' }
+  expect(text(joined({ name: 'Dana', project: acme }))).toBe("Dana님이 &#x27;Acme launch&#x27; 프로젝트에 들어왔어요.")
+  expect(text(joined({ name: 'Dana', project: acme }), 'en')).toBe('Dana joined &#x27;Acme launch&#x27;.')
+  // the project no longer mine to see: no name of it, no link
+  expect(text(joined({ name: 'Dana', project: null }))).toBe('Dana님이 프로젝트에 들어왔어요.')
+  expect(text(joined({ name: 'Dana', project: null }), 'en')).toBe('Dana joined a project.')
+  // the account gone: nobody named
+  expect(text(joined({ name: null, project: acme }))).toBe("누군가 &#x27;Acme launch&#x27; 프로젝트에 들어왔어요.")
+  expect(text(joined({ name: null, project: acme }), 'en')).toBe('Someone joined &#x27;Acme launch&#x27;.')
+  expect(text(joined({ name: null, project: null }), 'en')).toBe(en('notifications.event.project.joined'))
+  // an older server without the details: the line of its kind
+  expect(text(notice({ eventType: 'project.joined', code: 'project.joined', link: null, chatId: null, outcome: null }), 'en')).toBe('Someone joined a project.')
+  expect(noticeLink(joined({ name: 'Dana', project: acme }))).toEqual({ to: '/projects/p1', testId: 'notification-project-link' })
+  expect(noticeLink(joined({ name: 'Dana', project: null }))).toBeNull()
+})
+
+test('a reset link made for me says who made it, and how to stop it while it still works (QA TC-202)', () => {
+  const reset = (resetLink: { server: boolean; by: string | null; open: boolean }) => notice({ eventType: 'account.reset_link', code: 'account.reset_link', link: null, chatId: null, outcome: null, resetLink })
+  expect(text(reset({ server: true, by: null, open: true }))).toBe('서버에서 내 계정의 비밀번호 재설정 링크를 만들었어요. 내가 부탁한 게 아니면 보안·기기에서 비밀번호를 바꿔 주세요. 그러면 링크가 바로 막혀요.')
+  expect(text(reset({ server: false, by: 'Adam', open: false }), 'en')).toBe('Adam made a password reset link for your account.')
+  expect(text(reset({ server: false, by: null, open: false }))).toBe(ko('notifications.resetLink.admin'))
+  // an older server without the details: the plain line
+  expect(text(notice({ eventType: 'account.reset_link', code: 'account.reset_link', link: null, chatId: null, outcome: null }))).toBe(ko('notifications.event.account.reset_link'))
+  // while it works the row opens Settings › 보안·기기, where changing the password ends it; after, it opens nothing
+  expect(noticeLink(reset({ server: true, by: null, open: true }))).toEqual({ to: '/settings/security', testId: 'notification-reset-link-link' })
+  expect(noticeLink(reset({ server: true, by: null, open: false }))).toBeNull()
 })
 
 // ---------------- in the Inbox ----------------
@@ -91,7 +123,7 @@ test('the Inbox: a run is one link with its task, time and dot that reads it; no
   const still = notice({ link: null, chatId: null })
   const job = notice({ eventType: 'dev_env.job', code: 'dev_env.job', outcome: null, devEnv: { projectId: 'p1', projectName: 'Site', job: { name: 'build', exitCode: 1, note: '', tail: 'npm ERR! missing script' } } })
   items = [run, read, still, job]
-  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  const m = await mount(<MemoryRouter><Activity /></MemoryRouter>)
   try {
     await m.until(() => m.find('notification-chat-link'), 'the rows')
     const rows = m.container.ownerDocument!.body.querySelectorAll('[data-testid="notification-item"]')
@@ -123,4 +155,13 @@ test('the Inbox: a run is one link with its task, time and dot that reads it; no
     await m.until(() => reads.length > 0, 'the read')
     expect(reads).toEqual([run.id])
   } finally { await m.unmount() }
+})
+
+test('"tried to use Trina but it isn\'t set up yet": the name while the account is there, else a team member; the AI accounts page', () => {
+  const ask = (o: Partial<InboxNotification> = {}) => notice({ eventType: 'onboarding.ai_request', code: 'onboarding.ai_request', sourceId: 'not-ready:u1', chatId: null, link: 'admin_credentials', outcome: null, ...o })
+  expect(text(ask({ notReady: true, requester: { name: 'Mia' } }), 'en')).toBe("Mia tried to use Trina but it isn&#x27;t set up yet.")
+  expect(text(ask({ notReady: true }), 'en')).toBe("A team member tried to use Trina but it isn&#x27;t set up yet.")
+  // the ask for an AI connection keeps its words
+  expect(text(ask({ sourceId: 'u1', requester: { name: 'Mia' } }), 'en')).toBe(en('notifications.event.onboarding.ai_requestNamed', { name: 'Mia' }))
+  expect(noticeLink(ask({ notReady: true }))?.to).toBe('/admin/providers')
 })

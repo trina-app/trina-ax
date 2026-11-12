@@ -4,7 +4,8 @@
 //   its title, its one line, [예시] (a kept skill's example, only when there is one) and [써 보기] (its form over Home;
 //   자연스러운 글 fills the box with "/humanizer 아래 글을 자연스럽게 다듬어 줘:" and a new line instead: its form has no box
 //   for the text; the box then waits for the person's text before it sends), then "팀 스킬 N개 더 ›". They stay until
-//   the person ran a team skill, however many chats they have.
+//   the person ran a team skill or has PREPARED_SKILL_CHATS chats (then Home's "what my group often asks" can take the
+//   place: docs/DECISIONS.md "Home: what my group often asks").
 // - Team files: while the person has no chats and the team folder holds documents they can read: "{folder} · 파일 n개"
 //   with [물어보기], which puts a question that names the folder in the box as people read it ("예시커피 폴더", never
 //   "groups/…"; names and types only, the brand folder and the skills folder left out as the count leaves them out,
@@ -18,74 +19,84 @@
 // unfolded). `readOnly` (a member under the no-AI card): the rows and 예시 only. Phones (below 768px): a skill row's tap
 // is 써 보기 (it says so at its end, as the files row says 물어보기), with 예시 as its own target at the row's end; the
 // files row is one row. The block reads again when skills, files or access change (once per burst of changes); a failed
-// read is one quiet "다시 불러오기", never the empty state. While its skill rows show, Home leaves 「자주 쓰는 스킬」 out.
+// read is the calm notice (components/LoadError.tsx, docs/DECISIONS.md "How we show errors": the connection reads again
+// by itself), never red under the box and never the empty state. While the block shows anything, Home leaves "what my
+// group often asks" out: one block under the box at a time.
 import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { WORK_HUMANIZER_SKILL, type FileChange, type PackCatalogSkill, type PreparedSkill, type TeamPrepared as TeamPreparedData } from '@mycel/shared/api'
+import { labeledPath } from '@mycel/shared'
+import { WORK_HUMANIZER_SKILL, type FileChange, type Locale, type PackCatalogSkill, type PreparedSkill, type TeamPrepared as TeamPreparedData } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { SKILL_CATALOG } from '../../lib/nav'
 import { isSkillsPath } from '../../lib/skillIssues'
 import { visibleFolders } from '../../lib/visibleFolders'
-import { useT } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../../store/live'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { quietLink } from './SkillShareReview'
 import { SkillExampleViewer } from '../skills/SkillExampleViewer'
 import { SkillFormDialog } from '../skills/SkillForm'
 import { Button, useMediaQuery } from '../ui'
+import { LoadError } from '../LoadError'
 
 /** Skill rows on Home before "팀 스킬 N개 더 ›". */
 export const PREPARED_SKILL_ROWS = 3
+/** The skill rows stay until a team skill ran, or until the person has this many chats. */
+export const PREPARED_SKILL_CHATS = 5
 const PHONE = '(max-width: 767.98px)'
 
-/** A file change the block cares about: a skill, the team's group folders, the company profile. */
-const touches = (changes: FileChange[]) => changes.some((c) => [c.path, c.from].some((p) => !!p && (isSkillsPath(p) || p.startsWith('groups/'))))
+/** A file change the block cares about: a skill, the team's group folders, shared/ (the company start of a team that
+ * began after docs/DECISIONS.md "Team folder basics"), the company profile. */
+const touches = (changes: FileChange[]) => changes.some((c) => [c.path, c.from].some((p) => !!p && (isSkillsPath(p) || p.startsWith('groups/') || p.startsWith('shared/'))))
 
 /** How long the block waits after a change it hears of before it reads again: a team folder where many files change at
  * once (a folder upload, a sync) is one read, not one per file. */
 export const PREPARED_RELOAD_MS = 1500
 
 /** GET /api/skills/examples, read again when skills, team files or access change (as the skills list does), once per
- * burst of changes (PREPARED_RELOAD_MS). `enabled` false: not read. */
-export function useTeamPrepared(enabled = true, again: unknown = null): { data: TeamPreparedData | null; failed: boolean; reload: () => void } {
+ * burst of changes (PREPARED_RELOAD_MS). `enabled` false: not read. A failed read keeps `error` until a read works, so
+ * the notice stays while `reload` reads again (components/LoadError.tsx); `reload`'s promise settles with that read. */
+export function useTeamPrepared(enabled = true, again: unknown = null): { data: TeamPreparedData | null; failed: boolean; error: unknown; reload: () => Promise<void> } {
   const [data, setData] = useState<TeamPreparedData | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [attempt, setAttempt] = useState(0)
+  const [error, setError] = useState<unknown>(null)
+  const loadRef = useRef<(() => Promise<void>) | null>(null)
   useEffect(() => {
     if (!enabled) return
     let live = true, generation = 0
     let timer: ReturnType<typeof setTimeout> | null = null
     const load = () => {
       const g = ++generation
-      api.call(API.skillExamples).then(
-        (d) => { if (live && g === generation) { setData(d); setFailed(false) } },
-        () => { if (live && g === generation) setFailed(true) },
+      return api.call(API.skillExamples).then(
+        (d) => { if (live && g === generation) { setData(d); setError(null) } },
+        (e: unknown) => { if (live && g === generation) setError(e ?? new Error('failed')) },
       )
     }
     const later = () => {
       if (timer) clearTimeout(timer)
-      timer = setTimeout(() => { timer = null; if (live) load() }, PREPARED_RELOAD_MS)
+      timer = setTimeout(() => { timer = null; if (live) void load() }, PREPARED_RELOAD_MS)
     }
-    load()
+    loadRef.current = load
+    void load()
     const offs = [skillsChanged.on(later), accessChanged.on(later), reloadAsked.on(later), filesChanged.on((c) => { if (touches(c)) later() })]
-    return () => { live = false; if (timer) clearTimeout(timer); for (const off of offs) off() }
-  }, [enabled, attempt, again])
-  return { data, failed, reload: () => { setFailed(false); setAttempt((n) => n + 1) } }
+    return () => { live = false; loadRef.current = null; if (timer) clearTimeout(timer); for (const off of offs) off() }
+  }, [enabled, again])
+  return { data, failed: error !== null, error, reload: () => loadRef.current?.() ?? Promise.resolve() }
 }
 
-/** The team folder as people read it: "groups/Acme/회사 자료" → "Acme › 회사 자료". */
-export const folderLabel = (path: string) => path.replace(/^groups\//, '').split('/').join(' › ')
+/** The team folder as people read it: "groups/Acme/회사 자료" → "Acme › 회사 자료", "shared" → "전사 공유" (the top
+ * folders' words, shared/src/folder-labels.ts). */
+export const folderLabel = (path: string, locale: Locale = 'ko') => (path.startsWith('groups/') ? path.slice('groups/'.length).split('/').join(' › ') : labeledPath(path, locale, null, ' › '))
 
 /** 물어보기's question: the folder by the name people read ("예시커피 폴더"), the brand folder (`without[0]`, its name in
  * the team's language) and the skills folder left out in words, as the count leaves them out. */
-export const filesQuestion = (t: (k: 'home.prepared.filesAsk', p: Record<string, string>) => string, f: Pick<NonNullable<TeamPreparedData['teamFolder']>, 'path' | 'without'>) =>
-  t('home.prepared.filesAsk', { folder: folderLabel(f.path), brand: f.without[0] ?? '' })
+export const filesQuestion = (t: (k: 'home.prepared.filesAsk', p: Record<string, string>) => string, f: Pick<NonNullable<TeamPreparedData['teamFolder']>, 'path' | 'without'>, locale: Locale = 'ko') =>
+  t('home.prepared.filesAsk', { folder: folderLabel(f.path, locale), brand: f.without[0] ?? '' })
 
 /** What the block shows for this person (the rules above), apart from the data load. Exported for its test. */
-export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin: boolean; readOnly: boolean }) {
-  const skills = d.ranTeamSkill ? [] : d.skills
+export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin: boolean; readOnly: boolean; chats?: number }) {
+  const skills = d.ranTeamSkill || (o.chats ?? 0) >= PREPARED_SKILL_CHATS ? [] : d.skills
   const rows = skills.slice(0, PREPARED_SKILL_ROWS)
   const files = o.firstTime && d.teamFolder && d.teamFolder.files > 0 ? d.teamFolder : null
   const empty = !rows.length && !files
@@ -101,40 +112,45 @@ export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin
 export interface TeamPreparedProps {
   /** the person has no chats yet: the files row and the ready question can show */
   firstTime: boolean
+  /** how many chats the person has: the skill rows end at PREPARED_SKILL_CHATS */
+  chats?: number
   /** puts a request in the message box (never sends it); `waits`: it needs the person's own text after it, and this
    * line says so under the box while the box holds only the request (nothing is sent meanwhile) */
   onCompose: (text: string, waits?: string) => void
   /** no AI answers the person (a member under the no-AI card): rows and 예시 only */
   readOnly?: boolean
-  /** whether skill rows show, once that is known (false after a failed read): Home leaves 「자주 쓰는 스킬」 out while they
-   * do, so two lists of skills never sit side by side */
-  onSkillRows?: (shown: boolean) => void
+  /** whether the block shows anything, once that is known (false after a failed read): Home leaves "what my group often
+   * asks" out while it does, so one block sits under the box at a time */
+  onShown?: (shown: boolean) => void
 }
 
-export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRows }: TeamPreparedProps) {
+export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false, onShown }: TeamPreparedProps) {
   const t = useT()
+  const locale = useLocale()
   const me = useMeStrict()
   const admin = isAdmin(me)
   const phone = useMediaQuery(PHONE)
   const ids = useId()
-  const { data, failed, reload } = useTeamPrepared()
+  const { data, failed, error, reload } = useTeamPrepared()
   const [running, setRunning] = useState<PreparedSkill | null>(null)
   const [viewing, setViewing] = useState<PreparedSkill | null>(null)
   const exampleButtons = useRef(new Map<string, HTMLButtonElement>())
-  const skillRows = data ? preparedView(data, { firstTime, admin, readOnly }).rows.length > 0 : failed ? false : null
+  const shown = data ? preparedView(data, { firstTime, admin, readOnly, chats }).shown : failed ? false : null
   useEffect(() => {
-    if (skillRows !== null) onSkillRows?.(skillRows)
+    if (shown !== null) onShown?.(shown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skillRows])
+  }, [shown])
   if (failed && !data) {
+    // the calm notice (the connection: it reads again by itself, and the block shows when a read works); never red
+    // under the box, and never the empty state
     return (
-      <p className="mt-6 text-center text-label text-muted" data-testid="team-prepared-failed">
-        <button type="button" className={clsx(quietLink, 'touch-hit')} onClick={reload} data-testid="team-prepared-retry">{t('home.prepared.retry')}</button>
-      </p>
+      <div className="mt-6" data-testid="team-prepared-failed">
+        <LoadError error={error} onRetry={reload} soft what="team-prepared" />
+      </div>
     )
   }
   if (!data) return null
-  const v = preparedView(data, { firstTime, admin, readOnly })
+  const v = preparedView(data, { firstTime, admin, readOnly, chats })
   if (!v.shown) return null
 
   const tryIt = (s: PreparedSkill) => {
@@ -143,7 +159,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
     else setRunning(s)
   }
   // the folders the count leaves out (the brand folder, the group's skills): the question leaves them out too
-  const askFiles = (f: NonNullable<TeamPreparedData['teamFolder']>) => onCompose(filesQuestion(t, f))
+  const askFiles = (f: NonNullable<TeamPreparedData['teamFolder']>) => onCompose(filesQuestion(t, f, locale))
   const example = (s: PreparedSkill) => s.example && (
     <button
       ref={(el) => { if (el) exampleButtons.current.set(s.path, el); else exampleButtons.current.delete(s.path) }}
@@ -220,7 +236,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
           ) : (
             <li className="flex min-h-11 items-center gap-3 py-1.5" data-testid="team-prepared-files" data-primary={v.primary === 'files' || undefined}>
               <span className="w-32 shrink-0 text-sm font-medium text-ink">{t('home.prepared.files')}</span>
-              <span className="min-w-0 flex-1 truncate text-label text-muted" title={v.files.path}>{folderLabel(v.files.path)} · {count(v.files)}</span>
+              <span className="min-w-0 flex-1 truncate text-label text-muted" title={v.files.path}>{folderLabel(v.files.path, locale)} · {count(v.files)}</span>
               {!readOnly && (
                 <Button size="sm" variant={v.primary === 'files' ? 'primary' : 'secondary'} onClick={() => askFiles(v.files!)} aria-label={t('home.prepared.askNamed')} data-testid="team-prepared-ask">
                   {t('home.prepared.ask')}

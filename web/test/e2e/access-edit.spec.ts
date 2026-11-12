@@ -38,7 +38,7 @@ async function openPanel(page: Page, path: string) {
 }
 
 /** Olga (owner, 재무팀), Bob, Carol (영업팀), Dan, Erin (disabled); shared: everyone writes; skills: everyone reads, admins
- * write (the default, an old role row); projects/apollo: Dan writes, 영업팀 reads, Erin reads, nobody else, and
+ * write (the default, an old role row); partners/apollo: Dan writes, 영업팀 reads, Erin reads, nobody else, and
  * apollo/drafts: Bob writes (a rule folder below); connected/nas: 영업팀 reads; docs/old: members read, everyone none. */
 async function team(page: Page) {
   const sales = await call(page, 'post', '/api/admin/groups', { name: '영업팀', memberIds: [] })
@@ -46,8 +46,8 @@ async function team(page: Page) {
   await call(page, 'patch', '/api/admin/users/erin', { status: 'disabled' })
   await call(page, 'post', '/api/admin/folders', { path: 'shared', create: true, rules: [everyone('write')] })
   await call(page, 'post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }] })
-  await call(page, 'post', '/api/admin/folders', { path: 'projects/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'dan', access: 'write' }, { subjectType: 'group', subjectId: sales.id, access: 'read' }, { subjectType: 'user', subjectId: 'erin', access: 'read' }, everyone('none')] })
-  await call(page, 'post', '/api/admin/folders', { path: 'projects/apollo/drafts', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'dan', access: 'write' }, { subjectType: 'group', subjectId: sales.id, access: 'read' }, { subjectType: 'user', subjectId: 'erin', access: 'read' }, everyone('none')] })
+  await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo/drafts', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
   await call(page, 'post', '/api/admin/folders', { path: 'connected/nas', create: true, rules: [{ subjectType: 'group', subjectId: sales.id, access: 'read' }] })
   await call(page, 'post', '/api/admin/folders', { path: 'docs/old', create: true, rules: [{ subjectType: 'role', subjectId: 'member', access: 'read' }, everyone('none')] })
   return sales as { id: string }
@@ -78,7 +78,8 @@ test('basic access first: "follow the folder above" says what it gives now, the 
   await panel(page).getByTestId('edit-basic-read').click()
   await settled(page)
   // the counts show; who exactly opens with "Show people"
-  await expect(panel(page).getByTestId('edit-summary')).toContainText(translate('ko', 'accessEdit.lessTitle', { n: 3 }))
+  // write → read is "can no longer edit", not losing access
+  await expect(panel(page).getByTestId('edit-summary')).toContainText(translate('ko', 'accessEdit.outLoseEdit', { n: 3 }))
   await panel(page).getByTestId('edit-show-people').click()
   const less = panel(page).getByTestId('edit-less')
   await expect(less.getByRole('heading')).toHaveText(translate('ko', 'accessEdit.lessTitle', { n: 3 }))
@@ -87,7 +88,7 @@ test('basic access first: "follow the folder above" says what it gives now, the 
   await expect(less.getByTestId('edit-change')).toContainText('Bob, Carol, Dan')
   await expect(panel(page).getByTestId('edit-more')).toHaveCount(0)
   await expect(panel(page).getByTestId('edit-next')).toHaveText(translate('ko', 'accessEdit.next', { who: `${t['rules.everyone']} · ${t['access.read']}` }))
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 3 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: translate('ko', 'accessEdit.outLoseEdit', { n: 3 }) }))
   await expect(save(page)).toBeEnabled()
 
   const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/rules'))
@@ -155,7 +156,7 @@ test('people and groups: one search adds either, each with read, write or no acc
   await expect(more.getByTestId('edit-change').filter({ hasText: 'Carol' })).toContainText(t['access.write'])
   await expect(more.getByTestId('edit-change').filter({ hasText: 'Dan' })).toContainText(t['access.read'])
   await expect(more).not.toContainText('Bob')
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveMore', { n: 2 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: translate('ko', 'accessEdit.outGainOpen', { n: 2 }) }))
   await save(page).click()
   await expect(panel(page)).toHaveCount(0)
   expect(await rulesOf(page, 'marketing')).toEqual(['everyone::read', `group:${sales.id}:write`, 'user:bob:none'].sort())
@@ -177,7 +178,7 @@ test('people and groups: one search adds either, each with read, write or no acc
   // a person switched off is named as such; the owner and admins are said to write anyway
   await page.getByTestId('edit-cancel').click()
   await page.getByTestId('dialog-confirm').click()
-  await openPanel(page, 'projects/apollo')
+  await openPanel(page, 'partners/apollo')
   await expect(named(page, 'user:erin').getByTestId('edit-named-off')).toHaveText(t['accessEdit.disabled'])
   await panel(page).getByTestId('edit-add').fill('olga')
   await page.keyboard.press('Enter')
@@ -215,7 +216,7 @@ test('another admin changes the rules: the save is refused, the panel says so, k
   await openPanel(page, 'shared')
   await panel(page).getByTestId('edit-basic-named').click()
   await settled(page)
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 3 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: translate('ko', 'accessEdit.outLoseOpen', { n: 3 }) }))
   // meanwhile another admin keeps Dan out of shared
   await call(page, 'put', `/api/admin/folders/${await rowId(page, 'shared')}/rules`, { rules: [everyone('write'), { subjectType: 'user', subjectId: 'dan', access: 'none' }] })
   const refused = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().includes('/rules'))
@@ -225,7 +226,7 @@ test('another admin changes the rules: the save is refused, the panel says so, k
   // the draft stays; the result is against their rules now: Dan had none already
   await expect(panel(page).getByTestId('edit-basic-named').getByRole('radio')).toBeChecked()
   await settled(page)
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 2 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: [translate('ko', 'accessEdit.outLoseOpen', { n: 2 })].join(' · ') }))
   await expect(panel(page).getByTestId('edit-less')).not.toContainText('Dan')
   expect(await rulesOf(page, 'shared')).toEqual(['everyone::write', 'user:dan:none'])
   // their rules can be taken instead
@@ -384,22 +385,24 @@ test('the result waits for the choices to settle, and an older answer never repl
   await expect(panel(page).getByTestId('edit-less').getByTestId('edit-change')).toContainText(t['access.none'])
   await page.waitForTimeout(1800)
   await expect(panel(page).getByTestId('edit-less').getByTestId('edit-change')).toContainText(t['access.none'])
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 3 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: [translate('ko', 'accessEdit.outLoseOpen', { n: 3 })].join(' · ') }))
   await expect(panel(page).getByTestId('edit-basic-named').getByRole('radio')).toBeChecked()
 })
 
-test('a phone: the panel is the whole screen with a way back, the focus stays in it, and nothing runs off the side', async ({ page }) => {
+test('a phone: the editor is a page of its own under the bar (‹ to the folder), Save in sight, nothing runs off the side', async ({ page }) => {
+  // since TC-267 (pages/admin/adminScreens.ts): its own history entry under Admin's phone bar, not a full-screen panel
+  // with its own ←; phone-admin-pages.spec.ts follows Back through it
   await page.setViewportSize({ width: 375, height: 812 })
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
   const sales = await team(page)
-  await openPanel(page, 'projects/apollo')
-  await expect(panel(page)).toHaveAttribute('role', 'dialog')
-  await expect(panel(page)).toHaveAttribute('aria-modal', 'true')
-  const box = (await panel(page).boundingBox())!
-  expect([box.x, box.y, box.width, box.height]).toEqual([0, 0, 375, 812])
-  await expect(panel(page).getByRole('heading', { name: t['accessEdit.title'] })).toBeFocused()
+  await openPanel(page, 'partners/apollo')
+  await expect(page).toHaveURL(/rules=partners%2Fapollo/)
+  await expect(panel(page)).not.toHaveAttribute('role', 'dialog')
+  await expect(page.getByTestId('edit-back')).toHaveCount(0)
+  await expect(page.getByTestId('admin-bar-title')).toHaveText(t['accessEdit.title'])
+  await expect(page.getByTestId('admin-back-label')).toHaveText('partners/apollo')
   // the Save button is on the screen without scrolling
   const s = (await save(page).boundingBox())!
   expect(s.y + s.height).toBeLessThanOrEqual(812)
@@ -409,23 +412,21 @@ test('a phone: the panel is the whole screen with a way back, the focus stays in
   })
   expect(fits).toBe(true)
   await expect(named(page, `group:${sales.id}`)).toBeVisible()
-  // Tab stays inside the panel
-  for (let i = 0; i < 25; i++) await page.keyboard.press('Tab')
-  expect(await page.evaluate(() => !!document.activeElement?.closest('[data-testid="edit-panel"]'))).toBe(true)
-  // the way back asks when something changed
+  // ‹ asks when something changed
   await panel(page).getByTestId('edit-basic-read').click()
-  await page.getByTestId('edit-back').click()
+  await page.getByTestId('admin-back').click()
   await expect(page.getByRole('dialog').filter({ hasText: t['accessEdit.discardTitle'] })).toBeVisible()
   await page.getByTestId('dialog-confirm').click()
   await expect(panel(page)).toHaveCount(0)
   await expect(detail(page)).toBeVisible()
-  await expect(page.getByTestId('folder-detail-edit')).toBeFocused()
-  // a save on the phone
+  await expect(page).not.toHaveURL(/rules=/)
+  // a save on the phone: back on the folder, its entry gone
   await page.getByTestId('folder-detail-edit').click()
   await panel(page).getByTestId('edit-basic-read').click()
   await settled(page)
   await save(page).click()
   await expect(panel(page)).toHaveCount(0)
+  await expect(page).not.toHaveURL(/rules=/)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
   expect(realErrors(errors)).toEqual([])
 })
@@ -481,7 +482,7 @@ test('the keyboard: the basic access, the search, a person\'s access and Save by
   await expect(page.getByTestId('edit-cancel')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(save(page)).toBeFocused()
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 3 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: [translate('ko', 'accessEdit.outLoseOpen', { n: 1 }), translate('ko', 'accessEdit.outLoseEdit', { n: 2 })].join(' · ') }))
   await page.keyboard.press('Enter')
   await expect(panel(page)).toHaveCount(0)
   await expect(page.getByTestId('folder-detail-edit')).toBeFocused()

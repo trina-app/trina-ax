@@ -189,7 +189,8 @@ describe('a failed answer without AI', () => {
     access = { usable: false, action: 'connect_team', requested: false }
     let m = await failed('credential_unusable')
     try {
-      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.credential_unusable'))
+      // the real menu, in its own words (it said "관리 › AI 연결", a menu that no longer exists)
+      expect(m.get('answer-error').textContent).toContain(translate('ko', 'aiConnect.error.credential_unusable', { path: `${ko('admin.title')} › ${ko('admin.providers')}` }))
       expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.connectTeam'))
       await m.click('ai-access-button')
       await m.until(() => q('claude-login-how'), 'the dialog')
@@ -209,7 +210,7 @@ describe('a failed answer without AI', () => {
 })
 
 describe('a failed answer with AI connected', () => {
-  test('the owner keeps the server\'s per-engine words and no button (another engine is connected)', async () => {
+  test('the owner reads where to fix it, not the "connect AI" words, and no button (another engine is connected)', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     useAiAccess.setState({ loaded: true, usable: true, requested: false, trial: null })
@@ -221,7 +222,8 @@ describe('a failed answer with AI connected', () => {
     )
     try {
       await m.until(() => m.find('answer-error'), 'the error')
-      expect(m.get('answer-error').textContent).toContain(CHAT_ERROR_MESSAGES.no_credential.ko)
+      // where to fix it, for the owner (lib/chatErrors.ts); no "connect AI" words or button
+      expect(m.get('answer-error').textContent).toContain(translate('ko', 'chat.error.admin.no_credential', { path: `${ko('admin.title')} › ${ko('admin.providers')}` }))
       expect(m.get('answer-error').textContent).not.toContain(ko('aiConnect.error.no_credential'))
       expect(m.find('ai-access-button')).toBeNull()
     } finally { await m.unmount() }

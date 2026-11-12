@@ -20,11 +20,15 @@ import { ToolError } from '../policy/errors'
 import type { RouteModule } from './module'
 import { assertStorageRoom } from '../system/storage'
 import { registerDriveRoutes } from './drive'
-import { registerKnowledgeGraphRoutes } from './knowledge-graph'
+import { registerGoogleAppsRoutes } from './google-apps'
+import { googleAppsOf } from '../integrations/google-apps/service'
+import { installServiceRequests } from '../integrations/service-requests'
 import { registerIntegrationRoutes } from './integrations'
 import { registerIntegrations } from '../integrations/connections/tools'
 import { registerPluginRoutes } from './plugins'
 import { pluginsOf } from '../plugins/manager'
+import { registerFileListRoutes } from './file-list'
+import { fileListOf } from '../file-list/service'
 
 export const filesRoutes: RouteModule = {
   name: 'files',
@@ -37,13 +41,21 @@ export const filesRoutes: RouteModule = {
     registerCTools(ctx)
     // external-service connections: each person's tools are made at the start of their turn
     registerIntegrations(ctx)
+    // Gmail, Calendar, Docs and Sheets: the library runs while one of them is set up (integrations/google-apps/)
+    try { googleAppsOf(ctx) } catch (e) { ctx.log.error('Google apps failed to start; they stay off', { err: e }) }
+    // a member's ask to add an app: closed once it is set up somewhere else too (integrations/service-requests.ts)
+    installServiceRequests(ctx)
+    // the file list: its nightly check and its hooks on moves and access changes (file-list/service.ts); a broken
+    // sidecar never stops the server here
+    try { fileListOf(ctx) } catch (e) { ctx.log.error('file list failed to start; it stays off', { err: e }) }
   },
   register(kit, ctx) {
     registerDriveRoutes(kit, ctx)
+    registerGoogleAppsRoutes(kit, ctx)
     registerIntegrationRoutes(kit, ctx)
     registerPluginRoutes(kit, ctx)
-    // Admin › Team settings › Knowledge graph (knowledge-graph/service.ts)
-    registerKnowledgeGraphRoutes(kit, ctx)
+    // Admin › Team settings › File list (file-list/service.ts)
+    registerFileListRoutes(kit, ctx)
     const C = componentC(ctx)
     const svc = C.files
     const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')
@@ -59,6 +71,8 @@ export const filesRoutes: RouteModule = {
     }
 
     kit.handle(API.tree, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.tree(auth.user.id, query.path, query.cursor, query.limit)))
+    // who can see a folder (a count only where the caller can write; team-files/service.ts audience)
+    kit.handle(API.folderAudience, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.audience(auth.user.id, query.path)))
 
     kit.handle(API.content, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
       const r = await svc.content(auth.user.id, query.path, query.maxBytes)
@@ -84,7 +98,7 @@ export const filesRoutes: RouteModule = {
       // consumers that request attachment bytes without the explicit preview flag.
       // Headerless API/native clients may still perform an authorized download.
       ctx.files.quarantine.assertDownload(f.abs, c.req.raw.headers)
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
     }))
 
     // HEIC / HEIF photos (QA R2-FMT-10): browsers cannot draw them, so the file panel shows a JPEG made on the server
@@ -145,19 +159,20 @@ export const filesRoutes: RouteModule = {
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try {
-        return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha)
+        // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
+        return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha, undefined, { keepSame: true })
       } finally { fs.rmSync(p, { force: true }) }
     }, 'name'))
 
     kit.handle(API.mkdir, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.mkdir(auth.user.id, body.path)))
-    kit.handle(API.move, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.move(auth.user.id, body.from, body.to, body.onExists, { confirm: body.confirm }), 'to'))
+    kit.handle(API.move, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.move(auth.user.id, body.from, body.to, body.onExists, { confirm: body.confirm, skillsOk: body.skillsOk, askWiden: body.askWiden }), 'to'))
     kit.handle(API.copy, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.copy(auth.user.id, body.from, body.to, { baseSha256: body.baseSha256, dryRun: body.dryRun, onExists: body.onExists }), 'to'))
     kit.handle(API.remove, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.remove(auth.user.id, query.path)))
     kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.history(auth.user.id, query.path)))
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const v = svc.versionFile(auth.user.id, params.versionId)
       ctx.files.quarantine.assertDownload(v.abs, c.req.raw.headers)
-      return streamFile({ abs: v.abs, name: v.name, req: c.req.raw, disposition: 'attachment' })
+      return streamFile({ abs: v.abs, name: v.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
     }))
     kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId)))
     kit.handle(API.trash, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.trash(auth.user.id, { mine: query.mine, cursor: query.cursor, limit: query.limit })))
@@ -169,11 +184,17 @@ export const filesRoutes: RouteModule = {
       assertWhole(body.file, body.fields.size)
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
-      try { return await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha) } finally { fs.rmSync(p, { force: true }) }
+      try {
+        const a = await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha)
+        // the request was dropped while the file was put in place (its chip taken out): the box never learns its id, so a
+        // file a shared chat put in its project folder goes to the trash again
+        if (c.req.raw.signal.aborted) C.attachments.discardSaved(auth.user.id, a)
+        return a
+      } finally { fs.rmSync(p, { force: true }) }
     }, 'name'))
     kit.handle(API.attachmentThumbnail, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const t = C.attachments.thumbnail(auth.user.id, params.id)
-      if ('abs' in t) return streamFile({ abs: t.abs, name: t.name, req: c.req.raw, disposition: 'inline' })
+      if ('abs' in t) return streamFile({ abs: t.abs, name: t.name, req: c.req.raw, disposition: 'inline', via: c.get('info')?.via })
       // a team-file reference: the bytes were read through the descriptor that was checked (no second open by path)
       const etag = `"${t.etag}"`
       const headers = new Headers({ 'Content-Type': t.mime, 'ETag': etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff',
@@ -183,16 +204,18 @@ export const filesRoutes: RouteModule = {
     }))
 
     // ---------------- team files in chats (picker + reference attachments) ----------------
-    kit.handle(API.findFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => findFiles(svc, auth.user.id, query.q, query.path, query.limit)))
+    kit.handle(API.findFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => findFiles(svc, auth.user.id, query.q, query.path, query.limit, { folders: query.folders === '1' })))
     kit.handle(API.searchFileContents, ({ c, query, auth }) => mapErrors(c.get('locale'), () => searchFileContents(svc, auth.user.id, query.q, query.path, query.limit, c.req.raw.signal)))
     kit.handle(API.recentFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => recentFiles(svc, auth.user.id, query.limit)))
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
+    // a chip taken out before sending: a computer upload into a shared chat goes to the trash (uploads/team-refs.ts discard)
+    kit.handle(API.discardAttachment, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.discard(auth.user.id, params.id)))
 
     // ---------------- chunked uploads ----------------
     kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.create(auth.user.id, body.target, body.size, body.sha256), 'target'))
     kit.handle(API.uploadChunk, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.putChunk(auth.user.id, params.id, Number(params.n), body)))
     kit.handle(API.getUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.get(auth.user.id, params.id)))
     kit.handle(API.completeUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.complete(auth.user.id, params.id)))
-    kit.handle(API.cancelUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => { C.uploads.cancel(auth.user.id, params.id) }))
+    kit.handle(API.cancelUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), async () => { await C.uploads.cancel(auth.user.id, params.id) }))
   },
 }

@@ -2,7 +2,7 @@
 // forgetting all of it (the next person in the same tab must not see "Add to current chat" aimed at the previous
 // person's chat, nor their chips or draft chat).
 import { describe, expect, test } from 'bun:test'
-import { addToCurrentChat, currentChatTarget, draftChat, draftChatIfAny, forgetTeamAttach, patchStash, readStash, registerComposer, rememberChat, sendToComposer, subscribeStash, writeStash } from '../../src/lib/teamAttach'
+import { addToCurrentChat, currentChatTarget, draftChat, draftChatIfAny, forgetTeamAttach, patchStash, readStash, registerComposer, rememberChat, sendToComposer, shareStash, subscribeStash, writeStash } from '../../src/lib/teamAttach'
 
 describe('teamAttach', () => {
   test('paths queued for a composer that is not on screen reach it when it opens; the result comes back', async () => {
@@ -35,6 +35,24 @@ describe('teamAttach', () => {
     expect(seen).toEqual([[{ id: 'u1', status: 'done' }]])
     expect(readStash('alice', 'c2')).toEqual([{ id: 'u1', status: 'done' }])
     off()
+    forgetTeamAttach()
+  })
+
+  test('two boxes of one draft (a room\'s side chat on the page and in the viewer) both hear a patch and a change; one going leaves the other', () => {
+    writeStash('alice', 'side:r1', [{ id: 'u1', status: 'uploading' }])
+    const a: unknown[] = [], b: unknown[] = []
+    const offA = subscribeStash('alice', 'side:r1', (items) => a.push(items))
+    const offB = subscribeStash('alice', 'side:r1', (items) => b.push(items))
+    patchStash<{ id: string; status: string }>('alice', 'side:r1', 'u1', { status: 'done' })
+    shareStash('alice', 'side:r1', [])
+    expect(a).toEqual([[{ id: 'u1', status: 'done' }], []])
+    expect(b).toEqual(a)
+    expect(readStash('alice', 'side:r1')).toEqual([])
+    offA()
+    shareStash('alice', 'side:r1', [{ id: 'u2' }])
+    expect(a).toHaveLength(2)
+    expect(b.at(-1)).toEqual([{ id: 'u2' }])
+    offB()
     forgetTeamAttach()
   })
 })

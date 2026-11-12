@@ -3,8 +3,11 @@ title: Admin
 description: What owners and admins manage, and where each setting lives.
 ---
 
-**Admin** in the sidebar is for the owner and admins. Every page in it is for the whole team, and says so next to its
-title. It opens on **Home**, which lists what needs attention first.
+**Admin** in the sidebar is for the owner and admins. Every page in it is for the whole team: the menu's title is your
+team's name and logo ("Acme admin"), and every page says "Applies to everyone in Acme" above its title. The pages keep
+the same names as in Settings. Admin › Connected apps is the team's connections; yours are under **Connectors** in the
+sidebar. It opens on
+**Home**, which lists what needs attention first.
 For the owner, Home also lists the first setup steps that are still to do: check the AI connection, set folder
 permissions, invite your team, prepare a team skill, make the first backup. A finished step leaves the list.
 
@@ -35,7 +38,7 @@ Assign folders to groups and check access with two test accounts. [Read about pe
 In **Providers**, the owner or an admin chooses **Add account** in the Claude Code or Codex row and connects an authorized
 Claude or OpenAI account. Each row shows whether that engine is ready.
 
-![Admin › Providers: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "Providers")
+![Admin › AI accounts: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "Providers")
 
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access.
@@ -59,7 +62,7 @@ People who operate the server, its OS or its storage can read stored files and c
 
 ## Providers
 
-**Admin › Providers**, first in the Connections group, has one row per engine (Claude Code, Codex, API): its state,
+**Admin › AI accounts**, first in the Connections group, has one row per engine (Claude Code, Codex, API): its state,
 sign-in mode, models and last check, with **↻** to check again and an on/off switch. Under Claude Code and Codex are
 the accounts the team answers with, in the order they are tried, with **Add account** for the owner.
 

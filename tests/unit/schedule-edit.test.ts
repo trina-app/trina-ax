@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, type ApiError, type ScheduleTaskEdit } from '@mycel/shared/api'
 import { uuidv7 } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { CONFIRMED } from '../lib/schedule-card'
 import { waitFor } from '../lib/wait'
 import type { ScheduleRow } from '../../server/src/chat/schedules'
@@ -55,6 +56,18 @@ describe('run now', () => {
     expect((await h.api('alice').call(API.listSchedules)).items.find((x) => x.id === s.id)!.lastOutcome).toBe('done')
     // the scheduled occurrence still comes at its time
     expect(h.rt().schedules.runDue(new Date(Date.parse(before.next_run_at!) + 1000))).toContain(s.id)
+  })
+
+  test('the Scheduled page follows a run now: running while it is on, then its result and when it ended (it moves only lastChatId)', async () => {
+    const s = make('alice', { prompt: fake({ sleep: 1500 }, { say: 'digest done' }) })
+    const r = await h.api('alice').call(API.runScheduleNow, { params: { id: s.id }, body: {} })
+    // the run is on: its chat is lastChatId, the result is still the run before it (none), last_run_at stays
+    expect(r.schedule).toMatchObject({ running: true, lastChatId: r.chatId, lastRunAt: null, lastOutcome: null, lastOutcomeAt: null })
+    const list = async () => (await h.api('alice').call(API.listSchedules)).items.find((x) => x.id === s.id)!
+    const done = await waitFor(async () => { const x = await list(); return x.running === false && x.lastOutcome ? x : null }, { timeoutMs: 30_000 })
+    expect(done).toMatchObject({ running: false, lastOutcome: 'done', lastRunAt: null, lastChatId: r.chatId })
+    const ended = (h.ctx.db.query('SELECT ended_at FROM turns WHERE chat_id = ?').get(r.chatId) as { ended_at: string }).ended_at
+    expect(done!.lastOutcomeAt).toBe(ended)
   })
 
   test('a paused task runs once and stays paused; a one-time task is not used up', async () => {
@@ -190,7 +203,7 @@ describe('edit', () => {
     const past = await card({ ...base, repeat: 'once', date: '2020-01-01' })
     expect([past.status, past.message]).toEqual([400, 'That time has already passed. Pick a date and time in the future.'])
     // a project: one the person can open, else refused
-    const p = await h.api('alice').call(API.createProject, { body: { name: 'Q4 plan', folderPath: 'groups/marketing/q4-sched', instructions: 'Use the brief.' } })
+    const p = await oldProject(h, 'alice', { name: 'Q4 plan', folderPath: 'groups/marketing/q4-sched', instructions: 'Use the brief.' })
     const bad = await card({ ...base, projectId: uuidv7() })
     expect([bad.status, Object.keys(bad.body.fields ?? {})]).toEqual([400, ['body.projectId']])
     const withProject = { ...base, projectId: p.id }

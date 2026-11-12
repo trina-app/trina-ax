@@ -63,7 +63,7 @@ export async function makeCApp(name: string, extra: RouteModule[] = [], o: { sta
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
     teamRoot: fx.team, dataDir: fx.data, logDir: null, logLevel: 'error',
     engine: { authMode: 'local-login' }, relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null },
-    validateResponses: true, setupToken: null,
+    validateResponses: true, setupToken: null, roomAiMentions: true,
   }
   const db = openDb(path.join(fx.data, 'app.db'))
   seed(db)

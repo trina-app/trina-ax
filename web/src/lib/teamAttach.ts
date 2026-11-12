@@ -127,7 +127,12 @@ export function writeStash<T>(userId: string, draftId: string, items: T[]) {
   if (items.length) stashes.set(key(userId, draftId), items)
   else stashes.delete(key(userId, draftId))
 }
-const stashSubs = new Map<string, (items: unknown[]) => void>()
+/** the boxes showing each draft: usually one; a room's side chat shows one draft in two (the room page's panel and the
+ * one beside a file in the viewer) */
+const stashSubs = new Map<string, Set<(items: unknown[]) => void>>()
+const tell = (k: string, items: unknown[]) => {
+  for (const f of [...(stashSubs.get(k) ?? [])]) f(items)
+}
 /** Change one chip of a draft, on screen or not (an upload finishing after the person left the page and came back
  * goes to the composer showing that draft now). */
 export function patchStash<T extends { id: string }>(userId: string, draftId: string, id: string, patch: Partial<T>) {
@@ -136,15 +141,23 @@ export function patchStash<T extends { id: string }>(userId: string, draftId: st
   if (!cur) return
   const next = cur.map((x) => (x.id === id ? { ...x, ...patch } : x))
   stashes.set(k, next)
-  stashSubs.get(k)?.(next)
+  tell(k, next)
 }
-/** The composer showing a draft hears about patches to its chips. Returns the unsubscribe function. */
+/** A box's own change to its chips (added, removed, sent): kept, and every other box showing the draft hears it. */
+export function shareStash<T>(userId: string, draftId: string, items: T[]) {
+  writeStash(userId, draftId, items)
+  tell(key(userId, draftId), items)
+}
+/** The boxes showing a draft hear about changes to its chips. Returns the unsubscribe function. */
 export function subscribeStash<T>(userId: string, draftId: string, fn: (items: T[]) => void): () => void {
   const k = key(userId, draftId)
   const f = fn as (items: unknown[]) => void
-  stashSubs.set(k, f)
+  const subs = stashSubs.get(k) ?? new Set()
+  stashSubs.set(k, subs)
+  subs.add(f)
   return () => {
-    if (stashSubs.get(k) === f) stashSubs.delete(k)
+    subs.delete(f)
+    if (!subs.size && stashSubs.get(k) === subs) stashSubs.delete(k)
   }
 }
 

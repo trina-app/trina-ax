@@ -11,11 +11,15 @@
 // Folders (design tab 2): shared/ everyone write · skills/ everyone read, admin write · skills/finance everyone none +
 // finance read (a restricted team skill) · users/alice/skills/ alice's personal skill · groups/marketing marketing
 // write · groups/marketing/salaries marketing none · groups/finance finance write · projects/falcon alice write +
-// finance read · projects/falcon/public everyone read · users/<id>/ only that person (owner and admin included).
+// finance read · projects/falcon/public everyone read · projects/Team plan alice + erin write, everyone else none (a
+// team project alice made) · users/<id>/ only that person (owner and admin included).
 //
 // Every private thing carries a canary string; a "deny" case also fails when its response contains one.
 import { API } from '@mycel/shared/api'
 import { componentC } from '../../../server/src/team-files/component'
+import fs from 'node:fs'
+import path from 'node:path'
+import { legacyProject, legacyProjectFolder } from '../../lib/legacy-project'
 import { sealSecret } from '../../../web/src/lib/seal'
 import { SETUP_TOKEN, type Client, type Instance, type Socket } from './instance'
 
@@ -66,6 +70,16 @@ export const C = {
   // a group chat of alice, erin and frank (docs/DECISIONS.md "그룹 대화와 방 이름"): its message and its name are theirs
   groupMsg: 'SEC-GROUP-MSG-6c4',
   groupName: 'SEC-GROUP-NAME-2f9',
+  // the team project "Team plan" (alice + erin): what is in it is its members' only, never the owner's or an admin's
+  // (docs/DECISIONS.md "Project contents only for members")
+  teamFile: 'SEC-TEAM-FILE-4b8',
+  teamFileOld: 'SEC-TEAM-OLDVER-2c6',
+  teamName: 'SEC-TEAM-NAME-9d1',        // a file NAME inside it
+  teamSub: 'SEC-TEAM-SUB-7e3',          // a folder NAME inside it
+  teamTrashName: 'SEC-TEAM-TRASHED-1f5', // a trashed file name inside it
+  teamInstr: 'SEC-TEAM-INSTR-6a9',
+  teamChatMsg: 'SEC-TEAM-CHAT-3b2',     // a message in its shared chat
+  teamSkill: 'SEC-TEAM-SKILL-8c4',      // its project skill's description
 } as const
 
 export type Who = 'owner' | 'admin' | 'memberIn' | 'other' | 'memberOut' | 'pwchange' | 'anon'
@@ -83,7 +97,10 @@ export interface World {
     chatA: string; chatB: string; userMsg: string; assistantMsg: string; turnB: string; requestB: string
     /** an open connect_service card of alice (buildWorld's connectCard option; '' without it) */
     turnConnect: string; requestConnect: string
-    artifact: string; memory: string; attachment: string; projAlice: string; projFalcon: string; projMkt: string; projShared: string
+    artifact: string; memory: string; attachment: string
+    /** alice's team-file reference (users/alice/<name>.md) in chatA, never sent */
+    aliceRef: string
+    projAlice: string; projFalcon: string; projMkt: string; projShared: string; projTeam: string
     uploadAlice: string; jobAlice: string; jobSystem: string; aliceVersion: string; finVersion: string
     trashAlice: string; trashFin: string; aliceSession: string; invite: string; inviteToken: string; resetToken: string
     budget: string; bobChat: string; suggestion: string
@@ -94,6 +111,8 @@ export interface World {
     dmAiTurn: string; dmAiPreview: string
     /** a group chat alice made with erin and frank (alice is its manager), and a second one only for leaving */
     groupRoom: string; groupLeaveRoom: string
+    /** Team plan's shared chat, its trashed file and an old version of its plan.md */
+    teamChat: string; trashTeam: string; teamVersion: string
   }
   sockets: Record<'alice' | 'bob' | 'carol' | 'dana' | 'erin', Socket>
 }
@@ -144,9 +163,11 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   const mk = await owner.ok('POST', '/api/admin/groups', { name: 'marketing', memberIds: ['alice', 'erin'] })
   const fin = await owner.ok('POST', '/api/admin/groups', { name: 'finance', memberIds: ['bob'] })
   const rule = (subjectType: string, subjectId: string | null, access: string) => ({ subjectType, subjectId, access })
-  await owner.ok('POST', '/api/admin/folders', { path: 'projects/falcon', create: true, rules: [rule('user', 'alice', 'write'), rule('group', fin.id, 'read')] })
-  await owner.ok('POST', '/api/admin/folders', { path: 'projects/atlas', create: true, rules: [rule('user', 'alice', 'write'), rule('group', fin.id, 'read')] })
-  await owner.ok('POST', '/api/admin/folders', { path: 'projects/falcon/public', create: true, rules: [rule('everyone', null, 'read')] })
+  // folders in projects/ with rules an admin set in Folder permissions, as builds before "Project contents only for
+  // members" let them (that screen refuses it now; tests/lib/legacy-project.ts)
+  legacyProjectFolder(inst.ctx.db, inst.team, 'projects/falcon', [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'group', subjectId: fin.id, access: 'read' }], 'dana')
+  legacyProjectFolder(inst.ctx.db, inst.team, 'projects/atlas', [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'group', subjectId: fin.id, access: 'read' }], 'dana')
+  legacyProjectFolder(inst.ctx.db, inst.team, 'projects/falcon/public', [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'dana')
   const folderList = (await owner.ok('GET', '/api/admin/folders')).items as { id: string; path: string }[]
   const mktFolder = folderList.find((f) => f.path.startsWith('groups/') && f.path.includes('marketing'))!.path
   const finFolder = folderList.find((f) => f.path.startsWith('groups/') && f.path.includes('finance'))!.path
@@ -173,7 +194,8 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   await save(carol, `${mktFolder}/salaries/2026.md`, `${C.salary}\n`)
   await save(alice, `${mktFolder}/brief.md`, `${C.mktBrief}\n`)
   await save(alice, 'projects/falcon/plan.md', `${C.falconPlan}\n`)
-  await save(dana, 'projects/falcon/public/announce.md', 'falcon public announcement\n')
+  // (nobody but the system writes there now: everyone reads it, alice too; written as an older build's admin did)
+  fs.writeFileSync(path.join(inst.team, 'projects', 'falcon', 'public', 'announce.md'), 'falcon public announcement\n', { mode: 0o600 })
   await save(dana, 'shared/readme.md', 'shared readme\n')
   await save(alice, 'projects/atlas/atlas.md', 'atlas notes\n')
   await save(carol, 'skills/team-rules.md', 'team rules\n')
@@ -197,12 +219,33 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   await sockets.alice.next('hello')
 
   // ---------------- chats (fake engine) ----------------
-  const projAlice = (await alice.ok('POST', '/api/projects', { name: 'Private plan', folderPath: 'users/alice', instructions: C.aliceProjInstr })).id
-  const projFalcon = (await alice.ok('POST', '/api/projects', { name: 'Falcon', folderPath: 'projects/falcon', instructions: C.falconInstr })).id
-  const projMkt = (await alice.ok('POST', '/api/projects', { name: 'Marketing', folderPath: mktFolder, instructions: C.mktInstr })).id
-  const projShared = (await bob.ok('POST', '/api/projects', { name: 'Shared', folderPath: 'shared', instructions: 'shared instructions' })).id
+  const projAlice = (await alice.ok('POST', '/api/projects', { name: 'Private plan', scope: 'personal', instructions: C.aliceProjInstr })).id
+  // projects on existing folders, as builds before "Projects live only in projects/" made them (they keep working; no
+  // route makes one any more: tests/lib/legacy-project.ts)
+  const projFalcon = legacyProject(inst.ctx.db, inst.team, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: C.falconInstr })
+  const projMkt = legacyProject(inst.ctx.db, inst.team, 'alice', { name: 'Marketing', folderPath: mktFolder, instructions: C.mktInstr })
+  const projShared = legacyProject(inst.ctx.db, inst.team, 'bob', { name: 'Shared', folderPath: 'shared', instructions: 'shared instructions' })
+  // a team project alice made the way every new one is made: projects/<name>, alice and erin write, nobody else
+  const projTeam = (await alice.ok('POST', '/api/projects', { name: 'Team plan', participants: [{ subjectType: 'user', subjectId: 'erin' }], instructions: '' })).id
+  // what is in Team plan: a file (two versions), a file name, a folder name, a trashed file, its instructions, a shared
+  // chat with a message, a project skill. Only alice and erin may ever see any of it
+  const TP = 'projects/Team plan'
+  await save(alice, `${TP}/plan.md`, `${C.teamFileOld}\n`)
+  await save(alice, `${TP}/plan.md`, `${C.teamFile}\n`)
+  await save(alice, `${TP}/${C.teamName}.md`, 'team name canary\n')
+  await alice.ok('POST', '/api/files/mkdir', { path: `${TP}/${C.teamSub}` })
+  await save(alice, `${TP}/${C.teamSub}/notes.md`, 'team sub notes\n')
+  await save(alice, `${TP}/${C.teamTrashName}.md`, 'x\n')
+  const trashTeam = (await alice.ok('DELETE', `/api/files?path=${encodeURIComponent(`${TP}/${C.teamTrashName}.md`)}`)).trashId
+  await save(alice, `${TP}/skills/plan-steps/SKILL.md`, `---\nname: Plan steps\ndescription: ${C.teamSkill}\n---\nthe steps\n`)
+  await alice.ok('PATCH', `/api/projects/${projTeam}`, { instructions: C.teamInstr, shareChats: true })
+  const teamChat = (await alice.ok('POST', '/api/chats', { title: 'team chat', projectId: projTeam })).id
+  const teamSent = await alice.ok('POST', `/api/chats/${teamChat}/messages`, { clientMessageId: cm(), attachmentIds: [], content: `${C.teamChatMsg}\n${fake({ say: 'noted' })}` })
+  await sockets.alice.next('message.done', (f) => f.data.messageId === teamSent.assistantMessage.id, 30_000)
+  const teamVersion = (await alice.ok('GET', `/api/files/history?path=${encodeURIComponent(`${TP}/plan.md`)}`)).items[0]?.id
   const chatA = (await alice.ok('POST', '/api/chats', { title: C.aliceChatTitle, projectId: projAlice })).id
   const att = await alice.ok('POST', '/api/uploads', undefined, { form: pngForm({ chatId: chatA, name: `${C.aliceAttName}.png` }, `${C.aliceAttName}.png`) })
+  const aliceRef = (await alice.ok('POST', '/api/attachments/team-file', { chatId: chatA, path: `users/alice/${C.aliceFileName}.md` })).id
   const sent = await alice.ok('POST', `/api/chats/${chatA}/messages`, {
     clientMessageId: cm(), attachmentIds: [att.id], content: `${C.aliceMsg}\n` + fake(
       { tool: 'artifact', args: { action: 'create', key: 'k1', type: 'html', title: 'secret artifact', content: `<p>${C.aliceArtifact}</p>` } },
@@ -274,10 +317,10 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
     groups: { marketing: mk.id, finance: fin.id, mktFolder, finFolder },
     ids: {
       chatA, chatB, userMsg: sent.userMessage.id, assistantMsg: sent.assistantMessage.id, turnB: sentB.turnId, requestB: card.data.request.requestId, turnConnect, requestConnect,
-      artifact, memory, attachment: att.id, projAlice, projFalcon, projMkt, projShared, uploadAlice, jobAlice, jobSystem,
+      artifact, memory, attachment: att.id, aliceRef, projAlice, projFalcon, projMkt, projShared, projTeam, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
-      dmAiTurn: dmAiRun.data.run.turnId, dmAiPreview, groupRoom, groupLeaveRoom,
+      dmAiTurn: dmAiRun.data.run.turnId, dmAiPreview, groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion,
     },
   }
 }
@@ -285,4 +328,6 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
 export const ALICE_PRIVATE = [C.aliceSkill, C.aliceFile, C.aliceFileOld, C.aliceFileName, C.aliceTrashName, C.aliceChatTitle, C.aliceMsg, C.aliceAnswer, C.aliceArtifact,
   C.aliceMemory, C.aliceQuestion, C.aliceAttName, C.aliceProjInstr, C.aliceUploadName, C.aliceTranscript]
 export const FINANCE_ONLY = [C.finSkill, C.finFile, C.finFileOld, C.finTrashName, C.finName]
+/** Team plan's contents: alice and erin only (never the owner or an admin) */
+export const TEAM_PLAN = [C.teamFile, C.teamFileOld, C.teamName, C.teamSub, C.teamTrashName, C.teamInstr, C.teamChatMsg, C.teamSkill]
 export const API_KEYS = Object.keys(API)

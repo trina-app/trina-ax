@@ -4,9 +4,11 @@
 // refused roots Desktop, Documents and Downloads are allowed; the home folder and everything else it blocks stay refused.
 // The same rules in the real Electron: desktop/e2e/folder-window.spec.ts.
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { opendir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { folderKey, FolderGrants, isUncPath, opensHome, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
+import { folderKey, FolderGrants, isUncPath, macBlocked, opensHome, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
 
 /**
  * A made-up computer: every path is a string, nothing is read. realpath answers from `links` (else the path itself);
@@ -165,6 +167,24 @@ describe('a folder Chromium refuses (file-system-access-restricted)', () => {
     // a case that only matches on Windows
     expect(await restrictedFolderAction(blocked('/users/alex/documents'), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
     expect(await restrictedFolderAction(blocked('C:\\Windows'), ALLOWED, ['C:\\Users\\Alex'], 'win32', WIN)).toBe('deny')
+  })
+
+  test('a refusal of the team page\'s own pick says why: the home folder, or a folder with system files (QA TC-219)', async () => {
+    // the page only gets an AbortError, like Cancel: the app says it (main/app-window.ts folderRefused)
+    for (const path of ['/Users/alex', '/Users/alex/', '/Users', '/']) expect(await refusedFolderReason(blocked(path), ALLOWED, 'darwin', MAC)).toBe('home')
+    expect(await refusedFolderReason(blocked('C:\\Users\\Alex'), ALLOWED, 'win32', WIN)).toBe('home')
+    for (const path of ['/Users/alex/Library', '/Users/alex/.ssh', '/Applications']) expect(await refusedFolderReason(blocked(path), ALLOWED, 'darwin', MAC)).toBe('blocked')
+    // a Desktop that is a link to home is refused as home
+    const linked = fakeSystem('/Users/alex', 'darwin', { links: { '/Users/alex/Desktop': '/Users/alex' } })
+    expect(await restrictedFolderAction(blocked('/Users/alex/Desktop'), ALLOWED, ROOTS, 'darwin', linked)).toBe('deny')
+    expect(await refusedFolderReason(blocked('/Users/alex/Desktop'), ALLOWED, 'darwin', linked)).toBe('home')
+    // nothing to say to another page, a frame or a file: those refusals stay silent
+    const home = '/Users/alex'
+    expect(await refusedFolderReason(blocked(home, { origin: 'https://evil.example/' }), ALLOWED, 'darwin', MAC)).toBeNull()
+    expect(await refusedFolderReason(blocked(home, { origin: 'null' }), ALLOWED, 'darwin', MAC)).toBeNull()
+    expect(await refusedFolderReason(blocked(home, { isTopFrame: false }), ALLOWED, 'darwin', MAC)).toBeNull()
+    expect(await refusedFolderReason(blocked(home, { isDirectory: false }), ALLOWED, 'darwin', MAC)).toBeNull()
+    expect(await refusedFolderReason(blocked(home), [], 'darwin', MAC)).toBeNull()
   })
 
   test('only for a folder picked by the team page\'s top frame at an allowed origin', async () => {
@@ -332,7 +352,7 @@ describe('the picks belong to the person who made them', () => {
 
   test('the app tells the team session who is signed in, with every /api/me read', async () => {
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    expect(win).toContain('this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins()))')
+    expect(win).toContain('this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins(), (why) => this.folderRefused(why)))')
     const fetch = win.slice(win.indexOf('private async fetchTeamInfo()'), win.indexOf('private async fetchTeamInfo()') + 1500)
     expect(fetch).toContain('this.folderPerson({ signedIn: false })')
     expect(fetch).toContain('this.folderPerson({ signedIn: true, userId: me.data.user.id })')
@@ -375,6 +395,15 @@ describe('the team session wiring (desktop/src/main/security.ts)', () => {
     expect(listener.indexOf('try {')).toBeLessThan(listener.indexOf('const isTopFrame'))
     expect(listener.indexOf('} catch {')).toBeLessThan(listener.indexOf('void decided.then('))
     expect(listener.indexOf('} catch {')).toBeGreaterThan(listener.indexOf('decided = restrictedFolderAction('))
+    // a refusal of the team page's own pick asks the window (QA TC-219); any other refusal stays a silent deny
+    expect(listener).toContain("if (a === 'allow' || !refused) return a")
+    expect(listener).toContain('const why = await refusedFolderReason(folder, allowedOrigins(), process.platform, FOLDER_SYSTEM)')
+    expect(listener).toContain("return why ? refused(why) : 'deny'")
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const box = win.slice(win.indexOf('private async folderRefused('), win.indexOf('/** Origins the bridge and navigation accept'))
+    expect(box).toContain("buttons: [t(L, 'folderPick.again'), t(L, 'folderPick.cancel')]")
+    expect(box).toContain('cancelId: 1')
+    expect(box).toContain("return r.response === 0 && !this.win.isDestroyed() ? 'tryAgain' : 'deny'")
     expect(security).toContain('return PICKABLE_BLOCKED_ROOTS.map((name) => {')
     // home is no root (it is only what the roots are checked against)
     expect(security.slice(security.indexOf('function folderRoots('), security.indexOf('\n}\n', security.indexOf('function folderRoots(')))).not.toContain('home')
@@ -405,4 +434,96 @@ describe('the team session wiring (desktop/src/main/security.ts)', () => {
 test('macOS says why the app reads Desktop, Documents and Downloads (picking there counts as consent; the text is for any prompt)', async () => {
   const config = readFileSync(join(import.meta.dir, '../../desktop/electron-builder.config.ts'), 'utf8')
   for (const key of ['NSDesktopFolderUsageDescription', 'NSDocumentsFolderUsageDescription', 'NSDownloadsFolderUsageDescription']) expect(config).toContain(`${key}: `)
+})
+
+// QA TC-049: Documents picked, then macOS privacy says no (Don't Allow, or Trina off in Files and Folders). The page
+// reads nothing and said "이 폴더엔 문서가 없어요"; the app tells it why, as a word (never the error's text).
+describe('a picked folder macOS keeps the app out of', () => {
+  const eperm = () => Object.assign(new Error("EPERM: operation not permitted, opendir '/Users/alex/Documents'"), { code: 'EPERM' })
+  const withRead = (sys: FolderSystem, readable: (path: string) => Promise<void>): FolderSystem & { probed: string[] } => {
+    const probed: string[] = []
+    return { ...sys, probed, readable: (p) => (probed.push(p), readable(p)) }
+  }
+
+  test('EPERM or EACCES on reading the picked folder: mac-blocked, for that origin and that folder\'s name only', async () => {
+    for (const code of ['EPERM', 'EACCES']) {
+      const sys = withRead(MAC, async () => { throw Object.assign(new Error(code), { code }) })
+      const g = new FolderGrants('darwin', sys)
+      expect(await g.request(picked('/Users/alex/Documents'), ALLOWED)).toBe(true)
+      expect(sys.probed).toEqual(['/Users/alex/Documents'])
+      expect(await g.problem(`${TEAM}/`, 'Documents', ALLOWED)).toBe('mac-blocked')
+      // another folder's name, another origin, an origin no longer allowed: nothing told
+      expect(await g.problem(`${TEAM}/`, 'Desktop', ALLOWED)).toBeNull()
+      expect(await g.problem(`${LAN}/`, 'Documents', ALLOWED)).toBeNull()
+      expect(await g.problem('https://evil.example/', 'Documents', [...ALLOWED, 'https://evil.example'])).toBeNull()
+      expect(await g.problem(`${TEAM}/`, 'Documents', [])).toBeNull()
+    }
+  })
+
+  test('an empty folder (or one that reads fine): no problem, the page says it is empty', async () => {
+    const g = new FolderGrants('darwin', withRead(MAC, async () => {}))
+    expect(await g.request(picked('/Users/alex/Documents/empty'), ALLOWED)).toBe(true)
+    expect(await g.problem(`${TEAM}/`, 'empty', ALLOWED)).toBeNull()
+  })
+
+  test('any other read error (gone, a slow drive that never answers) is no macOS block', async () => {
+    const gone = new FolderGrants('darwin', withRead(MAC, async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) }))
+    expect(await gone.request(picked('/Volumes/share/docs'), ALLOWED)).toBe(true)
+    expect(await gone.problem(`${TEAM}/`, 'docs', ALLOWED)).toBeNull()
+    const stuck = new FolderGrants('darwin', withRead(MAC, () => new Promise<void>(() => {})))
+    expect(await stuck.request(picked('/Volumes/share/docs'), ALLOWED)).toBe(true)
+    expect(await stuck.problem(`${TEAM}/`, 'docs', ALLOWED, 20)).toBeNull()
+  })
+
+  test('the newest pick counts; a sign-out forgets it', async () => {
+    let fail = true
+    const g = new FolderGrants('darwin', withRead(MAC, async () => { if (fail) throw eperm() }))
+    expect(await g.request(picked('/Users/alex/Documents'), ALLOWED)).toBe(true)
+    fail = false
+    expect(await g.request(picked('/Users/alex/Documents/acme/Documents'), ALLOWED)).toBe(true)
+    expect(await g.problem(`${TEAM}/`, 'Documents', ALLOWED)).toBeNull()
+    fail = true
+    expect(await g.request(picked('/Users/alex/Downloads/'), ALLOWED)).toBe(true)
+    g.person({ signedIn: true, userId: 'u1' })
+    g.person({ signedIn: false })
+    expect(await g.problem(`${TEAM}/`, 'Downloads', ALLOWED)).toBeNull()
+  })
+
+  test('a refused pick is never probed; Windows and Linux never probe nor tell', async () => {
+    const mac = withRead(MAC, async () => { throw eperm() })
+    expect(await new FolderGrants('darwin', mac).request(picked('/Users/alex'), ALLOWED)).toBe(false)
+    expect(mac.probed).toEqual([])
+    const win = withRead(WIN, async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) })
+    const g = new FolderGrants('win32', win)
+    expect(await g.request(picked('C:\\Users\\Alex\\Documents\\acme', { requestingUrl: `${TEAM}/` }), ALLOWED)).toBe(true)
+    expect(win.probed).toEqual([])
+    expect(await g.problem(`${TEAM}/`, 'acme', ALLOWED)).toBeNull()
+    expect(macBlocked(Object.assign(new Error('x'), { code: 'EPERM' }), 'win32')).toBe(false)
+    expect(macBlocked(Object.assign(new Error('x'), { code: 'EPERM' }), 'linux')).toBe(false)
+  })
+
+  test('the app\'s own check is a real listing: a folder it may not read gives EACCES (macOS)', async () => {
+    if (process.platform !== 'darwin' || process.getuid?.() === 0) return
+    const root = mkdtempSync(join(tmpdir(), 'mycel-folder-'))
+    const shut = join(root, 'Documents')
+    mkdirSync(shut)
+    chmodSync(shut, 0o000)
+    try {
+      // as main/security.ts does it: open, read the first entry, close (Bun opens lazily, Node at once)
+      const err = await (async () => { const d = await opendir(shut); try { await d.read() } finally { await d.close().catch(() => {}) } })().then(() => null, (e: unknown) => e)
+      expect(macBlocked(err, 'darwin')).toBe(true)
+      expect(macBlocked(null, 'darwin')).toBe(false)
+    } finally {
+      chmodSync(shut, 0o700)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('main/security.ts lists the picked folder\'s first entry only; the bridge gives the page a word', () => {
+    const security = readFileSync(join(import.meta.dir, '../../desktop/src/main/security.ts'), 'utf8')
+    expect(security).toContain('const dir = await opendir(path)')
+    expect(security).toContain('await dir.read()')
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    expect(main).toContain("ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ?")
+  })
 })

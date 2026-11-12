@@ -7,6 +7,9 @@ export interface PushConfig { enabled: true; subject: string; publicKey: string;
 const schema=z.object({enabled:z.literal(true),subject:z.string().max(2048).refine(s=>!/[\r\n]/.test(s)&&(/^(mailto:[^\s@]+@[^\s@]+)$/.test(s)||/^https:\/\//.test(s))),publicKey:z.string().max(128),privateKey:z.string().max(64)}).strict()
 export const pushConfigPath=(ctx:AppContext)=>path.join(ctx.config.dataDir,'secrets','push.json')
 export const pushConfigKey=(config:PushConfig)=>crypto.createHash('sha256').update(config.publicKey+'|'+config.subject).digest('hex')
+/** Node's `ECDH.getPrivateKey()` drops leading zero bytes (1 key in 256 is 31 bytes). web-push wants exactly 32 bytes, so
+ * a stored key that lost its zero is padded back; a 32-byte key is returned unchanged. */
+export const padPrivateKey=(key:string)=>{const raw=Buffer.from(key,'base64url');return raw.length>=32?key:Buffer.concat([Buffer.alloc(32-raw.length),raw]).toString('base64url')}
 /** No auto provisioning. Missing/unsafe/off config means no subscription or outbound connection. */
 export function readPushConfig(ctx:AppContext):PushConfig|null {
   try {
@@ -19,7 +22,7 @@ export function readPushConfig(ctx:AppContext):PushConfig|null {
       const config=schema.parse(JSON.parse(fs.readFileSync(fd,'utf8')))
       const ec=crypto.createECDH('prime256v1');ec.setPrivateKey(Buffer.from(config.privateKey,'base64url'))
       if(ec.getPublicKey().toString('base64url')!==config.publicKey)return null
-      return config
+      return{...config,privateKey:padPrivateKey(config.privateKey)}
     } finally {fs.closeSync(fd)}
   } catch {return null}
 }

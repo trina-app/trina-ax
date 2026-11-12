@@ -6,9 +6,10 @@
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
-import { app as electronApp, BaseWindow, dialog, net, Notification, session, WebContentsView, type Session } from 'electron'
+import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification, session, WebContentsView, type Session } from 'electron'
 import { join } from 'node:path'
-import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
+import { applyMePolicy } from '../common/me-policy'
+import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
 import { asksOutside, firstRunLinks, healthVerdict, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
 import { LinkGate } from '@mycel/shared/team-link'
@@ -24,9 +25,12 @@ import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToRe
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
-import { attachContextMenu } from './context-menu'
+import { attachContextMenu, contextMenuOpen } from './context-menu'
+import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-focus'
+import { paneFromEdge, paneGrab, paneKeyWidth, paneLimits, paneWidthFor, readPaneFraction, settlePane } from '../common/pane-width'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
+import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
 
 export type Mode = 'welcome' | 'team' | 'offline'
@@ -78,12 +82,10 @@ export interface AppWindowOptions {
   onTeamsChanged(): void
 }
 
-const MIN_PANE = 360
 /** the host strip above the team's sign-in pages (hostbar.html) */
 const HOSTBAR_HEIGHT = 36
 /** how long the strip waits for /api/me after a team page loaded before it takes space anyway */
 const HOSTBAR_WAIT_MS = 300
-const MIN_APP = 420
 const RECHECK_MS = 60_000
 /** a settings read from the team page re-reads the team's policy at most this often */
 const POLICY_READ_MS = 5_000
@@ -101,7 +103,18 @@ export class AppWindow {
   team?: TeamEntry
   mode: Mode = 'welcome'
   private teams: TeamsFile
-  private paneFraction: number
+  /** the in-app browser's share of the window's width (common/pane-width.ts); null: the default */
+  private paneFraction: number | null
+  /** what the browser toolbar's edge was last told (its aria values and grab strip) */
+  private paneWidthTold = ''
+  /** a drag of the browser's edge: where the keyboard was before the press that started it (keysAfterDrag) */
+  private drag?: { press?: ToolbarPress }
+  /** the keyboard before the browser toolbar's view took it, and when (a press there takes it first: watchKeys) */
+  private beforeToolbarFocus?: { keys?: { view: WebContentsView; inPane: boolean }; at: number }
+  /** the keyboard and personInPane just before the latest mouse press in the browser toolbar's view */
+  private toolbarPress?: ToolbarPress
+  /** window.json is written a moment after the edge's keys stop */
+  private saveTimer?: NodeJS.Timeout
   /** origin the app view shows: the team address or its direct LAN address */
   private currentOrigin = ''
   private directOrigin: string | null = null
@@ -119,8 +132,13 @@ export class AppWindow {
     focused: () => this.win.isDestroyed() || this.win.isFocused(),
     reveal: () => {
       if (this.win.isDestroyed()) return
+      // the notification opens something in the team page: the keyboard goes there, also if the person left the window
+      // from the in-app browser
+      if (this.app) this.keysWanted = this.app
       this.win.show()
       this.win.focus()
+      // the window had the focus already: no focus event comes
+      if (this.keysWanted && this.keysReady()) this.keysBack()
     },
     open: (path) => this.send(this.app, 'bridge:open', path),
     // "Mark as read" on a room notification: macOS only (Electron's buttons); the page calls the read API
@@ -153,18 +171,31 @@ export class AppWindow {
   /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
   private linkGate = new LinkGate()
   private linkError: string | null = null
+  /** the view that had the keyboard last (its own focus event; the pane reports its tabs) and whether it is the in-app
+   * browser's: the window gives the keyboard back there (settleKeys) */
+  private keys?: { view: WebContentsView; inPane: boolean }
+  /** `keys` when the window lost the focus (the system may hand the keyboard to another view before it is back) */
+  private keysAtBlur?: { view: WebContentsView; inPane: boolean }
+  /** a notification's click asks for the team page when the window is back */
+  private keysWanted?: WebContentsView
+  /** the person's last key or mouse press (or opening the in-app browser) was in the in-app browser: a page load there
+   * may take the keyboard (keyboardTaken) */
+  private personInPane = false
+  /** the view the app is giving the keyboard to right now (keysTo) */
+  private giving?: WebContentsView
+  private settleQueued = false
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
     const saved = o.store.loadWindow()
-    this.paneFraction = typeof saved.paneFraction === 'number' && saved.paneFraction > 0.15 && saved.paneFraction < 0.85 ? saved.paneFraction : 0.45
+    this.paneFraction = readPaneFraction(saved.paneFraction)
     this.win = new BaseWindow({
       width: clamp(saved.width ?? 1440, 900, 4000),
       height: clamp(saved.height ?? 900, 600, 3000),
       minWidth: 900,
       minHeight: 600,
       title: PRODUCT.displayName,
-      backgroundColor: '#F7F6F3',
+      backgroundColor: windowBackground(),
       show: false,
     })
     const uiPrefs = { preload: join(o.distDir, 'preload-ui.cjs'), ...APP_WEB_PREFERENCES, partition: 'mycel-ui' }
@@ -175,28 +206,42 @@ export class AppWindow {
       guardUiView(v.webContents)
       // a right-click in the app's own text fields (the invite link box, the browser's address): the edit items
       attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
+      this.watchKeys(v, v === this.chrome)
     }
-    this.chrome.setBackgroundColor('#ECEAE4')
+    // the browser toolbar's view: transparent where it reaches over the team page's edge (the edge's grab strip,
+    // common/pane-width.ts); its page paints the toolbar and the area under it in the theme's own colours
+    this.chrome.setBackgroundColor('#00000000')
+    // the window's own colour (behind the views before they draw) follows the system's light or dark look
+    const themed = () => {
+      if (!this.win.isDestroyed()) this.win.setBackgroundColor(windowBackground())
+    }
+    nativeTheme.on('updated', themed)
+    this.win.on('closed', () => nativeTheme.off('updated', themed))
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
     void this.hostbar.webContents.loadURL(`${UI_ORIGIN}/hostbar.html`)
     this.win.on('resize', () => this.layout())
     this.win.on('focus', () => {
       void this.recheck(false)
-      // "visible" for the team page's session markers is this window's focus (the in-app browser may hold the keys)
-      this.send(this.app, 'bridge:focus', true)
+      // "looked at" for the team page (its session markers, room sound and reading) is this window's focus while the
+      // page is shown (the in-app browser or the address strip may hold the keys): teamFocused
+      this.sendFocus(true)
       // a team opened while the window was in the back: the system's question now, while the person looks
       if (this.app) this.notifier.ask()
     })
-    this.win.on('blur', () => this.send(this.app, 'bridge:focus', false))
+    this.win.on('blur', () => this.sendFocus(false))
     this.win.on('close', () => {
-      const [width, height] = this.win.getSize()
-      o.store.saveWindow({ width, height, paneFraction: this.paneFraction })
+      this.saveWindow()
       // close the views while the window still exists (WebContentsView contents are not closed with it)
       this.disposeTeam()
       for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
       debug('window closed, team disposed')
     })
+    // back to the window (Cmd-Tab, the dock, a notification's click): the keyboard goes back where it was
+    this.win.on('blur', () => {
+      this.keysAtBlur = this.keys
+    })
+    this.win.on('focus', () => this.keysBack())
     this.layout()
     this.shell.webContents.once('did-finish-load', () => this.win.show())
   }
@@ -321,21 +366,21 @@ export class AppWindow {
       this.mode = 'welcome'
       this.layout()
     }
-    // forget everything this team left in the app: cookies, storage, cache, allowed sites
-    for (const kind of ['app', 'browser'] as const) {
-      const ses = session.fromPartition(partitionFor(id, kind))
-      await ses.clearStorageData().catch(() => {})
-      await ses.clearCache().catch(() => {})
-    }
-    this.o.store.removeTeamFiles(id)
+    // the team leaves the list at once (it cannot be opened while its data goes), then everything it left in the app
+    // goes: cookies, storage, cache, HTTP logins (both partitions side by side, each clear with a time limit), then its
+    // files (allowed sites, the in-app browser's owner ...)
     this.saveTeams(removeTeam(this.teams, id))
+    await Promise.all((['app', 'browser'] as const).map((kind) => clearSessionData(session.fromPartition(partitionFor(id, kind)), `team ${id} ${kind}`)))
+    this.o.store.removeTeamFiles(id)
   }
 
   showWelcome() {
     this.mode = 'welcome'
     this.layout()
     this.sendWelcome()
-    this.shell.webContents.focus()
+    // only in a focused window: on macOS focusing a view brings the window in front of the app the person is in (a
+    // window in the back gets it with its focus: keysBack, settleKeys)
+    if (this.win.isFocused()) this.shell.webContents.focus()
   }
 
   back() {
@@ -384,6 +429,7 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    this.watchKeys(app, false)
     // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
     attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })
     const failedNavigation = (url: string) => {
@@ -404,7 +450,8 @@ export class AppWindow {
       this.mode = 'offline'
       this.layout()
       this.sendWelcome()
-      this.shell.webContents.focus()
+      // not in front of another app when the network drops while the person is there (as in showWelcome)
+      if (this.win.isFocused()) this.shell.webContents.focus()
     }
     let navigationFailed = false
     app.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
@@ -479,6 +526,8 @@ export class AppWindow {
           if (this.pane) this.sendSiteSettings(this.pane.siteSettings())
         },
         teamHosts: () => teamHostnames(this.teams.teams),
+        onKeys: (view) => this.tabKeys(view),
+        onPersonActed: (view) => this.personActed(true, view),
       },
       browserSes,
       this.o.pageScript,
@@ -556,8 +605,8 @@ export class AppWindow {
     this.choosingFiles = true
     try {
       const { frameTree } = await dbg.sendCommand('Page.getFrameTree')
-      const top = frameTree.frame as { id: string; url: string }
-      if (top.id !== frameId || !isTrustedAppSender({ url: top.url, isTop: true, isAppView: this.app === app }, this.allowedOrigins())) return
+      const top = frameTree.frame as { id: string; url: string; securityOrigin?: string }
+      if (top.id !== frameId || !isTrustedAppSender({ url: top.url, origin: top.securityOrigin ?? '', isTop: true, isAppView: this.app === app }, this.allowedOrigins())) return
       const { node } = await dbg.sendCommand('DOM.describeNode', { backendNodeId })
       const L = this.o.locale()
       const r = await dialog.showOpenDialog(this.win, openDialogChoice({ multiple, attributes: node?.attributes, home: electronApp.getPath('home'), claude: { message: t(L, 'files.claudeMessage'), button: t(L, 'files.claudeButton') } }))
@@ -588,18 +637,51 @@ export class AppWindow {
       if (!wc.isDestroyed()) wc.close()
       this.app = undefined
     }
+    // the team page and the pane's tabs are gone: nothing of theirs to give the keyboard back to
+    const own = [this.shell, this.chrome, this.hostbar]
+    if (this.keys && !own.includes(this.keys.view)) this.keys = undefined
+    if (this.keysAtBlur && !own.includes(this.keysAtBlur.view)) this.keysAtBlur = undefined
+    this.keysWanted = undefined
     this.currentOrigin = ''
   }
 
   private configureAppSession(ses: Session) {
     if (this.configuredSessions.has(ses)) return
     this.configuredSessions.add(ses)
-    this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins()))
+    this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins(), (why) => this.folderRefused(why)))
     pinCertificates(
       ses,
       () => (this.team ? this.team.direct : null),
       (host) => this.onFingerprintMismatch(host),
     )
+  }
+
+  /**
+   * A folder the team page asked for was refused (common/folder-access.ts refusedFolderReason): say why, in the app's
+   * language, and offer to pick another folder (the folder window opens again) or to stop (the page hears Cancel).
+   * Before, the refusal read as Cancel and nothing was shown (QA TC-219).
+   */
+  private async folderRefused(why: 'home' | 'blocked'): Promise<'tryAgain' | 'deny'> {
+    if (this.win.isDestroyed()) return 'deny'
+    const L = this.o.locale()
+    const r = await dialog.showMessageBox(this.win, {
+      type: 'info',
+      message: t(L, why === 'home' ? 'folderPick.homeTitle' : 'folderPick.blockedTitle'),
+      detail: t(L, why === 'home' ? 'folderPick.homeDetail' : 'folderPick.blockedDetail'),
+      buttons: [t(L, 'folderPick.again'), t(L, 'folderPick.cancel')],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+    return r.response === 0 && !this.win.isDestroyed() ? 'tryAgain' : 'deny'
+  }
+
+  /** The team page found nothing to read in the folder it picked last (shared/src/desktop-bridge.ts folderProblem): why,
+   * when macOS kept the app out of it (common/folder-access.ts FolderGrants.problem); null otherwise. QA TC-049. */
+  async folderProblem(origin: string, name: string): Promise<'mac-blocked' | null> {
+    const app = this.app
+    if (!app || app.webContents.isDestroyed()) return null
+    return (await this.folderGrants.get(app.webContents.session)?.problem(origin, name, this.allowedOrigins())) ?? null
   }
 
   /** Origins the bridge and navigation accept: the team address and, when in use, its pinned LAN address. */
@@ -670,8 +752,9 @@ export class AppWindow {
       if (!me.success || this.team?.id !== team.id || this.pane !== pane) return false
       this.folderPerson({ signedIn: true, userId: me.data.user.id })
       await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
-      const allowAll = me.data.team.browserAllowAll
-      if (typeof allowAll === 'boolean' && pane && this.pane === pane) pane.setTeamPolicy(allowAll)
+      // the team's policy and the person's "Allow all websites" for the AI's web reads (followed when it goes off, never
+      // when it goes on): common/me-policy.ts
+      if (pane && this.pane === pane) applyMePolicy(pane, me.data)
       if (me.data.team.name && me.data.team.name !== team.label) {
         this.saveTeams(updateTeam(this.teams, team.id, { label: me.data.team.name.slice(0, 200) }))
         this.team = findTeam(this.teams, team.id)
@@ -698,19 +781,22 @@ export class AppWindow {
     const change = browserOwnerChange(this.o.store.loadBrowserOwner(teamId), me)
     if (change.clear) {
       debug('in-app browser: another person or signed out, clearing', teamId)
+      let cleared: ClearResult
       if (pane && this.pane === pane) {
-        await pane.resetForNewPerson()
+        cleared = await pane.resetForNewPerson()
         this.send(this.chrome, 'ui:pane-prompts', [])
         this.send(this.chrome, 'ui:pane-activity-reset', null)
         this.sendSiteSettings(pane.siteSettings())
         this.sendPaneState(pane.state())
       } else {
         // the pane is not open for this team: clear its stored data directly
-        const ses = session.fromPartition(partitionFor(teamId, 'browser'))
-        await Promise.all([ses.clearStorageData(), ses.clearCache(), ses.clearAuthCache()])
+        cleared = await clearSessionData(session.fromPartition(partitionFor(teamId, 'browser')), `team ${teamId} browser`)
         const saved = new SitePermissions(this.o.store.loadPermissions(teamId))
         if (saved.resetForNewPerson()) this.o.store.savePermissions(teamId, saved.toJSON())
       }
+      // a clear that failed (not one that ran out of time): the new person is not recorded, so the next check clears
+      // again, and this check (and the AI call waiting for it) fails, as before the time limit
+      if (clearFailed(cleared)) throw new Error('the in-app browser data could not be cleared')
     }
     if (change.clear || this.o.store.loadBrowserOwner(teamId) !== change.owner) this.o.store.saveBrowserOwner(teamId, change.owner)
   }
@@ -819,7 +905,8 @@ export class AppWindow {
         type: 'warning',
         title: t(L, 'allowAll.title'),
         message: t(L, 'allowAll.message', { team: this.team.label }),
-        detail: t(L, 'allowAll.detail'),
+        // the one risk sentence every place that turns it on shows (shared/src/web-allow-all.ts)
+        detail: `${t(L, 'allowAll.detail')}\n\n${WEB_ALLOW_ALL_RISK[L] ?? WEB_ALLOW_ALL_RISK.en}`,
         buttons: [t(L, 'allowAll.cancel'), t(L, 'allowAll.confirm')],
         // Enter / Escape / closing the dialog keep asking
         defaultId: 0,
@@ -901,16 +988,103 @@ export class AppWindow {
 
   // ----------------------------------------------------------------- layout
 
-  setPaneFromScreenX(screenX: number) {
-    const b = this.win.getContentBounds()
-    const w = b.width
-    const pw = clamp(b.x + w - screenX, MIN_PANE, Math.max(MIN_PANE, w - MIN_APP))
-    this.paneFraction = clamp(pw / w, 0.15, 0.85)
+  // ------------------------------------------------- the in-app browser's width
+
+  /** The browser's width now (0: closed) and its limits, in this window. */
+  paneWidth(): { now: number; min: number; max: number; grab: number } {
+    const [w] = this.win.isDestroyed() ? [0] : this.win.getContentSize()
+    const now = this.mode === 'team' && this.app && this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0
+    return { now, ...paneLimits(w), grab: now ? paneGrab(w - now) : 0 }
+  }
+
+  /**
+   * The browser toolbar's edge handle (ui/pane.ts, docs/DECISIONS.md "브라우저 너비는 끌어서"). start: a drag begins (the
+   * press that started it is the latest in the toolbar view); move: the edge is at `edgeX` (screen coordinates: the
+   * views move under the pointer while it drags); end: the width is remembered and the keyboard goes back where it was
+   * before the press (keysAfterDrag); reset (double-click): the default width again.
+   */
+  paneDrag(phase: 'start' | 'move' | 'end' | 'reset', edgeX?: number) {
+    if (this.win.isDestroyed() || !this.pane?.open || this.mode !== 'team') return
+    if (phase === 'start') {
+      const press = this.toolbarPress && Date.now() - this.toolbarPress.at < 2000 ? this.toolbarPress : undefined
+      this.drag = { press }
+      // a press on the edge is not the person acting in the in-app browser: a page load there during the drag (the AI
+      // at work) must not keep the keyboard (common/keyboard-focus.ts keyboardTaken)
+      if (press) this.personInPane = press.personInPane
+      return
+    }
+    if (phase === 'move') {
+      if (typeof edgeX !== 'number' || !Number.isFinite(edgeX)) return
+      const b = this.win.getContentBounds()
+      this.setPaneFraction(settlePane(paneFromEdge(edgeX, b.x, b.width), b.width, this.paneFraction))
+      return
+    }
+    if (phase === 'reset') this.setPaneFraction(null)
+    this.saveWindow()
+    const press = this.drag?.press ?? (this.toolbarPress && Date.now() - this.toolbarPress.at < 2000 ? this.toolbarPress : undefined)
+    this.drag = undefined
+    this.keysAfterDrag(press)
+  }
+
+  /** An arrow key, Home or End on the focused edge handle: Left widens the browser, Right narrows it (Shift: a bigger
+   * step). The keyboard stays on the handle. */
+  paneKey(key: string, shift: boolean) {
+    const { now, min, max } = this.paneWidth()
+    if (!now) return
+    const next = paneKeyWidth(key, shift, now, { min, max })
+    if (next === null) return
+    const [w] = this.win.getContentSize()
+    this.setPaneFraction(settlePane(next, w, this.paneFraction))
+    // a held arrow key repeats: written once it stops
+    clearTimeout(this.saveTimer)
+    this.saveTimer = setTimeout(() => this.saveWindow(), 400)
+  }
+
+  private setPaneFraction(f: number | null) {
+    if (f === this.paneFraction) return
+    this.paneFraction = f
     this.layout()
   }
 
+  /** window.json: the window's size and the browser's width, kept across restarts (also written when the window closes) */
+  private saveWindow() {
+    clearTimeout(this.saveTimer)
+    if (this.win.isDestroyed()) return
+    const [width, height] = this.win.getSize()
+    this.o.store.saveWindow({ width, height, ...(this.paneFraction === null ? {} : { paneFraction: this.paneFraction }) })
+  }
+
+  /**
+   * A press on the edge handle gave the keyboard to the browser toolbar's view (the system focuses the view a press
+   * lands in). When the drag ends it goes back to the view that had it before the press, if the toolbar still has it
+   * and that view is still on screen, and the press does not count as the person acting in the in-app browser (a page
+   * load there would otherwise keep the keyboard: common/keyboard-focus.ts keyboardTaken). Focusing the view keeps
+   * the page's own element (the team page's message box and its draft).
+   */
+  private keysAfterDrag(press?: ToolbarPress) {
+    if (!press) return
+    this.personInPane = press.personInPane
+    const back = press.keys?.view
+    if (!back || back === this.chrome || back.webContents.isDestroyed()) return
+    if (!this.chrome.webContents.isFocused() || !this.keysReady() || !this.shownViews().includes(back)) return
+    this.keysTo(back, 'after resizing the browser')
+  }
+
+  /** Tell the toolbar's edge handle its width and limits (aria values) and its grab strip, when they change. */
+  private sendPaneWidth() {
+    const s = this.paneWidth()
+    const told = JSON.stringify(s)
+    if (told === this.paneWidthTold) return
+    this.paneWidthTold = told
+    this.send(this.chrome, 'ui:pane-width', s)
+  }
+
+  // ----------------------------------------------------------------- layout
+
   layout() {
     if (this.win.isDestroyed()) return
+    // the views change: the one with the keyboard may leave the window (the team list, the pane closed)
+    this.settleKeysSoon()
     const [w, h] = this.win.getContentSize()
     const views = this.win.contentView
     const show = (v: WebContentsView, rect: Electron.Rectangle) => {
@@ -925,19 +1099,177 @@ export class AppWindow {
       hide(this.hostbar)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
+      this.sendPaneWidth()
+      this.sendFocus()
       return
     }
     hide(this.shell)
-    const paneOpen = Boolean(this.pane?.open)
-    let pw = 0
-    if (paneOpen) pw = w < MIN_PANE + MIN_APP ? w : clamp(Math.round(w * this.paneFraction), MIN_PANE, w - MIN_APP)
+    // the browser's remembered share of the window, within its limits (common/pane-width.ts)
+    const pw = this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0
     // the team address above the page (drawn by the app): on the sign-in pages, and on every page until the team said
     // who is signed in
     const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0
     if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
-    this.pane?.setBounds(paneOpen ? { x: w - pw, y: 0, width: pw, height: h } : null)
+    this.pane?.setBounds(pw ? { x: w - pw, y: 0, width: pw, height: h } : null)
+    this.sendPaneWidth()
+    this.sendFocus()
+  }
+
+  /** Is the person looking at the team page (DesktopBridge.focus, docs/DECISIONS.md "화면에 연 대화는 울리지 않는다")?
+   * This window focused and the team page shown in it: not under the team list or the offline screen, where its view
+   * is only taken out of the window and the page still reports itself visible. `windowFocused`: the focus event's own
+   * word (else the window's). */
+  teamFocused(windowFocused?: boolean): boolean {
+    if (this.win.isDestroyed() || !this.app || this.mode !== 'team') return false
+    return windowFocused ?? this.win.isFocused()
+  }
+
+  /** the word last told to which team page (each page asks once itself as it starts) */
+  private focusTold?: { app: WebContentsView; focused: boolean }
+  /** Tell the team page when teamFocused changes (the window's focus, the team list or the offline screen over it). */
+  private sendFocus(windowFocused?: boolean) {
+    const app = this.app
+    if (!app) return
+    const focused = this.teamFocused(windowFocused)
+    if (this.focusTold?.app === app && this.focusTold.focused === focused) return
+    this.focusTold = { app, focused }
+    this.send(app, 'bridge:focus', focused)
+  }
+
+  // ---------------------------------------------------------------- keyboard
+
+  private watchKeys(view: WebContentsView, inPane: boolean) {
+    const wc = view.webContents
+    wc.on('focus', () => {
+      // a press in the browser toolbar (its edge handle) takes the keyboard first: remember where it was (keysAfterDrag)
+      if (view === this.chrome) this.beforeToolbarFocus = { keys: this.keys, at: Date.now() }
+      this.keysAt(view, inPane)
+    })
+    // where the person acts: a key or a mouse press in this view
+    wc.on('before-input-event', (_e, i) => {
+      if (i.type !== 'keyUp') this.personActed(inPane)
+    })
+    wc.on('before-mouse-event', (_e, m) => {
+      if (m.type !== 'mouseDown') return
+      if (view === this.chrome) {
+        // the view took the keyboard for this very press (its focus event came just before, and no other press in it
+        // since), or had it already
+        const f = this.beforeToolbarFocus
+        const keys = f && this.keys?.view === this.chrome && Date.now() - f.at < 500 ? f.keys : this.keys
+        this.beforeToolbarFocus = undefined
+        this.toolbarPress = { keys, personInPane: this.personInPane, at: Date.now() }
+      }
+      this.personActed(inPane)
+    })
+  }
+
+  /** The person pressed a key or the mouse in a view (`tab`: a tab of the in-app browser), or opened the in-app browser.
+   * A mouse press in a tab whose page load gave the keyboard back (keyboardTaken) gives it to the tab after all. */
+  private personActed(inPane: boolean, tab?: WebContentsView) {
+    this.personInPane = inPane
+    if (tab && !tab.webContents.isDestroyed() && !tab.webContents.isFocused() && this.keysReady() && this.shownViews().includes(tab)) this.keysTo(tab, 'click')
+  }
+
+  /** The person opens, closes or toggles the in-app browser (the team page's Browser entry, the menu): opening it is an
+   * action in it, as a click there is. */
+  paneByPerson(what: 'open' | 'close' | 'toggle') {
+    const pane = this.pane
+    if (!pane) return
+    if (what === 'open' || (what === 'toggle' && !pane.open)) this.personActed(true)
+    if (what === 'open') pane.show()
+    else if (what === 'close') pane.hide()
+    else pane.toggle()
+  }
+
+  /** A tab of the in-app browser got the keyboard: a page load there does not take it from where the person is
+   * (common/keyboard-focus.ts keyboardTaken). */
+  private tabKeys(view: WebContentsView) {
+    const taken = keyboardTaken({
+      took: view,
+      loading: !view.webContents.isDestroyed() && view.webContents.isLoading(),
+      personInPane: this.personInPane,
+      given: this.giving === view,
+      ready: this.keysReady(),
+      shown: this.shownViews(),
+      last: this.keys?.view,
+      page: this.mode === 'team' && this.app ? this.app : undefined,
+    })
+    if (taken.keep) return this.keysAt(view, true)
+    if (taken.back) this.keysTo(taken.back, 'kept from a page load')
+  }
+
+  private keysAt(view: WebContentsView, inPane: boolean) {
+    this.keys = { view, inPane }
+  }
+
+  /** the window's views on screen that could have the keyboard */
+  private shownViews(): WebContentsView[] {
+    const children = this.win.contentView.children
+    return [this.shell, this.chrome, this.hostbar, this.app, this.pane?.shownTab()].filter((v): v is WebContentsView => !!v && !v.webContents.isDestroyed() && children.includes(v))
+  }
+
+  /** the window has the focus and no dialog or right-click menu of the app is open over it */
+  private keysReady(): boolean {
+    return !this.win.isDestroyed() && this.win.isFocused() && !this.allowAllOpen && !this.choosingFiles && !contextMenuOpen()
+  }
+
+  private keysTo(view: WebContentsView, why: string) {
+    const name = view === this.app ? 'team page' : view === this.chrome ? 'browser toolbar' : view === this.shell ? 'app screen' : view === this.hostbar ? 'host strip' : 'browser tab'
+    debug('keyboard to', name, why)
+    this.giving = view
+    try {
+      view.webContents.focus()
+    } finally {
+      this.giving = undefined
+    }
+  }
+
+  /** The window got the focus back: on macOS the view that had the keyboard when it lost it gets it again, at once
+   * (common/keyboard-focus.ts keyboardBack; Windows and Linux keep it themselves); the team page after a notification's
+   * click; nothing had it: settleKeys. Not ready (a dialog of the app on its way): kept for the next return. */
+  private keysBack() {
+    if (this.win.isDestroyed()) return
+    const ready = this.keysReady()
+    if (ready) {
+      const wanted = this.keysWanted
+      const atBlur = wanted ? { view: wanted } : process.platform === 'darwin' ? this.keysAtBlur : undefined
+      this.keysAtBlur = undefined
+      this.keysWanted = undefined
+      const back = keyboardBack({ ready, shown: this.shownViews(), atBlur })
+      if (back) this.keysTo(back, wanted ? 'notification' : 'back')
+    }
+    this.settleKeysSoon()
+  }
+
+  /** settleKeys a turn later: the views settle first, and a click that gave a view the keyboard meanwhile wins */
+  private settleKeysSoon() {
+    if (this.settleQueued) return
+    this.settleQueued = true
+    setImmediate(() => {
+      this.settleQueued = false
+      this.settleKeys()
+    })
+  }
+
+  /**
+   * The window has the focus and no view in it has the keyboard (after a start, a minimize, the team list, the pane
+   * closed): give it to the view in front (common/keyboard-focus.ts, docs/DECISIONS.md "창으로 돌아오면 키보드는 보던
+   * 곳으로"). Never while the window is in the back (focusing a view brings it forward on macOS), and never over the
+   * app's own dialogs or right-click menus.
+   */
+  private settleKeys() {
+    if (this.win.isDestroyed()) return
+    const target = keyboardTarget({
+      ready: this.keysReady(),
+      shown: this.shownViews(),
+      hasKeys: (v) => v.webContents.isFocused(),
+      last: this.keys,
+      paneTab: this.pane?.shownTab(),
+      page: this.mode === 'team' && this.app ? this.app : this.shell,
+    })
+    if (target) this.keysTo(target, 'settle')
   }
 
   private updateTitle() {
@@ -1055,6 +1387,19 @@ function fetchHealth(origin: string): Promise<HealthAnswer> {
     })
     req.end()
   })
+}
+
+/** where the keyboard was, and whether the person's last action was in the in-app browser, before a press in the
+ * browser toolbar's view (AppWindow.keysAfterDrag) */
+interface ToolbarPress {
+  keys?: { view: WebContentsView; inPane: boolean }
+  personInPane: boolean
+  at: number
+}
+
+/** The window's own colour behind its views: the app's canvas in the system's light or dark look (ui.css --bg). */
+function windowBackground(): string {
+  return nativeTheme.shouldUseDarkColors ? '#0E0C0B' : '#FCFBF8'
 }
 
 function clamp(v: number, lo: number, hi: number) {

@@ -3,16 +3,23 @@
 // cards, a "Token usage" chart (tokens per day, stacked by the Group by) and the breakdown table under it. The numbers
 // are the same report as before (GET /api/admin/usage, now with its filters, series and facets); amounts are estimates,
 // not bills. A person's own usage is Settings > Usage (components/settings/MyUsage.tsx).
-import { Download } from 'lucide-react'
+// A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): "Usage limits" with Download CSV under its
+// ⌄ (components/PageActions.tsx); the range stays in sight and the filters (Group, Person, Engine, Model, AI connection)
+// go under one Filters button beside it (components/PhoneFilters.tsx); Group by is a view choice, not a filter, so it
+// sits in the breakdown's heading; the numbers, the chart and the breakdown stand without frames.
+import clsx from 'clsx'
+import { Download, Gauge } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { z } from 'zod'
 import { TRIAL_CREDENTIAL_ID, type UsageQuery, type UsageResponse } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../../lib/api'
 import { formatDateTime, formatNumber, formatUsd, localDay, localDayRange } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useMeStrict } from '../../store/session'
-import { IconButton } from '../../components/ui'
+import { IconButton, useMediaQuery } from '../../components/ui'
+import { PageActions } from '../../components/PageActions'
+import { PhoneFilters } from '../../components/PhoneFilters'
 import { UsageBar } from '../../components/UsageBar'
 import { FilterPill } from '../../components/usage/FilterPill'
 import { StatCards } from '../../components/usage/StatCards'
@@ -52,6 +59,8 @@ export default function Usage() {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
+  const navigate = useNavigate()
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const tz = me.server.timeZone
   const [groupBy, setGroupBy] = useState<GroupBy>('user')
   const [range, setRange] = useState<Range>('30d')
@@ -96,7 +105,13 @@ export default function Usage() {
   // known engines by their product name (Claude, Codex, API); anything else keeps the report's own label
   const engineName = (k: string, label = k) => ENGINE_LABEL[k as keyof typeof ENGINE_LABEL] ?? label
   const modelName = (k: string, label: string) => (k === '' ? t('composer.defaultModel') : label)
-  const credName = (k: string, label: string) => (k === TRIAL_CREDENTIAL_ID ? t('trialCredit.usageLabel') : label || t('usage.deletedCredential'))
+  // removed connections have no label: with more than one, a number tells them apart (QA TC-068)
+  const removed = (facets?.credentials ?? []).filter((c) => c.key !== TRIAL_CREDENTIAL_ID && !c.label).map((c) => c.key)
+  const removedName = (k: string) => {
+    const i = removed.indexOf(k)
+    return removed.length > 1 && i >= 0 ? t('usage.deletedCredentialN', { n: i + 1 }) : t('usage.deletedCredential')
+  }
+  const credName = (k: string, label: string) => (k === TRIAL_CREDENTIAL_ID ? t('trialCredit.usageLabel') : label || removedName(k))
   const rowLabel = (key: string, label: string) =>
     groupBy === 'engine' ? engineName(key, label) : groupBy === 'model' ? modelName(key, label) : groupBy === 'credential' ? credName(key, label) : label
   const all = (k: MessageKey) => ({ value: ALL, label: t(k) })
@@ -114,7 +129,36 @@ export default function Usage() {
       )}
     </>
   )
+  const groupPill = facets && facets.groups.length > 0 && (
+    <FilterPill label={t('usage.by.group')} value={filters.group} onChange={set('group')} testId="usage-filter-group"
+      options={[all('usage.pill.all'), ...facets.groups.map((g) => ({ value: g.key, label: g.label }))]} />
+  )
+  const rangePill = (
+    <FilterPill neutral label={t('usage.pill.range')} value={range} onChange={setRange} testId="usage-range"
+      options={RANGES.map((r) => ({ value: r, label: t(`usage.range.${r}` as MessageKey) }))} />
+  )
+  const customRange = range === 'custom' && (
+    <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="usage-custom-range">
+      <label className="sr-only" htmlFor="usage-from">{t('usage.from')}</label>
+      <input id="usage-from" className="h-9 rounded-lg border border-line bg-surface px-2 text-sm text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10" type="date" value={custom.from} max={custom.to}
+        onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))} />
+      <span aria-hidden className="text-muted">–</span>
+      <label className="sr-only" htmlFor="usage-to">{t('usage.to')}</label>
+      <input id="usage-to" className="h-9 rounded-lg border border-line bg-surface px-2 text-sm text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10" type="date" value={custom.to} min={custom.from}
+        onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))} />
+    </div>
+  )
+  const groupByPill = (
+    <FilterPill neutral label={t('usage.groupBy')} value={groupBy} onChange={setGroupBy} testId="usage-groupby"
+      options={GROUPS.map((g) => ({ value: g, label: t(`usage.by.${g}`) }))} />
+  )
+  const skillNote = <p className="mt-3 text-xs text-muted" data-testid="usage-skill-note">{t('usage.skillNote')}</p>
   const filtered = Object.values(filters).some((v) => v !== ALL)
+  const clearFilters = filtered && (
+    <button type="button" className="h-9 rounded-lg px-2 text-sm text-accent-text underline-offset-2 hover:underline max-md:min-h-10" onClick={() => setFilters({ user: ALL, engine: ALL, model: ALL, credential: ALL, group: ALL })} data-testid="usage-filters-clear">
+      {t('usage.filters.clear')}
+    </button>
+  )
   const chartKeys = data?.rows.map((r) => ({ key: groupBy === 'day' ? 'all' : r.key, label: groupBy === 'day' ? t('usage.tokens') : rowLabel(r.key, r.label) })) ?? []
   const chartDays = useMemo(() => {
     const list = daysBetween(from, to)
@@ -131,51 +175,54 @@ export default function Usage() {
         testId="usage-header"
         className="!mb-0"
         actions={
-          <>
-            <Link to={USAGE_LIMITS_LINK} className="text-sm font-medium text-accent-text underline-offset-2 hover:underline" data-testid="usage-limits-link">
-              {t('adminux.usageLimitsLink')}
-            </Link>
-            <IconButton label={t('usage.exportCsv')} disabled={!data} data-testid="usage-csv" onClick={csv}>
-              <Download size={16} aria-hidden />
-            </IconButton>
-          </>
+          phone ? (
+            <PageActions
+              menuLabel={t('common.moreActions')}
+              primary={{ label: t('adminux.usageLimitsLink'), icon: <Gauge size={14} aria-hidden />, onSelect: () => navigate(USAGE_LIMITS_LINK), testId: 'usage-limits-link' }}
+              more={[{ label: t('usage.exportCsv'), icon: <Download size={14} aria-hidden />, onSelect: csv, disabled: !data, testId: 'usage-csv' }]}
+            />
+          ) : (
+            <>
+              <Link to={USAGE_LIMITS_LINK} className="text-sm font-medium text-accent-text underline-offset-2 hover:underline" data-testid="usage-limits-link">
+                {t('adminux.usageLimitsLink')}
+              </Link>
+              <IconButton label={t('usage.exportCsv')} disabled={!data} data-testid="usage-csv" onClick={csv}>
+                <Download size={16} aria-hidden />
+              </IconButton>
+            </>
+          )
         }
       />
 
-      {/* row 1: what part of the team and when; row 2: what to look at and how to split it */}
-      <div className="mt-4 space-y-3" data-testid="usage-controls">
-        <div className="flex flex-wrap items-center gap-2">
-          {facets && facets.groups.length > 0 && (
-            <FilterPill label={t('usage.by.group')} value={filters.group} onChange={set('group')} testId="usage-filter-group"
-              options={[all('usage.pill.all'), ...facets.groups.map((g) => ({ value: g.key, label: g.label }))]} />
-          )}
-          <FilterPill neutral label={t('usage.pill.range')} value={range} onChange={setRange} testId="usage-range"
-            options={RANGES.map((r) => ({ value: r, label: t(`usage.range.${r}` as MessageKey) }))} />
-          {range === 'custom' && (
-            <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="usage-custom-range">
-              <label className="sr-only" htmlFor="usage-from">{t('usage.from')}</label>
-              <input id="usage-from" className="h-9 rounded-lg border border-line bg-surface px-2 text-sm text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent" type="date" value={custom.from} max={custom.to}
-                onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))} />
-              <span aria-hidden className="text-muted">–</span>
-              <label className="sr-only" htmlFor="usage-to">{t('usage.to')}</label>
-              <input id="usage-to" className="h-9 rounded-lg border border-line bg-surface px-2 text-sm text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent" type="date" value={custom.to} min={custom.from}
-                onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))} />
-            </div>
-          )}
+      {phone ? (
+        // a phone: the range and a Filters button on one row, the filters (and Clear) under it
+        <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="usage-controls">
+          {rangePill}
+          <PhoneFilters active={Object.values(filters).filter((v) => v !== ALL).length} testId="usage-filters">
+            {groupPill}
+            {pills}
+            {clearFilters}
+          </PhoneFilters>
+          {customRange && <div className="basis-full">{customRange}</div>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {pills}
-          <span aria-hidden className="mx-1 hidden h-6 w-px bg-line sm:block" />
-          <FilterPill neutral label={t('usage.groupBy')} value={groupBy} onChange={setGroupBy} testId="usage-groupby"
-            options={GROUPS.map((g) => ({ value: g, label: t(`usage.by.${g}`) }))} />
-          {filtered && (
-            <button type="button" className="h-9 rounded-lg px-2 text-sm text-accent-text underline-offset-2 hover:underline" onClick={() => setFilters({ user: ALL, engine: ALL, model: ALL, credential: ALL, group: ALL })} data-testid="usage-filters-clear">
-              {t('usage.filters.clear')}
-            </button>
-          )}
+      ) : (
+        // row 1: what part of the team and when; row 2: what to look at and how to split it
+        <div className="mt-4 space-y-3" data-testid="usage-controls">
+          <div className="flex flex-wrap items-center gap-2">
+            {groupPill}
+            {rangePill}
+            {customRange}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {pills}
+            <span aria-hidden className="mx-1 hidden h-6 w-px bg-line sm:block" />
+            {groupByPill}
+            {clearFilters}
+          </div>
         </div>
-      </div>
-      {groupBy === 'skill' && <p className="mt-3 text-xs text-muted" data-testid="usage-skill-note">{t('usage.skillNote')}</p>}
+      )}
+      {/* a phone: under the breakdown's heading, where Group by is chosen there */}
+      {groupBy === 'skill' && !phone && skillNote}
 
       <div className="mt-5">
         <Loadable state={state}>
@@ -196,12 +243,46 @@ export default function Usage() {
                 keys={chartKeys}
                 points={(d.series ?? []).map((p) => ({ day: p.day, key: p.key, tokens: p.inputTokens + p.outputTokens }))}
               />
-              <section className="rounded-xl border border-line bg-surface" aria-labelledby="usage-breakdown-title">
-                <h3 id="usage-breakdown-title" className="px-5 pt-5 text-base font-medium">{t('usage.breakdown', { by: t(`usage.by.${groupBy}`) })}</h3>
+              <section className="rounded-xl border border-line bg-surface max-md:rounded-none max-md:border-0 max-md:bg-transparent" aria-labelledby="usage-breakdown-title">
+                {/* a phone: Group by is chosen here, beside the heading (it splits the chart above too) */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-5 max-md:px-0 max-md:pt-0">
+                  <h3 id="usage-breakdown-title" className="min-w-0 flex-1 text-base font-medium">{phone ? t('usage.breakdownTitle') : t('usage.breakdown', { by: t(`usage.by.${groupBy}`) })}</h3>
+                  {phone && groupByPill}
+                </div>
+                {groupBy === 'skill' && phone && skillNote}
                 {!d.rows.length ? (
-                  <p className="px-5 py-5 text-sm text-muted" data-testid="usage-none">{t('usage.none')}</p>
+                  <p className="px-5 py-5 text-sm text-muted max-md:px-0" data-testid="usage-none">{t('usage.none')}</p>
+                ) : phone ? (
+                  // a phone: one row per name (the name and the cost; answers and the share under them), not three
+                  // squeezed columns
+                  <ul className="divide-y divide-line border-y border-line" data-testid="usage-rows">
+                    {d.rows.map((r, i) => {
+                      const share = shares[i] ?? 0
+                      const name = rowLabel(r.key, r.label)
+                      return (
+                        <li key={r.key} className="py-2.5 text-sm" data-testid="usage-row">
+                          <div className="flex items-baseline gap-3">
+                            <span className={clsx('min-w-0 flex-1 truncate font-medium', groupBy === 'credential' && r.key !== TRIAL_CREDENTIAL_ID && !r.label ? 'text-faint' : 'text-ink')}>{name}</span>
+                            <span className="shrink-0 text-ink tabular-nums">
+                              {formatUsd(r.costUsd, locale)}
+                              {!!r.unpricedTurns && <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')} data-testid="usage-unpriced">+?</span>}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-3 text-xs text-muted">
+                            <span className="shrink-0 tabular-nums">{t('usage.turns')} {formatNumber(r.turns, locale)}</span>
+                            <UsageBar pct={share} />
+                            <span className="w-12 shrink-0 text-right tabular-nums" data-testid="usage-share">{formatNumber(share / 100, locale, { style: 'percent', maximumFractionDigits: 1 })}</span>
+                          </div>
+                        </li>
+                      )
+                    })}
+                    <li className="flex items-baseline gap-3 py-2.5 text-sm font-medium" data-testid="usage-total">
+                      <span className="min-w-0 flex-1">{t('usage.total')} <span className="text-xs font-normal text-muted tabular-nums">· {t('usage.turns')} {formatNumber(d.totals.turns, locale)}</span></span>
+                      <span className="shrink-0 tabular-nums">{formatUsd(d.totals.costUsd, locale)}{!!d.totals.unpricedTurns && <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')}>+?</span>}</span>
+                    </li>
+                  </ul>
                 ) : (
-                  <div className="overflow-x-auto px-5 pb-4">
+                  <div className="overflow-x-auto px-5 pb-4 max-md:px-0">
                     <table className="w-full text-sm" data-testid="usage-table">
                       <thead>
                         <tr className="border-b border-line text-left text-xs text-muted">

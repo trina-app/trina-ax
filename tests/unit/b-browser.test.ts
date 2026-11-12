@@ -10,6 +10,9 @@ import { hostOf, isPrivateHost, privateIp } from '../../server/src/realtime/priv
 import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
 import { hwpPluginOn } from '../lib/hwp-plugin'
+import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
+import { buildTurnContext, buildTurnPrompt, NO_BROWSER_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { loadPrincipal } from '../../server/src/policy/access'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -60,6 +63,7 @@ describe('browser tools', () => {
       for (const t of ['navigate', 'computer', 'read_page', 'browser_batch', 'preview_start', 'tabs_context']) expect(tools!.split(',')).toContain(t)
       expect(result).toBe('opened https://example.com')
       expect(system).toContain('## Browser (desktop app)')
+      expect(system).not.toContain('There is no browser in this app')
       expect(d.data.message.steps.find((s) => s.tool === 'navigate')).toMatchObject({ kind: 'browser', label: 'Open page · https://example.com', status: 'ok' })
       expect(web.frames.some((f) => f.type === 'browser.call')).toBe(false)
     } finally { stop() }
@@ -70,11 +74,56 @@ describe('browser tools', () => {
     const r = await send(fake({ echo: 'tools' }), { window: 'win-web-00001', client: 'web' })(chat.id)
     const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
     // file tools, B's tools (set_title: the chat's first message; edit_files) and C's registered tools (make_file, edit_hwp, share_file,
-    // artifact, web_fetch, save_url, schedule_*, promo_video, intro_deck; search only with MYCEL_SEMANTIC=on), skill and find_skills; no browser tools
-    expect(d.data.message.content).toBe('artifact,ask_user,connect_service,copy_files,edit,edit_files,edit_hwp,find_skills,forget,glob,grep,intro_deck,list,make_file,move_files,promo_video,read,remember,rename_file,room_file,room_read,rooms,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,skill,web_fetch,write')
+    // artifact, web_fetch, save_url, schedule_*, promo_video, intro_deck, move_skill, post_to_room), skill and find_skills; no browser tools
+    expect(d.data.message.content).toBe('artifact,ask_user,change_project_members,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,find_skills,forget,glob,grep,intro_deck,list,make_file,move_files,move_skill,post_to_room,promo_video,read,remember,rename_file,room_file,room_read,rooms,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,skill,skill_files,web_fetch,write')
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')
+  })
+
+  test('on the web the AI is told the desktop app has the browser, so it says so instead of only "I cannot" (QA TC-242)', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await send(fake({ echo: 'system' }), { window: 'win-web-00002', client: 'web' })(chat.id)
+    const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+    expect(d.data.message.content).toContain('There is no browser in this app (the web or a phone).')
+    expect(d.data.message.content).toContain('desktop app has a browser next to the chat')
+    expect(d.data.message.content).not.toContain('## Browser (desktop app)')
+  })
+
+  test('the "no browser here" line only with the web-or-phone flag (turn.ts sets it for the person\'s own chat there): never in a confidential chat, a room or a shared chat, even with the flag', () => {
+    const user = loadPrincipal(h.ctx.db, 'alice')!
+    const base: PromptInput = { user, groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null, now: new Date('2026-11-12T09:00:00Z') }
+    const cases: [string, PromptInput, boolean][] = [
+      ['own chat on the web', { ...base, browserInDesktopApp: true }, true],
+      ['no flag', base, false],
+      ['confidential', { ...base, browserInDesktopApp: true, confidential: 'chat' }, false],
+      ['room', { ...base, browserInDesktopApp: true, room: { name: 'Sales', kind: 'team', members: 3, asker: user.name } }, false],
+      ['shared', { ...base, browserInDesktopApp: true, shared: { project: 'Falcon', audience: 3, asker: user.name } }, false],
+    ]
+    for (const [name, input, has] of cases) {
+      for (const text of [buildTurnPrompt(h.ctx.files, input), buildTurnContext(h.ctx.files, input)]) {
+        expect({ name, has: text.includes(NO_BROWSER_RULE), desktop: text.includes('## Browser (desktop app)') }).toEqual({ name, has, desktop: false })
+      }
+    }
+  })
+
+  test('"Allow all websites" (url-gate ①d): a browser tool opens an address the AI wrote without the address card, named in its audit line', async () => {
+    const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: `opened ${c.args.url}` }] }))
+    expect(setWebAllowAll(h.ctx.db, 'alice', true, { via: 'settings' })).toBe(true)
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      // written so the address is not typed in the message (as an injection would)
+      const step = '@fake ' + JSON.stringify({ tool: 'navigate', args: { url: 'https://www.example.com/allow-all-check' }, sayResult: true }).replace(/\//g, '\\u002f')
+      const r = await send(step)(chat.id)
+      const d = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(d.data.message.content).toContain('opened https://www.example.com/allow-all-check')
+      expect(desk.frames.some((f) => f.type === 'turn.request' && f.data.turnId === r.turnId)).toBe(false)
+      const ev = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'navigate'").get(r.turnId) as { summary: string }
+      expect(ev.summary).toContain('(all websites allowed)')
+    } finally {
+      setWebAllowAll(h.ctx.db, 'alice', false, { via: 'settings' })
+      stop()
+    }
   })
 
   test('office-network address: the sending window is asked; "always" is remembered, "deny" stops the call', async () => {

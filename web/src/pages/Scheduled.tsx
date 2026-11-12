@@ -6,48 +6,40 @@
 // again" instead, which opens its schedule card here; edits go through ScheduleEditDialog. New tasks are made by the AI
 // in a chat (its card) or from a template. Only presentation moved: the API is the same (shared/src/api/schedules.ts).
 import clsx from 'clsx'
-import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Search, ShieldAlert, Trash2, X } from 'lucide-react'
+import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Plus, Search, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { formatDateTime } from '../lib/format'
+import { formatDateTime, formatRelative } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
-import { cardLine, outcomeLabel, outcomeReason, outcomeTone, repeatText, scheduleName, schedulePreview, scheduleState, stateLabel, type Tone } from '../lib/scheduleText'
+import { cardLine, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runStateLabel, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
-import { schedulesChanged } from '../store/live'
+import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import AskCard from '../components/chat/AskCard'
+import { copyRoomIds, WithRoomNames } from '../components/RoomNames'
 import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
-import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn } from '../components/ui'
+import { MenuButton } from '../components/rooms/MenuButton'
+import { PhoneBarAction } from '../components/phone/PhoneBarAction'
+import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn, useMediaQuery } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
 
-/** The last run's result as a small dot, with its words for screen readers and in a tooltip. */
-function OutcomeDot({ s }: { s: Schedule }) {
-  const t = useT()
-  if (!s.lastOutcome) return null
-  const tone = outcomeTone(s.lastOutcome)
-  const label = outcomeLabel(s, t)
-  return (
-    <Tooltip label={label}>
-      <span className="inline-flex shrink-0 items-center" data-testid="schedule-dot" data-outcome={s.lastOutcome}>
-        <span className={clsx('size-2 rounded-full', DOT[s.lastOutcome === 'done' ? 'ok' : tone])} aria-hidden />
-        <span className="sr-only">{label}</span>
-      </span>
-    </Tooltip>
-  )
-}
-
-/** The person's own tasks and the team time zone they run in, kept fresh when another screen changes them. */
+/** The person's own tasks and the team time zone they run in, kept fresh when another screen changes them, when a
+ * task's run changes (chat.updated of a task's last run chat: Run now's from its answer on, a run at its time once the
+ * list is read again at that time, lib/scheduleText.ts nextDueRead), and after a reset connection, so the "Last run"
+ * block follows a run without a reload. */
 function useScheduleList() {
   const t = useT(), locale = useLocale()
   const [items, setItems] = useState<Schedule[] | null>(null)
+  const shown = useRef<Schedule[] | null>(null)
+  shown.current = items
   const [tz, setTz] = useState('')
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0), revision = useRef(0)
@@ -67,9 +59,24 @@ function useScheduleList() {
   useEffect(() => {
     life.current++
     void load()
-    const off = schedulesChanged.on(() => void load())
-    return () => { life.current++; off() }
+    // the events of one run come close together (its chat made, queued, running): read once for them
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const soon = () => { timer ??= setTimeout(() => { timer = null; void load() }, 250) }
+    const offs = [
+      schedulesChanged.on(() => void load()),
+      reloadAsked.on(() => void load()),
+      chatChanged.on((ev) => { if (shown.current?.some((x) => x.lastChatId === ev.chatId)) soon() }),
+    ]
+    return () => { life.current++; if (timer) clearTimeout(timer); for (const off of offs) off() }
   }, [load])
+  // a run at its time: read again when the first one is due (and, while one is due and not started, again a little
+  // later: the server starts it at its next tick), so its chat is known and its end is followed
+  useEffect(() => {
+    const wait = nextDueRead(items, Date.now())
+    if (wait === null) return
+    const timer = setTimeout(() => void load(), wait)
+    return () => clearTimeout(timer)
+  }, [items, load])
   const replace = (u: Schedule) => { revision.current++; setItems((cur) => cur?.map((x) => (x.id === u.id ? u : x)) ?? null) }
   const add = (u: Schedule) => { revision.current++; setItems((cur) => [u, ...(cur ?? []).filter((x) => x.id !== u.id)]) }
   const drop = (id: string) => { revision.current++; setItems((cur) => cur?.filter((x) => x.id !== id) ?? null) }
@@ -138,18 +145,46 @@ function NewTaskMenu({ onTemplate, testId }: { onTemplate: () => void; testId: s
   )
 }
 
+/** A phone's "+" in the top bar (phone/PhoneBarAction.tsx): the same two ways to start, as a bottom sheet. */
+function NewTaskSheet({ onTemplate }: { onTemplate: () => void }) {
+  const t = useT()
+  const inChat = useStartInChat()
+  return (
+    <MenuButton
+      label={t('scheduled.newTask')}
+      sheetTitle={t('scheduled.newTask')}
+      icon={<Plus size={22} aria-hidden />}
+      muted
+      buttonClassName="size-11"
+      testId="new-task-phone"
+      items={[
+        { label: t('scheduled.newInChat'), icon: <MessageSquarePlus size={18} aria-hidden />, onSelect: inChat, testId: 'new-task-chat' },
+        { label: t('scheduled.newFromTemplate'), icon: <LayoutTemplate size={18} aria-hidden />, onSelect: onTemplate, testId: 'new-task-template' },
+      ]}
+    />
+  )
+}
+
 function ScheduleCard({ s }: { s: Schedule }) {
   const t = useT(), locale = useLocale()
   const waiting = scheduleState(s) === 'review'
   return (
     // one column (phones): a plain row of the list (hairlines between rows, no filled card); two columns keep the cards
-    <Link to={`/scheduled/${s.id}`} className="block h-full rounded-xl bg-subtle px-4 py-3.5 transition-colors hover:bg-hover max-sm:-mx-2 max-sm:rounded-lg max-sm:bg-transparent max-sm:px-2 max-sm:py-3" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
+    // a lapsed save folder: the task opens with its card to check it again ("다시 확인")
+    <Link to={`/scheduled/${s.id}`} state={s.saveLapsed ? { recheck: true } : undefined} className="block h-full rounded-xl bg-subtle px-4 py-3.5 transition-colors hover:bg-hover max-sm:-mx-2 max-sm:rounded-lg max-sm:bg-transparent max-sm:px-2 max-sm:py-3" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
       <span className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 truncate text-sm font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
       </span>
-      <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{schedulePreview(s)}</span>
+      <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{s.templateId ? schedulePreview(s) : <WithRoomNames text={s.prompt} />}</span>
       <span className={clsx('mt-1.5 block truncate text-xs', waiting ? 'text-warn' : 'text-faint')}>{cardLine(s, t, locale)}</span>
+      {/* where its runs may save without asking, like a template's folders; a lapsed one asks to be checked again */}
+      {s.saveFolder && (
+        <span className={clsx('mt-1 block truncate text-xs', s.saveLapsed ? 'text-warn' : 'text-faint')} data-testid="schedule-card-save" data-lapsed={s.saveLapsed ? 'yes' : undefined}>
+          {saveLine(s, t)}
+          {s.saveLapsed && <><span aria-hidden> · </span><span className="font-medium text-accent-text">{t('schedules.review')}</span></>}
+        </span>
+      )}
       {/* the last result in words beside its dot: phones have no hover title, and every failure is the same red */}
       {s.lastOutcome && (
         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs" data-testid="schedule-card-outcome" data-outcome={s.lastOutcome}>
@@ -172,9 +207,18 @@ export function ScheduledList() {
   const q = query.trim().toLowerCase()
   const shown = items?.filter((s) => !q || scheduleName(s, t).toLowerCase().includes(q)) ?? []
   const closeSearch = () => { setQuery(''); setSearching(false) }
+  // a phone: "+" in the top bar opens the two ways to start as a sheet, and the search is a field over the list (no
+  // title row of buttons under the bar)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      {/* the page's title bar like the other pages (Projects, Trash): full width, with its bottom line */}
+      {phone ? (
+        <>
+          <h1 className="sr-only">{t('settings.schedules')}</h1>
+          <PhoneBarAction><NewTaskSheet onTemplate={() => setTemplateOpen(true)} /></PhoneBarAction>
+        </>
+      ) : (
+      /* the page's title bar like the other pages (Projects, Trash): full width, with its bottom line */
       <PageHeader
         title={t('settings.schedules')}
         actions={
@@ -201,7 +245,14 @@ export function ScheduledList() {
           </>
         }
       />
+      )}
       <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
+        {phone && items && items.length > 0 && (
+          <div className="relative mb-2">
+            <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('scheduled.search')} aria-label={t('scheduled.search')} className={`${inputCls} h-11 pl-9`} data-testid="scheduled-search" />
+          </div>
+        )}
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && (
@@ -274,33 +325,42 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
   const state = scheduleState(s)
   const blocked = state === 'completed' || state === 'expired'
   const waiting = state === 'review'
+  // its save folder lapsed (moved, renamed, its permissions changed): runs save in the own folder until checked again
+  const lapsed = !waiting && !!s.saveFolder && !!s.saveLapsed
   const name = scheduleName(s, t)
   const when = (iso: string | null | undefined) => formatDateTime(iso, locale, tz || undefined)
   const hintId = `${base}-hint`
   const status = state === 'on' ? (s.nextRunAt ? t('schedules.next', { time: when(s.nextRunAt) }) : '') : stateLabel(s, t)
-  // a last run that did not succeed also shows under the title: on a phone the run section is far below the fold
-  const badOutcome = s.lastOutcome && s.lastOutcome !== 'done' ? s.lastOutcome : null
+  // a last run that did not succeed also shows under the title: on a phone the run section is far below the fold (not
+  // while a new run is on its way: the block below says so)
+  const badOutcome = !s.running && s.lastOutcome && s.lastOutcome !== 'done' ? s.lastOutcome : null
   // a finished or expired one-time task can still run once with "Run now", so its hint says that, not "create a new schedule"
   const runNowShown = !!onRunNow && !waiting
   const hint = blocked
     ? t(runNowShown ? (state === 'completed' ? 'scheduled.completedRunHint' : 'scheduled.expiredRunHint') : `schedules.${state}Hint`)
     : waiting ? t('schedules.reviewHint') : state === 'paused' ? t('schedules.pausedHint') : ''
   const long = !s.templateId && (s.prompt.length > 180 || s.prompt.split('\n').length > 3)
-  const ran = s.lastRunAt || s.lastChatId
-  const reason = outcomeReason(s, t)
-  // The API keeps only the last run (lastRunAt, lastChatId, lastOutcome), so the section shows that one run: when it ran,
-  // how it went, why in plain words, and a link to its chat.
+  const ran = s.lastRunAt || s.lastChatId || s.running
+  const reason = s.running ? '' : outcomeReason(s, t)
+  // when the last run ended (a "Run now" run too: it moves only lastChatId); older servers: the last run at its time
+  const lastAt = s.lastOutcomeAt ?? s.lastRunAt
+  // The API keeps only the last run (lastChatId, lastOutcome, lastOutcomeAt, running), so the section shows that one run
+  // under its heading: how it went and when ("Succeeded · 2 minutes ago", or "Running"), why in plain words, and a link
+  // to its chat.
+  const runState = runStateLabel(s, t)
+  const tone = s.running || s.lastOutcome === 'done' ? null : s.lastOutcome ? outcomeTone(s.lastOutcome) : null
   const runLine = (
     <span className="min-w-0 flex-1">
-      <span className="block text-sm text-ink">{s.lastRunAt ? when(s.lastRunAt) : t('schedules.lastRun')}</span>
-      {s.lastOutcome && (
-        <span className={clsx('mt-0.5 flex items-center gap-1.5 text-xs', TEXT[outcomeTone(s.lastOutcome)])} data-testid="schedule-outcome" data-outcome={s.lastOutcome}>
-          <OutcomeDot s={s} />
-          <span aria-hidden>{outcomeLabel(s, t)}</span>
+      <span className="flex items-center gap-1.5 text-sm text-ink" data-testid="schedule-outcome" data-outcome={s.running ? 'running' : s.lastOutcome ?? undefined}>
+        {(s.running || s.lastOutcome) && <span className={clsx('size-2 shrink-0 rounded-full', s.running ? 'bg-accent' : DOT[s.lastOutcome === 'done' ? 'ok' : outcomeTone(s.lastOutcome)])} aria-hidden />}
+        <span className="min-w-0">
+          {runState && <span className={clsx(tone && TEXT[tone])}>{runState}</span>}
+          {runState && !s.running && lastAt && <span className="text-muted" aria-hidden> · </span>}
+          {!s.running && lastAt && <time dateTime={lastAt} title={when(lastAt)} className="text-muted">{formatRelative(lastAt, locale)}</time>}
         </span>
-      )}
+      </span>
       {reason && <span className="mt-1 block text-xs text-muted" data-testid="schedule-outcome-reason">{reason}</span>}
-      {s.lastChatId && <span className="mt-1 block text-xs text-accent-text">{t('scheduled.openResult')}</span>}
+      {s.lastChatId && <span className="mt-1 block text-xs text-accent-text">{t(s.running ? 'schedules.openRun' : 'scheduled.openResult')}</span>}
     </span>
   )
   return (
@@ -321,12 +381,23 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
               {hint}
             </p>
           )}
+          {lapsed && (
+            <p className="mt-1 flex items-start gap-1 text-xs text-warn" data-testid="schedule-save-lapsed">
+              <ShieldAlert size={13} className="mt-px shrink-0" aria-hidden />
+              {t('scheduled.saveLapsedHint')}
+            </p>
+          )}
           {s.pendingDueAt && <p className="mt-1 text-xs text-faint" data-testid="schedule-deferred">{t('scheduleTemplates.deferred', { time: when(s.retryAt ?? s.pendingDueAt) })}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-4">
           {onRunNow && !waiting && (
             <Button size="sm" busy={running} title={t('schedules.runNowHint')} onClick={onRunNow} data-testid="schedule-run-now">
               {!running && <Play size={13} aria-hidden />} {t('schedules.runNow')}
+            </Button>
+          )}
+          {lapsed && onReview && (
+            <Button size="sm" variant="primary" aria-expanded={!!review} onClick={onReview} data-testid="schedule-save-recheck">
+              {t('schedules.review')}
             </Button>
           )}
           {waiting ? (
@@ -359,7 +430,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
                 )}
                 {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
                 {s.lastOutcome === 'needs_key' && s.lastNeed && (
-                  <Link to={`/settings/connectors?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
+                  <Link to={`/connectors?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
                     {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
                   </Link>
                 )}
@@ -375,7 +446,8 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
               <p>{t('scheduleTemplates.hint')}</p>
             ) : (
               <>
-                <p className={clsx('break-words whitespace-pre-wrap', !more && long && 'line-clamp-3')}>{s.prompt}</p>
+                {/* a room the AI named by its id reads as its name, for a viewer in it (components/RoomNames.tsx) */}
+                <p className={clsx('break-words whitespace-pre-wrap', !more && long && 'line-clamp-3')} onCopy={copyRoomIds}><WithRoomNames text={s.prompt} /></p>
                 {long && (
                   <button type="button" aria-expanded={more} onClick={() => setMore((v) => !v)} className="mt-1 text-xs text-accent-text hover:underline">
                     {t(more ? 'scheduled.showLess' : 'scheduled.showMore')}
@@ -399,10 +471,20 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
             ) : (
               <p>{t('schedules.noProject')}</p>
             )}
+            {/* what its card lets runs save and send without asking */}
+            {!s.templateId && s.saveFolder && (
+              <p className={clsx('mt-1', s.saveLapsed && 'text-warn')} data-testid="schedule-save-folder">{saveLine(s, t)}</p>
+            )}
+            {!s.templateId && s.saveFolder && !!s.saveSources?.length && (
+              <p className="mt-0.5 text-xs text-faint" data-testid="schedule-save-sources">{t('scheduled.saveSources', { list: s.saveSources.map((x) => sourceName(x, t)).join(', ') })}</p>
+            )}
+            {!s.templateId && !!s.personalSends?.length && (
+              <p className="mt-1" data-testid="schedule-sends">{t('scheduled.sends', { list: s.personalSends.map((x) => `${x.name} · ${x.pins.map((p) => `'${p}'`).join(', ')}`).join('; ') })}</p>
+            )}
           </Side>
           <Side label={t('scheduled.details')} testId="schedule-details">
             {s.enabled && s.nextRunAt && <p>{t('schedules.next', { time: when(s.nextRunAt) })}</p>}
-            {s.lastRunAt ? <p>{t('scheduled.lastRunAt', { time: when(s.lastRunAt) })}</p> : !ran && <p>{t('scheduled.noRuns')}</p>}
+            {lastAt ? <p>{t('scheduled.lastRunAt', { time: when(lastAt) })}</p> : !ran && <p>{t('scheduled.noRuns')}</p>}
           </Side>
         </div>
       </div>
@@ -414,6 +496,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
 export function ScheduledTask() {
   const t = useT(), locale = useLocale(), navigate = useNavigate()
   const { id = '' } = useParams()
+  const location = useLocation()
   const { items, tz, error, load, replace, drop, life } = useScheduleList()
   const s = items?.find((x) => x.id === id) ?? null
   const [projects, setProjects] = useState<Project[] | null>(null)
@@ -454,7 +537,8 @@ export function ScheduledTask() {
       replace(u)
       setReview(null)
       schedulesChanged.emit()
-      if (u.enabled) toast({ level: 'success', text: t('schedules.reviewDone') })
+      if (value === 'resave') toast({ level: 'success', text: t('schedules.resaveDone') })
+      else if (u.enabled) toast({ level: 'success', text: t('schedules.reviewDone') })
     } catch (e) {
       // the task or its connections changed since the card was shown: show the card as it is now
       if (isApiError(e, 'conflict') && e.body.params?.reason === 'schedule_card_changed') {
@@ -468,6 +552,14 @@ export function ScheduledTask() {
       throw e
     }
   }
+  // from the list's "다시 확인" of a lapsed save folder: its card opens at once (once per visit)
+  const rechecked = useRef(false)
+  useEffect(() => {
+    if (rechecked.current || !s?.saveLapsed || !(location.state as { recheck?: boolean } | null)?.recheck) return
+    rechecked.current = true
+    void openReview(s)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s?.id, s?.saveLapsed])
   // "지금 실행": a run now, in a new chat (the toast opens it)
   const [running, setRunning] = useState(false)
   const runNow = async (x: Schedule) => {
@@ -477,6 +569,8 @@ export function ScheduledTask() {
       const r = await api.call(API.runScheduleNow, { params: { id: x.id }, body: {} })
       if (generation !== life.current) return
       replace(r.schedule)
+      // and read again: a quick run may have ended before this answer came (its chat's events are followed from here)
+      void load()
       toast({ level: 'success', text: t('schedules.runStarted'), action: { label: t('schedules.openRun'), run: () => navigate(`/c/${r.chatId}`) } })
     } catch (e) { fail(e) } finally { if (generation === life.current) setRunning(false) }
   }
@@ -494,9 +588,19 @@ export function ScheduledTask() {
     } catch (e) { fail(e) }
   }
   const project = s?.projectId ? projects?.find((p) => p.id === s.projectId) ?? null : null
+  // a phone: "Edit" in the top bar and a red "Delete" row at the end of the page, as an iOS app has them (the name is
+  // the page's big heading; no second bar with the name as a menu)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6" testId="scheduled-topline">
+      {phone && s && (
+        <PhoneBarAction>
+          <button type="button" onClick={() => setEditing(true)} className="flex h-11 items-center rounded-md px-3 text-sm font-medium text-accent-text hover:bg-hover" data-testid="schedule-edit-bar">
+            {t('common.edit')}
+          </button>
+        </PhoneBarAction>
+      )}
+      <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6 max-md:hidden" testId="scheduled-topline">
         <nav aria-label={t('files.breadcrumb')} className="flex min-w-0 items-center gap-1.5 text-sm">
           {/* phones: the top bar above says 예약 작업, with its ‹ (components/PhoneTopBar.tsx) */}
           <Link to="/scheduled" className="shrink-0 text-muted hover:text-ink max-md:hidden">{t('settings.schedules')}</Link>
@@ -527,6 +631,11 @@ export function ScheduledTask() {
           <ScheduleView s={s} tz={tz || null} project={project} running={running}
             onToggle={() => void toggle(s)} onRunNow={() => void runNow(s)} onReview={() => void openReview(s)}
             review={review ? <AskCard key={review.request.requestId} req={review} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} /> : undefined} />
+        )}
+        {phone && s && (
+          <button type="button" onClick={() => void remove(s)} className="mt-8 flex min-h-11 w-full items-center justify-center rounded-lg bg-subtle px-4 text-sm font-medium text-danger" data-testid="schedule-delete-row">
+            {t('schedules.delete')}
+          </button>
         )}
       </div>
       {editing && s && (

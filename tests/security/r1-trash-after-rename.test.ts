@@ -3,11 +3,14 @@
 // longer carries a rule), and a restore recreated the old name with no rule, or landed in another group's folder that
 // took the old name. Moving a folder now moves its pending trash items' original_path with it.
 // Fixture: alice, erin = members of marketing (groups/marketing write); bob = finance; carol = admin; dana = owner;
-// projects/falcon: alice write, finance read.
+// projects/falcon: alice write, finance read. Inside projects/<name> the owner and admins act only as members, and a
+// new name directly in projects/ is the system's alone (docs/DECISIONS.md "Project contents only for members"): a
+// project folder is no longer renamed in Files, so its trashed items keep their path and come back into it.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('sec-r1-trash-rename') })
@@ -55,14 +58,24 @@ describe('trash follows a renamed group / project folder', () => {
     expect((await A.json('/api/files/content' + q({ path: 'groups/marketing-team/plan.md' }), { as: 'bob' })).status).toBe(404)
   })
 
-  test('project folder rename: the creator still sees the item and the restore lands under the new name', async () => {
+  test('project folder rename: refused to everyone now; the creator still sees the item and the restore lands in its folder', async () => {
     const id = await saveAndTrash('alice', 'projects/falcon/spec.md')
-    expect((await move('carol', 'projects/falcon', 'projects/falcon-2')).status).toBe(200)
-    expect((await trashOf('alice')).find((t) => t.id === id)?.originalPath).toBe('projects/falcon-2/spec.md')
+    // the owner and an admin who are not members: the same 404 as a folder they cannot see; nothing of its trash is theirs
+    for (const who of ['carol', 'dana']) {
+      expect((await move(who, 'projects/falcon', 'projects/falcon-2')).status).toBe(404)
+      expect((await trashOf(who)).map((t) => t.id)).not.toContain(id)
+    }
+    // an admin who is a member neither (no rule for her at a new name directly in projects/; it was 200 by her role),
+    // nor its member creator (a rule folder: admins only)
+    legacyProjectFolder(A.ctx.db, A.team, 'projects/falcon', [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'group', subjectId: 'finance', access: 'read' }, { subjectType: 'user', subjectId: 'carol', access: 'write' }])
+    expect((await move('carol', 'projects/falcon', 'projects/falcon-2')).status).toBe(404)
+    expect((await move('alice', 'projects/falcon', 'projects/falcon-2')).status).toBe(403)
+    expect(fs.existsSync(path.join(A.team, 'projects/falcon-2'))).toBe(false)
+    expect((await trashOf('alice')).find((t) => t.id === id)?.originalPath).toBe('projects/falcon/spec.md')
     const r = await A.json(`/api/files/trash/${id}/restore`, { as: 'alice', method: 'POST' })
     expect(r.status).toBe(200)
-    expect(r.body.entry.path).toBe('projects/falcon-2/spec.md')
-    expect((await A.json('/api/files/content' + q({ path: 'projects/falcon-2/spec.md' }), { as: 'bob' })).status).toBe(200) // finance reads the project
-    expect(fs.existsSync(path.join(A.team, 'projects/falcon'))).toBe(false)
+    expect(r.body.entry.path).toBe('projects/falcon/spec.md')
+    expect((await A.json('/api/files/content' + q({ path: 'projects/falcon/spec.md' }), { as: 'bob' })).status).toBe(200) // finance reads the project
+    expect((await A.json('/api/files/content' + q({ path: 'projects/falcon/spec.md' }), { as: 'dana' })).status).toBe(404)
   })
 })

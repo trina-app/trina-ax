@@ -60,7 +60,7 @@ export function WebPushAsk({ at }: { at: 'top' | 'bottom' }) {
       ref={line}
       role="region"
       aria-label={t('push.title')}
-      className={clsx('flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 bg-canvas px-4 py-1.5 text-sm', at === 'top' ? 'border-b border-line max-md:hidden' : 'border-t border-line md:hidden')}
+      className={clsx('flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 bg-canvas px-4 py-1.5 text-sm', at === 'top' ? 'border-b border-line max-md:hidden' : 'border-t border-line md:hidden in-[.keyboard-open]:hidden')}
       data-testid={`web-push-ask-${at}`}
     >
       <span className="flex min-w-0 items-start gap-2">

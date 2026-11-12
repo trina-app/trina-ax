@@ -7,7 +7,9 @@ Every developer and coding agent writes a plan **before** starting a feature or 
 1. Make the feature branch from the latest `dev`.
 2. Write the plan in `docs/AGENTS/plan/` and make it the **first commit** on the branch, before any code.
 3. Build what the plan says. If the approach changes, update the plan in the same branch.
-4. Link the plan in the pull request ("Plan" in the template). At the end, set `Status: done` and fill in `Result`.
+4. Do not edit `CHANGELOG.md`. Put the PR's user-visible notes in a new file `changes/<topic>.md`
+   (rules: [changes/README.md](../../changes/README.md)).
+5. Link the plan in the pull request ("Plan" in the template). At the end, set `Status: done` and fill in `Result`.
 
 Not needed for: typo fixes, dependency bumps and release version bumps. Outside contributors are welcome to add a plan,
 but do not have to.

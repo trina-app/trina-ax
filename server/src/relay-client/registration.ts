@@ -152,11 +152,14 @@ function saveRegistration(db: Database, r: Registration): void {
     .run(r.relayApi, r.teamId, r.teamName, r.publicKey, r.address, r.registeredAt, r.lastHeartbeatAt)
 }
 
-export function recordRelayEvent(db: Database, kind: string, detail: string | null = null): void {
+/** The new row's id, or null when it could not be written (diagnostics only, never throws). */
+export function recordRelayEvent(db: Database, kind: string, detail: string | null = null): string | null {
   try {
-    db.query('INSERT INTO relay_events (id, at, kind, detail) VALUES (?, ?, ?, ?)').run(uuidv7(), new Date().toISOString(), kind, detail)
+    const id = uuidv7()
+    db.query('INSERT INTO relay_events (id, at, kind, detail) VALUES (?, ?, ?, ?)').run(id, new Date().toISOString(), kind, detail)
     db.query(`DELETE FROM relay_events WHERE at < ?`).run(new Date(Date.now() - 30 * 24 * 3600_000).toISOString())
-  } catch { /* diagnostics only */ }
+    return id
+  } catch { return null }
 }
 
 export function recentRelayEvents(db: Database, limit = 20): { at: string; kind: string; detail: string | null }[] {
@@ -261,9 +264,13 @@ export async function recoverWithCode(o: { db: Database; relayApi: string; key: 
   return reg
 }
 
+// The relay refuses the same signed call twice (replay), and Ed25519 signs the same call in the same ms identically:
+// timestamps only go up, so two identical calls in one ms are still two different signed calls.
+let lastSignedTs = 0
+
 async function signed<T>(o: { relayApi: string; teamId: string; key: KeyObject }, method: string, p: string, body: unknown): Promise<T> {
   const text = body === undefined ? '' : JSON.stringify(body)
-  const ts = Date.now()
+  const ts = lastSignedTs = Math.max(Date.now(), lastSignedTs + 1)
   const sig = signB64(o.key, apiSigningString(method, p, ts, text))
   return call<T>(`${o.relayApi}${p}`, { method, headers: { authorization: authorizationHeader(o.teamId, ts, sig), ...(text ? { 'content-type': 'application/json' } : {}) }, body: text || undefined })
 }

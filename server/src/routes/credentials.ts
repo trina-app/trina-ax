@@ -17,16 +17,12 @@ import { sharedSubscriptionsAllowed } from '../credentials/policy'
 import {
   checkCredential, createCredential, deleteCredential, listCredentials, myCredentials, replaceSecret, setCredentialSettings, unsealOrFail, updateCredential,
 } from '../credentials/service'
-import { admins, credentialsOf } from '../credentials/store'
+import { admins, connectionsChanged, credentialsOf } from '../credentials/store'
 import { ct } from '../credentials/i18n'
 import { trialCredit } from '../credentials/hosted-chat'
-import { engineStatusCache } from '../admin/engines'
 import { aiAccessFor } from '../credentials/access'
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime } from '../chat/runtime'
-
-/** open composers ask GET /api/engines again (an engine may have gained or lost its last connection) */
-const ENGINES_CHANGED = { type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } } as const
 
 export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   const cc = () => credentialsOf(ctx)
@@ -35,11 +31,8 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   const logins = () => credentialLogins(cc(), serverLoginDeps(ctx, (kind) => {
     try { const e = getChatRuntime(ctx).engines.get(); return (kind === 'chatgpt' ? e.codex?.bin : e.claude?.bin) ?? null } catch { return null }
   }))
-  const changed = () => {
-    const cache = engineStatusCache(ctx)
-    cache.forget('claude-code'); cache.forget('codex')
-    ctx.services.realtime.publishEach(() => ENGINES_CHANGED)
-  }
+  // an engine may have gained or lost its last connection: its state is checked again, open screens ask again
+  const changed = () => connectionsChanged(cc())
 
   // the add dialog takes the gateway's key format and names the gateway (engine.anthropicGateway; never its address)
   const gateway = () => { const g = anthropicGateway(ctx.config); return g ? { label: gatewayLabel(g) } : null }
@@ -106,7 +99,8 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   }
   kit.handle(API.getAiAccess, ({ auth }) => {
     const { usable, action, trial } = accessOf(auth)
-    return { usable, action, requested: notificationsOf(ctx).aiRequested(auth.user.id), ...(trial ? { trial } : {}) }
+    const n = notificationsOf(ctx), member = auth.user.role !== 'owner' && auth.user.role !== 'admin'
+    return { usable, action, requested: n.aiRequested(auth.user.id), ...(trial ? { trial } : {}), notReadyTold: member && n.aiNotReadyTold(auth.user.id) }
   })
   kit.handle(API.requestAiAccess, ({ c, auth }) => {
     const { person, usable } = accessOf(auth)
@@ -116,6 +110,12 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     // the owner(s) and the admins: all of them can connect the team's AI
     for (const id of admins(ctx.db)) n.onboardingAiRequest(id, person.id)
     return { requested: true as const, already: false }
+  })
+  // "Trina isn't ready yet" (chat error engine_missing): a member tells the owner(s) and admins, once an hour at most;
+  // the owner and admins connect the AI themselves ([Connect AI])
+  kit.handle(API.tellAiNotReady, ({ c, auth }) => {
+    if (auth.user.role === 'owner' || auth.user.role === 'admin') fail('forbidden', ct('aiRequestNotNeeded', loc(c)))
+    return { told: true as const, already: !notificationsOf(ctx).aiNotReady(auth.user.id) }
   })
   kit.handle(API.createMyCredential, async ({ c, body, auth }) => {
     ownAllowed(loc(c))

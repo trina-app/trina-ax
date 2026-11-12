@@ -22,6 +22,9 @@ export const UserPrefs = z.object({
   /** set themselves away (the account menu's "자리 비움으로 표시"; docs/DECISIONS.md "접속 상태"): their dot shows away
    * until they change it. Only PUT /api/me/away sets it; PATCH /api/me leaves it as it is. */
   away: z.boolean().optional(),
+  /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
+   * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
+  roomAskHint: z.literal('seen').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -127,6 +130,15 @@ export const Folder = z.object({
 export type Folder = z.infer<typeof Folder>
 
 // ---------------- projects, chats, messages ----------------
+/**
+ * Who sees a project or a folder, apart (docs/DECISIONS.md "Who sees it: the project's own people first"): `direct` the
+ * people who see it by its own rules (judged as a member would be, so the owner or an admin who is in a rule counts once,
+ * here), `byRole` the owner and admins who see it only by their role. They add up to the total next to it. Sent only to
+ * the owner and admins: next to the total a member already gets, `direct` would tell them how many see it only by role.
+ */
+export const AudienceSplit = z.object({ direct: z.number().int().nonnegative(), byRole: z.number().int().nonnegative() })
+export type AudienceSplit = z.infer<typeof AudienceSplit>
+
 export const Project = z.object({
   id: Uuid7,
   name: z.string(),
@@ -148,9 +160,36 @@ export const Project = z.object({
   /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
    * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */
   audience: z.number().int().nonnegative().optional(),
+  /** `audience` apart (AudienceSplit): a team project, for the owner and admins only. Its 멤버 row says "멤버 3명".
+   * While its folder is in the trash nobody sees it by a rule. Absent: anyone else, a personal project, an older server */
+  audienceSplit: AudienceSplit.optional(),
   /** how many shared chats it has (not in the trash): the delete dialog says they go to their creators' trash, the
    * repoint dialog who will see them */
   sharedChats: z.number().int().nonnegative().optional(),
+  /** a team project's members (docs/DECISIONS.md "Project members in one panel"): the caller changes them in the members
+   * dialog (its creator or an admin, `ProjectAccess.editable` for them: a projects/<name> folder in place, and for a
+   * member creator one the server made). Absent for a personal project and from older servers: false. */
+  membersEditable: z.boolean().optional(),
+  /** a team project: its creator changes its members too (their account is active and the folder is theirs to change),
+   * so its page names them in "멤버는 …님(만든 사람)이나 관리자가 바꿔요"; false: only admins. Absent: personal, older server */
+  creatorChangesMembers: z.boolean().optional(),
+  /** while it shares its chats: the caller may send files from the computer into them (they go into the project's chat
+   * attachments folder, which the caller may write: server/src/uploads/shared-chat.ts). false: the message box offers
+   * team files only. Absent (older server, or not sharing): allowed. */
+  chatUploads: z.boolean().optional(),
+  /** a team project: nobody but the caller sees it by a rule of its folder (a person, group, role or everyone rule), so
+   * anyone else of `audience` is the owner or an admin, who see every project ("나와 관리자만 봐요" under a chat's box,
+   * docs/DECISIONS.md "Who sees it, always"). Judged role-blind, and only for a caller who may read its rules anyway (an
+   * owner or admin, or whoever may change its members): to anyone else it would tell that the others are admins.
+   * Absent: someone else sees it by a rule, the caller may not read its rules, a personal project, or an older server. */
+  alone: z.literal(true).optional(),
+  /** false: the caller manages this team project without being a member (the owner or an admin, GET with manage=1):
+   * its name, creator and member count only; `instructions` is empty and nothing of its contents comes with it
+   * (docs/DECISIONS.md "Project contents only for members"). Absent: a member, or an older server. */
+  member: z.literal(false).optional(),
+  /** the caller may manage it without reading it: rename, members, delete, restore (the owner or an admin for a team
+   * project; its creator while they may edit it). Absent from older servers: use canEdit. */
+  canManage: z.boolean().optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -176,6 +215,13 @@ export const Chat = z.object({
   /** the AI asked me something in this chat and waits (an open ask_user / connect_service card shown in every window;
    * a card for one desktop window only is not counted). Absent = no. */
   waiting: z.literal(true).optional(),
+  /** the earlier answer here ended, but the end of the AI's work is not confirmed yet (the server's quarantined slot,
+   * at most a few minutes past the answer's time limit): the chat takes no new message until then and says so; other
+   * chats work as usual. Absent = no. */
+  ending: z.literal(true).optional(),
+  /** I answered the AI here, and the answer waits for a free place among the team's running answers to go on (the AI
+   * gave its place back while it waited for me). Absent = no. */
+  waitingForPlace: z.literal(true).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
   /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it
@@ -207,6 +253,9 @@ export const Chat = z.object({
     mine: z.boolean(),
     /** I may delete it (its creator or an editor of its project) */
     canDelete: z.boolean(),
+    /** I may send files from the computer here (they go into the project's chat attachments folder, which I may write:
+     * server/src/uploads/shared-chat.ts). false: the message box offers team files only. Absent (older server): allowed. */
+    canUpload: z.boolean().optional(),
     /** who wrote in it (sent a question there, its creator included), the most recent first, at most
      * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
      * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
@@ -272,6 +321,9 @@ export const Step = z.object({
   detail: z.string().max(4000).optional(),
   /** web search cards */
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
+  /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
+   * room at the message, or the thread at the reply), as the button's sent line has it */
+  posted: z.object({ roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional() }).optional(),
   /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
   images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat
@@ -296,9 +348,11 @@ export const Step = z.object({
 })
 export type Step = z.infer<typeof Step>
 
-/** "파일 3개 저장 · 1개 충돌 사본 · 1개 권한 없음" under an answer (from file_events of the turn). */
+/** "파일 3개 저장 · 1개 충돌 사본 · 1개 권한 없음" under an answer (from file_events of the turn). Files only: a folder the
+ * answer made or moved is not one. `moved`: a file the answer moved here (`action` 'create', so an older app still shows
+ * it as new). */
 export const FileChangeSummary = z.object({
-  saved: z.array(z.object({ path: RelPath, action: z.enum(['create', 'update']) })),
+  saved: z.array(z.object({ path: RelPath, action: z.enum(['create', 'update']), moved: z.literal(true).optional() })),
   conflicts: z.array(z.object({ path: RelPath, copyPath: RelPath })),
   rejected: z.array(z.object({ path: z.string(), reason: z.string() })),
 })
@@ -324,7 +378,8 @@ export const MessageSourceFile = z.object({
   name: z.string(),
   /** places the AI looked at (pages, sheets, slides, sections), at most 20; empty: the file as a whole */
   locs: z.array(SourceLoc).max(20),
-  /** how: 'read' (the read tool), 'search' (passages of search by meaning), 'grep' (matching lines) */
+  /** how: 'read' (the read tool), 'search' (passages of a removed search tool, in older answers), 'grep' (matching
+   * lines) */
   via: z.array(z.enum(['read', 'search', 'grep'])).min(1),
   /** a sub-agent of the answer (not the main AI) opened it; absent: the main AI did */
   subagent: z.literal(true).optional(),
@@ -418,6 +473,9 @@ export const Memory = z.object({
   text: z.string(),
   sourceChatId: Uuid7.nullable(),
   createdAt: IsoTime,
+  /** in the person's own list only: the AI does not get this memory now (it gets the newest that fit; older ones are
+   * kept, listed and marked, QA TC-213). Absent: in use, or not said */
+  unused: z.literal(true).optional(),
 })
 export type Memory = z.infer<typeof Memory>
 
@@ -483,6 +541,11 @@ export const FileEntry = z.object({
    * but the AI cannot read it and in-app previews are off, so "Ask AI" and "add to chat" are not offered. Absent on
    * every other entry (and from servers before this field) */
   downloadOnly: z.literal(true).optional(),
+  /** a folder the caller may write that they still may not rename, move or put in the trash (file listings only,
+   * GET /api/files/tree): 'admin' only the owner or an admin may (a group, project or rule folder, shared/, skills/, or
+   * one holding such a folder; never sent to the owner or an admin), 'always' nobody may (a personal folder, a folder
+   * holding a plugin's managed folder). Absent everywhere else and from older servers: the server still decides. */
+  fixed: z.enum(['admin', 'always']).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 
@@ -657,6 +720,12 @@ export const TeamSettings = z.object({
   /** people may turn on "Allow all websites" in the desktop app's in-app browser (default on). Off: the desktop app
    * refuses it and turns it back to "ask for each new site" for anyone who had it on. */
   browserAllowAll: z.boolean(),
+  /** "Allow all websites" also covers the AI's web reads (default on, the owner's call 2026-11-11; docs/DECISIONS.md
+   * "Allow all websites covers the AI's web reads"): members may turn on their own switch, which lets the AI open
+   * ordinary public addresses without the address card when they ask (chats and rooms). Works only while browserAllowAll
+   * is on too.
+   * Off: nobody's switch works, and turning it off turns everyone's off. */
+  webAllowAll: z.boolean(),
   /** members may add their own external-service connections (Settings > External services; default on). Off: none can
    * be added and the ones there are left out of chats (team connections are not affected). */
   personalIntegrations: z.boolean(),
@@ -672,6 +741,14 @@ export const TeamSettings = z.object({
    * one folder, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). Off: the card never offers it and the grants people
    * made are ignored (kept: they work again when it is turned back on, if nothing else changed) */
   roomAlwaysAllow: z.boolean(),
+  /** who may make team projects (a new projects/<name> folder with the people they choose; docs/DECISIONS.md "Projects
+   * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
+   * Personal projects are never limited. */
+  projectCreators: z.enum(['members', 'admins']),
+  /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
+   * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
+   * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */
+  oftenAsked: z.boolean(),
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),

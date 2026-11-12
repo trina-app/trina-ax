@@ -7,12 +7,12 @@
 // touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
 // thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
-// list shows a thread's root and replies (variant). A photo's thumbnail opens the image viewer (components/
-// ImageViewer.tsx: the whole window, zoom, the pane's other pictures by ← →; the page's ImageGroup is the timeline or
-// the thread); any other file opens by its chip in the side panel (a full-screen sheet on phones), and the chip has a
-// small download icon of its own; a file the panel cannot show (no viewer for it, or past its size limit) is a chip that
-// downloads. Both read the room's copy through the room (lib/sidePanel.ts roomPreview, lib/imageViewer.ts roomItem)
-// and have the download too.
+// list shows a thread's root and replies (variant). A photo's thumbnail and a file chip's name open the viewer
+// (components/ImageViewer.tsx, like Slack's: the whole window, the pane's other pictures and files by ← →; the page's
+// ImageGroup is the timeline or the thread; docs/DECISIONS.md "The room file viewer"): a photo with its zoom, a
+// document drawn as the side panel draws it, a file with no preview here as its card with the download. The chip has a
+// small download icon of its own. Both read the room's copy through the room (lib/imageViewer.ts roomItem,
+// roomFileItem) and have the download too; the viewer's bar says who sent it, when and where.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
@@ -26,18 +26,22 @@
 // An old answer hidden from me (RoomMessage.withheld: I joined a team room or the everyone room after it, and it used
 // something I cannot open) is one faint line in its place ("볼 수 없는 자료를 참고한 답이라 가려졌어요"): who asked it (or
 // whose message it is) and when, nothing else: no hover row, menu, reaction, thread or sources.
+// Only a message's words can be selected (not its hover row, reactions, thread line, "수정됨", quote or file chips); ⌘C
+// over several messages copies their words as plain text, one message per block under its author and time
+// (lib/messageCopy.ts).
 import clsx from 'clsx'
 import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Trash2 } from 'lucide-react'
-import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomAiRun, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
+import { copiedMessages } from '../../lib/messageCopy'
 import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
-import { openFilePreview, roomPreview, type PreviewFile } from '../../lib/sidePanel'
+import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
@@ -47,21 +51,40 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
-import { AiFace, AiFaceInline } from './AiFace'
+import { AiFace, AiFaceInline, AiMark } from './AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
-import { reactable, ReactionChips, ReactionStrip } from './Reactions'
+import { reactable, ReactionChips, ReactionPanel, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { LinkedText } from './MessageText'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
+import { StatusEmoji } from '../StatusMessage'
 import { useViewerItem, ViewerMeta } from '../ImageViewer'
-import { roomItem } from '../../lib/imageViewer'
+import { roomFileItem, roomItem } from '../../lib/imageViewer'
+import { dismissKeyboard } from '../../lib/viewport'
+import { useRoomTitle } from './RoomIcon'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
 export const messageDomId = (id: string) => `room-msg-${id}`
+/** A message's words: the one part of its row that can be selected (not on touch screens, where a long press opens its
+ * menu), and what a copy of several messages takes from it (lib/messageCopy.ts) */
+const WORDS = 'select-text pointer-coarse:select-none'
+/** An answer's `>` quotes, as the AI chat shows them (Markdown.tsx CopyableQuote): without the quote marks the typography
+ * adds to a quote's first and last paragraph. An answer that quotes a message puts its own marks around it, so a shared
+ * answer in a thread read “"…"” (QA 2026-11-11). */
+export const ANSWER_QUOTES = '[&_blockquote_p:first-of-type]:before:content-none [&_blockquote_p:last-of-type]:after:content-none'
+
+/** ⌘C over several messages (or a run's name and a message): their words as plain text, one message per block
+ * (lib/messageCopy.ts); inside one message, the browser's own copy */
+function copyMessages(e: ClipboardEvent<HTMLDivElement>) {
+  const text = copiedMessages(window.getSelection())
+  if (text === null) return
+  e.clipboardData.setData('text/plain', text)
+  e.preventDefault()
+}
 
 /** For each run: its time reads the same as the time shown above it on the same day (a date line starts a new day).
  * Phones show such a time once: the first run of that minute has it. An event line shows no time, so a run compares
@@ -119,7 +142,8 @@ export const HIGHLIGHT_MS = 2400
  * `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day.
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
  * the middle and marked for a moment, once. */
-export function RoomMessages({ roomId, messages, pending, meId, members, onThread, variant = 'timeline', threadRootId = null, dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null; highlight?: string | null }) {
+/** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, variant = 'timeline', threadRootId = null, dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null; highlight?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
@@ -166,15 +190,17 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   const orphans = variant === 'root' ? [] : ended.filter((r) => !loaded.has(r.questionId) && (r.threadRootId ?? null) === place).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
   // phones: a run's time only when it differs from the run above it ("오전 11:56" once for four messages of that minute)
   const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])
+  const where = useViewerWhere(roomId)
 
   return (
-    <div ref={list} data-testid="room-messages">
+    <ViewerMeta where={where}>
+    <div ref={list} data-testid="room-messages" onCopy={copyMessages}>
       {runs.map((run, i) => {
         const first = run.messages[0]!
         return (
           <Fragment key={run.key}>
             {run.newDay && !(i === 0 && dayBefore && localDayKey(dayBefore) === localDayKey(first.createdAt)) && (
-              <div role="separator" className="flex items-center gap-3 py-3 text-micro font-medium text-faint">
+              <div role="separator" className="flex items-center gap-3 py-3 text-micro font-medium text-faint" data-testid="room-day">
                 <span className="h-px flex-1 bg-line" aria-hidden />
                 {dayOf(first.createdAt, locale)}
                 <span className="h-px flex-1 bg-line" aria-hidden />
@@ -184,8 +210,9 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
             <div className="flex gap-3 pt-2" data-testid="room-run">
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
-                <p className="flex items-baseline gap-2">
+                <p className="flex items-baseline gap-2" data-testid="room-run-head">
                   <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>
+                  {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="-ml-1 self-center text-sm select-none" />}
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
                   </time>
@@ -207,6 +234,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       onEdit={() => setEditing(m.id)}
                       onEditDone={() => setEditing(null)}
                       onThread={onThread}
+                      onAskTrina={onAskTrina}
                       variant={variant}
                       // the list's first message (the top of the room, a thread's root): its bar goes under it, where the
                       // header above cannot cut it
@@ -231,7 +259,19 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
         </div>
       )}
     </div>
+    </ViewerMeta>
   )
+}
+
+/** Where the room's pictures and files were sent, for the viewer's bar: "#마케팅에서", "디자인 리뷰에서", "벤 님과의 1:1
+ * 대화에서" (the room's name as the sidebar shows it). */
+function useViewerWhere(roomId: string): string | null {
+  const t = useT()
+  const title = useRoomTitle()
+  const room = useRooms((s) => s.rooms.find((r) => r.id === roomId))
+  if (!room) return null
+  const name = title(room)
+  return room.kind === 'dm' ? t('viewer.inDm', { name }) : room.kind === 'group' ? t('viewer.inGroup', { room: name }) : t('viewer.inRoom', { room: name })
 }
 
 /** "가나님이 방 이름을 '주간 회의'로 바꿨어요": the names as the directory has them now, the room name as plain text. */
@@ -251,7 +291,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 function RunAvatar({ m }: { m: RoomMessage }) {
   const user = useAvatarOf(m.author)
   if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
-  return user ? <Avatar user={user} size={32} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
+  return user ? <Avatar user={user} size={32} className="mt-0.5 select-none" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
 
 /** A root's thread under it: up to 3 faces, "답글 3개", the last reply's time; a dot when a thread I follow has replies I
@@ -281,7 +321,7 @@ function ReplierFace({ user }: { user: UserRef }) {
   return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -303,10 +343,14 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   const parts = useMemo(() => mentionParts(text, ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...aiMentionNames(text, mentioned)]), [text, m, mentioned, ai, shared])
   const [press, setPress] = useState(0)
   const pressedAt = useRef(0)
+  // the emoji picker from the long-press sheet's "More emoji" (a sheet of its own)
+  const [picking, setPicking] = useState(false)
   const menuOn = !deleted && !editing && (m.visibility === 'room' || removable)
   // a thread under it: only a message of the timeline for everyone, and only from the timeline (no thread in a thread)
   const threadOn = variant === 'timeline' && !!onThread && !m.threadRootId && m.visibility === 'room' && !deleted
   const reactOn = reactable(m) && !editing
+  // "Ask Trina about this": a message with text that the whole room sees (or my own private one), not an event line
+  const askOn = !!onAskTrina && !deleted && !editing && !m.event && !!m.body.trim()
   // a touch screen: no hover row on every message; a long press opens its menu (with the reactions on top)
   const longPress = useLongPress(() => {
     pressedAt.current = Date.now()
@@ -325,7 +369,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       .remove(roomId, m.id)
       .catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   }
-  const meta = m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint">{t('rooms.edited')}</span> : null
+  const meta = m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint select-none">{t('rooms.edited')}</span> : null
   // ⋮ 더 보기 (the hover bar) and the end of the long-press sheet: copy; my own message's edit; delete what I may (my own,
   // an AI answer I asked for, any AI answer for an owner or admin), with the confirm
   const moreItems: MenuItem[] = [
@@ -336,7 +380,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   return (
     <div
       id={messageDomId(m.id)}
-      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')}
+      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition select-none pointer-coarse:[-webkit-touch-callout:none]', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')}
       data-testid="room-message"
       data-highlight={highlighted ? '' : undefined}
       data-ai={ai ? '' : undefined}
@@ -354,11 +398,12 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
         <p className="mb-0.5 text-xs text-faint" data-testid="room-also-sent">{t('rooms.alsoSent')}</p>
       ) : null)}
       {ai ? <AskedBy roomId={roomId} m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
-      {/* the pictures in it say who sent them and when in the image viewer's bar */}
-      <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt}>
+      {/* the pictures in it say who sent them and when in the image viewer's bar, and its column shows their thread (a
+          reply's thread, or the message's own; one that cannot have a thread, alone) */}
+      <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id} rootId={m.threadRootId ?? m.id} threadable={!!m.threadRootId || (m.visibility === 'room' && !m.event)}>
       {ai && !deleted ? (
         <>
-          <Markdown text={m.body} className="min-w-0" openable={openable} />
+          <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
           {!!m.sourceCount && (
             <SourcesList chatId={roomId} messageId={m.id} count={m.sourceCount} load={(signal) => api.call(API.roomMessageSources, { params: { id: roomId, messageId: m.id }, signal })} />
           )}
@@ -366,11 +411,11 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       ) : editing ? (
         <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} />
       ) : deleted ? (
-        <p className="text-reading leading-reading text-faint">{t('rooms.deleted')}</p>
+        <p className={clsx('text-reading leading-reading text-faint', WORDS)}>{t('rooms.deleted')}</p>
       ) : (
         <>
           {text && (
-            <p className="text-reading leading-reading break-words whitespace-pre-wrap text-ink">
+            <p className={clsx('text-reading leading-reading break-words whitespace-pre-wrap text-ink', WORDS)}>
               {parts.map((p, i) =>
                 p.userId ? (
                   <span key={i} className={clsx('font-medium text-accent-text', (p.userId === meId || (p.userId === ALL_MENTION_ID && m.author?.id !== meId)) && 'rounded bg-accent-soft px-0.5')} data-mention={p.userId === ALL_MENTION_ID ? 'all' : undefined}>
@@ -392,10 +437,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       {!deleted && <ReactionChips roomId={roomId} m={m} />}
       {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine m={m} onOpen={() => onThread(m.id)} />}
       {/* computers: the hover bar (reactions, reply in thread, ⋮); touch screens and phones: a long press opens the same
-          as a sheet, with the eight emoji on top (its own button never shows) */}
+          as a sheet, with six emoji and "More emoji" on top (its own button never shows) */}
       {menuOn && (
         <>
-          <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} more={moreItems} />
+          <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} onAsk={askOn ? () => onAskTrina!(m) : undefined} more={moreItems} />
           <MenuButton
             label={t('rooms.messageMenu')}
             className="absolute top-0 right-0"
@@ -412,10 +457,19 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
                   close()
                   void useRooms.getState().react(roomId, m.id, e, !(m.reactions ?? []).some((r) => r.emoji === e && r.mine))
                 }}
+                onMore={() => {
+                  if (Date.now() - pressedAt.current < 400) return
+                  close()
+                  // before the emoji sheet takes the focus (it gives it back on closing): no text field to give it back
+                  // to, so the keyboard does not come back by itself
+                  dismissKeyboard()
+                  setPicking(true)
+                }}
               />
             ) : undefined}
-            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...moreItems]}
+            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...(askOn ? [{ label: t('sideChat.askAbout'), icon: <AiMark place="menu" />, onSelect: () => onAskTrina!(m), testId: 'message-ask-trina-menu' }] : []), ...moreItems]}
           />
+          {picking && reactOn && <ReactionPanel roomId={roomId} m={m} anchor={null} onClose={() => setPicking(false)} />}
         </>
       )}
     </div>
@@ -427,9 +481,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
 function WithheldRow({ roomId, m, flash, onJump }: { roomId: string; m: RoomMessage; flash: boolean; onJump?: () => void }) {
   const t = useT()
   return (
-    <div id={messageDomId(m.id)} className={clsx('-mx-2 rounded-lg px-2 py-0.5 transition', flash && 'bg-accent-soft')} data-testid="room-message" data-withheld="">
+    <div id={messageDomId(m.id)} className={clsx('-mx-2 rounded-lg px-2 py-0.5 transition select-none', flash && 'bg-accent-soft')} data-testid="room-message" data-withheld="">
       {m.authorKind === 'ai' && <AskedBy roomId={roomId} m={m} onJump={onJump} />}
-      <p className="text-reading leading-reading text-faint" data-testid="room-withheld">{t(m.authorKind === 'ai' ? 'rooms.withheldAnswer' : 'rooms.withheldMessage')}</p>
+      <p className={clsx('text-reading leading-reading text-faint', WORDS)} data-testid="room-withheld">{t(m.authorKind === 'ai' ? 'rooms.withheldAnswer' : 'rooms.withheldMessage')}</p>
     </div>
   )
 }
@@ -456,8 +510,9 @@ function SharedAnswer({ text, openable, attached }: { text: string; openable?: R
         <AiFaceInline />
         {t('shareRoom.quoteHead', { ai: aiName(t) })}
       </figcaption>
-      {/* not a <blockquote>: the answer's own Markdown would take the quote marks a quote's paragraphs get */}
-      <Markdown text={text} className="min-w-0" openable={openable} attached={attached} />
+      {/* not a <blockquote>: the answer's own Markdown would take the quote marks a quote's paragraphs get; its own quotes
+          go without them too (ANSWER_QUOTES) */}
+      <Markdown text={text} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} attached={attached} />
     </figure>
   )
 }
@@ -656,43 +711,34 @@ function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
   const viewer = useViewerItem((meta) => roomItem(roomId, f, meta))
   return (
     <Tooltip label={t('rooms.openImage', { name: f.name })}>
-      <button type="button" ref={viewer.ref} onClick={viewer.open} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image">
+      <button type="button" ref={viewer.ref} onClick={viewer.open} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name}>
         <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
       </button>
     </Tooltip>
   )
 }
 
-/** A file under a message: its name and size open it in the side panel, and a small download icon sits at its end (on
- * phones 44px wide, so its tap area never reaches over the name; touch-hit gives the height). A file
- * the panel cannot show is one button that downloads, as before (a Hangul file opens only while the HWP preview is on:
- * lib/preview.ts roomFileOpens). Each button is named by the words on it first (the
- * name and size), then what it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
+/** A file under a message: its name and size open it in the viewer, in the pane's list with its pictures (a document as
+ * the side panel draws it; one with no preview here, such as a ZIP, a Hangul file while the HWP preview is off or one
+ * past the preview limit, as its card with the download: `data-opens` marks a chip with a preview, lib/preview.ts
+ * roomFileOpens), and a small download icon sits at its end (on phones 44px wide, so its tap area never reaches over
+ * the name; touch-hit gives the height). Each button is named by the words on it first (the name and size), then what
+ * it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
 function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
+  const viewer = useViewerItem((meta) => roomFileItem(roomId, f, me, meta))
   const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
-  const label = (
-    <>
-      <FileText size={15} className="shrink-0 text-muted" aria-hidden />
-      <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
-      <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
-    </>
-  )
-  if (!roomFileOpens(f, me))
-    return (
-      <button type="button" onClick={download} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
-        {label}
-        <Download size={13} className="shrink-0 text-faint" aria-hidden />
-        <span className="sr-only">{t('common.download')}</span>
-      </button>
-    )
+  const opens = roomFileOpens(f, me)
   return (
-    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens="">
-      <button type="button" onClick={() => openFilePreview(roomPreview(roomId, f))} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
-        {label}
-        <span className="sr-only">{t('common.preview')}</span>
+    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name}>
+      <button type="button" ref={viewer.ref} onClick={viewer.open} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
+        <FileText size={15} className="shrink-0 text-muted" aria-hidden />
+        <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
+        <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
+        {/* what the name does: a preview (a file without one opens its card, named by its name alone) */}
+        {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>
       <Tooltip label={t('common.download')}>
         <button type="button" onClick={download} aria-label={t('rooms.downloadFile', { name: f.name })} className="touch-hit inline-flex shrink-0 items-center justify-center rounded-r-xl pr-2.5 pl-1.5 text-faint hover:bg-hover hover:text-ink max-md:min-w-11 max-md:px-0" data-testid="room-file-download">
@@ -786,10 +832,15 @@ function PendingRow({ roomId, p }: { roomId: string; p: PendingSend }) {
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-xs" role="alert">
-          <span className="text-danger">
-            {t('rooms.sendFailed')}
-            {p.error && ` · ${p.error}`}
-          </span>
+          {p.restored ? (
+            // kept from before the app closed: it may have reached the server (store/rooms.ts keptUnsent)
+            <span className="text-muted">{t('rooms.notConfirmed')}</span>
+          ) : (
+            <span className="text-danger">
+              {t('rooms.sendFailed')}
+              {p.error && ` · ${p.error}`}
+            </span>
+          )}
           <Button size="sm" variant="ghost" onClick={() => useRooms.getState().retry(roomId, p.clientMessageId)}>
             {t('common.retry')}
           </Button>

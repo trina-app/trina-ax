@@ -3,7 +3,8 @@
 // turned off) and when the direct flow stays; Drive stays off until the broker answers; a member's own Drive and a team
 // share connect through it; every call is signed with the team key; the browser's handoff needs the same signed-in
 // person; refresh and revoke go to the broker, never to Google's token endpoint; a refused sealed token asks for a new
-// sign-in; the stored secret holds no token in plain text; a start answer that is not Google's sign-in page is refused.
+// sign-in; the stored secret holds no token in plain text; a start answer that is not Google's sign-in page is refused;
+// the hosting service's own start page (connectUrl) is passed on only in its exact shape on the configured origin.
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
@@ -143,4 +144,38 @@ test('a start answer that is not Google sign-in is refused and the flow fails', 
   // the broker unreachable: the same, and nothing is logged with a token
   const down = googleDriveOf(a.ctx, { config: null, fetch: async () => { throw new Error('CANARY-network') }, broker: { origin: BROKER_ORIGIN, identity: broker.options().identity } })
   expect(await down.checkBroker()).toBe(false)
+})
+
+test('the hosting service\'s start page is passed on with Google\'s address; the sign-in still completes', async () => {
+  await svc.checkBroker(); membersMayConnect(a.ctx.db)
+  broker.connect = 'page'
+  const f = await svc.begin('alice', 'alice-session')
+  expect(new URL(f.authorizationUrl).hostname).toBe('accounts.google.com')
+  const c = new URL(f.connectUrl!)
+  expect(c.origin).toBe(BROKER_ORIGIN); expect(c.pathname).toBe('/drive-broker/connect')
+  // the page's state is the one sent to Google: the page links on to that same sign-in
+  expect(c.searchParams.get('state')).toBe(new URL(f.authorizationUrl).searchParams.get('state'))
+  expect(await svc.callback(broker.browserReturn(f.authorizationUrl, 'alice'), browser('alice'))).toBe(true)
+  expect((await svc.complete('alice', 'alice-session', f.flowId)).status).toBe('connected')
+})
+
+test('a start page that is not exactly the hosting service\'s is dropped; Google\'s address stays', async () => {
+  await svc.checkBroker(); membersMayConnect(a.ctx.db)
+  for (const bad of [
+    'https://evil.test/drive-broker/connect?state={state}',
+    BROKER_ORIGIN + '/drive-broker/other?state={state}',
+    BROKER_ORIGIN + '/drive-broker/connect?state={state}&next=https://evil.test',
+    BROKER_ORIGIN + '/drive-broker/connect?state=short',
+    'https://user:pw@account.broker.test/drive-broker/connect?state={state}',
+    BROKER_ORIGIN + '/drive-broker/connect?state={state}#x',
+    'http://account.broker.test/drive-broker/connect?state={state}',
+  ]) {
+    broker.connect = bad
+    const f = await svc.begin('alice', 'alice-session')
+    expect(f.connectUrl).toBeUndefined()
+    expect(new URL(f.authorizationUrl).hostname).toBe('accounts.google.com')
+  }
+  // an older hosting service sends none: Google first, as before
+  broker.connect = 'none'
+  expect((await svc.begin('alice', 'alice-session')).connectUrl).toBeUndefined()
 })

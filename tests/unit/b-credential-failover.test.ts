@@ -62,7 +62,7 @@ describe('switching connections inside a turn', () => {
     expect(done.status).toBe('done')
     expect(done.content).toContain('answer by KEY2')
     expect(hits).toEqual([K(1), K(2)])
-    expect(done.steps.some((s) => s.tool === 'engine' && /another AI connection|다른 AI 연결/.test(s.label))).toBe(true)
+    expect(done.steps.some((s) => s.tool === 'engine' && /another AI account|다른 AI 계정/.test(s.label))).toBe(true)
     await alice.next('notice', (f) => f.data.code === 'engine_credential_switch', 5000)
     const a = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'engine.credential_switch' AND target = ?").get(started.turnId) as { detail: string }
     expect(JSON.parse(a.detail)).toEqual({ from: idOf('K1'), to: idOf('K2'), reason: 'limited' })

@@ -22,6 +22,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ADMIN: 'Admin',
   CREDENTIALS: 'AI connections',
   DRIVE: 'Google Drive',
+  GOOGLE_APPS: 'Gmail, Google Calendar, Google Docs and Google Sheets',
   INTEGRATIONS: 'MCP and HTTP connections',
   NOTIFICATIONS: 'Notifications',
   PUSH: 'Push notifications',
@@ -44,9 +45,11 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   PROMO_VIDEO: 'Promo video and its MP4',
   INTRO_DECK: 'Company intro deck (the welcome steps\' first result): PowerPoint and PDF',
   SKILL_SHARES: 'Bring my skills to the team (share proposals)',
-  KNOWLEDGE_GRAPH: 'Knowledge graph: the code map of the team folders (CodeGraph), its folders, rebuild',
   AI_ALLOWANCES: 'What I allowed the AI in advance',
   HANDOVER: 'Owner handover (the lead link\'s card and the owner\'s own connections)',
+  FILE_LIST: 'The file list (one line per team file in a _FILES.md per access folder, read at night by the team\'s AI)',
+  SERVICE_REQUESTS: 'Asking an admin to add an app',
+  MEMBER_WELCOME: 'The welcome card for invited people (Home)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

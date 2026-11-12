@@ -1,11 +1,13 @@
-// Room files open on click (components/rooms/RoomMessages.tsx FileChip, FilePanel's room source): a chip opens its file
-// in the side panel (a full-screen sheet on phones), drawn by the app's own viewers: an HTML page only in the sandbox
-// frame (opaque origin: its script cannot reach the app), a PDF, Markdown; a photo's thumbnail opens the image viewer
-// (image-viewer.spec.ts); the panel and the chip both download. In an answer someone shared with its files attached, a
-// link to a file I cannot open opens the attached copy (no lock); a member who can open the team file gets the team file
-// itself. A right-click on a photo (the thumbnail, the viewer's original) is left to the browser's own menu, for Copy
-// Image. A Hangul file opens as the server's pages (viewers/HwpView through /api/rooms/:id/files/:fileId/hwp-preview)
-// while the HWP preview is on (Me.server.hwpPreview); off, its chip downloads as before. The room and its files are
+// Room files open on click (components/rooms/RoomMessages.tsx FileChip): a chip's name opens its file in the file viewer
+// (the image viewer's document mode, room-file-viewer.spec.ts), drawn by the app's own viewers (FileBody, the side
+// panel's body): an HTML page only in the sandbox frame (opaque origin: its script cannot reach the app), a PDF,
+// Markdown; a file with no preview here (a ZIP) is its card; a photo's thumbnail opens the image viewer
+// (image-viewer.spec.ts); the viewer, its 패널에서 열기 (the side panel) and the chip all download. In an answer someone
+// shared with its files attached, a link to a file I cannot open opens the attached copy in the side panel (no lock; a
+// full-screen sheet on phones); a member who can open the team file gets the team file itself. A right-click on a photo
+// (the thumbnail, the viewer's original) is left to the browser's own menu, for Copy Image. A Hangul file opens as the
+// server's pages (viewers/HwpView through /api/rooms/:id/files/:fileId/hwp-preview) while the HWP preview is on
+// (Me.server.hwpPreview), in the viewer and in the panel; off, its card with the download. The room and its files are
 // answered through page.route as the team server sends them (rooms-mock.ts; a page inline as text with the sandbox
 // CSP). Every view passes axe.
 // SHOTS_DIR=<folder>: the screenshots (the chips, the panel, the phone sheet; light and dark) go there.
@@ -110,48 +112,56 @@ const isRoomDownload = (d: Download, n: number) => {
   return u.pathname === `/api/rooms/${ROOM_ID}/files/${id(n)}` && u.searchParams.get('download') === '1'
 }
 const panel = (page: Page) => page.getByTestId('file-panel')
+const viewer = (page: Page) => page.getByTestId('image-viewer')
+const VIEWER_FRAME = '[data-testid="image-viewer"] [data-testid="sandbox-frame"]'
 
-test('a chip opens its file in the panel: the page only in the sandbox frame, a PDF, a photo, Markdown; a zip downloads', async ({ page }) => {
+test('a chip opens its file in the viewer: the page only in the sandbox frame, a PDF, Markdown, a photo; a zip is its card', async ({ page }) => {
   const { served } = await openRoom(page)
   await audit(page, 'room with files')
   // the page: in the sandbox frame (opaque origin, the receiver's address), never srcdoc or a page of this origin; its
   // script cannot read the app around it
   await chip(page, 'acme-deck.html').getByTestId('room-file-open').click()
-  await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-deck.html')
-  const frame = panel(page).getByTestId('sandbox-frame')
+  await expect(page.getByRole('dialog', { name: '파일 보기: acme-deck.html' })).toBeVisible()
+  await expect(panel(page)).toHaveCount(0)
+  const frame = viewer(page).getByTestId('sandbox-frame')
   await expect(frame).toHaveAttribute('sandbox', 'allow-scripts')
   await expect(frame).toHaveAttribute('src', /^\/sandbox\/frame\?/)
   expect(await frame.getAttribute('srcdoc')).toBeNull()
-  const inner = page.frameLocator('[data-testid="file-panel"] [data-testid="sandbox-frame"]')
+  const inner = page.frameLocator(VIEWER_FRAME)
   await expect(inner.locator('h1')).toHaveText('acme 덱')
   await expect(inner.locator('#out')).toHaveText('blocked')
-  // a room file has only the download: no "ask AI", "open in Files" or edit (not a team file)
-  await expect(panel(page).getByTestId('file-ask-ai')).toHaveCount(0)
-  await expect(panel(page).getByTestId('file-edit')).toHaveCount(0)
-  await expect(panel(page).getByRole('button', { name: '파일 화면에서 열기' })).toHaveCount(0)
-  await audit(page, 'panel with a page')
-  // the PDF
-  await chip(page, 'acme-handbook.pdf').getByTestId('room-file-open').click()
-  await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-handbook.pdf')
-  await expect(panel(page).locator('.react-pdf__Page canvas').first()).toBeVisible({ timeout: 15_000 })
-  // the photo, from its thumbnail: over the whole window in the image viewer, the panel left as it was under it
-  await page.getByTestId('room-image').click()
+  // a room file has only the download (and the side panel): no "ask AI", "open in Files" or edit (not a team file)
+  await expect(viewer(page).getByTestId('file-ask-ai')).toHaveCount(0)
+  await expect(viewer(page).getByTestId('file-edit')).toHaveCount(0)
+  await expect(viewer(page).getByRole('button', { name: '파일 화면에서 열기' })).toHaveCount(0)
+  await audit(page, 'viewer with a page')
+  // the PDF, the next one in the room (the step goes on through the message's files)
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('dialog', { name: '파일 보기: acme-handbook.pdf' })).toBeVisible()
+  await expect(viewer(page).locator('.react-pdf__Page canvas').first()).toBeVisible({ timeout: 15_000 })
+  // the photo, on the picture stage
+  await page.keyboard.press('ArrowRight')
   await expect(page.getByRole('dialog', { name: '이미지 보기: acme-logo.png' })).toBeVisible()
   await expect(page.getByTestId('image-viewer-original')).toHaveAttribute('data-state', 'shown')
-  await page.keyboard.press('Escape')
-  await expect(page.getByTestId('image-viewer')).toHaveCount(0)
-  await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-handbook.pdf')
   // Markdown
-  await chip(page, 'acme-notes.md').getByTestId('room-file-open').click()
-  await expect(panel(page).getByRole('heading', { name: 'acme 회의 메모' })).toBeVisible()
-  await audit(page, 'panel with Markdown')
-  // the zip: no viewer, so its chip is one download button, as before
-  await expect(chip(page, 'acme-assets.zip').getByTestId('room-file-open')).toHaveCount(0)
-  const [zip] = await Promise.all([page.waitForEvent('download'), chip(page, 'acme-assets.zip').click()])
+  await page.keyboard.press('ArrowRight')
+  await expect(viewer(page).getByRole('heading', { name: 'acme 회의 메모' })).toBeVisible()
+  await audit(page, 'viewer with Markdown')
+  // the zip: no viewer for it, so its card with the download, and nothing read
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('dialog', { name: '파일 보기: acme-assets.zip' })).toBeVisible()
+  const [zip] = await Promise.all([page.waitForEvent('download'), viewer(page).getByTestId('file-viewer-card-download').click()])
   expect(zip.suggestedFilename()).toBe('acme-assets.zip')
   expect(isRoomDownload(zip, 505)).toBe(true)
-  // the bytes the panel drew were read through the room, inline
+  await page.keyboard.press('Escape')
+  await expect(viewer(page)).toHaveCount(0)
+  // the photo from its thumbnail: the image viewer, as before
+  await page.getByTestId('room-image').click()
+  await expect(page.getByRole('dialog', { name: '이미지 보기: acme-logo.png' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  // the bytes the viewer drew were read through the room, inline; the zip's never
   expect(served).toEqual(expect.arrayContaining(['acme-deck.html', 'acme-handbook.pdf', 'acme-logo.png?thumb=1', 'acme-logo.png', 'acme-notes.md']))
+  expect(served).not.toContain('acme-assets.zip')
 })
 
 test("a right-click on a photo reaches the browser's own menu (Copy Image): on the message and on the viewer's original", async ({ page }) => {
@@ -180,7 +190,7 @@ test("a right-click on a photo reaches the browser's own menu (Copy Image): on t
   expect((await menus())[1]).toMatchObject({ tag: 'IMG', prevented: false, src: expect.stringMatching(new RegExp(`/files/${id(503)}$`)) })
 })
 
-test('download from the chip and from the panel', async ({ page }) => {
+test('download from the chip, the viewer and the panel', async ({ page }) => {
   await openRoom(page)
   const dl = chip(page, 'acme-handbook.pdf').getByTestId('room-file-download')
   await expect(dl).toHaveAccessibleName('acme-handbook.pdf 내려받기')
@@ -189,9 +199,17 @@ test('download from the chip and from the panel', async ({ page }) => {
   const [fromChip] = await Promise.all([page.waitForEvent('download'), dl.click()])
   expect(fromChip.suggestedFilename()).toBe('acme-handbook.pdf')
   expect(isRoomDownload(fromChip, 502)).toBe(true)
-  // the download icon did not open the panel
+  // the download icon opened nothing
   await expect(panel(page)).toHaveCount(0)
+  await expect(viewer(page)).toHaveCount(0)
   await chip(page, 'acme-notes.md').getByTestId('room-file-open').click()
+  const [fromViewer] = await Promise.all([page.waitForEvent('download'), page.getByTestId('image-viewer-download').click()])
+  expect(fromViewer.suggestedFilename()).toBe('acme-notes.md')
+  expect(isRoomDownload(fromViewer, 504)).toBe(true)
+  // 패널에서 열기: the same file in the side panel, with its download
+  await page.getByTestId('image-viewer-panel').click()
+  await expect(viewer(page)).toHaveCount(0)
+  await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-notes.md')
   const [fromPanel] = await Promise.all([page.waitForEvent('download'), panel(page).getByRole('button', { name: '내려받기', exact: true }).click()])
   expect(fromPanel.suggestedFilename()).toBe('acme-notes.md')
   expect(isRoomDownload(fromPanel, 504)).toBe(true)
@@ -228,7 +246,7 @@ test('a member who can open the team file gets the team file itself', async ({ p
   await expect(panel(page).getByRole('button', { name: '파일 화면에서 열기' })).toBeVisible()
 })
 
-test('a Hangul file opens as pages in the panel while the HWP preview is on; off, its chip downloads', async ({ page }) => {
+test('a Hangul file opens as pages in the viewer and the panel while the HWP preview is on; off, its card', async ({ page }) => {
   await reset(page)
   await signIn(page)
   // the mock draws a team file's pages with the repo's pinned renderer (prepare:hwp); the room's address answers with
@@ -253,6 +271,9 @@ test('a Hangul file opens as pages in the panel while the HWP preview is on; off
   const hwpChip = chip(page, 'acme-신청서.hwp')
   await expect(hwpChip).toHaveAttribute('data-opens', '')
   await hwpChip.getByTestId('room-file-open').click()
+  await expect(viewer(page).getByTestId('hwp-page')).toBeVisible({ timeout: 20_000 })
+  // the panel shows the same pages (패널에서 열기)
+  await page.getByTestId('image-viewer-panel').click()
   await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-신청서.hwp')
   const view = panel(page).getByTestId('hwp-view'), img = panel(page).getByTestId('hwp-page')
   await expect(img).toBeVisible({ timeout: 20_000 })
@@ -265,7 +286,7 @@ test('a Hangul file opens as pages in the panel while the HWP preview is on; off
   await panel(page).getByTestId('hwp-next').click()
   await expect(view).toContainText('2 / 2쪽')
   await expect(img).not.toHaveAttribute('src', first!)
-  expect(asked).toEqual(['?page=1', '?page=2'])
+  expect(asked).toEqual(['?page=1', '?page=1', '?page=2'])
   // the panel's download is the room file's
   const [d] = await Promise.all([page.waitForEvent('download'), panel(page).getByRole('button', { name: '내려받기', exact: true }).first().click()])
   expect(isRoomDownload(d, 601)).toBe(true)
@@ -273,11 +294,12 @@ test('a Hangul file opens as pages in the panel while the HWP preview is on; off
     await panel(page).getByRole('button', { name: '닫기' }).click()
     await page.setViewportSize({ width: 390, height: 844 })
     await hwpChip.getByTestId('room-file-open').click()
-    await expect(img).toBeVisible({ timeout: 20_000 })
+    await expect(viewer(page).getByTestId('hwp-page')).toBeVisible({ timeout: 20_000 })
     await page.screenshot({ path: `${shots}/room-hwp-390-light.png` })
+    await page.getByTestId('image-viewer-close').click()
     await page.setViewportSize({ width: 1440, height: 900 })
   }
-  // the plugin off (Me without hwpPreview): the chip is one download button again, and no page is asked for
+  // the plugin off (Me without hwpPreview): the name opens its card with the download, and no page is asked for
   const pagesAsked = asked.length
   await page.route('**/api/me', async (route) => {
     const r = await route.fetch()
@@ -288,8 +310,9 @@ test('a Hangul file opens as pages in the panel while the HWP preview is on; off
   await page.reload()
   await expect(page.getByTestId('room-message')).toHaveCount(1)
   await expect(hwpChip).not.toHaveAttribute('data-opens', '')
-  await expect(hwpChip.getByTestId('room-file-open')).toHaveCount(0)
-  const [off] = await Promise.all([page.waitForEvent('download'), hwpChip.click()])
+  await hwpChip.getByTestId('room-file-open').click()
+  await expect(viewer(page).getByTestId('file-viewer-card')).toBeVisible()
+  const [off] = await Promise.all([page.waitForEvent('download'), viewer(page).getByTestId('file-viewer-card-download').click()])
   expect(isRoomDownload(off, 601)).toBe(true)
   await expect(panel(page)).toHaveCount(0)
   expect(asked).toHaveLength(pagesAsked)
@@ -298,7 +321,7 @@ test('a Hangul file opens as pages in the panel while the HWP preview is on; off
 test.describe('a phone (390 px)', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
-  test('the chips fit, a tap opens the full-screen sheet, the sheet downloads from its menu and closes', async ({ page }) => {
+  test('the chips fit, a tap opens the full-screen viewer with its download; a copy\'s link opens the sheet, which downloads from its menu', async ({ page }) => {
     await openRoom(page)
     for (const c of await page.getByTestId('room-file').all()) {
       const b = (await c.boundingBox())!
@@ -307,17 +330,27 @@ test.describe('a phone (390 px)', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await audit(page, 'room on a phone')
     await chip(page, 'acme-deck.html').getByTestId('room-file-open').click()
+    const box = (await viewer(page).boundingBox())!
+    expect(box).toMatchObject({ x: 0, y: 0, width: 390 })
+    await expect(page.frameLocator(VIEWER_FRAME).locator('#out')).toHaveText('blocked')
+    await audit(page, 'viewer on a phone')
+    const [fromViewer] = await Promise.all([page.waitForEvent('download'), page.getByTestId('image-viewer-download').click()])
+    expect(isRoomDownload(fromViewer, 501)).toBe(true)
+    await page.getByTestId('image-viewer-close').click()
+    await expect(viewer(page)).toHaveCount(0)
+    // the shared answer's link to its attached copy: the side panel as a full-screen sheet
+    await page.getByTestId('room-shared-answer').getByTestId('team-file-chip').click()
     const sheet = panel(page)
     await expect(sheet).toBeVisible()
-    const box = (await sheet.boundingBox())!
-    expect(box.width).toBe(390)
-    expect(Math.round(box.x)).toBe(0)
+    const sheetBox = (await sheet.boundingBox())!
+    expect(sheetBox.width).toBe(390)
+    expect(Math.round(sheetBox.x)).toBe(0)
     await expect(page.frameLocator('[data-testid="file-panel"] [data-testid="sandbox-frame"]').locator('#out')).toHaveText('blocked')
     await audit(page, 'sheet on a phone')
     await sheet.getByTestId('file-panel-more').click()
     const [d] = await Promise.all([page.waitForEvent('download'), page.getByTestId('file-more-download').click()])
     expect(d.suggestedFilename()).toBe('acme-deck.html')
-    expect(isRoomDownload(d, 501)).toBe(true)
+    expect(isRoomDownload(d, 506)).toBe(true)
     await sheet.getByRole('button', { name: '닫기' }).click()
     await expect(panel(page)).toHaveCount(0)
     await expect(page.getByTestId('room-message')).toHaveCount(2)
@@ -338,10 +371,10 @@ test('screenshots of room files (SHOTS_DIR)', async ({ page }) => {
       await chip(page, 'acme-handbook.pdf').hover()
       await page.screenshot({ path: `${dir}/room-files-hover-${width}-${scheme}.png`, clip: width > 400 ? undefined : undefined })
       await chip(page, 'acme-deck.html').getByTestId('room-file-open').click()
-      await expect(page.frameLocator('[data-testid="file-panel"] [data-testid="sandbox-frame"]').locator('h1')).toBeVisible()
+      await expect(page.frameLocator(VIEWER_FRAME).locator('h1')).toBeVisible()
       await page.waitForTimeout(300)
-      await page.screenshot({ path: `${dir}/room-files-panel-${width}-${scheme}.png` })
-      await page.getByTestId('file-panel').getByRole('button', { name: '닫기' }).click()
+      await page.screenshot({ path: `${dir}/room-files-viewer-${width}-${scheme}.png` })
+      await page.getByTestId('image-viewer-close').click()
     }
   }
 })

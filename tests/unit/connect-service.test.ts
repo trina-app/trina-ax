@@ -340,7 +340,7 @@ describe('the card', () => {
     h.ctx.db.query("INSERT INTO sessions(id,user_id,token_hash,client,created_at,last_seen_at,expires_at) VALUES('cs-oauth','alice','cs-oauth-hash','web',?,?,?)").run(now, now, later)
     const ints = integrationsOf(h.ctx)
     const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-oauth', r.body.integrationId, 'https://team.example.test', 'en')
-    expect(await ints.callback(svc.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'cs-oauth' })).toBe(true)
+    expect(await ints.callback(svc.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'cs-oauth' })).toEqual({ ok: true })
     expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).body).toMatchObject({ state: 'connected', integrationId: r.body.integrationId })
     expect(JSON.parse((await doneOf(t.messageId)).content.match(/\{.*\}/)![0])).toMatchObject({ connected: true, name: 'Board', status: 'connected' })
     expect(rowsAt(url).length).toBe(1)
@@ -564,7 +564,7 @@ describe('the card, finished in other ways', () => {
       expect(stored()!.status).toBe('needs_auth')
       expect((await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
       go()
-      expect(await signedIn).toBe(true)
+      expect(await signedIn).toEqual({ ok: true })
     })
     expect(stored()).toEqual({ status: 'connected', signed: 1 })
     expect(h.ctx.db.query("SELECT 1 FROM audit_log WHERE target = ? AND action = 'integration.delete'").get(id)).toBeNull()
@@ -672,7 +672,7 @@ describe('another key on the same card follows the rules of now', () => {
     expect(rowsAt(url).map((r) => r.id)).toEqual([id])
     const r = resultOf(await doneOf(t.messageId))
     expect(r.skipped).toBe(true)
-    expect(r.reason).toContain('changed or removed in Settings')
+    expect(r.reason).toContain('changed or removed in Connectors or Admin')
   })
 
   test('the card\'s time runs out after its connection was moved in Settings with a working key: the AI is told it changed, not connected', async () => {
@@ -689,7 +689,7 @@ describe('another key on the same card follows the rules of now', () => {
       const r = resultOf(await doneOf(t.messageId))
       expect(r.connected).toBeUndefined()
       expect(r.skipped).toBe(true)
-      expect(r.reason).toContain('changed or removed in Settings')
+      expect(r.reason).toContain('changed or removed in Connectors or Admin')
     })
   })
 
@@ -702,7 +702,7 @@ describe('another key on the same card follows the rules of now', () => {
       await h.api('alice').call(API.deleteIntegration, { params: { id: first.body.integrationId as string } })
       const r = resultOf(await doneOf(t.messageId))
       expect(r.skipped).toBe(true)
-      expect(r.reason).toContain('changed or removed in Settings')
+      expect(r.reason).toContain('changed or removed in Connectors or Admin')
     })
   })
 
@@ -719,7 +719,7 @@ describe('another key on the same card follows the rules of now', () => {
     expect(h.ctx.db.query('SELECT url FROM integrations WHERE id = ?').get(id)).toEqual({ url: moved })
     const r = resultOf(await doneOf(t.messageId))
     expect(r.skipped).toBe(true)
-    expect(r.reason).toContain('changed or removed in Settings')
+    expect(r.reason).toContain('changed or removed in Connectors or Admin')
   })
 
   test('the connection changed in Settings meanwhile: refused with a word to start again, nothing sent to it, and Not now leaves it', async () => {
@@ -735,7 +735,7 @@ describe('another key on the same card follows the rules of now', () => {
     const before = svc.seen.length
     const again = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
     expect(again.status).toBe(409)
-    expect(again.body.error.message).toBe('This connection was changed or removed in Settings after the card was shown. Nothing was sent. Ask the AI to connect it again.')
+    expect(again.body.error.message).toBe('This connection was changed or removed in Connectors or Admin after the card was shown. Nothing was sent. Ask the AI to connect it again.')
     // still so for another key and for done; the key reached no address
     expect((await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })).status).toBe(409)
     expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).status).toBe(409)
@@ -745,7 +745,7 @@ describe('another key on the same card follows the rules of now', () => {
     expect(h.ctx.db.query('SELECT url FROM integrations WHERE id = ?').get(id)).toEqual({ url: moved })
     const r = resultOf(await doneOf(t.messageId))
     expect(r.skipped).toBe(true)
-    expect(r.reason).toContain('changed or removed in Settings')
+    expect(r.reason).toContain('changed or removed in Connectors or Admin')
     expect(leaksIn([t.turnId])).toEqual([])
   })
 })

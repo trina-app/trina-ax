@@ -1,5 +1,6 @@
 // Session markers in this window (docs/DECISIONS.md "Session markers"; the markers themselves: lib/sessionMarkers.ts).
-//  - which chat is on screen (pages/Chat.tsx) and whether this window is visible: the tab is visible, and in the
+//  - which chat is on screen (pages/Chat.tsx; a room's Trina side chat that its panel shows is on screen too:
+//    components/rooms/SideChatPanel.tsx) and whether this window is visible: the tab is visible, and in the
 //    desktop app its window is focused (the main process's word: the in-app browser may hold the keyboard)
 //  - POST /api/chats/:id/seen for the chat on screen while the window is visible and the list says it has an unseen
 //    answer (Chat.unseen: phone-nav's mark): once per state of the chat, so seeing never loops, whatever the server
@@ -23,6 +24,7 @@ import { create } from 'zustand'
 import { useMemo } from 'react'
 import { API, plainLabel, type Chat, type Room, type RoomMessage, type ServerEvent } from '@mycel/shared/api'
 import { api } from '../lib/api'
+import { onWindowFocus, unwatchWindowFocus, watchWindowFocus, windowFocused } from '../lib/attention'
 import { desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
@@ -41,12 +43,14 @@ interface SessionMarkersState {
   /** this window is visible: the tab is, and in the desktop app the window is focused */
   visible: boolean
   setOnScreen: (chatId: string | null) => void
+  /** signed out, or another person signed in in this window: no chat of the last person's counts as on screen */
+  reset: () => void
 }
 
 const pageVisible = () => typeof document !== 'undefined' && document.visibilityState === 'visible'
-/** the desktop app's word on its window's focus (null: not in the desktop app, or an app without it) */
-let appFocused: boolean | null = null
-const computeVisible = () => pageVisible() && (appFocused ?? true)
+/** visible, and in the desktop app its window focused (the app's word, lib/attention.ts: null outside it or in an app
+ * without it) */
+const computeVisible = () => pageVisible() && (windowFocused() ?? true)
 
 export const useSessionMarkers = create<SessionMarkersState>((set, get) => ({
   onScreen: null,
@@ -57,12 +61,38 @@ export const useSessionMarkers = create<SessionMarkersState>((set, get) => ({
     asked.clear()
     recheck()
   },
+  reset() {
+    asked.clear()
+    set({ onScreen: null })
+  },
 }))
 
-/** the chat is on screen in this window and the window is visible */
+/** the side chats a room's panel shows in this window: chat -> how many panels show it (the room page's and the file
+ * viewer's are the same chat) */
+const sidePanels = new Map<string, number>()
+/** A room's side chat panel shows this chat (components/rooms/SideChatPanel.tsx): it is on screen as the full chat is,
+ * so its answer is seen (/seen) and nothing is told for it. Returns the call that ends it (the panel closed, another
+ * chat or the 🕘 list in it). */
+export function sideChatOnScreen(chatId: string): () => void {
+  const shown = sidePanels.get(chatId) ?? 0
+  sidePanels.set(chatId, shown + 1)
+  // it came on screen: asked for again (a failed /seen gets another go); a second panel of it changes nothing
+  if (!shown) asked.delete(chatId)
+  recheck()
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    const n = (sidePanels.get(chatId) ?? 1) - 1
+    if (n > 0) sidePanels.set(chatId, n)
+    else sidePanels.delete(chatId)
+  }
+}
+
+/** the chat is on screen in this window (the full chat, or a room's side chat panel) and the window is visible */
 export const seenHere = (chatId: string) => {
   const s = useSessionMarkers.getState()
-  return s.visible && s.onScreen === chatId
+  return s.visible && (s.onScreen === chatId || sidePanels.has(chatId))
 }
 /** the chats with a card open in this window (a card one desktop window shows alone is in no list) */
 export const cardChats = (requests: Record<string, OpenRequest>): Set<string> => new Set(Object.values(requests).flatMap((r) => (r.chatId ? [r.chatId] : [])))
@@ -83,14 +113,17 @@ function seen(chatId: string, state: string) {
     recheck()
   })
 }
-/** The chat on screen in a visible window, when the list says it has an answer not seen yet: /seen, once per state.
- * A chat that is not in the list (an old one opened by its address) is asked for once when it comes on screen. */
+/** The chats on screen in a visible window (the full chat, the side chats in a room's panel), when the list says one
+ * has an answer not seen yet: /seen, once per state. A chat that is not in the list (an old one opened by its address)
+ * is asked for once when it comes on screen. */
 function recheck() {
   const { onScreen, visible } = useSessionMarkers.getState()
-  if (!onScreen || !visible) return
-  const c = useChats.getState().chats.find((x) => x.id === onScreen)
-  if (!c) return seen(onScreen, 'unlisted')
-  if (c.unseen) seen(onScreen, stateOf(c))
+  if (!visible) return
+  for (const id of new Set([...(onScreen ? [onScreen] : []), ...sidePanels.keys()])) {
+    const c = useChats.getState().chats.find((x) => x.id === id)
+    if (!c) seen(id, 'unlisted')
+    else if (c.unseen) seen(id, stateOf(c))
+  }
 }
 
 function setVisible(v: boolean) {
@@ -265,11 +298,10 @@ export function startSessionMarkers() {
   document.addEventListener('visibilitychange', onVisibility)
   offs.push(() => document.removeEventListener('visibilitychange', onVisibility))
   const app = desktop()
-  if (app?.focus) {
-    appFocused = typeof document.hasFocus === 'function' ? document.hasFocus() : true
-    offs.push(app.focus.onChange((f) => { appFocused = !!f; setVisible(computeVisible()) }))
-    void app.focus.get().then((f) => { appFocused = !!f; setVisible(computeVisible()) }, () => {})
-  }
+  // the desktop app's word on its window's focus, kept in lib/attention.ts: reading a room and the room sound go by it
+  // too (the team page may have no focus of its own while its window is focused)
+  offs.push(onWindowFocus(() => setVisible(computeVisible())), unwatchWindowFocus)
+  watchWindowFocus()
   setVisible(computeVisible())
   // the list changed (a chat.updated, a reload, a resync after a server restart): the chat on screen may have an unseen
   // answer now
@@ -316,7 +348,6 @@ export function stopSessionMarkers() {
   pendingRoom.clear()
   inFlight.clear()
   asked.clear()
-  appFocused = null
   if (started) desktop()?.setBadgeCount?.(0)
   // signed out (or the page closing its live state): no count of this person stays on the icon
   if (started && webBadge) setWebBadge(webBadge, 0)

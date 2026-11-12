@@ -61,8 +61,11 @@ describe('the team server\'s texts with a name', () => {
     expect(tr('projectInstructionsChanged', 'ko', { name: '견적', by: '김님희' })).toBe("'견적' 프로젝트 지침을 김님희 님이 바꿨어요.")
     expect(st('suggested', 'ko', { who: '대표님', name: '견적서', folder: '영업/' })).toBe('대표님이 스킬을 제안했어요: 견적서 → 영업/')
     expect(st('suggested', 'ko', { who: '김민지 씨', name: '견적서', folder: '영업/' })).toBe('김민지 씨가 스킬을 제안했어요: 견적서 → 영업/')
-    expect(connectionSay('requestNotice', 'ko', { by: '대표님', name: 'Notion', host: 'mcp.notion.com' })).toStartWith('대표님이 Notion 연결을 요청했어요')
-    expect(connectionSay('requestNotice', 'ja', { by: '田中様', name: 'Notion', host: 'mcp.notion.com' })).toStartWith('田中様がNotion')
+    // the connection request never names the admin who asked (docs/DECISIONS.md "Admins are never named"): "an admin",
+    // whatever name is passed
+    expect(connectionSay('requestNotice', 'ko', { by: '대표님', name: 'Notion', host: 'mcp.notion.com' })).toStartWith('관리자가 Notion 연결을 요청했어요')
+    expect(connectionSay('requestNotice', 'ja', { by: '田中様', name: 'Notion', host: 'mcp.notion.com' })).toStartWith('管理者がNotion')
+    expect(connectionSay('requestNotice', 'ko', { by: '대표님', name: 'Notion', host: 'mcp.notion.com' })).not.toContain('대표님')
     expect(ct('duplicatePersonal', 'ko', { name: '대표님', label: '내 키' })).toBe("이 토큰·키는 이미 대표님의 개인 연결 '내 키'에서 쓰고 있어요.")
     expect(ct('duplicatePersonal', 'ko', { name: '김님희', label: '내 키' })).toBe("이 토큰·키는 이미 김님희님의 개인 연결 '내 키'에서 쓰고 있어요.")
   })

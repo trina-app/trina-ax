@@ -10,13 +10,14 @@ import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
 import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
-import { folderView, runMayWrite, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_NAMES, DENIED_RANGES, RUN_ID_RE, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
+import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
+import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
-import { _held, holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
+import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
 import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, requiredWarningVersion, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
@@ -33,13 +34,18 @@ const RANK: Record<Access, number> = { none: 0, read: 1, write: 2 }
 const who = (id: string, role: Principal['role'] = 'member', groups: string[] = []): Principal => ({ id, name: id, role, groups })
 
 /** the fixture's rules (tests/lib/fixtures.ts seed) */
-const FIXTURE_RULES = new RuleSet([
+const ruleRows = (xs: (string | null)[][]) => xs.map(([p, t, s, a]) => ({ path: p!, subject_type: t as never, subject_id: s ?? null, access: a as Access }))
+const FIXTURE_ROWS = ruleRows([
   ['shared', 'everyone', null, 'write'], ['skills', 'everyone', null, 'read'],
   ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
   ['groups/finance', 'group', 'finance', 'write'],
   ['projects/falcon', 'user', 'alice', 'write'], ['projects/falcon', 'group', 'finance', 'read'], ['projects/falcon/public', 'everyone', null, 'read'],
   ['projects/atlas', 'group', 'finance', 'write'],
-].map(([p, t, s, a]) => ({ path: p!, subject_type: t as never, subject_id: s, access: a as Access })))
+])
+const FIXTURE_RULES = new RuleSet(FIXTURE_ROWS)
+/** the same, with carol (an admin) a member of projects/falcon: inside a team project the owner and admins are judged
+ * as members (docs/DECISIONS.md "Project contents only for members") */
+const CAROL_IN_FALCON = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/falcon', 'user', 'carol', 'write']])])
 const PEOPLE: Record<string, Principal> = { alice: who('alice', 'member', ['marketing']), bob: who('bob', 'member', ['finance']), carol: who('carol', 'admin'), dana: who('dana', 'owner'), erin: who('erin', 'member', ['marketing']) }
 
 describe('the folder access of a run (from the folder rules)', () => {
@@ -51,14 +57,70 @@ describe('the folder access of a run (from the folder rules)', () => {
       denyWrite: ['projects/falcon/public'],
     })
   })
-  test('an admin: the whole team folder, but never .system/ or other people\'s personal folders', () => {
-    const v = folderView(FIXTURE_RULES, PEOPLE.carol!)
-    expect(v.write).toEqual(['', 'users/carol'])
-    expect(v.denyRead).toEqual(['.system', 'users'])
-    expect(viewAccess(v, 'users/bob/notes.md')).toBe('none')
-    expect(viewAccess(v, 'users/carol/x.md')).toBe('write')
-    expect(viewAccess(v, '.system/history/old.bin')).toBe('none')
-    expect(viewAccess(v, 'groups/finance/budget.md')).toBe('write')
+  test('an admin: the whole team folder, but never .system/, other people\'s personal folders or a project they are not in', () => {
+    for (const p of [PEOPLE.carol!, PEOPLE.dana!]) {
+      const v = folderView(FIXTURE_RULES, p)
+      expect(v.write).toEqual(['', `users/${p.id}`])
+      // inside projects/<name> the owner and admins are judged as members: falcon and atlas are not theirs, and nothing
+      // deeper either while they do not read the project itself (not falcon's public/, which everyone in it reads)
+      expect(v.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon'])
+      expect(v.read).toEqual([])
+      expect(viewAccess(v, 'users/bob/notes.md')).toBe('none')
+      expect(viewAccess(v, `users/${p.id}/x.md`)).toBe('write')
+      expect(viewAccess(v, '.system/history/old.bin')).toBe('none')
+      expect(viewAccess(v, 'groups/finance/budget.md')).toBe('write')
+      expect(viewAccess(v, 'projects/falcon/plan.md')).toBe('none')
+      expect(viewAccess(v, 'projects/falcon/public/notice.md')).toBe('none')
+      expect(viewAccess(v, 'projects/atlas/budget.md')).toBe('none')
+      // projects/ itself is outside the zone
+      expect(viewAccess(v, 'projects/readme.md')).toBe('write')
+    }
+    // a member of the project: as any member who writes it
+    const m = folderView(CAROL_IN_FALCON, PEOPLE.carol!)
+    expect(m).toEqual({ read: [], write: ['', 'users/carol'], denyRead: ['.system', 'users', 'projects/atlas'], denyWrite: ['projects/falcon/public'] })
+    expect(viewAccess(m, 'projects/falcon/plan.md')).toBe('write')
+    expect(viewAccess(m, 'projects/falcon/public/notice.md')).toBe('read')
+    // a team member keeps a partial access: erin reads falcon's public/ without reading falcon
+    const erin = folderView(FIXTURE_RULES, PEOPLE.erin!)
+    expect(viewAccess(erin, 'projects/falcon/public/notice.md')).toBe('read')
+    expect(viewAccess(erin, 'projects/falcon/plan.md')).toBe('none')
+  })
+  test('an admin and a project folder with no rules of its own (an older build made it): hidden too, once the runner names it', () => {
+    // the runner passes every projects/<name> on disk (policy/zone.ts projectZoneFolders): a folder with no rule is
+    // still where an admin's access changes
+    const zone = ['projects/falcon', 'projects/atlas', 'projects/plain']
+    const v = folderView(FIXTURE_RULES, PEOPLE.carol!, undefined, undefined, zone)
+    expect(v.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon', 'projects/plain'])
+    expect(viewAccess(v, 'projects/plain/notes.md')).toBe('none')
+    expect(viewAccess(v, 'projects/readme.md')).toBe('write')
+    expect(viewAccess(v, 'shared/x.md')).toBe('write')
+    // a member keeps the rules above: no rule anywhere gives alice projects/plain, so it is hidden for her as before
+    expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('none')
+    // rules on the team root or projects/ (an admin's own, a role rule, everyone) never reach in for admins; members get them
+    const above = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['', 'user', 'carol', 'read'], ['projects', 'role', 'admin', 'write'], ['projects', 'everyone', null, 'read']])])
+    const a = folderView(above, PEOPLE.carol!, undefined, undefined, zone)
+    for (const f of ['projects/plain/notes.md', 'projects/falcon/plan.md', 'projects/atlas/x.md']) expect([f, viewAccess(a, f)]).toEqual([f, 'none'])
+    expect(viewAccess(folderView(above, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('read')
+    // a rule inside such a folder is a boundary without the runner's list too (its projects/<name> is a candidate)
+    const inner = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'carol', 'read']])])
+    const i = folderView(inner, PEOPLE.carol!)
+    expect(i.denyRead).toContain('projects/plain')
+    expect(viewAccess(i, 'projects/plain/notes.md')).toBe('none')
+    // ...and that rule does not let her in while she does not read projects/plain itself; a member keeps it
+    expect(viewAccess(i, 'projects/plain/inner/a.md')).toBe('none')
+    const aliceInner = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'alice', 'read']])])
+    expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/inner/a.md')).toBe('read')
+    expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/notes.md')).toBe('none')
+    // once a member (read on projects/plain), the rule inside counts for her too
+    const both = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read'], ['projects/plain/inner', 'user', 'carol', 'read']])])
+    expect(viewAccess(folderView(both, PEOPLE.carol!, undefined, undefined, zone), 'projects/plain/inner/a.md')).toBe('read')
+    // with a member rule the admin reads it, and nothing else changes
+    const member = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read']])])
+    const r = folderView(member, PEOPLE.carol!, undefined, undefined, zone)
+    expect(r.denyWrite).toEqual(['projects/plain'])
+    expect(r.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon'])
+    expect(viewAccess(r, 'projects/plain/notes.md')).toBe('read')
+    expect(viewAccess(r, 'projects/falcon/plan.md')).toBe('none')
   })
   test('the model of srt gives every fixture path the access the rules give (users/ itself: hidden)', () => {
     for (const [user, rel, want] of EXPECTED) {
@@ -110,7 +172,8 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
   const runOf = (start: string | null) => folderView(FIXTURE_RULES, PEOPLE.alice!, { start })
   test('a shared writable group folder is read-only in a run; the start folder and the own folder are writable', () => {
     const v = runOf('projects/falcon')
-    expect(v).toEqual({ read: ['shared', 'skills', 'groups/marketing'], write: ['projects/falcon', 'users/alice'], denyRead: ['groups/marketing/salaries'], denyWrite: ['projects/falcon/public'] } as FolderView)
+    // the project's and her own skills folders stay read-only in a run (review S8: what people's AI follows)
+    expect(v).toEqual({ read: ['shared', 'skills', 'groups/marketing'], write: ['projects/falcon', 'users/alice'], denyRead: ['groups/marketing/salaries'], denyWrite: ['projects/falcon/public', 'projects/falcon/skills', 'users/alice/skills'] } as FolderView)
     expect(viewAccess(v, 'groups/marketing/brief.md')).toBe('read')
     expect(viewAccess(v, 'shared/s.md')).toBe('read')
     expect(viewAccess(v, 'projects/falcon/src/x.ts')).toBe('write')
@@ -125,6 +188,52 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
       for (const f of ['shared/repo/.git/hooks/pre-commit', 'shared/repo/package.json', 'groups/marketing/Makefile', 'groups/marketing/.envrc']) expect([start, f, viewAccess(v, f)]).toEqual([start, f, 'read'])
     }
   })
+  test('skill folders are never written by a run (review S8): the project\'s, her own, and any start in or above them', () => {
+    const v = runOf('projects/falcon')
+    // a command could write or delete a project's skills, or her own, with no card
+    for (const f of ['projects/falcon/skills/launch/SKILL.md', 'projects/falcon/skills/new.md', 'users/alice/skills/mine/SKILL.md', 'users/alice/skills/x.md']) expect([f, viewAccess(v, f)]).toEqual([f, 'read'])
+    expect(viewAccess(v, 'projects/falcon/src/app.ts')).toBe('write')
+    expect(viewAccess(v, 'users/alice/notes.md')).toBe('write')
+    for (const f of ['projects/falcon/skills', 'projects/falcon/skills/a', 'users/alice/skills/b']) expect(runMayWrite({ start: 'projects/falcon' }, 'alice', f)).toBe(false)
+    expect(runMayWrite({ start: 'projects/falcon' }, 'alice', 'projects/falcon/skillset')).toBe(true)
+    // a chat with no project: still not her own skills
+    expect(viewAccess(runOf(null), 'users/alice/skills/x.md')).toBe('read')
+    // a start that is a skill folder, in one, or groups/ or projects/ themselves writes no team folder (an admin's run)
+    // (carol a member of falcon: inside a project she is not in she reads nothing at all)
+    for (const start of ['skills/ops', 'projects/falcon/skills', 'groups/marketing/skills/brief', 'projects', 'groups']) {
+      const a = folderView(CAROL_IN_FALCON, PEOPLE.carol!, { start })
+      expect([start, viewAccess(a, `${start}/x.md`)]).toEqual([start, 'read'])
+      expect(viewAccess(a, 'users/carol/x.md')).toBe('write')
+    }
+    expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon/skills' }), 'projects/falcon/skills/x.md')).toBe('none')
+    // a group's folder as the start: its skills folder is read-only too
+    expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'groups/marketing' }), 'groups/marketing/skills/brief/SKILL.md')).toBe('read')
+    expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'groups/marketing' }), 'groups/marketing/brief.md')).toBe('write')
+  })
+  test('an absent skills folder is there for the run\'s life (an srt mount point), and goes when the last run ends if empty', () => {
+    const team = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-skills-'))
+    fs.mkdirSync(path.join(team, 'projects/falcon'), { recursive: true })
+    fs.mkdirSync(path.join(team, 'users/alice/skills/mine'), { recursive: true })
+    const rels = runSkillFolders({ start: 'projects/falcon' }, 'alice')
+    expect(rels).toEqual(['users/alice/skills', 'projects/falcon/skills'])
+    const a = holdSkillFolders(team, rels)
+    expect(fs.statSync(path.join(team, 'projects/falcon/skills')).isDirectory()).toBe(true)
+    const b = holdSkillFolders(team, rels)
+    a(); a()
+    expect(fs.existsSync(path.join(team, 'projects/falcon/skills'))).toBe(true)
+    b()
+    // made for the runs and still empty: gone; hers was there before: kept
+    expect(fs.existsSync(path.join(team, 'projects/falcon/skills'))).toBe(false)
+    expect(fs.existsSync(path.join(team, 'users/alice/skills/mine'))).toBe(true)
+    expect(_heldSkills().size).toBe(0)
+    // never through a link: a project folder that is a link gets nothing made in it
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-skills-out-'))
+    fs.mkdirSync(path.join(team, 'projects'), { recursive: true })
+    fs.symlinkSync(outside, path.join(team, 'projects/link'))
+    holdSkillFolders(team, ['projects/link/skills'])()
+    expect(fs.readdirSync(outside)).toEqual([])
+    fs.rmSync(team, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
+  })
   test('a chat with no project (the work folder): every team folder is read-only, except the own folder', () => {
     const v = runOf(null)
     expect(v.write).toEqual(['users/alice'])
@@ -133,12 +242,21 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
     expect(viewAccess(v, 'users/alice/x.md')).toBe('write')
   })
   test('an admin\'s run: the team root is read-only, the start folder writable; a start below a rule folder', () => {
-    const v = folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon/app' })
+    // carol a member of falcon (inside a team project an admin is judged as a member)
+    const v = folderView(CAROL_IN_FALCON, PEOPLE.carol!, { start: 'projects/falcon/app' })
     expect(viewAccess(v, 'groups/finance/budget.md')).toBe('read')
     expect(viewAccess(v, 'projects/falcon/readme.md')).toBe('read')
     expect(viewAccess(v, 'projects/falcon/app/x')).toBe('write')
     expect(viewAccess(v, 'users/carol/x')).toBe('write')
     expect(viewAccess(v, 'users/bob/x')).toBe('none')
+    expect(viewAccess(v, 'projects/atlas/x')).toBe('none')
+    // not a member: nothing of the project, the start folder and what everyone in it reads included
+    const out = folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon/app' })
+    expect(viewAccess(out, 'projects/falcon/readme.md')).toBe('none')
+    expect(viewAccess(out, 'projects/falcon/app/x')).toBe('none')
+    expect(viewAccess(out, 'projects/falcon/public/notice.md')).toBe('none')
+    expect(viewAccess(out, 'groups/finance/budget.md')).toBe('read')
+    expect(out.write).toEqual(['users/carol'])
   })
   test('a start folder that the person can only read stays read-only; the team root or ".." is refused', () => {
     expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.bob!, { start: 'projects/falcon' }), 'projects/falcon/x')).toBe('read')
@@ -187,16 +305,49 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
 
 const BASE = '/var/lib/mycel'
 const TEAM = `${BASE}/team`
+describe('a project run reads only what everyone in the project may read (QA TC-095)', () => {
+  const everyone = Object.values(PEOPLE)
+  test('falcon (alice, bob by finance, the admins): shared and skills stay; marketing and her own folder are hidden', () => {
+    const v = folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'projects/falcon' }, everyone)
+    expect(v).toEqual({ read: ['shared', 'skills'], write: ['projects/falcon'], denyRead: [], denyWrite: ['projects/falcon/public', 'projects/falcon/skills'] } as FolderView)
+    // what bob may not read cannot be copied into the folder bob sees
+    expect(viewAccess(v, 'groups/marketing/brief.md')).toBe('none')
+    expect(viewAccess(v, 'users/alice/private.txt')).toBe('none')
+    expect(viewAccess(v, 'shared/s.md')).toBe('read')
+    expect(viewAccess(v, 'projects/falcon/src/x.ts')).toBe('write')
+  })
+  test('a project only she can see (in her own folder) keeps her whole read access', () => {
+    const start = 'users/alice/demo'
+    expect(folderView(FIXTURE_RULES, PEOPLE.alice!, { start }, everyone)).toEqual(folderView(FIXTURE_RULES, PEOPLE.alice!, { start }))
+  })
+  test('a chat with no project (the work folder) is not narrowed: it writes only her own folder', () => {
+    expect(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: null }, everyone)).toEqual(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: null }))
+  })
+  test('never more than without the people, and every readable folder outside the start is readable by all who see it', () => {
+    const paths = ['shared/a', 'skills/s/SKILL.md', 'groups/marketing/b', 'groups/marketing/salaries/c', 'groups/finance/d', 'projects/falcon/e', 'projects/falcon/public/f', 'projects/atlas/g', 'users/alice/h', 'users/bob/i', 'x/y']
+    for (const p of everyone) for (const start of ['projects/falcon', 'projects/atlas', 'groups/marketing', 'groups/finance', 'shared']) {
+      const narrow = folderView(FIXTURE_RULES, p, { start }, everyone), wide = folderView(FIXTURE_RULES, p, { start })
+      const seers = everyone.filter((q) => FIXTURE_RULES.access(q, start.split('/')) !== 'none')
+      for (const rel of paths) {
+        const a = viewAccess(narrow, rel)
+        expect(RANK[a], `${p.id} ${start} ${rel}`).toBeLessThanOrEqual(RANK[viewAccess(wide, rel)])
+        const inside = rel === start || rel.startsWith(start + '/')
+        if (a !== 'none' && !inside && !rel.startsWith('users/')) for (const q of seers) expect(FIXTURE_RULES.access(q, rel.split('/')), `${q.id} reads ${rel} (${p.id} in ${start})`).not.toBe('none')
+      }
+    }
+  })
+})
+
 const aliceView = folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'projects/falcon' })
 const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, start: 'projects/falcon' as string | null, work: null as string | null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'] }
 
 describe('the srt settings file', () => {
   test('hides the base folder, users/ and .system/; gives back the person\'s folders, home and logs', () => {
     const s = srtSettings(input)
-    expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', '/tmp', '/var/log', '/run', '/home', '/root', `${TEAM}/users`, `${TEAM}/.system`, `${TEAM}/groups/marketing/salaries`])
-    expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`])
+    expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', ...DENIED_SYSTEM_PATHS, `${TEAM}/users`, `${TEAM}/.system`, `${TEAM}/groups/marketing/salaries`])
+    expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`, ...SYSTEM_READ_PATHS])
     expect(s.filesystem.allowWrite).toEqual([`${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`])
-    expect(s.filesystem.denyWrite).toEqual([`${TEAM}/projects/falcon/public`])
+    expect(s.filesystem.denyWrite).toEqual([`${TEAM}/projects/falcon/public`, `${TEAM}/projects/falcon/skills`, `${TEAM}/users/alice/skills`])
     expect(settingsProblems(s, input)).toEqual([])
   })
   test('a chat with no project: its work folder is writable too, and no team folder but the own one', () => {
@@ -208,7 +359,8 @@ describe('the srt settings file', () => {
     expect(settingsProblems(s, { ...w, work: `${BASE}/data` }).join()).toContain('work folder')
   })
   test('a writable folder inside a read-only one is a denyRead landing too, so srt binds it back writable (A28c, A28d)', () => {
-    const v = folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon' })
+    // carol a member of falcon (inside a team project an admin is judged as a member)
+    const v = folderView(CAROL_IN_FALCON, PEOPLE.carol!, { start: 'projects/falcon' })
     const c = { ...input, userId: 'carol', view: v }
     const s = srtSettings(c)
     expect(v.read).toEqual([''])
@@ -266,12 +418,54 @@ describe('the srt settings file', () => {
     expect(settingsProblems(net({ allowedDomains: ['*.trina.app'] }), input).join()).toContain('covers a denied host')
   })
   test('server paths outside the base folder are hidden too (a wrong base in the env fails closed)', () => {
-    const sp = ['/srv/trina/data', '/srv/trina/secrets', BASE + '/data']
+    // /etc is given back to runs, so a server file there needs its own hide
+    const sp = ['/srv/trina/data', '/etc/trina/secrets', BASE + '/data']
     const s = srtSettings({ ...input, serverPaths: sp })
-    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/srv/trina/data', '/srv/trina/secrets']))
+    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/srv/trina/data', '/etc/trina/secrets']))
     expect(s.filesystem.denyRead).not.toContain(BASE + '/data') // inside the base: hidden already
     expect(settingsProblems(s, { ...input, serverPaths: sp })).toEqual([])
-    expect(settingsProblems(srtSettings(input), { ...input, serverPaths: sp }).join()).toContain('a server path is not hidden: /srv/trina/data')
+    expect(settingsProblems(srtSettings(input), { ...input, serverPaths: sp }).join()).toContain('a server path is not hidden: /etc/trina/secrets')
+  })
+  test('the host is hidden but for programs, /etc and the Trina tools (QA TC-306)', () => {
+    const s = srtSettings(input)
+    const deny = s.filesystem.denyRead, allow = s.filesystem.allowRead
+    // the whole root: srt expands it into the root's children, less the ones allowRead gives back
+    expect(deny).toContain('/')
+    for (const p of ['/mnt', '/media', '/srv', '/opt', '/var/lib', '/home', '/root', '/tmp', '/run', '/var/log']) expect(deny, p).toContain(p)
+    for (const p of ['/etc/systemd', '/etc/cloudflared', '/etc/ssh', '/etc/polkit-1', '/etc/sudoers.d', '/etc/ssl/private', '/etc/default',
+      '/etc/environment', '/etc/fstab', '/etc/netplan', '/etc/cron.d', '/etc/openvpn', '/etc/ax', '/etc/samba', '/etc/msmtprc', '/etc/rclone',
+      '/etc/apt/auth.conf.d', '/etc/pki', '/etc/cloud']) expect(deny, p).toContain(p)
+    // what a run needs: programs, libraries, /etc, node / python / srt in /opt/trina
+    for (const p of ['/usr', '/bin', '/lib', '/etc', '/opt/trina']) expect(allow, p).toContain(p)
+    expect(SRT_PATHS.node.startsWith('/opt/trina/')).toBe(true)
+    // nothing given back lies in /opt outside /opt/trina, in /mnt, /media, /srv, /var/lib or in an /etc secret
+    for (const r of allow) {
+      for (const d of ['/opt', '/mnt', '/media', '/srv', '/var/lib', ...ETC_SECRETS]) {
+        if (r === d || r.startsWith(d + '/')) expect(r === '/opt/trina' || r.startsWith(BASE + '/'), `${r} in ${d}`).toBe(true)
+      }
+    }
+    expect(settingsProblems(s, input)).toEqual([])
+  })
+  test('the source folders of connected folders are hidden, wherever they are mounted (QA TC-306)', () => {
+    // under /mnt or outside every allowed path: hidden already, so not named (srt would look at a hung NAS mount)
+    const src = ['/mnt/nas/share', '/data/nas2', '/etc/odd-share']
+    const c = { ...input, connectedSources: src }
+    const s = srtSettings(c)
+    expect(s.filesystem.denyRead).not.toContain('/mnt/nas/share')
+    expect(s.filesystem.denyRead).not.toContain('/data/nas2')
+    // inside a path given back (/etc): named
+    expect(s.filesystem.denyRead).toContain('/etc/odd-share')
+    expect(settingsProblems(s, c)).toEqual([])
+    // the check refuses settings that lost a source, or give a path in one back, or give /opt or an /etc secret back
+    expect(settingsProblems(srtSettings(input), c).join()).toContain("a connected folder's source is not hidden: /etc/odd-share")
+    const fsx0 = (f: Partial<typeof s.filesystem>) => ({ ...s, filesystem: { ...s.filesystem, ...f } })
+    expect(settingsProblems(fsx0({ denyRead: s.filesystem.denyRead.filter((d) => d !== '/mnt') }), c).join()).toContain('a host path is not hidden: /mnt')
+    const fsx = (f: Partial<typeof s.filesystem>) => ({ ...s, filesystem: { ...s.filesystem, ...f } })
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/mnt/nas'] }), c).join()).toContain('/mnt/nas')
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/mnt/nas/share/closed'] }), c).join()).toContain('/mnt/nas/share/closed')
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/opt'] }), c).join()).toContain('may not read: /opt')
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/etc/systemd/system'] }), c).join()).toContain('a host secret is readable: /etc/systemd/system')
+    expect(settingsProblems(fsx({ denyRead: s.filesystem.denyRead.filter((d) => d !== '/') }), c).join()).toContain('a host path is not hidden: /')
   })
   test('a team folder outside the base folder is hidden too', () => {
     const s = srtSettings({ ...input, teamRoot: '/srv/team' })
@@ -393,6 +587,31 @@ describe('the plan file (the same rules as mycel-boxd)', () => {
     expect(effectiveLimits(DEV_ENV_DEFAULT_LIMITS, 'open', { ...plan, network: '' }).network).toBe('offline')
     expect(effectiveLimits(DEV_ENV_DEFAULT_LIMITS, 'open', null)).toMatchObject({ cpus: 1, memoryMiB: 2560, network: 'open', maxRunning: 2 })
     expect(sliceValues(plan)).toEqual({ MemoryMax: '1536M', CPUQuota: '150%', TasksMax: 2048 })
+  })
+})
+
+describe('the srt attack image builds from what it copies (tests/linux/Dockerfile.srt)', () => {
+  test('the files the attack suite loads import only node, @mycel/shared, the srt folder and policy/access.ts', () => {
+    // the image copies shared/, server/src/devenv/srt and server/src/policy/access.ts only: a new import of anything else
+    // breaks the CI step "Dev environment on srt, attack suite" (it did once: skills/guard from access.ts)
+    const docker = fs.readFileSync(path.join(REPO, 'tests/linux/Dockerfile.srt'), 'utf8')
+    expect(docker).toContain('COPY server/src/devenv/srt /opt/mycel/server/src/devenv/srt')
+    expect(docker).toContain('COPY server/src/policy/access.ts /opt/mycel/server/src/policy/access.ts')
+    const seen = new Set<string>()
+    const visit = (rel: string) => {
+      if (seen.has(rel)) return
+      seen.add(rel)
+      const text = fs.readFileSync(path.join(REPO, rel), 'utf8')
+      for (const m of text.matchAll(/^(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/gm)) {
+        const spec = m[1]!
+        if (spec.startsWith('node:') || spec === 'bun:sqlite' || spec.startsWith('@mycel/shared')) continue
+        const next = path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec)) + '.ts'
+        expect([rel, spec, next.startsWith('server/src/devenv/srt/') || next === 'server/src/policy/access.ts']).toEqual([rel, spec, true])
+        visit(next)
+      }
+    }
+    for (const m of fs.readFileSync(path.join(REPO, 'tests/linux/srt-attack.ts'), 'utf8').matchAll(/from\s+'\.\.\/\.\.\/(server\/src\/[^']+)'/g)) visit(`${m[1]}.ts`)
+    expect([...seen]).toContain('server/src/devenv/srt/access.ts')
   })
 })
 
@@ -533,7 +752,7 @@ beforeAll(async () => {
   h = await startHarness({ name: 'dev-env-srt' })
   devBase = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-base-'))
   setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
-  falconId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: FALCON, instructions: '' } })).id
+  falconId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: FALCON, instructions: '' })).id
   chatFalcon = (await h.api('alice').call(API.createChat, { body: { projectId: falconId } })).id
   chatPlain = (await h.api('alice').call(API.createChat, { body: {} })).id
   chatPlain2 = (await h.api('alice').call(API.createChat, { body: {} })).id
@@ -601,7 +820,7 @@ describe('the team setting', () => {
 })
 
 describe('a command follows the person, not the project', () => {
-  test('a project chat: starts in the project folder, with all of the person\'s folders and none of the others', async () => {
+  test('a project chat: starts in the project folder; reads only what everyone who sees the project may read (QA TC-095)', async () => {
     const r = await alice().call({ command: 'echo hello' })
     expect(r.isError).toBeUndefined()
     expect(out(r)).toContain('Exit code 0.')
@@ -612,17 +831,34 @@ describe('a command follows the person, not the project', () => {
     expect(run.settingsMode).toBe(0o600)
     const s = lastSettings()
     const t = (r: string) => path.join(h.team, r)
-    // Q0 (b): only the project folder and her own folder are writable; her other writable folders are read-only
-    expect(s.filesystem.allowWrite).toEqual([t(FALCON), t('users/alice'), personHome(devBase, 'alice')])
-    expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared'), t('groups/marketing')]))
-    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system'), t('groups/marketing/salaries')]))
-    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public')])
+    // Q0 (b): only the project folder is writable. Falcon is seen by bob (finance) and the admins too, so a folder they
+    // may not read (groups/marketing, her own users/alice) is hidden in the run: nothing of it can be copied into falcon
+    expect(s.filesystem.allowWrite).toEqual([t(FALCON), personHome(devBase, 'alice')])
+    expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared')]))
+    for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/marketing', 'users/alice']) expect(p.startsWith(t(no))).toBe(false)
+    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system')]))
+    // the project's skills folder is made as a mount point for the run (read-only there) and goes again after it
+    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public'), t('projects/falcon/skills')])
+    expect(fs.existsSync(t('projects/falcon/skills'))).toBe(false)
+    expect(fs.existsSync(t('users/alice/skills'))).toBe(false)
     for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/finance', 'projects/atlas', 'users/bob']) expect(p.startsWith(t(no))).toBe(false)
     // the output goes to the person's logs, and the files are gone after the run
     expect(run.spec.stdoutFile.startsWith(personLogs(devBase, 'alice') + '/')).toBe(true)
     for (const f of [run.spec.settingsFile, run.spec.stdoutFile, run.spec.exitFile]) expect(fs.existsSync(f)).toBe(false)
     const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'dev_env.command' AND target = ?").get(falconId) as { detail: string }
     expect(JSON.parse(audit.detail)).toMatchObject({ runner: 'srt', folder: 'project', chatId: chatFalcon, result: { code: 0, signal: '' } })
+  })
+  test('a connected folder\'s source on the server is hidden in the run, the host too (QA TC-306)', async () => {
+    h.ctx.db.query("INSERT INTO connected_folders (id, name, source, created_by) VALUES ('cf-nas', 'nas', '/mnt/nas-test/share', 'carol')").run()
+    try {
+      const r = await alice().call({ command: 'echo hello' })
+      expect(out(r)).toContain('Exit code 0.')
+      const s = lastSettings()
+      expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/', '/mnt', '/srv', '/opt', '/etc/systemd']))
+      // under /mnt: hidden already, not named (srt would look at the mount when the run starts)
+      expect(s.filesystem.denyRead).not.toContain('/mnt/nas-test/share')
+      expect(s.filesystem.allowRead).toEqual(expect.arrayContaining(['/usr', '/etc', '/opt/trina']))
+    } finally { h.ctx.db.query("DELETE FROM connected_folders WHERE id = 'cf-nas'").run() }
   })
   test('a chat with no project: starts in the chat\'s work folder, which is writable; the person\'s folders are there too', async () => {
     const r = await alice({ project: null, chat: chatPlain }).call({ command: 'write out.txt done' })
@@ -649,9 +885,9 @@ describe('a command follows the person, not the project', () => {
     expect([...runs.values()][0]!.spec.cwd).toBe(fs.realpathSync(path.join(h.team, FALCON)))
     expect(s.filesystem.allowRead).toContain(path.join(h.team, FALCON))
     expect(s.filesystem.allowWrite).not.toContain(path.join(h.team, FALCON))
-    // groups/finance is writable for bob, but not his starting folder: read-only in this run
+    // groups/finance is writable for bob, but alice sees falcon and may not read groups/finance: hidden in this run
     expect(s.filesystem.allowWrite).not.toContain(path.join(h.team, 'groups/finance'))
-    expect(s.filesystem.allowRead).toContain(path.join(h.team, 'groups/finance'))
+    expect(s.filesystem.allowRead).not.toContain(path.join(h.team, 'groups/finance'))
     expect([...runs.values()][0]!.spec.env.HOME).toBe(personHome(devBase, 'bob'))
   })
   test('a project folder the person cannot open: the run starts in the chat\'s work folder and the folder stays hidden', async () => {
@@ -662,6 +898,8 @@ describe('a command follows the person, not the project', () => {
     expect(s.filesystem.allowRead).toContain(path.join(h.team, 'projects/falcon/public'))
   })
   test('the rules are read again for every command', async () => {
+    // a chat with no project keeps the person's whole read access, so a group she leaves goes from the next command
+    const alice = () => shell('alice', null, chatPlain)
     await alice().call({ command: 'echo 1' })
     expect(lastSettings().filesystem.allowRead).toContain(path.join(h.team, 'groups/marketing'))
     h.ctx.db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'alice'").run()
@@ -805,7 +1043,9 @@ describe('jobs and the queue (per team)', () => {
     expect(rows().find((r) => r.name === 'next')).toMatchObject({ state: 'ended', end_reason: 'setting' })
   })
   test('a running job stops when the person\'s folder access changes, or the person is out of scope', async () => {
-    await alice().call({ command: 'sleep', job: true, log_name: 'long' })
+    // a chat with no project: its run reads all of her folders, so leaving a group changes its access (in falcon,
+    // groups/marketing is hidden already: QA TC-095)
+    await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'long' })
     await pollSrt(h.ctx)
     expect(rows()[0]).toMatchObject({ state: 'running' })
     h.ctx.db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'alice'").run()
@@ -850,8 +1090,18 @@ describe('jobs and the queue (per team)', () => {
     expect(stops).toContain(runIdOfRow(run!))
     expect(mine).toEqual({ running: [], waiting: [] })
     await alice().call({ command: 'sleep', job: true, log_name: 'proj' })
-    const page = await h.api('carol').call(API.devEnvRunStop, { params: { id: falconId, runId: String(rows()[2]!.id) } })
-    expect(page.runs).toEqual({ running: [], waiting: [] })
+    // an admin who is not a member of the project does not open its page (docs/DECISIONS.md "Project contents only for
+    // members"): the run goes on
+    await expect(h.api('carol').call(API.devEnvRunStop, { params: { id: falconId, runId: String(rows()[2]!.id) } })).rejects.toThrow()
+    expect(stops).not.toContain(runIdOfRow(rows()[2]!))
+    expect(rows()[2]!.state).not.toBe('ended')
+    // a member of it, an admin stops it there (with no dev environment of their own)
+    const before = h.ctx.files.rules().rulesAt(FALCON)
+    legacyProjectFolder(h.ctx.db, h.team, FALCON, [...before, { subjectType: 'user', subjectId: 'carol', access: 'read' }])
+    try {
+      const page = await h.api('carol').call(API.devEnvRunStop, { params: { id: falconId, runId: String(rows()[2]!.id) } })
+      expect(page.runs).toEqual({ running: [], waiting: [] })
+    } finally { legacyProjectFolder(h.ctx.db, h.team, FALCON, before) }
   })
 })
 

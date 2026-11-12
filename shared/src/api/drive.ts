@@ -30,8 +30,8 @@ export type DriveFlow = z.infer<typeof DriveFlow>
  * "service" a hosted server that signs in through the hosting service (nothing to set up).
  * `blocked`: why the page cannot set it up ("hosted" the hosting service owns it, "server" the operator's own client,
  * "public_host" no public https address to send Google back to). Never the client secret, never the client ID. */
-/** `membersCanConnect`: members may connect their own Google Drive (off until an admin turns it on; teams whose members
- * had connected before this switch keep it on). `sharesOn`: team shares that work now. A Google client alone turns
+/** `membersCanConnect`: members may connect their own Google Drive (on for a new team; a team made before migration
+ * 339 keeps what it had: off unless an admin turned it on or its members had connected before this switch). `sharesOn`: team shares that work now. A Google client alone turns
  * nothing on: it only makes Drive available. */
 export const DriveAdminStatus = z.object({
   configured: z.boolean(), source: z.enum(['app', 'server', 'service', 'none']), canSetUp: z.boolean(),
@@ -57,7 +57,9 @@ export const UpdateDriveShareBody = z.object({
 /** `membersOn`: an owner or admin who connects their own Drive while members may not connect theirs also turns that on,
  * in the same step as the confirm (docs/DECISIONS.md "W6"); refused for anyone else, and needed then. */
 export const CompleteDriveFlowBody = z.object({ membersOn: z.literal(true).optional() })
-const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: z.string() })
+/** `connectUrl`: on a hosted team that signs in through the hosting service, its own start page for this sign-in
+ * (it explains Google's screen, then links to `authorizationUrl`). The web opens it first; the phone app opens Google. */
+const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), connectUrl: z.string().url().optional(), expiresAt: z.string() })
 /** The Google OAuth web client: the JSON file Google Cloud downloads (`file`), or its client ID and secret. */
 export const SetDriveClientBody = z.object({
   file: z.string().min(1).max(16_384).optional(), clientId: z.string().min(1).max(512).optional(), clientSecret: z.string().min(1).max(4096).optional(),

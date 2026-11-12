@@ -1,6 +1,6 @@
 # Google Drive integration
 
-The core server implements one personal connection per team user, Drives an admin shares with the team, and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client makes Drive available; it turns nothing on by itself (below). A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves the Google Drive card in Settings › App connectors unavailable ("Not available yet", Connect turned off) and the three tools are not offered. An admin can set the client up in Admin › App connectors (below); the tools are offered as soon as a client is there, without a restart. No Google client or account is provisioned by this code.
+The core server implements one personal connection per team user, Drives an admin shares with the team, and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client makes Drive available; it turns nothing on by itself (below). A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves the Google Drive card in Connectors (the main sidebar) unavailable ("Not available yet", Connect turned off) and the three tools are not offered. An admin can set the client up in Admin › App connectors (below); the tools are offered as soon as a client is there, without a restart. No Google client or account is provisioned by this code.
 
 ## Setting it up in Admin › App connectors
 
@@ -14,9 +14,9 @@ The page does not change: a hosted server (the hosting service owns its setup), 
 
 ## What is on: the members' switch and team shares
 
-A Google client only makes Drive available: Admin › Connectors › Google Drive says **Ready to set up** until an admin turns something on, and **On** once members may connect their own Drive or a Drive is shared with the team (`GET /api/admin/google-drive`: `membersCanConnect`, `sharesOn`).
+A Google client only makes Drive available: Admin › Connected apps › Google Drive says **Ready to set up** until an admin turns something on, and **On** once members may connect their own Drive or a Drive is shared with the team (`GET /api/admin/google-drive`: `membersCanConnect`, `sharesOn`).
 
-- **Members can connect their own Google Drive** (`PUT /api/admin/google-drive/members`, settings `integrations.driveMembers`, audited `drive.members_switch`). Off for a new team. Migration 337 sets it on for a team whose members had already connected their own Drive, so nothing they use stops working. Off: Connect is turned off in Settings › Connectors, `authorize` and `complete` answer `drive_members_off`, and a connection made before is kept but not used (its row says the admin turned it off, Disconnect still works). The switch is for everyone's own Drive, admins included.
+- **Members can connect their own Google Drive** (`PUT /api/admin/google-drive/members`, settings `integrations.driveMembers`, audited `drive.members_switch`). On for a new team (no stored value means on). Migration 341 wrote the explicit value "off" for every team that existed before it and had none, so a team made earlier keeps what it had; migration 337 sets it on for a team whose members had already connected their own Drive, so nothing they use stops working. Off: Connect is turned off on the Connected apps page, `authorize` and `complete` answer `drive_members_off`, and a connection made before is kept but not used (its row says the admin turned it off, Disconnect still works). The switch is for everyone's own Drive, admins included.
 
 ## Sharing a Drive with the team
 
@@ -72,7 +72,7 @@ wire contract `shared/src/cloud-protocol/drive-broker.ts`, MIT; control plane: t
 Google client of its own (no `client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`). Without the variable nothing changes:
 the server makes no call to the hosting service. A server with its own client keeps the direct flow above, unchanged.
 Even with the variable, Drive turns on only after the control plane answers that it serves this team (a signed
-`/status`, at start, then every 10 minutes, every minute while it says no). Admin › Connectors › Google Drive then shows
+`/status`, at start, then every 10 minutes, every minute while it says no). Admin › Connected apps › Google Drive then shows
 `source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."), and the members'
 switch and team shares work as described above.
 
@@ -82,6 +82,14 @@ address. Google returns to the control plane, which sends the browser to this se
 one-time `handoff` (never a Google code or token). The callback checks the same signed-in person in the browser as the
 direct flow, then redeems the handoff with this flow's verifier. Refresh and revoke go to the control plane, never to
 Google's token endpoint.
+
+**The first page.** A control plane that has its own start page answers `start` with a `connectUrl` too:
+`<console origin>/drive-broker/connect?state=…`. It names the team, says that Trina reads Drive read-only, explains
+Google's screen for an unverified app, and links on to Google. The server passes `connectUrl` on only when it is exactly
+that page on `MYCEL_GOOGLE_DRIVE_BROKER_URL` (`driveBrokerConnectUrl`), and the web opens it in the sign-in window
+(`web/src/lib/driveSignIn.ts`, which checks the shape again). The phone app keeps opening Google directly: its browser
+hand-off accepts only `accounts.google.com`. With an older control plane there is no `connectUrl` and the web opens
+Google, as before.
 
 **Trust boundaries.**
 - Every call to the control plane is signed with this server's relay team key (`<data>/relay/team-key.pem`, Ed25519,

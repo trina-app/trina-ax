@@ -88,6 +88,13 @@ export const VISION_TEXT = {
     ja: 'pages で読み取ると画像として表示されます（例: pages: "{first}"）。',
     es: 'Léelas con pages para verlas como imágenes (por ejemplo pages: "{first}").',
   },
+  scannedOcrHint: {
+    ko: '글자 인식 결과를 보려면 pages로 그 페이지를 읽으세요(예: pages: "{first}").',
+    en: 'Read them with pages for their recognized text (for example pages: "{first}").',
+    id: 'Baca dengan pages untuk mendapatkan teks yang dikenali (misalnya pages: "{first}").',
+    ja: 'pages で読み取ると認識したテキストが得られます（例: pages: "{first}"）。',
+    es: 'Léelas con pages para obtener su texto reconocido (por ejemplo pages: "{first}").',
+  },
   hwpInstead: {
     ko: '문서의 글자는 read로 읽을 수 있어요.',
     en: 'The document\'s text can be read with read.',

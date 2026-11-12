@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { makeCApp, type CApp } from '../lib/c-app'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
+import { reasonText, TEXT } from '../../server/src/integrations/connections/text'
 
 setDefaultTimeout(30_000)
 
@@ -180,6 +181,38 @@ describe('team connections', () => {
     await patch('carol', team.id, { url: `${fake.base}/mcp-open?tenant=7` })
     expect((await list('alice')).items.find((i: any) => i.id === team.id).url).toBe(`${fake.base}/mcp-open`)
     expect((await A.json('/api/admin/integrations', { as: 'carol' })).body.items.find((i: any) => i.id === team.id).url).toBe(`${fake.base}/mcp-open?tenant=7`)
+  })
+
+  test('a broken team connection: a member is told to tell an admin, never to check an address only an admin can change (QA TC-235)', async () => {
+    const lastError = async (who: string) => who === 'carol'
+      ? (await A.json('/api/admin/integrations', { as: 'carol' })).body.items.find((i: any) => i.id === team.id).lastError
+      : (await list(who)).items.find((i: any) => i.id === team.id).lastError
+    try {
+      A.ctx.db.query("UPDATE integrations SET status = 'error', last_error = 'unreachable' WHERE id = ?").run(team.id)
+      expect(await lastError('alice')).toBe(TEXT.addressMember.en)
+      expect(await lastError('alice')).not.toContain('address')
+      expect(await lastError('carol')).toBe(TEXT.unreachable.en)
+      // the key or sign-in is the admin's too
+      A.ctx.db.query("UPDATE integrations SET last_error = 'refused:401' WHERE id = ?").run(team.id)
+      expect(await lastError('alice')).toBe(TEXT.keyMember.en)
+      expect(await lastError('carol')).toBe(TEXT.refused.en.replace('{status}', '401'))
+      // what needs nobody's fix stays as it is
+      A.ctx.db.query("UPDATE integrations SET last_error = 'timeout' WHERE id = ?").run(team.id)
+      expect(await lastError('alice')).toBe(TEXT.timeout.en)
+    } finally {
+      A.ctx.db.query("UPDATE integrations SET status = 'connected', last_error = NULL WHERE id = ?").run(team.id)
+    }
+    // the words: every language says to tell an admin and names nobody; a connection made from a team template has its
+    // address from the admin (its key and sign-in are the member's own)
+    const tell = { ko: '관리자에게 알려 주세요.', en: 'Tell your admin.', id: 'Beri tahu admin Anda.', ja: '管理者に知らせてください。', es: 'Avise a su administrador.' } as const
+    for (const [l, end] of Object.entries(tell) as [keyof typeof tell, string][]) {
+      for (const k of ['addressMember', 'keyMember', 'oauth_no_registration_member'] as const) expect(TEXT[k][l]).toEndWith(end)
+    }
+    expect(reasonText('redirect:307', 'en', { address: false, key: true })).toBe(TEXT.addressMember.en)
+    expect(reasonText('no_secret', 'en', { address: false, key: true })).toBe(TEXT.no_secret.en)
+    expect(reasonText('something-new', 'en', { address: false, key: false })).toBe(TEXT.addressMember.en)
+    expect(reasonText('something-new', 'en')).toBe(TEXT.unreachable.en)
+    expect(reasonText(null, 'en', { address: false, key: false })).toBeNull()
   })
 
   test('deleting: gone for everyone, audited', async () => {

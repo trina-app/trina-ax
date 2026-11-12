@@ -14,6 +14,12 @@ import {
 } from '@mycel/shared/relay-protocol'
 import { RENAME_REDIRECT_MS, normalizeClaimCode, type SuspendReason, type TeamOrigin } from '@mycel/shared/cloud-protocol/relay-ops'
 import { tx, type SqlDb } from './db.ts'
+import { ReplayCache } from './replay.ts'
+
+/** the replay check remembers at most this many calls per team (its own oldest dropped first: a team that floods
+ * never pushes out another team's) and this many in all (when full of live calls, new calls get 429) */
+const API_REPLAY_PER_TEAM = 1_000
+const API_REPLAY_MAX = 100_000
 
 export interface TeamRow {
   id: string
@@ -138,6 +144,8 @@ export class Registry {
   private extraReserved: string[]
   private devNames: Set<string>
   private now: () => number
+  /** team-signed registry calls seen within the whole clock window (memory only) */
+  private apiSeen = new ReplayCache(2 * API_SIG_MAX_SKEW_MS + 1, API_REPLAY_PER_TEAM, API_REPLAY_MAX)
 
   constructor(db: SqlDb, o: RegistryOptions = {}) {
     this.db = db
@@ -345,7 +353,12 @@ export class Registry {
     if (!t || t.status === 'released') throw new RegistryError('not_found', 'no such team', 404)
     if (Math.abs(this.now() - ts) > API_SIG_MAX_SKEW_MS) throw new RegistryError('unauthorized', 'request timestamp out of range (check the clock)', 401)
     const k = this.currentKey(teamId)
-    if (!k || !verifyB64(k.public_key, apiSigningString(method, path, ts, body), sig)) throw new RegistryError('unauthorized', 'bad signature', 401)
+    const signed = apiSigningString(method, path, ts, body)
+    if (!k || !verifyB64(k.public_key, signed, sig)) throw new RegistryError('unauthorized', 'bad signature', 401)
+    // the same signed call again within the window (replay; keyed on the signed message, not the base64 text)
+    const verdict = this.apiSeen.check(teamId, signed, this.now())
+    if (verdict === 'replayed') throw new RegistryError('replayed', 'this signed request was already used; sign it again', 409)
+    if (verdict === 'full') throw new RegistryError('rate_limited', 'too many signed requests just now, try again shortly', 429)
     return t
   }
 

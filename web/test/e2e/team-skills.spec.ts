@@ -69,7 +69,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   await dialog.locator(`[data-testid="edit-add-option"][data-subject="group:${sales.id}"]`).click()
   await expect(dialog.getByTestId('skill-manager-warning')).toBeVisible()
   await dialog.getByTestId('skill-manager-on').click()
-  await expect(dialog.locator(`[data-testid="skill-editor"][data-subject="group:${sales.id}"]`)).toContainText('영업팀그룹')
+  await expect(dialog.locator(`[data-testid="skill-editor"][data-subject="group:${sales.id}"]`)).toContainText('영업팀부서')
   // a person already there for all of skills/ is not offered again
   await dialog.getByTestId('edit-add').fill('Bob')
   await expect(dialog.locator('[data-testid="edit-add-option"][data-subject="user:bob"]')).toHaveCount(0)
@@ -78,7 +78,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   await bobRow.getByRole('button', { name: 'Bob: skills/ 빼기' }).click()
   const confirm = page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' })
   await expect(confirm).toContainText('skills/에 대한 쓰기 권한이 빠져요')
-  await expect(confirm).toContainText('그룹이나 모두에게 준 규칙으로 계속 고칠 수 있어요')
+  await expect(confirm).toContainText('부서나 모두에게 준 규칙으로 계속 고칠 수 있어요')
   await confirm.getByRole('button', { name: '빼기' }).click()
   await expect(bobRow).toHaveCount(0)
   await expect(page.getByText('고칠 수 있는 사람에서 뺐어요.')).toBeVisible()
@@ -104,7 +104,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   // Admin > 폴더 권한 shows the group's rule on skills/, labelled, and points back at the Team skills page
   await page.goto('/admin/folders?folder=skills')
   const detail = page.getByTestId('folder-detail')
-  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 그룹: 읽기·쓰기')
+  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 부서: 고칠 수 있음')
   await expect(detail.getByTestId('skill-manager-badge')).toBeVisible()
   await expect(detail).toContainText('팀 스킬 화면의 "고칠 수 있는 사람"과 같은 설정')
   // no team skills column on Members and Groups any more
@@ -214,7 +214,7 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
   const own = dialog.locator('[data-testid="skill-editor"][data-subject="user:bob"][data-path="skills"]')
   await own.getByTestId('skill-editor-remove').click()
   const still = page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' })
-  await expect(still).toContainText('그룹이나 모두에게 준 규칙으로 계속 고칠 수 있어요')
+  await expect(still).toContainText('부서나 모두에게 준 규칙으로 계속 고칠 수 있어요')
   await still.getByRole('button', { name: '빼기' }).click()
   await expect(own).toHaveCount(0)
   await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')
@@ -263,7 +263,7 @@ test('the line counts the folders with editors of their own; an admin\'s old rul
   await carolSub.getByTestId('skill-editor-remove').click()
   let confirm = page.getByRole('dialog', { name: '최다은: 고칠 수 있는 사람에서 뺄까요?' })
   await expect(confirm).toContainText('skills/에 준 본인 규칙으로 계속 고칠 수 있어요.')
-  await expect(confirm).not.toContainText('그룹이나 모두에게')
+  await expect(confirm).not.toContainText('부서나 모두에게')
   await confirm.getByRole('button', { name: '빼기' }).click()
   await expect(carolSub).toHaveCount(0)
   // rows now: Carol (skills/), Bob (skills/재무/). Removing the first, the focus goes to the next row's button…
@@ -417,7 +417,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await lastAnswer(page).hover()
   await lastAnswer(page).getByTestId('suggest-skill').click()
   const dialog = page.getByTestId('suggest-dialog')
-  await expect(dialog).toContainText('skills/에 바로 들어가지 않아요')
+  await expect(dialog).toContainText('제안은 바로 팀 스킬이 되지 않아요')
   await expect(dialog.getByTestId('suggest-content')).toHaveValue(/the answer/)
   await dialog.getByTestId('suggest-name').fill('주간/보고')
   await expect(dialog).toContainText('슬래시(/)는 쓸 수 없어요')
@@ -585,14 +585,15 @@ test('the skills I can use: most used first, search, "…" opens the file, the r
   await expect(page.getByTestId('composer-input')).toHaveValue('/proposal ')
 })
 
-test('a link to my suggestions works again while the page is open; on a phone the chosen tab is in view', async ({ page }) => {
+test('a link to my suggestions works again while the page is open; on a phone the four tabs fit, the chosen one in view', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await page.setViewportSize({ width: 375, height: 812 })
   await signIn(page)
   await page.goto('/skills?mine=1')
   const row = page.getByRole('tablist', { name: 'Team skills' })
   const selected = row.locator('[role="tab"][aria-selected="true"]')
-  await expect(selected).toHaveText('My suggestions')
+  // a phone: each tab's short word (components/ui.tsx Tabs), so the admin's four fit the width
+  await expect(selected).toHaveText('Mine')
   // applied, the link leaves the address, so the same link works again later
   await expect.poll(() => new URL(page.url()).searchParams.has('mine')).toBe(false)
   const inView = () => selected.evaluate((tab) => {
@@ -601,19 +602,16 @@ test('a link to my suggestions works again while the page is open; on a phone th
     return b.left >= r.left - 1 && b.right <= r.right + 1
   })
   await expect.poll(inView).toBe(true)
-  // the admin's four tabs do not fit this width in English: a tab chosen out of view scrolls into the row (a DOM
-  // click, because Playwright's own click would scroll it first)
-  expect(await row.evaluate((r) => r.scrollWidth > r.clientWidth)).toBe(true)
-  await row.evaluate((r) => { r.scrollLeft = r.scrollWidth })
-  await row.evaluate((r) => (r.querySelector('[role="tab"]') as HTMLElement).click())
-  await expect(selected).toHaveText('Available skills')
-  await expect.poll(inView).toBe(true)
+  // nothing to scroll sideways: every tab is in the row
+  expect(await row.evaluate((r) => r.scrollWidth <= r.clientWidth)).toBe(true)
+  await row.getByRole('tab', { name: 'Skills' }).click()
+  await expect(selected).toHaveText('Skills')
   // a banner's link to my suggestions again, while the page is open
   await page.evaluate(() => {
     history.pushState({}, '', '/skills?mine=1')
     dispatchEvent(new PopStateEvent('popstate'))
   })
-  await expect(selected).toHaveText('My suggestions')
+  await expect(selected).toHaveText('Mine')
   await expect.poll(inView).toBe(true)
 })
 

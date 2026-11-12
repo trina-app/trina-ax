@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { initPwa } from './lib/pwa'
 import { followVisualViewport } from './lib/viewport'
+import { holdPageZoom } from './lib/pageZoom'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
 import { applyTextSize, storedTextSize } from './lib/textSize'
 import { useLocaleStore, t } from './i18n'
@@ -11,6 +12,7 @@ import { useSession } from './store/session'
 import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
 import { setMobilePushSession } from './lib/mobile-push'
+import { guardFileDrops } from './lib/fileDrop'
 import './index.css'
 import './theme.edition.css'
 
@@ -27,6 +29,10 @@ useSession.subscribe(state => {
 })
 initPwa()
 followVisualViewport()
+// the phone app and the installed app: no zoom of the whole page (a picture viewer zooms on its own)
+holdPageZoom()
+// a file dropped where nothing takes it is not opened in place of the app
+guardFileDrops(window)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

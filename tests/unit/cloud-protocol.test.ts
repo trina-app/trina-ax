@@ -72,10 +72,10 @@ describe('cloud-protocol: tenant commands', () => {
     expect(tenantCommandProblem('idle-wait', { max: { $gt: 1 } }, null)).not.toBeNull()
     expect(tenantCommandProblem('reset-link', { owner: true, username: 'kim' }, null)).not.toBeNull()
   })
-  test('the fifteen commands of control-plane 3.5.3, and the hosting service\'s speech key and trial AI credit', () => {
+  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech key and trial AI credit, and the owner recovery claim', () => {
     expect(Object.keys(TENANT_COMMANDS).sort()).toEqual([
       'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'export', 'hosted-chat-key-set', 'hosted-speech-key-set', 'idle-wait', 'notices-set',
-      'prepare-stop', 'relay-key-proof', 'relay-registration-set', 'reset-link', 'set-server-config', 'setup-token-rotate',
+      'owner-recovery-claimed', 'prepare-stop', 'relay-key-proof', 'relay-registration-set', 'reset-link', 'set-server-config', 'setup-token-rotate',
       'status', 'update',
     ])
   })
@@ -85,6 +85,8 @@ describe('cloud-protocol: tenant commands', () => {
     expect(tenantCommandTimeoutSec('idle-wait', { max: 600 })).toBe(630)
     expect(tenantCommandTimeoutSec('prepare-stop', { grace: 120 })).toBe(180)
     expect(tenantCommandTimeoutSec('update', { version: '1.0.0' })).toBe(1800)
+    expect(tenantCommandArgv('owner-recovery-claimed', {})).toEqual(['owner-recovery-claimed', '--json'])
+    expect(tenantCommandTimeoutSec('owner-recovery-claimed', {})).toBe(30)
   })
   test('TenantStatus is strict: no field beyond the contract (no names, IPs, tokens)', () => {
     const ok = {

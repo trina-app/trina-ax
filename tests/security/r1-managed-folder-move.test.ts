@@ -85,7 +85,19 @@ describe('admins and the owner', () => {
       expect(r.body.error.code).toBe('validation')
       expect(r.body.error.fields.to).toContain('invalid_path')
     }
-    expect((await move('carol', 'projects/falcon', 'users/carol/falcon')).status).toBe(400)
+    // a project folder: the owner and an admin who are not its members do not even see it (docs/DECISIONS.md "Project
+    // contents only for members"; it was 400 invalid_path); an admin who writes all of it as a member gets the 400
+    for (const who of ['carol', 'dana'] as const) expect((await move(who, 'projects/falcon', `users/${who}/falcon`)).status).toBe(404)
+    const ruleFor = (id: string, p: string) => A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) SELECT ?, id, 'user', 'carol', 'write' FROM folders WHERE path = ?").run(id, p)
+    ruleFor('r_falcon_carol', 'projects/falcon')
+    try {
+      // (public/ inside it she only reads, as everyone does: that stops it first)
+      expect((await move('carol', 'projects/falcon', 'users/carol/falcon')).status).toBe(403)
+      ruleFor('r_falcon_pub_carol', 'projects/falcon/public')
+      const r = await move('carol', 'projects/falcon', 'users/carol/falcon')
+      expect([r.status, r.body.error?.fields?.to]).toEqual([400, expect.stringContaining('invalid_path')])
+    } finally { A.ctx.db.query("DELETE FROM folder_rules WHERE id IN ('r_falcon_carol', 'r_falcon_pub_carol')").run() }
+    expect(exists(A.team, 'projects/falcon')).toBe(true)
     expect((await move('dana', 'shared/team-x', 'users/dana/team-x')).status).toBe(400)
     expect(exists(A.team, 'groups/marketing')).toBe(true)
   })
@@ -113,6 +125,30 @@ describe('admins and the owner', () => {
     expect(folderRows()).toContain('groups/marketing')
     expect((await read('alice', 'groups/marketing/campaign-brief.md')).status).toBe(200)
     expect((await del('dana', 'shared/team-x')).status).toBe(200)
+  })
+})
+
+describe('out of users/<me>/ to where more people see it (askWiden, QA TC-115)', () => {
+  test('409 audience_widened with a count of people, nothing moves; confirm:true moves it and records it', async () => {
+    fs.writeFileSync(path.join(A.team, 'users', 'alice', 'plan-w.md'), 'private plan')
+    const r = await move('alice', 'users/alice/plan-w.md', 'shared/plan-w.md', { askWiden: true })
+    expect(r.status).toBe(409)
+    expect(r.body.error.params).toEqual({ reason: 'audience_widened', viewersAdded: 4 }) // bob, carol, dana, erin
+    expect(JSON.stringify(r.body)).not.toContain('Bob') // counted, never named
+    expect(exists(A.team, 'users/alice/plan-w.md')).toBe(true)
+    expect((await read('bob', 'shared/plan-w.md')).status).toBe(404)
+    // within the same personal folder nothing widens: no question
+    expect((await move('alice', 'users/alice/plan-w.md', 'users/alice/plan-w2.md', { askWiden: true })).status).toBe(200)
+    const ok = await move('alice', 'users/alice/plan-w2.md', 'shared/plan-w.md', { askWiden: true, confirm: true })
+    expect(ok.status).toBe(200)
+    expect((await read('bob', 'shared/plan-w.md')).status).toBe(200)
+    const ev = A.ctx.db.query("SELECT detail FROM file_events WHERE path = 'shared/plan-w.md' AND action = 'create' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+    expect(JSON.parse(ev.detail).audienceWidened).toBe(4)
+  })
+
+  test('without askWiden (an older client, the AI) the move goes as before', async () => {
+    fs.writeFileSync(path.join(A.team, 'users', 'alice', 'old-client.md'), 'x')
+    expect((await move('alice', 'users/alice/old-client.md', 'shared/old-client.md')).status).toBe(200)
   })
 })
 

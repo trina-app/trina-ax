@@ -105,7 +105,7 @@ test('browse, previews (CSV, Markdown, HTML in the sandbox), conflict copies, re
   await page.goto('/files')
   await row(page, 'marketing').getByRole('button').first().click()
   await expect(page).toHaveURL(/path=marketing/)
-  await expect(row(page, 'plan (충돌 사본')).toContainText('충돌 사본')
+  await expect(row(page, 'plan (충돌 사본')).toContainText('따로 저장한 사본')
   await row(page, 'data.csv').getByRole('button').first().click()
   await expect(page.getByTestId('file-panel').locator('table')).toContainText('beta')
   await row(page, 'plan.md').getByRole('button').first().click()
@@ -540,7 +540,8 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
   // this window still has the old text: its save keeps the other version and goes to a conflict copy
   await editor.fill('# Plan\n\nsecond change\n')
   await panel.getByTestId('file-save').click()
-  await expect(page.getByText(/충돌 사본\(marketing\/plan \(충돌 사본/)).toBeVisible()
+  // one notice, in the first person, the folder in on-screen words, no disk path (QA TC-230)
+  await expect(page.getByText('plan.md이(가) 그사이 바뀌어서 내 내용은 사본으로 따로 저장했어요. (marketing)')).toHaveCount(1)
   await expect(panel.getByRole('heading', { level: 2 })).toContainText('plan (충돌 사본')
   await expect(panel).toContainText('second change')
   await page.getByRole('button', { name: '새로 고침' }).click()
@@ -625,14 +626,15 @@ test('move several files: one question for all that would become private, one to
   await bar(page).getByRole('button', { name: '옮기기' }).click()
   const picker = page.getByRole('dialog', { name: '3개 옮기기' })
   await picker.getByRole('button', { name: '팀 폴더' }).click()
-  await picker.getByRole('button', { name: 'users' }).click()
-  await picker.getByRole('button', { name: 'olga' }).click()
+  // the top folders by their words (docs/DECISIONS.md "Team folder basics"): users/ is 개인, Olga's own is 내 폴더
+  await picker.getByRole('button', { name: '개인' }).click()
+  await picker.getByRole('button', { name: '내 폴더' }).click()
   await picker.getByTestId('folder-pick').click()
   // Bob can read marketing and not Olga's own folder: asked once for the three, with the single move's words
   const ask = page.getByRole('dialog', { name: '나만 보게 옮길까요?' })
   await expect(ask).toContainText('3개를 개인 폴더로 옮기면 1명이 더 이상 볼 수 없어요.')
   await ask.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('3개를 users/olga(으)로 옮겼어요.')).toBeVisible()
+  await expect(page.getByText('3개를 내 폴더로 옮겼어요.')).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   // three tries answered audience_narrowed, then the same three with confirm
   expect((await moves(page)) - before).toBe(6)
@@ -880,14 +882,15 @@ test.describe('phone', () => {
     await more.focus()
     await page.keyboard.press('Enter')
     const items = panel.getByRole('menu').getByRole('menuitem')
-    await expect(items).toHaveText(['파일 화면에서 열기', '내려받기'])
-    await expect(items.first()).toBeFocused()
-    await page.keyboard.press('ArrowDown')
-    await expect(items.last()).toBeFocused()
-    await page.keyboard.press('ArrowDown')
+    // a Markdown file is edited from here on a phone (QA TC-259)
+    await expect(items).toHaveText(['고치기', '파일 화면에서 열기', '내려받기'])
     await expect(items.first()).toBeFocused()
     await page.keyboard.press('ArrowUp')
     await expect(items.last()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.nth(1)).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(panel.getByRole('menu')).toHaveCount(0)
     await expect(more).toBeFocused()
@@ -897,4 +900,102 @@ test.describe('phone', () => {
     await panel.getByRole('menuitem', { name: '파일 화면에서 열기' }).tap()
     await expect(page).toHaveURL(/select=plan\.md/)
   })
+})
+
+// The search box on the Files screen (FileContentSearch.tsx, GET /api/files/search): the exact-line matches, grouped by
+// file; a click opens the file. A word that no file has says "nothing found" (QA TC-061). The knowledge graph's document
+// rows were removed (docs/DECISIONS.md, 2026-11-11).
+test('content search: the line matches open their file; a word no file has says nothing found', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const ok = async (r: Promise<{ ok(): boolean }>) => expect((await r).ok()).toBe(true)
+  await ok(page.request.post('/__test/file', { headers: { [CSRF_HEADER]: '1' }, data: { path: 'docs/guides/refund-guide.md', text: '# Overview\nGeneral notes.\n\n# Refund rules\nA refund is paid within 14 days.\n' } }))
+  await page.goto('/files')
+  const results = page.getByTestId('content-search')
+  await page.getByTestId('content-search-input').fill('refund')
+  await expect(results.getByTestId('content-hit')).toHaveCount(2)
+  await expect(results.getByTestId('content-hit-file')).toHaveCount(1)
+  await expect(results.getByTestId('content-doc')).toHaveCount(0)
+  await expect(results.getByText('관련 문서', { exact: true })).toHaveCount(0)
+  await results.getByTestId('content-hit').first().click()
+  await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('refund-guide.md')
+  await page.getByTestId('content-search-input').fill('zzqx-no-file-has-this')
+  await expect(results.getByText('열 수 있는 파일 중에 이 내용이 든 파일이 없어요.')).toBeVisible()
+  await expect(results.getByTestId('content-hit')).toHaveCount(0)
+})
+
+test('content search on a phone: line matches fit the width, no sideways scroll', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const text = `# 환불 정책과 예외 사항 정리 (고객 응대용)\n${'환불 정책: 결제일로부터 14일 이내에 요청하면 전액 돌려드립니다. '.repeat(6)}\n`
+  expect((await page.request.post('/__test/file', { headers: { [CSRF_HEADER]: '1' }, data: { path: 'docs/guides/아주 긴 이름의 환불 안내 문서 2026년 하반기 최종본.md', text } })).ok()).toBe(true)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/files')
+  await page.getByTestId('content-search-input').fill('환불 정책')
+  const hit = page.getByTestId('content-hit').first()
+  await expect(hit).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  for (const el of [hit, page.getByTestId('content-hit-file').first()]) {
+    const box = (await el.boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+  }
+})
+
+// QA TC-260: the Files search finds a file by its name first, then lines; an HTML file's line is its text
+for (const [w, h] of [[1440, 900], [390, 844]] as const) {
+  test(`Files search finds files by name first, HTML lines as text (QA TC-260, ${w}px)`, async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    const put = async (data: Record<string, string>) => expect((await page.request.post('/__test/file', { headers: { [CSRF_HEADER]: '1' }, data })).ok()).toBe(true)
+    await put({ path: 'tc260/로고.png', base64: 'iVBORw0KGgo=' })
+    // a name saved by a Mac (NFD)
+    await put({ path: 'tc260/' + '회사 로고 흑백.png'.normalize('NFD'), base64: 'iVBORw0KGgo=' })
+    await put({ path: 'tc260/견적서_2026_가나상사.pdf', base64: 'JVBERi0xLjQK' })
+    await put({ path: 'tc260/견적 안내.html', text: '<!doctype html><html><head><title>견적</title></head>\n<body><h1>납품 일정</h1><p>납품은 <b>3주</b> 뒤입니다</p></body></html>\n' })
+    await page.setViewportSize({ width: w, height: h })
+    await page.goto('/files')
+    const box = page.getByTestId('content-search-input')
+    const names = page.getByTestId('name-search')
+
+    await box.fill('로고')
+    await expect(names.getByTestId('name-hit')).toHaveCount(2)
+    await expect(names.getByTestId('name-hit').filter({ hasText: '로고.png' }).first()).toBeVisible()
+    await page.screenshot({ path: `test-results/tc260-names-${w}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(w)
+    await names.getByTestId('name-hit').filter({ hasText: /^로고\.png/ }).click()
+    await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('로고.png')
+    await page.goto('/files')
+
+    await box.fill('견적서_2026')
+    await expect(names.getByTestId('name-hit')).toHaveCount(1)
+    await expect(names.getByTestId('name-hit')).toContainText('견적서_2026_가나상사.pdf')
+
+    await box.fill('납품')
+    const content = page.getByTestId('content-search')
+    await expect(content.getByTestId('content-hit')).toHaveCount(1)
+    await expect(content.getByTestId('content-hit')).toContainText('납품 일정 납품은 3주 뒤입니다')
+    await expect(content.getByTestId('content-hit')).not.toContainText('<')
+    await page.screenshot({ path: `test-results/tc260-html-${w}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(w)
+
+    // a folder found by name opens in the list
+    await box.fill('tc260')
+    await names.getByTestId('name-hit').filter({ hasText: 'tc260' }).click()
+    await expect(page).toHaveURL(/\/files\?path=tc260$/)
+    await expect(box).toHaveValue('')
+  })
+}
+
+test('⌘K finds a folder by its name and opens it (QA TC-230)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.keyboard.press('ControlOrMeta+k')
+  const palette = page.getByTestId('search-palette')
+  await palette.getByRole('combobox').fill('market')
+  const folder = palette.getByRole('option', { name: 'marketing', exact: true })
+  await expect(folder).toBeVisible()
+  await folder.click()
+  await expect(page).toHaveURL(/\/files\?path=marketing$/)
+  await expect(row(page, 'plan.md')).toBeVisible()
 })

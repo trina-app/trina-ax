@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { setBoxdClient, type BoxdClient, type BoxdResult } from '../../server/src/devenv/boxd'
 import { JOB_MAX_AGE_MS, jobResultsForAI, jobRuns, pollJobs, pollStops, purgeOldJobs, runningJobs, startJob } from '../../server/src/devenv/jobs'
 import { newConsent, OFF_SETTING, saveDevEnvSetting } from '../../server/src/devenv/setting'
@@ -67,7 +68,7 @@ const clear = () => {
 beforeAll(async () => {
   process.env.MYCEL_DEV_ENV = '1'
   h = await startHarness({ name: 'dev-env-jobs' })
-  projectId = (await h.api('alice').call(API.createProject, { body: { name: 'Render', folderPath: FOLDER, instructions: '' } })).id
+  projectId = (await oldProject(h, 'alice', { name: 'Render', folderPath: FOLDER, instructions: '' })).id
   chatId = (await h.api('alice').call(API.createChat, { body: { projectId } })).id
   saveDevEnvSetting(h.ctx.db, projectId, { ...OFF_SETTING, enabled: true, consent: newConsent({ id: 'carol', name: 'Carol Park' }) })
   setBoxdClient(fakeBoxd)
@@ -155,7 +156,14 @@ describe('the tracker', () => {
     expect(runningJobs(h.ctx.db, projectId)).toMatchObject([{ name: 'render', by: { id: 'alice', name: 'Alice Kim' }, lastLine: 'frame=99 fps=30' }])
     expect(jobNotices()).toEqual([])
     expect((await h.api('alice').call(API.devEnv, { params: { id: projectId } })).jobs).toMatchObject([{ name: 'render', lastLine: 'frame=99 fps=30' }])
-    expect((await h.api('carol').call(API.devEnv, { params: { id: projectId } })).jobs).toHaveLength(1)
+    // an admin who is not a member of the project does not open its page (docs/DECISIONS.md "Project contents only for
+    // members"); a member of it sees the box and its jobs
+    await expect(h.api('carol').call(API.devEnv, { params: { id: projectId } })).rejects.toThrow()
+    const before = h.ctx.files.rules().rulesAt(FOLDER)
+    legacyProjectFolder(h.ctx.db, h.team, FOLDER, [...before, { subjectType: 'user', subjectId: 'carol', access: 'read' }])
+    try {
+      expect((await h.api('carol').call(API.devEnv, { params: { id: projectId } })).jobs).toHaveLength(1)
+    } finally { legacyProjectFolder(h.ctx.db, h.team, FOLDER, before) }
     expect((await h.api('bob').call(API.devEnv, { params: { id: projectId } })).jobs).toEqual([]) // reads only
   })
   test('a job that ends: live notice with the exit code, the tail and the chat link, an inbox entry, one audit line, once', async () => {
@@ -400,5 +408,16 @@ describe('the storage rule before each command', () => {
   test('where the rule is not enforced the command runs', async () => {
     configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: 100, bfree: 0, bavail: 0 }) })
     expect((await shell().call({ command: 'echo hi' })).isError).toBeUndefined()
+  })
+})
+
+describe('load order', () => {
+  // runner.ts and jobs.ts reach each other through a long import chain, and jobs.ts sets the end hook while it loads
+  // (srt/end.ts holds it). Loaded runner first, as a single test file can do, nothing may be used before it exists.
+  test.each(['srt/runner', 'jobs'])('loading %s first works', (first) => {
+    const dir = path.resolve(import.meta.dir, '../../server/src/devenv')
+    const code = `await import(${JSON.stringify(path.join(dir, first))}); await import(${JSON.stringify(path.join(dir, 'jobs'))}); console.log('loaded')`
+    const p = Bun.spawnSync([process.execPath, '-e', code], { stdout: 'pipe', stderr: 'pipe' })
+    expect({ code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString().slice(0, 500) }).toEqual({ code: 0, out: 'loaded', err: '' })
   })
 })

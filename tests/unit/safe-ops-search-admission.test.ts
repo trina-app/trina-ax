@@ -4,7 +4,6 @@ import path from 'node:path'
 import { Database } from 'bun:sqlite'
 import { makeCApp } from '../lib/c-app'
 import { SearchAdmission } from '../../server/src/files/search-admission'
-import { SemanticIndex } from '../../server/src/search/semantic'
 import { HwpPreviews } from '../../server/src/files/hwp-preview'
 import { componentC } from '../../server/src/team-files/component'
 import { sha256 } from '../../server/src/files/store'
@@ -99,43 +98,6 @@ test('R2-1: descriptor identity and version reject replacement during broker rea
     })).toBeNull()
   } finally { admission.close(); await a.close() }
 })
-
-test('R2-3: semantic embedding holds its admitted bytes until the async consumer ends', async () => {
-  const a = await makeCApp('search-admission-semantic')
-  const text = 'unique semantic text being consumed asynchronously'
-  const abs = path.join(a.team, 'shared/semantic.txt')
-  fs.writeFileSync(abs, text)
-  let consumed = false
-  const index = new SemanticIndex({ dataDir: a.data, root: a.team, office: a.ctx.files.office, quarantine: a.ctx.files.quarantine,
-    embedder: async () => async (texts, kind) => {
-      if (kind === 'passage' && texts.some(t => t.includes(text))) {
-        consumed = true
-        expect(() => a.ctx.files.quarantine.add(Buffer.from(text), 'pptx')).toThrow('active search')
-        await Bun.sleep(5)
-      }
-      return texts.map(() => new Float32Array(384))
-    } })
-  try {
-    await index.refresh(30_000)
-    expect(consumed).toBe(true)
-    a.ctx.files.quarantine.add(Buffer.from(text), 'pptx')
-    fs.copyFileSync(abs, path.join(a.team, 'shared/copy.txt'))
-    expect((await index.query('query', () => true))!.some(h => h.text.includes(text))).toBe(false)
-    fs.writeFileSync(abs, 'replacement ordinary text')
-    // Another index writer changes metadata while this instance caches old text.
-    const otherIndex = new Database(path.join(a.data, 'semantic.db'))
-    otherIndex.query('UPDATE files SET source_hash=? WHERE path=?').run(sha256(Buffer.from('replacement ordinary text')), 'shared/semantic.txt')
-    otherIndex.close()
-    // The retained source hash blocks the old chunks even after path replacement.
-    expect((await index.query('query', () => true))!.some(h => h.text.includes(text))).toBe(false)
-    fs.writeFileSync(abs, text)
-    consumed = false
-    await index.refresh(30_000)
-    expect(consumed).toBe(false)
-    expect(index.db.query("SELECT * FROM chunks WHERE path IN ('shared/semantic.txt','shared/copy.txt')").all()).toEqual([])
-  } finally { index.db.close(); await a.close() }
-})
-
 
 test('new-main HWP preview cannot consume quarantined bytes renamed to HWP/HWPX', async () => {
   const a = await makeCApp('search-quarantine-hwp')

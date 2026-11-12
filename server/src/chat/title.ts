@@ -5,7 +5,7 @@
 // scheduled run. A rename by the person ends that for good. Where a title came from is chats.title_source:
 // 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' (made before the column existed; never renamed by the AI).
 import type { Database } from 'bun:sqlite'
-import type { Attachment } from '@mycel/shared/api'
+import { hideThreadRef, SIDE_CHAT_QUICK, sideQuickOf, sideQuoteOf, skillLabel, type Attachment } from '@mycel/shared/api'
 import { hasSecret, maskSecrets } from '@mycel/shared'
 import { HIDDEN } from '../integrations/connections/hide'
 
@@ -85,11 +85,23 @@ function lineTitle(line: string, known?: KnownSecrets): string | null {
  * The placeholder title of a new chat from its first message: the first meaningful line outside code blocks (lines
  * inside them only when there is nothing else), else the name of an uploaded attachment (a team file's name is not
  * used: the title outlives the person's access to the file), else '' (the apps show "New chat" in their language).
+ * In a room's side chat (`sideChat`), a question about a message or a file (shared rooms.ts sideQuoteOf): the question
+ * after the quote, never the quote's header ("Sam · Nov 9, 7:04 PM"); one of its quick questions is "<its word>: <the
+ * message's first words, or the file's name>" ("요약: 로고 시안 언제까지…"), in the language it was asked in; files
+ * alone: the quote. Any other chat: a quote typed by hand is a line like any other.
  */
-export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = [], known?: KnownSecrets): string {
+export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = [], known?: KnownSecrets, sideChat = false): string {
+  const quote = sideChat ? sideQuoteOf(content) : null
+  if (quote) {
+    const subject = quote.kind === 'file' ? quote.name : placeholderTitle(quote.text, [], known)
+    const quick = sideQuickOf(quote.question)
+    if (quick) return lineTitle(subject ? `${SIDE_CHAT_QUICK[quick.key].label[quick.locale]}: ${subject}` : SIDE_CHAT_QUICK[quick.key].label[quick.locale], known) ?? ''
+    return placeholderTitle(quote.question.trim() ? quote.question : subject, atts, known)
+  }
   const prose: string[] = [], code: string[] = []
   let fence = false, pem = false
-  for (const raw of content.split(/\r?\n/)) {
+  // a side chat's quote names its message's thread for the app (shared rooms.ts threadRefOf): not part of a title
+  for (const raw of hideThreadRef(content).split(/\r?\n/)) {
     const l = raw.trim()
     if (/^(?:```|~~~)/.test(l)) { fence = !fence; continue }
     // a pasted private key: every line up to its END line
@@ -143,6 +155,22 @@ export function setAiTitle(db: Database, chatId: string, title: string): boolean
   return db.query("UPDATE chats SET title = ?, title_source = 'ai' WHERE id = ? AND title_source = 'auto' AND deleted_at IS NULL").run(title, chatId).changes > 0
 }
 
+/** A chat started from a skill ("/card-news …", a skill chip or a skill's form) whose title is still the placeholder of
+ * that message: the skill's name people read ("Promo cards", shared skillLabel), never "/card-news" (owner
+ * 2026-11-11). The title stays automatic, so the AI may still name the chat (set_title); a rename by the person wins. */
+export function skillPlaceholderTitle(db: Database, chatId: string, skill: { name: string; title?: string | null }, alias?: string): string | null {
+  const r = db.query("SELECT title FROM chats WHERE id = ? AND title_source = 'auto' AND deleted_at IS NULL").get(chatId) as { title: string | null } | null
+  const fold = (x: string) => x.normalize('NFC').toLowerCase()
+  const current = fold(r?.title ?? '')
+  // the placeholder of "/<name> …" (or the skill's folder name, which runs it too): the name alone, or the name and
+  // the first words after it (cut: "…")
+  const started = (key: string) => { const slash = fold(`/${key}`); return current === slash || current.startsWith(`${slash} `) || current.startsWith(`${slash}…`) }
+  if (!r || !(started(skill.name) || (!!alias && started(alias)))) return null
+  const title = cutTitle(skillLabel(skill).replace(INVISIBLE, ' ').replace(/\s+/g, ' ').trim(), AI_TITLE_MAX)
+  if (!MEANINGFUL.test(title)) return null
+  return db.query("UPDATE chats SET title = ? WHERE id = ? AND title_source = 'auto' AND title = ? AND deleted_at IS NULL").run(title, chatId, r.title).changes > 0 ? title : null
+}
+
 export const TITLE_SCAN_KEY = 'chat.titleSecretScan'
 // 2: named test keys and prefixed keys with one segment (shared/src/secrets.ts, QA SEC-16 / B-W47-3)
 export const TITLE_SCAN_VERSION = 2
@@ -157,7 +185,7 @@ export function maskStoredTitles(db: Database): number {
   if (done && Number(JSON.parse(done.value)) >= TITLE_SCAN_VERSION) return 0
   let n = 0
   db.transaction(() => {
-    for (const r of db.query("SELECT id, title FROM chats WHERE title <> ''").all() as { id: string; title: string }[]) {
+    for (const r of db.query("SELECT id, title, side_room_id FROM chats WHERE title <> ''").all() as { id: string; title: string; side_room_id: string | null }[]) {
       if (!hasSecret(r.title)) continue
       let title = lineTitle(r.title)
       if (!title) {
@@ -165,7 +193,7 @@ export function maskStoredTitles(db: Database): number {
           .get(r.id) as { content: string; attachments: string } | null
         let atts: Attachment[] = []
         try { atts = first ? JSON.parse(first.attachments) : [] } catch {}
-        title = first ? placeholderTitle(first.content, Array.isArray(atts) ? atts : []) : ''
+        title = first ? placeholderTitle(first.content, Array.isArray(atts) ? atts : [], undefined, !!r.side_room_id) : ''
       }
       db.query('UPDATE chats SET title = ? WHERE id = ?').run(title, r.id)
       n++

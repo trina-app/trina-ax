@@ -73,6 +73,10 @@ export interface DesktopBrowserSettings {
   privateAlways: string[]
   /** the team lets people turn on "all" (Admin > Team settings), as the desktop app last heard from the team server */
   teamAllowsAll: boolean
+  /** the version of the "Allow all websites" risk sentence (WEB_ALLOW_ALL_WARNING_VERSION) that the app's own window
+   * shows. Absent: an app built before the sentence existed, whose window does not show it: the page shows its own
+   * confirm with the sentence before the server value goes on */
+  riskVersion?: number
 }
 
 /** How a test notification went: 'shown' (the system took it: Windows, Linux), 'off' (the system refused it:
@@ -136,7 +140,9 @@ export interface DesktopBridge {
    * desktop apps do not have it. */
   setBadgeCount?(n: number, dot?: boolean): void
   /** Whether this window is focused, as the desktop app sees it. The page's own document.hasFocus() is false while the
-   * in-app browser pane holds the keyboard, which is still the person looking at the window. Optional (older apps). */
+   * in-app browser pane holds the keyboard (in apps before 2026-11-10's keyboard fix also after a start until a click
+   * into the page), which is still the person looking at the window. Since 2026-11-10 also false while the team list
+   * or the offline screen covers the page (the page still reports itself visible there). Optional (older apps). */
   focus?: {
     get(): Promise<boolean>
     onChange(cb: (focused: boolean) => void): () => void
@@ -146,6 +152,11 @@ export interface DesktopBridge {
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
   setLocale?(locale: 'ko' | 'en' | 'id' | 'ja' | 'es'): void
+  /** The folder the page picked last in the folder window (by its name, as the handle gives it) gave nothing to read:
+   * 'mac-blocked' when macOS privacy keeps the app out of it (Don't Allow, or the app off in System Settings › Privacy &
+   * Security › Files and Folders); null for anything else, an empty folder included, and always on Windows and Linux.
+   * Optional: desktop apps before this addition do not have it (the page says the folder is empty). QA TC-049. */
+  folderProblem?(folderName: string): Promise<'mac-blocked' | null>
   /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to
    * asking, remove an always-allowed site and clear them all. setAccess('all') only asks: the desktop app shows its

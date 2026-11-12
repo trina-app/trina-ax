@@ -5,6 +5,23 @@ import type { FileEntry, Project } from '@mycel/shared/api'
 /** The last name of a folder path ('' for the team root). */
 export const folderName = (p: string) => p.split('/').filter(Boolean).pop() ?? ''
 
+/** The top folder `projects` (any letter case or Unicode form, as the server compares it): its folders are projects,
+ * so nothing else is made there. */
+export const isProjectsTop = (p: string) => p.normalize('NFC').toLowerCase() === 'projects'
+
+/** A team project's own folder, projects/<name> (docs/DECISIONS.md "Project contents only for members"): its contents
+ * are its members' only, the owner and admins included only as members. A project made before outside projects/ is not. */
+export const isProjectsFolder = (p: string) => {
+  const s = p.split('/')
+  return s.length === 2 && isProjectsTop(s[0]!) && !!s[1]
+}
+
+/** At or below a team project's folder (projects/<name>/…), the folder of the project it is in; null elsewhere. */
+export function projectFolderOf(p: string): string | null {
+  const s = p.split('/').filter(Boolean)
+  return s.length >= 2 && isProjectsTop(s[0]!) ? `${s[0]}/${s[1]}` : null
+}
+
 /** The server's limit on a project's name, counted as JavaScript counts a string's length (UTF-16 units, as zod's
  * max(100) and the input's maxLength do). */
 export const PROJECT_NAME_MAX = 100
@@ -27,16 +44,15 @@ export function projectsByFolder(items: readonly Project[]): Map<string, Project
   return out
 }
 
-export type FolderProjectAction = { kind: 'open'; project: Project } | { kind: 'make' } | null
+export type FolderProjectAction = { kind: 'open'; project: Project } | null
 
 /**
- * What a row of the Files page offers about projects: a folder that already is a project the person can see opens it;
- * a folder they can write can become one; anything else offers nothing. (A folder they can write is one they can read,
- * so its project, if any, is always among the ones they see.)
+ * What a row of the Files page offers about projects: a folder that is a project the person can see opens it. Nothing
+ * else: new projects are made on the Projects page, always in a new projects/<name> (docs/DECISIONS.md "Projects live
+ * only in projects/"), never on an existing folder.
  */
-export function folderProjectAction(e: Pick<FileEntry, 'type' | 'path' | 'access'>, byFolder: ReadonlyMap<string, Project>): FolderProjectAction {
+export function folderProjectAction(e: Pick<FileEntry, 'type' | 'path'>, byFolder: ReadonlyMap<string, Project>): FolderProjectAction {
   if (e.type !== 'folder') return null
   const project = byFolder.get(e.path.normalize('NFC'))
-  if (project) return { kind: 'open', project }
-  return e.access === 'write' ? { kind: 'make' } : null
+  return project ? { kind: 'open', project } : null
 }

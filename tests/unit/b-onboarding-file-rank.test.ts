@@ -153,11 +153,11 @@ describe('the rank turn', () => {
     expect(await (await landed('carol', 'groups/marketing/견적서 양식.xlsx')).json()).toEqual({ recorded: false })
     expect(readWelcome(h.ctx)).toBeNull()
     updateWelcome(h.ctx, 'dana', {})
-    // only a group's folder counts (the fixture's groups get their folders here)
+    // only a group's folder (or shared/: team-folder-basics.test.ts) counts (the fixture's groups get their folders here)
     expect(await (await landed('carol', 'groups/marketing/견적서 양식.xlsx')).json()).toEqual({ recorded: false })
     h.ctx.db.query("UPDATE groups SET folder_id = (SELECT id FROM folders WHERE path = 'groups/marketing') WHERE id = 'marketing'").run()
     expect((await landed('alice', 'groups/marketing/견적서 양식.xlsx')).status).toBe(403)
-    expect(await (await landed('carol', 'shared/glossary.md')).json()).toEqual({ recorded: false })
+    expect(await (await landed('carol', 'skills/team-rules.md')).json()).toEqual({ recorded: false })
     expect(await (await landed('carol', 'groups/marketing/없는 파일.xlsx')).json()).toEqual({ recorded: false })
     expect(await (await landed('carol', 'groups/marketing')).json()).toEqual({ recorded: false })
     // an old file of the folder (written over an hour ago) is no landed upload

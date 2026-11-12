@@ -22,7 +22,9 @@ describe('file summary: rejected write notice', () => {
     test(`${locale}: localized line, no raw reason`, () => {
       setLocale(locale)
       const html = render(files('finance/2026/q3.csv'))
-      expect(html).toContain(esc(translate(locale, 'files.summary.rejectedLine', { path: 'finance/2026/q3.csv' })))
+      // the place in words (no raw path), the path on hover
+      expect(html).toContain(esc(translate(locale, 'files.summary.rejectedLine', { path: 'finance › 2026 › q3.csv' })))
+      expect(html).toContain('title="finance/2026/q3.csv"')
       expect(html).toContain(esc(translate(locale, 'files.summary.askOwnFolder')))
       expect(html).not.toContain(RAW)
     })
@@ -32,6 +34,19 @@ describe('file summary: rejected write notice', () => {
       const html = render(files(''))
       expect(html).toContain(esc(translate(locale, 'files.summary.rejectedHidden')))
       expect(html).not.toContain(RAW)
+    })
+  }
+})
+
+describe('file summary: moved files (QA TC-018)', () => {
+  for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    test(`${locale}: a moved file says it moved; a new one and a changed one say so`, () => {
+      setLocale(locale)
+      const html = render({ saved: [{ path: 'shared/2026/a.md', action: 'create', moved: true }, { path: 'shared/2026/b.md', action: 'create' }, { path: 'shared/c.md', action: 'update' }], conflicts: [], rejected: [] })
+      expect(html).toContain(esc(translate(locale, 'files.summary.saved', { n: 3 })))
+      const labels = [...html.matchAll(/<span class="w-14[^"]*">([^<]*)<\/span>/g)].map((m) => m[1])
+      expect(labels).toEqual([translate(locale, 'files.summary.moved'), translate(locale, 'files.summary.created'), translate(locale, 'files.summary.updated')].map(esc))
+      expect(new Set(labels).size).toBe(3)
     })
   }
 })

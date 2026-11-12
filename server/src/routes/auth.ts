@@ -3,11 +3,13 @@
 // ACCOUNT_DELETION (a person's request to have their account deleted: routes/account-deletion.ts)
 // Contract: shared/src/api/auth.ts, shared/src/api/account-deletion.ts
 import { API } from '@mycel/shared/api'
-import { LOCALE_CHANGED } from '../admin/settings'
+import { LOCALE_CHANGED, WEB_ACCESS_CHANGED } from '../admin/settings'
+import { WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
+import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from '../tools/web-allow-all'
 import { audit } from '../admin/audit'
 import { profileChangedFor } from '../auth/profiles'
 import { fail } from '../http/errors'
-import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatus } from '../auth/accounts'
+import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { startSweeper } from '../auth/sweeper'
 import { getUser, setUserLocale } from '../auth/users'
@@ -26,14 +28,12 @@ export const authRoutes: RouteModule = {
   register(kit, ctx) {
     const a = () => authOf(ctx)
 
-    // the office internet address never offers the first-run setup (it is refused there anyway, accounts.ts setup): it
-    // shows the sign-in page and does not tell the internet whether the team is set up yet (attack review finding 2;
-    // round 4: no team name either, setupStatus). The default language still changes when the owner picks another
-    // one at setup: accepted, it is the sign-in page's language (docs/DECISIONS.md "보안 4차").
-    kit.handle(API.setupStatus, ({ c }) => {
-      const s = setupStatus(ctx)
-      return c.get('info').tunnel ? { ...s, needed: false } : s
-    })
+    // the internet is not told whether the team is set up yet (attack review finding 2; round 4: no team name either):
+    // the office internet address never offers the first-run setup (it is refused there anyway, accounts.ts setup),
+    // the relay only to a visitor with the setup token (accounts.ts setupStatusFor). The default language still
+    // changes when the owner picks another one at setup: accepted, it is the sign-in page's language
+    // (docs/DECISIONS.md "보안 4차").
+    kit.handle(API.setupStatus, ({ c }) => setupStatusFor(c, ctx))
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
 
@@ -48,6 +48,21 @@ export const authRoutes: RouteModule = {
     })
 
     kit.handle(API.me, ({ auth }) => a().me(auth.user.id, auth.session.id))
+
+    // my "Allow all websites" for the AI's web reads (tools/web-allow-all.ts, docs/DECISIONS.md "Allow all websites
+    // covers the AI's web reads"): on only with the risk sentence the person was shown and while the team allows it;
+    // off always. Not while a password change is pending (the contract leaves allowWhilePasswordChange out).
+    kit.handle(API.setMyWebAccess, ({ auth, body }) => {
+      const before = webAllowAll(ctx.db, auth.user.id)
+      if (body.on) {
+        if (!teamAllowsWebAll(ctx.db)) fail('conflict', 'Your team does not let members allow all websites for the AI\'s web reads.', { params: { reason: 'web_allow_all_off' } })
+        if (body.acceptWarning !== WEB_ALLOW_ALL_WARNING_VERSION) fail('conflict', 'Accept the current warning first.', { params: { reason: 'web_allow_all_warning', warningVersion: WEB_ALLOW_ALL_WARNING_VERSION } })
+      }
+      const allowAll = setWebAllowAll(ctx.db, auth.user.id, body.on, { via: 'settings' })
+      if (body.on && !allowAll) fail('conflict', 'Your team does not let members allow all websites for the AI\'s web reads.', { params: { reason: 'web_allow_all_off' } })
+      if (allowAll !== before) ctx.services.realtime.publish(auth.user.id, WEB_ACCESS_CHANGED)
+      return { allowAll }
+    })
 
     kit.handle(API.updateMe, ({ auth, body }) => {
       const u = getUser(ctx.db, auth.user.id)

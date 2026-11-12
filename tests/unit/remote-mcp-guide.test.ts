@@ -64,7 +64,7 @@ test('initialize carries the folder guide: shared, groups, the own folder, skill
   // where in an area: the area, not its top; tidy names; no duplicates; one line on where it went
   expect(text).toContain('"shared" or a group\'s name means that area, not its top')
   expect(text).toContain('pick the best existing subfolder, or make one named like the others (language, case, pattern)')
-  expect(text).toContain('never leave files loose at the top of shared/, a group\'s folder or the team root unless the person asks for exactly that spot')
+  expect(text).toContain('never leave files loose at the top of shared/, a group\'s folder, projects/ or the team root unless the person asks for exactly that spot')
   // glob and list, not grep: a grep's matches join the read scope and would block a save to a wider folder
   expect(text).toContain('Do not upload a file the team drive already has (look for its name with glob or list first')
   expect(text).not.toContain('search first')

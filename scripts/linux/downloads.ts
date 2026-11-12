@@ -66,7 +66,8 @@ export function downloadFor(tool: LinuxTool, arch: LinuxArch): string {
 export const sha256File = (f: string) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')
 
 /** A pinned download from dist/cache (fetched once). The hash is checked every time; a wrong file is removed. A network
- *  error or an HTTP 5xx answer gets up to `tries` attempts in all (a large file on a CI runner can see a socket reset);
+ *  error or an HTTP 5xx answer gets up to `tries` attempts in all, 5 by default (a large file on a CI runner can see a
+ *  socket reset, and GitHub can answer 5xx for a while);
  *  any other HTTP error and a wrong hash stop at once. */
 export async function cachedDownload(name: string, o: { table?: Record<string, PinnedDownload>; cacheDir?: string; fetchImpl?: typeof fetch; tries?: number; waitMs?: number } = {}): Promise<string> {
   const d = (o.table ?? LINUX_DOWNLOADS)[name]
@@ -76,7 +77,8 @@ export async function cachedDownload(name: string, o: { table?: Record<string, P
   const f = path.join(dir, name)
   if (!fs.existsSync(f)) {
     fs.mkdirSync(dir, { recursive: true })
-    const tries = o.tries ?? 3
+    // 5 tries, 5 + 10 + 15 + 20 s apart: GitHub's raw files answered 504 for longer than 15 s on 2026-11-10
+    const tries = o.tries ?? 5
     for (let i = 1; ; i++) {
       console.log(`downloading ${d.url}${i > 1 ? ` (try ${i} of ${tries})` : ''}`)
       let retry = true

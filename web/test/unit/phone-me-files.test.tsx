@@ -3,14 +3,15 @@
 //   linking to the profile, leaves out its own 프로필 row there and starts on its title (no ring on a ←); a computer
 //   keeps its start;
 // - the profile's Save shows only once something changed;
-// - 보안·기기: another device's sign-out icon takes taps from 44px and asks first; this device has no sign-out, only
-//   its "지금 이 기기" label; a computer keeps the worded button (no question, as before);
+// - 보안·기기: rows (Change password and the other devices open pages under it); on the devices page a tap on another
+//   device asks first; this device has no sign-out, only its "지금 이 기기" label; a computer keeps the worded button
+//   (no question, as before);
 // - Files: a long press on a row selects it (the click that ends it does not open the folder), a tap while something
 //   is selected adds or takes a row away, and on a computer a click opens the folder as before.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import type { Me, TreeResponse } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
@@ -85,9 +86,9 @@ describe('Settings on a phone', () => {
       expect(row.getAttribute('href')).toBe('/settings/profile')
       expect(row.textContent).toContain('김민아')
       expect(row.textContent).toContain('재무 매니저')
+      // the phone's list (phone/PhoneList.tsx) has no 프로필 row of its own: the photo row is it
       const own = m.get('settings-menu').querySelectorAll('a[href="/settings/profile"]').filter((a) => a !== row)
-      expect(own.length).toBe(1)
-      expect(own[0]!.getAttribute('class')).toContain('max-md:hidden')
+      expect(own.length).toBe(0)
       // starts on its title, not on a button that would show a focus ring
       expect(heading(m).getAttribute('data-autofocus')).not.toBeNull()
       expect((globalThis.document as unknown as { activeElement: unknown }).activeElement).toBe(heading(m))
@@ -107,12 +108,40 @@ describe('Settings on a phone', () => {
     }
   })
 
+  // the phone's own Back must return to the list (docs/DECISIONS.md "Admin and Settings on phones"): a phone's row pushes;
+  // a computer's keeps replacing, so closing the dialog steps back once (App.tsx useSettingsOverlay counts pushes)
+  test('a phone\'s row pushes its section; a computer\'s replaces it', async () => {
+    let seen: { path: string; type: string } | null = null
+    function Where() {
+      const l = useLocation()
+      seen = { path: l.pathname, type: useNavigationType() }
+      return null
+    }
+    const click = async (el: FakeElement) => {
+      const ev = new FakeEvent('click', { bubbles: true, cancelable: true })
+      Object.assign(ev, { button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })
+      await act(async () => void el.dispatchEvent(ev))
+    }
+    for (const [isPhone, type] of [[true, 'PUSH'], [false, 'REPLACE']] as const) {
+      phone = isPhone
+      const m = await mount(<MemoryRouter initialEntries={['/settings']}><Routes><Route path="/settings/:tab?" element={<><SettingsDialog onClose={() => {}} /><Where /></>} /></Routes></MemoryRouter>)
+      try {
+        const row = m.get('settings-menu').querySelectorAll('a[href="/settings/security"]')[0]!
+        await click(row)
+        expect(seen as unknown).toEqual({ path: '/settings/security', type })
+      } finally {
+        await m.unmount()
+      }
+    }
+  })
+
   test('a computer keeps its start (the first button) and has no photo row', async () => {
     phone = false
     const m = await dialog('/settings')
     try {
       expect(heading(m).getAttribute('data-autofocus')).toBeNull()
-      expect(m.get('settings-me').getAttribute('class')).toContain('md:hidden')
+      // a computer's list is the sections only (the phone list with the photo row is drawn on a phone only)
+      expect(m.find('settings-me')).toBeNull()
     } finally {
       await m.unmount()
     }
@@ -136,23 +165,45 @@ test('the profile shows Save only after a change', async () => {
 })
 
 describe('보안·기기: signing another device out', () => {
-  const page = () => mount(<MemoryRouter><SettingsPane tab="security" /><DialogHost /></MemoryRouter>)
+  const page = (tab = 'security') => mount(<MemoryRouter><SettingsPane tab={tab} /><DialogHost /></MemoryRouter>)
   const signedOut = () => calls.filter((c) => c.startsWith('DELETE /api/me/sessions/'))
 
-  test('a phone: this device has its label and no sign-out; another one\'s icon has a 44px touch area and asks first', async () => {
+  test('a phone: the section is rows (password, this device with its label, the others as one row with their count)', async () => {
     phone = true
     const m = await page()
     try {
+      await m.until(() => m.find('devices-more'), 'the devices')
+      expect(m.get('password-open').getAttribute('href')).toBe('/settings/security/password')
+      const rows = m.container.querySelectorAll('[data-testid="device-row"]')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.textContent).toContain('지금 이 기기')
+      expect(m.find('device-sign-out')).toBeNull()
+      expect(m.get('devices-more').getAttribute('href')).toBe('/settings/security/devices')
+      expect(m.get('devices-more').textContent).toContain('1')
+      // no "n more" text button and no inline password form
+      expect(m.container.textContent).not.toContain('더 보기')
+      expect(m.container.querySelector('input[type="password"]')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a phone: on the devices page a tap on another device asks first; this device has no sign-out', async () => {
+    phone = true
+    const m = await page('security-devices')
+    try {
       await m.until(() => m.find('device-sign-out'), 'the devices')
-      const rows = m.container.querySelectorAll('li').filter((li) => li.querySelector('[data-testid="device-name"]'))
+      const rows = m.container.querySelectorAll('[data-testid="device-row"]')
       expect(rows).toHaveLength(2)
       expect(rows[0]!.textContent).toContain('지금 이 기기')
       expect(rows[0]!.querySelector('[data-testid="device-sign-out"]')).toBeNull()
-      const icon = rows[1]!.querySelector('[data-testid="device-sign-out"]')!
-      expect(icon.className).toContain('touch-hit')
-      expect(icon.getAttribute('aria-label')).toContain('로그아웃')
+      const row = rows[1]!
+      expect(row.tagName).toBe('BUTTON')
+      // its name is what it shows, then what a tap does (axe: label in name)
+      expect(row.getAttribute('aria-label')).toBeNull()
+      expect(row.textContent).toContain('로그아웃')
       // "No": nothing is signed out
-      await m.click(icon)
+      await m.click(row)
       await m.until(() => m.find('dialog-confirm'), 'the question')
       const dialog = () => m.get('dialog-confirm').closest('[role="dialog"]')!
       expect(dialog().textContent).toContain('macOS의 Chrome에서 로그아웃할까요?')
@@ -161,7 +212,7 @@ describe('보안·기기: signing another device out', () => {
       expect(m.find('dialog-confirm')).toBeNull()
       expect(signedOut()).toEqual([])
       // "Sign out": that device only
-      await m.click(icon)
+      await m.click(row)
       await m.until(() => m.find('dialog-confirm'), 'the question')
       await m.click(m.get('dialog-confirm'))
       await m.until(() => signedOut().length > 0, 'the sign-out')
@@ -188,7 +239,9 @@ describe('보안·기기: signing another device out', () => {
 
 describe('Files rows on a phone', () => {
   const page = () => mount(<MemoryRouter initialEntries={['/files']}><Files /></MemoryRouter>)
-  const row = (m: { container: FakeElement }, name: string) => m.container.querySelectorAll('tr[data-testid="file-row"]').find((r) => r.textContent?.includes(name))!
+  // a top folder's row shows its word (docs/DECISIONS.md "Team folder basics"): found by it, opened by its path
+  const WORD: Record<string, string> = { shared: '전사 공유', skills: '팀 스킬', groups: '부서' }
+  const row = (m: { container: FakeElement }, name: string) => m.container.querySelectorAll('tr[data-testid="file-row"]').find((r) => r.textContent?.includes(WORD[name] ?? name))!
   const nameButton = (r: FakeElement) => r.querySelectorAll('button').find((b) => b.getAttribute('aria-current') === null && !b.getAttribute('data-testid'))!
   const pointer = (el: FakeElement, type: string) => act(async () => void el.dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', pointerId: 1, isPrimary: true, button: 0, clientX: 20, clientY: 20 })))
   const opened = (path: string) => calls.some((c) => c.startsWith(`GET /api/files/tree?path=${path}&`))
@@ -234,6 +287,10 @@ describe('Files rows on a phone', () => {
     const m = await page()
     try {
       await m.until(() => m.find('file-row'), 'the rows')
+      // the team root in its fixed order (the server listed groups, shared, skills): 전사 공유, 부서, 팀 스킬
+      // (부서 is pass-through here: its row also carries the "이동만" badge after the name)
+      const names = m.container.querySelectorAll('tr[data-testid="file-row"]').map((r) => nameButton(r).textContent?.trim() ?? '')
+      expect(names.map((n, i) => n.startsWith(['전사 공유', '부서', '팀 스킬'][i]!))).toEqual([true, true, true])
       const shared = nameButton(row(m, 'shared'))
       await pointer(shared, 'pointerdown')
       await m.settle(650)

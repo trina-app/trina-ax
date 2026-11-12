@@ -2,6 +2,7 @@
 // delete (tombstone + personal folder handling), password reset (temporary password or one-time link), owner
 // transfer. Admins never see other people's chats or memories, and there is no "sign in as" (tab 1, tab 7).
 import fs from 'node:fs'
+import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { z } from 'zod'
@@ -10,7 +11,7 @@ import type { CreateUserBody, EndedConnection, HandoverConnectionRef, Locale, Re
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
-import { linkBase, tempPasswordExpiry } from '../auth/accounts'
+import { linkBase, revokeResetLinksFor, tempPasswordExpiry } from '../auth/accounts'
 import { msg, weakPasswordMessage } from '../auth/messages'
 import { hashPassword, passwordProblem, temporaryPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
@@ -18,8 +19,8 @@ import { assertSeatFree } from '../system/limits'
 import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, setUserLocale, toUser, usernameTaken, type UserRow } from '../auth/users'
 import { audit } from './audit'
 import { cancelLoginsOf } from '../credentials/login'
-import { existingCredentialsOf } from '../credentials/store'
-import { afterAccessChange, captureState, resetEngineSessions } from './folders'
+import { connectionsChanged, existingCredentialsOf } from '../credentials/store'
+import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { revokeTeamLinksBy } from '../auth/team-links'
@@ -28,10 +29,13 @@ import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
 import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { recordJoin } from '../onboarding/member-welcome'
 import { newId } from '../db'
 import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTransfer, toEndOf } from './handover'
 import { componentC } from '../team-files/component'
 import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
+import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
+import { accountDeactivated } from '../tools/web-allow-all'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -109,6 +113,12 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     throw e
   }
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // their welcome card, with no inviter; connection template notices wait until they open Connected apps. The everyone
+  // room's joined line and the owners' notice wait for their first sign-in: until then they have not joined
+  // (onboarding/member-welcome.ts firstSignIn; docs/DECISIONS.md "A welcome for invited people")
+  recordJoin(ctx, { userId: id, via: 'admin', invitedBy: null, addedBy: auth.user.id })
+  // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
+  if (groups.length) projectJoinsOfNewAccount(ctx, id, auth.user.id, captureState(ctx.db))
   // connection templates this new person is in (security review 2, #1: on the event, not only the 30-second pass)
   notifyTemplateOffers(ctx, { userId: id })
   const user = toUser(ctx.db, getUser(ctx.db, id)!)
@@ -122,6 +132,12 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   const changesAccount = b.role !== undefined || b.status !== undefined
   guard(c, target, { self: !changesAccount, newRole: b.role })
   const groups = b.groupIds ? checkGroups(ctx, b.groupIds, locale) : undefined
+  // a disabled account that stays off joins no new group (admin/groups.ts checkMembers: its access is not counted while
+  // it is off); one enabled in the same change may
+  if (groups && target.status !== 'active' && b.status !== 'active') {
+    const had = new Set((ctx.db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(id) as { group_id: string }[]).map((g) => g.group_id))
+    if (groups.some((g) => !had.has(g))) fail('validation', msg('switchedOffNoGroups', locale), { fields: { 'body.groupIds': 'disabled account' }, params: { reason: 'account_disabled' } })
+  }
   const before = captureState(ctx.db)
   const changed: Record<string, unknown> = {}
   ctx.db.transaction(() => {
@@ -138,6 +154,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     if (b.role !== undefined && b.role !== target.role) set('role', b.role, 'role')
     if (b.status !== undefined && b.status !== target.status) set('status', b.status, 'status')
     if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, id)
+    // their own open reset links end with the account (and stay ended if it is enabled again), and with a new role: a
+    // link the owner or the server Mac made for a member would otherwise sign its holder in as the new admin
+    if (changed.status === 'disabled' || changed.role !== undefined) revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
     // null = follow the team default again
     if (b.locale !== undefined) { setUserLocale(ctx.db, id, b.locale); changed.locale = b.locale }
     if (groups) {
@@ -156,7 +175,12 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   // disabled or enabled again: nothing buffered under the earlier state is replayed (group / rule changes made while
   // the account was disabled never reached afterAccessChange for them)
   if (changed.status !== undefined) ctx.services.realtime.forgetReplay(id)
+  // their status message (docs/DECISIONS.md "상태 메시지") is the team's only while the account is on: open windows read
+  // the directory again when it goes or comes back with the account
+  if (changed.status !== undefined) statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true))
   if (changed.status === 'disabled') {
+    // their "Allow all websites" for the AI's web reads goes off for good (audited when it was on)
+    accountDeactivated(ctx.db, id, auth.user.id)
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
@@ -166,7 +190,10 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id) }
   // their AI apps' group management (connector scope mcp:admin) ends for good, like their invites
   if (changed.status === 'disabled' || changed.role === 'member') dropAdminScope(ctx.db, id, changed.role === 'member' ? 'role' : 'status', auth.user.id)
-  if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  // enabled again: whatever it reads now counts from here (captureState holds active accounts only), so the team projects
+  // it gets back are recorded and their members told like any other join (chat/project-joins.ts; docs/DECISIONS.md
+  // "Project contents only for members")
+  if (changed.role !== undefined || changed.groupIds !== undefined || changed.status === 'active') afterAccessChange(ctx, before, { actor: auth.user.id, target: id, ...(changed.status === 'active' ? { via: 'account' } : {}) })
   // disabled: out of the team rooms and the everyone room now; enabled again: back in, seeing messages from now on
   // (afterAccessChange syncs the rooms too, so only a status change on its own needs this)
   else if (changed.status !== undefined) syncRoomsNow(ctx)
@@ -261,6 +288,7 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   let requested = false
   let pruned: Pruned[] = []
   let ownAi: string[] = []
+  let hadStatus = false
   ctx.db.transaction(() => {
     // who acts is read again too: an admin demoted (or disabled, or deleted) while the password was checked is nobody
     const row = ctx.db.query('SELECT id, role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
@@ -269,11 +297,17 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     // an admin by now who was not asked for the password (they were the owner at the start) is refused too
     if (row.role === 'admin' && !passwordChecked) fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
     guard(c, liveUser(ctx, id), { actor: { id: row.id, role: row.role } })
+    // their "Allow all websites" for the AI's web reads goes off (audited when it was on)
+    accountDeactivated(ctx.db, id, auth.user.id)
     // tombstone: the username is freed for reuse, the id (personal folder name, usage, audit) is never reused
     ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ?, username = ?, password_hash = NULL, email = NULL WHERE id = ?")
       .run(now, `${target.username}#deleted-${Date.parse(now).toString(36)}`, id)
     ctx.db.query('DELETE FROM group_members WHERE user_id = ?').run(id)
+    // their rules go; a project folder in projects/ keeps "everyone: none" when they were its last rule (the creator of a
+    // project nobody else was added to: it fails closed to the owner and admins)
+    const ruled = foldersWithRuleOf(ctx.db, 'user', id)
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    keepProjectFloors(ctx.db, ruled, auth.user.id)
     ctx.db.query('DELETE FROM password_resets WHERE user_id = ?').run(id)
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'user' AND subject_id = ?").run(id)
     // external-service connections: their own go with them (keys included), and they leave team connections' rules
@@ -289,6 +323,9 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     pruned = pruneAssignments(ctx.db, auth.user.id, now)
     // their photo, title and status: the users row stays as a tombstone, so the profile's cascade never runs
     ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run(id)
+    // their status message (auth/status-messages.ts), for the same reason; the team is told below when it saw one
+    hadStatus = !!liveStatusOf(ctx.db, id, new Date(), true)
+    ctx.db.query('DELETE FROM user_status_messages WHERE user_id = ?').run(id)
     // their pinned chats (chat/pins.ts) and conversations (rooms/service.ts pin; a DM keeps their member row), for the
     // same reason
     ctx.db.query('DELETE FROM chat_pins WHERE user_id = ?').run(id)
@@ -297,7 +334,9 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()
   revokeSignIns()
-  { const cc = existingCredentialsOf(ctx); if (cc) for (const k of ownAi) cc.cache.delete(k) }
+  statusGoneWithAccount(ctx, hadStatus)
+  // their own AI connections went with them: the engines' state is read again, open screens ask again
+  { const cc = existingCredentialsOf(ctx); if (cc && ownAi.length) { for (const k of ownAi) cc.cache.delete(k); connectionsChanged(cc) } }
   afterPrune(ctx, auth.user.id, pruned)
   if (requested) settleDeletionRequestNotices(ctx, id)
   authOf(ctx).endUserSessions(id, 'revoked')
@@ -336,6 +375,8 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
     // or a caller who is no longer allowed, is refused, so a temporary password never lands on the new owner
     guard(c, liveUser(ctx, id), { actor: actorNow(ctx, auth.user.id) })
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 1, temp_password_expires_at = ?, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, expiresAt, auth.user.id, now, id)
+    // a reset link sent earlier (maybe to the wrong place) stops working: the admin chose a temporary password instead
+    revokeResetLinksFor(ctx.db, id, nowMs)
     audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id })
   }).immediate()
   authOf(ctx).endUserSessions(id, 'password_changed')
@@ -412,6 +453,8 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
     // commit cannot leave the old owner's tokens serving the team unnoticed (retried at the server's start; the new
     // owner sees what is left and can end it from the Inbox)
     toEnd = b.end?.length ? toEndOf(ctx, me, b.end) : []
+    // the new owner's welcome card is over for good (onboarding/member-welcome.ts): Home shows the owner's own start
+    ctx.db.query('UPDATE member_welcome SET hidden_at = COALESCE(hidden_at, ?) WHERE user_id = ?').run(at, b.userId)
     ctx.db.query('INSERT INTO owner_transfers (id, from_user, to_user, via, invite_id, at, to_end) VALUES (?, ?, ?, ?, ?, ?, ?)').run(transferId, me, b.userId, via, lead?.id ?? null, at, JSON.stringify(toEnd))
     const locked = setRecoveryLockIn(ctx, transferId, at)
     audit(ctx.db, { actor: me, action: 'owner.transfer', target: b.userId, detail: { from: me, to: b.userId, via, ...(revoked ? { adminInvitesRevoked: revoked } : {}), ...(unflagged ? { leadHintsCleared: unflagged } : {}), ...(leadsStopped ? { leadInvitesRevoked: leadsStopped } : {}), ...(cliLinks ? { recoveryLinksStopped: cliLinks } : {}), ...(locked ? { recoveryLocked: true } : {}) } })

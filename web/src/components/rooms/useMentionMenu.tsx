@@ -16,10 +16,12 @@ import { ROOM_MENTION_ALL_WORDS, type UserRef } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { AI_MENTION_ID, ALL_MENTION_ID, allMatches, aiMatches, insertMention, lineBreaks, matchMembers, mentionAt, mentionsIn, mentionTokens, tokenMentions, tokenMentionsAll, type MentionToken, type PickedMention } from '../../lib/rooms'
 import { shiftRanges, type TextEdit } from '../../lib/textTokens'
+import { useOverlayEntry } from '../../lib/backCloses'
 import { scrollToShow } from '../chat/SkillMenu'
 import { usePeople } from '../../store/people'
 import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
+import { StatusEmoji } from '../StatusMessage'
 import { Avatar } from '../Avatar'
 import { AiFace } from './AiFace'
 
@@ -73,6 +75,8 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
     return [...(ai && aiMatches(at.query) ? [{ id: AI_MENTION_ID, name: aiName }] : []), ...(at.query ? [...people, ...all] : [...all, ...people])]
   }, [at, shown, meId, closedFor, text, ai, aiName, allowed, allName])
   const open = hits.length > 0
+  // phones: Back closes the list, as Esc does, and stays in the room (lib/backCloses.ts)
+  useOverlayEntry(open, () => setClosedFor(text))
   useEffect(() => setActive(0), [at])
   useEffect(() => {
     const list = listRef.current
@@ -179,6 +183,7 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
                 <>
                   <Avatar user={{ ...u, avatarVersion: byId[u.id]?.avatarVersion }} size={22} />
                   <span className="truncate font-medium text-ink">{u.name}</span>
+                  <StatusEmoji userId={u.id} className="-ml-1" />
                   {byId[u.id]?.title && <span className="truncate text-xs text-muted">{byId[u.id]!.title}</span>}
                 </>
               )}
@@ -204,6 +209,11 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
     reset: () => {
       setPicked([])
       setClosedFor(null)
+    },
+    /** the box takes this text and these mentions as they are (another box of the same place left them: a draft) */
+    restore: (body: string, people: PickedMention[]) => {
+      setPicked(people)
+      setText(body)
     },
     /** a send the server refused comes back: its text goes before what is in the box now (on a line of its own), with
      * the people it mentioned marked again (by the names the room shows and the member list has) */

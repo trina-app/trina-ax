@@ -1,18 +1,24 @@
 // The team chat rooms ("대화방" v1, shared/src/api/rooms.ts): the rooms I am in with their unread badges, the timeline
-// of the one room on screen (pages/Room.tsx) and the one thread open beside it or over it (components/rooms/
-// ThreadPanel.tsx; docs/DECISIONS.md "스레드와 반응"). Only those are kept: leaving drops them and opening reads the
-// newest page. A reply in a thread goes to the thread, and to the timeline only when it was sent to the room too. The
+// of the one room on screen (pages/Room.tsx) and the threads on screen (components/rooms/ThreadPanel.tsx; docs/
+// DECISIONS.md "스레드와 반응"): the one beside the room or over it, and the one beside a file in the viewer
+// (components/rooms/ViewerColumn.tsx), each kept while a panel shows it (threadViews, by root, with a count). Only
+// those are kept: leaving drops them and opening reads the newest page. What the room page shows on its right (a
+// thread is in the address; side: the Trina side chat) is here too, so the file viewer can start the same way. A reply in a thread goes to the thread, and to the timeline only when it was sent to the room too. The
 // WebSocket's room.* events come in through store/live.ts dispatch → handleEvent; the pure with* functions below make
 // the state changes (test/unit/rooms-store.test.ts), handleEvent adds the requests they need. A reconnect the server
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
-import { uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { emojiForm } from '@mycel/shared'
+import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
+import { noteRecent } from '../lib/emoji'
 import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
+import { draftKey, readDraft, writeDraft } from '../lib/localData'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
 import { mergeOpenRequests, useChats } from './chats'
 import { useSession } from './session'
+import { useSideChats } from './sideChats'
 import { toast } from './ui'
 
 export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.thread' | 'room.reactions' | 'room.updated' | 'room.ai' | 'room.ai.run' | 'room.ai.step' | 'queue.position' }>
@@ -40,7 +46,7 @@ export interface RoomTimeline {
   error: unknown
 }
 
-/** The thread open in the room on screen: its root and the replies I can see, oldest first. */
+/** A thread on screen: its root and the replies I can see, oldest first. */
 export interface ThreadView {
   roomId: string
   rootId: string
@@ -49,6 +55,8 @@ export interface ThreadView {
   nextCursor: string | null
   loading: boolean
   error: unknown
+  /** how many panels show it (the room page's, the file viewer's): it goes when the last one closes */
+  holders: number
 }
 
 /** A message on its way (or that could not be sent): shown at the end of the room (or its thread) until the server has
@@ -67,6 +75,9 @@ export interface PendingSend {
   state: 'sending' | 'failed'
   error?: string
   createdAt: string
+  /** kept on this device from an earlier page (the app was closed, the page loaded again) and not confirmed since: it
+   * may have reached the server. Try again is safe (the same client id). */
+  restored?: true
 }
 
 export interface RoomsData {
@@ -74,7 +85,8 @@ export interface RoomsData {
   /** the room on screen */
   openRoomId: string | null
   timeline: RoomTimeline | null
-  threadView: ThreadView | null
+  /** the threads on screen, by placeKey(roomId, rootId) */
+  threadViews: Record<string, ThreadView>
 }
 
 /** Where a send belongs (its draft, a refused send coming back): the room's timeline, or one thread of it. */
@@ -117,16 +129,14 @@ export function quoteOf(m: RoomMessage): RoomQuote {
  * A followed thread's badge comes from the server (room.updated with my room).
  */
 export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: string | null): RoomsData {
-  const tv = d.threadView
-  const threadView = tv && tv.roomId === roomId && (m.threadRootId === tv.rootId || m.id === tv.rootId)
-    ? (m.id === tv.rootId ? { ...tv, root: m } : { ...tv, replies: mergeMessages(tv.replies, [m]) })
-    : tv
-  if (!inTimeline(m)) return { ...d, threadView }
+  // the threads on screen it belongs to: as their root, or as a reply
+  const threadViews = mapViews(d.threadViews, (tv) => (tv.roomId !== roomId ? tv : m.id === tv.rootId ? { ...tv, root: m } : m.threadRootId === tv.rootId ? { ...tv, replies: mergeMessages(tv.replies, [m]) } : tv))
+  if (!inTimeline(m)) return { ...d, threadViews }
   // a window around an older message (newerCursor) gets it with the newer pages, not after a gap
   const timeline = d.timeline && d.timeline.roomId === roomId && !d.timeline.newerCursor ? { ...d.timeline, messages: mergeMessages(d.timeline.messages, [m]) } : d.timeline
   const room = d.rooms.find((r) => r.id === roomId)
-  if (!room) return { ...d, timeline, threadView }
-  if (m.event) return { ...d, timeline, threadView, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
+  if (!room) return { ...d, timeline, threadViews }
+  if (m.event) return { ...d, timeline, threadViews, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
   const fresh = m.seq > room.lastSeq
   const mine = !!meId && m.author?.id === meId
   // my message in the room reads the room up to it (as the server does); my reply sent to the room too does not: it was
@@ -143,19 +153,28 @@ export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: 
     mentioned: read && fresh ? room.threadsUnread > 0 && room.mentioned : room.mentioned || (counts && mentionsMe(m, meId)),
     lastReadSeq: read ? Math.max(room.lastReadSeq, m.seq) : room.lastReadSeq,
   }
-  return { ...d, rooms: sortRooms(d.rooms.map((r) => (r.id === roomId ? next : r))), timeline, threadView }
+  return { ...d, rooms: sortRooms(d.rooms.map((r) => (r.id === roomId ? next : r))), timeline, threadViews }
 }
 
-/** One message changed in place wherever it shows in the open room: the timeline, the open thread's root and replies. */
-function mapMessages(d: RoomsData, roomId: string, f: (x: RoomMessage) => RoomMessage): Pick<RoomsData, 'timeline' | 'threadView'> {
+/** Each thread on screen through `f` (the same object when none changed). */
+function mapViews(views: Record<string, ThreadView>, f: (tv: ThreadView) => ThreadView): Record<string, ThreadView> {
+  let out: Record<string, ThreadView> | null = null
+  for (const [k, tv] of Object.entries(views)) {
+    const next = f(tv)
+    if (next !== tv) (out ??= { ...views })[k] = next
+  }
+  return out ?? views
+}
+
+/** One message changed in place wherever it shows in the room: the timeline, each thread's root and replies on screen. */
+function mapMessages(d: RoomsData, roomId: string, f: (x: RoomMessage) => RoomMessage): Pick<RoomsData, 'timeline' | 'threadViews'> {
   const timeline = d.timeline && d.timeline.roomId === roomId ? { ...d.timeline, messages: d.timeline.messages.map(f) } : d.timeline
-  const tv = d.threadView
-  const threadView = tv && tv.roomId === roomId ? { ...tv, root: tv.root ? f(tv.root) : tv.root, replies: tv.replies.map(f) } : tv
-  return { timeline, threadView }
+  const threadViews = mapViews(d.threadViews, (tv) => (tv.roomId === roomId ? { ...tv, root: tv.root ? f(tv.root) : tv.root, replies: tv.replies.map(f) } : tv))
+  return { timeline, threadViews }
 }
 
-/** An edited or deleted message: replaced where it shows (the timeline, the open thread, older quotes of it, the room's
- * last line). */
+/** An edited or deleted message: replaced where it shows (the timeline, the threads on screen, older quotes of it, the
+ * room's last line). */
 export function withUpdatedMessage(d: RoomsData, roomId: string, m: RoomMessage): RoomsData {
   const q = quoteOf(m)
   const changed = mapMessages(d, roomId, (x) => (x.id === m.id ? m : x.replyTo?.id === m.id ? { ...x, replyTo: { ...q, author: x.replyTo.author } } : x))
@@ -184,7 +203,7 @@ export function withReactions(d: RoomsData, roomId: string, messageId: string, r
 }
 
 /** My reaction put on or taken off, before the server answers (my name first when it is new). */
-export function toggledReactions(list: readonly RoomReaction[], emoji: RoomReactionEmoji, on: boolean, me: { id: string; name: string } | null): RoomReaction[] {
+export function toggledReactions(list: readonly RoomReaction[], emoji: string, on: boolean, me: { id: string; name: string } | null): RoomReaction[] {
   const i = list.findIndex((r) => r.emoji === emoji)
   if (on) {
     if (i >= 0) return list[i]!.mine ? [...list] : list.map((r, j) => (j === i ? { ...r, count: r.count + 1, mine: true, users: me ? [...r.users.filter((u) => u.id !== me.id), me] : r.users } : r))
@@ -217,9 +236,10 @@ export function withHidden(d: RoomsData, roomId: string, hidden: boolean): Rooms
   }) }
 }
 
-/** I am no longer in the room: gone from the list, and its messages and thread with it. */
+/** I am no longer in the room: gone from the list, and its messages and threads with it. */
 export function withoutRoom(d: RoomsData, roomId: string): RoomsData {
-  return { ...d, rooms: d.rooms.filter((r) => r.id !== roomId), timeline: d.timeline?.roomId === roomId ? null : d.timeline, threadView: d.threadView?.roomId === roomId ? null : d.threadView }
+  const threadViews = Object.values(d.threadViews).some((tv) => tv.roomId === roomId) ? Object.fromEntries(Object.entries(d.threadViews).filter(([, tv]) => tv.roomId !== roomId)) : d.threadViews
+  return { ...d, rooms: d.rooms.filter((r) => r.id !== roomId), timeline: d.timeline?.roomId === roomId ? null : d.timeline, threadViews }
 }
 
 /** One of my runs changed: a done one goes (its answer is a message now), the others stay in their place. */
@@ -269,19 +289,28 @@ interface RoomsState extends RoomsData {
    * (components/rooms/RoomComposer.tsx takes it) */
   returned: Record<string, PendingSend>
   ai: Record<string, RoomAi>
+  /** what the room page shows on its right besides a thread (which is in the address): 'trina', its Trina side chat
+   * (components/rooms/SideChatPanel.tsx); none: nothing, or the thread. Gone when the page leaves the room. */
+  side: Record<string, 'trina'>
+  setSide: (roomId: string, side: 'trina' | null) => void
   loadRooms: () => Promise<void>
   /** null: not one of my rooms (gone from the list) */
   fetchRoom: (id: string) => Promise<Room | null>
   open: (roomId: string) => void
   close: (roomId: string) => void
   loadNewest: (roomId: string) => Promise<void>
+  /** the newest page read again into the timeline as it is (older pages and the reader's place stay); nothing for a
+   * window around an older message */
+  refreshNewest: (roomId: string) => Promise<void>
   loadOlder: (roomId: string) => Promise<void>
   /** the timeline as a window around this message (a link or a search result older than the newest page) */
   loadAround: (roomId: string, messageId: string) => Promise<void>
   /** the window's next newer page (until it reaches the newest) */
   loadNewer: (roomId: string) => Promise<void>
-  /** the thread under this message, beside the room (desktop) or over it (phones) */
+  /** the thread under this message, beside the room (desktop) or over it (phones), or beside a file in the viewer: one
+   * more panel shows it (read when it was not on screen yet) */
   openThread: (roomId: string, rootId: string) => void
+  /** one panel less shows it: it goes with the last */
   closeThread: (roomId: string, rootId: string) => void
   loadThread: (roomId: string, rootId: string) => Promise<void>
   loadOlderReplies: (roomId: string, rootId: string) => Promise<void>
@@ -293,7 +322,7 @@ interface RoomsState extends RoomsData {
   edit: (roomId: string, messageId: string, body: string, mentions: string[], mentionsAll?: boolean) => Promise<void>
   remove: (roomId: string, messageId: string) => Promise<void>
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
-  react: (roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean) => Promise<void>
+  react: (roomId: string, messageId: string, emoji: string, on: boolean) => Promise<void>
   markRead: (roomId: string, seq: number) => Promise<void>
   setMuted: (roomId: string, muted: boolean) => Promise<void>
   /** my level for a room (null: my default; docs/DECISIONS.md "대화방 알림 설정") */
@@ -326,30 +355,243 @@ interface RoomsState extends RoomsData {
   /** "대화방에 보내기": a finished answer of my own AI chat to a room I am in, as my message (shared/src/api/chats.ts
    * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
    * finds it there) */
-  shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirmKey?: string; attach?: string[]; clientMessageId: string }) => Promise<ShareAnswerToRoomResult>
+  shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }) => Promise<ShareAnswerToRoomResult>
   resync: () => Promise<void>
   handleEvent: (ev: RoomEvent) => void
   reset: () => void
 }
 
-const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadView' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'ai'> = { rooms: [], openRoomId: null, timeline: null, threadView: null, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, ai: {} }
+const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadViews' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'ai' | 'side'> = { rooms: [], openRoomId: null, timeline: null, threadViews: {}, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, ai: {}, side: {} }
 
-/** what was typed in a room (or one of its threads: placeKey) and not sent yet, while this page is open
- * (components/rooms/RoomComposer.tsx); gone at sign-out with the rest */
+/** what was typed in a room (or one of its threads: placeKey) and not sent yet (components/rooms/RoomComposer.tsx); kept
+ * on this device too (keepRoomDraft), like the AI chat's drafts; gone at sign-out with the rest */
 export const roomDrafts = new Map<string, string>()
 /** the people picked in those drafts and where their names stand (lib/rooms.ts PickedMention), so a draft keeps its
  * mentions */
 export const roomDraftMentions = new Map<string, PickedMention[]>()
+
+// On this device, with the AI chat's drafts (lib/localData.ts: per signed-in person, on the team's own address; signing
+// out, or another person signing in, clears them): each box's draft, and the sends of each room that were on their way
+// or not sent (QA TC-374/375: closing the app or a Reload lost them). Kept 30 days at most, and only for rooms I am
+// still in (pruneRoomDevice). Another tab of the same person shares them (onDeviceChange).
+const draftStoreId = (key: string) => `room:${key}`
+const unsentStoreId = (roomId: string) => `roomUnsent:${roomId}`
+type DeviceStore = Parameters<typeof readDraft>[2]
+/** how long this device keeps a room draft or a send that did not go */
+export const ROOM_DEVICE_DAYS = 30
+const tooOld = (at: number) => !(at > Date.now() - ROOM_DEVICE_DAYS * 86_400_000)
+
+/** the rooms whose kept sends are in this page's store already (restoreUnsent: the first change to the room's sends, or
+ * opening it): until then a change to them adds to what the device kept, never writes over it */
+const restoredUnsent = new Set<string>()
+/** the sends this page saw end (sent, settled, let go, back in the box): never written back from another tab's copy */
+const goneHere = new Set<string>()
+/** sends this page is still making that another tab of mine saw end (let go, sent): failing here, they go, not back */
+const goneElsewhere = new Set<string>()
+
+const isPicked = (x: unknown): x is PickedMention => {
+  const m = x as PickedMention
+  return !!m && typeof m === 'object' && typeof m.id === 'string' && typeof m.name === 'string' && Number.isInteger(m.start) && Number.isInteger(m.end)
+}
+
+/** this place's draft and its mentions as they are now (roomDrafts, roomDraftMentions) onto this device; nothing when
+ * the device has them so already (a draft another tab changed, shown here: written back with a new time, a late echo
+ * could undo that tab's newest keys) */
+export function keepRoomDraft(key: string, s?: Parameters<typeof writeDraft>[3]) {
+  const me = myId()
+  if (!me) return
+  const text = roomDrafts.get(key) ?? ''
+  const mentions = roomDraftMentions.get(key) ?? []
+  const raw = readDraft(me, draftStoreId(key), s)
+  if (!text) {
+    if (raw) writeDraft(me, draftStoreId(key), '', s)
+    return
+  }
+  const there = storedDraft(raw || null)
+  if (there && there.text === text && JSON.stringify(there.mentions) === JSON.stringify(mentions)) return
+  writeDraft(me, draftStoreId(key), JSON.stringify({ text, mentions, at: Date.now() }), s)
+}
+
+/** every draft of this page onto this device (before a reload the person asked for: lib/reload-guard.ts) */
+export function keepRoomDrafts(s?: Parameters<typeof writeDraft>[3]) {
+  for (const key of roomDrafts.keys()) keepRoomDraft(key, s)
+}
+
+/** a kept draft as it is on the device (null: none, not ours, or too old) */
+function storedDraft(raw: string | null): { text: string; mentions: PickedMention[] } | null {
+  if (!raw) return null
+  try {
+    const v = JSON.parse(raw) as { text?: unknown; mentions?: unknown; at?: unknown }
+    if (typeof v.text !== 'string' || !v.text || typeof v.at !== 'number' || tooOld(v.at)) return null
+    return { text: v.text, mentions: Array.isArray(v.mentions) ? v.mentions.filter(isPicked) : [] }
+  } catch { return null }
+}
+function setDraftHere(key: string, d: { text: string; mentions: PickedMention[] } | null) {
+  if (!d) {
+    roomDrafts.delete(key)
+    roomDraftMentions.delete(key)
+    return
+  }
+  roomDrafts.set(key, d.text)
+  if (d.mentions.length) roomDraftMentions.set(key, d.mentions)
+  else roomDraftMentions.delete(key)
+}
+
+/** A box opens: the draft this device kept for its place (after the app was closed or the page loaded again) is its
+ * draft, when this page has none of its own. Once: it is the page's draft from then on. */
+export function restoreRoomDraft(key: string, s?: DeviceStore) {
+  const me = myId()
+  if (!me || roomDrafts.has(key)) return
+  const d = storedDraft(readDraft(me, draftStoreId(key), s) || null)
+  if (d) setDraftHere(key, d)
+}
+
+const isPendingSend = (x: unknown): x is PendingSend => {
+  const p = x as PendingSend
+  return !!p && typeof p === 'object' && typeof p.clientMessageId === 'string' && typeof p.body === 'string' && Array.isArray(p.mentions) && Array.isArray(p.files) && typeof p.createdAt === 'string'
+}
+const byCreated = (a: { createdAt: string }, b: { createdAt: string }) => time(a.createdAt) - time(b.createdAt)
+
+/** the kept sends as the device has them, the ones younger than ROOM_DEVICE_DAYS */
+function storedUnsent(roomId: string, s?: DeviceStore): PendingSend[] {
+  const me = myId()
+  if (!me) return []
+  try {
+    const v = JSON.parse(readDraft(me, unsentStoreId(roomId), s) || '[]') as unknown
+    return Array.isArray(v) ? v.filter(isPendingSend).filter((p) => !tooOld(time(p.createdAt))) : []
+  } catch { return [] }
+}
+
+/** This room's sends on their way or not sent onto this device: this page's, and the ones another tab of mine kept that
+ * this page has not seen end (goneHere). None: removed. */
+function keepUnsent(roomId: string, list: PendingSend[] | undefined) {
+  const me = myId()
+  if (!me) return
+  const mine = list ?? []
+  const ids = new Set(mine.map((p) => p.clientMessageId))
+  const others = storedUnsent(roomId).filter((p) => !ids.has(p.clientMessageId) && !goneHere.has(p.clientMessageId))
+  const all = [...mine.map(({ state: _s, error: _e, restored: _r, ...p }) => p), ...others].sort(byCreated)
+  writeDraft(me, unsentStoreId(roomId), all.length ? JSON.stringify(all) : '')
+}
+
+/** The sends of this room this device kept (on their way or not sent when the page went), each as not sent and not
+ * confirmed: Try again sends it with the same client id, so one the server did get comes back as that message, never a
+ * second one. */
+export function keptUnsent(roomId: string, s?: DeviceStore): PendingSend[] {
+  return storedUnsent(roomId, s).map((p) => ({ ...p, threadRootId: p.threadRootId ?? null, alsoInRoom: !!p.alsoInRoom, state: 'failed' as const, restored: true as const }))
+}
+
+/** The room's sends in this page with the kept ones added, the first time this page touches them (once per room). */
+function withKeptUnsent(roomId: string, list: PendingSend[]): PendingSend[] {
+  if (restoredUnsent.has(roomId) || !myId()) return list
+  restoredUnsent.add(roomId)
+  const have = new Set(list.map((p) => p.clientMessageId))
+  const add = keptUnsent(roomId).filter((p) => !have.has(p.clientMessageId) && !goneHere.has(p.clientMessageId))
+  return add.length ? [...list, ...add].sort(byCreated) : list
+}
+
+/** A room I am no longer in: what this device kept for it (its box, its threads' boxes, its sends) goes. */
+function forgetRoomOnDevice(roomId: string, s?: DeviceStore) {
+  const me = myId()
+  if (!me) return
+  writeDraft(me, unsentStoreId(roomId), '', s)
+  pruneRoomDevice((id) => id !== roomId, s)
+}
+
+/** Drop the room drafts and sends this device kept for me that are too old, or of a room `keep` says no to. */
+export function pruneRoomDevice(keep: (roomId: string) => boolean, s: DeviceStore = typeof localStorage === 'undefined' ? null : localStorage) {
+  const me = myId()
+  if (!me || !s) return
+  const head = draftKey(me, '')
+  try {
+    const gone: string[] = []
+    for (let i = 0; i < s.length; i++) {
+      const k = s.key(i)
+      if (!k?.startsWith(head)) continue
+      const id = k.slice(head.length)
+      if (id.startsWith('room:')) {
+        const roomId = id.slice(5).split('/')[0]!
+        if (!keep(roomId) || !storedDraft(s.getItem(k))) gone.push(k)
+      } else if (id.startsWith('roomUnsent:')) {
+        if (!keep(id.slice(11))) gone.push(k)
+      }
+    }
+    for (const k of gone) s.removeItem(k)
+  } catch { /* storage blocked */ }
+}
+
+/** the room drafts another tab of mine changed (by placeKey): each box of the place reads its draft again
+ * (components/rooms/RoomComposer.tsx) */
+const draftWatchers = new Set<(key: string) => void>()
+export function onRoomDraftElsewhere(f: (key: string) => void): () => void {
+  draftWatchers.add(f)
+  return () => draftWatchers.delete(f)
+}
+
+/** Another tab of mine changed what this device keeps (the window's "storage" event): a draft it changed is this page's
+ * draft too; a send of mine it saw end (sent, let go) goes here too, unless this page is sending it now. Nothing is ever
+ * sent from here. */
+export function onDeviceChange(key: string | null, value: string | null) {
+  const me = myId()
+  if (!me || !key) return
+  const head = draftKey(me, '')
+  if (!key.startsWith(head)) return
+  const id = key.slice(head.length)
+  if (id.startsWith('room:')) {
+    const place = id.slice(5)
+    setDraftHere(place, storedDraft(value))
+    for (const f of draftWatchers) f(place)
+    return
+  }
+  if (!id.startsWith('roomUnsent:')) return
+  const roomId = id.slice(11)
+  const list = useRooms.getState().pending[roomId]
+  if (!list || !restoredUnsent.has(roomId)) return
+  let there: Set<string>
+  try {
+    const v = JSON.parse(value || '[]') as unknown
+    there = new Set(Array.isArray(v) ? v.filter(isPendingSend).map((p) => p.clientMessageId) : [])
+  } catch { return }
+  for (const p of list) if (p.state === 'sending' && !there.has(p.clientMessageId)) goneElsewhere.add(p.clientMessageId)
+  const left = list.filter((p) => p.state === 'sending' || there.has(p.clientMessageId))
+  if (left.length === list.length) return
+  useRooms.setState((s) => ({ pending: left.length ? { ...s.pending, [roomId]: left } : omit(s.pending, roomId) }))
+}
 
 /** read positions already asked for, per room and per thread (placeKey; a scroll fires many times: one request per new
  * position) */
 const asked = new Map<string, number>()
 /** rooms I am leaving from this window: their "removed" event is no news here */
 const leaving = new Set<string>()
+/** The member list read last per room: an answer to an older read, or to one from before the list was dropped (a members
+ * change, a resync), does not put an old list back. */
+const memberReads = new Map<string, number>()
+let memberReadSeq = 0
 /** a newer read of the same room's messages wins over an older one still on its way */
 let timelineGen = 0
-/** the same for the open thread */
-let threadGen = 0
+/** the same for each thread on screen (by placeKey; one counter for all, so a thread that went and came back never
+ * takes an answer meant for its earlier showing); a thread's goes with it */
+let threadGenSeq = 0
+const threadGens = new Map<string, number>()
+const nextThreadGen = (key: string) => {
+  const g = ++threadGenSeq
+  threadGens.set(key, g)
+  return g
+}
+
+/** The changes to the messages on screen (a new one, an edit, reactions, a thread's summary) made while a read of a page
+ * is on its way: the page is what the server had when it read it, so these are made again on it, or a message that
+ * came meanwhile would be gone (and the room read up to it). One list per read in flight. */
+type MessageChange = (d: RoomsData) => RoomsData
+const inFlight = new Set<MessageChange[]>()
+const watchChanges = () => {
+  const changes: MessageChange[] = []
+  inFlight.add(changes)
+  return { changes, done: () => inFlight.delete(changes) }
+}
+/** The page read, with the changes made while it was on its way made again on it (only its part: the rooms and the
+ * other places had them already). */
+const replayed = (s: RoomsData, changes: MessageChange[], fresh: Partial<RoomsData>): RoomsData => changes.reduce((d, f) => f(d), { ...s, ...fresh })
 
 const omit = <T,>(o: Record<string, T>, key: string) => {
   if (!(key in o)) return o
@@ -358,27 +600,101 @@ const omit = <T,>(o: Record<string, T>, key: string) => {
   return next
 }
 
-/** The message as this window has it (the timeline, the open thread). */
-function findMessage(s: RoomsData, roomId: string, id: string): RoomMessage | undefined {
+/** The message as this window has it (the timeline, the threads on screen). */
+export function findMessage(s: RoomsData, roomId: string, id: string): RoomMessage | undefined {
   if (s.timeline?.roomId === roomId) { const m = s.timeline.messages.find((x) => x.id === id); if (m) return m }
-  const tv = s.threadView
-  if (tv?.roomId === roomId) return tv.root?.id === id ? tv.root : tv.replies.find((x) => x.id === id)
+  for (const tv of Object.values(s.threadViews)) {
+    if (tv.roomId !== roomId) continue
+    const m = tv.root?.id === id ? tv.root : tv.replies.find((x) => x.id === id)
+    if (m) return m
+  }
   return undefined
 }
 
+/** A room file whose message this window has and which was deleted since (or the file is no longer on it): the file
+ * viewer's "no longer available". A message this window no longer holds (an older page the timeline left when it went
+ * back to the newest) is not known to be gone. */
+export function roomFileGone(s: RoomsData, roomId: string, messageId: string, fileId: string): boolean {
+  const m = findMessage(s, roomId, messageId)
+  return !!m && (!!m.deletedAt || !m.files.some((f) => f.id === fileId))
+}
+
+/** The sends still on their way (or failed) without the ones whose message is on screen (the room's timeline, a thread
+ * on screen), matched by the id my app sent it with (RoomMessage.clientMessageId, only ever on my own messages). Such a
+ * send is done whichever way its message came: its own answer, the live event, a replay or a page read again after a
+ * reconnect. Otherwise a send whose answer was lost shows twice: delivered, and failed with 다시 시도 / 지우기. The same
+ * object when nothing is done. */
+export function settledPending(s: Pick<RoomsData, 'timeline' | 'threadViews'> & { pending: Record<string, PendingSend[]> }): Record<string, PendingSend[]> {
+  if (!Object.keys(s.pending).length) return s.pending
+  // by room: the ids of my messages on screen
+  const sent = new Map<string, Set<string>>()
+  const note = (roomId: string, list: readonly (RoomMessage | null)[]) => {
+    if (!s.pending[roomId]) return
+    for (const m of list) {
+      if (!m?.clientMessageId) continue
+      const ids = sent.get(roomId) ?? new Set<string>()
+      ids.add(m.clientMessageId)
+      sent.set(roomId, ids)
+    }
+  }
+  if (s.timeline) note(s.timeline.roomId, s.timeline.messages)
+  for (const tv of Object.values(s.threadViews)) note(tv.roomId, [tv.root, ...tv.replies])
+  let pending = s.pending
+  for (const [roomId, ids] of sent) {
+    const list = pending[roomId]!
+    const left = list.filter((p) => !ids.has(p.clientMessageId))
+    if (left.length < list.length) pending = left.length ? { ...pending, [roomId]: left } : omit(pending, roomId)
+  }
+  return pending
+}
+
+/** The runs of my questions that ended and whose line I closed (EndedRun's X), in this browser, per person: the server
+ * lists a failed one for a day (rooms/ai.ts state), and a reload must not bring a closed line back. The last 200. */
+const CLOSED_RUNS_MAX = 200
+const closedKey = (userId: string) => `mycel.roomAiClosed:${userId}`
+export function closedRuns(userId: string | null): Set<string> {
+  if (!userId) return new Set()
+  try {
+    const v = JSON.parse(localStorage.getItem(closedKey(userId)) ?? '[]') as unknown
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  } catch { return new Set() }
+}
+function closeRun(userId: string | null, turnId: string) {
+  if (!userId) return
+  try {
+    const list = [...closedRuns(userId)].filter((x) => x !== turnId)
+    localStorage.setItem(closedKey(userId), JSON.stringify([...list, turnId].slice(-CLOSED_RUNS_MAX)))
+  } catch { /* storage full or blocked: closed for this page only */ }
+}
+
 export const useRooms = create<RoomsState>((set, get) => {
+  // (the first change to a room's sends in this page starts from the ones this device kept: withKeptUnsent)
   const setPending = (roomId: string, f: (list: PendingSend[]) => PendingSend[]) =>
     set((s) => {
-      const list = f(s.pending[roomId] ?? [])
+      const list = f(withKeptUnsent(roomId, s.pending[roomId] ?? []))
       return { pending: list.length ? { ...s.pending, [roomId]: list } : omit(s.pending, roomId) }
     })
+
+  /** a change to the messages on screen, kept for each page read on its way too (watchChanges) */
+  const patchMessages = (f: MessageChange) => {
+    for (const list of inFlight) list.push(f)
+    set((s) => f(s))
+  }
 
   const post = async (roomId: string, p: PendingSend) => {
     try {
       const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}) } })
-      set((s) => withMessage(s, roomId, m, myId()))
+      goneElsewhere.delete(p.clientMessageId)
+      patchMessages((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
     } catch (e) {
+      // its message came another way while the answer was lost (settledPending), or it was let go: nothing to show
+      if (!get().pending[roomId]?.some((x) => x.clientMessageId === p.clientMessageId)) return
+      // another tab of mine let it go (or sent it) meanwhile: it goes here too (onDeviceChange)
+      if (goneElsewhere.delete(p.clientMessageId)) {
+        setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
+        return
+      }
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
       // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
@@ -399,6 +715,9 @@ export const useRooms = create<RoomsState>((set, get) => {
       try {
         const r = await api.call(API.listRooms)
         set({ rooms: sortRooms(r.items), loaded: true, failed: null, alerts: r.alerts ?? null })
+        // what this device kept for rooms I am no longer in, or for too long, goes
+        const mine = new Set(r.items.map((x) => x.id))
+        pruneRoomDevice((id) => mine.has(id))
       } catch (e) {
         set({ loaded: true, failed: e })
       }
@@ -418,19 +737,33 @@ export const useRooms = create<RoomsState>((set, get) => {
       }
     },
 
+    setSide(roomId, side) {
+      set((s) => (side ? (s.side[roomId] === side ? {} : { side: { ...s.side, [roomId]: side } }) : { side: omit(s.side, roomId) }))
+    },
+
     open(roomId) {
       asked.delete(roomId)
-      set((s) => ({ openRoomId: roomId, timeline: { roomId, messages: [], nextCursor: null, loading: true, error: null }, threadView: s.threadView?.roomId === roomId ? s.threadView : null }))
-      void get().loadNewest(roomId)
+      // (the threads stay: each is its panel's, opened before the page's own effect runs)
+      set({ openRoomId: roomId, timeline: { roomId, messages: [], nextCursor: null, loading: true, error: null } })
+      // the sends this device kept for the room come back as not sent, after the newest page: one the server did get
+      // (its answer lost when the app closed) is on that page and settles at once (settledPending), not shown failed
+      // (a send before that page came adds them at once: setPending)
+      void get().loadNewest(roomId).finally(() => {
+        if (restoredUnsent.has(roomId) || get().openRoomId !== roomId) return
+        setPending(roomId, (list) => list)
+        // the ones that settled at once are gone from the device too
+        keepUnsent(roomId, get().pending[roomId])
+      })
       void get().loadMembers(roomId)
       void get().loadAi(roomId)
     },
 
     close(roomId) {
+      // the page's right side goes with it, as the page's own state did
+      set((s) => ({ side: omit(s.side, roomId) }))
       if (get().openRoomId !== roomId) return
       timelineGen++
-      threadGen++
-      set({ openRoomId: null, timeline: null, threadView: null })
+      set({ openRoomId: null, timeline: null })
       // messages that came while it was on screen did not count; left without reading them, the server's count is right
       const r = get().rooms.find((x) => x.id === roomId)
       if (r && r.lastReadSeq < r.lastSeq) void get().fetchRoom(roomId).catch(() => {})
@@ -438,14 +771,40 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async loadNewest(roomId) {
       const gen = ++timelineGen
-      set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: true, error: null } } : {}))
+      // a failed read's error stays until this one answers: the page's calm notice stays while it reads again
+      // (components/LoadError.tsx) instead of going and coming back
+      set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: true } } : {}))
+      const w = watchChanges()
       try {
         const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE } })
         if (gen !== timelineGen || get().openRoomId !== roomId) return
-        set({ timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } })
+        // the messages that came while it was read (my own send from a window around an older one too) stay
+        set((s) => ({ timeline: replayed(s, w.changes, { timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } }).timeline }))
       } catch (error) {
         if (gen !== timelineGen || get().openRoomId !== roomId) return
         set((s) => ({ timeline: { roomId, messages: s.timeline?.roomId === roomId ? s.timeline.messages : [], nextCursor: s.timeline?.roomId === roomId ? s.timeline.nextCursor : null, loading: false, error } }))
+      } finally {
+        w.done()
+      }
+    },
+
+    async refreshNewest(roomId) {
+      const tl = get().timeline
+      // a window around an older message reads the newest when it gets there
+      if (!tl || tl.roomId !== roomId || tl.newerCursor) return
+      // nothing on screen yet (the first read failed or is on its way): the newest page as a first read
+      if (!tl.messages.length) return get().loadNewest(roomId)
+      const gen = timelineGen
+      const w = watchChanges()
+      try {
+        const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE } })
+        if (gen !== timelineGen) return
+        // in place: the older pages loaded and the reader's place stay
+        set((s) => (s.timeline?.roomId === roomId && !s.timeline.newerCursor ? { timeline: replayed(s, w.changes, { timeline: { ...s.timeline, messages: mergeMessages(s.timeline.messages, page.items) } }).timeline } : {}))
+      } catch {
+        /* as it was; the next open reads it again */
+      } finally {
+        w.done()
       }
     },
 
@@ -467,14 +826,18 @@ export const useRooms = create<RoomsState>((set, get) => {
     async loadAround(roomId, messageId) {
       const gen = ++timelineGen
       set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: true, error: null } } : {}))
+      const w = watchChanges()
       try {
         const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE, around: messageId } })
         if (gen !== timelineGen || get().openRoomId !== roomId) return
-        set({ timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, newerCursor: page.newerCursor ?? null, loading: false, error: null } })
+        // (a new message waits for the newer pages; an edit or a reaction meanwhile shows)
+        set((s) => ({ timeline: replayed(s, w.changes, { timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, newerCursor: page.newerCursor ?? null, loading: false, error: null } }).timeline }))
       } catch {
         // the newest page as it was (the message is not looked for again)
         if (gen !== timelineGen) return
         set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: false } } : {}))
+      } finally {
+        w.done()
       }
     },
 
@@ -494,49 +857,63 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     openThread(roomId, rootId) {
-      const cur = get().threadView
-      if (cur?.roomId === roomId && cur.rootId === rootId) return
-      asked.delete(placeKey(roomId, rootId))
+      const key = placeKey(roomId, rootId)
+      const cur = get().threadViews[key]
+      // on screen already (the page's thread, now beside a file of it too): one more panel shows it
+      if (cur) return set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...cur, holders: cur.holders + 1 } } }))
+      asked.delete(key)
       // the root as the timeline has it already: shown at once while the replies load
       const root = get().timeline?.roomId === roomId ? get().timeline!.messages.find((m) => m.id === rootId) ?? null : null
-      set({ threadView: { roomId, rootId, root, replies: [], nextCursor: null, loading: true, error: null } })
+      set((s) => ({ threadViews: { ...s.threadViews, [key]: { roomId, rootId, root, replies: [], nextCursor: null, loading: true, error: null, holders: 1 } } }))
       void get().loadThread(roomId, rootId)
     },
 
     closeThread(roomId, rootId) {
-      const cur = get().threadView
-      if (cur?.roomId !== roomId || cur.rootId !== rootId) return
-      threadGen++
-      set({ threadView: null })
+      const key = placeKey(roomId, rootId)
+      const cur = get().threadViews[key]
+      if (!cur) return
+      if (cur.holders > 1) return set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...cur, holders: cur.holders - 1 } } }))
+      // the last panel: a read still on its way is dropped
+      threadGens.delete(key)
+      set((s) => ({ threadViews: omit(s.threadViews, key) }))
     },
 
     async loadThread(roomId, rootId) {
-      const gen = ++threadGen
-      const mine = () => { const v = get().threadView; return v?.roomId === roomId && v.rootId === rootId }
-      set((s) => (mine() ? { threadView: { ...s.threadView!, loading: true, error: null } } : {}))
+      const key = placeKey(roomId, rootId)
+      const gen = nextThreadGen(key)
+      set((s) => (s.threadViews[key] ? { threadViews: { ...s.threadViews, [key]: { ...s.threadViews[key]!, loading: true, error: null } } } : {}))
+      const w = watchChanges()
       try {
         const page = await api.call(API.listRoomThread, { params: { id: roomId, messageId: rootId }, query: { limit: ROOM_PAGE } })
-        if (gen !== threadGen || !mine()) return
-        set({ threadView: { roomId, rootId, root: page.root, replies: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } })
+        if (gen !== threadGens.get(key)) return
+        // the replies that came while it was read stay
+        set((s) => {
+          const tv = s.threadViews[key]
+          if (!tv) return {}
+          const read = replayed(s, w.changes, { threadViews: { [key]: { ...tv, root: page.root, replies: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } } })
+          return { threadViews: { ...s.threadViews, [key]: read.threadViews[key]! } }
+        })
       } catch (error) {
-        if (gen !== threadGen || !mine()) return
-        set((s) => ({ threadView: { ...s.threadView!, loading: false, error } }))
+        if (gen !== threadGens.get(key)) return
+        set((s) => (s.threadViews[key] ? { threadViews: { ...s.threadViews, [key]: { ...s.threadViews[key]!, loading: false, error } } } : {}))
+      } finally {
+        w.done()
       }
     },
 
     async loadOlderReplies(roomId, rootId) {
-      const tv = get().threadView
-      if (!tv || tv.roomId !== roomId || tv.rootId !== rootId || !tv.nextCursor || tv.loading) return
-      const gen = threadGen
-      set({ threadView: { ...tv, loading: true } })
-      const mine = (s: RoomsData) => s.threadView?.roomId === roomId && s.threadView.rootId === rootId
+      const key = placeKey(roomId, rootId)
+      const tv = get().threadViews[key]
+      if (!tv || !tv.nextCursor || tv.loading) return
+      const gen = threadGens.get(key)
+      set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...tv, loading: true } } }))
       try {
         const page = await api.call(API.listRoomThread, { params: { id: roomId, messageId: rootId }, query: { limit: ROOM_PAGE, cursor: tv.nextCursor } })
-        if (gen !== threadGen) return
-        set((s) => (mine(s) ? { threadView: { ...s.threadView!, replies: mergeMessages(s.threadView!.replies, page.items), nextCursor: page.nextCursor, loading: false } } : {}))
+        if (gen !== threadGens.get(key)) return
+        set((s) => (s.threadViews[key] ? { threadViews: { ...s.threadViews, [key]: { ...s.threadViews[key]!, replies: mergeMessages(s.threadViews[key]!.replies, page.items), nextCursor: page.nextCursor, loading: false } } } : {}))
       } catch {
-        if (gen !== threadGen) return
-        set((s) => (mine(s) ? { threadView: { ...s.threadView!, loading: false } } : {}))
+        if (gen !== threadGens.get(key)) return
+        set((s) => (s.threadViews[key] ? { threadViews: { ...s.threadViews, [key]: { ...s.threadViews[key]!, loading: false } } } : {}))
       }
     },
 
@@ -546,10 +923,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       asked.set(key, seq)
       try {
         const r = await api.call(API.markRoomThreadRead, { params: { id: roomId, messageId: rootId }, body: { seq } })
-        set((s) => {
-          const d = withRoom(s, r.room)
-          const root = findMessage(d, roomId, rootId)
-          return root?.thread?.newReplies ? withThreadSummary(d, roomId, rootId, { ...root.thread, newReplies: false }) : d
+        set((s) => withRoom(s, r.room))
+        patchMessages((s) => {
+          const root = findMessage(s, roomId, rootId)
+          return root?.thread?.newReplies ? withThreadSummary(s, roomId, rootId, { ...root.thread, newReplies: false }) : s
         })
       } catch {
         if (asked.get(key) === seq) asked.delete(key)
@@ -558,8 +935,11 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async loadMembers(roomId, force) {
       if (get().members[roomId] && !force) return
+      const read = ++memberReadSeq
+      memberReads.set(roomId, read)
       try {
         const r = await api.call(API.listRoomMembers, { params: { id: roomId } })
+        if (memberReads.get(roomId) !== read) return
         set((s) => ({ members: { ...s.members, [roomId]: r.items } }))
       } catch {
         /* the header and the @ list do without; the next open asks again */
@@ -578,7 +958,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     retry(roomId, clientMessageId) {
       const p = get().pending[roomId]?.find((x) => x.clientMessageId === clientMessageId)
       if (!p || p.state === 'sending') return
-      setPending(roomId, (list) => list.map((x) => (x.clientMessageId === clientMessageId ? { ...x, state: 'sending', error: undefined } : x)))
+      setPending(roomId, (list) => list.map((x) => (x.clientMessageId === clientMessageId ? { ...x, state: 'sending', error: undefined, restored: undefined } : x)))
       // the same client id: a send the server did get before the failure comes back as that message, not a second one
       void post(roomId, { ...p, state: 'sending' })
     },
@@ -589,7 +969,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async edit(roomId, messageId, body, mentions, mentionsAll) {
       const m = await api.call(API.editRoomMessage, { params: { id: roomId, messageId }, body: { body, mentions, ...(mentionsAll ? { mentionsAll: true } : {}) } })
-      set((s) => withUpdatedMessage(s, roomId, m))
+      patchMessages((s) => withUpdatedMessage(s, roomId, m))
     },
 
     async remove(roomId, messageId) {
@@ -598,18 +978,36 @@ export const useRooms = create<RoomsState>((set, get) => {
       const m = findMessage(get(), roomId, messageId)
       if (m) {
         const { reactions: _r, ...rest } = m
-        set((s) => withUpdatedMessage(s, roomId, { ...rest, body: '', files: [], mentions: [], deletedAt: new Date().toISOString() }))
+        patchMessages((s) => withUpdatedMessage(s, roomId, { ...rest, body: '', files: [], mentions: [], deletedAt: new Date().toISOString() }))
       }
     },
 
-    async react(roomId, messageId, emoji, on) {
+    async react(roomId, messageId, picked, on) {
+      // the form the server keeps (❤ and ❤️ are one reaction)
+      const emoji = emojiForm(picked)
       const before = findMessage(get(), roomId, messageId)?.reactions ?? []
-      set((s) => withReactions(s, roomId, messageId, toggledReactions(before, emoji, on, myRef())))
+      // a new emoji on a message that has the most different ones already: the server would refuse it (409)
+      if (on && before.length >= ROOM_REACTION_EMOJI_MAX && !before.some((r) => r.emoji === emoji)) {
+        toast({ level: 'warn', text: t('rooms.reactionsFull', { n: ROOM_REACTION_EMOJI_MAX }) })
+        return
+      }
+      // the picker's "Recently used" (this browser, per person)
+      const me = myRef()
+      if (on && me) noteRecent(me.id, emoji)
+      patchMessages((s) => withReactions(s, roomId, messageId, toggledReactions(before, emoji, on, me)))
       try {
         const r = await api.call(API.reactRoomMessage, { params: { id: roomId, messageId }, body: { emoji, on } })
-        set((s) => withReactions(s, roomId, messageId, r.reactions))
+        patchMessages((s) => withReactions(s, roomId, messageId, r.reactions))
       } catch (e) {
-        set((s) => withReactions(s, roomId, messageId, before))
+        // only my own tap undone, on the list as it is now: a room.reactions that came meanwhile (someone else's) stays.
+        // A tap that changed nothing (on where it was mine already) has nothing to undo.
+        const wasMine = !!before.find((x) => x.emoji === emoji)?.mine
+        if (wasMine !== on) {
+          patchMessages((s) => {
+            const now = findMessage(s, roomId, messageId)
+            return now ? withReactions(s, roomId, messageId, toggledReactions(now.reactions ?? [], emoji, !on, me)) : s
+          })
+        }
         toast({ level: 'warn', text: errorText(e, currentLocale(), t('error.network')) })
       }
     },
@@ -656,6 +1054,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async invite(roomId, userIds) {
       const room = await api.call(API.inviteRoomMembers, { params: { id: roomId }, body: { userIds } })
+      memberReads.delete(roomId)
       set((s) => ({ ...withRoom(s, room), members: omit(s.members, roomId) }))
       void get().loadMembers(roomId, true)
     },
@@ -667,7 +1066,9 @@ export const useRooms = create<RoomsState>((set, get) => {
         await api.call(API.leaveRoom, { params: { id: roomId } })
         // in place of the room I left: Back leads to where I was before it
         if (get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
-        set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
+        set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
+        useSideChats.getState().drop(roomId)
+        forgetRoomOnDevice(roomId)
       } finally {
         setTimeout(() => leaving.delete(roomId), 5000)
       }
@@ -677,11 +1078,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       const was = get().rooms.find((r) => r.id === roomId)
       if (!was) return
       set((s) => withHidden(s, roomId, hidden))
-      // in place of the room: Back does not open it again (which would show it again)
-      if (hidden && get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
       try {
         const room = await api.call(API.setRoomHidden, { params: { id: roomId }, body: { hidden } })
         set((s) => withRoom(s, room))
+        // only once the server has it (refused, the room stays on screen with the error): to the list in place of the
+        // room, so Back does not open it again (which would show it again)
+        if (hidden && get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
       } catch (e) {
         // as it was: shown or hidden, and its pin (hiding took it off)
         set((s) => {
@@ -724,10 +1126,14 @@ export const useRooms = create<RoomsState>((set, get) => {
       // either way the card goes with the turn's turn.request.closed (the end of a turn closes its cards first; one
       // closed before the merge stays out, mergeOpenRequests)
       const turns = new Set([...(get().ai[roomId]?.runs ?? []), ...r.mine].map((x) => x.turnId))
+      // the server lists the working ones and my recent failed ones (one a restart cut while this window was away, QA
+      // TC-241), not one I closed in this browser
+      const closed = closedRuns(who)
+      const mine = r.mine.filter((x) => !closed.has(x.turnId))
       set((s) => {
-        // runs that ended here (stopped, failed) stay until closed; the server lists the working ones
+        // runs that ended here (stopped, failed) stay until closed
         const ended = (s.ai[roomId]?.runs ?? []).filter((x) => x.state === 'stopped' || x.state === 'error')
-        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...r.mine, ...ended.filter((x) => !r.mine.some((m) => m.turnId === x.turnId))] } } }
+        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...mine, ...ended.filter((x) => !mine.some((m) => m.turnId === x.turnId))] } } }
       })
       if (open) useChats.setState((s) => ({ requests: mergeOpenRequests(s.requests, (q) => turns.has(q.turnId), open.items, before) }))
     },
@@ -737,6 +1143,8 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     dismissAi(roomId, turnId) {
+      // closed here stays closed after a reload (the server lists a failed run for a day)
+      closeRun(myId(), turnId)
       set((s) => (s.ai[roomId] ? { ai: { ...s.ai, [roomId]: { ...s.ai[roomId]!, runs: s.ai[roomId]!.runs.filter((r) => r.turnId !== turnId) } } } : {}))
     },
 
@@ -746,23 +1154,30 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async shareAi(roomId, messageId) {
       const m = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId } })
-      set((s) => withMessage(s, roomId, m, myId()))
+      patchMessages((s) => withMessage(s, roomId, m, myId()))
     },
 
     async shareAnswer(chatId, messageId, body) {
       const r = await api.call(API.shareAnswerToRoom, { params: { id: chatId, messageId }, body })
-      if (r.status === 'sent') set((s) => withMessage(s, body.roomId, r.message, myId()))
+      if (r.status === 'sent') patchMessages((s) => withMessage(s, body.roomId, r.message, myId()))
       return r
     },
 
     async resync() {
       await get().loadRooms()
       const open = get().openRoomId
+      // the member lists: a members change missed while away is in none of them, so all go (the next open of a room reads
+      // its list again) and the rooms on screen (the open one, one beside a file in the viewer) read theirs now
+      const onScreen = new Set([...(open ? [open] : []), ...Object.values(get().threadViews).map((tv) => tv.roomId)])
+      memberReads.clear()
+      set((s) => ({ members: Object.fromEntries(Object.entries(s.members).filter(([id]) => onScreen.has(id))) }))
+      const members = [...onScreen].map((id) => get().loadMembers(id, true))
+      // every thread on screen reads again, the room's and one beside a file of it
+      const threads = Object.values(get().threadViews).map((tv) => get().loadThread(tv.roomId, tv.rootId))
       if (open) {
         asked.delete(open)
-        const tv = get().threadView
-        await Promise.all([get().loadNewest(open), get().loadMembers(open, true), get().loadAi(open), ...(tv?.roomId === open ? [get().loadThread(open, tv.rootId)] : [])])
-      }
+        await Promise.all([get().loadNewest(open), get().loadAi(open), ...members, ...threads])
+      } else await Promise.all([...members, ...threads])
     },
 
     handleEvent(ev) {
@@ -789,19 +1204,19 @@ export const useRooms = create<RoomsState>((set, get) => {
         case 'room.message': {
           const { roomId, message } = ev.data
           const known = get().rooms.some((r) => r.id === roomId)
-          set((s) => withMessage(s, roomId, message, myId()))
+          patchMessages((s) => withMessage(s, roomId, message, myId()))
           // a room I was just added to whose "added" did not reach this window: its counts come from the server
           if (!known && get().loaded) void get().fetchRoom(roomId).catch(() => {})
           return
         }
         case 'room.message.updated':
-          set((s) => withUpdatedMessage(s, ev.data.roomId, ev.data.message))
+          patchMessages((s) => withUpdatedMessage(s, ev.data.roomId, ev.data.message))
           return
         case 'room.thread':
-          set((s) => withThreadSummary(s, ev.data.roomId, ev.data.rootId, ev.data.thread))
+          patchMessages((s) => withThreadSummary(s, ev.data.roomId, ev.data.rootId, ev.data.thread))
           return
         case 'room.reactions':
-          set((s) => withReactions(s, ev.data.roomId, ev.data.messageId, ev.data.reactions))
+          patchMessages((s) => withReactions(s, ev.data.roomId, ev.data.messageId, ev.data.reactions))
           return
         case 'room.read':
           // I read it in another window or on my phone: my position and badge for the room (nobody else's)
@@ -811,7 +1226,9 @@ export const useRooms = create<RoomsState>((set, get) => {
           const { roomId, change, room } = ev.data
           if (change === 'removed' || !room) {
             const wasOpen = get().openRoomId === roomId
-            set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
+            set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
+            useSideChats.getState().drop(roomId)
+            forgetRoomOnDevice(roomId)
             if (wasOpen) {
               if (!leaving.has(roomId)) toast({ level: 'info', text: t('rooms.removed') })
               navigateTo('/rooms')
@@ -820,14 +1237,15 @@ export const useRooms = create<RoomsState>((set, get) => {
           }
           set((s) => withRoom(s, room))
           if (change === 'members') {
+            memberReads.delete(roomId)
             set((s) => ({ members: omit(s.members, roomId) }))
-            // someone joined or left: the member list, and the reactions they took with them
+            // someone joined or left: the member list, and the reactions they took with them (in place: the reader keeps
+            // their place)
             if (get().openRoomId === roomId) {
               void get().loadMembers(roomId, true)
-              void get().loadNewest(roomId)
-              const tv = get().threadView
-              if (tv?.roomId === roomId) void get().loadThread(roomId, tv.rootId)
+              void get().refreshNewest(roomId)
             }
+            for (const tv of Object.values(get().threadViews)) if (tv.roomId === roomId) void get().loadThread(roomId, tv.rootId)
           }
           return
         }
@@ -837,11 +1255,54 @@ export const useRooms = create<RoomsState>((set, get) => {
     reset() {
       asked.clear()
       leaving.clear()
+      memberReads.clear()
       roomDrafts.clear()
       roomDraftMentions.clear()
+      restoredUnsent.clear()
+      goneHere.clear()
+      goneElsewhere.clear()
+      useSideChats.getState().reset()
       timelineGen++
-      threadGen++
+      threadGens.clear()
+      inFlight.clear()
       set({ ...EMPTY })
     },
   }
 })
+
+// A send whose message is on screen is done (settledPending), checked whenever what is on screen or the sends change:
+// one place for every way the message can come, so a send whose answer was lost never stays failed beside it
+useRooms.subscribe((s, prev) => {
+  if (s.timeline === prev.timeline && s.threadViews === prev.threadViews && s.pending === prev.pending) return
+  const pending = settledPending(s)
+  if (pending === s.pending) return
+  for (const [roomId, list] of Object.entries(s.pending)) for (const p of list) if (!pending[roomId]?.includes(p)) goneHere.add(p.clientMessageId)
+  useRooms.setState({ pending })
+})
+
+// The sends on their way or not sent, kept on this device per room as they change (keptUnsent): closing the app (or a
+// reload) does not lose them. Sent, let go or settled: gone from there too. A sign-out empties the store and the device.
+// What the store holds now, not the listener's own arguments: the listener above may have settled a send since.
+let keptPending: Record<string, PendingSend[]> = {}
+useRooms.subscribe(() => {
+  const now = useRooms.getState().pending
+  if (now === keptPending) return
+  const before = keptPending
+  keptPending = now
+  if (!myId()) return
+  for (const roomId of new Set([...Object.keys(now), ...Object.keys(before)])) {
+    const list = now[roomId]
+    if (list === before[roomId]) continue
+    // a room this page has not touched yet (gone from the list: forgetRoomOnDevice; all of them after a reset) keeps
+    // what the device has
+    if (!restoredUnsent.has(roomId)) continue
+    const left = new Set((list ?? []).map((p) => p.clientMessageId))
+    for (const p of before[roomId] ?? []) if (!left.has(p.clientMessageId)) goneHere.add(p.clientMessageId)
+    keepUnsent(roomId, list)
+  }
+})
+
+// another tab of mine changed what this device keeps
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (e) => onDeviceChange(e.key, e.newValue))
+}

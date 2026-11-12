@@ -404,6 +404,41 @@ describe('what people send that came from elsewhere', () => {
   })
 })
 
+describe('a shared answer in a thread (a side chat sends it there)', () => {
+  test("a later member gets it judged with its thread's first message: hidden when it used what they cannot read, shown when they may", async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db
+    const root = await send('erin', roomId, 'THREAD-ROOT-CANARY 로고 시안 언제 나와요?')
+    /** alice's own chat answered from `scope`; shared into the root's thread */
+    const shareInto = async (text: string, scope: ReadSource[]) => {
+      const chatId = uuidv7(), askId = uuidv7(), answerId = uuidv7()
+      db.query('INSERT INTO chats (id, user_id, session_read_scope) VALUES (?, ?, ?)').run(chatId, 'alice', JSON.stringify({ sources: scope }))
+      db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', '정리해 줘', 'done')").run(askId, chatId)
+      db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', ?, 'done')").run(answerId, chatId, askId, text)
+      db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answerId, chatId)
+      const r = await h.req('alice', `/api/chats/${chatId}/messages/${answerId}/share-to-room`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roomId, threadRootId: root.id, clientMessageId: cm() }) })
+      expect(r.status).toBe(200)
+      const m = (await r.json() as { status: string; message: RoomMessage }).message
+      expect(m.threadRootId).toBe(root.id)
+      return m
+    }
+    // from the marketing brief (bob, in finance, cannot read it), and from the shared folder (everyone may)
+    const closed = await shareInto('THREAD-BRIEF-CANARY', [folder('groups/marketing')])
+    const open = await shareInto('THREAD-SHARED-CANARY', [folder('shared')])
+    // the thread's first message's seq decides (COALESCE(thread_root_seq, seq)): both were there before bob
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    expect(hiddenRows(roomId, 'bob')).toEqual([closed.id])
+    expect((await timeline('bob', roomId)).find((m) => m.id === root.id)?.body).toContain('THREAD-ROOT-CANARY')
+    const thread = await h.api('bob').call(API.listRoomThread, { params: { id: roomId, messageId: root.id }, query: {} })
+    expect(thread.items.find((m) => m.id === closed.id)).toMatchObject({ withheld: true, author: { id: 'alice' }, body: '' })
+    expect(thread.items.find((m) => m.id === open.id)?.body).toBe('THREAD-SHARED-CANARY')
+    expect(JSON.stringify(thread)).not.toContain('THREAD-BRIEF-CANARY')
+    // erin, who was there, keeps both
+    const hers = await h.api('erin').call(API.listRoomThread, { params: { id: roomId, messageId: root.id }, query: {} })
+    expect(hers.items.map((m) => m.body)).toEqual(['THREAD-BRIEF-CANARY', 'THREAD-SHARED-CANARY'])
+  })
+})
+
 describe('notices and the Inbox', () => {
   test('nothing old notifies a later member; a reply in an old thread they follow counts in the Inbox', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])

@@ -1,0 +1,6 @@
+product,plan,unit,price_krw_per_month
+Acme Desk,Starter,per office,290000
+Acme Desk,Pro,per office,590000
+Acme Desk,Enterprise,per office,1490000
+Acme Rooms,Add-on,per room,39000
+Acme Sensor,Hardware,per unit,89000

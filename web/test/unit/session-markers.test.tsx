@@ -14,7 +14,7 @@ import { useChats } from '../../src/store/chats'
 import { dispatch } from '../../src/store/live'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { currentCount, readToken, startSessionMarkers, stopSessionMarkers, tellTiming, useSessionMarkers } from '../../src/store/sessionMarkers'
+import { currentCount, readToken, sideChatOnScreen, startSessionMarkers, stopSessionMarkers, tellTiming, useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useUi } from '../../src/store/ui'
 import { SessionMarker } from '../../src/components/chat/ChatState'
 import { UnreadBadge } from '../../src/components/rooms/SidebarRooms'
@@ -268,6 +268,37 @@ describe('this window: /seen, notifications and toasts', () => {
     useChats.setState({ chats: [c, plain] })
     await wait(5)
     expect(seenCalls).toEqual([c.id, old])
+  })
+
+  test("a room's side chat its panel shows is seen as the full chat is, with nothing told; not once the panel shows it no more", async () => {
+    const side = chat({ unseen: true })
+    const full = chat()
+    useChats.setState({ chats: [side, full] })
+    // the full chat on screen is another one: both are on screen
+    useSessionMarkers.getState().setOnScreen(full.id)
+    const off = sideChatOnScreen(side.id)
+    await wait(5)
+    expect(seenCalls).toEqual([side.id])
+    // an answer ends in the panel: seen again (a new state), no notification after the wait
+    const next = { ...side, updatedAt: iso(30) }
+    dispatch(updated(next, 'answer'))
+    await wait(80)
+    expect(seenCalls).toEqual([side.id, side.id])
+    expect(notified).toEqual([])
+    // a second panel of the room (the file viewer's) closes: the first still shows the chat
+    const off2 = sideChatOnScreen(side.id)
+    off2()
+    off2()
+    dispatch(updated({ ...next, updatedAt: iso(40) }, 'answer'))
+    await wait(80)
+    expect(seenCalls).toEqual([side.id, side.id, side.id])
+    expect(notified).toEqual([])
+    // the panel closed (or its 🕘 list covers the chat): an answer is new again, and told
+    off()
+    dispatch(updated({ ...next, updatedAt: iso(50) }, 'answer'))
+    await wait(80)
+    expect(seenCalls).toEqual([side.id, side.id, side.id])
+    expect(notified.map((n) => n.tag)).toEqual([`chat-${side.id}`])
   })
 
   test('no /seen loop: the fake server replays what the server sends (MUST 1), the chat on screen with a card and an answer', async () => {
@@ -538,6 +569,32 @@ describe('this window: /seen, notifications and toasts', () => {
       dispatch(msg(team.id, 'room.mention', { mentions: [ME.id] }))
       await wait(80)
       expect(notified).toEqual([{ title: 'acme-design', body: '나를 언급한 메시지가 있어요', tag: `room-${team.id}`, open: `/rooms/${team.id}`, read: at(team.id) }])
+    })
+
+    test('the desktop app: its window\'s focus is the window\'s, not the page\'s own; the room open is not told while it is focused, another room is once it is in the back', async () => {
+      const listeners = new Set<(f: boolean) => void>()
+      stopSessionMarkers()
+      stub('document', { visibilityState: 'visible', hidden: false, hasFocus: () => false, addEventListener: () => {}, removeEventListener: () => {} })
+      stub('mycelDesktop', {
+        bridgeVersion: 1,
+        notify: (n: { title: string; body: string; tag?: string; open?: string; read?: string }) => notified.push(n),
+        focus: { get: async () => true, onChange: (cb: (f: boolean) => void) => { listeners.add(cb); return () => listeners.delete(cb) } },
+      })
+      startSessionMarkers()
+      await wait(1)
+      expect(useSessionMarkers.getState().visible).toBe(true)
+      const dm = room({ kind: 'dm', name: null, groupId: null, peers: [BEN] })
+      const other = room({ kind: 'dm', name: null, groupId: null, peers: [{ id: 'zoe', name: 'Zoe' }], unreadCount: 1 })
+      useRooms.setState({ rooms: [dm, other], openRoomId: dm.id })
+      dispatch(msg(dm.id, 'room.dm'))
+      await wait(80)
+      expect(notified).toEqual([])
+      // another app in front: not visible any more, and another room's message is told
+      for (const l of listeners) l(false)
+      expect(useSessionMarkers.getState().visible).toBe(false)
+      dispatch(msg(other.id, 'room.dm'))
+      await wait(80)
+      expect(notified).toEqual([{ title: 'Zoe', body: '새 메시지가 왔어요', tag: `room-${other.id}`, open: `/rooms/${other.id}`, read: at(other.id) }])
     })
 
     test('the room\'s AI waits on me (room.updated with aiWaits): told like a card, toast on a phone; not while I look at it', async () => {

@@ -145,7 +145,10 @@ test('real API agent aborts its injected transport at the wall deadline without 
 })
 
 test('successive human waits share one absolute deadline', async () => {
-  const f = setup(90); let first: unknown, second: unknown
+  // The second card opens only if the first card's 20 ms timer runs before the wall deadline. With a 90 ms deadline, a
+  // stall of the event loop longer than ~70 ms on a busy CI runner ran that timer after the deadline: the turn ended
+  // and the second card never opened (CI unit shard 5 of #310 and #326: Received length: 1; their re-runs passed).
+  const f = setup(500); let first: unknown, second: unknown
   spyOn(f.exec as any, 'execute').mockImplementation(async () => {
     first = await f.exec.waitForPerson({ requestId: 'first', kind: 'ask_user' } as any, { timeoutMs: 20 })
     second = await f.exec.waitForPerson({ requestId: 'second', kind: 'ask_user' } as any, { timeoutMs: 60_000 })

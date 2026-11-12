@@ -253,6 +253,8 @@ test('when its admin is disabled the share stops, its tokens go, and the admins 
 // docs/DECISIONS.md "W6" (onboarding v6's 도구 연결, re-check N1): an owner or admin may start their own sign-in while
 // the switch is off; the switch turns on only with the confirmed account, and only when the confirm asks for it
 test('the members’ switch off: an owner or admin may still sign in to their own Drive; the confirm with membersOn turns it on; a cancel or a confirm without it changes nothing; members are refused', async () => {
+  // a team made before migration 341 (or one whose admin turned it off)
+  setMembersCanConnect(a.ctx, 'carol', false)
   expect(() => svc.authorize('alice', 'alice-session')).toThrow('drive_members_off')
   // the owner starts; cancelling changes nothing
   const first = svc.authorize('dana', 'dana-session')
@@ -278,7 +280,8 @@ test('the members’ switch off: an owner or admin may still sign in to their ow
   setMembersCanConnect(a.ctx, 'carol', false)
 })
 
-test('the members’ switch: off by default; their own Drive only while it is on; the team share works either way', async () => {
+test('the members’ switch: off for a team made before migration 341; their own Drive only while it is on; the team share works either way', async () => {
+  setMembersCanConnect(a.ctx, 'carol', false)
   expect(svc.status('alice').personalAllowed).toBe(false)
   expect(() => svc.authorize('alice', 'alice-session')).toThrow('drive_members_off')
   setMembersCanConnect(a.ctx, 'carol', true)

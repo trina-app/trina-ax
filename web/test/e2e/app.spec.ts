@@ -28,15 +28,15 @@ test('a new server version offers a reload', async ({ page }) => {
   await expect(page.getByRole('button', { name: '새로 고침' })).toBeVisible()
 })
 
-test('projects: create one on a folder, open a chat in it', async ({ page }) => {
+test('projects: create a team project, open a chat in it', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.getByRole('link', { name: '프로젝트' }).click()
   await page.getByTestId('project-new').click()
   await page.getByTestId('project-name').fill('Launch')
-  await page.getByRole('dialog').getByRole('button', { name: '선택' }).click()
-  await page.getByRole('dialog').last().getByRole('button', { name: 'marketing' }).click()
-  await page.getByTestId('folder-pick').click()
+  // no folder to choose: a team project is a new projects/<name> (docs/DECISIONS.md "Projects live only in projects/")
+  await expect(page.getByTestId('project-kind-team')).toBeChecked()
+  await expect(page.getByTestId('project-folder')).toHaveCount(0)
   await page.getByRole('dialog').getByLabel('지침').fill('Answer in short bullet points.')
   await page.getByTestId('project-save').click()
   await expect(page.getByRole('heading', { name: 'Launch' })).toBeVisible()

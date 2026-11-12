@@ -40,11 +40,14 @@ export interface ProjectRow {
   trashed_with: string | null
   /** migration 265: new chats in this project are shared with its people (chat/shared.ts) */
   share_chats: number
+  /** migration 280: the server made its projects/<name> folder for it (chat/project-access.ts): only then is it its
+   * creator's to change who sees it or to trash its folder with it */
+  folder_made?: number
 }
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
-export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats'
+export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
 export function iso(t: string | null | undefined): string {
@@ -143,7 +146,7 @@ export class ChatStore {
     // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
     const steps: Step[] = stored.map((s) => {
       if (earlier) {
-        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, tool, ...rest } = s
+        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, tool, ...rest } = s
         return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, view!.locale ?? 'en') }
       }
       if (!s.sv) return s
@@ -153,8 +156,9 @@ export class ChatStore {
       const { detail: _d, ...rest } = out
       return rest
     })
-    // a shared chat: a step's detail (a card's answer, an error's words) is the runner's alone
-    if (view && !view.runner) for (let i = 0; i < steps.length; i++) if (steps[i]!.detail !== undefined) { const { detail: _d, ...rest } = steps[i]!; steps[i] = rest }
+    // a shared chat: a step's detail (a card's answer, an error's words) and where a post went (Step.posted: a room's
+    // id) are the runner's alone
+    if (view && !view.runner) for (let i = 0; i < steps.length; i++) if (steps[i]!.detail !== undefined || steps[i]!.posted !== undefined) { const { detail: _d, posted: _p, ...rest } = steps[i]!; steps[i] = rest }
     if (!steps.some((s) => s.tool === 'attachment')) return steps
     const owner = view?.viewer ?? (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
     const gone = (s: Step): boolean => {
@@ -198,13 +202,15 @@ export class ChatStore {
   /** `answersOf`: whose answers the unseen marker and the last outcome come from (a shared chat: its creator's own
    * turns, for its creator; null for anyone else: no marker); absent: every answer (a chat of one person). `viewer`: whose
    * pin it shows (Chat.pinnedAt, chat/pins.ts). */
-  toChat(r: ChatRow, runState: ChatRunState, waiting = false, o: { answersOf?: string | null; viewer?: string } = {}): Chat {
+  toChat(r: ChatRow, runState: ChatRunState, waiting = false, o: { answersOf?: string | null; viewer?: string; ending?: boolean; waitingForPlace?: boolean } = {}): Chat {
     const pinned = o.viewer ? this.pinnedAt(o.viewer, r.id) : null
     return {
       id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
       ...(isConfidentialChat(this.db, r.id) ? { confidential: true as const } : {}),
       ...(waiting ? { waiting: true as const } : {}),
+      ...(o.ending ? { ending: true as const } : {}),
+      ...(o.waitingForPlace ? { waitingForPlace: true as const } : {}),
       ...(o.answersOf === null ? {} : this.answerState(r, o.answersOf)),
       ...(this.mergeWaiting(r.id) ? { mergeWaiting: true as const } : {}),
       ...(r.side_room_id ? { sideRoomId: r.side_room_id } : {}),
@@ -380,7 +386,7 @@ export class ChatStore {
   // ---------------- projects ----------------
   projectRow(id: string): ProjectRow | null { return this.db.query(`SELECT ${PROJECT_COLS} FROM projects WHERE id = ?`).get(id) as ProjectRow | null }
   /** `share`: its shared chats as the caller sees them (chat/shared.ts projectShare) */
-  toProject(r: ProjectRow, canEdit: boolean, share?: Pick<Project, 'shareChats' | 'audience' | 'sharedChats'>): Project {
+  toProject(r: ProjectRow, canEdit: boolean, share?: Pick<Project, 'shareChats' | 'audience' | 'sharedChats' | 'chatUploads'>): Project {
     return { id: r.id, name: r.name, folderPath: r.folder_path, instructions: r.instructions, createdBy: this.userRef(r.created_by), createdAt: iso(r.created_at), canEdit, inTrash: r.trashed_with !== null, ...(share ?? {}) }
   }
 

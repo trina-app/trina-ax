@@ -56,11 +56,25 @@ export function opensWithoutServer(f: { name: string; size: number }): boolean {
  * (Me.server.hwpPreview; GET /api/rooms/:id/files/:fileId/hwp-preview). Off or absent: none, so it downloads as before. */
 export const roomHwpPreview = (name: string, me: Pick<Me, 'server'> | null | undefined): boolean => previewKind(name) === 'hwp' && !!me?.server.hwpPreview
 
-/** Whether a room file's name opens it in the preview panel: a kind the app draws itself (opensWithoutServer), or a
- * Hangul file while the HWP preview is on (roomHwpPreview) and within what the preview reads (HWP_LIMITS.inputBytes:
- * a larger one would only say so). Otherwise it is downloaded. */
+/** Why a room file has no preview here: no viewer for its kind (a ZIP, a HEIC photo, a Hangul file while the HWP preview
+ * is off: 'unsupported'), or past what its viewer reads ('large'; for a Hangul file HWP_LIMITS.inputBytes). null: it
+ * has one, a kind the app draws itself (opensWithoutServer) or a Hangul file while the HWP preview is on
+ * (roomHwpPreview). The file viewer then shows its card at once, with nothing read. */
+export function roomNoPreview(f: { name: string; size: number }, me: Pick<Me, 'server'> | null | undefined): 'unsupported' | 'large' | null {
+  const kind = previewKind(f.name)
+  if (!kind) return 'unsupported'
+  if (serverPreview(f.name)) {
+    if (!roomHwpPreview(f.name, me)) return 'unsupported'
+    return f.size <= HWP_LIMITS.inputBytes ? null : 'large'
+  }
+  const limit = previewLimit(kind)
+  return limit.truncate || f.size <= limit.max ? null : 'large'
+}
+
+/** Whether a room file has a preview here (roomNoPreview: a kind the app draws itself, or a Hangul file while the HWP
+ * preview is on and within what it reads). Otherwise the file viewer shows its card with the download. */
 export function roomFileOpens(f: { name: string; size: number }, me: Pick<Me, 'server'> | null | undefined): boolean {
-  return opensWithoutServer(f) || (roomHwpPreview(f.name, me) && f.size <= HWP_LIMITS.inputBytes)
+  return roomNoPreview(f, me) === null
 }
 
 /** Photos that browsers (other than Safari) cannot draw: the panel shows the server's JPEG (GET /api/files/preview)

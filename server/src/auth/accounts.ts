@@ -1,9 +1,11 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
 import fs from 'node:fs'
+import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
 import { TEMP_PASSWORD_MAX_FAILURES, TEMP_PASSWORD_TTL_DAYS } from '@mycel/shared'
+import { SETUP_TOKEN_HEADER } from '@mycel/shared/api'
 import {
   type AcceptInviteBody, type ChangePasswordBody, type CompletePasswordResetBody, type CreateInviteBody, type Invite,
   type InviteInfo, type Locale, type LoginBody, type LoginResponse, type PasswordResetInfo, type Role, type SetupBody,
@@ -15,18 +17,21 @@ import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
-import { createDefaultFolders } from '../admin/folders'
+import { captureState, createDefaultFolders } from '../admin/folders'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
 import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { authOf } from './service'
-import { assertSeatFree } from '../system/limits'
+import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
+import { resolveLayout } from '../system/layout'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
-import { notifyTemplateOffers } from '../notifications/service'
+import { notifyResetLink, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { roomsOf } from '../rooms/service'
+import { recordJoin } from '../onboarding/member-welcome'
 import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
 
 export const RESET_TTL_MS = 24 * 3600_000
@@ -95,6 +100,32 @@ export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null;
   return { needed, teamName: null, defaultLocale: getTeamSettings(ctx.db).defaultLocale }
 }
 
+/**
+ * GET /api/setup as the caller may see it. From the internet, signed out, the answer does not tell whether the team is
+ * set up yet: the office internet address always says `needed: false` (setup is refused there anyway, setup below);
+ * through the relay (<team>.<team domain>) it says `needed: true` only to a visitor who sends the setup token
+ * (SETUP_TOKEN_HEADER, from the setup link), so the owner's link still opens the setup page. A wrong token counts
+ * against the caller's IP like a wrong token on POST /api/setup (tokenGuard), so GET is no faster way to guess it.
+ * This server itself and the office network see the real answer, as before (installers, demo scripts, the CLI).
+ * Known and accepted ("보안 4차"): defaultLocale still changes when the owner picked another language at setup.
+ */
+export function setupStatusFor(c: Context<AppEnv>, ctx: AppContext): ReturnType<typeof setupStatus> {
+  const s = setupStatus(ctx)
+  const info = c.get('info')
+  if (info.tunnel) return { ...s, needed: false }
+  return info.via === 'relay' ? withToken(c, ctx, s) : s
+}
+
+function withToken(c: Context<AppEnv>, ctx: AppContext, s: ReturnType<typeof setupStatus>): ReturnType<typeof setupStatus> {
+  const sent = c.req.header(SETUP_TOKEN_HEADER)?.trim()
+  if (!sent) return { ...s, needed: false }
+  const guard = tokenGuard(ctx, c.get('info').ip)
+  const expected = ctx.config.setupToken
+  if (s.needed && expected && safeEqual(sent, expected)) return s
+  guard.fail()
+  return { ...s, needed: false }
+}
+
 export interface OwnerInput { username: string; name: string; password: string; email?: string | null; teamName: string; locale: Locale
   /** IANA zone (the setup page sends the browser's); unknown or absent = the server's default (system/time-zone.ts) */
   timeZone?: string | null }
@@ -120,9 +151,11 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
   }).immediate()
   if (!created) fail('conflict', msg('setupDone', o.locale))
   ensurePersonalFolder(ctx.files.fx.root, id)
-  // the one-time token is spent
+  // the one-time token is spent: the server's copy and the installer's copy for the administrator (<base>/setup/code,
+  // `sudo cat` on Linux and the Mac; QA TC-211: it stayed on disk after setup)
   ctx.config.setupToken = null
   fs.rmSync(path.join(ctx.config.dataDir, 'setup-token'), { force: true })
+  try { fs.rmSync(path.join(resolveLayout(ctx.config).setupDir, 'code'), { force: true }) } catch (e) { ctx.log.warn('the setup code file could not be removed', { err: e }) }
   return id
 }
 
@@ -131,11 +164,17 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   // the office public address (internet): the owner account is made on the Mac itself or from an office desk, never
   // from the internet, whatever token is sent (http/tunnel.ts). Checked first, so the answer (403) is the same before
   // and after setup: a 409 "already set up" told the internet whether the team exists yet.
-  if (c.get('info').tunnel) fail('forbidden', msg('setupNotRemote', locale))
-  if (userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
-  const guard = tokenGuard(ctx, c.get('info').ip)
+  const info = c.get('info')
+  if (info.tunnel) fail('forbidden', msg('setupNotRemote', locale))
+  // through the relay the token comes first: without it the answer is the same counted 403 before and after setup
+  // (the token is spent at setup), so a POST with a made-up token does not tell the internet whether the team exists.
+  // This server and the office network keep the 409 "already set up" first (installers and scripts read it).
+  const relay = info.via === 'relay'
+  if (!relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
+  const guard = tokenGuard(ctx, info.ip)
   const expected = ctx.config.setupToken
   if (!expected || !safeEqual(b.setupToken, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }
+  if (relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   checkNewPassword(b.owner.password, b.owner.username, locale, 'body.owner.password')
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
   return authOf(ctx).signIn(c, id, 'web', 'cookie')
@@ -224,7 +263,13 @@ export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<
   const hash = await hashPassword(b.newPassword)
   // the forced path writes only while the account still has its temporary password (a second, parallel change in the
   // same session finds must_change_password = 0 and is refused)
-  const changed = ctx.db.query(`UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0 WHERE id = ?${forced ? ' AND must_change_password = 1' : ''}`).run(hash, auth.user.id).changes
+  // open reset links for this account stop working with the old password (a link pasted in the wrong chat must not
+  // outlive a password the person chose themselves)
+  const changed = ctx.db.transaction(() => {
+    const n = ctx.db.query(`UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0 WHERE id = ?${forced ? ' AND must_change_password = 1' : ''}`).run(hash, auth.user.id).changes
+    if (n) revokeResetLinksFor(ctx.db, auth.user.id, a.now())
+    return n
+  })()
   if (!changed) fail('validation', msg('currentPasswordRequired', locale), { fields: { 'body.currentPassword': 'required' } })
   if (auth.session.tempLogin) a.finishTempLogin(auth.session.id)
   const ended = a.endUserSessions(auth.user.id, 'password_changed', auth.session.id)
@@ -313,7 +358,12 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const guard = tokenGuard(ctx, c.get('info').ip)
   const r = inviteByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid: inviteValid(ctx.db, r!, authOf(ctx).now()) }
+  const valid = inviteValid(ctx.db, r!, authOf(ctx).now())
+  // who made it, only while it works ("{inviter} invited you to {team}"): not while every seat is taken either, when the
+  // accept is refused (the team link's 'full'); `valid` stays as it was, so the page does not say "expired or used"
+  const max = seatLimit()
+  const inviterName = valid && (max === null || seatsUsed(ctx.db) < max) && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
@@ -352,25 +402,49 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   }
   if (ok! === 'gone') fail('gone', msg('linkInvalid', locale))
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // who invited them, for their welcome card on Home; first, so the template notice below waits for Connected apps
+  // (onboarding/member-welcome.ts)
+  recordJoin(ctx, { userId: id, via: 'invite', invitedBy: r!.created_by })
+  // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
+  if (groups.length) projectJoinsOfNewAccount(ctx, id, id, captureState(ctx.db))
   notifyTemplateOffers(ctx, { userId: id })
   // a lead invite: the owner who flagged it gets the card's notice (only a hint: the role stays member)
   afterLeadJoin(ctx, r!.id)
+  // told as a join with the team link is: the owners and whoever made the invite (Activity), and one line in the
+  // everyone room for the rest of the team (QA 2026-11-11: a member who joined with an invite was told to nobody)
+  const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+  notifyTeamJoined(ctx, r!.created_by ? [...owners, r!.created_by] : owners, id)
+  roomsOf(ctx).memberJoined(id)
   return a.signIn(c, id, b.client, b.tokenMode)
 }
 class UsernameTaken extends Error {}
 
 // ---------------- password reset links ----------------
+/**
+ * Every open reset link for this account stops working. Called wherever the password changes (own change, an admin's
+ * temporary password, a used reset link) and when the account is disabled, in the same transaction as that write:
+ * a link lasts a day and signs its holder in as the person, so one pasted in the wrong place must not outlive the
+ * password it was meant to replace. Marked used rather than deleted, so re-enabling the account does not bring it back.
+ */
+export function revokeResetLinksFor(db: Database, userId: string, now: number): number {
+  return db.query('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(new Date(now).toISOString(), userId).changes
+}
+
 export function createResetLink(ctx: AppContext, userId: string, createdBy: string | null, base: string): { token: string; url: string; expiresAt: string } {
   const token = newToken()
   const now = authOf(ctx).now()
   const expiresAt = new Date(now + RESET_TTL_MS).toISOString()
+  const id = newId()
   ctx.db.transaction(() => {
     // only the newest link works
-    ctx.db.query('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(new Date(now).toISOString(), userId)
+    revokeResetLinksFor(ctx.db, userId, now)
     ctx.db.query('INSERT INTO password_resets (id, user_id, token_hash, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(newId(), userId, hashToken(token), createdBy, new Date(now).toISOString(), expiresAt)
+      .run(id, userId, hashToken(token), createdBy, new Date(now).toISOString(), expiresAt)
     audit(ctx.db, { actor: createdBy, action: 'user.reset_link', target: userId, detail: { expiresAt, recovery: createdBy === null } })
   })()
+  // the person the link is for is told (Activity), whoever made it: the server's CLIs (mycel-account / mycel-ctl
+  // reset-link) or an owner or admin. Before, only the audit log knew (QA TC-202)
+  notifyResetLink(ctx, userId, id)
   return { token, url: `${base}/reset-password/${token}`, expiresAt }
 }
 
@@ -425,6 +499,8 @@ export async function completeReset(c: Context<AppEnv>, ctx: AppContext, token: 
     if (!fresh || !resetUsable(ctx.db, fresh, getUser(ctx.db, u!.id), a.now())) return false
     if (ctx.db.query('UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now, r!.id).changes !== 1) return false
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, r!.created_by, now, u!.id)
+    // any other open link for the account goes with the old password too
+    revokeResetLinksFor(ctx.db, u!.id, a.now())
     audit(ctx.db, { actor: u!.id, action: 'auth.password_reset', target: u!.id, detail: { by: r!.created_by, ip: c.get('info').ip } })
     return true
   })()

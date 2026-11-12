@@ -7,7 +7,7 @@
 //   room, ‹ and the page's name below a tab;
 // - ‹ goes back in the history when the entry before is the app's own and otherwise replaces this entry with the tab's
 //   list, never pushes (the phone's own back would loop between the two);
-// - the 나 list starts with 알림함 (with the count) and, for admins, 관리자; its own 알림 row is left out there;
+// - the 나 list starts with 활동 (Activity, with the count) and, for admins, 관리자; 알림 (the settings) stays in its group;
 // - Home's latest AI chats: three, newest first, never a chat only made for a draft's attachments.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act, type ReactNode } from 'react'
@@ -104,7 +104,7 @@ describe('which tab an address belongs to', () => {
     for (const p of ['/', '/c/abc', '/projects', '/projects/p1', '/scheduled', '/scheduled/s1', '/skills', '/trash']) expect(tabOf(p)).toBe('ai')
     for (const p of ['/rooms', '/rooms/r1']) expect(tabOf(p)).toBe('chats')
     for (const p of ['/files', '/files/view']) expect(tabOf(p)).toBe('files')
-    for (const p of ['/settings', '/settings/notifications', '/admin', '/admin/members']) expect(tabOf(p)).toBe('me')
+    for (const p of ['/settings', '/settings/notifications', '/admin', '/admin/members', '/activity']) expect(tabOf(p)).toBe('me')
     for (const p of ['/welcome', '/skillsx', '/roomsy', '/nothing']) expect(tabOf(p)).toBeNull()
   })
 
@@ -250,14 +250,19 @@ describe('the top bar', () => {
     for (const p of ['/files', '/rooms/r1', '/c/abc']) expect(await html(p)).toBe('')
   })
 
-  test('a page below a tab: ‹ and its name, for the eye only (the page has its heading); no ☰', async () => {
-    for (const [p, key] of [['/skills', 'skills.title'], ['/projects', 'projects.title'], ['/scheduled/s1', 'settings.schedules'], ['/trash', 'trash.title'], ['/admin/members', 'admin.title']] as const) {
+  test('a page below a tab: ‹ named after where it goes (its parent, lib/screens.ts), and its name, for the eye only (the page has its heading); no ☰', async () => {
+    for (const [p, key, up] of [['/skills', 'skills.title', aiName(ko)], ['/projects', 'projects.title', aiName(ko)], ['/scheduled/s1', 'settings.schedules', ko('settings.schedules')], ['/trash', 'trash.title', aiName(ko)]] as const) {
       const h = await html(p)
       expect(h).toContain('data-testid="topbar-back"')
-      expect(h).toContain(`aria-label="${ko('tabs.back')}"`)
+      expect(h).toContain(`aria-label="${ko('tabs.backTo', { page: up })}"`)
+      expect(h).toContain(`data-testid="topbar-back-label">${up}<`)
       expect(h).toMatch(new RegExp(`aria-hidden="true"[^>]*data-testid="topbar-title">${ko(key)}<`))
       expect(h).not.toContain('menu-open')
     }
+  })
+
+  test('관리자: no bar here (Admin draws the same bar itself, with "‹ Admin" over its pages)', async () => {
+    for (const p of ['/admin', '/admin/members']) expect(await html(p)).toBe('')
   })
 
   test('a project\'s new chat (/?project=) has ‹ back to the project instead of ☰', async () => {
@@ -268,7 +273,8 @@ describe('the top bar', () => {
 
   test('the buttons are 44 px', async () => {
     for (const p of ['/', '/rooms', '/skills']) {
-      for (const m of (await html(p)).matchAll(/<button [^>]*class="([^"]*)"/g)) expect(m[1]).toContain('size-11')
+      // ‹ with its label: 44 px tall and at least as wide
+      for (const m of (await html(p)).matchAll(/<button [^>]*class="([^"]*)"/g)) expect(m[1]).toMatch(/size-11|h-11 [^"]*min-w-11/)
     }
   })
 })
@@ -288,10 +294,10 @@ describe('‹ never pushes', () => {
 
   test('opened from outside (the first entry): the tab\'s list in place of this entry', async () => {
     historyAt(0)
-    const m = await mount(withBar(['/admin/members']))
+    const m = await mount(withBar(['/scheduled']))
     try {
       await m.click('topbar-back')
-      expect(seen).toMatchObject({ path: '/settings', type: 'REPLACE' })
+      expect(seen).toMatchObject({ path: '/', type: 'REPLACE' })
     } finally {
       await m.unmount()
     }
@@ -364,21 +370,23 @@ describe('‹ never pushes', () => {
 describe('the 나 tab\'s list on a phone', () => {
   const dialog = () => mount(<MemoryRouter initialEntries={['/settings']}><Routes><Route path="/settings/:tab?" element={<SettingsDialog onClose={() => {}} />} /></Routes></MemoryRouter>)
 
-  test('알림함 first, with the unread count; its 알림 row is left out there', async () => {
+  test('활동 (Activity) first, with the unread count; the 알림 settings row stays in its group', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
     inboxCount = 7
     const m = await dialog()
     try {
       const inbox = m.get('settings-inbox')
-      expect(inbox.getAttribute('href')).toBe('/settings/notifications')
+      expect(inbox.getAttribute('href')).toBe('/activity')
       expect(inbox.textContent).toContain(ko('inbox.title'))
       await m.until(() => m.find('settings-inbox-unread'), 'the inbox count')
       expect(m.get('settings-inbox-unread').textContent).toContain('7')
       // a member: no 관리자 row
       expect(m.find('settings-admin')).toBeNull()
+      // the phone's list (phone/PhoneList.tsx): 알림, the notification settings, is a row of its own in its group
       const own = m.get('settings-menu').querySelectorAll('a[href="/settings/notifications"]').filter((a) => a !== inbox)
       expect(own.length).toBe(1)
-      expect(own[0]!.getAttribute('class')).toContain('max-md:hidden')
+      expect(own[0]!.getAttribute('class')).not.toContain('max-md:hidden')
+      expect(own[0]!.getAttribute('data-testid')).toBe('settings-row-notifications')
     } finally {
       await m.unmount()
     }

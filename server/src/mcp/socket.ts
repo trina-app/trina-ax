@@ -7,13 +7,53 @@ import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
 import type { Peer, Turn, TurnRegistry } from '../turns'
+import { PARALLEL_READ_TOOLS } from '../rooms/ai-tools'
 import { makeHandler } from './protocol'
 
 export interface McpSocketServer { path: string; secret: string; stop(): void; connections: number; rejected: { reason: string; peer?: Peer }[] }
 
-type S = { buf: string; dec: TextDecoder; stage: 'gate' | 'hello' | 'auth' | 'mcp' | 'closed'; peer?: Peer; turn?: Turn; handle?: (m: any) => Promise<any>; queue: Promise<void>
+type S = { buf: string; dec: TextDecoder; stage: 'gate' | 'hello' | 'auth' | 'mcp' | 'closed'; peer?: Peer; turn?: Turn; handle?: (m: any) => Promise<any>; calls: CallQueue
   /** bytes the kernel did not take yet (Bun's socket.write may write only part; the rest goes out on drain) */
   out: { bytes: Buffer; guard?: () => void }[] }
+
+/** read-only tool calls of one connection (one answer, its sub-agents included) that run at the same time, at most */
+export const MAX_PARALLEL_READS = 4
+
+/** A call of a read-only tool (rooms/ai-tools.ts PARALLEL_READ_TOOLS): it may run next to other such calls. */
+export function parallelCall(msg: any): boolean {
+  return msg?.method === 'tools/call' && PARALLEL_READ_TOOLS.has(String(msg.params?.name ?? ''))
+}
+
+/**
+ * The messages of one tool connection, started in the order they came. A read-only tool call (parallelCall) runs next
+ * to the other read-only calls, at most `max` at once. Everything else (write, edit, edit_files, any other or unknown
+ * tool, initialize, tools/list, notifications) runs alone: it starts once every earlier message has finished, and
+ * nothing that came after it starts before it has finished. So a read after a write sees the write, and a write after
+ * reads comes after them, as when every message ran one at a time. Answers go out as each call finishes, each with its
+ * own JSON-RPC id (the engines match them by id).
+ */
+export class CallQueue {
+  private waiting: { parallel: boolean; run: () => Promise<void> }[] = []
+  private running = 0
+  private alone = false
+  constructor(private readonly max = MAX_PARALLEL_READS) {}
+  push(parallel: boolean, run: () => Promise<void>) {
+    this.waiting.push({ parallel, run })
+    this.next()
+  }
+  private next() {
+    while (this.waiting.length && !this.alone) {
+      const job = this.waiting[0]!
+      if (job.parallel ? this.running >= this.max : this.running > 0) return
+      this.waiting.shift()
+      this.running++
+      this.alone = !job.parallel
+      // started on a later microtask, as on the one promise chain before: the line loop (pump) never runs a handler
+      // itself. A job that throws does not hold up the ones after it
+      void Promise.resolve().then(job.run).catch(() => {}).then(() => { this.running--; this.alone = false; this.next() })
+    }
+  }
+}
 
 /** Write everything, in order: what the socket does not take now is kept and flushed on drain. */
 export function send(sock: any, data: string, guard?: () => void) {
@@ -80,7 +120,8 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
         }, (e) => reject(sock, s, String(e?.message ?? e)))
       } else {
         const turn = s.turn!
-        s.queue = s.queue.then(async () => {
+        // read-only tool calls run side by side, everything else one at a time in order (CallQueue)
+        s.calls.push(parallelCall(msg), async () => {
           if (turn.revoked) return reject(sock, s, 'turn ended')
           const out = await s.handle!(msg).catch((e) => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32603, message: String(e?.message ?? e) } }))
           if (turn.revoked) { s.out=[]; return reject(sock,s,'turn ended') }
@@ -94,7 +135,7 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
   const server = Bun.listen<S>({
     unix: sockPath,
     socket: {
-      open(sock) { sock.data = { buf: '', dec: new TextDecoder('utf-8'), stage: 'gate', queue: Promise.resolve(), out: [] }; state.connections++ },
+      open(sock) { sock.data = { buf: '', dec: new TextDecoder('utf-8'), stage: 'gate', calls: new CallQueue(), out: [] }; state.connections++ },
       drain(sock) { if (sock.data) flush(sock) },
       data(sock, chunk) {
         const s = sock.data

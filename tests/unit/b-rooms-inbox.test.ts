@@ -61,6 +61,8 @@ test('rows are mentions and replies in threads I follow; a DM or a "모든 메�
   const r = await reply(mia.client, team.id, root.id, 'mia answers')
   expect(rows().map((x) => [x.code, x.room?.reason, x.room?.message])).toEqual([['room.dm', 'reply', r.id], ['room.mention', 'mention', m.id]])
   expect(n.list(nora.id, {}).unreadCount).toBe(2)
+  // both are conversation rows: their part of the count is said on its own (a phone's 나 tab leaves it to 대화)
+  expect(n.list(nora.id, {}).roomUnreadCount).toBe(2)
   // a thread nora does not follow tells her nothing
   const other = await send(mia.client, team.id, 'mia asks')
   await reply(otto.client, team.id, other.id, 'otto answers')
@@ -69,6 +71,7 @@ test('rows are mentions and replies in threads I follow; a DM or a "모든 메�
   await nora.client.call('PUT', `/api/rooms/${team.id}/hidden`, { hidden: true })
   expect(rows()).toEqual([])
   expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  expect(n.list(nora.id, {}).roomUnreadCount).toBe(0)
 })
 
 test('a row says who, where and why with the first line; the notice a push opens has the line only while the person\'s message preview is on', async () => {

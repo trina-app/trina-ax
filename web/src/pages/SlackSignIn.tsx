@@ -30,7 +30,7 @@ export function SlackDone({ signedIn }: { signedIn: boolean }) {
     <section className="mx-auto max-w-xl space-y-3 p-4 sm:p-6" data-testid="slack-done">
       <h1 className="text-xl font-semibold">Slack</h1>
       <p className={`text-sm ${ok ? '' : 'text-warn'}`} role="status" data-testid="slack-done-text">{t(ok ? 'slack.signin.doneApp' : outcomeText(code))}</p>
-      {signedIn && <Link to="/settings/connectors" className="text-sm text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>}
+      {signedIn && <Link to="/connectors" className="text-sm text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>}
     </section>
   )
 }

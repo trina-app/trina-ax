@@ -140,6 +140,18 @@ test('disconnect immediately clears local data and blocks reconnect until revoca
   expect(() => svc.authorize(user, session)).not.toThrow()
   expect(h.ctx.db.query('SELECT count(*) n FROM drive_connections').get()).toEqual({ n: 0 })
 })
+test('disconnect does not revoke a grant that backs a live team Drive share of the person', async () => {
+  await connect()
+  const user = (h.ctx.db.query('SELECT user_id FROM drive_connections').get() as { user_id: string }).user_id
+  const now = new Date().toISOString()
+  h.ctx.db.query("INSERT INTO drive_team_shares (id, name, owner_user_id, config_key, account, scopes, secret_enc, key_version, folders, status, version, expires_at, created_at, updated_at) VALUES ('share-1', 'Sales', ?, 'k', '{}', 'drive.readonly', 'sealed', 1, '[]', 'connected', 1, '2099-01-01', ?, ?)").run(user, now, now)
+  expect((await svc.disconnect(user)).revocation).toBe('not_needed')
+  expect(fake.revoked).toBe(false)
+  // a share that already stopped (its tokens gone) keeps nothing: the last sign-in is revoked
+  h.ctx.db.query("UPDATE drive_team_shares SET secret_enc=NULL, status='needs_reconnect' WHERE id='share-1'").run()
+  await connect()
+  expect((await svc.disconnect(user)).revocation).toBe('revoked')
+})
 test('reconnect notification deduplicates the durable episode without account or token metadata', async () => {
   await connect()
   const user = (h.ctx.db.query('SELECT user_id FROM drive_connections').get() as { user_id: string }).user_id

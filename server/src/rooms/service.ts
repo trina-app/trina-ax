@@ -13,8 +13,9 @@
 // message of the timeline; it takes a seq but stays out of the timeline (unless sent to the room too), moves my place in
 // the thread, not in the room, and makes me follow the thread (the root's author and people mentioned in it follow it
 // too). New replies notify the followers (room notices, as DM messages and mentions do) and mark the root for them;
-// nobody else is notified and no badge goes up for them. Reactions (react) take from the sending budget and notify
-// nobody. Nobody is told who read what: room.read goes to the reader's own windows only.
+// nobody else is notified and no badge goes up for them. Reactions (react: any one emoji, docs/DECISIONS.md "Any emoji as
+// a reaction") take from the sending budget and notify nobody; a message carries at most ROOM_REACTION_EMOJI_MAX
+// different emoji. Nobody is told who read what: room.read goes to the reader's own windows only.
 //
 // Hiding (docs/DECISIONS.md "대화 숨기기"): a member hides a DM, a team room or the everyone room from their own lists
 // (setHidden; room_members.hidden_at). Nobody else is told and nothing is audited. It comes back by itself when something
@@ -31,7 +32,7 @@
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -42,6 +43,7 @@ import { notificationsOf, type RoomNoticeEvent } from '../notifications/service'
 import { getPreferences, getPreferencesOf } from '../notifications/preferences'
 import { cancelPushUser } from '../notifications/push-events'
 import { teamTimeZone } from '../admin/settings'
+import { welcomeTeamGroupId } from '../onboarding/welcome'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
   canSee, groupName, isHiddenFor, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
@@ -51,7 +53,7 @@ import {
 import { roomFilesOf } from './files'
 import { historyKinds, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
-import { searchRoomMessages, type SearchInput } from './search'
+import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
 import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
@@ -80,7 +82,9 @@ export interface SendInput { body: string; replyToId?: string | null; threadRoot
  * number of files, never their names). `scope`: what it used, as checked (chat/answer-share.ts AnswerScopeKept JSON),
  * kept with it for those who join the room later (rooms/history.ts). The caller took the sending budget's token for the
  * request already (before its check): send takes none more. */
-export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string }
+/** `via`: 'ai' when the AI's post_to_room sent it after the person's yes on its card (chat/post-to-room.ts); absent: the
+ * button under an answer. */
+export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai' }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
@@ -359,6 +363,23 @@ export class Rooms {
     this.messageEvent('room.message', messageRow(this.db, room.id, line)!)
   }
 
+  /**
+   * Someone new joined the team (an invite: auth/accounts.ts acceptInvite; the team link: auth/team-links.ts; an
+   * admin's "Add directly", at the first sign-in: onboarding/member-welcome.ts firstSignIn). One line in the everyone
+   * room, written as them: "QA D joined the team", so the others can say hello. No notice and no push (an event line
+   * is never unread: rooms/inbox.ts), and the room keeps its place in the lists. They are put in the room first, so
+   * they see their own line. Never throws: the join itself has worked.
+   */
+  memberJoined(userId: string): void {
+    try {
+      this.syncFor(userId)
+      const room = this.db.query("SELECT id FROM rooms WHERE kind = 'all' AND archived_at IS NULL").get() as { id: string } | null
+      if (!room) return
+      const line = this.db.transaction(() => this.eventLine(room.id, userId, { type: 'joined' }, nowIso()))()
+      this.messageEvent('room.message', messageRow(this.db, room.id, line)!)
+    } catch (e) { this.ctx.log.warn('the join line was not written', { err: e }) }
+  }
+
   // ---------------- group chats: who is in one ----------------
   /** Add people to a group chat I am in (any member). Those already in it are skipped; the others see the room from
    * now on (visible_from_seq = the room's last seq, as in a team room) and the line that says they were invited. */
@@ -522,13 +543,21 @@ export class Rooms {
     this.syncFor(userId)
     return searchRoomMessages(this.db, userId, o)
   }
+  /** ⌘K: the files sent in my rooms with a message I can see, by name (rooms/search.ts searchRoomFiles); my team rooms'
+   * histories opened first, as for the messages. */
+  searchFiles(userId: string, o: SearchInput): RoomFileSearchPage {
+    this.syncFor(userId)
+    return searchRoomFiles(this.db, userId, o)
+  }
 
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
    * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it.
    * With threadRootId it is a reply in that message's thread (see the top of this file).
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
    * mentions nobody (nor "@전체") and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer
-   * are the AI's words, not a call), and is neither a reply nor in a thread; its files are linked files attached.
+   * are the AI's words, not a call), and never quotes a message (replyToId); it may be a reply in a thread (a side
+   * chat's answer to a question about a message: threadRootId, never "also to the room"); its files are linked files
+   * attached.
    * `carried` (connectors/remote-mcp/rooms.ts only): what an AI app's connection had read, kept for later members. */
   send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark, carried?: string | null): RoomMessage {
     const { room, me } = this.mine(userId, roomId)
@@ -546,20 +575,21 @@ export class Rooms {
     }
     let root: MessageRow | null = null
     if (b.threadRootId) {
-      root = messageRow(this.db, roomId, b.threadRootId)
-      // the same answer whatever is wrong (not there, not one I see, an event line, a reply itself, deleted, private)
-      if (!root || !canSee(this.db, root, me) || !threadable(root) || root.deleted_at) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
+      root = this.threadRootOf(roomId, b.threadRootId, me)
+      if (!root) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
-    if (answer && (b.threadRootId || b.replyToId || answer.at < 0 || answer.at > b.body.length)) fail('validation')
+    if (answer && (b.replyToId || b.alsoInRoom || answer.at < 0 || answer.at > b.body.length)) fail('validation')
     const mentions = answer ? [] : this.validMentions(roomId, userId, b.mentions)
     const fileIds = [...new Set(b.fileIds)]
     if (fileIds.length) {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
       if (n !== fileIds.length) fail('validation', undefined, { fields: { 'body.fileIds': 'unknown file' } })
     }
-    // "@트리나 …" (a person picked from the list under the same name wins); anything that stops the question stops the send
+    // "@트리나 …" (a person picked from the list under the same name wins), only while the server allows it
+    // (AppConfig.roomAiMentions; off by default: the side chat asks the AI beside a room); anything that stops the
+    // question stops the send. Off: the text is an ordinary message.
     const people = mentions.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${mentions.map(() => '?').join(',')})`).all(...mentions) as { name: string }[]).map((r) => r.name) : []
-    const ask = !answer && roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
+    const ask = !answer && this.ctx.config.roomAiMentions && roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
     const now = nowIso(), id = newId()
     // a reply that stays in its thread does not bring the room to the top of the list
     const inTimeline = !root || !!b.alsoInRoom
@@ -573,7 +603,7 @@ export class Rooms {
         b.mentionsAll && !answer ? 1 : 0, answer ? answer.at : null, answer?.cut ? 1 : 0, answer ? answer.scope : carried ?? null)
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
-      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length } })
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}) } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)
@@ -590,6 +620,15 @@ export class Rooms {
     if (root) this.afterReply(root)
     if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
+  }
+
+  /** The message `rootId` of the room as the first message of a thread `me` may reply in: there, one I see, one that can
+   * have a thread (store.ts threadable: in the timeline, not a reply, an event line or a private AI preview) and not
+   * deleted. null whatever is wrong (the same answer for each: not there, another room's, not mine to see). Also the
+   * check of a shared answer's thread before anything else (chat/answer-share.ts). */
+  threadRootOf(roomId: string, rootId: string, me: MemberRow): MessageRow | null {
+    const root = messageRow(this.db, roomId, rootId)
+    return root && canSee(this.db, root, me) && threadable(root) && !root.deleted_at ? root : null
   }
 
   /** Inside the reply's transaction: its author follows the thread and has read it up to the reply; the root's author
@@ -717,15 +756,22 @@ export class Rooms {
   }
 
   // ---------------- reactions ----------------
-  /** Put my reaction on a message I can see, or take it off (on: false). The same again changes nothing and costs
-   * nothing; a change takes from the sending budget. Event lines, deleted messages and private previews take none.
-   * Never a notice, an unread count or anything for the AI. */
-  react(userId: string, roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean): { reactions: RoomReaction[] } {
+  /** Put my reaction (any one emoji, the route checked it) on a message I can see, or take it off (on: false). The same
+   * again changes nothing and costs nothing; a change takes from the sending budget. A message carries at most
+   * ROOM_REACTION_EMOJI_MAX different emoji: a new one past that is refused (409), mine on one that is there is not.
+   * Event lines, deleted messages and private previews take none. Never a notice or an unread count. */
+  react(userId: string, roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean, locale: Locale = DEFAULT_LOCALE): { reactions: RoomReaction[] } {
     const { me } = this.mine(userId, roomId)
     const m = messageRow(this.db, roomId, messageId)
     if (!m || !canSee(this.db, m, me)) return fail('not_found')
     if (m.event || m.deleted_at || m.visibility !== 'room') fail('validation', undefined, { fields: { 'params.messageId': 'not a message to react to' } })
     const has = !!this.db.query('SELECT 1 FROM room_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').get(m.id, userId, emoji)
+    if (on && !has && !this.db.query('SELECT 1 FROM room_reactions WHERE message_id = ? AND emoji = ?').get(m.id, emoji)) {
+      // a new emoji on the message: only while it has fewer than the most (the rows of people still in the room; a
+      // person who leaves takes theirs, forgetMember). Checked and written in one go: nothing else runs in between.
+      const kinds = (this.db.query('SELECT COUNT(DISTINCT emoji) n FROM room_reactions WHERE message_id = ?').get(m.id) as { n: number }).n
+      if (kinds >= ROOM_REACTION_EMOJI_MAX) fail('conflict', tr('roomReactionsFull', locale, { n: String(ROOM_REACTION_EMOJI_MAX) }), { params: { reason: 'reactions_full' } })
+    }
     if (has !== on) {
       this.takeSendToken(userId)
       if (on) this.db.query('INSERT OR IGNORE INTO room_reactions (room_id, message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?, ?)').run(roomId, m.id, userId, emoji, nowIso())
@@ -935,8 +981,8 @@ export class Rooms {
   }
 
   /**
-   * Make the team rooms and the everyone room match the groups and the people: a room for every group and one for
-   * everyone; members = the group's active people / every active person. Someone added joins at the room's last seq
+   * Make the team rooms and the everyone room match the groups and the people: a room for every group (except the
+   * welcome steps' team group, below) and one for everyone; members = the group's active people / every active person. Someone added joins at the room's last seq
    * (they see the messages from then on); someone removed (left the group, disabled, deleted) loses the room, its
    * notices and their replay buffer. A team room whose group was deleted is archived with no members. Audited.
    * Group chats: who is in one is never changed here, nor any room's own name, except that a disabled or deleted
@@ -959,7 +1005,19 @@ export class Rooms {
         db.query("INSERT INTO rooms (id, kind, created_at, activity_at) VALUES (?, 'all', ?, ?)").run(id, now, now)
         audit(db, { actor: null, action: 'room.create', target: id, detail: { kind: 'all' } })
       }
+      // the welcome steps' team group has no room of its own: the everyone room is the team's one room (docs/DECISIONS.md
+      // "One room for the whole team"). A team that has one from before: archived while nobody wrote in it (a written one
+      // is kept; messages are never removed, so this settles once)
+      const teamGroup = welcomeTeamGroupId(this.ctx)
+      if (teamGroup) {
+        const r = db.query("SELECT id FROM rooms WHERE kind = 'team' AND group_id = ? AND archived_at IS NULL").get(teamGroup) as { id: string } | null
+        if (r && !db.query('SELECT 1 FROM room_messages WHERE room_id = ? AND event IS NULL LIMIT 1').get(r.id)) {
+          db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(now, r.id)
+          audit(db, { actor: null, action: 'room.archive', target: r.id, detail: { kind: 'team', groupId: teamGroup, reason: 'team_group' } })
+        }
+      }
       for (const g of db.query("SELECT g.id FROM groups g WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.kind = 'team' AND r.group_id = g.id)").all() as { id: string }[]) {
+        if (g.id === teamGroup) continue
         const id = newId()
         db.query("INSERT INTO rooms (id, kind, group_id, created_at, activity_at) VALUES (?, 'team', ?, ?, ?)").run(id, g.id, now, now)
         audit(db, { actor: null, action: 'room.create', target: id, detail: { kind: 'team', groupId: g.id } })
@@ -1067,6 +1125,15 @@ export function fileOpener(ctx: AppContext, userId: string): (rel: string) => bo
     }
     return ok
   }
+}
+
+/** A group that gets no team room (admin/groups.ts createGroupAs `room: false`: the welcome steps' team group): its
+ * room row written archived, inside the group's own transaction, so sync never makes one (one per group, the unique
+ * index). Audited like an archive. */
+export function noTeamRoom(db: Database, groupId: string) {
+  const id = newId(), now = nowIso()
+  db.query("INSERT INTO rooms (id, kind, group_id, created_at, activity_at, archived_at) VALUES (?, 'team', ?, ?, ?, ?)").run(id, groupId, now, now, now)
+  audit(db, { actor: null, action: 'room.archive', target: id, detail: { kind: 'team', groupId, reason: 'team_group' } })
 }
 
 /** After groups, roles or accounts changed (admin/folders.ts afterAccessChange): rooms follow at once. Never throws. */

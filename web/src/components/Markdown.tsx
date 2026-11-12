@@ -21,11 +21,14 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
+import { mobileApp } from '../lib/mobile'
+import { externalImageHintKey } from '../lib/appWording'
 import { toast } from '../store/ui'
 import { useCopy, useEdgeFade } from './ui'
 import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
 import { teamImageItem } from '../lib/imageViewer'
+import { useDarkTheme } from '../lib/theme'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
 const mathRehype = [rehypeKatex, { throwOnError: false, strict: false, trust: false, maxExpand: 500 }] as const
@@ -45,20 +48,38 @@ export function codeOf(pre: Element | undefined): { lang: string | null; code: s
 let mermaidReady: Promise<typeof import('mermaid').default> | null = null
 const loadMermaid = () =>
   (mermaidReady ??= import('mermaid').then(({ default: m }) => {
-    // always the light theme: diagrams sit on a white card in both app themes (readable when copied or printed)
     m.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' })
     return m
   }))
+/** Mermaid's theme for the app's look: a dark diagram on a dark card in the dark theme (a white box there glared), the
+ * light one otherwise. A copy keeps the diagram's source (lib/richCopy.tsx), so the look never travels with it. */
+export const mermaidTheme = (dark: boolean) => (dark ? 'dark' : 'neutral')
+/** drawn diagrams, by theme and source */
 const drawn = new Map<string, string>()
+/** One drawing at a time, each with its own theme: Mermaid's settings are global and its render reads them when it
+ * runs, so a theme set for one drawing must not reach another still waiting. */
+let drawing: Promise<unknown> = Promise.resolve()
+const drawMermaid = (theme: ReturnType<typeof mermaidTheme>, code: string): Promise<string> => {
+  const next = drawing.then(async () => {
+    const m = await loadMermaid()
+    m.initialize({ startOnLoad: false, securityLevel: 'strict', theme })
+    return (await m.render(`mmd-${Math.random().toString(36).slice(2)}`, code)).svg
+  })
+  drawing = next.catch(() => {})
+  return next
+}
 
 /** A Mermaid diagram in an answer. Shows the source while it is still being written or doesn't parse. */
 export function MermaidBlock({ code }: { code: string }) {
   const t = useT()
-  const [svg, setSvg] = useState<string | null>(() => drawn.get(code) ?? null)
+  const theme = mermaidTheme(useDarkTheme())
+  const key = `${theme}\n${code}`
+  // the picture shown and the theme it was drawn with (the last one stays while the other look's is drawn)
+  const [shown, setShown] = useState<{ svg: string; theme: string } | null>(() => (drawn.has(key) ? { svg: drawn.get(key)!, theme } : null))
   const [failed, setFailed] = useState(false)
   useEffect(() => {
-    if (drawn.has(code)) {
-      setSvg(drawn.get(code)!)
+    if (drawn.has(key)) {
+      setShown({ svg: drawn.get(key)!, theme })
       setFailed(false)
       return
     }
@@ -69,17 +90,16 @@ export function MermaidBlock({ code }: { code: string }) {
       const draw = async () => {
         if (document.visibilityState !== 'visible') await new Promise((r) => document.addEventListener('visibilitychange', r, { once: true }))
         await document.fonts.ready
-        const m = await loadMermaid()
-        return (await m.render(`mmd-${Math.random().toString(36).slice(2)}`, code)).svg
+        return drawMermaid(theme, code)
       }
       try {
         const out = await draw().catch(async () => {
           await new Promise((r) => setTimeout(r, 700))
           return draw()
         })
-        drawn.set(code, out)
+        drawn.set(key, out)
         if (live) {
-          setSvg(out)
+          setShown({ svg: out, theme })
           setFailed(false)
         }
       } catch {
@@ -90,11 +110,12 @@ export function MermaidBlock({ code }: { code: string }) {
       live = false
       clearTimeout(timer)
     }
-  }, [code])
-  if (svg && !failed)
+  }, [key, code, theme])
+  if (shown && !failed)
     return (
-      // securityLevel strict: mermaid sanitizes labels (DOMPurify) and turns off click handlers
-      <div role="img" aria-label={t('md.diagram')} className="not-prose my-3 flex justify-center overflow-x-auto rounded-lg border border-line bg-white p-4 [&_svg]:h-auto [&_svg]:max-w-full" dangerouslySetInnerHTML={{ __html: svg }} />
+      // securityLevel strict: mermaid sanitizes labels (DOMPurify) and turns off click handlers. The card is the colour
+      // of the theme the picture was drawn with
+      <div role="img" aria-label={t('md.diagram')} className={clsx('not-prose my-3 flex justify-center overflow-x-auto rounded-lg border border-line p-4 [&_svg]:h-auto [&_svg]:max-w-full', shown.theme === 'dark' ? 'bg-surface' : 'bg-white')} data-theme={shown.theme} data-testid="md-mermaid" dangerouslySetInnerHTML={{ __html: shown.svg }} />
     )
   return <CodeBlock lang="mermaid" code={code} />
 }
@@ -129,7 +150,7 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
   }, [lang, code])
   return (
     <div className="not-prose group my-3 overflow-hidden rounded-lg bg-code-bg text-code-ink dark:ring-1 dark:ring-line">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1 text-xs text-[#b9b3a8]">
+      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1 text-xs text-[#b9b3a8] select-none">
         <span>{lang ?? t('md.code')}</span>
         <span className="flex items-center gap-1 max-md:gap-3">
           <button type="button" className="touch-hit flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => void copy(code)} aria-label={copied ? t('common.copied') : t('md.copyCode')}>
@@ -191,7 +212,7 @@ function CopyableTable({ children }: { children: ReactNode }) {
         type="button"
         onClick={copy}
         title={t('md.copyTableHint')}
-        className="mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        className="mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition select-none hover:bg-hover hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >
         {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
         {copied ? t('common.copied') : t('md.copyTable')}
@@ -218,7 +239,7 @@ function CopyableQuote({ label, children }: { label: string; children: ReactNode
         type="button"
         onClick={() => void copy((ref.current?.innerText ?? ref.current?.textContent ?? '').trim())}
         aria-label={copied ? t('common.copied') : t('md.copyQuote', { what: label })}
-        className="not-prose mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/quote:opacity-100 [@media(hover:hover)]:group-hover/quote:opacity-100"
+        className="not-prose mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition select-none hover:bg-hover hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/quote:opacity-100 [@media(hover:hover)]:group-hover/quote:opacity-100"
         data-testid="copy-quote"
       >
         {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
@@ -232,7 +253,10 @@ function CopyableQuote({ label, children }: { label: string; children: ReactNode
 const cellText = (n: Element | ElementContent | undefined): string =>
   !n ? '' : n.type === 'text' ? n.value : 'children' in n ? n.children.map((c) => cellText(c as ElementContent)).join('') : ''
 /** A number, amount, percent or date ("1,234.5", "-12%", "$3.2M", "2026-11-04"): it must not break over two lines. */
-const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]*(%|[A-Za-z]{1,3})?\)?$/.test(text.trim())
+/** A cell that is one number, amount or count ("1,234,567", "₩987,654", "12,345건", "3.5만 원", "42%"): kept on one line,
+ * its digits the same width. A unit after it may be up to 3 Latin letters, or one or two short words (1–2 letters each)
+ * of Korean, Japanese or Chinese ("원", "만 원", "件"), so a Korean amount no longer wraps on a phone. */
+export const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]*(%|[A-Za-z]{1,3}|[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,2}(\s?[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,2})?)?\)?$/u.test(text.trim())
 
 // ---------------- links and images ----------------
 /** Team files this viewer may open, where the text is shown to people with different access (an AI answer in a team
@@ -274,8 +298,9 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
 }
 
 /** A team file this viewer may not open (a room message's link or picture): its name after a lock, where a link would be.
- * Hover or keyboard focus says why ("권한이 없어 열 수 없어요"); a tap or click says it too (a toast: touch has no
- * tooltip). Nothing of the file is loaded and nothing says whether it exists. */
+ * Hover or keyboard focus says why ("열 수 없어요: 옮겨졌거나 지워졌거나 권한이 없어요"); a tap or click says it too (a toast:
+ * touch has no tooltip). Nothing of the file is loaded and nothing says whether it exists, so the words name every
+ * reason: a file moved after the message was sent is locked too (QA TC-063). */
 function LockedFile({ children }: { children: ReactNode }) {
   const t = useT()
   const why = t('rooms.fileNoAccess')
@@ -331,7 +356,8 @@ function AttachmentThumb({ url, alt }: { url: string; alt?: string }) {
   return <img src={url} alt={alt ?? ''} className="max-h-60 rounded-lg" />
 }
 
-/** An external image: not loaded (its URL could carry data out); the person opens it in a new tab if they want. */
+/** An external image: not loaded (its URL could carry data out); the person opens it in a new tab if they want (in the
+ * phone app it opens in the phone's browser, lib/appWording.ts). */
 function ExternalImage({ href, host, alt }: { href: string; host: string; alt?: string }) {
   const t = useT()
   return (
@@ -340,7 +366,7 @@ function ExternalImage({ href, host, alt }: { href: string; host: string; alt?: 
       <span className="min-w-0">
         <span className="block font-medium text-ink">{t('md.externalImage', { host })}</span>
         {alt && <span className="block truncate">{alt}</span>}
-        <span className="block">{t('md.externalImageHint')}</span>
+        <span className="block">{t(externalImageHintKey(!!mobileApp()))}</span>
       </span>
     </a>
   )
@@ -351,7 +377,7 @@ const origin = () => (typeof location === 'undefined' ? 'http://localhost' : loc
 // defined once: inline component functions are new types on every render, which remounts (and resets) diagrams
 const COMPONENTS: Components = {
   table: ({ children }) => <CopyableTable>{children}</CopyableTable>,
-  td: ({ node, className, ...props }) => <td {...props} className={clsx(className, isNumberCell(cellText(node)) && 'whitespace-nowrap') || undefined} />,
+  td: ({ node, className, ...props }) => <td {...props} className={clsx(className, isNumberCell(cellText(node)) && 'whitespace-nowrap tabular-nums') || undefined} />,
   a: ({ href, children }) => {
     const l = classifyLink(href, origin())
     if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>

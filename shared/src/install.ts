@@ -43,6 +43,11 @@ export const AppState = z.object({
   /** starts of the pending version that died before becoming healthy */
   attempts: z.number().int().nonnegative(),
   history: z.array(UpdateHistoryEntry).max(50),
+  /** set by the bootstrap when it went forward to this version again because the version it had rolled back to could
+   * not read the database (exit 75); cleared when it is healthy */
+  forward: z.string().nullable().optional(),
+  /** set by the bootstrap when no version can run and it stopped starting the server; cleared when app/current changes */
+  blocked: z.object({ version: z.string(), since: z.string(), detail: z.string() }).nullable().optional(),
 })
 export type AppState = z.infer<typeof AppState>
 export const emptyAppState = (): AppState => ({ format: 1, current: null, previous: null, pending: null, pendingSince: null, attempts: 0, history: [] })
@@ -92,6 +97,8 @@ export const RestorePending = z.object({
   backupId: z.string(),
   requestedAt: z.string(),
   requestedBy: z.string().nullable(),
+  /** when the backup was made (what Admin › System and the activity log say after the restore); older files have none */
+  backupCreatedAt: z.string().nullable().optional(),
 })
 export type RestorePending = z.infer<typeof RestorePending>
 

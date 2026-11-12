@@ -194,13 +194,26 @@ export const AppConfigFile = z.object({
    * once its control plane refuses owner and admin reset links after a transfer (both forms of `reset-link`) until the
    * new owner claims recovery. Until then a hosted team gets no lead flag and no card, and both people are told who can
    * still reset passwords. With it on, a transfer sets the recovery lock that `mycel-ctl reset-link` keeps until
-   * `admin.js owner-recovery-claimed` clears it. Do not turn it on before the control plane can run that claim (a
-   * tenant command in shared/src/cloud-protocol and mycel-ctl): until then a lock could not be cleared, and nobody could
-   * reset an owner or admin password of that team from outside. Ignored on a self-installed server, office mode and dev. */
+   * `admin.js owner-recovery-claimed` clears it (the tenant command `owner-recovery-claimed`, shared/src/cloud-protocol and
+   * mycel-ctl). Do not turn it on before the control plane runs that command after the new owner's claim: until then a
+   * lock could not be cleared, and nobody could reset an owner or admin password of that team from outside. Ignored on a self-installed server, office mode and dev. */
   handoverSafe: z.boolean().optional(),
-  /** the knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): `codegraph` is the CodeGraph command
-   * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any. */
-  knowledgeGraph: z.object({ codegraph: z.string().max(1000).optional() }).strict().optional(),
+  /** "@트리나 …" in a room asks the AI there (rooms/ai.ts). Off by default since the side chat (docs/DECISIONS.md
+   * "Trina side chat", option A): people ask the AI beside a room and share an answer on purpose. On: the old way, for
+   * an operator who still wants it while people move over. Earlier answers in rooms stay as they are either way. */
+  roomAiMentions: z.boolean().optional(),
+  /** The file list (server/src/file-list/; docs/CONFIGURATION.md): `{ "enabled": false }` turns it off on this server
+   * whatever the team's admin chooses (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's
+   * instructions). Absent: the team's switch in Admin › Team settings decides (on by default). */
+  fileList: z.object({
+    enabled: z.boolean().optional(),
+    /** files the model reads per run, and tokens it may use per run (default: file-list/policy.ts RUN_FILES, RUN_TOKENS) */
+    maxFilesPerRun: z.number().int().min(0).max(1_000_000).optional(),
+    maxTokensPerRun: z.number().int().min(0).max(1_000_000_000).optional(),
+  }).strict().optional(),
+  /** obsolete: the knowledge graph was removed (docs/DECISIONS.md, 2026-11-11). Accepted with any value and ignored,
+   * so a file written for an older version still loads; the start logs it once (OBSOLETE_KEYS). */
+  knowledgeGraph: z.unknown().optional(),
 })
 export type AppConfigFile = z.infer<typeof AppConfigFile>
 
@@ -248,13 +261,22 @@ export interface AppConfig {
   deployment?: 'self' | 'hosted'
   /** see AppConfigFile.handoverSafe; absent = off */
   handoverSafe?: boolean
+  /** see AppConfigFile.roomAiMentions; absent = off */
+  roomAiMentions?: boolean
+  /** see AppConfigFile.fileList; absent = the team's switch decides */
+  fileList?: { enabled?: boolean; maxFilesPerRun?: number; maxTokensPerRun?: number }
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
    * server (readDemoFile); absent everywhere else, and then the demo endpoints answer 404. */
   demo?: DemoFile
-  /** see AppConfigFile.knowledgeGraph: codegraph absent = look on the PATH, '' = none */
-  knowledgeGraph?: { codegraph?: string }
+  /** keys of the config file that this version ignores (OBSOLETE_KEYS); the start logs them once */
+  obsoleteKeys?: string[]
+}
+
+/** Config file keys older versions read and this one ignores, with why, for the start's log line. */
+export const OBSOLETE_KEYS: Readonly<Record<string, string>> = {
+  knowledgeGraph: 'the knowledge graph was removed; the AI finds files with list, glob, grep and read',
 }
 
 export class ConfigError extends Error { name = 'ConfigError' }
@@ -306,6 +328,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   if (f.engine.anthropicGateway && (f.engine.modelUpstreams?.anthropic || f.engine.modelUpstream)) throw new ConfigError(`config file ${file}: engine.anthropicGateway and engine.modelUpstreams.anthropic (or modelUpstream) cannot both be set`)
   if (f.engine.anthropicGateway && normalizeAuthMode(f.engine.authMode) !== 'managed') throw new ConfigError(`config file ${file}: engine.anthropicGateway needs engine.authMode "managed"`)
   const demo = readDemoFile(env[P + 'DEMO'], { mode, deployment, office: !!f.office }, cwd)
+  const obsolete = Object.keys(OBSOLETE_KEYS).filter((k) => (f as Record<string, unknown>)[k] !== undefined)
   const pushGateway = env[P + 'PUSH_GATEWAY'] !== undefined ? (env[P + 'PUSH_GATEWAY'] || null) : (f.push?.gatewayUrl ?? null)
   if (pushGateway !== null && !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(pushGateway) && !/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/.test(pushGateway)) throw new ConfigError(`push gateway must be https://<host> or http://127.0.0.1:<port> (${P}PUSH_GATEWAY or push.gatewayUrl)`)
 
@@ -350,8 +373,10 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
     ...(f.handoverSafe ? { handoverSafe: true } : {}),
+    ...(f.roomAiMentions ? { roomAiMentions: true } : {}),
+    ...(f.fileList ? { fileList: f.fileList } : {}),
     ...(demo ? { demo } : {}),
-    ...(f.knowledgeGraph?.codegraph !== undefined ? { knowledgeGraph: { codegraph: f.knowledgeGraph.codegraph === '' ? '' : abs(f.knowledgeGraph.codegraph) } } : {}),
+    ...(obsolete.length ? { obsoleteKeys: obsolete } : {}),
   }
 }
 

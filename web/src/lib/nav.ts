@@ -22,3 +22,11 @@ export function navigateTo(to: string, o?: { replace?: boolean }) {
   else if (o?.replace) location.replace(to)
   else location.assign(to)
 }
+
+/** Where a person was heading before signing in (`?next=` of /login and /password): a path on this site only, never
+ * another site (`//host`, `/\\host`), else null. */
+export function safeNext(search: string): string | null {
+  const next = new URLSearchParams(search).get('next')
+  // a tab or line break is dropped by the browser's URL parser ("/\t/host" would become "//host")
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') && !/[\u0000-\u001f]/.test(next) ? next : null
+}

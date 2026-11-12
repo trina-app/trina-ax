@@ -15,6 +15,8 @@ import { act } from 'react'
 import type { Me } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
+import { isBusy } from '../../src/lib/busy'
+import { reloadWouldLose } from '../../src/lib/reload-guard'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { roomDraftMentions, useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
@@ -68,7 +70,7 @@ async function focus(box: FakeElement) {
 const setValue = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')!.set!
 
 async function open() {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
   const r = room()
   sent = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -375,8 +377,23 @@ test('a draft keeps its mentions when the box comes back', async () => {
   }
 }, DOM_TEST_MS)
 
+test('a reply typed in a room\'s box counts as a draft: the page does not reload by itself while it is there (QA TC-231)', async () => {
+  const { m, box } = await open()
+  try {
+    expect(isBusy('draft')).toBe(false)
+    await typeText(box, '내일 회의 자료 올려 주세요')
+    expect(isBusy('draft')).toBe(true)
+    expect(reloadWouldLose()).toBe(true)
+    await edit(box, 0, box.value.length, '', 'deleteContentBackward')
+    expect(isBusy('draft')).toBe(false)
+  } finally {
+    await m.unmount()
+  }
+  expect(isBusy('draft')).toBe(false)
+}, DOM_TEST_MS)
+
 test('the edit form: the mentions a message has stand out as on the message, and stay mentions while whole', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
   const r = room()
   const mine = message({ roomId: r.id, seq: 1, author: ME, body: '@Cy Park 확인 부탁해요 @Ben', mentions: [CY.id] })
   const patches: { body: string; mentions: string[] }[] = []
@@ -407,7 +424,7 @@ test('the edit form: the mentions a message has stand out as on the message, and
 }, DOM_TEST_MS)
 
 test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its mentions through an edit', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
   const r = room()
   const mine = message({ roomId: r.id, seq: 1, author: ME, body: '안녕\r\n@Cy Park 확인', mentions: [CY.id] })
   const patches: { body: string; mentions: string[] }[] = []

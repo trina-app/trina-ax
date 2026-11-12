@@ -1,0 +1,13 @@
+Support FAQ (고객지원 FAQ)
+
+Q: What are the support hours?
+A: Weekdays 09:00-18:00 KST. 지원 시간은 평일 오전 9시부터 오후 6시까지이다.
+
+Q: How fast do you answer?
+A: First response within 4 hours for Pro and Enterprise, within 1 business day for Starter.
+
+Q: How do I reset the admin password?
+A: Use "Forgot password" on the sign-in page; the reset link is valid for 24 hours.
+
+Q: Where can I see invoices?
+A: Settings > Billing. Invoices are issued on the 1st of every month.

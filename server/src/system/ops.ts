@@ -31,7 +31,7 @@ import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFi
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
-import { cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
+import { absoluteFloor, cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
 import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, updateWindowAnswer } from './update-job'
@@ -104,6 +104,7 @@ export class OpsService {
     })
     this.storage = new StorageMonitor({
       db: ctx.db, teamRoot: this.layout.teamRoot, dataDir: this.layout.dataDir, appDir: this.layout.appDir, now: o.now ? () => this.now().getTime() : undefined,
+      absoluteRule: () => !(this.platform() === 'linux' && ctx.config.mode === 'prod'),
       audit: (detail, action = 'storage.warn') => audit(ctx.db, { actor: null, action, target: null, detail }),
       notify: (m) => {
         try {
@@ -433,7 +434,7 @@ export class OpsService {
     const team = diskSpace(L.teamRoot), data = diskSpace(L.dataDir)
     const diskCheck = (id: string, label: string, d: { free: number; total: number }) => {
       const pct = d.total ? Math.round((d.free / d.total) * 100) : 0
-      const ro = Math.max(10 * 1024 ** 3, d.total * 0.05)
+      const ro = absoluteFloor(d.total)
       if (d.free < ro) add(id, 'disk', label, 'fail', t(M.diskReadOnly(d.free)))
       else if (pct < 15) add(id, 'disk', label, 'warn', t(M.diskLow(d.free, pct)))
       else add(id, 'disk', label, 'ok', t(M.diskOk(d.free, pct)))
@@ -551,15 +552,19 @@ export class OpsService {
     const lastB = this.backups.latest()
     const err = this.backups.lastError()
     // no room under the plan's limit is a state of the team: `fail` makes the control plane roll updates back
-    if (err && (!lastB || err.at > lastB.createdAt)) add('backups', 'backups', t(M.backups), err.reason === 'plan_space' ? 'warn' : 'fail', t(M.backupFailed(err.message)))
+    // a refusal for room says so in the person's language (QA TC-209: the English reason sat inside the Korean line)
+    if (err && (!lastB || err.at > lastB.createdAt)) add('backups', 'backups', t(M.backups), err.reason === 'plan_space' ? 'warn' : 'fail',
+      t(err.reason === 'disk_space' ? M.backupFailedNoSpace : err.reason === 'plan_space' ? M.backupFailedPlanSpace : M.backupFailed(err.message)))
     else if (!lastB) add('backups', 'backups', t(M.backups), 'warn', t(M.backupNone))
     else {
       const h = Math.floor((this.now().getTime() - Date.parse(lastB.createdAt)) / 3600_000)
       add('backups', 'backups', t(M.backups), h > 48 ? 'warn' : 'ok', h > 48 ? t(M.backupOld(h)) : t(M.backupOk(new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastB.createdAt)), lastB.scope)))
     }
     try {
-      const rr = JSON.parse(fs.readFileSync(path.join(L.dataDir, 'restore-result.json'), 'utf8')) as { ok: boolean; at: string; error?: string }
+      const rr = JSON.parse(fs.readFileSync(path.join(L.dataDir, 'restore-result.json'), 'utf8')) as { ok: boolean; at: string; error?: string; folderRules?: 'kept' | 'backup' }
       if (!rr.ok && this.now().getTime() - Date.parse(rr.at) < 7 * 86400_000) add('restore', 'backups', t(M.backups), 'fail', t(M.restoreFailed(rr.error ?? '')))
+      // the current folder permissions could not be kept (backup.ts keepFolderAccess): someone checks them
+      else if (rr.ok && rr.folderRules === 'backup' && this.now().getTime() - Date.parse(rr.at) < 7 * 86400_000) add('restore', 'backups', t(M.backups), 'warn', t(M.restoreFolderRules))
     } catch {}
 
     // updates
@@ -572,7 +577,13 @@ export class OpsService {
     else if (!this.updates.installed) add('update', 'update', t(M.update), 'ok', t(M.updateDev))
     else {
       const h = this.updates.history().at(-1)
-      if (h && h.result !== 'ok' && this.now().getTime() - Date.parse(h.at) < 7 * 86400_000) add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
+      const recent = !!h && this.now().getTime() - Date.parse(h.at) < 7 * 86400_000
+      // the bootstrap records its stop as a roll-back "stopped: …" (native/cmd/mycel-bootstrap block()); this server
+      // runs, so it was started again since: say what happened in plain words, not the bootstrap's instructions
+      if (h && recent && h.result === 'rolled_back' && h.detail?.startsWith('stopped: ')) add('update', 'update', t(M.update), 'ok', t(M.updateStopped(h.to, this.ctx.version)))
+      else if (h && recent && h.result !== 'ok') add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
+      // went forward again after a failed start (detail "started again after …"): the version plus that it recovered
+      else if (h && recent && h.result === 'ok' && h.detail?.startsWith('started again')) add('update', 'update', t(M.update), 'ok', `${t(M.updateOk(this.ctx.version))}. ${t(h.detail === 'started again after it was stopped' ? M.updateRestarted : M.updateRecovered)}`)
       else add('update', 'update', t(M.update), 'ok', t(M.updateOk(this.ctx.version)))
       const us = this.updates.status()
       // a Linux self-install: whether it updates by itself, and whether it takes unsigned versions (root/install.json
@@ -807,6 +818,8 @@ export class OpsService {
     const status = () => this.writeStatusFile().catch((e) => log.warn('status file not written', { err: e }))
     void status()
     this.timers.push(setInterval(status, 30_000))
+    // what a backup the last stop (or a power loss) interrupted left behind; the next backup's prune does the same
+    try { this.backups.removeUnfinished() } catch (e) { log.warn('unfinished backups not removed', { err: e }) }
     this.timers.push(setInterval(() => {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))

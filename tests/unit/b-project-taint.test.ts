@@ -9,6 +9,7 @@ import { API } from '@mycel/shared/api'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
 import { sweep } from '../../server/src/auth/sweeper'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { WORK } from '../lib/env'
 
 setDefaultTimeout(30_000)
@@ -23,7 +24,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { alice?.close(); await h.close() })
 
-const create = (who: string, folderPath: string, instructions: string) => h.api(who).call(API.createProject, { body: { name: 'P ' + folderPath, folderPath, instructions, scope: 'team', participants: [] } })
+const create = (who: string, folderPath: string, instructions: string) => oldProject(h, who, { name: 'P ' + folderPath, folderPath, instructions })
 const edit = (who: string, id: string, instructions: string) => h.api(who).call(API.updateProject, { params: { id }, body: { instructions } })
 /** does a turn of `who` in a chat of this project count the instructions as outside content? */
 const taints = (projectId: string, who: string) => h.rt().projectTaints(h.rt().projectForChat(projectId, h.ctx.files.principal(who)), who)

@@ -289,6 +289,94 @@ describe('on screen', () => {
     }
   })
 
+  test('/join on a weak connection: the details that did not load say so with Try again, and a refresh still has the link', async () => {
+    const g = globalThis as Record<string, unknown>
+    const was = { location: Object.getOwnPropertyDescriptor(g, 'location'), history: Object.getOwnPropertyDescriptor(g, 'history') }
+    const replaced: string[] = []
+    Object.defineProperty(g, 'history', { configurable: true, writable: true, value: { state: null, replaceState: (_s: unknown, _t: string, u: string) => replaced.push(u) } })
+    const info = () => json(200, { teamName: 'Acme', valid: true, problem: null, expiresAt: '2026-11-18T00:00:00.000Z', skillName: null })
+    let offline = true
+    routes = { 'POST /api/team-link/info': () => { if (offline) throw new TypeError('Failed to fetch'); return info() } }
+    sessionStorage.clear()
+    let m: Mounted | null = null
+    try {
+      Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/join', search: '', hash: `#t=${TOKEN}`, origin: 'https://acme.example', href: URL_ } })
+      m = await mount(<MemoryRouter initialEntries={['/join']}><TeamJoin /></MemoryRouter>)
+      await m.until(() => m!.find('join-load-error'), 'the load error')
+      // the token left the address bar at once, but this is not "the link does not work"
+      expect(replaced).toEqual(['/join'])
+      expect(m.get('join-load-error').textContent).toBe(translate('ko', 'error.network'))
+      expect(m.find('join-problem')).toBeNull()
+      // a refresh (the address has no token any more) still finds the link this tab kept
+      await m.unmount()
+      Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/join', search: '', hash: '', origin: 'https://acme.example', href: 'https://acme.example/join' } })
+      m = await mount(<MemoryRouter initialEntries={['/join']}><TeamJoin /></MemoryRouter>)
+      await m.until(() => m!.find('join-retry'), 'Try again after the refresh')
+      expect(m.get('join-retry').textContent).toBe(translate('ko', 'common.retry'))
+      // the connection is back: Try again loads the form
+      offline = false
+      await m.click('join-retry')
+      await m.until(() => m!.find('join-form'), 'the join form')
+      expect(calls.filter((c) => c.key === 'POST /api/team-link/info').every((c) => JSON.parse(c.body!).token === TOKEN)).toBe(true)
+    } finally {
+      await m?.unmount()
+      sessionStorage.clear()
+      for (const [k, d] of Object.entries(was)) { if (d) Object.defineProperty(g, k, d); else delete g[k] }
+    }
+  })
+
+  test('/join: the tab forgets the link once the person joined, or once the server says it does not work', async () => {
+    const g = globalThis as Record<string, unknown>
+    const was = { location: Object.getOwnPropertyDescriptor(g, 'location'), history: Object.getOwnPropertyDescriptor(g, 'history') }
+    Object.defineProperty(g, 'history', { configurable: true, writable: true, value: { state: null, replaceState: noop } })
+    const signedIn = useSession.getState().signedIn
+    useSession.setState({ signedIn: noop })
+    const me = { user: { id: 'hana', username: 'hana', name: '김하나', email: null, role: 'member', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} }, groups: [], team: { name: 'Acme', defaultLocale: 'ko' }, session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: true } }
+    const at = (hash: string) => Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/join', search: '', hash, origin: 'https://acme.example', href: `https://acme.example/join${hash}` } })
+    try {
+      // joined
+      at(`#t=${TOKEN}`)
+      routes = {
+        'POST /api/team-link/info': () => json(200, { teamName: 'Acme', valid: true, problem: null, expiresAt: '2026-11-18T00:00:00.000Z', skillName: null }),
+        'POST /api/team-link/join': () => json(201, { me, next: null }),
+      }
+      let m = await mount(<MemoryRouter initialEntries={['/join']}><Routes><Route path="/join" element={<TeamJoin />} /><Route path="*" element={<p data-testid="home" />} /></Routes></MemoryRouter>)
+      try {
+        await m.until(() => m.find('join-form'), 'the join form')
+        expect(sessionStorage.getItem('mycel.joinToken')).toBe(TOKEN)
+        await m.type('invite-name', '김하나')
+        await m.type('invite-username', 'hana')
+        await m.type('invite-password', 'tulip meadow 2026')
+        await m.click('invite-submit')
+        await m.until(() => m.find('home'), 'Home')
+        expect(sessionStorage.getItem('mycel.joinToken')).toBeNull()
+      } finally { await m.unmount() }
+      // a 404 page that is not the server's answer (a relay or proxy in between): a failed load, the link kept
+      at(`#t=${TOKEN}`)
+      routes = { 'POST /api/team-link/info': () => new Response('<html>Not Found</html>', { status: 404, headers: { 'content-type': 'text/html' } }) }
+      m = await mount(<MemoryRouter initialEntries={['/join']}><TeamJoin /></MemoryRouter>)
+      try {
+        await m.until(() => m.find('join-retry'), 'Try again')
+        expect(m.find('join-problem')).toBeNull()
+        expect(sessionStorage.getItem('mycel.joinToken')).toBe(TOKEN)
+      } finally { await m.unmount() }
+      // the server: expired, or unknown
+      for (const answer of [() => json(200, { teamName: 'Acme', valid: false, problem: 'expired', expiresAt: '2026-11-01T00:00:00.000Z', skillName: null }), () => json(404, { error: { code: 'not_found', message: 'x' } })]) {
+        at(`#t=${TOKEN}`)
+        routes = { 'POST /api/team-link/info': answer }
+        m = await mount(<MemoryRouter initialEntries={['/join']}><TeamJoin /></MemoryRouter>)
+        try {
+          await m.until(() => m.find('join-problem'), 'the problem')
+          expect(sessionStorage.getItem('mycel.joinToken')).toBeNull()
+        } finally { await m.unmount() }
+      }
+    } finally {
+      sessionStorage.clear()
+      useSession.setState({ signedIn })
+      for (const [k, d] of Object.entries(was)) { if (d) Object.defineProperty(g, k, d); else delete g[k] }
+    }
+  })
+
   test('/join with a link that no longer works: a clear "ask for a new link", no form', async () => {
     const g = globalThis as Record<string, unknown>
     const was = { location: Object.getOwnPropertyDescriptor(g, 'location'), history: Object.getOwnPropertyDescriptor(g, 'history') }

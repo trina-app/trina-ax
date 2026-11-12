@@ -1,13 +1,15 @@
 // App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
-import { ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
+import { useOverlayEntry } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
+import { useImageViewer } from '../lib/imageViewer'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -18,6 +20,7 @@ import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
+import { TeamInviteDialog } from './TeamMenu'
 import { BottomTabs } from './BottomTabs'
 import { PhoneTopBar } from './PhoneTopBar'
 import { PhonePushAsk } from './settings/PushNotifications'
@@ -25,7 +28,7 @@ import { WebPushAsk } from './WebPushAsk'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
-import { Spinner } from './ui'
+import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
 const FilePanel = lazy(() => import('./FilePanel'))
@@ -39,6 +42,8 @@ export default function Layout() {
   const panel = useSidePanel()
   // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the sidebar; the page stays mounted, hidden
   const big = usePanelExpanded() && expandable(panel)
+  // the image and file viewer (components/ImageViewer.tsx, over the whole window): the app under it is out of reach
+  const viewerOpen = !!useImageViewer()
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
@@ -107,6 +112,24 @@ export default function Layout() {
   }, [location.pathname])
 
   useEffect(() => setDrawer(false), [location.pathname, setDrawer])
+  // phones: Back closes the drawer, then a full-screen side panel (file preview, artifact, browser), and only then
+  // leaves the page (QA TC-141, lib/backCloses.ts). A panel kept across a move (open in folder) holds a new entry on the
+  // new page
+  const phone = !useMediaQuery('(min-width: 768px)')
+  // a phone's panel makes the page inert, which takes the focus from what opened it: it goes back there when the panel
+  // closes (when nothing else took it meanwhile). The last focus inside the page is kept as it moves.
+  const covered = phone && !!panel
+  const lastFocus = useRef<HTMLElement | null>(null)
+  const wasCovered = useRef(false)
+  useLayoutEffect(() => {
+    const was = wasCovered.current
+    wasCovered.current = covered
+    if (covered || !was) return
+    const back = lastFocus.current
+    if (back?.isConnected && (document.activeElement === document.body || !document.activeElement)) back.focus({ preventScroll: true })
+  }, [covered])
+  useOverlayEntry(drawer, () => setDrawer(false))
+  useOverlayEntry(!!panel, closeSidePanel, { at: location.key })
   // any move (the sidebar's Files, a folder link, a link to the page already open): side by side again, so the page
   // shows beside a panel it keeps. The image viewer's own history entry is not a move (lib/imageViewer.ts)
   useEffect(() => setPanelExpanded(false), [location.key])
@@ -118,7 +141,7 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" inert={viewerOpen || undefined} aria-hidden={viewerOpen || undefined} data-testid="app-layout">
       {/* a big side panel hides the page: the panel is what there is to skip to */}
       <a href={big ? '#side-panel' : '#main'} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
@@ -142,7 +165,9 @@ export default function Layout() {
             </div>
           </div>
         )}
-        <main id="main" tabIndex={-1} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
+        {/* phones: a side panel (a file's preview, an artifact, the browser) is a full-screen sheet over the page, and the
+            page behind it is out of reach (no tap, scroll or focus goes there) until it closes */}
+        <main id="main" tabIndex={-1} onFocus={(e) => { if (e.target instanceof HTMLElement) lastFocus.current = e.target }} inert={covered || undefined} aria-hidden={covered || undefined} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
           {/* a web browser not asked about notifications yet: one line, here on a computer (components/WebPushAsk.tsx) */}
           <WebPushAsk at="top" />
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}
@@ -174,6 +199,8 @@ export default function Layout() {
         )}
       </div>
       <SearchDialog />
+      {/* "Invite people" from the team menu or ⌘K (TeamMenu.tsx): one dialog for the window */}
+      <TeamInviteDialog />
       <UpdateWatcher />
       <AttentionTitle />
     </div>
@@ -203,15 +230,18 @@ function DevModeBanner() {
   )
 }
 
-/** "다시 연결 중" while the socket is down; after 30 s "팀 서버에 연결할 수 없음" (answers on screen stay). */
+/** "다시 연결하는 중…" while the socket is down; after 30 s "지금 연결이 안 돼요. 계속 다시 연결하고 있어요…" (answers on
+ * screen stay). The one place that says it: a list that could not be read meanwhile waits quietly under it
+ * (components/LoadError.tsx). The neutral surface, not amber or red: a dropped connection usually passes by itself, and
+ * there is nothing to fix on this screen (docs/DECISIONS.md "How we show errors"). */
 function ConnectionBanner() {
   const t = useT()
   const conn = useUi((s) => s.conn)
   if (conn !== 'reconnecting' && conn !== 'offline') return null
   const offline = conn === 'offline'
   return (
-    <div role="status" className={clsx('flex items-center justify-center gap-2 px-3 py-1.5 text-center text-xs font-medium', offline ? 'bg-danger-soft text-danger' : 'bg-warn-soft text-warn')} data-testid="conn-banner">
-      {offline ? <WifiOff size={14} aria-hidden /> : <RefreshCw size={14} className="animate-spin" aria-hidden />}
+    <div role="status" className="flex items-center justify-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-center text-xs font-medium text-muted" data-testid="conn-banner" data-state={conn}>
+      {offline ? <WifiOff size={14} className="shrink-0" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin" aria-hidden />}
       {offline ? t('conn.offline') : t('conn.reconnecting')}
     </div>
   )

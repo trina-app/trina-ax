@@ -195,7 +195,8 @@ describe('scheduled tasks (F1, review M4)', () => {
     const card = asked[0]!
     expect(card.question).toContain('scheduled task')
     expect(card.question).toContain('Title: digest')
-    expect(card.question).toMatch(/Schedule: once on \d{4}-\d{2}-\d{2} at 09:00/)
+    // the day in words in the person's language (QA TC-092), not the stored 2026-11-12
+    expect(card.question).toMatch(/Schedule: once on [A-Z][a-z]{2} \d{1,2}, \d{4} at 09:00/)
     expect(card.question).toContain('On each run it opens the address below without asking')
     expect(card.options!.map((o) => o.value)).toEqual(['create', 'deny'])
     const [instruction, addresses] = card.extra!.details!
@@ -407,7 +408,7 @@ describe('the link budget (F5, review M5)', () => {
     const e = await gateUrl(h.ctx.db, chat, over, no, { turnId: turn }).catch((x) => x)
     expect(String(e.message)).toContain('did not allow')
     expect(asked).toHaveLength(1)
-    expect(asked[0]!.question).toContain(`${T} per answer, ${C} per conversation`)
+    expect(asked[0]!.question).toContain(`${T} per answer, ${C} per chat`)
     expect(asked[0]!.question).toContain(over)
     // already counted: free; typed and allowed: free
     expect(await gateUrl(h.ctx.db, chat, found[0]!, no, { turnId: turn })).toBe('seen')

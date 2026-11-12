@@ -2,21 +2,22 @@
 // instructions (injected into every member's AI for that project), delete the project, or PATCH folderPath into their
 // own users/<me>/ so the project vanished for everyone, its creator, the owner and admins included. Design tabs 4 / 5:
 // name / instructions are changed by the creator and admins only (audited, readers notified); a team project's folder
-// is changed by admins only and never into users/.
+// is changed by admins only, only while it is gone (in the trash or missing), only to a projects/<name> (docs/DECISIONS.md
+// "Projects live only in projects/").
 // Fixture: alice, erin = marketing members (groups/marketing write); bob = finance; carol = admin; dana = owner.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
+import { legacyProject } from '../lib/legacy-project'
 
 let A: CApp
 let pid = ''
 beforeAll(async () => {
   A = await makeCApp('sec-r1-project-edit')
   for (const u of ['carol', 'erin']) fs.mkdirSync(path.join(A.team, 'users', u, 'mine'), { recursive: true, mode: 0o700 })
-  const r = await A.json('/api/projects', { as: 'alice', ...jsonBody({ name: '신제품 출시', folderPath: 'groups/marketing', instructions: '출시 일정은 schedule.md를 따른다.' }) })
-  expect(r.status).toBe(201)
-  pid = r.body.id
+  // an older project on the marketing folder (tests/lib/legacy-project.ts): it keeps working as before
+  pid = legacyProject(A.ctx.db, A.team, 'alice', { name: '신제품 출시', folderPath: 'groups/marketing', instructions: '출시 일정은 schedule.md를 따른다.' })
 })
 afterAll(async () => { await A.close() })
 type Who = 'alice' | 'bob' | 'carol' | 'dana' | 'erin'
@@ -54,15 +55,13 @@ describe('the creator and admins', () => {
     expect(told).toEqual(['carol', 'dana', 'erin']) // marketing + admins; not bob (cannot read groups/marketing), not alice herself
   })
 
-  test('nobody repoints a team project into users/; a member creator cannot repoint it at all; an admin can elsewhere', async () => {
+  test('nobody repoints a project whose folder is in place; a member creator cannot repoint it at all', async () => {
     expect((await patch('alice', { folderPath: 'projects/falcon' })).status).toBe(403)
-    const c = await patch('carol', { folderPath: 'users/carol/mine' })
-    expect(c.status).toBe(400)
-    expect(c.body.error.fields['body.folderPath']).toContain('invalid_path')
-    expect((await patch('dana', { folderPath: 'users/dana' })).status).toBe(400)
-    expect((await get('alice')).status).toBe(200)
-    expect((await patch('carol', { folderPath: 'projects/falcon' })).status).toBe(200)
-    expect((await patch('carol', { folderPath: 'groups/marketing' })).status).toBe(200)
+    for (const folderPath of ['users/carol/mine', 'projects/falcon', 'shared']) {
+      const c = await patch('carol', { folderPath })
+      expect([folderPath, c.status, c.body.error.params.reason]).toEqual([folderPath, 409, 'project_location'])
+    }
+    expect((await patch('dana', { folderPath: 'users/dana' })).status).toBe(409)
     expect((await get('erin')).body.folderPath).toBe('groups/marketing')
   })
 

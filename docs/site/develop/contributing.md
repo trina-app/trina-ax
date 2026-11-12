@@ -21,6 +21,9 @@ Create a branch from current `main` in your fork or checkout.
 #### Make one focused change
 Keep unrelated formatting out of the diff. Update docs with behaviour changes.
 
+#### Add your changelog note
+Do not edit `CHANGELOG.md`. Put the user-visible notes in a new file `changes/<topic>.md`, where `<topic>` is the branch name without its prefix. [Read the rules](../../../changes/README.md).
+
 #### Run the checks
 At least `bun run typecheck` and the tests for what you changed. [See which checks](testing.md).
 

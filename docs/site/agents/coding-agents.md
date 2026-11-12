@@ -51,7 +51,8 @@ If a test fails, run it on an untouched checkout before blaming your change. Som
 - A new feature starts with `넣을 곳: <repository/folder>, 이유: <one sentence>`.
 - Fill in the pull request template: problem, change, validation and **Version impact** (`patch`, `minor`, `major` or `none`, with one reason). [Read how to choose](../develop/versioning.md).
 - Add screenshots with fictional data for visible UI changes.
-- Update `CHANGELOG.md` for user-visible changes, and `docs/UPSTREAM.md` when you bring a change from the core.
+- Do not edit `CHANGELOG.md`. Put the user-visible notes in a new file `changes/<topic>.md` ([rules](../../../changes/README.md)); `bun run check:docs` fails a pull request that adds a line under "## Unreleased".
+- Update `docs/UPSTREAM.md` when you bring a change from the core.
 
 ## Actions that need a human
 

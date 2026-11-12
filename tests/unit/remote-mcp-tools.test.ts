@@ -3,6 +3,7 @@ import path from 'node:path'
 import { afterEach, expect, test } from 'bun:test'
 import { RemoteOAuth } from '../../server/src/connectors/remote-mcp/oauth'
 import { RemoteTools } from '../../server/src/connectors/remote-mcp/tools'
+import { FILE_TOOLS } from '@mycel/shared'
 import { challenge } from '../../server/src/connectors/remote-mcp/policy'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 const live: Harness[] = []
@@ -182,4 +183,20 @@ test('skills_list: restricted skills folders and personal skills follow the conn
   const member = await run('member')
   expect(member.text).not.toContain('RESTRICTED-SKILL-CANARY')
   expect(JSON.parse(member.text)).toContainEqual({ path: `users/${member.memberId}/skills/mine.md`, name: 'Mine', description: 'MEMBER-PERSONAL-CANARY', personal: true })
+})
+// delete_files (server/src/chat/delete-files.ts) runs only in the app's own chat, behind the server's card. The connector
+// lists FILE_TOOLS and has no card: it must never list or run the delete, with every scope an owner can grant.
+test('the connector never lists or runs delete_files, with every scope', async () => {
+  const f = await setup('no-delete', 'mcp:read mcp:write mcp:rooms mcp:rooms.write mcp:admin offline_access', 'owner')
+  expect(Object.keys(FILE_TOOLS)).not.toContain('delete_files')
+  const names = f.tools.list(f.oauth.authenticate(f.token)).map((t) => t.name)
+  expect(names).toContain('write')
+  expect(names).not.toContain('delete_files')
+  // no file delete under another name either (group_delete is Admin › Groups' own tool)
+  expect(names.filter((n) => /trash|delete_?file|remove_?file/i.test(n))).toEqual([])
+  const r = await f.tools.call(f.token, 'delete_files', { paths: [f.mine] })
+  expect(r.isError).toBe(true)
+  expect(r.content[0]!.text).toBe('Unknown tool.')
+  expect(fs.readFileSync(path.join(f.h.ctx.config.teamRoot, f.mine), 'utf8')).toBe('synthetic private contents')
+  expect(f.h.ctx.db.query('SELECT COUNT(*) AS n FROM trash_items').get()).toEqual({ n: 0 })
 })

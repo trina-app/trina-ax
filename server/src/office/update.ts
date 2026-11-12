@@ -16,7 +16,9 @@
 //      10 minutes, like "update now" (O4, the Linux root update's rule: native/cmd/mycel-ctl/schedule.go)
 //   4. the new bundle's own installer with --update: it stops the agents, copies its app/ next to the old one, keeps
 //      the old one as app.previous, swaps, starts the server and cloudflared again
-//   5. /api/health on 127.0.0.1 must answer with the new version (and still after 15 s); otherwise roll back: stop
+//   5. /api/health on 127.0.0.1 must answer with the new version (and still after 15 s); a version that updates a large
+//      database first answers "migrating" meanwhile and is waited for, at most MIGRATE_WAIT_MS (office/health.ts; QA
+//      TC-278); otherwise roll back: stop
 //      the agents, app -> app.failed, app.previous -> app, the old version's `office.js install`, wait for the old
 //      version; that version is not tried again by the nightly run (`teamax update now` tries again)
 //   6. the release's Windows desktop installer + latest.yml into data/downloads (index.json), so the desks' app
@@ -42,6 +44,7 @@ import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import { PRODUCT } from '@mycel/shared'
+import { isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './health'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
 
@@ -355,8 +358,9 @@ export interface UpdateDeps {
   fetch: FetchLike
   /** run a program; output goes to the log (and is returned when `capture`) */
   exec(cmd: string[], o: { cwd?: string; env?: Record<string, string>; capture?: boolean; timeoutMs?: number }): Promise<Exec>
-  /** the version /api/health reports on 127.0.0.1:<port>, null when it does not answer */
-  health(port: number): Promise<string | null>
+  /** the version /api/health reports on 127.0.0.1:<port>, null when it does not answer, {migrating: version} while that
+   * version updates its database before it starts (office/health.ts) */
+  health(port: number): Promise<HealthAnswer>
   /** stop the server and cloudflared agents (rollback) */
   stopAgents(s: OfficeSettings): Promise<void>
   sleep(ms: number): Promise<void>
@@ -373,14 +377,7 @@ export const defaultDeps = (): UpdateDeps => ({
     if (timer) clearTimeout(timer)
     return { code, out: (out + err).trim() }
   },
-  async health(port) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2000) })
-      if (!r.ok) return null
-      const j = (await r.json()) as { version?: unknown }
-      return typeof j.version === 'string' ? j.version : null
-    } catch { return null }
-  },
+  health: (port) => probeHealth(port),
   async stopAgents(s) {
     const uid = process.getuid?.() ?? 0
     for (const l of [`${s.label}.tunnel`, s.label]) Bun.spawnSync(['launchctl', 'bootout', `gui/${uid}/${l}`], { stdout: 'ignore', stderr: 'ignore' })
@@ -411,6 +408,8 @@ export interface RunOptions {
   deps?: Partial<UpdateDeps>
   /** waits (tests make them short) */
   healthWaitMs?: number
+  /** a version that reports "migrating" may take this long after the switch (MIGRATE_WAIT_MS) */
+  migrateWaitMs?: number
   stableMs?: number
   idleWaitMs?: number
   /** the nightly run inside the team's window (scheduledRun): wait for running answers until then and leave the update
@@ -442,10 +441,17 @@ export async function fetchManifest(feed: string, channel: Channel, d: Pick<Upda
   if (!res.ok) throw new UpdateFailure(`${url}: HTTP ${res.status}`)
   const buf = new Uint8Array(await res.arrayBuffer())
   if (buf.byteLength > MANIFEST_MAX) throw new UpdateFailure(`${url} is larger than a manifest`)
-  const r = verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel, feed })
+  const text = Buffer.from(buf).toString('utf8')
+  const r = verifyRelease(text, { keys, channel, feed })
   if (version !== undefined && r.version !== version) throw new ReleaseError(`${url} is the manifest of ${r.version}, not ${version}`)
+  SIGNED.set(r, { channel, text })
   return r
 }
+
+const SIGNED = new WeakMap<OfficeRelease, SignedText>()
+/** the signed manifest a release came from (fetchManifest): offerWindows puts it next to the installer */
+export interface SignedText { channel: Channel; text: string }
+export const signedTextOf = (r: OfficeRelease): SignedText | undefined => SIGNED.get(r)
 
 /** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. `o.sha512` gets the
  * file's SHA-512 (base64, electron-updater's latest.yml), computed on the way too. */
@@ -569,16 +575,42 @@ export async function rollBack(home: string, from: string, to: string, d: Update
   // the old version's own install (agent plist, server, cloudflared); it does not touch this agent (TEAMAX_UPDATE_RUN)
   const r = await d.exec([path.join(app, 'bin', 'bun'), path.join(app, 'server', 'src', 'office.js'), 'install', '--no-open', '--home', home], { cwd: home, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1' }, timeoutMs: 5 * 60_000 })
   if (r.code !== 0) d.log(`the old version's install exited ${r.code}`)
-  return await waitVersion(s.appPort, from, d, healthWaitMs)
+  return (await waitVersion(s.appPort, from, d, healthWaitMs)).version
 }
 
-async function waitVersion(port: number, want: string, d: UpdateDeps, ms: number): Promise<string | null> {
-  const end = d.now().getTime() + ms
+export interface WaitResult {
+  /** the version that answered last (null: none) */
+  version: string | null
+  /** `want` said it was updating its database at some point / still said so when the wait ended */
+  sawMigrating: boolean
+  stillMigrating: boolean
+}
+
+/** Wait until /api/health answers with `want`, at most `ms`. While `want` reports it is updating its database the
+ * deadline moves to now + `ms` (never less than it had), so the start after a long migration gets the usual time; once
+ * that has lasted `migrateMs` from the start of the wait there is no more time (the bootstrap's extendDeadline,
+ * native/cmd/mycel-bootstrap; the wait is bounded by migrateMs + ms). Progress goes to the log once a minute. */
+export async function waitVersion(port: number, want: string, d: UpdateDeps, ms: number, migrateMs = MIGRATE_WAIT_MS): Promise<WaitResult> {
+  const start = d.now().getTime()
+  let end = start + ms
   let last: string | null = null
+  let sawMigrating = false, loggedAt = -Infinity
   for (;;) {
-    last = await d.health(port)
-    if (last === want) return last
-    if (d.now().getTime() >= end) return last
+    const h = await d.health(port)
+    const now = d.now().getTime()
+    const migrating = isMigrating(h) && h.migrating === want
+    last = typeof h === 'string' ? h : null
+    if (last === want) return { version: last, sawMigrating, stillMigrating: false }
+    if (migrating) {
+      if (now - start < migrateMs) end = Math.max(end, now + ms)
+      else end = Math.min(end, now)
+      if (now - loggedAt >= 60_000) {
+        d.log(`${want} is updating its database (${h.progress || '-'}), ${Math.round((now - start) / 1000)} s so far; waiting while it does, at most ${Math.round(migrateMs / 60_000)} min`)
+        loggedAt = now
+      }
+      sawMigrating = true
+    }
+    if (now >= end) return { version: last, sawMigrating, stillMigrating: migrating }
     await d.sleep(2000)
   }
 }
@@ -588,7 +620,7 @@ export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<Upd
   const w = r.windows
   if (!w) return null
   let res: Awaited<ReturnType<typeof offerWindows>>
-  try { res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, o) }
+  try { res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, { ...o, signed: signedTextOf(r) }) }
   finally {
     // update/download/ itself when nothing else waits there (O9: an empty folder was left after every update; a failed
     // download too). rmdir removes only an empty folder: a deferred release's zip stays
@@ -625,6 +657,26 @@ export function windowsOffered(dir: string, w: WindowsRelease, items = readIndex
   } catch { return false }
 }
 
+/** The signed manifest that names the offered installer, as <dir>/<channel>.json (routes/downloads.ts serves it): the
+ * Windows app installs an update only when that signed release names the installer it downloaded
+ * (desktop/src/common/update-verify.ts). The other channel's file goes (a server offers one channel). Written before
+ * latest.yml names a new installer, so a desk never sees an installer without its manifest. */
+export function placeSignedManifest(dir: string, s: SignedText | undefined) {
+  if (!s) return
+  ensureDir(dir)
+  const f = path.join(dir, `${s.channel}.json`)
+  let same = false
+  try { same = fs.readFileSync(f, 'utf8') === s.text } catch {}
+  if (!same) {
+    const t = path.join(dir, `.${s.channel}.json.tmp-${process.pid}`)
+    try {
+      fs.writeFileSync(t, s.text, { mode: 0o600 })
+      fs.renameSync(t, f)
+    } finally { fs.rmSync(t, { force: true }) }
+  }
+  for (const c of CHANNELS) if (c !== s.channel) fs.rmSync(path.join(dir, `${c}.json`), { force: true })
+}
+
 /** Room for `bytes` more next to `p`: what is left keeps the reserve below which the team folder refuses writes
  * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space. */
 export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => fs.statfsSync(x)): { ok: boolean; freeBytes: number; needBytes: number } {
@@ -643,9 +695,13 @@ export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => fs
  * every older Windows installer in the folder (moved in, not copied: the folder needs room for one copy), and latest.yml
  * comes last, so it never names a file that is not there. `tmp` is removed afterwards, whatever happened.
  */
-export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<WindowsOffer> {
+export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike; signed?: SignedText } = {}): Promise<WindowsOffer> {
   const items = readIndex(dir)
-  if (windowsOffered(dir, w, items)) return { kind: 'current', version: w.version }
+  if (windowsOffered(dir, w, items)) {
+    // a folder filled before the desks checked the signed release gets its manifest too
+    placeSignedManifest(dir, o.signed)
+    return { kind: 'current', version: w.version }
+  }
   const newer = items.find((i) => i.platform === 'windows' && compareVersions(i.version, w.version) > 0)
   if (newer) return { kind: 'newer', version: newer.version }
   // the installer is already listed and in place (its SHA-256 recorded when it was added), only latest.yml is not the
@@ -661,6 +717,7 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
       const text = fs.readFileSync(yml, 'utf8')
       const val = (k: string) => ymlValue(text, k)
       if (val('version') !== w.version || val('path') !== w.installer.file) throw new UpdateFailure(`latest.yml names ${val('path')} ${val('version')}, not ${w.installer.file} ${w.version}`)
+      placeSignedManifest(dir, o.signed)
       const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
       try {
         fs.copyFileSync(yml, t)
@@ -691,6 +748,7 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
       fs.chmodSync(t, 0o600)
       const added = addInstaller(dir, exe, { version: w.version, move: true, sha256: w.installer.sha256 })
       if (added.item.sha256 !== w.installer.sha256 || added.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
+      placeSignedManifest(dir, o.signed)
       fs.renameSync(t, path.join(dir, 'latest.yml'))
     } finally { fs.rmSync(t, { force: true }) }
   } catch (e) {
@@ -849,13 +907,20 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   }
   // from here on the program changes: any failure rolls back
   phase('install', `installing ${target} (was ${current})`, target)
-  const inst = await d.exec(['/bin/bash', path.join(bundle, 'office-install.sh'), '--prefix', home, '--update'], { cwd: bundle, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1' }, timeoutMs: 10 * 60_000 })
+  // TEAMAX_UPDATER_WAITS_MIGRATING: this updater waits for a version that updates its database (waitVersion), so the
+  // new install hands that wait over at once instead of spending up to 4 of its 10 minutes on it (cli.ts waitHealthy)
+  const inst = await d.exec(['/bin/bash', path.join(bundle, 'office-install.sh'), '--prefix', home, '--update'], { cwd: bundle, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1', TEAMAX_UPDATER_WAITS_MIGRATING: '1' }, timeoutMs: 10 * 60_000 })
   let problem: string | null = inst.code !== 0 ? `the installer exited ${inst.code}` : null
   if (!problem) {
     phase('verify', `waiting for ${target} to answer`, target)
-    const v = await waitVersion(s.appPort, target, d, o.healthWaitMs ?? HEALTH_WAIT_MS)
-    if (v !== target) problem = v ? `the server answers as ${v}, not ${target}` : `${target} did not answer on 127.0.0.1:${s.appPort}`
-    else {
+    const w = await waitVersion(s.appPort, target, d, o.healthWaitMs ?? HEALTH_WAIT_MS, o.migrateWaitMs ?? MIGRATE_WAIT_MS)
+    const v = w.version
+    if (v !== target) {
+      problem = w.stillMigrating ? `${target} was still updating its database after ${Math.round((o.migrateWaitMs ?? MIGRATE_WAIT_MS) / 60_000)} min`
+        : v ? `the server answers as ${v}, not ${target}`
+        : w.sawMigrating ? `${target} did not answer on 127.0.0.1:${s.appPort} after it updated its database`
+        : `${target} did not answer on 127.0.0.1:${s.appPort}`
+    } else {
       await d.sleep(o.stableMs ?? STABLE_MS)
       const again = await d.health(s.appPort)
       if (again !== target) problem = `${target} stopped answering after it started`

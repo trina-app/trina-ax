@@ -10,9 +10,12 @@ let seq = 100
 
 export interface MockRoom {
   /** the bodies of POST /api/rooms/:id/messages, in order */
-  sent: { body: string; mentions: string[]; mentionsAll?: boolean; threadRootId?: string | null }[]
+  sent: { body: string; mentions: string[]; mentionsAll?: boolean; threadRootId?: string | null; alsoInRoom?: boolean }[]
   /** the reactions put on or taken off (PUT …/reactions), in order */
   reacted: { messageId: string; emoji: string; on: boolean }[]
+  /** a message put into the room as the server would have it (an answer shared from the side chat): in its thread or
+   * in the timeline, read back by later GETs; the contract-shaped message */
+  add: (m: { author: { id: string; name: string }; body: string; threadRootId?: string; extra?: Record<string, unknown> }) => Record<string, unknown> & { id: string }
 }
 
 /** A message of the room; `threadRootId`: a reply in that message's thread (in the thread, not the timeline); `extra`:
@@ -24,9 +27,10 @@ export interface MockMessage { id: string; author: { id: string; name: string };
 export interface MockRoomAi { answering: number; mine: unknown[]; requests: unknown[] }
 
 /** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat); `ai`: the AI's state
- * (none by default) */
-export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; ai?: MockRoomAi }): Promise<MockRoom> {
-  const state: MockRoom = { sent: [], reacted: [] }
+ * (none by default); `room`: fields of the room as they are (its name, threads with new replies, …). A PATCH of the
+ * room (my notification level) answers with the room changed. */
+export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; ai?: MockRoomAi; room?: Record<string, unknown> }): Promise<MockRoom> {
+  const state: MockRoom = { sent: [], reacted: [], add: () => { throw new Error('not yet') } }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
   const members = [{ id: 'olga', name: 'Olga' }, ...o.members]
@@ -43,8 +47,16 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     id: ROOM_ID, kind: o.kind ?? 'group', name: o.kind === 'all' || o.kind === 'dm' ? null : '디자인 리뷰', canRename: true, managerId: 'olga', groupId: null, memberCount: members.length,
     peers: o.members.slice(0, 4), lastSeq: last, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false,
     lastReadSeq: last, lastMessage: null, muted: false, createdAt: at(-60), activityAt: at(messages.length),
-  }
+    ...(o.room ?? {}),
+  } as Record<string, unknown> & { lastSeq: number }
   const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
+  state.add = (m) => {
+    const n = ++seq
+    const made = message({ id: `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`, ...m }, n)
+    all.push(made)
+    if (!m.threadRootId) messages.push(made)
+    return made
+  }
   await page.route(/\/api\/rooms(\/|\?|$)/, async (route) => {
     const req = route.request()
     const path = new URL(req.url()).pathname
@@ -56,6 +68,11 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai`) return route.fulfill(json({ answering: o.ai?.answering ?? 0, mine: o.ai?.mine ?? [] }))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai/requests`) return route.fulfill(json({ items: o.ai?.requests ?? [] }))
     if (method === 'POST' && path === `/api/rooms/${ROOM_ID}/read`) return route.fulfill(json({ lastReadSeq: room.lastSeq, unreadCount: 0, mentioned: false }))
+    if (method === 'PATCH' && path === `/api/rooms/${ROOM_ID}`) {
+      const b = req.postDataJSON() as { notifyLevel?: string | null }
+      if ('notifyLevel' in b) room.notify = { own: b.notifyLevel ?? null, byDefault: 'all', level: b.notifyLevel ?? 'all' }
+      return route.fulfill(json(room))
+    }
     const react = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)\/reactions$/.exec(path)
     if (react && method === 'PUT') {
       const b = req.postDataJSON() as { emoji: string; on: boolean }
@@ -74,7 +91,10 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
       state.sent.push(b)
       const n = ++seq
       const id = `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
-      return route.fulfill(json(message({ id, author: { id: 'olga', name: 'Olga' }, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll }, n), 201))
+      // a reply comes back as one, and is in its thread when the thread is read again
+      const sent = message({ id, author: { id: 'olga', name: 'Olga' }, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll, ...(b.threadRootId ? { threadRootId: b.threadRootId, extra: b.alsoInRoom ? { alsoInRoom: true } : {} } : {}) }, n)
+      if (b.threadRootId) all.push(sent)
+      return route.fulfill(json(sent, 201))
     }
     return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
   })
@@ -89,6 +109,8 @@ export interface MockRoomSpec {
   name: string | null
   peers: { id: string; name: string }[]
   unread?: number
+  /** threads I follow there with replies I have not read (Room.threadsUnread) */
+  threads?: number
   mentioned?: boolean
   muted?: boolean
   hidden?: boolean
@@ -127,7 +149,7 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
     return {
       id: s.id, kind: s.kind, name: s.name, canRename: s.kind === 'group', managerId: s.kind === 'group' ? 'olga' : null,
       groupId: s.kind === 'team' ? `019a5f00-0000-7000-8000-${String(800 + i).padStart(12, '0')}` : null,
-      memberCount: s.peers.length + 1, peers: s.peers.slice(0, 4), lastSeq: 3, unreadCount: s.unread ?? 0, threadsUnread: 0, nextThreadId: null,
+      memberCount: s.peers.length + 1, peers: s.peers.slice(0, 4), lastSeq: 3, unreadCount: s.unread ?? 0, threadsUnread: s.threads ?? 0, nextThreadId: null,
       mentioned: !!s.mentioned, lastReadSeq: 3 - Math.min(3, s.unread ?? 0),
       lastMessage: { id: msgId(i), seq: 3, author: s.peers[0] ?? null, excerpt: s.last, fileCount: 0, deleted: false, createdAt: when(s.ago) },
       muted: level === 'off', notify: { own: s.own, byDefault, level }, createdAt: when(600), activityAt: when(s.ago),

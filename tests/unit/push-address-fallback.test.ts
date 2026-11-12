@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events'
 import type https from 'node:https'
 import { harness, withOwner, type Harness } from './a-lib'
 import { createLogger } from '../../server/src/log'
+import { padPrivateKey } from '../../server/src/notifications/push-config'
 import { PushService } from '../../server/src/notifications/push-service'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { createNativeTransport, type NativeSend } from '../../server/src/notifications/push-native'
@@ -58,7 +59,7 @@ const post = (n: ReturnType<typeof network>, addresses: Address[], o: Partial<Pa
   postPinned({ url: new URL('https://push.example.test/v1/send'), signal: new AbortController().signal, beforeSend: () => true, lookup: async () => addresses, request: n.request, body: Buffer.from('{}'), ...o })
 const failure = async (p: Promise<unknown>) => { try { await p } catch (e) { expect(e).toBeInstanceOf(PushSendError); return { message: (e as PushSendError).message, ...(e as PushSendError).detail } } throw new Error('expected a failure') }
 
-const pair = () => { const e = crypto.createECDH('prime256v1'); e.generateKeys(); return { publicKey: e.getPublicKey().toString('base64url'), privateKey: e.getPrivateKey().toString('base64url') } }
+const pair = () => { const e = crypto.createECDH('prime256v1'); e.generateKeys(); return { publicKey: e.getPublicKey().toString('base64url'), privateKey: padPrivateKey(e.getPrivateKey().toString('base64url')) } }
 const webInput = (): PushSend => ({ config: { enabled: true, subject: 'mailto:push@example.test', ...pair() }, subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic', keys: { p256dh: pair().publicKey, auth: crypto.randomBytes(16).toString('base64url') } }, payload: { notificationId: 'n-1', subscriptionId: 's-1', code: 'schedule.success' }, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 60 })
 const nativeInput = (): NativeSend => ({ device: { platform: 'ios', token: crypto.randomBytes(32).toString('hex'), environment: 'production' }, payload: { notificationId: 'n-1', code: 'schedule.success', locale: 'en', tag: 'device-1' }, config: { url: 'https://push.example.test' }, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 90 })
 

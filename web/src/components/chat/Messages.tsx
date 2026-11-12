@@ -2,7 +2,9 @@
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped / paused at the per-answer limit with "continue"), the note that a long
 // conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, "대화방에 보내기" (a finished
-// answer to a room: ShareToRoom.tsx), regenerate, branch switch.
+// answer to a room: ShareToRoom.tsx; in a room's side chat one click to the room or the asked message's thread:
+// rooms/SendHere.tsx), regenerate, branch switch. A side chat's question shows without the thread its quote names
+// (shared rooms.ts hideThreadRef), in copy and edit too (an edit keeps it while the quote's header stays).
 // Like Claude: an answer is plain text in the column, with no picture beside it; its actions stay under the newest
 // answer and show on older ones when the pointer or focus is on them. A phone has no hover: there a message's actions
 // (copy, edit, retry) show once the message is tapped, the newest answer's always; until then they are hidden from
@@ -14,10 +16,10 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillLabel, type Attachment, type EngineId, type Step, type UserRef } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
 import { formAnswers } from '../../lib/skillForm'
@@ -31,26 +33,33 @@ import { useChats, useQueuePosition } from '../../store/chats'
 import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
-import { useMe } from '../../store/session'
+import { canChooseEngine, useMe } from '../../store/session'
+import { useEngines } from '../../store/engines'
+import { toast } from '../../store/ui'
 import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../Markdown'
 import AiAccessButton from './AiAccessButton'
-import { isNoAiReason, noAiErrorKey } from '../../lib/aiAccess'
-import { Button, CopyButton, IconButton, inputCls } from '../ui'
+import NotReadyButton from './NotReadyButton'
+import { isNoAiReason } from '../../lib/aiAccess'
+import { adminPath, chatErrorText } from '../../lib/chatErrors'
+import { Button, CopyButton, IconButton, inputCls, useCopy } from '../ui'
 import AskCard from './AskCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
 import ShareToRoom from './ShareToRoom'
+import { SendHere, SendHereNote, type SentHere } from '../rooms/SendHere'
+import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
+import { keepThreadRef, type SendTarget } from '../../lib/sideChatSend'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
-import Steps from './Steps'
+import Steps, { StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
-import { WithRoomRefs } from './RoomRefMenu'
+import { copyRoomIds, WithRoomNames } from '../RoomNames'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 import { Tooltip } from '../Tooltip'
@@ -65,6 +74,35 @@ const ON_HOVER = 'transition [@media(hover:hover)]:opacity-0 group-focus-within:
  * way of the finger (not an invisible button that takes the tap), but still read by a screen reader and shown once a
  * keyboard's focus is in them */
 export const UNTIL_TAP = 'max-md:pointer-coarse:not-focus-within:sr-only'
+
+/** A room's side chat on a phone (`pressMenu`, CHATS-17): a message's actions as the room's messages have them, a long
+ * press opening them as a sheet (components/rooms/MenuButton.tsx), not icons that show on a tap. The icons stay out of
+ * sight only (UNTIL_TAP: screen readers and a keyboard still reach them); a computer or a tablet keeps them. A finger
+ * held in a text box or on a control of the message (an ask card's box, a link's own button) is no long press of it. */
+function usePhonePress(on: boolean) {
+  const [signal, setSignal] = useState(0)
+  const long = useLongPress(() => {
+    if (window.matchMedia?.('(min-width: 48rem)').matches) return
+    setSignal((n) => n + 1)
+  })
+  if (!on) return { signal, handlers: {} }
+  return {
+    signal,
+    handlers: {
+      ...long,
+      onPointerDown: (e: React.PointerEvent) => {
+        if ((e.target as Element).closest?.('textarea, input, select, button, a, [role="dialog"], [role="menu"], [data-testid="ask-card"], [data-testid="connect-card"]')) return
+        long.onPointerDown(e)
+      },
+    },
+  }
+}
+/** the side chat's sheet: its hidden button, opened by the long press */
+function PressSheet({ signal, items, title }: { signal: number; items: MenuItem[]; title?: string }) {
+  const t = useT()
+  if (!items.length) return null
+  return <MenuButton label={t('rooms.messageMenu')} className="absolute top-0 right-0" buttonClassName="hidden!" testId="side-message-menu" openSignal={signal} items={items} sheetTitle={title} />
+}
 
 /** "notes.txt" -> "TXT": the file's type on its card (none for a name without one) */
 const typeOf = (name: string) => {
@@ -82,7 +120,7 @@ export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect:
       <IconButton label={t('chat.prevBranch')} disabled={disabled || index === 0} onClick={() => onSelect(siblingIds[index - 1]!)}>
         <ChevronLeft size={14} />
       </IconButton>
-      <span className="tabular-nums" data-testid="branch-label">
+      <span className="whitespace-nowrap tabular-nums" data-testid="branch-label">
         {index + 1} / {count}
       </span>
       <IconButton label={t('chat.nextBranch')} disabled={disabled || index >= count - 1} onClick={() => onSelect(siblingIds[index + 1]!)}>
@@ -153,18 +191,55 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
 
 /** A question as the person reads it: one that runs a skill shows the skill by its title as a chip ("할 일 정리") and
  * then the rest of the question, in place of "/meeting-tasks …" (the command is what was sent and what runs; copy and
- * edit keep it). A command no skill of the person's has stays as it was typed. */
-export function UserText({ content, clamp }: { content: string; clamp: boolean }) {
+ * edit keep it). A command no skill of the person's has stays as it was typed. In a room's side chat (`quotes`; also
+ * opened as a full chat) a question about a message or a file (shared rooms.ts sideQuoteOf) shows that as a quote on top,
+ * as the side chat's box showed it before it went (who, when, its lines; a file by its name), never its Markdown or the
+ * thread it names; the question below it. Folded (`clamp`, a long question) the quote shows its first 3 lines and 전체
+ * 보기 opens it too. Other chats show a quote typed by hand as it was typed. */
+export function UserText({ content: sent, clamp, quotes = false }: { content: string; clamp: boolean; quotes?: boolean }) {
+  const quote = quotes ? sideQuoteOf(sent) : null
+  const content = quote ? quote.question : hideThreadRef(sent)
   const cmd = splitCommand(content)
   const items = useSkillList(!!cmd)
   const skill = cmd && items ? skillByName(items, cmd.name) : null
-  // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles
-  if (!cmd || !skill) return <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
-  return (
+  // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles; a room named by its id alone (a
+  // scheduled run's question is its instruction, "… room_id <id>") by its name for a viewer in it (components/RoomNames.tsx)
+  const text = !cmd || !skill ? (
+    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={content} tokenTitles /></div>
+  ) : (
     <div data-testid="user-text-skill">
       <SkillChip title={skillLabel(skill)} name={skill.name} />
-      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={cmd.rest} /></div>}
+      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={cmd.rest} tokenTitles /></div>}
     </div>
+  )
+  if (!quote) return text
+  return (
+    <>
+      <SideQuoteBlock quote={quote} clamp={clamp} />
+      {text}
+    </>
+  )
+}
+
+/** The room's message or file a side chat question is about, as a quote at the top of the bubble; `clamp`: its first 3
+ * lines (the message is folded: 전체 보기 shows the rest) */
+function SideQuoteBlock({ quote, clamp }: { quote: SideQuote; clamp: boolean }) {
+  return (
+    <blockquote className="mb-1.5 border-l-2 border-line-strong pl-2 text-xs leading-5" data-testid="user-quote">
+      {quote.kind === 'file' ? (
+        <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="user-quote-file">
+          <Paperclip size={12} aria-hidden className="shrink-0" />
+          <span className="truncate">{quote.name}</span>
+        </p>
+      ) : (
+        <>
+          <p className="font-medium text-ink" data-testid="user-quote-head">
+            {quote.author} <span className="font-normal text-faint">{quote.at}</span>
+          </p>
+          <p className={clsx('break-words whitespace-pre-wrap text-muted', clamp && 'line-clamp-3')} data-testid="user-quote-text">{quote.text}</p>
+        </>
+      )}
+    </blockquote>
   )
 }
 
@@ -249,29 +324,43 @@ export function MessageAuthor({ author }: { author: UserRef | null }) {
 }
 
 /** `showAuthor`: a shared chat, every question shows who asked (MessageAuthor); `canEdit` false: not mine to edit (a
- * shared chat) */
-export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean }) {
+ * shared chat); `sideChat`: a room's side chat, whose questions may quote a room message or file (UserText) */
+export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false, pressMenu = false }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean; /** a room's side chat panel: a phone's long press opens the actions (usePhonePress) */ pressMenu?: boolean }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
-  // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts)
-  const [draft, setDraft] = useState(() => fromWire(m.content).text)
+  // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts); a side chat's
+  // quote shows without its thread, which goes back on while the quote's header line stays (lib/sideChatSend.ts)
+  const shown = hideThreadRef(m.content)
+  const [draft, setDraft] = useState(() => fromWire(shown).text)
   /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
   const secret = useSecretHold(draft)
   const editRef = useRef<HTMLTextAreaElement>(null)
   const sendEdit = () => {
     setEditing(false)
-    onEdit(m, toWire(draft, fromWire(m.content).picked))
+    onEdit(m, keepThreadRef(toWire(draft, fromWire(shown).picked), m.content))
   }
   const resend = useChats((s) => s.resend)
   const discard = useChats((s) => s.discardLocal)
   const long = m.content.length > 1200 || m.content.split('\n').length > 18
   const [open, setOpen] = useState(!long)
   const run = useFormRun(m.content)
-  // phones: the actions show once the message is tapped
+  // phones: the actions show once the message is tapped; in a side chat panel a long press opens them (usePhonePress)
   const [tapped, setTapped] = useState(false)
+  const shut = pressMenu || !tapped
+  const press = usePhonePress(pressMenu && !m.local && !editing)
+  const { copy } = useCopy()
+  const startEdit = () => {
+    setDraft(fromWire(shown).text)
+    setEditing(true)
+  }
+  const pressItems: MenuItem[] = pressMenu && !m.local && !editing ? [
+    ...(shown ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copy(shown).then(() => toast({ level: 'success', text: t('common.copied') }), () => {}), testId: 'side-message-copy' }] : []),
+    ...(canEdit ? [{ label: t('chat.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: startEdit, testId: 'side-message-edit' }] : []),
+  ] : []
   const branched = m.branch.count > 1
   return (
-    <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)}>
+    <div className={clsx('group flex min-w-0 flex-col items-end gap-2', pressMenu && 'relative max-md:pointer-coarse:select-none max-md:pointer-coarse:[-webkit-touch-callout:none]')} data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)} {...press.handlers}>
+      {pressMenu && <PressSheet signal={press.signal} items={pressItems} />}
       {showAuthor && <MessageAuthor author={m.author} />}
       {m.attachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
@@ -325,9 +414,9 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
       ) : (
         m.content && (
           <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-reading leading-7 max-md:leading-reading sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
-            <UserText content={m.content} clamp={!open} />
+            <UserText content={m.content} clamp={!open} quotes={sideChat} />
             {long && (
-              <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted hover:text-ink">
+              <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted select-none hover:text-ink">
                 {open ? t('chat.showLess') : t('chat.showAll')}
               </button>
             )}
@@ -353,19 +442,12 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
       )}
       {!m.local && !editing && (
         // phones: the branch switch stays in sight; without one the row takes no room until the tap
-        <div className={clsx('flex items-center gap-1', ON_HOVER, !tapped && !branched && UNTIL_TAP)} data-testid="message-actions">
+        <div className={clsx('flex items-center gap-1 select-none', ON_HOVER, shut && !branched && UNTIL_TAP)} data-testid="message-actions">
           <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-          <span className={clsx('flex items-center gap-1 md:contents', !tapped && UNTIL_TAP)} data-testid="message-actions-tap">
-            <CopyButton text={m.content} />
+          <span className={clsx('flex items-center gap-1 md:contents', shut && UNTIL_TAP)} data-testid="message-actions-tap">
+            <CopyButton text={shown} />
             {canEdit && (
-              <IconButton
-                label={t('chat.edit')}
-                onClick={() => {
-                  setDraft(fromWire(m.content).text)
-                  setEditing(true)
-                }}
-                data-testid="edit-message"
-              >
+              <IconButton label={t('chat.edit')} onClick={startEdit} data-testid="edit-message">
                 <Pencil size={13} />
               </IconButton>
             )}
@@ -503,8 +585,10 @@ export function AssistantMessage({
   onContinue,
   shareable = false,
   shareRoomId,
+  sendHere,
   canRegenerate = true,
   canSuggest = true,
+  pressMenu = false,
 }: {
   m: ViewMessage
   chatId: string
@@ -521,12 +605,20 @@ export function AssistantMessage({
   /** its answers may go to a room ("대화방에 보내기"): a chat known not to be confidential (Safe operations 1A keeps
    * those to themselves; the server refuses them) */
   shareable?: boolean
-  /** a room's side chat: "Share to room" is a labelled button with this room picked (components/rooms/SideChatPanel.tsx) */
+  /** the room "대화방에 보내기" starts with picked (a side chat opened as a full chat: its room) */
   shareRoomId?: string
+  /** a room's side chat (components/rooms/SideChatPanel.tsx): one click to the room or the asked message's thread
+   * (rooms/SendHere.tsx) in place of the dialog; `target`: that thread (lib/sideChatSend.ts), null for the room;
+   * `onView`: its 보기 */
+  sendHere?: { roomId: string; target: SendTarget | null; onView: (sent: SentHere) => void }
   /** false: someone else asked this in a shared chat, so no new answer from me ("retry", "regenerate") */
   canRegenerate?: boolean
   /** false: "스킬로 제안" is not offered (a shared chat, phase 1: the server refuses it) */
   canSuggest?: boolean
+  /** a room's side chat panel: on a phone a long press opens copy, retry and the model as a sheet, as a room's message
+   * does (usePhonePress); "스레드에 보내기" / "대화방에 보내기" stays under the answer (docs/DECISIONS.md "Trina side chat:
+   * send here") */
+  pressMenu?: boolean
 }) {
   const t = useT()
   const locale = useLocale()
@@ -543,20 +635,38 @@ export function AssistantMessage({
   const thinking = streaming && !m.content && !waitingForYou && !deck
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
-  // "no AI": the owner hears what they can do, next to the button (lib/aiAccess.ts noAiErrorKey), only while no AI
-  // answers them (another engine's connection, or one added since, keeps the server's per-engine words)
+  // by who reads it (lib/chatErrors.ts): "no AI" with its button for the owner and admins while no AI answers them
+  // (another engine's connection, or one added since, keeps the per-engine words); where to fix it for the owner and
+  // admins; what happened and who to tell for everyone else. Never the provider's HTTP status (params.status)
   const role = useMe()?.user.role
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
+  const said = reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
-    ? reason ? t(noAiErrorKey(reason, role, noAi) ?? `chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
+    ? said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
   const [sharing, setSharing] = useState(false)
   // phones: an older answer's actions show once it is tapped
   const [tapped, setTapped] = useState(false)
-  const untilTap = !isLast && !tapped
+  const untilTap = pressMenu || (!isLast && !tapped)
   const branched = m.branch.count > 1
+  const press = usePhonePress(pressMenu && !streaming)
+  const { copy } = useCopy()
+  const answeredBy = useAnsweredBy(m)
+  const canRetry = !(m.status === 'error' && isLast) && canRegenerate
+  const finished = !!m.content && m.status === 'done'
+  const sendHereOn = !!sendHere && shareable && finished
+  const pressItems: MenuItem[] = pressMenu && !streaming ? [
+    ...(m.content ? [{ label: t('chat.copyAnswer'), icon: <Copy size={14} aria-hidden />, onSelect: () => {
+      let rich: string | undefined
+      try { rich = answerHtml(m.content) } catch { rich = undefined }
+      void copy(m.content, rich).then(() => toast({ level: 'success', text: t('common.copied') }), () => {})
+    }, testId: 'side-answer-copy' }] : []),
+    // (not while an answer runs: the icon is disabled then, and a sheet item cannot be)
+    ...(canRetry && !busy ? [{ label: t('chat.regenerate'), icon: <RotateCcw size={14} aria-hidden />, onSelect: () => onRegenerate(m), testId: 'side-answer-regenerate' }] : []),
+    ...(canSuggest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
+  ] : []
 
   if (m.withheld) {
     return (
@@ -572,7 +682,9 @@ export function AssistantMessage({
   }
 
   return (
-    <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming} onClick={() => setTapped(true)}>
+    <div className={clsx('group', pressMenu && 'relative max-md:pointer-coarse:select-none max-md:pointer-coarse:[-webkit-touch-callout:none]')} data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming} onClick={() => setTapped(true)} {...press.handlers}>
+      {/* the model that answered is the sheet's title (the ⓘ it replaces said only that) */}
+      {pressMenu && <PressSheet signal={press.signal} items={pressItems} title={answeredBy ?? undefined} />}
       <div className="min-w-0 text-reading">
         {switchedFrom && m.engine && (
           <div className="mb-3 flex items-center gap-2 text-xs text-faint">
@@ -586,7 +698,12 @@ export function AssistantMessage({
             {t('chat.queued', { n: queuePos })} <span className="text-faint">{t('chat.queueHint')}</span>
           </p>
         )}
-        {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />}
+        {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : (
+          // a side chat: a post's 보기 goes the way its sent line's does (the panel's onView)
+          <StepPostView.Provider value={sendHere ? (p) => sendHere.onView({ to: p.threadRootId ? 'thread' : 'room', roomId: p.roomId, rootId: p.threadRootId ?? null, messageId: p.messageId, cut: false }) : null}>
+            <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
+          </StepPostView.Provider>
+        )}
         {thinking && (queuePos === undefined || queuePos === 0) && (
           <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
             <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
@@ -613,6 +730,7 @@ export function AssistantMessage({
             {isLast && canRegenerate && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && <AiAccessButton />}
+                {reason === 'engine_missing' && <NotReadyButton role={role} />}
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                   <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                 </Button>
@@ -652,22 +770,26 @@ export function AssistantMessage({
         {!streaming && (
           // phones: an older answer's actions and model name wait for a tap, its branch switch stays in sight; without
           // one the row takes no room until then
-          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && UNTIL_TAP)} data-testid="answer-actions">
+          // (a side chat panel: the send button stays in sight under every finished answer, the icons wait for a long press)
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 select-none max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && !(pressMenu && sendHereOn) && UNTIL_TAP)} data-testid="answer-actions">
             <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
               {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
-              {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom) */}
-              {shareable && m.content && m.status === 'done' && (shareRoomId ? (
-                <button type="button" onClick={() => setSharing(true)} className="touch-hit flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="share-to-room">
-                  <MessageSquareShare size={13} aria-hidden />
-                  {t('sideChat.share')}
-                </button>
-              ) : (
+            </span>
+            {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom); a room's side chat sends it
+                to its room or the asked message's thread with one click (SendHere), in sight in its panel on a phone too */}
+            {sendHereOn && (
+              <span className={clsx('flex items-center md:contents', untilTap && !pressMenu && UNTIL_TAP)} data-testid="answer-actions-send">
+                <SendHere chatId={chatId} answerId={m.id} roomId={sendHere!.roomId} target={sendHere!.target} onView={sendHere!.onView} />
+              </span>
+            )}
+            <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap-more">
+              {shareable && finished && !sendHere && (
                 <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
                   <MessageSquareShare size={13} />
                 </IconButton>
-              ))}
+              )}
               {/* the newest failed answer has "Try again" in its error box: one control for one action */}
-              {!(m.status === 'error' && isLast) && canRegenerate && (
+              {canRetry && (
                 <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
                   <RotateCcw size={13} />
                 </IconButton>
@@ -679,15 +801,56 @@ export function AssistantMessage({
               )}
             </span>
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-            {m.model && <span className={clsx('ml-1 text-micro text-faint', untilTap && UNTIL_TAP)}>{m.model}</span>}
+            {(m.model || m.engine) && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
           </div>
         )}
+        {sendHere && shareable && !streaming && <SendHereNote answerId={m.id} />}
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />
         )}
         {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} roomId={shareRoomId} onClose={() => setSharing(false)} />}
       </div>
     </div>
+  )
+}
+
+/** The plain name of the AI that wrote an answer: the model's name from the list the person may pick from ("Claude
+ * Sonnet"), else the AI's ("Claude"), the raw model id only when nothing else is known. */
+export function answeredByName(m: Pick<ViewMessage, 'engine' | 'model'>, models: Partial<Record<EngineId, { id: string; label: string }[]>>): string | null {
+  const engine = m.engine as EngineId | null
+  const list = engine ? models[engine] ?? [] : []
+  // the server keeps the id the AI reported: an alias ("sonnet") or a full id ("claude-sonnet-4-5-…")
+  const hit = m.model ? list.find((x) => x.id === m.model) ?? (engine === 'claude-code' ? list.find((x) => m.model!.includes(x.id)) : undefined) : undefined
+  const ai = engine ? ENGINE_LABEL[engine] : undefined
+  // (a gateway's model has no display name: its label is the id, and "Claude claude-…" would say it twice)
+  if (hit) return ai && engine === 'claude-code' && hit.label !== hit.id && !hit.label.startsWith(ai) ? `${ai} ${hit.label}` : hit.label
+  return ai ?? m.model ?? null
+}
+
+/** Which AI answered, for the people who choose the AI (owner, admins, people the admin allowed): a quiet info button
+ * with the plain name in its tooltip, and a toast on touch (no tooltips there). Everyone else sees nothing: a model id
+ * under each answer reads like an error code to them, and ChatGPT and Claude do not stamp one either. */
+/** "Answered by <model>", for people who may pick the engine, else null */
+function useAnsweredBy(m: ViewMessage): string | null {
+  const t = useT()
+  const me = useMe()
+  const chooser = canChooseEngine(me) && !!(m.model || m.engine)
+  const models = useEngines((s) => s.models)
+  const load = useEngines((s) => s.load)
+  // the list the plain names come from (a chat page loads it already; a room's side chat may not have)
+  useEffect(() => { if (chooser) void load() }, [chooser, load])
+  if (!chooser) return null
+  const name = answeredByName(m, models)
+  return name ? t('chat.answeredBy', { ai: name }) : null
+}
+
+function AnsweredBy({ m, className }: { m: ViewMessage; className?: string }) {
+  const label = useAnsweredBy(m)
+  if (!label) return null
+  return (
+    <IconButton label={label} onClick={() => toast({ level: 'info', text: label })} className={clsx('touch-hit', className)} data-testid="answer-model">
+      <Info size={13} />
+    </IconButton>
   )
 }
 

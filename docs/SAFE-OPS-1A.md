@@ -251,25 +251,22 @@ non-download authorization and an admitted source held across rendering; changin
 quarantined copy to `.hwp` or `.hwpx` cannot reach preflight or the renderer.
 A rare attempt to publish/normalize bytes that a current search already holds fails with a
 localized retry message **before** publication/delivery; it is not silently admitted.
-Unrelated publication continues. Office source bytes and their sidecars are also admitted;
-semantic embedding holds its source lease across asynchronous embedding and index writes.
-Semantic rows retain the original source hash, so query also rejects them before refresh
-even after path replacement; refresh removes quarantined rows. Historical
-downloads retain the same browser Fetch Metadata checks as current downloads.
+Unrelated publication continues. Office source bytes and their sidecars are also admitted.
+Historical downloads retain the same browser Fetch Metadata checks as current downloads.
 
 Each raw/Office snapshot is bounded to 20,000 candidates and 256 MiB; existing 50 MiB/file,
 query deadlines, cancellation and output limits remain. Input limits return an explicit
 incomplete-result notice; narrow the search. Temporary input copies add local I/O and may
 cost more than direct ripgrep, especially with many small files. Snapshot copying is
 synchronous and bounded by the search deadline. Hash leases do not keep a DB write lock
-while ripgrep or embedding runs. Grep results still carry no versioned model-context
+while ripgrep runs. Grep results still carry no versioned model-context
 provenance: publication requires an explicit read of every grep-only source.
 
 After normal exit/cancellation, search snapshots and leases are deleted. A server crash or
 failed cleanup conservatively leaves leases and possibly snapshots, since a child might
 still be reading; **no timeout or PID-reuse guess expires a lease**. This can refuse later
 registration of those exact hashes. Recovery requires stopping the whole tenant service
-and its children, verifying no search/embedding consumers remain, removing only its owned
+and its children, verifying no search consumers remain, removing only its owned
 `<dataDir>/search-inputs/` snapshots (prefixes identify the lease), then clearing that tenant's `safe_ops_search_inputs`
 and `safe_ops_empty_searches` rows while offline. Never clear `safe_ops_artifacts`, publication, inode or source records.
 An ordinary restart is not proof that orphan children have exited. Back up the DB and files
@@ -296,10 +293,9 @@ all service children and consumers have stopped. No PID or timeout automatically
 This adds two small database transactions per live search, rather than work per input file.
 
 Office text cache format 5 records both the extraction source hash and text hash. Once
-quarantine exists, searches and semantic ingestion admit that exact source and verify both
+quarantine exists, searches admit that exact source and verify both
 hashes before consuming the sidecar. Same-mtime source replacements and interleaved cache
-writers cannot relabel old derived text. Old caches are rebuilt; semantic provenance version
-2 also rebuilds old rows which may have been labelled with a replacement source hash.
+writers cannot relabel old derived text. Old caches are rebuilt.
 Reader 4 prevents downgrade into a consumer unaware of these guarantees. Source directories,
 cache directories, database and the server account remain trusted.
 

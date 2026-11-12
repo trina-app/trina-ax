@@ -271,6 +271,15 @@ describe('control connections', () => {
       return fetch(`${R.base}${p}`, { method, headers: { authorization: authorizationHeader(t.teamId, ts, signB64(k, apiSigningString(method, p, ts, text))), 'content-type': 'application/json' }, body: text || undefined })
     }
     expect((await call('POST', `/teams/${t.teamId}/heartbeat`, { version: '0.1.0', members: 3 })).status).toBe(200)
+    // the same signed call sent again is a replay (409), a freshly signed one works
+    const hb = `/teams/${t.teamId}/heartbeat`
+    const hbBody = JSON.stringify({ version: '0.1.0', members: 4 })
+    const hbTs = Date.now()
+    const hbAuth = authorizationHeader(t.teamId, hbTs, signB64(key, apiSigningString('POST', hb, hbTs, hbBody)))
+    const send = () => fetch(`${R.base}${hb}`, { method: 'POST', headers: { authorization: hbAuth, 'content-type': 'application/json' }, body: hbBody })
+    expect((await send()).status).toBe(200)
+    const replay = await send()
+    expect([replay.status, ((await replay.json()) as { error: { code: string } }).error.code]).toEqual([409, 'replayed'])
     expect((await fetch(`${R.base}/teams/${t.teamId}`)).status).toBe(401)
     const c = client({ url: R.ws, teamId: t.teamId, kp: t.kp, fetch: app })
     await until(() => c.state.state === 'connected')

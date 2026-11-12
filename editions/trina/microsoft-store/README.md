@@ -9,7 +9,7 @@
 - [build-resources/appx/](build-resources/appx/): 시작 메뉴·작업 표시줄 타일 이미지입니다. 트리나 마크(`editions/trina/branding/mobile/icon.svg`)로 만들었고, 넓은 타일은 [build-resources/wide-tile.svg](build-resources/wide-tile.svg)입니다. 다시 만들 때: `rsvg-convert -w <크기> -h <크기> <svg> -o <파일>.png`.
 - [listing.md](listing.md): 스토어 등록 문구(영어, 한국어)와 제출 화면에 넣을 답입니다.
 
-스토어 빌드는 앱 자체 업데이트를 하지 않습니다(`process.windowsStore`, `desktop/src/common/update.ts`). 팀 페이지의 설정 > 앱도 스토어 빌드 안에서는 설치 파일 목록 대신 "Microsoft Store에서 업데이트돼요" 한 줄만 보여 줍니다(데스크톱 브리지의 `store` 값).
+스토어 빌드는 앱 자체 업데이트를 하지 않습니다(`process.windowsStore`, `desktop/src/common/update.ts`). 팀 페이지의 설정 › 앱도 스토어 빌드 안에서는 설치 파일을 보여 주지 않습니다. 윈도우 줄은 "이 앱"과 "Microsoft Store에서 업데이트돼요" 한 줄이고, 맥 줄은 App Store로 갑니다(데스크톱 브리지의 `store` 값, `web/src/lib/apps.ts`).
 
 MSIX 앱은 자기 데이터를 따로 둡니다. NSIS로 설치한 앱의 팀 목록과 로그인은 넘어오지 않으니, 스토어 앱을 처음 열면 팀 주소를 다시 넣고 로그인합니다. 두 앱을 같이 설치할 수도 있습니다.
 

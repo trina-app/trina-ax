@@ -13,7 +13,8 @@ import { tr } from '../chat/i18n'
 import { newId } from '../db'
 import { audit } from '../admin/audit'
 import { decodeCursor, encodeCursor } from '../chat/store'
-import { scanSkillsWithShadowed, skillInfo, skillIssues } from '../chat/skills'
+import { projectSkillSections, scanSkillsWithShadowed, skillInfo, skillIssues, type ShadowedBy } from '../chat/skills'
+import { levelLabel, moveOptions, runMove } from '../skills/move'
 import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
 import { teamPrepared } from '../skills/examples'
@@ -23,6 +24,7 @@ import { registerNotifications } from './notifications'
 import { registerPush } from './push'
 import { installPush } from '../notifications/push-service'
 import { needsReview, type ScheduleRow } from '../chat/schedules'
+import { scopeOut } from '../chat/schedule-scope'
 import { awaitingReview, confirmReview, reviewCard } from '../chat/schedule-review'
 import { editCard, saveTask, saveTemplate } from '../chat/schedule-edit'
 import { approveSuggestion, contributeSkills, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview, CONTRIBUTE_BODY_MAX } from '../skills/suggestions'
@@ -48,7 +50,15 @@ export const memoriesRoutes: RouteModule = {
         : ctx.db.query('SELECT id, text, source_chat_id, created_at FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?').all(auth.user.id, limit + 1)) as Row[]
       const items = rows.slice(0, limit)
       const last = items[items.length - 1]
-      return { items: items.map((r) => rt.store.toMemory(r)), nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null }
+      // which of them the AI gets now (the same cut as its memory block): the others are marked, and the page says how
+      // many are in use of how many kept (QA TC-213)
+      const used = rt.memoriesInUse(auth.user.id)
+      const total = (ctx.db.query('SELECT count(*) n FROM memories WHERE user_id = ?').get(auth.user.id) as { n: number }).n
+      return {
+        items: items.map((r) => ({ ...rt.store.toMemory(r), ...(used.has(r.id) ? {} : { unused: true as const }) })),
+        nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null,
+        inUse: used.size, total,
+      }
     })
     // the person's own memories, with the AI's limits (prompt.ts cleanMemoryText). Kept as the person's (source
     // 'user'); the audit line has the id and the length, never the text (admins can't see memories, tab 1). Memories
@@ -100,11 +110,13 @@ export const memoriesRoutes: RouteModule = {
       projectId: s.project_id, enabled: !!s.enabled, resumeBlockedReason: rt.schedules.resumeBlockedReason(s), nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id,
       templateId: s.template_id, templateVersion: s.template_version, sourcePath: s.template_source_path, outputPath: s.template_output_path,
       pendingDueAt: s.pending_due_at, retryAt: s.retry_at, deferredCount: s.deferred_count, ...lastOf(s),
-      needsReview: needsReview(s), reviewSince: s.review_since })
-    /** the last run's result, and for a run that needed the owner's own key for a template, which one */
+      needsReview: needsReview(s), reviewSince: s.review_since, ...scopeOut(ctx, s) })
+    /** the last run's result and when it came, whether a run is queued or running now (its chat is lastChatId: "Run
+     * now" moves only that), and for a run that needed the owner's own key for a template, which one */
     function lastOf(s: ScheduleRow) {
-      const lastOutcome = rt.schedules.lastOutcome(s.user_id, s.id)
-      return { lastOutcome, lastNeed: lastOutcome === 'needs_key' ? rt.schedules.lastNeed(s.user_id, s.id) : null }
+      const last = rt.schedules.lastResult(s.user_id, s.id)
+      const lastOutcome = last?.outcome ?? null
+      return { lastOutcome, lastOutcomeAt: last?.at ?? null, running: rt.schedules.isRunning(s), lastNeed: lastOutcome === 'needs_key' ? rt.schedules.lastNeed(s.user_id, s.id) : null }
     }
     kit.handle(API.listScheduleTemplates, () => ({ items: [...SCHEDULE_TEMPLATES], timeZone: rt.timeZone }))
     kit.handle(API.createScheduleFromTemplate, ({ auth, body }) => scheduleOut(createFromTemplate(ctx, rt, auth.user.id, body)))
@@ -134,12 +146,26 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.listSkills, ({ auth, query }) => {
       let p
       try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      const { skills: items, shadowed, replaces } = scanSkillsWithShadowed(ctx.files, p)
+      // ?projectId=: the list of a chat in that project (its "/" menu), while the caller sees the project
+      const project = query?.projectId ? rt.projectForChat(query.projectId, p) : null
+      const { skills: items, shadowed, replaces } = scanSkillsWithShadowed(ctx.files, p, { project: project ? { id: project.id, name: project.name, folderPath: project.folderPath } : null })
       const lost = query?.shadowed ? shadowed : []
+      // ?projects=1: the Skills page's project sections, every project the caller sees (docs/DECISIONS.md "Project skills")
+      const sections = query?.projects ? projectSkillSections(ctx.files, p) : []
       // a skill a member suggested keeps their name ("민준 님이 제안", docs/DECISIONS.md "MC")
       const by = suggestersOf(ctx.db, [...items, ...lost.map((l) => l.skill)].map((s) => s.path).filter((x) => !x.startsWith('users/')))
+      const shadow = (b: ShadowedBy) => (b.tier === 'group' ? { tier: 'group' as const, group: { id: b.group.id, name: b.group.name } } : { tier: b.tier })
       const one = (s: (typeof items)[number], extra: object = {}) => { const i = skillInfo(s); const who = by.get(s.path); const r = replaces.get(s.path); return { ...i, ...(who ? { suggestedBy: who } : {}), ...(r ? { replaces: r } : {}), ...extra } }
-      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: l.by.tier === 'personal' ? { tier: 'personal' } : { tier: 'group', group: { id: l.by.group.id, name: l.by.group.name } } }))] }
+      const listed = new Set([...items.map((s) => s.path), ...lost.map((l) => l.skill.path)])
+      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: shadow(l.by) })),
+        ...sections.filter((x) => !listed.has(x.skill.path)).map((x) => ({ ...skillInfo(x.skill), ...(x.by ? { shadowedBy: shadow(x.by) } : {}) }))] }
+    })
+    // "옮기기…" on the Skills page (skills/move.ts): where a skill can go, then the move as seen
+    kit.handle(API.skillMoveOptions, ({ c, auth, query }) => moveOptions(ctx, auth.user.id, query.path, c.get('locale')))
+    kit.handle(API.moveSkill, ({ c, auth, body }) => {
+      const L = c.get('locale')
+      const plan = runMove(ctx, auth.user.id, body.path, body.to, body.token, L)
+      return { path: plan.entry, name: plan.skill.name, from: levelLabel(plan.from, L), to: levelLabel(plan.to, L) }
     })
     // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): what the team prepared, read as the caller (skills/examples.ts)
     kit.handle(API.skillExamples, ({ c, auth }) => {

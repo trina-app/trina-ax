@@ -7,7 +7,7 @@
 - [entitlements.mas.inherit.plist](entitlements.mas.inherit.plist): 앱 안 Electron 도우미 프로그램 권한입니다. 앱의 샌드박스를 그대로 물려받습니다.
 - [entitlements.mas.loginhelper.plist](entitlements.mas.loginhelper.plist): Electron 로그인 도우미 권한입니다. macOS가 직접 실행하므로 샌드박스를 따로 켭니다.
 
-스토어 빌드는 앱 자체 업데이트 안내를 띄우지 않습니다. 업데이트는 App Store가 합니다(`desktop/src/common/update.ts`). 팀 페이지의 설정 > 앱도 스토어 빌드 안에서는 데스크톱 설치 파일(맥 .dmg, 윈도우 .exe)과 설치 안내를 보여 주지 않고, App Store에서 업데이트된다는 한 줄만 보여 줍니다(데스크톱 브리지의 `store` 값, `web/src/lib/downloads.ts`).
+스토어 빌드는 앱 자체 업데이트 안내를 띄우지 않습니다. 업데이트는 App Store가 합니다(`desktop/src/common/update.ts`). 팀 페이지의 설정 › 앱도 스토어 빌드 안에서는 데스크톱 설치 파일(맥 .dmg, 윈도우 .exe)과 설치 안내를 보여 주지 않습니다. 맥 줄은 "이 앱"과 App Store에서 업데이트된다는 한 줄이고, 윈도우 줄은 다운로드 페이지로 갑니다(데스크톱 브리지의 `store` 값, `web/src/lib/apps.ts`). 애플 앱이 다른 휴대폰 플랫폼 이름을 보여 주면 안 되므로(App Review 2.3.10) 이 빌드에는 안드로이드 줄이 없고, 아이폰 줄과 다운로드 페이지 QR 코드만 있습니다.
 
 알림 권한도 스토어 앱(`app.trina.ax`)이 따로 받습니다. macOS는 앱마다 한 번만 묻고, 답하기 전에 앱이 꺼지면 알림은 꺼진 채로 남고 다시 묻지 않습니다. 그래서 앱은 팀 화면이 열려 창이 앞에 있을 때 묻습니다(`desktop/src/common/notify.ts` ask). 이미 꺼진 사람은 시스템 설정 › 알림 › Trina AX에서 켭니다. macOS는 보여 주지 않을 알림도 오류 없이 받으므로, 맥에서 설정 › 알림 › 이 컴퓨터 앱 알림 › 테스트 알림은 "보냈어요"라고만 하지 않고 그 자리를 알려 줍니다(`desktopNotify.unknown`: "테스트 알림을 보냈어요. 보이지 않으면 시스템 설정 › 알림 › Trina AX에서 켜 주세요.").
 

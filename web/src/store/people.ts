@@ -19,6 +19,8 @@ interface PeopleState {
 }
 
 let inflight: Promise<void> | null = null
+/** a forced read was asked for while one was on its way (a profile notice): that read may predate the change */
+let again = false
 
 export const usePeople = create<PeopleState>((set, get) => ({
   people: null,
@@ -26,7 +28,10 @@ export const usePeople = create<PeopleState>((set, get) => ({
   byId: {},
   failed: false,
   load(force) {
-    if (inflight) return inflight
+    if (inflight) {
+      if (force) again = true
+      return inflight
+    }
     if (get().people && !force) return Promise.resolve()
     inflight = api
       .call(API.listPeople)
@@ -36,10 +41,18 @@ export const usePeople = create<PeopleState>((set, get) => ({
       )
       .finally(() => {
         inflight = null
+        // one more read for a change that came while this one was on its way
+        if (again) {
+          again = false
+          void get().load(true)
+        }
       })
     return inflight
   },
-  reset: () => set({ people: null, loaded: false, byId: {}, failed: false }),
+  reset: () => {
+    again = false
+    set({ people: null, loaded: false, byId: {}, failed: false })
+  },
 }))
 
 /** The directory, asked for the first time a screen needs it. */

@@ -103,8 +103,8 @@ const setValue = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')
 type Box = FakeElement & { value: string; selectionStart: number; selectionEnd: number }
 
 /** the box of a room of this kind with these members, me signed in with this role */
-async function open(o: { kind?: Room['kind']; role?: 'owner' | 'admin' | 'member'; members?: UserRef[] } = {}) {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: o.role ?? 'member' } } as unknown as Me } })
+async function open(o: { kind?: Room['kind']; role?: 'owner' | 'admin' | 'member'; members?: UserRef[]; aiMentions?: boolean } = {}) {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: o.role ?? 'member' }, server: o.aiMentions === false ? {} : { roomAiMentions: true } } as unknown as Me } })
   const members = o.members ?? [ME, BEN, CY]
   const r = room({ kind: o.kind ?? 'team', ...(o.kind === 'dm' || o.kind === 'all' || o.kind === 'group' ? { groupId: null, name: null } : {}), memberCount: members.length })
   sent = []
@@ -177,6 +177,16 @@ test('the row right under the AI: its word and how many it notifies; found by an
   await typeText(box, '@Be')
   await m.until(() => m.find('mention-menu'), 'the @ list for Be', WAIT)
   expect(rows(m)).toEqual(['BBen'])
+}, DOM_TEST_MS)
+
+test('the server takes no "@트리나" (Me.server.roomAiMentions absent, the default since the side chat): no AI row in the "@" list', async () => {
+  const { m, box } = await open({ aiMentions: false })
+  await typeText(box, '@')
+  await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
+  expect(rows(m)).toEqual([`all:전체${ko('rooms.mentionAllHint', { n: 2 })}`, 'BBen', 'CCy Park'])
+  await act(async () => { setValue.call(box, ''); box.setSelectionRange(0, 0); box.dispatchEvent(new FakeEvent('input', { bubbles: true })); box.dispatchEvent(new FakeEvent('keyup', { bubbles: true })) })
+  await typeText(box, '@트리')
+  expect(m.find('mention-menu') ? rows(m).some((r) => r.startsWith('ai:')) : false).toBe(false)
 }, DOM_TEST_MS)
 
 test('once something is typed it comes after the people it fits: "@전" and Enter picks 전지현, not everyone', async () => {
@@ -289,7 +299,7 @@ test('a DM has no row; the everyone room has it for owners and admins only', asy
 }, DOM_TEST_MS)
 
 test('a sent message: "@전체" stands out as a mention of me (not for its sender); the edit form keeps it', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: 'member' } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: 'member' }, server: { roomAiMentions: true } } as unknown as Me } })
   const r = room()
   const theirs = message({ roomId: r.id, seq: 1, author: BEN, body: '@everyone 3pm', mentionsAll: true })
   const html = renderToStaticMarkup(<RoomMessages roomId={r.id} messages={[theirs]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)

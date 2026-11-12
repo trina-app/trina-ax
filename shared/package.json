@@ -18,11 +18,14 @@
     "./text-encoding": "./src/text-encoding.ts",
     "./cloud-protocol": "./src/cloud-protocol/index.ts",
     "./cloud-protocol/relay-ops": "./src/cloud-protocol/relay-ops.ts",
+    "./cloud-protocol/drive-broker": "./src/cloud-protocol/drive-broker.ts",
     "./plugins": "./src/plugins.ts",
     "./plural": "./src/plural.ts",
     "./honorific": "./src/honorific.ts",
     "./product": "./src/product.ts",
     "./team-link": "./src/team-link.ts",
-    "./app-links": "./src/app-links.ts"
+    "./app-links": "./src/app-links.ts",
+    "./skill-roots": "./src/skill-roots.ts",
+    "./release-manifest": "./src/release-manifest.ts"
   }
 }

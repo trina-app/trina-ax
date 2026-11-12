@@ -46,7 +46,9 @@
 #                         installs the default groups, the same as the hosted image: CJK fonts, the dev environment's
 #                         tools (nothing is turned on: scripts/dev-env/srt/install-srt.sh does that) and the pinned
 #                         headless browser for HTML to PDF in /opt/trina/chrome-headless-shell (MYCEL_HTML_PDF_BROWSER
-#                         in /etc/default/<id>). Kept for repair / update; --no-minimal turns the default groups back on.
+#                         in /etc/default/<id>) and the Google Workspace library for Gmail, Calendar, Docs and Sheets
+#                         (a Python venv in /opt/trina/python/workspace-mcp). Kept for repair / update; --no-minimal
+#                         turns the default groups back on.
 #   --skip-apt            do not install distribution packages (they must already be there; the browser is still
 #                         downloaded unless --minimal)
 #   --image-mode          install only, for a template build (scripts/image/customize.sh: virt-customize, no running
@@ -223,6 +225,11 @@ kill_accounts() {  # every process of both accounts (repair runs; nothing may ra
     ! pgrep -u "$uid" >/dev/null 2>&1 || die "processes of $u keep running; stop them and run the installer again"
   done
 }
+drop_spent_setup_code() {  # the team has its owner: the server deleted data/setup-token, so root's copy is spent too
+  # (11-11 code audit, row 120: setup/code stayed after setup and after an uninstall without --purge). Before the
+  # owner exists (no database yet, or the token still there) it stays: it is the way to set the team up.
+  if [ -f "$BASE/data/app.db" ] && [ ! -e "$BASE/data/setup-token" ]; then rm -f "$BASE/setup/code"; fi
+}
 
 # =====================================================================================================================
 # uninstall
@@ -252,6 +259,7 @@ if [ "$CMD" = uninstall ]; then
   if [ "$PURGE" = 1 ]; then
     rm -rf "$BASE"
   elif [ -d "$BASE" ]; then
+    drop_spent_setup_code
     # folders and single-link files only: a hard link the server account made to some other file must not be chowned
     for d in data team config secrets setup; do
       [ -d "$BASE/$d" ] && [ ! -L "$BASE/$d" ] && find "$BASE/$d" \( -type d -o \( -type f -links 1 \) \) -exec chown -h root:root {} +
@@ -451,11 +459,16 @@ if [ "$CMD" = check ]; then
   say "check: system $OSID $OSVER $ARCH, cgroup v2$([ "$SYSTEMD" = 1 ] && echo ", systemd")"
   say "check: kit $VERSION ($ARCH) from $FROM verifies$([ "$ALLOW_UNSIGNED" = 1 ] && echo " (unsigned allowed)")"
   if command -v bwrap >/dev/null 2>&1; then say "check: bubblewrap $(bwrap --version 2>/dev/null | awk '{print $2}')"; else say "check: bubblewrap not installed yet (install adds it)"; fi
+  if ! command -v sysctl >/dev/null 2>&1; then
+    if [ "$SKIP_APT" = 1 ]; then warn "sysctl is missing (package procps) and --skip-apt installs nothing: install would stop; install procps first"
+    else say "check: sysctl not installed yet (install adds procps)"; fi
+  fi
   if [ "$LIST_OK" = 1 ]; then
     say "check: system packages ($PROFILE profile, $DISTRO): $(pk_packages "$DISTRO" "$ARCH" "$PROFILE" | tr '\n' ' ')"
     if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
       say "check: browser chrome-headless-shell $(pk_art chrome-headless-shell "linux-$ARCH" version) -> $PK_OPT/chrome-headless-shell (MYCEL_HTML_PDF_BROWSER in /etc/default/$ID)"
     fi
+    for PY in $(pk_pythons "$PROFILE"); do say "check: python $PY $(pk_py "$PY" version) -> $PK_OPT/python/$PY (a venv; pip installs the list's wheels by sha256)"; done
   fi
   if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then say "check: preflight ok: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-400)"
   else
@@ -468,6 +481,7 @@ if [ "$CMD" = check ]; then
     if [ -n "$f" ]; then say "check: engine $n: $f -> $BASE/app/engines/$n/<sha12>/$n (pinned version $(lockget "$n" version))"
     else say "check: engine $n $(lockget "$n" version): download $(lockget "$n" url) (sha256 $(lockget "$n" sha256 | cut -c1-12)…)"; fi
   done
+  say "check: packages, the browser, Python programs and engines are installed while a running server keeps running; it stops only to switch versions"
   CUR_T=$(readlink "$BASE/app/current" 2>/dev/null || true)
   case "$CUR_T" in
     versions/"$VERSION") say "check: version $VERSION is installed: repair" ;;
@@ -614,6 +628,7 @@ if [ "$RESTRICT_USERNS" = 1 ] && { [ -f "/etc/apparmor.d/$ID-bwrap" ] || ! usern
   [ -z "$OTHER" ] || warn "another AppArmor profile names /usr/bin/bwrap ($OTHER); checking that bwrap still works"
   T=$(mktemp)
   sed "s/@ID@/$ID/g" "$KROOT/apparmor-bwrap.in" > "$T"
+  mkdir -p /etc/apparmor.d
   if ! cmp -s "$T" "/etc/apparmor.d/$ID-bwrap" 2>/dev/null; then install -o root -g root -m 644 "$T" "/etc/apparmor.d/$ID-bwrap"; fi
   rm -f "$T"
   if ! mountpoint -q /sys/kernel/security 2>/dev/null; then mount -t securityfs securityfs /sys/kernel/security 2>/dev/null || true; fi
@@ -633,10 +648,18 @@ else
 fi
 
 # ---- 5) sysctl: ptrace only by parents (Debian's default is 0) ----
+# A minimal Debian 13 has no procps (an always package now): no /etc/sysctl.d and no sysctl. The folder is made here,
+# and without sysctl the value goes straight to /proc; the file sets it again at every boot (systemd-sysctl).
 SYSCTL_F="/etc/sysctl.d/60-$ID.conf"
+mkdir -p /etc/sysctl.d
 printf '# %s (%s): processes of one account may not attach to each other (linux-runtime spec 3.1.1)\nkernel.yama.ptrace_scope = 1\n' "$PRODUCT_NAME" "$ID" > "$SYSCTL_F.tmp"
 install -o root -g root -m 644 "$SYSCTL_F.tmp" "$SYSCTL_F"; rm -f "$SYSCTL_F.tmp"
-if ! sysctl -q -p "$SYSCTL_F" >/dev/null 2>&1 || [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then
+set_ptrace_scope() {  # never lowers a scope the host set higher (2, 3)
+  [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ] || return 0
+  if command -v sysctl >/dev/null 2>&1; then sysctl -q -p "$SYSCTL_F" >/dev/null 2>&1
+  else { printf '1\n' > /proc/sys/kernel/yama/ptrace_scope; } 2>/dev/null; fi
+}
+if ! set_ptrace_scope || [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then
   if [ "$HOSTED" = 1 ] && [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then imgwarn "kernel.yama.ptrace_scope is below 1 and cannot be set here (a container: the host must set it, spec 6.3)"; fi
   [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -ge 1 ] || warn "could not set kernel.yama.ptrace_scope = 1 (a container? the host must set it); diagnostics report it"
 fi
@@ -671,7 +694,7 @@ SRV_GRP=$SRV_USER; AGT_GRP=$AGT_USER
 AGT_GID=$(id -g "$AGT_USER")
 say "accounts: $SRV_USER=$SRV_UID $AGT_USER=$AGT_UID"
 
-# ---- stop the units and every process of both accounts before touching their folders ----
+# ---- wait for an update that runs ----
 # an update that holds root/.update.lock (mycel-ctl update) is replacing root files: wait for it instead of racing it
 # (as long as the update job may take: TimeoutStartSec=2h)
 # (the lock stays with this installer until it exits; stop_units then stops an update job that is still only waiting)
@@ -681,6 +704,66 @@ if [ -d "$BASE/root" ] && [ ! -L "$BASE/root" ] && command -v flock >/dev/null 2
   exec 9<"$BASE/root/.update.lock"   # flock(2) needs no write access
   flock -n 9 || { say "waiting for an update that is running (mycel-ctl update)"; flock -w 7200 9 || die "an update (mycel-ctl update) is still running after 2 hours; run the installer again when it is done"; }
 fi
+# ---- 6b) the slow steps, while the server still runs: an update or a repair stops it only for the switch ----
+# The distribution packages are in (3). Here the pinned headless browser and the list's Python programs are downloaded,
+# built and started once next to the versions in use (packages.sh prepares them in folders of their own and leaves
+# current as it is), and the engines named with --engine are downloaded and checked. After the stop below, steps 7b and 8
+# only switch to them, so a slow mirror or download does not add to the time the team server is down.
+# (After the update lock above: a `mycel-ctl update` that runs finishes first and cannot switch these away.)
+# Root-only, on disk (/tmp may be a small tmpfs); removed when the installer ends.
+DL_WORK=$(mktemp -d /var/tmp/mycel-install.XXXXXX)
+trap 'rm -rf "$KIT_WORK" "$RKIT" "$ITMP" "$DL_WORK"' EXIT
+PY_NOT_READY=" "
+if [ "$LIST_OK" = 1 ]; then
+  if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
+    say "browser: preparing chrome-headless-shell $(pk_art chrome-headless-shell "linux-$ARCH" version) while the server runs"
+    pk_browser_prepare "$PK_OPT/chrome-headless-shell" "linux-$ARCH" || { warn "the pinned headless browser was not installed (see above)"; SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); }
+  fi
+  # (a repair without --from reads the installed version's packages.sh, which may be older than this script: without
+  # pk_python_prepare, step 7b builds the venv as before)
+  if declare -F pk_python_prepare >/dev/null; then
+    for PY in $(pk_pythons "$PROFILE"); do
+      say "python: preparing $PY $(pk_py "$PY" version) while the server runs"
+      # not in a subshell: pk_python_install below knows what this run built (PK_PY_PREPARED)
+      pk_python_prepare "$PK_OPT/python/$PY" "$PY" || PY_NOT_READY+="$PY "
+    done
+  fi
+fi
+download() {  # url sha256 size out
+  local url=$1 sha=$2 size=$3 out=$4
+  [[ "$url" =~ ^https://[A-Za-z0-9./_+%-]+$ ]] || die "engines.lock.json: bad address $url"
+  curl --proto =https --proto-redir =https --tlsv1.2 -fsSL --retry 3 -o "$out" "$url" || die "downloading $url failed"
+  [ "$(sha256sum "$out" | cut -d' ' -f1)" = "$sha" ] || { rm -f "$out"; die "$url: SHA-256 does not match engines.lock.json"; }
+  if [[ "$size" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %s "$out")" != "$size" ]; then rm -f "$out"; die "$url: size does not match engines.lock.json"; fi
+}
+from_cache() {  # name sha256 file-name out: the host's read-only engine cache (hosted tenants, spec 3.5.2)
+  local c="$ENGINE_CACHE/$1/${2:0:12}/$3"
+  [ -f "$c" ] && [ ! -L "$c" ] || return 1
+  cp "$c" "$4" && [ "$(sha256sum "$4" | cut -d' ' -f1)" = "$2" ] || { rm -f "$4"; return 1; }
+}
+# the pinned engines named without FILE: $DL_WORK/engine-<name>, a Linux program of this arch (step 8 installs it)
+for name in claude codex; do
+  if [ "$name" = claude ]; then req=$CLAUDE_REQ src=$CLAUDE_FILE; else req=$CODEX_REQ src=$CODEX_FILE; fi
+  [ -n "$req" ] && [ -z "$src" ] || continue
+  stage="$DL_WORK/engine-$name"
+  sha=$(lockget "$name" sha256) url=$(lockget "$name" url) size=$(lockget "$name" size)
+  if [ "$name" = claude ]; then
+    from_cache claude "$sha" claude "$stage" || download "$url" "$sha" "$size" "$stage"
+  else
+    member=$(lockget codex member)
+    [[ "$member" =~ ^[A-Za-z0-9._-]+$ ]] || die "engines.lock.json: bad codex member name"
+    if ! from_cache codex "$sha" codex "$stage"; then
+      download "$url" "$sha" "$size" "$DL_WORK/codex.tar.gz"
+      mkdir -m 700 "$DL_WORK/codex-x"
+      tar -xzf "$DL_WORK/codex.tar.gz" -C "$DL_WORK/codex-x" --no-same-owner --no-same-permissions "$member" || die "codex: $member not in the release archive"
+      [ -f "$DL_WORK/codex-x/$member" ] && [ ! -L "$DL_WORK/codex-x/$member" ] || die "codex: $member is not a file"
+      mv "$DL_WORK/codex-x/$member" "$stage"; rm -rf "$DL_WORK/codex-x" "$DL_WORK/codex.tar.gz"
+    fi
+  fi
+  [ "$(elf_arch "$stage")" = "$ARCH" ] || die "engine $name: the download is not a Linux $ARCH program"
+done
+
+# ---- stop the units and every process of both accounts before touching their folders ----
 stop_units
 kill_accounts
 
@@ -847,7 +930,7 @@ install -o root -g root -m 644 "$ITMP/firewall.conf.json" "$BASE/root/firewall.c
 if [ "$LIST_OK" = 1 ]; then
   BROWSER_V=""
   if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
-    pk_browser_prepare "$PK_OPT/chrome-headless-shell" "linux-$ARCH" || { warn "the pinned headless browser was not installed (see above)"; SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); }
+    # (downloaded and tested in 6b: here only current moves; a version that is not ready leaves one that runs)
     if BROWSER=$(pk_browser_switch "$PK_OPT/chrome-headless-shell" "linux-$ARCH"); then
       pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "$BROWSER" || die "writing /etc/default/$ID failed"
       BROWSER_V=$(pk__current_version "$PK_OPT/chrome-headless-shell")
@@ -860,23 +943,21 @@ if [ "$LIST_OK" = 1 ]; then
   else
     pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || die "writing /etc/default/$ID failed"
   fi
+  # the list's Python programs (default groups): a venv each in /opt/trina/python/<name>, current -> the pinned one. The
+  # server finds the program there by itself; a failure only warns (Gmail, Calendar, Docs and Sheets stay off)
+  # (built in 6b; one that failed there is not built again while the server is stopped: a current that runs stays)
+  for PY in $(pk_pythons "$PROFILE"); do
+    if [[ "$PY_NOT_READY" != *" $PY "* ]] && PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY"); then say "python: $PY $(pk_py "$PY" version) ($PYPATH)"
+    else
+      warn "$PY was not installed (see above), so what needs it stays off; \`sudo $0 repair\` tries again"
+      SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete) SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }$PY not installed"
+    fi
+  done
   pk_write_synced "$BASE/root/packages.synced" "$(pk_sha256 "$KROOT/packages.json")" "$SYNC_RESULT" "$SYNC_DETAIL" "$BROWSER_V" \
     || die "writing $BASE/root/packages.synced failed"
 fi
 
 # ---- 8) engines: app/engines/<name>/<sha12>/<name>, current -> <sha12> ----
-download() {  # url sha256 size out
-  local url=$1 sha=$2 size=$3 out=$4
-  [[ "$url" =~ ^https://[A-Za-z0-9./_+%-]+$ ]] || die "engines.lock.json: bad address $url"
-  curl --proto =https --proto-redir =https --tlsv1.2 -fsSL --retry 3 -o "$out" "$url" || die "downloading $url failed"
-  [ "$(sha256sum "$out" | cut -d' ' -f1)" = "$sha" ] || { rm -f "$out"; die "$url: SHA-256 does not match engines.lock.json"; }
-  if [[ "$size" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %s "$out")" != "$size" ]; then rm -f "$out"; die "$url: size does not match engines.lock.json"; fi
-}
-from_cache() {  # name sha256 file-name out: the host's read-only engine cache (hosted tenants, spec 3.5.2)
-  local c="$ENGINE_CACHE/$1/${2:0:12}/$3"
-  [ -f "$c" ] && [ ! -L "$c" ] || return 1
-  cp "$c" "$4" && [ "$(sha256sum "$4" | cut -d' ' -f1)" = "$2" ] || { rm -f "$4"; return 1; }
-}
 # the engine's version, as the engine account inside bwrap with no network (root never runs an engine)
 engine_version() {  # path
   runuser -u "$AGT_USER" -- /usr/bin/env -i PATH=/usr/bin:/bin bwrap --unshare-all --die-with-parent --new-session \
@@ -902,21 +983,8 @@ for name in claude codex; do
         esac
       fi
     else
-      sha=$(lockget "$name" sha256) url=$(lockget "$name" url) size=$(lockget "$name" size)
-      if [ "$name" = claude ]; then
-        from_cache claude "$sha" claude "$stage" || download "$url" "$sha" "$size" "$stage"
-      else
-        member=$(lockget codex member)
-        [[ "$member" =~ ^[A-Za-z0-9._-]+$ ]] || die "engines.lock.json: bad codex member name"
-        if ! from_cache codex "$sha" codex "$stage"; then
-          download "$url" "$sha" "$size" "$ITMP/codex.tar.gz"
-          mkdir -m 700 "$ITMP/codex-x"
-          tar -xzf "$ITMP/codex.tar.gz" -C "$ITMP/codex-x" --no-same-owner --no-same-permissions "$member" || die "codex: $member not in the release archive"
-          [ -f "$ITMP/codex-x/$member" ] && [ ! -L "$ITMP/codex-x/$member" ] || die "codex: $member is not a file"
-          mv "$ITMP/codex-x/$member" "$stage"; rm -rf "$ITMP/codex-x" "$ITMP/codex.tar.gz"
-        fi
-      fi
-      [ "$(elf_arch "$stage")" = "$ARCH" ] || die "engine $name: the download is not a Linux $ARCH program"
+      # downloaded and checked in 6b, before the stop
+      mv "$DL_WORK/engine-$name" "$stage"
     fi
     sha=$(sha256sum "$stage" | cut -c1-12)
     dir="$BASE/app/engines/$name/$sha"
@@ -924,6 +992,9 @@ for name in claude codex; do
     mk "$SRV_USER" "$AGT_GRP" 750 "$dir"
     put "$stage" "$SRV_USER" "$AGT_GRP" 750 "$dir/$name"
     rm -f "$stage"
+    sync "$dir/$name" || die "engine $name: writing it to the disk failed"
+    # a folder: some file systems refuse fsync on one (EINVAL), as fsyncPath in the server tolerates; warn, go on
+    sync "$dir" "$BASE/app/engines/$name" || warn "engine $name: syncing its folders failed (the file system may not sync folders)"
     got=$(engine_version "$dir/$name")
     if [ -n "$pin" ] && [ "$got" != "$pin" ]; then
       # image mode: the version check runs the engine in bwrap, and the build has no user namespaces. A download (or
@@ -934,9 +1005,12 @@ for name in claude codex; do
       else warn "engine $name: version ${got:-unknown}, the kit pins $pin (the lockdown tests ran with $pin)"; fi
     fi
     nolink "$BASE/app/engines/$name"
-    rm -f "$BASE/app/engines/$name/current"
-    ln -s "$sha" "$BASE/app/engines/$name/current"
-    chown -h "$SRV_USER:$AGT_GRP" "$BASE/app/engines/$name/current"
+    # a rename of a new link: app/engines/<name>/current is never missing, not even for a moment or after a power loss
+    rm -f "$BASE/app/engines/$name/.current-install"
+    ln -s "$sha" "$BASE/app/engines/$name/.current-install"
+    chown -h "$SRV_USER:$AGT_GRP" "$BASE/app/engines/$name/.current-install"
+    mv -f -T "$BASE/app/engines/$name/.current-install" "$BASE/app/engines/$name/current"
+    sync "$BASE/app/engines/$name" || warn "engine $name: syncing app/engines/$name after the switch failed (the file system may not sync folders)"
     say "engine $name: ${got:-version unknown} ($sha)"
   else
     t=$(readlink "$BASE/app/engines/$name/current" 2>/dev/null || true)
@@ -980,7 +1054,13 @@ rm -rf "$DEST.partial"; cp -a --no-preserve=ownership "$BUNDLE" "$DEST.partial"
 chown -R "$SRV_USER:$SRV_GRP" "$DEST.partial"
 find "$DEST.partial" -type d -exec chmod 755 {} +
 chmod -R go-w "$DEST.partial"
+# on disk before it gets its name (QA TC-279): after a power loss, a version whose files never reached the disk fails
+# the bootstrap's check, the server rolls back to the version before, which may not read the migrated DB, and stops.
+# sync -f: one syncfs of the file system with the new version (and the engines in app/), not an fsync per file.
+sync -f "$DEST.partial" || die "writing $DEST to the disk failed"
 rm -rf "$DEST"; mv -T "$DEST.partial" "$DEST"
+# folders from here on warn instead of stopping: the rename is done, and some file systems refuse fsync on a folder
+sync "$BASE/app/versions" || warn "syncing $BASE/app/versions failed (the file system may not sync folders)"
 CUR_T=$(readlink "$BASE/app/current" 2>/dev/null || true)
 CUR=""
 if [[ "$CUR_T" =~ ^versions/([0-9A-Za-z][0-9A-Za-z.+_-]{0,49})$ ]] && [ -L "$BASE/app/current" ] && [ -f "$BASE/app/$CUR_T/manifest.json" ]; then
@@ -996,9 +1076,11 @@ ACTION=$(kitbun "$ADMIN_JS" install-state --current "$CUR" --version "$VERSION" 
 case "$ACTION" in
   init|switch)
     nolink "$BASE/app"
-    rm -f "$BASE/app/current"
-    ln -s "versions/$VERSION" "$BASE/app/current"
-    chown -h "$SRV_USER:$SRV_GRP" "$BASE/app/current"
+    # a rename of a new link (as mycel-bootstrap and the in-app update switch): app/current is never missing
+    rm -f "$BASE/app/.current-install"
+    ln -s "versions/$VERSION" "$BASE/app/.current-install"
+    chown -h "$SRV_USER:$SRV_GRP" "$BASE/app/.current-install"
+    mv -f -T "$BASE/app/.current-install" "$BASE/app/current"
     RUNNING=$VERSION
     [ "$ACTION" = switch ] && say "switching $CUR -> $VERSION ($CUR stays for roll-back; the server goes back to it by itself if $VERSION does not start)"
     ;;
@@ -1010,6 +1092,10 @@ case "$ACTION" in
   *) die "unexpected plan: $ACTION" ;;
 esac
 put "$ITMP/state.json" "$SRV_USER" "$SRV_GRP" 640 "$BASE/app/state.json"
+# app/current and state.json on disk before the server starts on them
+# warnings, not a stop: app/current has switched already, and stopping here would leave the server down
+sync "$BASE/app/state.json" || warn "writing $BASE/app/state.json to the disk failed"
+sync "$BASE/app" || warn "syncing $BASE/app failed (the file system may not sync folders)"
 
 # ---- office-network TLS certificate (only with --tls-port) ----
 if [ "$TLS_PORT" != 0 ]; then
@@ -1085,6 +1171,7 @@ if [ "$IMAGE_MODE" = 0 ] && [ ! -f "$BASE/setup/code" ] && { [ ! -f "$BASE/data/
   rm -f "$ITMP/code"
   unset CODE
 fi
+drop_spent_setup_code
 
 # root/install.json: the arguments of this install (repair / update / uninstall read them)
 ENG_JSON=""
@@ -1142,6 +1229,7 @@ if [ "$SYSTEMD" = 1 ]; then
   if command -v systemd-analyze >/dev/null 2>&1; then
     VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ${SLICE:+"./$SLICE"} 2>&1) || imgwarn "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
   fi
+  mkdir -p "$UNIT_DIR"
   for f in "$ITMP/units"/*; do install -o root -g root -m 644 "$f" "$UNIT_DIR/$(basename "$f")"; done
   # (image mode: no running systemd; the booted VM reads the units)
   if have_systemd; then systemctl daemon-reload; fi

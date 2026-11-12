@@ -15,6 +15,10 @@ function clickedFrame(f: WebFrameMain | null | undefined): ClickedFrame | null {
   }
 }
 
+/** right-click menus of the app open now: the window leaves the keyboard where it is meanwhile (app-window.ts) */
+let menusOpen = 0
+export const contextMenuOpen = () => menusOpen > 0
+
 /** `allowedOrigins`: the team's addresses (the team page); none for the app's own screens (their text fields and links). */
 export function attachContextMenu(wc: WebContents, o: { window: BaseWindow; locale: () => UiLocale; allowedOrigins: () => readonly string[] }) {
   wc.on('context-menu', (_e, p) => {
@@ -32,6 +36,16 @@ export function attachContextMenu(wc: WebContents, o: { window: BaseWindow; loca
       selectAll: () => wc.selectAll(),
     }
     const menu = Menu.buildFromTemplate(items.map((it) => ('id' in it ? { label: it.label, enabled: it.enabled, click: () => !wc.isDestroyed() && run[it.id]() } : it)))
-    menu.popup({ window: o.window, frame: p.frame ?? undefined })
+    menusOpen++
+    let closed = false
+    const close = () => {
+      if (!closed) menusOpen--
+      closed = true
+    }
+    try {
+      menu.popup({ window: o.window, frame: p.frame ?? undefined, callback: close })
+    } catch {
+      close()
+    }
   })
 }

@@ -231,6 +231,15 @@ describe('what the card shows', () => {
     expect(part(out, 'p', 'connect-url')?.[0]).toContain('overflow-y-auto')
   })
 
+  test('after a room read the server\'s line comes first, above where it connects; without it, no line', () => {
+    setLocale('en')
+    const lead = 'Messages from your conversations (other people\'s words) came in here, so changes are asked first.'
+    const out = html(card({ lead }))
+    expect(part(out, 'p', 'connect-lead')?.[1]).toBe(esc(lead))
+    expect(out.indexOf('data-testid="connect-lead"')).toBeLessThan(out.indexOf('data-testid="connect-host"'))
+    expect(html(card())).not.toContain('data-testid="connect-lead"')
+  })
+
   test('a caution when no word of the name is in the host', () => {
     expect(hostOffName('GitHub', 'github-mcp.evil.example')).toBe(false)
     expect(hostOffName('GitHub', 'mcp.example.org')).toBe(true)
@@ -384,6 +393,20 @@ describe('the card, clicked', () => {
     expect(said()).toEqual([CONNECT, 'POST /api/integrations/i9/authorize', 'GET /api/integrations/flows/f1', 'GET /api/integrations/flows/f1', CONNECT])
     expect(calls[0]!.body).toEqual({ action: 'connect', requestId: 'c1' })
     expect(calls[4]!.body).toEqual({ action: 'done', requestId: 'c1' })
+    expect(dom.opened[0]!.closed).toBe(true)
+    await m.unmount()
+  })
+
+  test('TC-020: a sign-in the service refused says why in words, never the server\'s code', async () => {
+    const r = linear()
+    open(r)
+    connects({ state: 'sign_in', integrationId: 'i9', status: 'needs_auth' })
+    routes['POST /api/integrations/i9/authorize'] = () => json({ flowId: 'f3', authorizationUrl: 'https://auth.linear.example/authorize?state=s3', expiresAt })
+    routes['GET /api/integrations/flows/f3'] = () => json({ flowId: 'f3', state: 'failed', expiresAt, reason: 'client' })
+    const m = await mount(<ConnectCard request={r} />)
+    await m.click('connect-sign-in')
+    await m.until(() => m.get('connect-signin').textContent!.includes(translate('en', 'integrations.signIn.reason.client')), 'the reason in words', 10_000)
+    expect(m.get('connect-signin').textContent).not.toMatch(/\bclient\b/)
     expect(dom.opened[0]!.closed).toBe(true)
     await m.unmount()
   })

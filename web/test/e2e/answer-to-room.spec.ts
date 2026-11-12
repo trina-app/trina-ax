@@ -154,7 +154,7 @@ test('linked files: a row each, the switch, the exits back to the list, asked ag
   await expect(locked).toContainText('payroll.csv')
   await expect(locked.getByTestId('team-file-lock')).toBeVisible()
   await locked.hover()
-  await expect(page.getByRole('tooltip')).toHaveText('권한이 없어 열 수 없어요')
+  await expect(page.getByRole('tooltip')).toHaveText('열 수 없어요: 옮겨졌거나 지워졌거나 권한이 없어요')
   await expect(msg.getByTestId('room-shared-answer').getByTestId('team-file-chip')).toHaveCount(2)
   await audit(page, 'room with a locked file')
 })

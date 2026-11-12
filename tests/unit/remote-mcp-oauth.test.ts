@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from 'bun:test'
-import { RemoteOAuth, connectorOrigin, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
+import { OAUTH_LIMITS, RemoteOAuth, connectorOrigin, ipKey, networkKey, remoteOAuthOf, wideNetworkKey } from '../../server/src/connectors/remote-mcp/oauth'
 import { challenge, hash } from '../../server/src/connectors/remote-mcp/policy'
 import { harness, withOwner, type Harness } from './a-lib'
 
 const running: Harness[] = []
-afterEach(async () => { for (const h of running.splice(0)) await h.close() })
+const limits = structuredClone(OAUTH_LIMITS)
+afterEach(async () => { Object.assign(OAUTH_LIMITS, structuredClone(limits)); for (const h of running.splice(0)) await h.close() })
 const origin = 'https://team.example', redirect = 'https://claude.ai/api/mcp/auth_callback', verifier = 'a'.repeat(43)
 async function fixture(name: string) {
   const h = await harness('remote-' + name); running.push(h)
@@ -85,7 +86,8 @@ test('write is the person\'s choice and group management the owner\'s role, what
   expect(decided(f.request('mcp:read mcp:write mcp:admin'), {}).scope).toBe('mcp:read mcp:write mcp:admin')
   expect(decided(f.request('mcp:read'), {}).scope).toBe('mcp:read mcp:admin')
   const connected = f.h.ctx.db.query("SELECT detail FROM audit_log WHERE action='remote_mcp.connected' ORDER BY id").all() as { detail: string }[]
-  expect(JSON.parse(connected[0]!.detail)).toEqual({ scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'offline_access'] })
+  // the app's name, so the activity log names the app, not the grant's id (QA TC-204)
+  expect(JSON.parse(connected[0]!.detail)).toEqual({ scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'offline_access'], app: 'Test connector' })
 })
 
 test('authorization code replay revokes its issued family; user disconnect and logout stop access', async () => {
@@ -95,6 +97,9 @@ test('authorization code replay revokes its issued family; user disconnect and l
   const second = f.exchange(f.code()), grant = f.svc.authenticate(second.access_token)
   f.svc.disconnect(grant.id, f.auth)
   expect(() => f.svc.authenticate(second.access_token)).toThrow()
+  // the app's name is kept with the disconnection, read before the grant goes
+  const gone = f.h.ctx.db.query("SELECT target, detail FROM audit_log WHERE action='remote_mcp.disconnected'").all() as { target: string; detail: string }[]
+  expect(gone.map((r) => ({ target: r.target, ...JSON.parse(r.detail) }))).toEqual([{ target: grant.id, app: 'Test connector' }])
   const third = f.exchange(f.code())
   await f.owner.call('POST', '/api/auth/logout', {})
   expect(() => f.svc.authenticate(third.access_token)).toThrow()
@@ -147,3 +152,190 @@ test('remoteOAuthOf takes the origin from server.json appConnectors + tunnel.hos
     expect(remoteOAuthOf(h.ctx, { origin: 'https://explicit.example.com' }).origin).toBe('https://explicit.example.com')
   } finally { if (saved !== undefined) process.env.MYCEL_REMOTE_MCP_ORIGIN = saved }
 })
+
+test('registered apps without a connection or a sign-in in progress are removed after a week; connected ones stay', async () => {
+  const f = await fixture('idle-clients'), start = Date.now()
+  const connected = f.client.client_id
+  f.exchange(f.code())
+  const idle = f.svc.register({ redirect_uris: [redirect] }).client_id
+  const signingIn = f.svc.register({ redirect_uris: [redirect] }).client_id
+  f.svc.now = () => start + 7 * 24 * 3600_000 - 5 * 60_000
+  f.svc.authorize({ client_id: signingIn, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })
+  f.svc.now = () => start + 7 * 24 * 3600_000 + 60_000
+  f.svc.ingress('metadata', '192.0.2.1')
+  const ids = () => (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
+  expect(ids()).toContain(connected)
+  expect(ids()).toContain(signingIn)
+  expect(ids()).not.toContain(idle)
+  // the sign-in expired unused (10 minutes): a week after its last use the app goes too
+  f.svc.now = () => start + 7 * 24 * 3600_000 + 2 * 3600_000
+  f.svc.ingress('metadata', '192.0.2.1')
+  expect(ids()).not.toContain(signingIn)
+  expect(ids()).toContain(connected)
+})
+
+test('a full client table makes room from the longest-idle unused apps instead of refusing every new app', async () => {
+  const f = await fixture('client-cap'), start = Date.now()
+  OAUTH_LIMITS.clients = 5
+  f.exchange(f.code()) // the fixture's app is connected: never evicted
+  const junk: string[] = []
+  for (let i = 0; i < 4; i++) { f.svc.now = () => start + i * 1000; junk.push(f.svc.register({ redirect_uris: [redirect] }).client_id) }
+  // a sign-in nobody opened does not keep an app (anyone can start one); one a person opened does
+  const ask = (client: string) => new URL(f.svc.authorize({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })).searchParams.get('id')!
+  ask(junk[0]!)
+  f.svc.consent(ask(junk[1]!), f.auth)
+  f.svc.now = () => start + 10_000
+  const fresh = f.svc.register({ redirect_uris: [redirect] }).client_id
+  const ids = (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
+  expect(ids).toHaveLength(5)
+  expect(ids).toContain(f.client.client_id)
+  expect(ids).toContain(fresh)
+  expect(ids).not.toContain(junk[0])
+  expect(ids).toContain(junk[1])
+  f.svc.now = () => start + 11_000
+  f.svc.register({ redirect_uris: [redirect] })
+  const after = (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
+  expect(after).toContain(junk[1])
+  expect(after).not.toContain(junk[2])
+  // nothing left to evict: then, and only then, 503
+  f.h.ctx.db.query('DELETE FROM remote_mcp_clients WHERE id<>?').run(f.client.client_id)
+  OAUTH_LIMITS.clients = 1
+  expect(() => f.svc.register({ redirect_uris: [redirect] })).toThrow('temporarily_unavailable')
+})
+
+test('pending sign-ins: at most 50 per app from one address, and a full table makes room from the oldest unopened ones', async () => {
+  const f = await fixture('pending'), start = Date.now()
+  const ask = (client = f.client.client_id) => new URL(f.svc.authorize({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })).searchParams.get('id')!
+  const from = (ip: string) => f.svc.authorize({ client_id: f.client.client_id, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' }, ip)
+  f.svc.now = () => Math.floor(start / 600_000) * 600_000 + 600_000 // one fixed 10-minute window
+  for (let i = 0; i < 50; i++) from('192.0.2.7')
+  expect(() => from('192.0.2.7')).toThrow('slow_down')
+  // the app's id is public: another address still signs in with it
+  expect(from('198.51.100.7')).toStartWith(origin + '/connectors/authorize?id=')
+  f.h.ctx.db.query('DELETE FROM remote_mcp_requests').run()
+  OAUTH_LIMITS.pending = 3
+  const other = f.svc.register({ redirect_uris: [redirect] }).client_id
+  f.svc.now = () => start; const opened = ask(); f.svc.consent(opened, f.auth)
+  f.svc.now = () => start + 1000; const oldest = ask(other)
+  f.svc.now = () => start + 2000; ask(other)
+  f.svc.now = () => start + 3000; const real = ask()
+  const ids = (f.h.ctx.db.query('SELECT id FROM remote_mcp_requests').all() as { id: string }[]).map(r => r.id)
+  expect(ids).toHaveLength(3)
+  expect(ids).toContain(opened) // a person has it open: kept
+  expect(ids).toContain(real)
+  expect(ids).not.toContain(oldest)
+})
+
+test('rate keys: IPv4 as is, IPv4-mapped as IPv4, IPv6 by its /64', () => {
+  expect(ipKey(null)).toBe('unknown')
+  expect(ipKey('203.0.113.9')).toBe('203.0.113.9')
+  expect(ipKey('::ffff:203.0.113.9')).toBe('203.0.113.9')
+  expect(ipKey('2001:db8:1:2::1')).toBe('2001:db8:1:2::/64')
+  expect(ipKey('2001:DB8:1:2:aaaa:bbbb:cccc:dddd')).toBe('2001:db8:1:2::/64')
+  expect(ipKey('2001:db8::1')).toBe('2001:db8:0:0::/64')
+  expect(ipKey('fe80::1%en0')).toBe('fe80:0:0:0::/64')
+  expect(ipKey('::1')).toBe('0:0:0:0::/64')
+})
+
+test('network keys of the busy-minute share: IPv4 by its /24, IPv6 by its /48', () => {
+  expect(networkKey(null)).toBe('unknown')
+  expect(networkKey('203.0.113.9')).toBe('203.0.113.0/24')
+  expect(networkKey('::ffff:203.0.113.200')).toBe('203.0.113.0/24')
+  expect(networkKey('2001:db8:1:2::1')).toBe('2001:db8:1::/48')
+  expect(networkKey('2001:db8:1:ffff:1::9')).toBe('2001:db8:1::/48')
+  expect(networkKey('2001:db8::1')).toBe('2001:db8:0::/48')
+  expect(networkKey('::1')).toBe('0:0:0::/48')
+  expect(networkKey('not an address')).toBe('not an address')
+})
+
+test('wide network keys of the busy-minute share: an IPv6 /32; none for IPv4 or an unknown address', () => {
+  expect(wideNetworkKey(null)).toBeNull()
+  expect(wideNetworkKey('203.0.113.9')).toBeNull()
+  expect(wideNetworkKey('::ffff:203.0.113.200')).toBeNull()
+  expect(wideNetworkKey('not an address')).toBeNull()
+  expect(wideNetworkKey('2001:db8:1:2::1')).toBe('2001:db8::/32')
+  expect(wideNetworkKey('2001:DB8:ffff:1::9')).toBe('2001:db8::/32')
+  expect(wideNetworkKey('2001:db9::1')).toBe('2001:db9::/32')
+  expect(wideNetworkKey('::1')).toBe('0:0::/32')
+})
+
+// Owner 2026-11-12 (review of #482): about 1,000 /48s of one large IPv6 block filled the 30,000 last-resort cap in a
+// minute and then a new person got 429; and 30,000 accepted requests a minute was too much main-thread work.
+const fresh = () => { const start = Math.floor(Date.now() / 60_000) * 60_000 + 60_000; return () => start + 1000 }
+const admitted = (f: () => void) => { try { f(); return true } catch { return false } }
+const rowCount = (h: Harness) => (h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n
+
+test('busy minute, real limits: 1,010 IPv6 /48s spread over 4 /32s do not fill the cap; a new person still registers', async () => {
+  const h = await harness('remote-wide-v6'); running.push(h)
+  const svc = new RemoteOAuth(h.ctx.db, { origin }); svc.now = fresh()
+  // QA TC-168's IPv4 flood makes the minute busy first: 15 addresses x 170
+  let v4 = 0
+  for (let a = 1; a <= 15; a++) for (let i = 0; i < 170; i++) if (admitted(() => svc.ingress('metadata', `198.51.${a}.1`))) v4++
+  expect(v4).toBe(OAUTH_LIMITS.busyPerMinute + 10)
+  // then 1,010 /48s x 30 from fresh /64s, the /48s spread over 4 /32s: each /32 gets its 120, nothing more
+  const before = rowCount(h)
+  let v6 = 0
+  for (let net = 0; net < 1010; net++) for (let i = 0; i < 30; i++) {
+    if (admitted(() => svc.ingress('metadata', `2001:${(0xdb8 + net % 4).toString(16)}:${net.toString(16)}:${i.toString(16)}::1`))) v6++
+  }
+  expect(v6).toBe(4 * OAUTH_LIMITS.widePerMinute)
+  // a fresh /48 of a flooding /32 is refused before anything is written, also a registration (hour-long rows)
+  const rows = rowCount(h)
+  expect(admitted(() => svc.ingress('register', '2001:db8:ffff:1::1'))).toBe(false)
+  expect(admitted(() => svc.ingress('metadata', '2001:dbb:fffe::1'))).toBe(false)
+  expect(rowCount(h)).toBe(rows)
+  expect(rows - before).toBeLessThan(4 * OAUTH_LIMITS.widePerMinute * 4) // about 3 rows per request let in
+  // a new person: Claude's server (IPv4 or IPv6 in another /32) discovers and registers, the browser authorizes
+  for (const claude of ['160.79.104.20', '2600:1f18:1234:5678::20']) {
+    for (const area of ['mcp', 'metadata', 'metadata', 'register']) expect(admitted(() => svc.ingress(area, claude))).toBe(true)
+  }
+  expect(admitted(() => svc.ingress('authorize', '2a02:1234:5678:9::50'))).toBe(true)
+}, 300_000)
+
+test('busy minute, real limits: one /32 sending from ever new /48s gets 2,400 + 120 at most; IPv4 /24s keep 30 each', async () => {
+  const h = await harness('remote-wide-one'); running.push(h)
+  const svc = new RemoteOAuth(h.ctx.db, { origin }); svc.now = fresh()
+  let n = 0
+  for (let net = 0; net < 1010; net++) for (let i = 0; i < 30; i++) if (admitted(() => svc.ingress('metadata', `2001:db8:${net.toString(16)}:${i.toString(16)}::1`))) n++
+  expect(n).toBe(OAUTH_LIMITS.busyPerMinute)
+  // IPv4 is unchanged: each /24 still gets its 30 in the busy minute, a fresh address in it no more
+  const v4: boolean[] = []
+  for (let i = 0; i < 40; i++) v4.push(admitted(() => svc.ingress('metadata', `203.0.113.${i + 1}`)))
+  expect(v4.filter(Boolean).length).toBe(OAUTH_LIMITS.networkPerMinute)
+  expect(admitted(() => svc.ingress('register', '160.79.104.20'))).toBe(true)
+}, 300_000)
+
+test('the last-resort cap bounds accepted anonymous work per minute at 6,000; refusals at the cap write nothing', async () => {
+  const h = await harness('remote-cap'); running.push(h)
+  const svc = new RemoteOAuth(h.ctx.db, { origin }); svc.now = fresh()
+  expect(OAUTH_LIMITS.anonymousPerMinute).toBe(6000)
+  // 300 ever new IPv4 /24s x 30 (each within its share), then ever new IPv6 /32s x 120
+  let n = 0
+  for (let net = 0; net < 300; net++) for (let i = 0; i < 30; i++) if (admitted(() => svc.ingress('metadata', `10.${net >> 8}.${net & 255}.${i + 1}`))) n++
+  for (let wide = 0; wide < 10; wide++) for (let i = 0; i < 120; i++) if (admitted(() => svc.ingress('metadata', `2001:${(0x100 + wide).toString(16)}:${i.toString(16)}::1`))) n++
+  expect(n).toBe(OAUTH_LIMITS.anonymousPerMinute)
+  const rows = rowCount(h)
+  for (let i = 0; i < 50; i++) expect(admitted(() => svc.ingress('register', `192.0.${i}.1`))).toBe(false)
+  expect(rowCount(h)).toBe(rows)
+  // the next minute starts empty
+  const next = svc.now() + 60_000; svc.now = () => next
+  expect(admitted(() => svc.ingress('register', '192.0.2.1'))).toBe(true)
+}, 300_000)
+
+test('busy minute, real limits: one host cannot use up its /32\'s share before the minute is busy (each /48 adds at most 30)', async () => {
+  const h = await harness('remote-wide-host'); running.push(h)
+  const svc = new RemoteOAuth(h.ctx.db, { origin }); svc.now = fresh()
+  // one /64 sends 170 (under its own 180) in a quiet minute: all let in, but its /48 adds only 30 to the /32
+  for (let i = 0; i < 170; i++) expect(admitted(() => svc.ingress('metadata', '2600:1f18:1:1::1'))).toBe(true)
+  // 14 IPv4 addresses x 180 elsewhere make the minute busy
+  for (let a = 1; a <= 14; a++) for (let i = 0; i < 180; i++) admitted(() => svc.ingress('metadata', `198.51.${a}.1`))
+  // the host's own /48 is over its share; another /48 of the same /32 is not shut out
+  expect(admitted(() => svc.ingress('metadata', '2600:1f18:1:2::1'))).toBe(false)
+  for (const area of ['mcp', 'metadata', 'metadata', 'register']) expect(admitted(() => svc.ingress(area, '2600:1f18:9999:1::20'))).toBe(true)
+  // 3 more /48s of that /32 (30 each) use up the /32's 120 together; then a fifth /48 is refused, writing nothing
+  for (let net = 2; net <= 4; net++) for (let i = 0; i < 30; i++) admitted(() => svc.ingress('metadata', `2600:1f18:${net}::${i + 1}`))
+  const rows = rowCount(h)
+  expect(admitted(() => svc.ingress('register', '2600:1f18:abcd::5'))).toBe(false)
+  expect(rowCount(h)).toBe(rows)
+  expect(admitted(() => svc.ingress('register', '2a02:1234:5678:9::50'))).toBe(true)
+}, 300_000)

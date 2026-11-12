@@ -541,7 +541,7 @@ describe('/welcome', () => {
       expect(called('PATCH /api/onboarding/welcome')[0]!.body).toEqual({ site: 'https://acme.example/' })
       // five steps on the bar, 도구 연결 and the invite counted, no first result
       expect(items(m)).toEqual(['profile', 'skills', 'files', 'tools', 'invite'])
-      for (const [n, label] of [[1, '회사 소개'], [2, '내 스킬'], [3, '팀 파일'], [4, '도구 연결'], [5, '팀원 초대']] as const) expect(m.get('welcome-progress').textContent).toContain(`${n}/5 ${label}`)
+      for (const [n, label] of [[1, '회사 소개'], [2, '스킬'], [3, '팀 파일'], [4, '도구 연결'], [5, '팀원 초대']] as const) expect(m.get('welcome-progress').textContent).toContain(`${n}/5 ${label}`)
       expect(m.html()).not.toContain('첫 결과')
       await m.until(() => m.find('profile-step-site'), 'the profile step (D)')
       expect(m.html()).not.toContain('마케팅팀이에요')
@@ -557,7 +557,7 @@ describe('/welcome', () => {
       expect(progress!.teamGroup).toEqual(TEAM)
       expect(progress!.steps.profile).toBe('skipped')
       expect(progress!.resultChatId).toBeNull()
-      expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/5 내 스킬')
+      expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/5 스킬')
       // nothing about a deck on the later steps
       expect(m.find('welcome-deck-status')).toBeNull()
       expect(m.html()).not.toContain('회사 소개서')
@@ -994,6 +994,54 @@ describe('the later steps and the end', () => {
     }
   })
 
+  test('팀 파일 in the desktop app on a Mac: a picked folder macOS keeps the app out of says so and where to turn it on, [다른 폴더 고르기] opens the folder window again; an empty one stays "이 폴더엔 문서가 없어요" (QA TC-049)', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'skipped', files: null, tools: null, invite: null } })
+    // the picked folder lists nothing: macOS privacy (Don't Allow) or simply empty, the page cannot tell
+    const opened: string[] = []
+    let next = 'Documents'
+    g.showDirectoryPicker = async () => { opened.push(next); return { kind: 'directory', name: next, entries: async function* () {} } }
+    const asked: string[] = []
+    const off = () => () => {}
+    g.mycelDesktop = {
+      bridgeVersion: 1, appVersion: '0.4.0', platform: 'darwin',
+      browser: { run: async () => ({}), cancel: () => {} },
+      pane: { open() {}, close() {}, toggle() {}, getState: async () => null, onState: off },
+      connection: { get: async () => null, onChange: off },
+      notify() {}, openTeams() {},
+      folderProblem: async (name: string) => { asked.push(name); return name === 'Documents' ? 'mac-blocked' : null },
+    }
+    const m = await app()
+    try {
+      await m.click(await m.until(() => m.find('welcome-team-files-pick'), '팀 파일'))
+      await m.until(() => m.find('welcome-team-files-blocked'), 'the macOS line')
+      expect(asked).toEqual(['Documents'])
+      expect(m.get('welcome-team-files-blocked').textContent).toContain("macOS가 'Documents' 폴더를 막았어요 · 시스템 설정 › 개인정보 보호 및 보안 › 파일 및 폴더에서 트리나를 켜 주세요")
+      expect(m.find('welcome-team-files-empty')).toBeNull()
+      // the step's folder button reads [다른 폴더 고르기] (no second button) and opens the folder window again
+      expect(m.get('welcome-team-files-pick').textContent).toContain('다른 폴더 고르기')
+      next = 'empty'
+      await m.click('welcome-team-files-pick')
+      await m.until(() => m.find('welcome-team-files-empty'), 'the empty line')
+      expect(opened).toEqual(['Documents', 'empty'])
+      expect(asked).toEqual(['Documents', 'empty'])
+      expect(m.find('welcome-team-files-blocked')).toBeNull()
+      expect(m.get('welcome-team-files-empty').textContent).toBe(translate('ko', 'welcome.teamFiles.empty'))
+      expect(m.get('welcome-team-files-pick').textContent).toContain('폴더 고르기')
+      expect(m.get('welcome-team-files-pick').textContent).not.toContain('다른')
+      // a browser (no desktop app): nothing to ask, the empty line as before
+      delete g.mycelDesktop
+      next = 'Documents'
+      await m.click('welcome-team-files-pick')
+      await m.until(() => opened.length === 3 && m.find('welcome-team-files-empty'), 'empty in a browser')
+      expect(asked).toHaveLength(2)
+      expect(m.find('welcome-team-files-blocked')).toBeNull()
+    } finally {
+      delete g.mycelDesktop
+      await m.unmount()
+    }
+  })
+
   test('the invite with nothing shared: the link made as it opens with no skill (it lands on Home: docs/DECISIONS.md "DS3"), the message at once; done → the end screen once, 홈으로 its one button', async () => {
     signIn('owner')
     progress = ran({ teamType: 'marketing' })
@@ -1027,6 +1075,36 @@ describe('the later steps and the end', () => {
       await m.click('welcome-done-home')
       await m.until(() => at(m) === '/', 'Home')
       expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body.doneShown)).toHaveLength(1)
+    } finally { await m.unmount() }
+  })
+
+  test('steps put off: the end screen names them, each with 지금 하기; one done from there comes back to the end screen without it (QA TC-206)', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', tools: 'skipped', invite: null } })
+    withGroup()
+    const m = await app()
+    const later = () => m.container.querySelectorAll('[data-testid="welcome-done-later-step"]').map((li) => li.getAttribute('data-step'))
+    try {
+      await m.until(() => stepOf(m) === 'invite', 'the invite')
+      await m.until(() => m.find('team-link-message'), 'the message')
+      // the invite put off too: the setup ends (W6: put off counts as answered), and the end screen says what is left
+      await m.click('invite-step-skip')
+      await m.click(await m.until(() => m.find('invite-step-later'), 'the ask'))
+      await m.until(() => m.find('welcome-done-later'), 'the end screen with what was put off')
+      expect(progress!.finishedAt).not.toBeNull()
+      expect(later()).toEqual(['skills', 'files', 'tools', 'invite'])
+      expect(m.get('welcome-done-later').textContent).toContain('나중에 하기로 남겨 둔 단계예요')
+      expect(primaries(m)).toBe(1)
+      // 지금 하기 on the invite: it opens here; done, back to the end screen, which lists what is still put off
+      const row = m.container.querySelectorAll('[data-testid="welcome-done-later-step"]').find((li) => li.getAttribute('data-step') === 'invite')!
+      await m.click(row.querySelector('button')!)
+      await m.until(() => stepOf(m) === 'invite', 'the invite again')
+      await m.until(() => m.find('team-link-message'), 'the message again')
+      await m.click('invite-step-done')
+      await m.until(() => stepOf(m) === 'done' && later().length === 3, 'back to the end screen')
+      expect(later()).toEqual(['skills', 'files', 'tools'])
+      expect(progress!.steps.invite).toBe('done')
+      expect(at(m)).not.toBe('/')
     } finally { await m.unmount() }
   })
 
@@ -1158,10 +1236,10 @@ describe('the later steps and the end', () => {
       await m.until(() => stepOf(m) === 'tools', '도구 연결')
       expect(m.get('welcome-progress').querySelector('[aria-current="step"]')!.textContent).toContain('4/5 도구 연결')
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('자주 쓰는 도구를 연결해 둘까요?')
-      expect(m.get('welcome-tools').textContent).toContain('설정 › 커넥터')
+      expect(m.get('welcome-tools').textContent).toContain('나중에 커넥터에서')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
       expect(m.find('welcome-tools-drive')).toBeNull()
-      expect(m.get('welcome-tools-mcp-add').textContent).toContain('다른 도구 연결하기 (MCP)')
+      expect(m.get('welcome-tools-mcp-add').textContent?.trim()).toBe('다른 도구 연결하기')
       // no primary until something is connected: 나중에 하기 alone
       expect(m.find('welcome-tools-next')).toBeNull()
       expect(primaries(m)).toBe(0)

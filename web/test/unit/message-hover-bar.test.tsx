@@ -1,5 +1,5 @@
 // A message's hover bar on computers (components/rooms/MessageHoverBar.tsx, in RoomMessages): ✅ 👀 👍 toggle mine
-// through the reactions API, 반응 추가 opens the eight, 스레드에서 답장 opens the thread, ⋮ holds copy (and edit and
+// through the reactions API, 반응 추가 opens six more and "More emoji" (the picker), 스레드에서 답장 opens the thread, ⋮ holds copy (and edit and
 // delete for my own); none on event lines or deleted messages, no thread button on a reply; under the list's first
 // message; Esc closes its menu.
 import { afterEach, beforeAll, afterAll, expect, test } from 'bun:test'
@@ -77,9 +77,10 @@ test('a quick reaction toggles mine through the reactions API; reply in thread o
     ])
     await m.click('message-thread')
     expect(opened).toEqual([[m0.id, true]])
-    // 반응 추가 opens the eight
+    // 반응 추가 opens six more (✅ 👀 👍 are on the bar) and "More emoji"
     await m.click('message-react')
-    expect(m.container.querySelectorAll('[data-testid="reaction-pick"]').length).toBe(8)
+    expect([...m.container.querySelectorAll('[data-testid="reaction-pick"]')].map((b) => b.textContent)).toEqual(['❤️', '😂', '😭', '🙏', '🎉', '🔥'])
+    expect(m.find('reaction-more')).toBeTruthy()
   } finally {
     globalThis.fetch = realFetch
     await m.unmount()

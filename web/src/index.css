@@ -123,6 +123,10 @@
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-inset-bottom, 0px));
 }
 html.keyboard-open { --safe-bottom: 0px; }
+/* under a message box (a room's, a thread's, the side chat's, an AI chat's): the home indicator's room, at least 0.75rem;
+   with the keyboard up the box sits on it (lib/viewport.ts), only a hair of space under it */
+:root { --box-bottom: max(0.75rem, var(--safe-bottom)); }
+html.keyboard-open { --box-bottom: 0.25rem; }
 html, body { height: 100%; }
 /* the top inset: the page's own background runs under the status bar; full-screen layers pad themselves */
 #root { padding-top: var(--safe-top); }
@@ -130,6 +134,12 @@ html, body { height: 100%; }
    the areas inside it do (a hidden screen-reader label positioned against the page could otherwise make it scroll) */
 html.app-shell, html.app-shell body { overflow: hidden; overscroll-behavior: none; }
 html.app-shell #root { position: relative; overflow: clip; }
+/* No zoom of the whole page in the phone app and the installed app (lib/pageZoom.ts sets data-page-zoom; a browser tab
+   keeps its own zoom): one or two fingers scroll, a pinch or a double tap does nothing to the page. touch-action only
+   narrows down the tree, so nothing inside opens the page's zoom again. A viewer that zooms on its own marks its surface
+   data-own-zoom: the whole gesture goes to its handlers (components/ImageViewer.tsx's stage). */
+html[data-page-zoom='off'] { touch-action: pan-x pan-y; }
+[data-own-zoom] { touch-action: none; }
 #root { height: var(--app-h, 100dvh); }
 body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing: antialiased; }
 /* Korean wraps between words, not in the middle of one ("정|한"); a very long unbroken run still wraps instead of
@@ -193,11 +203,13 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
   }
 }
 
-/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields, or 1rem where the person's
-   text size makes that larger. The message boxes keep the reading size where it is larger (17px on phones). */
-@media (hover: none) and (pointer: coarse) {
+/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens and phone widths (where the phone layout
+   starts, as above) get 16px fields, or 1rem where the person's text size makes that larger. The message boxes keep the
+   reading size where it is larger (17px on phones), and so do larger fields (a search dialog's box). */
+@media (hover: none) and (pointer: coarse), (max-width: 767.98px) {
   input, textarea, select { font-size: max(16px, 1rem); }
   textarea.text-reading { font-size: max(16px, var(--text-reading)); }
+  input.text-lg, textarea.text-lg { font-size: max(16px, var(--text-lg)); }
 }
 
 /* one visible focus style everywhere (3:1 against both themes) */
@@ -236,6 +248,14 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 @utility touch-hit {
   @media (max-width: 767.98px) {
     position: relative;
+    &::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+  }
+}
+
+/* touch-hit-placed: the same 44px box for a control already placed with absolute/fixed (a field's clear button): it
+   keeps its own position and place, only the ::after is added. */
+@utility touch-hit-placed {
+  @media (max-width: 767.98px) {
     &::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
   }
 }

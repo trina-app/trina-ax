@@ -12,12 +12,22 @@ import path from 'node:path'
 import { API, uuidv7, type RoomAiRun, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { makePng } from '../lib/images'
-import { makePdf } from '../lib/pdf'
+import { CCITT_SCAN, makePagesPdf, makePdf } from '../lib/pdf'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOM_TOOLS } from '../../server/src/rooms/ai-tools'
 import { pointsBack } from '../../server/src/rooms/ai'
+import { nativeBinDir, ocrBin, which } from '../../server/src/config'
+import { isolation } from '../../server/src/tools/isolate'
+import { visionTools } from '../../server/src/files/vision'
+import { labeledPath } from '@mycel/shared'
+
+// a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
+const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(60_000)
+// a PDF page drawn and normalized for real (pdftoppm or PDFKit, mycel-safeops, the converter isolation)
+const TOOLS = visionTools({ nativeBin: nativeBinDir(), pdftotext: which('pdftotext'), ocr: ocrBin(), which })
+const pageRenderer = !!TOOLS.normalizer && isolation() !== 'none' && !!(TOOLS.pdfkit || TOOLS.pdftoppm) && !!(TOOLS.pdftotext || TOOLS.pdfkit)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 
@@ -106,6 +116,18 @@ describe("the asking message's own files", () => {
     expect(events(run.turnId).filter((e) => e.tool === 'room_file').map((e) => e.ok)).toEqual([1, 1])
   })
 
+  test.skipIf(!pageRenderer)('a scanned PDF with the question: its page without a text layer comes as an image, the other as text', async () => {
+    const roomId = await teamRoom(['alice', 'erin'])
+    const scan = await upload('alice', roomId, '스캔.pdf', makePagesPdf([{ lines: ['A first page with a real text layer, long enough.'] }, { image: CCITT_SCAN }]))
+    const q = await send('alice', roomId, `@트리나 읽어줘\n${fake({ tool: 'room_file', args: { file: scan.id }, expectImage: true, sayResult: true }, { say: ' | ' }, { tool: 'room_file', args: { file: scan.id, pages: '1' }, sayResult: true })}`, { fileIds: [scan.id] })
+    const run = await done('alice', q)
+    expect(run.state).toBe('done')
+    const a = (await answerTo('alice', roomId, q))!
+    expect(a.body).toContain('IMAGE_BLOCK_OK:image/jpeg')
+    expect(a.body).toContain('A first page with a real text layer')
+    expect(events(run.turnId).filter((e) => e.tool === 'room_file').map((e) => e.summary)).toEqual(['room_file -> PDF pages 1-2 of 2, 1 image', 'room_file -> PDF pages 1 of 2, 0 images'])
+  })
+
   test('a question in a thread with a file: listed with it and read', async () => {
     const roomId = await teamRoom(['alice', 'erin'])
     const root = await send('erin', roomId, '이번 주 회의록이요')
@@ -147,7 +169,7 @@ describe('saving a copy', () => {
     const req = card.data.request as { question: string; options: { value: string }[]; buttons?: boolean; details?: { fields?: { name: string; value: string }[] }[] }
     expect(req.options.map((o) => o.value)).toEqual(['save', 'skip'])
     expect(req.buttons).toBeUndefined()
-    expect(req.question).toContain(`shared/${png.name}`)
+    expect(req.question).toContain(W(`shared/${png.name}`))
     // in words: what it does, the file by its name, where it goes; never the call's arguments
     const details = req.details
     const fields = details?.[0]?.fields ?? []
@@ -155,7 +177,7 @@ describe('saving a copy', () => {
     expect(fields[0]!.value).toBe('Save conversation file')
     // the file by its name, who sent it, when and how big (two files may share a name)
     expect(fields[1]!.value).toMatch(new RegExp(`^${png.name.replace('.', '\\.')} \\(Alice Kim, \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}, \\d+ KB\\)$`))
-    expect(fields[2]!.value).toBe('shared/')
+    expect(fields[2]!.value).toBe(W('shared/'))
     expect(JSON.stringify(details)).not.toContain(png.id)
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'save' } })
     expect((await done('alice', q)).state).toBe('done')
@@ -422,7 +444,7 @@ describe('second review: names, the fold, lookups', () => {
     const q2 = await send('alice', roomId, `@트리나 save\n${fake({ tool: 'save_room_file', args: { file: `file_id=${a.id}`, save_as: 'shared' }, sayResult: true })}`)
     const t2 = await runOf('alice', q2)
     const c1 = await ws.alice!.next('turn.request', (f) => f.data.turnId === t2 && f.data.request.kind === 'ask_user', 15_000)
-    expect((c1.data.request as { question: string }).question).toContain('shared/twin.md')
+    expect((c1.data.request as { question: string }).question).toContain(W('shared/twin.md'))
     await h.api('alice').call(API.answerTurn, { params: { id: t2 }, body: { kind: 'ask_user', requestId: c1.data.request.requestId, answer: 'save' } })
     expect((await done('alice', q2)).state).toBe('done')
     expect(ws.alice!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === t2)).toHaveLength(1)

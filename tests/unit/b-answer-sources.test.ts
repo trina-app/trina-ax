@@ -1,5 +1,5 @@
 // "참고한 파일" under each answer (docs/DECISIONS.md "Sources under each answer") through whole chat turns: the server
-// records what the answer's agents read, searched or grepped with content (names alone are left out), marks what only a
+// records what the answer's agents read or grepped with content (names alone are left out), marks what only a
 // sub-agent opened, keeps one list per answer (a regenerated answer has its own), and the three engines give the same
 // list because they use the same tool handlers. Opening the list re-checks every file for the viewer now.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -8,27 +8,17 @@ import path from 'node:path'
 import { API, type EngineId, type MessageSources } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { setSearchEmbedderForTests } from '../../server/src/tools/search'
 import { writeApiEngine } from '../../server/src/engine/api-agent'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
-import type { Embed } from '../../server/src/search/semantic'
-import { which } from '../../server/src/config'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const read = (file_path: string) => ({ tool: 'read', args: { file_path } })
-// letters -> a count vector: texts sharing words are close (no model)
-const embed: Embed = async (texts) => texts.map((t) => {
-  const v = new Float32Array(384)
-  for (const w of t.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)) { let h = 0; for (const c of w) h = (h * 31 + c.codePointAt(0)!) % 384; v[h]! += 1 }
-  const n = Math.hypot(...v) || 1
-  return v.map((x) => x / n)
-})
-
-/** the same five files for every engine: two reads, three search passages (meetings), a names-only grep */
-const SEARCH = { tool: 'search', args: { query: 'weekly sync decisions action items follow up', path: 'shared/meetings', limit: 3 } }
+/** the same five files for every engine: two reads, three meeting notes grepped with content (one grep each, so the
+ * order is the same every time), a names-only grep */
+const lines = (n: number) => ({ tool: 'grep', args: { pattern: `Weekly sync ${n} `, path: 'shared/meetings', output_mode: 'content' } })
 const NAMES = { tool: 'grep', args: { pattern: 'Owner', path: 'groups/marketing' } }
-const PLAN = [read('shared/glossary.md'), read('shared/policies/remote-work-v2.md'), SEARCH, NAMES]
+const PLAN = [read('shared/glossary.md'), read('shared/policies/remote-work-v2.md'), lines(3), lines(8), lines(12), NAMES]
 
 let h: Harness
 let alice: TestSocket
@@ -42,11 +32,7 @@ function sse(calls: { id: string; name: string; args: unknown }[], text?: string
   return lines.map((l) => `data: ${l}\n\n`).join('') + 'data: [DONE]\n\n'
 }
 
-// search by meaning is off by default (MYCEL_SEMANTIC=on turns it on); these turns use it with a stand-in embedder
-const semanticBefore = process.env.MYCEL_SEMANTIC
 beforeAll(async () => {
-  process.env.MYCEL_SEMANTIC = 'on'
-  setSearchEmbedderForTests(embed)
   mock = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { if (req.method === 'GET') return Response.json({ data: [{ id: 'm-1' }] }); await req.json(); return new Response(script.shift() ?? sse([], '(no script)')) } })
   h = await startHarness({ name: 'b-answer-sources' })
   writeApiEngine(h.ctx.config.dataDir, { baseUrl: `http://127.0.0.1:${mock.port}/v1`, model: 'm-1', label: 'M1' })
@@ -58,8 +44,6 @@ beforeAll(async () => {
   await alice.next('hello')
 })
 afterAll(async () => {
-  setSearchEmbedderForTests(null)
-  if (semanticBefore === undefined) delete process.env.MYCEL_SEMANTIC; else process.env.MYCEL_SEMANTIC = semanticBefore
   alice?.close(); await h.close(); mock.stop(true)
 })
 
@@ -72,7 +56,7 @@ const FIVE: { path: string; via: string[] }[] = [
 
 describe('what an answer read', () => {
   let claude: { chatId: string; messageId: string; turnId: string }
-  test('two reads, three search passages and a names-only grep: five files, in the order first opened', async () => {
+  test('two reads, three files grepped with content and a names-only grep: five files, in the order first opened', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake(...PLAN, { say: 'Done.' }))
     expect(r.done.status).toBe('done')
@@ -80,25 +64,14 @@ describe('what an answer read', () => {
     const s = await sourcesOf(chat.id, r.done.id)
     expect(s.unavailable).toBe(0)
     expect(summary(s).slice(0, 2)).toEqual(FIVE)
-    const searched = summary(s).slice(2)
-    expect(searched).toHaveLength(3)
-    expect(searched.every((f) => f.path.startsWith('shared/meetings/') && f.via.join() === 'search')).toBe(true)
+    const grepped = summary(s).slice(2)
+    expect(grepped).toHaveLength(3)
+    expect(grepped.map((f) => [f.path.slice(0, 'shared/meetings/meeting-00'.length), f.via.join()])).toEqual([
+      ['shared/meetings/meeting-03', 'grep'], ['shared/meetings/meeting-08', 'grep'], ['shared/meetings/meeting-12', 'grep'],
+    ])
     // the names-only grep added nothing
     expect(s.files.some((f) => f.path.startsWith('groups/marketing/'))).toBe(false)
     claude = { chatId: chat.id, messageId: r.done.id, turnId: r.started.turnId }
-  })
-  test('the search tool gives the AI labels and links it can use in its answer', async () => {
-    const out = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'search'").get(claude.turnId) as { summary: string }
-    expect(out.summary).toMatch(/-> 3 passages/)
-    const chat = await h.api('alice').call(API.createChat, { body: {} })
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'search', args: { query: 'weekly sync decisions action items', path: 'shared/meetings', limit: 1 }, sayResult: true }))
-    expect(r.done.content).toMatch(/^1\. meeting-\d\d-[\d-]+\.md — shared\/meetings\/meeting-\d\d-[\d-]+\.md \(match \d\.\d\d\)\n {3}link: \[meeting-\d\d-[\d-]+\.md\]\(\/files\/view\?path=shared%2Fmeetings%2Fmeeting-\d\d-[\d-]+\.md\)\n/m)
-    if (which('pdftotext')) {
-      // a document's place: the page of the passage, in the label and the link (alice's language: Korean)
-      const pdf = await ask(h, alice, 'alice', chat.id, fake({ tool: 'search', args: { query: 'Annual leave is 17 days', path: 'shared', limit: 1 }, sayResult: true }))
-      expect(pdf.done.content).toContain('1. handbook.pdf · p.1 — shared/handbook.pdf (match ')
-      expect(pdf.done.content).toContain('link: [handbook.pdf · p.1](/files/view?path=shared%2Fhandbook.pdf&page=1)')
-    }
   })
   test('a regenerated answer has its own list; the first one keeps its own', async () => {
     const r = await h.api('alice').call(API.regenerate, { params: { id: claude.chatId, messageId: claude.messageId }, body: {} })

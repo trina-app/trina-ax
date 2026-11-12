@@ -18,7 +18,8 @@ const ADMIN: [MessageKey, MessageKey[]][] = [
 ]
 const SETTINGS: [string, MessageKey[]][] = [
   ['account', ['settings.profile', 'settings.security', 'settings.usage', 'settings.memory', 'settings.allowances']],
-  ['connections', ['settings.providers', 'integrations.title', 'aiApps.title']],
+  // Connectors is not here: it is its own item of the main sidebar
+  ['connections', ['settings.providers', 'aiApps.title']],
   ['app', ['notifications.title', 'settings.apps', 'settings.about']],
 ]
 
@@ -40,10 +41,17 @@ test('Admin: four groups, Providers first in Connections, no AI group and no AI 
   await expect(menu.getByRole('link', { name: 'AI engines' })).toHaveCount(0)
   await expect(menu.getByRole('link', { name: 'AI providers' })).toHaveCount(0)
   await expect(menu.getByRole('group')).toHaveCount(ADMIN.length)
-  for (const path of ['/admin/members', '/admin/providers', '/admin/connectors', '/admin/settings']) {
+  // the shell says whose it is: the menu's title is the team's, and one line above every page says it applies to everyone
+  // in the team
+  const team = 'Acme'
+  await expect(page.getByTestId('admin-title')).toHaveText(t['admin.teamTitle'].replace('{team}', team))
+  await expect(page.getByTestId('admin-team-logo')).toBeAttached()
+  for (const path of ['/admin/members', '/admin/providers', '/admin/connectors', '/admin/ai-apps', '/admin/plugins', '/admin/audit', '/admin/settings']) {
     await page.goto(path)
-    await expect(page.getByTestId('admin-content').getByTestId('page-scope').first()).toHaveText(t['scope.team'])
+    await expect(page.getByTestId('admin-content').getByTestId('page-scope')).toHaveText(t['scope.teamName'].replace('{team}', team))
   }
+  await page.goto('/admin/connectors')
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['admin.integrations'], exact: true })).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -96,17 +104,23 @@ test('Settings: named groups Account, Connections, App (Providers first in Conne
   }
   // no AI group any more: Providers is under Connections, Memory under Account
   await expect(list.getByTestId('settings-group-ai')).toHaveCount(0)
-  for (const path of ['/settings/profile', '/settings/providers', '/settings/integrations', '/settings/connectors']) {
+  for (const path of ['/settings/profile', '/settings/providers']) {
     await page.goto(path)
     await expect(page.getByTestId('settings-content').getByTestId('page-scope')).toHaveText(t['scope.you'])
   }
+  // Connectors is its own page in the sidebar: the older addresses lead there
+  for (const path of ['/settings/integrations', '/settings/connectors']) {
+    await page.goto(path)
+    await expect(page).toHaveURL(/\/connectors$/)
+  }
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['integrations.title'], exact: true })).toBeAttached()
 })
 
-test('phone width: the Admin strip and the Settings list keep every item without sideways page scroll', async ({ page }) => {
+test('phone width: the Admin list and the Settings list keep every item without sideways page scroll', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await start(page)
-  await page.goto('/admin/providers')
-  await expect(page.getByTestId('admin-menu').getByRole('link', { name: t['admin.providers'] })).toBeAttached()
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-row-providers')).toBeAttached()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.goto('/settings')
   await expect(page.getByTestId('settings-group-connections')).toBeVisible()

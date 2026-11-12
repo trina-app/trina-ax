@@ -24,7 +24,8 @@ export function testConfig(name: string, over: Partial<AppConfig> = {}, o: { reu
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 19110 }, tls: null, publicOrigins: [],
     teamRoot: path.join(dir, 'team'), dataDir: path.join(dir, 'data'), logDir: null, logLevel: 'error',
     engine: { authMode: 'local-login' }, relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null },
-    validateResponses: true, setupToken: SETUP_TOKEN, ...over,
+    // the room AI tests ask it with "@트리나 …" (AppConfig.roomAiMentions, off in a real server): on here unless a test says
+    validateResponses: true, setupToken: SETUP_TOKEN, roomAiMentions: true, ...over,
   }
 }
 

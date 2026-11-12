@@ -111,6 +111,7 @@ const upload = (folder: string, name: string) => {
 const HTTP_READS: [string, Req][] = [
   ['history', (p) => A.json('/api/files/history?path=' + encodeURIComponent(p), { as: 'alice' })],
   ['tree', (p) => A.json('/api/files/tree?path=' + encodeURIComponent(p), { as: 'alice' })],
+  ['audience', (p) => A.json('/api/files/audience?path=' + encodeURIComponent(p), { as: 'alice' })],
   ['content', (p) => A.json('/api/files/content?path=' + encodeURIComponent(p), { as: 'alice' })],
   ['download', (p) => A.json('/api/files/download?path=' + encodeURIComponent(p), { as: 'alice' })],
 ]

@@ -5,7 +5,7 @@ import type { RoomMessage } from '@mycel/shared/api'
 import { Chime, RoomSound, roomSoundOn, setRoomSoundOn, SOUND_KEY, VIEW_EVERY_MS, type AudioLike, type LocksLike } from '../lib/roomSound'
 import { isDesktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
-import { lookingAt } from '../lib/attention'
+import { lookingAt, onWindowFocus, type RoomsOnScreen } from '../lib/attention'
 import { useRooms } from './rooms'
 import { useSession } from './session'
 import { useUi } from './ui'
@@ -30,14 +30,21 @@ const storage = () => {
 }
 const tabId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
 
-/** Start listening (signed in): gestures unlock the audio; focus, visibility and the open room are told to the other
- * tabs; the service worker may ask whether this page takes care of a room notice's sound. */
+/** What this window shows of the rooms: the room open and the threads its panels show (their keys are "<room>/<root>"). */
+export const roomsOnScreen = (): RoomsOnScreen => {
+  const s = useRooms.getState()
+  return { room: s.openRoomId, threads: Object.keys(s.threadViews) }
+}
+
+/** Start listening (signed in): gestures unlock the audio; focus (the desktop app's window too), visibility, the open
+ * room and the threads on screen are told to the other tabs; the service worker may ask whether this page takes care
+ * of a room notice's sound. */
 export function startRoomSound(o: { audio?: AudioLike; settleMs?: number } = {}) {
   if (stop || typeof window === 'undefined' || typeof document === 'undefined') return
   const visible = () => document.visibilityState === 'visible'
   // a phone: the phone app, or a browser whose only pointer is a finger
   const phone = !!mobileApp() || !!window.matchMedia?.('(pointer: coarse)')?.matches
-  // looking at this page (the phone app: on screen; lib/attention.ts)
+  // looking at this page (the desktop app: its window focused; the phone app: on screen; lib/attention.ts)
   const focused = lookingAt
   // back on screen: what waited meanwhile arrives first, and the phone's notification already sounded for it
   let shownAt = 0
@@ -46,7 +53,7 @@ export function startRoomSound(o: { audio?: AudioLike; settleMs?: number } = {})
   const s = new RoomSound({
     tabId: tabId(), now: () => Date.now(), storage: storage(), locks, focused,
     quiet: () => phone && (!visible() || Date.now() - shownAt < BACK_QUIET_MS),
-    openRoom: () => useRooms.getState().openRoomId,
+    onScreen: roomsOnScreen,
     audio: o.audio ?? chime,
     settle: { ms: o.settleMs ?? SETTLE_MS, read: readHere },
   })
@@ -64,7 +71,11 @@ export function startRoomSound(o: { audio?: AudioLike; settleMs?: number } = {})
   window.addEventListener('pagehide', gone)
   window.addEventListener('pageshow', publish)
   document.addEventListener('visibilitychange', shown)
-  const offRooms = useRooms.subscribe((now, before) => { if (now.openRoomId !== before.openRoomId) publish() })
+  // (a thread's new replies change its view, not which threads are on screen)
+  const threadsMoved = (a: object, b: object) => a !== b && Object.keys(a).join() !== Object.keys(b).join()
+  const offRooms = useRooms.subscribe((now, before) => { if (now.openRoomId !== before.openRoomId || threadsMoved(now.threadViews, before.threadViews)) publish() })
+  // the desktop app's window gained or lost the focus (its page may have none of its own meanwhile)
+  const offWindow = onWindowFocus(publish)
   const beat = setInterval(publish, VIEW_EVERY_MS)
   const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined
   const ask = (e: MessageEvent) => {
@@ -84,6 +95,7 @@ export function startRoomSound(o: { audio?: AudioLike; settleMs?: number } = {})
     window.removeEventListener('pageshow', publish)
     document.removeEventListener('visibilitychange', shown)
     offRooms()
+    offWindow()
     clearInterval(beat)
     sw?.removeEventListener('message', ask)
     // signed out: no word left behind about a room this window showed

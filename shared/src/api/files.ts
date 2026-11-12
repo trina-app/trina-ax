@@ -5,7 +5,7 @@ import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
-import { Attachment, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
+import { Attachment, AudienceSplit, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
 
 export const PathQuery = z.object({ path: RelPath })
 
@@ -78,9 +78,15 @@ export const MkdirBody = z.object({ path: RelPath })
 /**
  * confirm: moving an ordinary item into the caller's own users/<me>/ that other people can read now answers 409
  * conflict {params: {reason:'audience_narrowed', lostViewers}} unless confirm is true (design tab 4 move).
+ * askWiden (the Files screen): moving an item out of a personal folder users/<x>/ to a place where more people can read
+ * it answers 409 conflict {params: {reason:'audience_widened', viewersAdded}} unless confirm is true (QA TC-115). A
+ * client that does not send it (an older app) moves as before.
  * Folders that are or contain group / project / rule folders (a folders row) move only for admins, never under users/.
+ * skillsOk: a project's folder moved to projects/<name> from elsewhere turns on the skills in its skills/ folder (in that
+ * project's chats): 409 conflict {params: {reason:'project_skills_on', skills (their names, one per line, at most 20),
+ * count}} unless skillsOk is true (docs/DECISIONS.md "Project skills").
  */
-export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false) })
+export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false), skillsOk: z.boolean().default(false), askWiden: z.boolean().default(false) })
 export const MoveResult = z.object({ entry: FileEntry })
 /**
  * Share by copying (design tab 2 rule 3, tab 4): a file the caller can read -> `to` in a folder the caller can write.
@@ -109,6 +115,9 @@ export const HistoryResponse = z.object({
   currentSha256: z.string().nullable().optional(),
   /** the caller may restore versions (write access to the path; the same check POST /api/files/restore makes) */
   canRestore: z.boolean().optional(),
+  /** why canRestore is false although the caller may write the path: the file's folder is in the trash (restore the
+   * folder first, POST /api/files/trash/:id/restore) */
+  restoreBlocked: z.enum(['folderInTrash']).nullable().optional(),
   /** the content as it is now and who saved it (author null: not known, e.g. changed outside the app); null: the file
    * does not exist. `version`: the number it has in the list (one above the newest stored version). */
   current: z.object({
@@ -193,12 +202,17 @@ export type UploadComplete = z.infer<typeof UploadComplete>
 /** Attach a team-folder file to an own chat by reference (no copy). Files the caller cannot read, server folders,
  * other people's users/<id>/ and odd paths all answer the same 404 as a file that does not exist. */
 export const AttachTeamFileBody = z.object({ chatId: Uuid7, path: RelPath })
+/** A chip taken out of the box before sending. `trashed`: the file it attached was the person's computer upload into a
+ * shared project chat, still unchanged in the project folder, and went to the team trash (restorable from Files > Trash). */
+export const DiscardAttachmentResult = z.object({ trashed: z.boolean() })
 /** Name search over the files the caller can read (the same check as the file screen's tree). */
 export const FindFilesQuery = z.object({
   q: z.string().trim().min(1).max(200),
   /** optional folder to search under (default: the whole team folder) */
   path: RelPath.default(''),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  /** '1': folders whose name matches too, first (⌘K; the composer's file picker attaches files only) */
+  folders: z.literal('1').optional(),
 })
 /** Content search for people (the file screen, R2-ETC-02): the query is literal text, never a pattern. */
 export const FILE_SEARCH_QUERY_MAX = 200
@@ -249,8 +263,30 @@ export type FileList = z.infer<typeof FileList>
 export const HtmlPdfSaved = z.object({ entry: FileEntry, pages: z.number().int().min(1), blocked: z.number().int().min(0), scripts: z.boolean() })
 export type HtmlPdfSaved = z.infer<typeof HtmlPdfSaved>
 
+/**
+ * GET /api/files/audience?path=: who can see a folder, as far as the caller may know it (docs/DECISIONS.md "Who can see
+ * a folder, in place"). Answered for a folder the caller can open, with the same answers as GET /api/files/tree for the
+ * same path, except that a folder they can only pass through answers 404 like one they cannot see. `people` and
+ * `everyone` only where a write by the caller would pass (the copy dry run from their own folder already says that
+ * number): how many active people can open the folder, the caller, the owner and admins included, and whether that is
+ * every active person. Never names, ids, groups, roles, how many can write, or where a rule is.
+ */
+export const FolderAudience = z.object({
+  /** actual names on disk */
+  path: RelPath,
+  /** the caller's access to the folder */
+  access: Access,
+  people: z.number().int().positive().optional(),
+  everyone: z.boolean().optional(),
+  /** `people` apart (AudienceSplit): with `people`, for the owner and admins only (never a member: next to `people` it
+   * would tell how many see it only by role) */
+  split: AudienceSplit.optional(),
+})
+export type FolderAudience = z.infer<typeof FolderAudience>
+
 export const FILES = {
   tree: endpoint({ method: 'GET', path: '/api/files/tree', auth: 'user', owner: 'C', query: TreeQuery, response: TreeResponse, summary: 'List a folder (only what the caller may see; ancestors of visible folders shown for navigation).' }),
+  folderAudience: endpoint({ method: 'GET', path: '/api/files/audience', auth: 'user', owner: 'C', query: PathQuery, response: FolderAudience, summary: 'Who can see a folder the caller can open: their access, and where they can write, how many active people can open it (owner and admins included) and whether that is everyone; for the owner and admins also that count apart (by its rules, by role only). Counted, never named.' }),
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),
   saveContent: endpoint({ method: 'PUT', path: '/api/files/content', auth: 'user', owner: 'C', body: SaveContentBody, response: SaveResult, summary: 'Save a text file from the file screen (hash-based conflict copy, version history).' }),
   download: endpoint({ method: 'GET', path: '/api/files/download', auth: 'user', owner: 'C', query: DownloadQuery, response: stream(true), summary: 'Stream a file (Range supported, never loaded whole into memory).' }),
@@ -270,13 +306,14 @@ export const FILES = {
   restoreTrash: endpoint({ method: 'POST', path: '/api/files/trash/:id/restore', auth: 'user', owner: 'C', response: MoveResult, summary: 'Put a trashed item back (write access to the original path; " (restored)", in the team language, is added when the name is taken).' }),
   purgeTrash: endpoint({ method: 'DELETE', path: '/api/files/trash/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a trashed item for good (admin or owner).' }),
 
-  uploadAttachment: endpoint({ method: 'POST', path: '/api/uploads', auth: 'user', owner: 'C', status: 201, body: multipart(AttachmentUploadFields, SMALL_UPLOAD_MAX), response: Attachment, summary: 'Attach a file (≤ 50 MB) to an own chat: stored in users/<me>/.attachments/<chatId>/.' }),
+  uploadAttachment: endpoint({ method: 'POST', path: '/api/uploads', auth: 'user', owner: 'C', status: 201, body: multipart(AttachmentUploadFields, SMALL_UPLOAD_MAX), response: Attachment, summary: 'Attach a file (≤ 50 MB) to an own chat: stored in users/<me>/.attachments/<chatId>/. In a shared project chat the caller sees: saved in the project\'s chat attachments folder (named in the team\'s language, made when missing; a taken name gets " (2)") and attached as a team file (source team); 403 shared_upload_read_only without write access there.' }),
   attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment (a team file: the image itself, up to 2 MB, while the caller can read it).' }),
   attachTeamFile: endpoint({ method: 'POST', path: '/api/attachments/team-file', auth: 'user', owner: 'C', status: 201, body: AttachTeamFileBody, response: Attachment, summary: 'Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn).' }),
-  findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name contains q, among the files the caller can read (newest first).' }),
+  discardAttachment: endpoint({ method: 'DELETE', path: '/api/attachments/:id', auth: 'user', owner: 'C', response: DiscardAttachmentResult, summary: 'Take an unsent team-file attachment of the caller out of its chat. A file they uploaded from their computer into a shared project chat, never sent and unchanged in its place, goes to the team trash (trashed: true); anything else stays where it is.' }),
+  findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name holds every word of q (in any order and any case), among the files the caller can read (newest first); with folders=1 also such folders the caller can see, first.' }),
   searchFileContents: endpoint({ method: 'GET', path: '/api/files/search', auth: 'user', owner: 'C', query: SearchFileContentsQuery, response: FileContentHits, summary: 'Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person.' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
-  createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires after 24 h.` }),
+  createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires 24 h after the last chunk arrived, at most 7 days after the start.` }),
   uploadChunk: endpoint({ method: 'PUT', path: '/api/upload-sessions/:id/chunks/:n', auth: 'user', owner: 'C', body: binary(UPLOAD_CHUNK_SIZE), response: ChunkResult, summary: 'Store chunk n (0-based). Re-sending a stored chunk is a no-op.' }),
   getUploadSession: endpoint({ method: 'GET', path: '/api/upload-sessions/:id', auth: 'user', owner: 'C', response: UploadSession, summary: 'Which chunks arrived (to resume after a disconnect).' }),
   completeUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions/:id/complete', auth: 'user', owner: 'C', response: UploadComplete, summary: 'Verify sha256 and move the file into place.' }),

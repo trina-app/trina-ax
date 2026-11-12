@@ -33,6 +33,9 @@ type Status struct {
 	Disk        map[string]any    `json:"disk"`
 	Health      map[string]any    `json:"health"`
 	History     []json.RawMessage `json:"history"`
+	// ServerStopped: app/state.json blocked — the bootstrap stopped starting the server because no version can run
+	// (the old version cannot read the database a newer one migrated); nil while it runs or retries
+	ServerStopped json.RawMessage `json:"serverStopped,omitempty"`
 	// Updates: automatic updates and unsigned versions (update audit P3: both used to be invisible)
 	Updates *UpdateSettings `json:"updates"`
 	// SystemPackages: the one list's sync (sync.go); nil on a server from before the list
@@ -82,6 +85,11 @@ func cmdStatus(e *env, args []string) (int, error) {
 		fmt.Fprintf(e.stdout, "  plan: %s, %d concurrent, turn %d MiB, converters %d MiB\n", orNone(s.Plan.Plan), s.Plan.MaxConcurrency, s.Plan.TurnMaxMiB, s.Plan.ConvMiB)
 	}
 	fmt.Fprintf(e.stdout, "  disk: %v%% used\n  health: %v\n", s.Disk["percent"], s.Health)
+	if s.ServerStopped != nil {
+		var b struct{ Version, Since, Detail string }
+		_ = json.Unmarshal(s.ServerStopped, &b)
+		fmt.Fprintf(e.stdout, "  SERVER STOPPED at %s since %s: %s\n", b.Version, b.Since, b.Detail)
+	}
 	printUpdateSettings(e.stdout, s.Updates, in, in.Systemd && fileExists(systemdRunDir))
 	if s.SystemPackages != nil {
 		fmt.Fprintf(e.stdout, "  system packages: %s\n", s.SystemPackages.Summary)
@@ -158,8 +166,12 @@ func collectStatus(e *env, in *Install) Status {
 	if b, err := os.ReadFile(filepath.Join(in.Base, "app", "state.json")); err == nil {
 		var st struct {
 			History []json.RawMessage `json:"history"`
+			Blocked json.RawMessage   `json:"blocked"`
 		}
 		if json.Unmarshal(b, &st) == nil {
+			if len(st.Blocked) > 0 && string(st.Blocked) != "null" {
+				s.ServerStopped = st.Blocked
+			}
 			h := st.History
 			if len(h) > 5 {
 				h = h[len(h)-5:]
@@ -182,7 +194,15 @@ func health(port int, timeout time.Duration) map[string]any {
 	defer r.Body.Close()
 	var h map[string]any
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-	if json.Unmarshal(b, &h) != nil || r.StatusCode != 200 {
+	if json.Unmarshal(b, &h) == nil && r.StatusCode == 503 && h["status"] == "migrating" {
+		// the server is updating its database before it starts (server/src/system/migrate-start.ts)
+		out := map[string]any{"ok": false, "status": "migrating", "error": "updating its database"}
+		if v, ok := h["version"].(string); ok {
+			out["version"] = v
+		}
+		return out
+	}
+	if h == nil || r.StatusCode != 200 {
 		return map[string]any{"ok": false, "error": fmt.Sprintf("HTTP %d", r.StatusCode)}
 	}
 	out := map[string]any{"ok": h["ok"] == true}

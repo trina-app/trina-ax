@@ -200,7 +200,8 @@ function checkAddresses(host: string, addrs: { address: string; family: number }
   for (const a of addrs) {
     if (own.has(normIp(a.address))) throw new ToolError(`${host} points to this server's own public address; the server cannot fetch it (it would loop back through the router or NAT in front of the server to its admin page or devices)`)
     if (testOk(a.address)) continue
-    if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched`)
+    // G1: where an office address can be opened instead (docs/DECISIONS.md "Refusals say why, who and what next")
+    if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched from the server. Next step: in the desktop app, the browser next to the chat can open office-network addresses after the user allows it on a card; or the user can save the page or file and attach it to the chat`)
   }
   if ((port !== 80 && port !== 443) && !addrs.every((a) => testOk(a.address))) throw new ToolError('only ports 80 and 443 can be fetched')
 }
@@ -482,8 +483,10 @@ const frameAttrs = (attrs: string): boolean => {
  * `prose`: only the page's own content, for a company intro (onboarding/brand-assets.ts introText): the site's frame is
  * left out (nav, footer, aside, buttons, a header outside main or article, menus by role, class or id), and
  * the markup's own line breaks and a <br> are spaces (a heading broken for the screen is one line).
+ * `plain`: the text only, as a reader sees it (a line of an HTML file in the Files search, team-files/content-search.ts):
+ * a link is its label, and headings, list items and table cells get no marks (#, -, |), only a space.
  */
-export function htmlToText(html: string, base: URL, o: { prose?: boolean } = {}): { title?: string; text: string } {
+export function htmlToText(html: string, base: URL, o: { prose?: boolean; plain?: boolean } = {}): { title?: string; text: string } {
   const out: string[] = []
   let title: string | undefined
   let hidden: { name: string; depth: number } | null = null
@@ -491,16 +494,18 @@ export function htmlToText(html: string, base: URL, o: { prose?: boolean } = {})
   /** prose: inside main or article (a header there is the content's own) */
   let content = 0
   const prose = !!o.prose
+  const plain = !!o.plain
   const emit = (s: string) => { if (!hidden) out.push(s) }
   /** the page's text between tags (prose: its own line breaks and runs of spaces are one space) */
   const text = (s: string) => emit(prose ? decodeEntities(s).replace(/\s+/g, ' ') : decodeEntities(s))
   /** structure (newlines, list marks) inside a link label is just a space */
-  const mark = (s: string) => emit(anchor ? ' ' : s)
+  const mark = (s: string) => emit(anchor || plain ? ' ' : s)
   const closeAnchor = () => {
     if (!anchor) return
     const a = anchor
     anchor = null
     const label = out.splice(a.at).join('').replace(/\s+/g, ' ').trim()
+    if (plain) { out.push(label); return }
     let href = decodeEntities(a.href)
     try { href = new URL(href, base).href } catch { out.push(label); return }
     out.push(!/^https?:/i.test(href) || !label ? label : `[${label}](${href})`)

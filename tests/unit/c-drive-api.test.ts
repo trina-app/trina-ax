@@ -8,7 +8,7 @@ afterAll(async () => { await h?.close() })
 test('Drive is disabled without provider configuration and never pretends to connect', async () => {
   const r = await owner.try('GET', '/api/integrations/google-drive')
   expect(r.status).toBe(200)
-  expect(r.body).toEqual({ configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: false, teamShares: [] })
+  expect(r.body).toEqual({ configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
   expect((await owner.try('POST', '/api/integrations/google-drive/authorize', {})).status).toBe(503)
 })
 test('Drive settings require a session', async () => {
