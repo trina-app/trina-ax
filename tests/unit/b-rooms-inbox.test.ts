@@ -355,7 +355,16 @@ test('"Mark all as read" reads one Activity tab on the server: only its rows, on
   expect(n.list(mia.id, {}).unreadCount).toBe(1)
   expect(n.list(nora.id, {}).unreadCount).toBe(4)
   const unreadRows = () => rows().filter((x) => !x.readAt).map((x) => x.room?.message ?? x.code)
-  const markAll = (body: Record<string, unknown>) => nora.client.call('POST', '/api/notifications/read', body)
+  // one "notifications changed" per bulk call (each open window reads the Inbox again once), never one per row
+  const hub = new RecordingHub()
+  h.ctx.services.realtime = hub
+  const changed = () => hub.events.filter((e) => e.target === nora.id && (e.data as any)?.data?.code === 'notifications.changed').length
+  const markAll = async (body: Record<string, unknown>) => {
+    const before = changed()
+    const r = await nora.client.call('POST', '/api/notifications/read', body)
+    expect(changed() - before).toBe(r.read ? 1 : 0)
+    return r
+  }
   const room = async (id: string) => (await rooms(nora.client)).find((r) => r.id === id)
 
   // Mentions: the DM's and the team room's mentions; each room is read up to its mention, as opening the row reads it;
