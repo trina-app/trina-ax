@@ -29,9 +29,15 @@ a phone too. Then **invite the app** to the channels where people may ask it, `/
   kept sealed like an own app's tokens; answers go to Slack from here directly.
 - **Before the token is kept**, Slack itself is asked whose it is (`auth.test`): it must be the bot of the workspace
   the hosting service named, with every scope. So the hosting service cannot give this server another workspace's bot.
+  When Slack cannot be reached for that check (a brief outage), the install is not removed: Admin › Slack says "Added
+  to Slack. It turns on by itself once Slack confirms it.", and the server fetches the token again and checks it
+  shortly (for up to 30 minutes; after a restart, press Add to Slack again). Only a definite no removes it there.
+- **Only a Slack workspace admin or owner can add it.** The hosting service asks Slack who allowed it (`users.info`);
+  anyone else gets "A Slack workspace admin has to add it." and the app is taken off the workspace again (unless the
+  workspace is already added here).
 - **Only the owner who pressed it finishes it.** Slack sends the browser to the hosting service, which sends it back
-  only to this team's address it recorded (`/api/integrations/slack/official/callback`) with a one-time handoff (2
-  minutes) that only this flow's verifier redeems. A browser signed in as someone else is refused; one with no session
+  only to this team's address it recorded (`/api/integrations/slack/official/callback`) with a one-time handoff (10
+  minutes, time to sign in here first) that only this flow's verifier redeems. A browser signed in as someone else is refused; one with no session
   is asked to sign in first and then goes on. 10 minutes, used once, the newest only.
 - **Sign in with Slack** to link your own account works the same way through the hosting service (its one redirect
   URL is registered in the app): it checks Slack's answer, revokes your Slack user token at once and says only who
@@ -39,16 +45,22 @@ a phone too. Then **invite the app** to the channels where people may ask it, `/
 - **Removed in Slack** (the app removed from the workspace, its token revoked, or the hosting service's operator
   removed it): the token is forgotten here and Admin › Slack says "The app was removed from Slack. Add it to Slack
   again." People's links stay (the same workspace when it is added again). A token Slack refuses at a post means the
-  same.
+  same. A notice about an earlier install (still waiting at the hosting service when the app was added again) changes
+  nothing: the server acts only on the notice of the install it holds.
 - **Remove** asks the hosting service to take the app off the workspace, then deletes the token and every person's
   link here, as with an own app. If the hosting service cannot be reached it is removed here anyway (its operator can
-  remove the install there).
+  remove the install there). If Slack cannot be asked, the hosting service keeps the install as this team's (no other
+  team gets the workspace while its token may still work) until it can end it: add it again, or remove the app in
+  Slack.
 - **The hosting service down or not serving** this server any more: Admin › Slack says "can't reach the hosting
   service" or "does not serve this server's Slack now"; polls back off (1 s … 60 s) and resume by themselves. Events
   Slack sent meanwhile wait at the hosting service (up to 30 minutes, while the server polled in the last 10).
 - **A restore on a new machine** (the sealed token no longer opens): the server asks the hosting service for it again.
-- **One workspace, one team.** A workspace already added for another team is refused ("connected to another team");
-  an organization-wide (Enterprise Grid) install too.
+- **One workspace, one team.** A workspace already added for another team is refused ("connected to another team"),
+  also while that team is suspended or its server disabled. It is free again once that team removes it, the app is
+  removed in Slack, that team is deleted (or its server removed), or the hosting service's operator removes it; each of
+  these first makes the old bot token useless at Slack, so the next team gets a fresh one. An organization-wide
+  (Enterprise Grid) install is refused too.
 - **Server settings.** `MYCEL_SLACK_BROKER_URL` (the console origin, e.g. `https://account.trina.app`; it falls back to
   `MYCEL_GOOGLE_DRIVE_BROKER_URL`, which is the same console; `off` turns the official app off). Without it, or until
   the hosting service answers that it serves this server (asked every minute, every 10 minutes once it does), nothing

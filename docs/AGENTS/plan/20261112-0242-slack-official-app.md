@@ -101,12 +101,15 @@ So even a TLS-terminating proxy in front of the console never sees a bot token.
 | The broker is down or unreachable | Admin › Slack says Problem: "can't reach the hosting service" ; polls back off 1 s … 60 s and resume by themselves. Events Slack sent meanwhile are acknowledged by the broker only if it is up; Slack retries unacknowledged ones itself. |
 | Socket Mode down at the broker | No events; the broker reconnects (backoff). Team servers keep their bot token and can still answer what they already have. |
 | Bot token revoked / app uninstalled in Slack | The broker gets `tokens_revoked` / `app_uninstalled` (manifest events), forgets the install and queues a `lifecycle` event; the team server shows "Removed from Slack. Add to Slack again." A token Slack refuses at a post (`invalid_auth`, `token_revoked`, `account_inactive`) gives the same state. Links stay (same workspace when added again). |
-| Owner presses Remove | The team server asks the broker to `uninstall` (the broker calls `apps.uninstall`), then deletes its token and every link, as today. Broker unreachable: removed here anyway; the broker's operator can remove the install. |
-| Team suspended | Not served: polls, token and sign-in answer `not_hosted`; queued events expire. Back to active: works again, same install. |
-| Team deleted | The broker removes the app from the workspace and deletes the install. |
+| Owner presses Remove | The team server asks the broker to `uninstall` (the broker calls `apps.uninstall`, else `auth.revoke` of the bot token), then deletes its token and every link, as today. Broker unreachable: removed here anyway; the broker's operator can remove the install. Slack unreachable at the broker: it answers `unavailable` and keeps the install as this team's until it can end it (no other team gets the workspace meanwhile). |
+| Team suspended | Not served: polls, token and sign-in answer `not_hosted`; queued events expire. It keeps its workspace (another team: `workspace_taken`). Back to active: works again, same install. |
+| Team deleted | The broker removes the app from the workspace (the token useless at Slack) and only then deletes the install; Slack unreachable: tried again at the next sweep (5 minutes). |
 | Team renamed / moved to another host | The install is bound to the team, not to its address or host: the browser goes to the new address; the relay key of the new primary tenant signs. |
-| Registered server disabled / removed | Not served at once; removed: the install is deleted. |
-| Same workspace, a second team | Refused (`workspace_taken`); the first team's owner removes it there first. |
+| Registered server disabled / removed | Not served at once; disabled: it keeps its workspace; removed: as a deleted team. |
+| Same workspace, a second team | Refused (`workspace_taken`), also while the first team is suspended or its server disabled (no automatic move: Slack hands back the same bot token on a reinstall). Free again once the first team removes it, the app is removed in Slack, the first team is deleted or its server removed, or the hosting service's operator removes it; each first makes the old token useless at Slack. |
+| A member who is not a workspace admin presses Add to Slack | Refused (`not_workspace_admin`, "Slack 워크스페이스 관리자가 추가해야 해요."); the app is taken off the workspace again unless it is already added here. |
+| Slack unreachable while the team server checks the new token (`auth.test`) | Kept at the broker (not removed), fetched again and checked shortly (`install_pending`: "turns on by itself"); only a definite no removes it. A switch to another workspace never leaves both without the app: the broker ends the first one before it binds the second, and refuses the second when it cannot. |
+| A "removed" notice of an earlier install, handed out after the app was added again | Ignored: the notice names its install, and the team server acts only on the one it holds; a new install also clears the owner's queued notices at the broker. |
 | Organization-wide (Enterprise Grid) install | Refused (`enterprise_install`), as today. |
 | Server's sealed token lost (restore on a new machine) | It asks the broker for the token again (`token`). |
 
@@ -187,6 +190,30 @@ it after the rebase onto `dev`: the same bytes).
   again, a token refused at a post, a restore, the broker down and not serving, Remove, nothing secret in logs, rows or
   answers), the security matrix (`startSlackInstall` owner only, the install callback), web
   `slack-screens.test.tsx` and `slack-signin-pages.test.tsx`.
+
+### Review fixes (2026-11-12, independent security review)
+
+All twelve findings were checked against the code first; each was real. Contract: trina-ax `d5a51e7` (the control
+plane re-pinned to it, byte for byte).
+
+| # | Finding | Fixed |
+|---|---|---|
+| 1 | A queued "removed" wipes an install added again | Lifecycle payload `{ event, installId }` (`parseSlackBrokerLifecycle`); `onBrokerEvent` acts only when it is `slack_config.install_id`; the broker's `bind()` deletes the owner's queued notices. Test: the fake broker queues the notice on the tokenRefused path (`d5a51e7`, `485138b`; control plane) |
+| 2 | A workspace moved to a new owner while the old one kept a working token | Control plane SB-10: no automatic move while the old owner exists (served or not); freed only after the token is useless at Slack (`apps.uninstall`, else `auth.revoke`), then forgotten; kept while Slack cannot be asked. Docs rows above |
+| 3 | Anyone allowed to install apps can claim a workspace | Control plane: `users.info` of the installer at redeem, `is_admin` / `is_owner` / `is_primary_owner` (or an org admin/owner); else `not_workspace_admin` and the grant taken off again. Here: the outcome in five locales (`485138b`) |
+| 4 | The poll limit drops a busy team's events | Control plane: events the team server ignores are not queued (`subtype`, `bot_id`, the app's own bot user: exactly `onEnvelope`'s drops); poll limit 3600 → 36000 an hour |
+| 5 | Buttons routed by the presser's workspace only | Control plane: a button on a message in the channel must be on the receiving install's own bot's message (`message.user`); ephemeral buttons are shown only to the install's own people (this server's rule) |
+| 6 | One address's junk locks out its tenants | Control plane: only calls without a valid signature of a known key count per address; owners' calls have their owner's limits; a known key not served now has its own limit |
+| 7 | Sign-in limits throttle a rollout | Control plane: sign-in 1000 open states, 3000 starts and redeems an hour; Slack's returns 3000 an hour per address; installs keep 30 |
+| 8 | 2-minute handoff too short for sign-in-first | `SLACK_BROKER_HANDOFF_TTL_MS` 10 minutes (`d5a51e7`) |
+| 9 | A brief Slack outage at Add to Slack removes the app | `saveInstall` unreachable (or rate-limited): kept, fetched again and checked (5 s … 60 s, 30 minutes), `install_pending`; uninstall only on a definite no. The broker ends W1 before binding W2 and refuses W2 when W1 cannot be ended (`485138b`) |
+| 10 | A poll whose caller hung up still takes events | Control plane: no `takeDue` once the request's signal is aborted |
+| 11 | `slack_install_flows` never cleaned up | `sweep()` deletes them a day after their time (`485138b`) |
+| 12 | `appToken` / `clientSecret` on a public field | Control plane: private fields only (`#`), tested with `JSON.stringify` and `Bun.inspect` |
+
+Follow-ups (not done): the install kept after an unreachable check lives in memory only (after a restart the owner
+presses Add to Slack again; the same install comes back); a Remove the broker could not end at Slack stays bound to its
+team until it is added again, removed in Slack or by the operator (the sweep does not retry it).
 
 Owner steps before it is used: the control plane's `docs/slack-broker.md` section 6 (the app's client secret and a new
 app-level token with `connections:write` in the hosting service's secret store, the app id and client id in its

@@ -22495,6 +22495,12 @@ change).
   "removed from Slack, add it again". **Remove** asks the hosting service to take the app off the workspace
   (`apps.uninstall`), then forgets everything here as before; unreachable, it is removed here anyway. A token that no
   longer opens here (a restore on a new machine) is fetched again (`token`).
+- **Review fixes (2026-11-12).** A lifecycle notice names its install and acts only on the install held here (a
+  "removed" of an earlier install never wipes one added again). A workspace stays its team's while that team exists,
+  served or not, and is freed only after its token is useless at Slack (control plane SB-10). Only a Slack workspace
+  admin or owner can add the app (`not_workspace_admin`). The handoff lasts 10 minutes (sign in here first). When
+  Slack cannot be reached for the `auth.test` check, the install is kept and checked again (`install_pending`), never
+  removed for that. Details: the plan's Result, `docs/AGENTS/plan/20261112-0242-slack-official-app.md`.
 - **When it is used.** Only with `MYCEL_SLACK_BROKER_URL` (falls back to `MYCEL_GOOGLE_DRIVE_BROKER_URL`: both brokers
   are on the same console; `off` turns it off), and only once `status` answers yes. Merging this changes nothing on a
   server until then.
