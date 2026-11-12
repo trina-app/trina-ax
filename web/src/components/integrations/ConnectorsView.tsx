@@ -2,11 +2,11 @@
 // title row of Admin's page (the title, the search and Add with its ⌄ menu), which stays at the top while the page
 // scrolls; one line of the connected ones (ConnectorRow); one row of Discover (DiscoverCard); and a listed service's
 // or a connection's page (ConnectorDetail: a big logo, the main action, what it does and its tools).
-import { ArrowLeft, BadgeCheck, Check, Plus, Search } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Check, ExternalLink, Plus, Search } from 'lucide-react'
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
-import { connectorLogo, type Connector } from '../../lib/connectors'
+import { connectorLogo, type Connector, type ConnectorDocs } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Button, IconButton, StickyHeader, inputCls } from '../ui'
 import { Tooltip } from '../Tooltip'
@@ -112,7 +112,7 @@ export function DiscoverCard({ c, admin }: { c: DiscoverItem; admin: boolean }) 
 
 /** A connector's page inside the same window, like Claude's: back to the list, a big logo, the name and one line with the
  * main action on the right, a short description, and the tools the AI gets from it. */
-export function ConnectorDetail({ logo, name, line, official, action, description, address, tools, toolsNote, noTools, onBack, children, testId }: {
+export function ConnectorDetail({ logo, name, line, official, action, description, address, docs, tools, toolsNote, noTools, onBack, children, testId }: {
   logo: string
   name: string
   line: string
@@ -121,6 +121,8 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
   description: string
   /** before it is connected: the address it signs in at (QA TC-132) */
   address?: string
+  /** before it is connected: the service's own links and, where it lists them, its tools (lib/connectors.ts) */
+  docs?: ConnectorDocs
   /** the tool names (once connected, the service's own list) */
   tools?: string[]
   /** instead of tools: why there are none to show yet */
@@ -163,12 +165,42 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
           <ul className="flex flex-wrap gap-2" data-testid="connector-tools">
             {tools.map((x) => <li key={x} className={`rounded-full border border-line px-3 py-1 text-xs${/^[\w.-]+$/.test(x) ? ' font-mono' : ''}`}>{x}</li>)}
           </ul>
+        ) : docs?.tools?.length ? (
+          // before it is connected: the tools the service lists on its own page (the first ones, the rest there)
+          <>
+            <ul className="flex flex-wrap gap-2" data-testid="connector-tools-listed">
+              {docs.tools.slice(0, LISTED_TOOLS).map((x) => <li key={x} className="rounded-full border border-line px-3 py-1 font-mono text-xs">{x}</li>)}
+            </ul>
+            <p className="mt-2 text-sm text-muted">
+              {docs.tools.length > LISTED_TOOLS && <>{t('connectors.toolsMore', { count: docs.tools.length - LISTED_TOOLS })} </>}
+              {docs.toolsUrl && <a href={docs.toolsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline max-md:min-h-11" data-testid="connector-tools-link">{t('connectors.toolsAll', { name })} <ExternalLink size={12} aria-hidden /></a>}
+            </p>
+          </>
         ) : (
           <p className="text-sm text-muted" data-testid="connector-tools-note">{toolsNote ?? t('connectors.toolsAfter')}</p>
         )}
         {address && <p className="mt-2 text-xs break-all text-faint" data-testid="connector-address">{t('connectors.addressLine', { address })}</p>}
+        {docs && (
+          <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="connector-links">
+            <DocLink href={docs.privacy} name={t('connectors.linkPrivacyName', { name })} testId="connector-privacy-link">{t('connectors.linkPrivacy')}</DocLink>
+            <DocLink href={docs.terms} name={t('connectors.linkTermsName', { name })} testId="connector-terms-link">{t('connectors.linkTerms')}</DocLink>
+            <DocLink href={docs.docs} name={t('connectors.linkDocsName', { name })} testId="connector-docs-link">{t('connectors.linkDocs')}</DocLink>
+          </p>
+        )}
       </div>}
     </section>
+  )
+}
+
+/** How many tools a listed service's page shows before it is connected; the rest are on the service's page. */
+const LISTED_TOOLS = 12
+
+/** One of a service's own pages (privacy, terms, help), in a new tab; a phone: a 44 px tap */
+function DocLink({ href, name, testId, children }: { href: string; name: string; testId: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" aria-label={name} className="inline-flex items-center gap-1 text-accent-text hover:underline max-md:min-h-11" data-testid={testId}>
+      {children} <ExternalLink size={12} aria-hidden />
+    </a>
   )
 }
 

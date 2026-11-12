@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 09:29
 - Branch: `fix/connectors-qa-retest`
-- Status: in progress
+- Status: done
 - Where: `web/` (Connectors, Admin › Connectors, the add and template dialogs) and one line in
   `server/src/integrations/connections/service.ts`. Why: the core's connectors (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. Fixes and words; no API shape, data or migration change.
@@ -53,4 +53,10 @@ team" says; the dialog still shows who.
 
 ## Result
 
-Filled in at the end.
+- 1: `TEAM_DEFAULT_ACCESS` (the whole team) for a team connection and a template; the old "only you" switch-back is gone.
+- 2: a failed call sets `last_used_at` (service.ts noteFailure); the details say "Last tried {date}" while failing.
+- 3: `gapps.admin.driveAbout` on Admin's Drive page. 4: `integrations.asked.mineNoteSignIn` for a sign-in service.
+- 5: `CONNECTOR_DOCS` (lib/connectors.ts) with privacy, terms and help for Notion, Linear, Atlassian, Figma, Canva,
+  Stripe and Supabase, and the tools Notion, Figma, Stripe and Supabase list on their own pages (first 12 shown, the
+  rest on the service's page). Left out: Linear's tools (none listed), Atlassian's (its list is for its v2 address),
+  Canva's (its pages give another address than the catalog's `https://mcp.canva.com/mcp`: to check separately).
