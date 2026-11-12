@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 16:21
 - Branch: `feat/history-by-project`
-- Status: in progress
+- Status: done (layout of the sidebar still open with the owner)
 - Where: Team AX core (`web/src/components/`, `web/src/lib/`). Why: the AI history is core chat UI (see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch, a web-only change of how the history list is shown; no API, no migration
@@ -65,4 +65,13 @@ pins, projects and the phone drawer.
 
 ## Result
 
-Filled in at the end.
+- Built as planned: `lib/historyGroups.ts` (grouping, caps, the strongest mark), `components/history/HistoryGroups.tsx`
+  (the list, its headers, folds per person, + per project), used in the sidebar's Trina history and the phone's drawer;
+  "Group by: Project" is the default of "Show all"; the project page focuses its box when opened from +.
+- Differs from the plan: the projects the person sees are kept in `store/projects.ts` (`listed`), one read for every
+  sidebar of the window (the review found each drawer opening read the list again and blanked the history); a slow
+  first read shows the plain list after 1.5 s; the "In a project" filters follow the same access rule; after a move the
+  keyboard goes to the moved row's "···" (the row is a new one in its group).
+- Hands-on on the local QA team (qa-member, qa-member4, qa-member2 for the access check) and screenshots at 1440 light
+  and dark and 390 light. The owner is deciding how the sidebar splits rooms and the AI history ("이미 대화방만해도 너무
+  길어"); the caps (5 projects, 3 rows) are two constants in `Sidebar.tsx`.
