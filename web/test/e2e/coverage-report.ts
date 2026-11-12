@@ -2,7 +2,8 @@
 // team server, so its count (GET /__test/coverage, docs/FEATURES.md) would miss their endpoints. Every /api answer of
 // the mock server carries MOCK_ANSWER_HEADER; an answer without it was given in the browser, and its method and path go
 // to POST /__test/coverage, which counts the contract endpoint they name. helpers.ts reset() and rooms-mock.ts turn it
-// on for the page's browser context.
+// on for the page's browser context. A spec that fetches the server's answer (route.fetch) should fulfil with
+// `response` so the mark stays; otherwise that endpoint counts twice (coverage only reads more, no test breaks).
 import type { BrowserContext, Page, Response } from '@playwright/test'
 
 export const MOCK_ANSWER_HEADER = 'x-mock-answer'
