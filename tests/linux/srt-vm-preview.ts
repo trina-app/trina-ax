@@ -86,7 +86,7 @@ const procLine = (pid: number, key: string) => { try { return (fs.readFileSync(`
 const waitFor = async (f: () => Promise<boolean>, ms: number) => { const end = Date.now() + ms; while (Date.now() < end) { if (await f()) return true; await Bun.sleep(500) } return false }
 
 // a dev server that serves one marker page (python3's http.server, as a person's own app would serve its pages)
-const server = (mark: string, ports: number[]) => `mkdir -p site && echo ${mark} > site/index.html && cd site && ${ports.slice(1).map((p) => `python3 -m http.server ${p} --bind 127.0.0.1 >/dev/null 2>&1 & `).join('')}exec python3 -m http.server ${ports[0]} --bind 127.0.0.1`
+const server = (mark: string, ports: number[]) => `mkdir -p site && echo ${mark} > site/index.html && cd site || exit 1; ${ports.slice(1).map((p) => `python3 -m http.server ${p} --bind 127.0.0.1 >/dev/null 2>&1 & `).join('')}exec python3 -m http.server ${ports[0]} --bind 127.0.0.1`
 
 // ---- P1 (S2): a dev server through box_shell, opened through the gateway ----
 const gwUp = await waitFor(async () => (await sh(['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', `http://${GW}/`])).out === '404', 10_000)
@@ -98,9 +98,11 @@ await Bun.sleep(2500)
 const la = await open('alice', a.id, 3000)
 const pa = await page(la.origin, la.cookie)
 say('P1b', la.redeem === 303 && !!la.cookie && pa.status === 200 && pa.body.includes('MARK-RUN-A'), 'S2: the link opens the dev server through the gateway (303 + cookie, then the page)', { redeem: la.redeem, status: pa.status, body: pa.body.slice(0, 120) })
+let forwarderA = 0
 {
   const pids = await forwarders()
   const f = pids[0]
+  forwarderA = f ?? 0
   const runNet = (() => { try { const ps = fs.readFileSync(`/sys/fs/cgroup/${ID}.slice/${ID}-devenv.slice/trina-dev-${runIdOf(a.unit)}.scope/cgroup.procs`, 'utf8').split('\n').filter(Boolean); return new Set(ps.map((p) => { try { return fs.readlinkSync(`/proc/${p}/ns/net`) } catch { return '' } })) } catch { return new Set<string>() } })()
   const fNet = f ? fs.readlinkSync(`/proc/${f}/ns/net`) : ''
   const own = fs.readlinkSync('/proc/self/ns/net')
@@ -139,11 +141,13 @@ say('P2b', cross.every((c) => c.status === 403), 'A26: the cookie of one link do
 // ---- P4: the run stops ----
 {
   const sock = path.join(BASE, 'devenv/run', `${runIdOf(a.unit)}-3000.sock`)
+  const before = await forwarders()
   await h.api('alice').call(API.stopMyDevEnvRun, { params: { runId: a.id } })
   const after = await page(la.origin, la.cookie)
-  const gone = await waitFor(async () => (await forwarders()).length === 1 && !fs.existsSync(sock), 10_000)
+  const gone = await waitFor(async () => !fs.existsSync(`/proc/${forwarderA}`) && !fs.existsSync(sock), 10_000)
   const pbAfter = await page(lb.origin, lb.cookie)
-  say('P4', after.status === 403 && gone && pbAfter.body.includes('MARK-RUN-B'), 'the run stops: its link answers 403, its forwarder and socket go; the other run still serves', { status: after.status, forwarders: (await forwarders()).length, socket: fs.existsSync(sock), b: pbAfter.status })
+  const left = await forwarders()
+  say('P4', after.status === 403 && forwarderA > 0 && gone && pbAfter.body.includes('MARK-RUN-B'), 'the run stops: its link answers 403, its forwarder and socket go; the other run still serves', { status: after.status, forwarderA, before, left, aAlive: fs.existsSync(`/proc/${forwarderA}`), socket: fs.existsSync(sock), b: pbAfter.status })
   await h.api('erin').call(API.stopMyDevEnvRun, { params: { runId: b.id } })
   const none = await waitFor(async () => (await forwarders()).length === 0, 10_000)
   say('P4b', none, 'no forwarder is left when no dev server runs')
