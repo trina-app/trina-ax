@@ -222,9 +222,12 @@ test.describe('TC-254: project screens on a phone', () => {
     await expect(page.getByTestId('project-new')).toHaveCount(1)
     await shot(page, 'projects')
     await audit(page, 'Projects (phone)')
-    // a card's ···: 44 px
-    const more = page.getByTestId('project-card').filter({ hasText: 'Launch' }).getByTestId('project-card-menu')
-    expect((await more.boundingBox())!).toMatchObject({ width: 44, height: 44 })
+    // a row, not a card (QA TC-380): its ··· is not on a touch screen; a long press opens the same menu as a sheet
+    // (phone-member-pages.cases.ts)
+    const launchRow = page.getByTestId('project-row').filter({ hasText: 'Launch' })
+    await expect(launchRow).toBeVisible()
+    await expect(page.getByTestId('project-card')).toHaveCount(0)
+    await expect(page.getByTestId('project-card-menu')).toBeHidden()
     // "+" opens the form: 44 px radio rows, no resize grip
     await plus.click()
     const dialog = page.getByRole('dialog')
@@ -240,7 +243,7 @@ test.describe('TC-254: project screens on a phone', () => {
     await expect(dialog).toHaveCount(0)
 
     // 2. Open a project: one bar with the name and "···"; the name once
-    await page.getByTestId('project-card').filter({ hasText: 'Launch' }).getByRole('link').click()
+    await launchRow.click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
     await expect(page.getByTestId('phone-page-bar')).toHaveCount(1)
     await expect(bar.getByTestId('topbar-title')).toHaveText('Launch')

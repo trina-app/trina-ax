@@ -1,7 +1,8 @@
 # Phones: Projects as rows, a project's files without the path, Profile and Change password like a phone
 
 - Date (UTC): 2026-11-12 04:12
-- Branch: `fix/phone-projects-profile`
+- Branch: `fix/phone-projects-profile-2` (first `fix/phone-projects-profile`, #562, which had #560 merged in; replaced
+  so this branch leaves the bar to #560)
 - Status: in progress
 - Where: `web/` (pages/Projects.tsx, pages/Settings.tsx, pages/Auth.tsx). Why: the phone app shows the web app; these
   screens' phone layouts are web code.
@@ -32,10 +33,11 @@ In:
 - Settings › Profile on a phone: the photo block, the fields as rows, Save in the bar (SettingsBar.tsx), username and
   role as list rows. Save stays one button that appears after a change and saves name, title, photo and email.
 - Change password on a phone: the button full width.
-- The ‹ label on the two pages under Security & devices: shown whole. The bar's fit is `PhonePageBar.tsx`, which the
-  Admin session (fix/phone-admin-system-2) is changing so a label that does not fit beside a centred title moves the
-  title over instead of hiding; this branch takes that change (merged from its branch, said in the PR) rather than a
-  second fix of the same lines, and adds the Settings checks.
+- The ‹ label on the two pages under Security & devices: both pages already pass "Security & devices" (SettingsDialog
+  `useBackLabel`); the bar hid it in English because it does not fit beside the centred title. That rule is in the
+  shared `PhonePageBar.tsx`, which #560 (fix/phone-admin-system-2) changes for every page (the title moves over instead
+  of the name hiding). This branch does not touch the bar or the label mechanism; it adds the Settings e2e (the name
+  passed on both pages, shown whole in Korean now and in English once #560 is in).
 - Strings in 5 locales, phone e2e (Chromium + WebKit), 1440 screenshots before/after, changes fragment.
 
 Out: Admin pages (another session), `pages/Connectors.tsx`, the desktop layouts, the profile's save model, server
@@ -45,7 +47,7 @@ changes (the list's last-chat time comes from the chats the app already holds).
 
 1. Plan (this file).
 2. Projects rows and the files page; Profile; password button.
-3. ‹ labels: take the PhonePageBar fit from the Admin branch once it is pushed; Settings e2e.
+3. ‹ labels: check both pages pass the name; e2e (the bar's English layout is #560's).
 4. e2e `phone-member-pages.cases.ts` (Chromium + WebKit specs); computer screenshots; checks; PR.
 
 ## Risks
