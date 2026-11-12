@@ -3,7 +3,7 @@
 // place kept when the pages change size. Drawing, the thumbnails and scrolling are checked in the browser
 // (test/e2e/pdf-lazy-pages.spec.ts).
 import { describe, expect, test } from 'bun:test'
-import { anchorAt, anchorTop, currentPage, MARGIN_SCREENS, PAGE_GAP, pageHeight, pageLayout, pageStart, pageWindow } from '../../src/lib/pdfPages'
+import { anchorAt, anchorTop, currentPage, layoutTop, MARGIN_SCREENS, PAGE_GAP, pageHeight, pageLayout, pageStart, pageWindow } from '../../src/lib/pdfPages'
 
 const A4 = { width: 595, height: 842 }
 const LANDSCAPE = { width: 842, height: 595 }
@@ -143,5 +143,53 @@ describe('the place kept when the pages change size', () => {
     const none = pageLayout([], 600)
     expect(anchorAt(none, 100)).toBeNull()
     expect(anchorTop(none, { page: 3, offset: 0.5 })).toBe(0)
+  })
+})
+
+describe("a pinch's point (QA TC-259: the pages zoomed around the wrong place)", () => {
+  // a phone: the scroll box's content starts at client y 56 (no toolbar), not scrolled; 3 A4 pages at the width
+  const BOX_TOP = 56
+  const before = pageLayout([A4, A4, A4], 358)
+  /** where the fingers (client y) are on the pages after a pinch by `k` ends there, laid out again at k times the width
+   * (PdfView's zoomTo then its layout effect), measured on the holder's layout top or on its drawn (transformed) top */
+  const pinchEnd = (fingerY: number, k: number, measure: 'layout' | 'drawn') => {
+    const holderTop = BOX_TOP // the layout's: a transform does not move it
+    const origin = fingerY - holderTop // the transform's origin: where the fingers came down
+    const drawnTop = holderTop + origin * (1 - k) // the holder's box as the transform draws it
+    const top = measure === 'layout' ? layoutTop(drawnTop, origin, k) : drawnTop
+    const viewTop = BOX_TOP - top // viewOf
+    const anchor = anchorAt(before, viewTop + fingerY - BOX_TOP)!
+    const after = pageLayout([A4, A4, A4], Math.round(358 * k))
+    // the layout effect scrolls so that the view's top is the anchor less the fingers' distance from the box's top
+    const newViewTop = anchorTop(after, anchor) - (fingerY - BOX_TOP)
+    const y = newViewTop + fingerY - BOX_TOP
+    return { page: anchor.page, at: (y - after.tops[anchor.page]) / after.heights[anchor.page] }
+  }
+  /** the place on the pages under the fingers before the pinch */
+  const under = (fingerY: number) => {
+    const a = anchorAt(before, fingerY - BOX_TOP)!
+    return { page: a.page, at: a.offset }
+  }
+
+  test('a transform does not move the layout: the drawn top is turned back into the layout top', () => {
+    expect(layoutTop(56, 244, 1)).toBe(56)
+    expect(layoutTop(56 + 244 * (1 - 2), 244, 2)).toBeCloseTo(56, 9)
+    expect(layoutTop(56 + 244 * (1 - 0.5), 244, 0.5)).toBeCloseTo(56, 9)
+  })
+
+  test('the place under the fingers stays there after a 2x and a 2.5x pinch, also further down and when zooming out', () => {
+    for (const [y, k] of [[300, 2], [300, 2.5], [600, 2], [800, 0.6]] as const) {
+      const got = pinchEnd(y, k, 'layout')
+      const want = under(y)
+      expect(got.page).toBe(want.page)
+      expect(got.at).toBeCloseTo(want.at, 2)
+    }
+  })
+
+  test('measured on the drawn box (the bug) it lands k times further down the page', () => {
+    // 232 px down page 1 (of 506) before; the drawn box put the anchor at twice that, ~half a page below the fingers
+    const got = pinchEnd(300, 2, 'drawn')
+    expect(got.page).toBe(0)
+    expect(got.at - under(300).at).toBeGreaterThan(0.4)
   })
 })

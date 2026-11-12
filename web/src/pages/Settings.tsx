@@ -38,7 +38,7 @@ import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/des
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { teamAddressHost } from '../lib/team-address'
-import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, PhoneTargets, Skeleton, confirmDialog, inputCls, noKeyRepeat, useCopy, useMediaQuery } from '../components/ui'
+import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, Skeleton, confirmDialog, inputCls, noKeyRepeat, useCopy, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
@@ -67,9 +67,8 @@ export interface SettingsFold { browser: boolean; devEnvSites: boolean }
 export default function SettingsPane({ tab, fold }: { tab: string; fold?: SettingsFold }) {
   const me = useMeStrict()
   const browser = browserSettingsBridge()
-  // the form-like sections: 44 px buttons on a phone (components/ui.tsx PhoneTargets); the list-like ones are their own
   return (
-    <PhoneTargets.Provider value={FORM_TABS.has(tab)}>
+    <>
       {tab === 'profile' && <Profile />}
       {tab === 'security' && <Security />}
       {tab === 'security-password' && <PasswordPage />}
@@ -89,11 +88,9 @@ export default function SettingsPane({ tab, fold }: { tab: string; fold?: Settin
       {tab === 'providers' && <MyCredentials />}
       {tab === 'about' && <About />}
       {tab === 'account-delete' && <AccountDeletion key={`${me.user.id}:${me.session.id}`} />}
-    </PhoneTargets.Provider>
+    </>
   )
 }
-
-const FORM_TABS = new Set(['profile', 'security', 'security-password', 'security-devices', 'browser', 'memory', 'allowances', 'notifications', 'about', 'account-delete'])
 
 /** `page`: the title is the section's own name, which a phone's bar already shows (SettingsDialog.tsx): there it is
  * kept for screen readers only. */
@@ -614,6 +611,18 @@ function PasswordPage() {
   )
 }
 
+/** Above the memories: the AI gets only the newest that fit, and how many older ones it does not get now (QA TC-213).
+ * Nothing while all are in use. */
+export function MemoriesNotUsed({ use }: { use: { inUse: number; total: number } | null }) {
+  const t = useT()
+  if (!use || use.total <= use.inUse) return null
+  return (
+    <p className="mb-3 rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" role="status" data-testid="memory-not-used">
+      {t('memory.notUsed', { used: use.inUse, count: use.total - use.inUse })}
+    </p>
+  )
+}
+
 /** What the AI remembers: newest first; add one, correct one in place (MemoryForm), forget one or all. A phone: rows,
  * "+" in the bar, a row opens a sheet to correct it with "Forget" (which asks first), "Forget all" a red row. */
 function Memories() {
@@ -622,6 +631,8 @@ function Memories() {
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [items, setItems] = useState<Memory[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
+  // how many the AI gets now of how many are kept (the newest that fit; the others are marked "not used", QA TC-213)
+  const [use, setUse] = useState<{ inUse: number; total: number } | null>(null)
   // what the read threw, kept until a read works (components/LoadError.tsx); `failedMore`: it was "더 보기", which is
   // what reads again (not the first page, which would shorten the list)
   const [error, setError] = useState<unknown>(null)
@@ -634,6 +645,7 @@ function Memories() {
       const r = await api.call(API.listMemories, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
       setItems((cur) => (more && cur ? [...cur, ...r.items] : r.items))
       setCursor(r.nextCursor)
+      if (r.inUse !== undefined && r.total !== undefined) setUse({ inUse: r.inUse, total: r.total })
       setError(null)
     } catch (e) {
       setError(e ?? new Error('failed'))
@@ -697,6 +709,7 @@ function Memories() {
           </IconButton>
         </SettingsBarAction>
         <p className="mb-2 text-sm text-muted">{t('memory.desc')}</p>
+        <MemoriesNotUsed use={use} />
         {!!error && <LoadError error={error} onRetry={() => load(failedMore.current)} what="settings-memory" />}
         {!items && !error && <Skeleton lines={3} />}
         {items && !items.length && <EmptyState icon={<Brain size={26} />} title={t('memory.empty')} />}
@@ -705,7 +718,7 @@ function Memories() {
             <PhoneListGroup testId="memory-list">
               {items.map((m) => (
                 <PhoneListRow key={m.id} wrap testId="memory-item" onClick={() => setEditing(m.id)} chevron ariaLabel={`${t('memory.editLabel')}: ${m.text}`}
-                  title={<span className="block min-w-0"><span className="line-clamp-3 break-words" data-testid="memory-text">{m.text}</span><span className="mt-0.5 block text-xs text-faint">{formatDateTime(m.createdAt, locale)}</span></span>} />
+                  title={<span className="block min-w-0"><span className="line-clamp-3 break-words" data-testid="memory-text">{m.text}</span><span className="mt-0.5 block text-xs text-faint">{formatDateTime(m.createdAt, locale)}{m.unused && <>{' · '}<span className="text-warn" data-testid="memory-unused">{t('memory.unused')}</span></>}</span></span>} />
               ))}
               {cursor && <PhoneListRow title={<span className="text-accent-text">{t('common.loadMore')}</span>} onClick={() => void load(true)} testId="memory-more" />}
             </PhoneListGroup>
@@ -739,6 +752,7 @@ function Memories() {
   return (
     <Section title={t('settings.memory')} desc={t('memory.desc')} page>
       {!!error && <LoadError error={error} onRetry={() => load(failedMore.current)} what="settings-memory" />}
+      <MemoriesNotUsed use={use} />
       {!items && !error && <Skeleton lines={3} />}
       {items && (items.length > 0 || editing === 'new') && <div className="mb-3 flex justify-end">{addButton}</div>}
       {items && !items.length && editing !== 'new' && (
@@ -762,9 +776,10 @@ function Memories() {
             ) : (
               <li key={m.id} className="group flex items-start gap-2 py-3 text-sm md:px-4" data-testid="memory-item">
                 <span className="min-w-0 flex-1">
-                  <span className="block break-words whitespace-pre-wrap" data-testid="memory-text">{m.text}</span>
+                  <span className={clsx('block break-words whitespace-pre-wrap', m.unused && 'text-muted')} data-testid="memory-text">{m.text}</span>
                   <span className="mt-0.5 block text-xs text-faint">
                     {formatDateTime(m.createdAt, locale)}
+                    {m.unused && <>{' · '}<span className="text-warn" data-testid="memory-unused">{t('memory.unused')}</span></>}
                     {m.sourceChatId && (
                       <>
                         {' · '}

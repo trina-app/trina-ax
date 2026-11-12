@@ -11,7 +11,7 @@ import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES } from '../../server/src/routes'
-import { appCsp, frameCsp, safeFile, sandboxPolicy, SANDBOX_RECEIVER, serveWeb, SVG_ICON_CSP } from '../../server/src/routes/web-static'
+import { appCsp, frameCsp, isNoticeIndex, safeFile, sandboxPolicy, SANDBOX_RECEIVER, serveWeb, SVG_ICON_CSP } from '../../server/src/routes/web-static'
 import { artifactCsp, SANDBOX_FRAME_URL } from '../../web/src/lib/artifacts'
 import { WORK } from '../lib/env'
 
@@ -240,5 +240,69 @@ describe('web app serving', () => {
     expect(script).not.toMatch(/clonable\s*=/)
     const r = await get('/sandbox/frame?v=2026')
     expect(r.headers.get('x-dns-prefetch-control')).toBe('off')
+  })
+})
+
+describe('the notice index (/licenses/manifest.json, README.txt): no build fingerprint to signed-out callers on the internet', () => {
+  const MANIFEST = '{"release":{"version":"9.8.7"},"packages":[{"id":"left-pad@1.3.0"}]}\n'
+  const README = 'Pending (1):\n- license-declaration-needs-review: left-pad@1.3.0\n'
+  let realResolve: AppContext['services']['sessions']['resolve']
+  beforeAll(() => {
+    write(path.join(DIST, 'licenses', 'manifest.json'), MANIFEST)
+    write(path.join(DIST, 'licenses', 'README.txt'), README)
+    // the copies a bundle's web root holds (scripts/release-notices.ts mirrorPath): the licence texts stay public
+    write(path.join(DIST, 'licenses', 'LICENSE'), 'GNU AFFERO GENERAL PUBLIC LICENSE\n')
+    write(path.join(DIST, 'licenses', 'packages', 'left-pad@1.3.0-0123456789abcdef', 'LICENSE'), 'MIT License\n')
+    write(path.join(DIST, 'assets', 'manifest.json'), '{}')
+    fs.linkSync(path.join(DIST, 'licenses', 'manifest.json'), path.join(DIST, 'hardlink.json'))
+    // a request with x-test-user is signed in (the real session service needs a database row and a cookie)
+    const sessions = ctx.services.sessions
+    realResolve = sessions.resolve.bind(sessions)
+    sessions.resolve = async (req, info) => req.headers.get('x-test-user') ? { user: { id: 'u1', role: 'member' } } as never : realResolve(req, info)
+  })
+  afterAll(() => { ctx.services.sessions.resolve = realResolve })
+  const fetchAs = (p: string, via: 'relay' | 'direct' | 'local', o: { tunnel?: boolean; as?: string; ip?: string; method?: string } = {}) =>
+    app.fetch(new Request('http://acme.localhost' + p, { method: o.method ?? 'GET', headers: o.as ? { 'x-test-user': o.as } : {} }), { ip: o.ip ?? '203.0.113.7', via, tunnel: o.tunnel, port: 19172 })
+  const spellings = ['/licenses/manifest.json', '/licenses/%6Danifest.json', '/licenses/manifest%2Ejson', '/%6Cicenses/manifest.json', '/licenses/manifest.json?x=1',
+    '//licenses//manifest.json', '/licenses/./manifest.json', '/x/../licenses/manifest.json', '/hardlink.json', '/licenses/README.txt', '/licenses/%52EADME.txt']
+
+  test('signed out through the relay or the office internet address: 404 for every spelling, GET and HEAD', async () => {
+    for (const p of spellings) {
+      for (const r of [await fetchAs(p, 'relay'), await fetchAs(p, 'relay', { ip: '127.0.0.1' }), await fetchAs(p, 'direct', { tunnel: true }), await fetchAs(p, 'relay', { method: 'HEAD' })]) {
+        expect(r.status).toBe(404)
+        // `//` spellings are no file at all (safeFile), so they get the ordinary missing-file answer
+        if (!p.includes('//')) expect(r.headers.get('cache-control')).toBe('private, no-store')
+        const body = await r.text()
+        expect(body).not.toContain('9.8.7')
+        expect(body).not.toContain('left-pad')
+      }
+    }
+  })
+  test('signed in through the relay, and this server / the office network signed out: the files, never cached', async () => {
+    for (const [p, text] of [['/licenses/manifest.json', MANIFEST], ['/licenses/README.txt', README]] as const) {
+      for (const r of [await fetchAs(p, 'relay', { as: 'member' }), await fetchAs(p, 'direct', { tunnel: true, as: 'member' }),
+        await fetchAs(p, 'direct', { ip: '192.168.1.50' }), await fetchAs(p, 'local', { ip: '127.0.0.1' })]) {
+        expect(r.status).toBe(200)
+        expect(r.headers.get('cache-control')).toBe('private, no-store')
+        expect(await r.text()).toBe(text)
+      }
+    }
+  })
+  test('the licence texts and the package notices stay public through the relay (the notice obligations)', async () => {
+    for (const p of ['/licenses/LICENSE', '/licenses/packages/left-pad@1.3.0-0123456789abcdef/LICENSE', '/assets/manifest.json']) {
+      const r = await fetchAs(p, 'relay')
+      expect(r.status).toBe(200)
+    }
+  })
+  test('isNoticeIndex matches the file served, not the spelling', () => {
+    expect(isNoticeIndex(DIST, '/licenses/manifest.json')).toBe(true)
+    expect(isNoticeIndex(DIST, '/licenses/%6danifest.json')).toBe(true)
+    expect(isNoticeIndex(DIST, '/licenses/README.txt')).toBe(true)
+    expect(isNoticeIndex(DIST, '/hardlink.json')).toBe(true)
+    expect(isNoticeIndex(DIST, '/licenses/LICENSE')).toBe(false)
+    expect(isNoticeIndex(DIST, '/assets/manifest.json')).toBe(false)
+    expect(isNoticeIndex(DIST, '/manifest.webmanifest')).toBe(false)
+    expect(isNoticeIndex(DIST, '/licenses/missing.json')).toBe(false)
+    expect(isNoticeIndex(path.join(BASE, 'nope'), '/licenses/manifest.json')).toBe(false)
   })
 })

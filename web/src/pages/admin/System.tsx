@@ -12,7 +12,7 @@ import { api, API } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, ErrorNote, Field, Modal, PhoneTargets, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
 import { forgetKeptChecks } from './overview'
 import OfficeUpdate from './OfficeUpdate'
@@ -110,15 +110,13 @@ export default function System() {
   // the sections stay mounted while hidden, so they can report that they loaded again after a retry
   return (
     <LoadReport.Provider value={loads.report}>
-      <PhoneTargets.Provider value>
-        <FlatCardsProvider value>
-          <AdminPageHeader title={t('admin.system')} />
-          {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
-          <div hidden={loads.allFailed} className="max-w-3xl" data-testid="system-page">
-            <SystemSections />
-          </div>
-        </FlatCardsProvider>
-      </PhoneTargets.Provider>
+      <FlatCardsProvider value>
+        <AdminPageHeader title={t('admin.system')} />
+        {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
+        <div hidden={loads.allFailed} className="max-w-3xl" data-testid="system-page">
+          <SystemSections />
+        </div>
+      </FlatCardsProvider>
     </LoadReport.Provider>
   )
 }

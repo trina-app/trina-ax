@@ -138,6 +138,32 @@ describe('jobs', () => {
     expect(j.status).toBe('done')
     expect(n).toBe(3)
   })
+  test('a poll while the job waits or runs shows its status (the socket is down)', async () => {
+    const id = uuidv7()
+    const states: Job['status'][] = ['queued', 'running', 'done']
+    let n = 0
+    const seen: (Job['status'] | undefined)[] = []
+    const j = await waitForJob(id, { pollMs: 5, fetchJob: async () => { seen.push(useJobs.getState().jobs[id]?.status); return job(id, states[n++]!) } })
+    expect(j.status).toBe('done')
+    expect(seen).toEqual([undefined, 'queued', 'running'])
+  })
+  test('an older REST answer never puts a started job back to waiting, nor over the socket\'s label', () => {
+    const id = uuidv7()
+    useJobs.getState().seen(job(id, 'queued'))
+    expect(useJobs.getState().jobs[id]!.status).toBe('queued')
+    useJobs.getState().progress(id, 'transcribe', 0.4, 'downloading') // the start / progress event
+    useJobs.getState().seen({ ...job(id, 'queued'), message: 'stale' }) // a GET read before it started, answered late
+    expect(useJobs.getState().jobs[id]).toMatchObject({ status: 'running', progress: 0.4, message: 'downloading' })
+  })
+  test('the first look is right away, not after pollMs', async () => {
+    const id = uuidv7()
+    let n = 0
+    void waitForJob(id, { pollMs: 10_000, fetchJob: async () => { n++; return job(id, 'queued') } })
+    await Bun.sleep(20)
+    expect(n).toBe(1)
+    expect(useJobs.getState().jobs[id]!.status).toBe('queued')
+    useJobs.getState().done(job(id, 'done'))
+  })
   test('abort rejects', async () => {
     const ctrl = new AbortController()
     const p = waitForJob(uuidv7(), { pollMs: 10_000, signal: ctrl.signal, fetchJob: async () => job('x', 'running') })
@@ -244,8 +270,20 @@ describe('local data per person', () => {
     expect(readDraft('budi', 'new', s)).toBe('')
     s.setItem(UPLOADS_KEY, '{}')
     s.setItem('mycel.theme', 'dark')
-    clearLocalData(s)
-    expect([...s.m.keys()]).toEqual(['mycel.theme'])
+    // the phone's saved tab stacks (sessionStorage) go too
+    const { TAB_STACKS_KEY } = await import('../../src/lib/localData')
+    const session = new Mem()
+    const before = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, writable: true, value: session })
+    try {
+      session.setItem(TAB_STACKS_KEY, '{}')
+      clearLocalData(s)
+      expect([...s.m.keys()]).toEqual(['mycel.theme'])
+      expect(session.getItem(TAB_STACKS_KEY)).toBeNull()
+    } finally {
+      if (before) Object.defineProperty(globalThis, 'sessionStorage', before)
+      else delete (globalThis as { sessionStorage?: unknown }).sessionStorage
+    }
   })
 })
 

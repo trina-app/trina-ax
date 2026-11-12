@@ -1,7 +1,7 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { ApiError, errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
@@ -24,6 +24,7 @@ import { setBeforePersonSwitch, useSession } from './store/session'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
+import { screenHistory } from './lib/screenHistory'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { StatusDialogHost } from './components/StatusMessage'
@@ -314,7 +315,8 @@ function Gate() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    // the browser's history as React Router keeps it; on a phone, each tab's stack of screens (lib/screenHistory.ts)
+    <HistoryRouter history={screenHistory()}>
       <AnnounceProvider>
         <Gate />
         <DialogHost />
@@ -322,7 +324,7 @@ export default function App() {
         <ImageViewerHost />
         <Toaster />
       </AnnounceProvider>
-    </BrowserRouter>
+    </HistoryRouter>
   )
 }
 

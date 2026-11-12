@@ -9,6 +9,7 @@
 //                                   the team's time zone
 //   teamax update run               what the agent runs (every 15 minutes: only inside the window; or a request
 //                                   from `now` / the web)
+import { MIGRATE_WAIT_MS } from './health'
 import fs from 'node:fs'
 import path from 'node:path'
 import { launchAgent } from '../../../scripts/dev-service'
@@ -101,8 +102,9 @@ export function viewText(v: OfficeUpdateView): string {
 
 const resultText = (r: RunResult) => `${r.kind}${r.version ? ` ${r.version}` : ''}${r.message ? `: ${r.message}` : ''}`
 
-/** follow an agent run until it is done (the Terminal can be closed: the agent keeps going) */
-async function follow(home: string, startedAt: number, maxMs = 45 * 60_000): Promise<number> {
+/** follow an agent run until it is done (the Terminal can be closed: the agent keeps going); a large database's update
+ * may add MIGRATE_WAIT_MS to the run */
+async function follow(home: string, startedAt: number, maxMs = 45 * 60_000 + MIGRATE_WAIT_MS): Promise<number> {
   let last = ''
   const end = Date.now() + maxMs
   while (Date.now() < end) {

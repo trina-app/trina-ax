@@ -280,7 +280,6 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
       </Pressable>}
       <View style={s.helpRow}>
         <Pressable onPress={() => setView('unknown')} style={s.helpLink} testID="no-address" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{t.noAddress}</Text></Pressable>
-        <Text style={[s.linkText, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">·</Text>
         <Pressable onPress={() => setView('none')} style={s.helpLink} testID="no-team" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{t.noTeam}</Text></Pressable>
       </View>
       {current && onBack && <Pressable onPress={onBack} style={[s.link, s.centered]} testID="setup-back" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{fill(t.backTo, { team: hostOf(current) })}</Text></Pressable>}
@@ -563,7 +562,7 @@ const s = StyleSheet.create({
   buttonText: { color: accentInk(product.accent), fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingTop: 8 }, footerButton: { paddingVertical: 8, paddingHorizontal: 16 },
   linkText: { fontSize: 15 }, centerText: { textAlign: 'center' }, underline: { textDecorationLine: 'underline' }, centered: { alignSelf: 'center' },
   secondary: { marginTop: 12, alignItems: 'center' }, secondaryText: { fontSize: 16, fontWeight: '500', borderWidth: 1, borderRadius: 10, padding: 13, minWidth: 160, width: '100%', textAlign: 'center', overflow: 'hidden' },
-  helpRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', marginTop: 16, gap: 4 }, helpLink: { paddingVertical: 8, paddingHorizontal: 4 },
+  helpRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', marginTop: 16, columnGap: 16 }, helpLink: { paddingVertical: 8, paddingHorizontal: 4 },
   step: { flexDirection: 'row', gap: 8, marginBottom: 12 }, stepNo: { fontSize: 15, lineHeight: 22, minWidth: 18 }, stepText: { flex: 1, fontSize: 15, lineHeight: 22 },
   ask: { marginTop: 16, borderWidth: 1, borderRadius: 12, padding: 16 }, askTitle: { fontSize: 16, fontWeight: '600', lineHeight: 22, marginBottom: 6 },
   askHost: { fontSize: 15, fontWeight: '600', marginBottom: 6 }, askText: { fontSize: 15, lineHeight: 21, marginBottom: 6 },

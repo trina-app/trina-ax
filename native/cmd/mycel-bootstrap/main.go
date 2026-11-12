@@ -38,6 +38,7 @@ import (
 	"syscall"
 	"time"
 
+	"mycel/native/internal/bootflags"
 	"mycel/native/internal/bundle"
 )
 
@@ -50,7 +51,7 @@ var (
 	appDir         = flag.String("app", "", "<base>/app (versions/, current, state.json)")
 	configFile     = flag.String("config", "", "server.json (passed to the server as MYCEL_CONFIG; listen address for the health check)")
 	healthTimeout  = flag.Duration("health-timeout", 120*time.Second, "a pending update must answer /api/health within this time")
-	migrateTimeout = flag.Duration("migrate-timeout", 60*time.Minute, "a pending update that reports it is updating its database (/api/health status migrating) may take this long from its start")
+	migrateTimeout = flag.Duration("migrate-timeout", bootflags.DefaultMigrateTimeout, "a pending update that reports it is updating its database (/api/health status migrating) may take this long from its start")
 	maxAttempts    = flag.Int("max-attempts", 3, "a pending update that dies this many times before it is healthy is rolled back")
 	allowUnsigned  = flag.Bool("allow-unsigned", false, "accept versions without manifest.sig (development and test installs; no release key exists yet)")
 	updateLog      = flag.String("update-log", "", "append update / roll-back events here (JSON lines)")

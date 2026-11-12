@@ -230,7 +230,11 @@ test('members cannot open admin screens', async ({ page }) => {
   // no team menu either: a member's header is the team's name only
   await expect(page.getByTestId('team-header')).toBeVisible()
   await expect(page.getByTestId('team-menu')).toHaveCount(0)
+  // an /admin link says the page is for admins, with a way Home (QA TC-272), not a silent Home
   await page.goto('/admin/members')
+  await expect(page.getByTestId('admin-only')).toContainText('관리자만 볼 수 있어요')
+  await expect(page).toHaveURL(/\/admin\/members$/)
+  await page.getByTestId('admin-only-home').click()
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/)
   // and the API itself refuses (the hidden screens are only a convenience)
   expect((await page.request.get('/api/admin/users')).status()).toBe(403)

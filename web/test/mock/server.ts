@@ -36,8 +36,9 @@
 // (the team's speech provider and whether an OpenRouter key is set; chosen false: not chosen, read from the key),
 // GET-or-POST /__test/transcribe-chats (the chat id each voice input named, null for a new chat; a confidential chat's
 // recording with OpenRouter is refused, 403), POST
-// /__test/transcribe-progress {message, progress, ms} (the next transcription jobs say that label first, as a server that
-// downloads its speech model does, and end after `ms`; until the next reset).
+// /__test/transcribe-progress {message, progress, ms, queuedMs?} (the next transcription jobs say that label first, as a
+// server that downloads its speech model does, and end after `ms`; until the next reset). queuedMs: each waits that long
+// for its turn first (another voice input holds the one transcription slot), saying nothing until it starts.
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
@@ -404,7 +405,7 @@ export class MockServer {
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
-  transcribeProgress: { message: string; progress: number | null; ms: number } | null = null
+  transcribeProgress: { message: string; progress: number | null; ms: number; queuedMs: number } | null = null
   /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
    * ffmpeg (localMissing: the tools 'local' lacks) */
   speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
@@ -2762,12 +2763,13 @@ export class MockServer {
       return { trashed: true }
     },
     findFiles: (c) => {
-      const q = String(c.query.q ?? '').toLowerCase()
+      // names and the query in NFC, like the server (team-files/find.ts): a name saved by a Mac (NFD) matches too
+      const q = String(c.query.q ?? '').normalize('NFC').toLowerCase()
       const base = String(c.query.path ?? '')
       const items = [...this.files.entries()]
         // like the server (policy/authorize.ts visiblePath): download-only files are not search hits
         // folders too when asked (⌘K: folders=1), first, like the server
-        .filter(([p, n]) => (n.type === 'file' || (c.query.folders === '1' && n.type === 'folder')) && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        .filter(([p, n]) => (n.type === 'file' || (c.query.folders === '1' && n.type === 'folder')) && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).normalize('NFC').toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
         .sort(([, a], [, b]) => (a.type === b.type ? 0 : a.type === 'folder' ? -1 : 1))
         .map(([p, n]) => this.entry(p, n, c.user))
       return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
@@ -2783,7 +2785,11 @@ export class MockServer {
       const items: { path: string; name: string; line: number; snippet: string }[] = []
       for (const [p, n] of visible) {
         if (!/\.(md|txt|csv|html|json)$/i.test(p)) continue
-        dec.decode(n.data!).split('\n').forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
+        // like the server: the raw line matches first; an HTML file's line is then shown as its text, and a match only in
+        // the markup is no line (server: htmlLineText)
+        const html = /\.html?$/i.test(p)
+        const asText = (l: string) => l.replace(/<(script|style)\b[^>]*>[^<]*<\/\1>/gi, '').replace(/<[^>]*>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
+        dec.decode(n.data!).split('\n').map((l) => (html && l.toLowerCase().includes(q.toLowerCase()) ? asText(l) : l)).forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
       }
       return { items, truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
     },
@@ -4632,10 +4638,18 @@ export class MockServer {
 
   transcribeJob(user: User): string {
     const id = uuidv7()
-    const job: Job = { id, kind: 'transcribe', status: 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
-    this.jobs.set(id, job)
     const slow = this.transcribeProgress
-    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), 50)
+    const wait = slow?.queuedMs ?? 0
+    const job: Job = { id, kind: 'transcribe', status: wait ? 'queued' : 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
+    this.jobs.set(id, job)
+    // like the server: a job says when it starts (until then the box says it waits for its turn)
+    const started = () => {
+      job.status = 'running'
+      this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: null, message: null } })
+    }
+    if (wait) setTimeout(started, wait)
+    else started()
+    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), wait + 50)
     setTimeout(() => {
       Object.assign(job, { status: 'done', progress: 1, result: { text: '받아쓴 문장입니다', language: 'ko', durationSec: 2 }, finishedAt: now() })
       this.publish({ type: 'job.done', data: { job } })
@@ -4821,7 +4835,7 @@ export class MockServer {
       this.speechChosen = body.chosen !== false
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
-    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000) }
+    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)

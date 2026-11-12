@@ -31,6 +31,14 @@ export interface MenuItem {
   hint?: string
 }
 
+/** The items in a phone's sheet (below 768px): what cannot be undone (delete) last, whatever order the caller gave,
+ * under a hairline (`dangerLine` on the first of them), as iOS sheets have it; a computer's menu keeps the order. */
+function sheetOrder(items: MenuItem[]): MenuItem[] {
+  if (typeof window === 'undefined' || window.matchMedia?.('(min-width: 48rem)').matches) return items
+  return [...items.filter((it) => !it.danger), ...items.filter((it) => it.danger)]
+}
+const dangerLine = "max-md:relative max-md:mt-2 max-md:before:absolute max-md:before:inset-x-3 max-md:before:-top-1 max-md:before:border-t max-md:before:border-line max-md:before:content-['']"
+
 /** px a computer's menu keeps clear of the window's edges, and between it and its button */
 export const MENU_EDGE = 8
 const MENU_GAP = 4
@@ -81,7 +89,7 @@ export function useLongPress(onLong: () => void, ms = 500) {
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const own = useRef<HTMLButtonElement>(null)
@@ -192,7 +200,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={toggle}
-          className={clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', muted ? 'text-muted' : 'text-faint', buttonClassName)}
+          className={clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', compact ? 'touch-hit' : 'max-md:min-h-11 max-md:min-w-11', muted ? 'text-muted' : 'text-faint', buttonClassName)}
           data-testid={testId}
         >
           {icon ?? <MoreHorizontal size={16} aria-hidden />}
@@ -227,7 +235,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           {/* the menu's name (aria-label above), shown: not one of its items */}
           {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
           {sheetTitle && <p aria-hidden className="truncate px-3 pt-2 pb-2 text-sm text-muted md:hidden" data-testid="menu-sheet-title">{sheetTitle}</p>}
-          {items.map((it) => (
+          {sheetOrder(items).map((it, i, all) => (
             <button
               key={it.label}
               role={it.checked === undefined ? 'menuitem' : 'menuitemradio'}
@@ -240,7 +248,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
                 if (hiddenButton() && focusBack && menu.current?.contains(document.activeElement)) focusBack()
                 it.onSelect()
               }}
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover')}
+              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover', it.danger && i > 0 && !all[i - 1]!.danger && dangerLine)}
               data-testid={it.testId}
             >
               {it.icon}

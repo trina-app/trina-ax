@@ -10,14 +10,15 @@ import { useUi } from '../store/ui'
 import { writeRich } from '../lib/clipboard'
 import { edgeFade } from '../lib/edgeFade'
 import { Tooltip } from './Tooltip'
+import { MenuButton } from './rooms/MenuButton'
 
 /** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
 const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(node, body) : node)
 
-/** Inside it, below 768 px, every Button and IconButton is at least 44 px (Apple's minimum touch target) and a Switch
- * takes taps from a 44 px box around it: the form pages on a phone (Admin › Team settings and System, Settings' own
- * sections; docs/DECISIONS.md "Admin and Settings on phones"). Elsewhere buttons keep their sizes. */
-export const PhoneTargets = createContext(false)
+/** Phones (below 768 px, the width the phone layout starts at): every Button, IconButton, tab and text field is at least
+ * 44 px (Apple's minimum touch target; Material's is 48 dp) and a Switch takes taps from a 44 px box around it; fields
+ * show 16 px text (index.css), so iOS Safari does not zoom in on them. Computers and tablets keep the sizes below. */
+const PHONE_TARGET = 'max-md:min-h-11'
 
 /** primary: the one main action; secondary (default): a bordered button; ghost: no border (also a plain "no": Deny on a
  * permission card, Skip, Reject of a suggestion, like Claude Code's "No"); danger: a destructive action with a border;
@@ -26,7 +27,6 @@ export const PhoneTargets = createContext(false)
  * own colour can win. */
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ghost-danger'
 export function Button({ variant = 'secondary', size = 'md', busy, className, children, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: 'sm' | 'md'; busy?: boolean }) {
-  const big = useContext(PhoneTargets)
   return (
     <button
       type="button"
@@ -37,7 +37,8 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       className={clsx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
         size === 'sm' ? 'h-8 px-2.5 text-label' : 'h-9 px-3.5 text-sm',
-        big ? 'max-md:min-h-11' : size === 'sm' ? 'max-sm:min-h-9' : 'max-sm:min-h-10',
+        PHONE_TARGET,
+        'max-md:min-w-11',
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
         // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
         // (a busy one, with its spinner, keeps the accent: it is working, not off)
@@ -64,11 +65,12 @@ export const noKeyRepeat = (e: React.KeyboardEvent) => {
 
 /** An icon-only button: `label` is its name (aria-label) and its tooltip (components/Tooltip.tsx), shown on hover and
  * keyboard focus. `tip`: other words for the tooltip, when the icon needs more than its name (they describe the button);
- * `tip={false}` only inside a <Tooltip> of its own. `danger`: a destructive icon action (Delete) that turns red on hover. */
-export function IconButton({ label, danger, className, children, tip = true, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean; tip?: boolean | string }) {
-  const big = useContext(PhoneTargets)
+ * `tip={false}` only inside a <Tooltip> of its own. `danger`: a destructive icon action (Delete) that turns red on hover.
+ * `compact`: inside a chip or a line whose height it must not change, it keeps its size on a phone and takes taps from a
+ * 44 px box around it instead (touch-hit; not for a button placed with absolute/fixed). */
+export function IconButton({ label, danger, compact, className, children, tip = true, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean; compact?: boolean; tip?: boolean | string }) {
   const button = (
-    <button type="button" aria-label={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', big && 'max-md:min-h-11 max-md:min-w-11', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
+    <button type="button" aria-label={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', compact ? 'touch-hit' : [PHONE_TARGET, 'max-md:min-w-11'], danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
       {children}
     </button>
   )
@@ -77,7 +79,7 @@ export function IconButton({ label, danger, className, children, tip = true, ...
 }
 
 export const inputCls =
-  'h-9 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 max-sm:min-h-10'
+  'h-9 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 max-md:min-h-11'
 
 /** The title of a sidebar section (대화, 트리나 기록), which folds its list. A step under the rows (12px, 13px on phones;
  * rows are 14 / 15px) but heavier than them and than "더 보기" under a list, and in the main text colour (the owner,
@@ -97,17 +99,22 @@ export function SidebarSectionTitle({ open, onToggle, controls, children, testId
 }
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
- * tied to the control with aria-describedby. */
-export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: ReactNode }) {
+ * tied to the control with aria-describedby. `aside` (a password field's eye button) sits over the control's right edge, outside the label, so
+ * the control's name stays the label's words; the control then keeps room for it (pr-11). The box is the field's
+ * height (44 px on a phone), so a 44 px button sits in its middle. */
+export function Field({ label, children, hint, error, aside }: { label: string; children: ReactNode; hint?: string; error?: ReactNode; aside?: ReactNode }) {
   const id = useId()
   const note = error || hint
   const control = note && isValidElement(children) ? cloneElement(children as React.ReactElement<{ 'aria-describedby'?: string; 'aria-invalid'?: boolean }>, { 'aria-describedby': id, 'aria-invalid': error ? true : undefined }) : children
+  const labelled = (
+    <label className="block">
+      <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
+      {control}
+    </label>
+  )
   return (
-    <div className="block">
-      <label className="block">
-        <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
-        {control}
-      </label>
+    <div className="block" data-field>
+      {aside ? <div className="relative">{labelled}<div className="absolute right-0 bottom-0 flex h-9 items-center max-md:h-11" data-testid="field-aside">{aside}</div></div> : labelled}
       {hint && !error && (
         <span id={id} className="mt-1 block text-xs text-faint">
           {hint}
@@ -571,7 +578,7 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
     void copy(plain, rich)
   }
   const button = (
-    <button type="button" aria-label={l} onClick={click} className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', className)}>
+    <button type="button" aria-label={l} onClick={click} className={clsx('inline-flex items-center justify-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', PHONE_TARGET, 'max-md:min-w-11', className)}>
       {copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
       {showLabel && <span>{l}</span>}
     </button>
@@ -638,10 +645,16 @@ export function TabPanel({ base, value, className, children, ...rest }: { base: 
 
 /** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. The keyboard follows
  * the WAI-ARIA tabs pattern: Tab reaches the chosen tab only; the arrow keys, Home and End choose another. `panels`:
- * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content. */
-export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean; panels: string }) {
+ * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content.
+ * A phone (below 768px), segmented: the row takes the width it is given (the page's, or what a button beside it
+ * leaves: Folder permissions' Filters), its choices of equal width and 44px tall, never scrolling sideways; an item's `short` is its word there ("Mine" for "My suggestions"). When a choice's word does not
+ * fit its share (a long language, five choices), the row is one picker row instead, "Available skills ⌄", whose
+ * sheet lists them all (rooms/MenuButton.tsx), so nothing is cut or hidden off the side. Computers keep the row. */
+export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string; short?: string }[]; label: string; segmented?: boolean; panels: string }) {
   const list = useRef<HTMLDivElement>(null)
   useEdgeFade(list)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const fitted = !!segmented && phone
   // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
   // then, so a row that fits never moves the page.
   useEffect(() => {
@@ -652,11 +665,28 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
     const b = tab.getBoundingClientRect()
     if (b.left < r.left || b.right > r.right) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [value, items.length])
+  // a phone's segmented row: whether every word fits its equal share, measured on a hidden copy of the row (so the
+  // picker can turn back into the row when the screen turns wider)
+  const probe = useRef<HTMLDivElement>(null)
+  const [fits, setFits] = useState(true)
+  const words = items.map((it) => it.short ?? it.label).join('\n')
+  useLayoutEffect(() => {
+    const row = probe.current
+    if (!fitted || !row) return
+    const measure = () => setFits(items.length <= 5 && [...row.querySelectorAll<HTMLElement>('[data-word]')].every((w) => w.scrollWidth <= w.clientWidth + 0.5))
+    measure()
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    ro?.observe(row)
+    return () => ro?.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitted, words])
   // the tabs pattern: one Tab stop (the chosen tab); Left / Right (round), Home and End move to a tab and choose it
   const current = items.some((it) => it.id === value) ? value : items[0]?.id
   // the tab chosen last, also before the page shows it (a choice can render later: keys pressed quickly go on from it)
   const chosen = useRef(current)
   chosen.current = current
+  const picker = useRef<HTMLButtonElement>(null)
+  const [pick, setPick] = useState(0)
   const onKeyDown = (e: React.KeyboardEvent) => {
     const i = items.findIndex((it) => it.id === chosen.current)
     const n = items.length
@@ -666,6 +696,67 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
     chosen.current = items[to]!.id
     onChange(items[to]!.id)
     list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
+  }
+  const segment = 'flex min-h-11 min-w-0 items-center justify-center rounded-md px-2 text-label font-medium'
+  if (fitted) {
+    const now = items.find((it) => it.id === current)
+    return (
+      <div className="relative min-w-0 flex-1" data-testid="tabs-phone" data-fits={fits ? 'row' : 'picker'}>
+        {/* the row as it would be drawn, out of sight: each word against its share */}
+        <div ref={probe} aria-hidden className="pointer-events-none invisible absolute inset-x-0 top-0 grid h-0 auto-cols-[minmax(0,1fr)] grid-flow-col gap-0.5 overflow-hidden p-0.5">
+          {items.map((it) => (
+            <span key={it.id} className={segment}>
+              <span data-word className="block min-w-0 overflow-hidden whitespace-nowrap">{it.short ?? it.label}</span>
+            </span>
+          ))}
+        </div>
+        {fits ? (
+          <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className="grid w-full auto-cols-[minmax(0,1fr)] grid-flow-col gap-0.5 rounded-lg bg-subtle p-0.5">
+            {items.map((it) => (
+              <button
+                key={it.id}
+                role="tab"
+                type="button"
+                id={tabIds(panels, it.id).tab}
+                aria-controls={tabIds(panels, it.id).panel}
+                aria-selected={value === it.id}
+                tabIndex={it.id === current ? 0 : -1}
+                onClick={() => onChange(it.id)}
+                className={clsx(segment, 'focus-visible:-outline-offset-2', value === it.id ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted')}
+              >
+                <span className="truncate">{it.short ?? it.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            {/* the chosen tab's place: it names the panel below (TabPanel's aria-labelledby) */}
+            <button
+              ref={picker}
+              type="button"
+              id={current ? tabIds(panels, current).tab : undefined}
+              aria-haspopup="menu"
+              aria-label={`${label}: ${now?.label ?? ''}`}
+              onClick={() => setPick((n) => n + 1)}
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg bg-subtle px-3 text-left text-sm font-medium text-ink"
+              data-testid="tabs-picker"
+            >
+              <span className="min-w-0 flex-1 truncate">{now?.label}</span>
+              <ChevronDown size={16} className="shrink-0 text-faint" aria-hidden />
+            </button>
+            <MenuButton
+              label={label}
+              heading={label}
+              className="contents"
+              buttonClassName="hidden!"
+              openRequest={pick}
+              focusBack={() => picker.current?.focus()}
+              items={items.map((it) => ({ label: it.label, checked: it.id === current, onSelect: () => onChange(it.id), testId: `tabs-pick-${it.id}` }))}
+            />
+          </>
+        )}
+      </div>
+    )
   }
   return (
     <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('edge-fade flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
@@ -681,6 +772,7 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
           onClick={() => onChange(it.id)}
           className={clsx(
             'rounded-md font-medium whitespace-nowrap focus-visible:-outline-offset-2',
+            PHONE_TARGET,
             segmented ? 'px-3 py-1 text-label' : 'px-2.5 py-1 text-xs',
             segmented ? (value === it.id ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink') : value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover',
           )}
@@ -700,12 +792,12 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
 /** `id` with `external`: the switch has no text of its own; a `<label htmlFor={id}>` elsewhere on its row names it (a
  * settings row with the words on the left and the switch on the right). */
 export function Switch({ checked, onChange, label, disabled, hideLabel, testId, id, external, describedBy }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; hideLabel?: boolean; testId?: string; id?: string; external?: boolean; describedBy?: string }) {
-  const big = useContext(PhoneTargets)
   return (
-    <label className={clsx('relative inline-flex cursor-pointer items-center gap-2 text-sm', big && 'touch-hit', disabled && 'cursor-not-allowed opacity-60')}>
+    <label className={clsx('touch-hit relative isolate inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
       <input id={id} type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} data-testid={testId} aria-describedby={describedBy} />
       <span className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4 dark:peer-checked:after:bg-accent-ink" aria-hidden />
-      {!(external && id) && <span className={hideLabel ? 'sr-only' : undefined}>{label}</span>}
+      {/* the words above the 44 px tap box (touch-hit's ::after), so a tap on them lands on them */}
+      {!(external && id) && <span className={hideLabel ? 'sr-only' : 'relative z-[1]'}>{label}</span>}
     </label>
   )
 }
