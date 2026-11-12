@@ -400,7 +400,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:pr-3 max-md:pl-2">
               <div className="flex h-composer-line shrink-0 items-center">
                 {phone ? (
-                  <AttachSheet onFiles={addFiles} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
+                  <AttachSheet onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={SMALL_UPLOAD_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
                 ) : (
                   <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
                     <Paperclip size={18} />
