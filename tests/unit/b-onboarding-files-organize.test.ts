@@ -16,6 +16,7 @@ import { applyOrganize, filesOrganized, ORGANIZED_SETTING, startOrganize } from 
 import { recordJoin, welcomeOf } from '../../server/src/onboarding/member-welcome'
 import { updateWelcome } from '../../server/src/onboarding/welcome'
 import { fileEvent } from '../../server/src/files/store'
+import { teamDefaultLocale } from '../../server/src/admin/settings'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -201,7 +202,11 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     const t0 = Date.now()
     const plan: OrganizePlan = await run(['shared/t/주간 회의록.md'], { ask: fake({ sleep: 20_000 }), aiMs: 1_500 }).done
     expect(plan.ai).toBe('timeout')
-    expect(plan.rows).toEqual([{ path: 'shared/t/주간 회의록.md', folder: 'Meeting notes', reason: 'minutes', form: false }])
+    // the name rules answer: a notes folder already in 전사 공유 (any language) is reused, else the team's language names
+    // it (both are pinned by the pure organizePlan tests above; which one applies here depends on what other tests left)
+    if (plan.rows[0]?.folder !== 'Meeting notes') console.log('organize timeout case:', JSON.stringify({ existing: plan.existing, locale: teamDefaultLocale(h.ctx.db), rows: plan.rows }))
+    const notes = plan.existing.find((n) => Object.values(NOTES_FOLDER).some((v) => v.normalize('NFC').toLowerCase() === n.normalize('NFC').toLowerCase()))
+    expect(plan.rows).toEqual([{ path: 'shared/t/주간 회의록.md', folder: notes ?? NOTES_FOLDER[teamDefaultLocale(h.ctx.db)], reason: 'minutes', form: false }])
     expect(Date.now() - t0).toBeLessThan(8_000)
     expect(await gone()).toBe(true)
     // the stop is asked at the timeout; the turn closes a moment later (slower on CI runners)
