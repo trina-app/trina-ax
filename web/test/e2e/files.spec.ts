@@ -545,6 +545,30 @@ test('nested dialogs: Esc closes only the top one (new-folder prompt over the mo
   await expect(row(page, 'notes.txt').getByTestId('file-menu')).toBeFocused()
 })
 
+test('no pencil on a file in a read-only folder; a writable one keeps it (QA TC-502)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // the owner can only read finance (the mock's policy)
+  const access: string[] = []
+  page.on('response', (r) => {
+    if (r.url().includes('/api/files/content') && r.url().includes('q3.csv')) r.json().then((c: { access: string }) => access.push(c.access), () => {})
+  })
+  await page.goto('/files?path=finance%2F2026')
+  await row(page, 'q3.csv').getByRole('button').first().click()
+  const panel = page.getByTestId('file-panel')
+  await expect(panel.locator('table')).toContainText('q3')
+  await expect(panel.getByTestId('file-edit')).toHaveCount(0)
+  // still none once the panel knows the person's access
+  await expect.poll(() => access).toContain('read')
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await expect(panel.getByTestId('file-edit')).toHaveCount(0)
+  await expect(page.getByText('읽기 전용 폴더')).toBeVisible()
+  // the same kind of file where the person can write: the pencil is there
+  await page.goto('/files?path=marketing')
+  await row(page, 'data.csv').getByRole('button').first().click()
+  await expect(panel.getByTestId('file-edit')).toBeVisible()
+})
+
 test('fix a text file in the preview panel; a save after someone else\'s becomes a conflict copy', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)

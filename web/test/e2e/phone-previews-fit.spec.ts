@@ -218,6 +218,26 @@ test('on a phone only .md and .txt offer 고치기, from the ⋯ sheet', async (
   }
 })
 
+test('on a phone a read-only folder offers no 고치기 in the ⋯ sheet (QA TC-502)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // finance/ is read-only for the owner in the mock's policy
+  expect((await page.request.post('/__test/file', { data: { path: 'finance/2026/memo.md', text: '# 메모\n\n읽기만 해요.' } })).ok()).toBeTruthy()
+  let asked = 0
+  page.on('response', (r) => { if (r.url().includes('/api/files/content') && r.url().includes('memo.md')) asked++ })
+  await openInFiles(page, 'finance/2026', 'memo.md')
+  const panel = page.getByTestId('file-panel')
+  await expect(panel).toContainText('읽기만 해요')
+  await panel.getByTestId('file-panel-more').click()
+  await expect(page.getByTestId('file-more-download')).toBeVisible()
+  await expect(page.getByTestId('file-more-edit')).toHaveCount(0)
+  // still none once the panel knows the person's access
+  await expect.poll(() => asked).toBeGreaterThan(0)
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await expect(page.getByTestId('file-more-edit')).toHaveCount(0)
+  await shot(page, 'files-md-readonly-more-sheet-390')
+})
+
 test('an HTML quotation sent in a room fits the phone too (the static frame)', async ({ page }) => {
   await reset(page)
   await signIn(page)
