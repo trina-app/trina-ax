@@ -4738,6 +4738,7 @@ export const ko = {
   "welcome.organize.projectFailed": "{n}개는 프로젝트로 옮기지 못해서 그대로 있어요",
   "welcome.forms.ask": "{names}(을)를 스킬로 만들어둘까요?",
   "welcome.forms.hint": "팀원이 '{kind} 만들어줘' 하면 이 양식대로 채워요.",
+  "welcome.forms.hintMany": "팀원이 '{kind} 만들어줘' 하면 각 양식대로 채워요.",
   "welcome.forms.make": "만들기",
   "welcome.forms.shared": "'{title}' 스킬을 팀에 공유했어요",
   "teamLink.landing": "들어오면 '{skill}'부터 열려요",

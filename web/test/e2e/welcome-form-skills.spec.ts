@@ -31,7 +31,7 @@ test('the question → [만들기] → a card per form → [팀에 공유] one, 
   await toResult(page)
   // the forms the plan put in 양식: the Excel and Word ones, not the one named for a company, not Markdown
   await expect(page.getByTestId('form-skills-question')).toHaveText('견적서 양식, 주간보고 양식을 스킬로 만들어둘까요?')
-  await expect(page.getByTestId('form-skills-hint')).toHaveText("팀원이 '견적서 만들어줘' 하면 이 양식대로 채워요.")
+  await expect(page.getByTestId('form-skills-hint')).toHaveText("팀원이 '견적서 만들어줘' 하면 각 양식대로 채워요.")
   expect((await tree(page, 'shared/양식')).map((e) => e.name).sort()).toEqual(['견적서_양식.xlsx', '견적서_양식_㈜에이스상사.xlsx', '메모 양식.md', '주간보고_양식.docx'].sort())
   await page.getByTestId('form-skills-make').click()
   // S's card for each form, from its file

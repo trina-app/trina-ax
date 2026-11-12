@@ -4694,6 +4694,7 @@ export const ja: Record<MessageKey, string> = {
   "welcome.organize.projectFailed": "{n, plural, one {#件} other {#件}}はプロジェクトに移動できず、元の{n, plural, one {場所} other {場所}}にあります",
   "welcome.forms.ask": "{names}をスキルにしておきますか?",
   "welcome.forms.hint": "メンバーが「{kind}を作って」と頼むと、このテンプレートどおりに記入します。",
+  "welcome.forms.hintMany": "メンバーが「{kind}を作って」と頼むと、それぞれのテンプレートどおりに記入します。",
   "welcome.forms.make": "作る",
   "welcome.forms.shared": "「{title}」スキルをチームに共有しました",
   "teamLink.landing": "参加すると「{skill}」から開きます",

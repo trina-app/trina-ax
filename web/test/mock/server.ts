@@ -1025,7 +1025,7 @@ export class MockServer {
     return { title: '견적서 쓰기', description: '팀 양식으로 새 견적서를 만들어요', recurring: false, inputs: [], files: asked.slice(0, 1).map((p) => ({ path: p, latest: false })) }
   }
   /** a form's card (server/src/onboarding/form-skill.ts, short): "<kind> 만들기", two questions, the form's folder and "the
-   * newest file named like it" */
+   * newest file whose name has the words" */
   formSkillCard(form: string): { title: string; description: string; inputs: SkillInput[]; files: { path: string; latest: boolean; like?: string }[]; recurring: boolean } {
     const like = formStem(form.slice(form.lastIndexOf('/') + 1))
     return {
@@ -3519,6 +3519,8 @@ export class MockServer {
       const path = c.body.path as string
       if (!formSkillType(path)) fail('validation', 400)
       if (this.files.get(path)?.type !== 'file') fail('not_found', 404)
+      // the forms folder only (the server also takes a form its plan just put elsewhere)
+      if (!/^shared\/(양식|templates|templat|テンプレート|plantillas)\/[^/]+$/i.test(path)) fail('validation', 400)
       if (/㈜|\(주\)|주식회사/.test(path)) fail('conflict', 409)
       this.formSkillCalls.push(path)
       const had = [...this.skillDrafts].find(([, d]) => d.form === path && d.userId === c.user.id && !d.saved)

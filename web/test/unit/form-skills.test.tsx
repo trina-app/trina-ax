@@ -1,7 +1,7 @@
 // The setup's forms become team skills on the 팀 파일 result screen (components/onboarding/FormSkills.tsx;
 // docs/DECISIONS.md "Setup 팀 파일: forms become skills"): owners and admins get one question naming the forms (with the
 // right Korean particle) and what a teammate would say; members nothing. [만들기] starts a draft per form from its file
-// and shows S's card for each (the form's folder and "the newest named like it"); [팀에 공유] leaves one line, the
+// and shows S's card for each (the form's folder and "the newest whose name has the words"); [팀에 공유] leaves one line, the
 // card's 나중에 drops that form, the question's 나중에 drops it all; the state stays when the screen comes back.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { translate, useLocaleStore } from '../../src/i18n'
@@ -64,14 +64,18 @@ describe('forms → team skills on the result screen', () => {
     let m = await mount(<FormSkills forms={[QUOTE, WEEKLY]} phone={false} />)
     try {
       expect(m.get('form-skills-question').textContent).toBe('견적서 양식, 주간보고 양식을 스킬로 만들어둘까요?')
-      expect(m.get('form-skills-hint').textContent).toBe("팀원이 '견적서 만들어줘' 하면 이 양식대로 채워요.")
+      // several forms: "각 양식대로", not the first one's
+      expect(m.get('form-skills-hint').textContent).toBe("팀원이 '견적서 만들어줘' 하면 각 양식대로 채워요.")
       expect(m.get('form-skills-make').textContent).toBe('만들기')
       expect(m.get('form-skills-later').textContent).toBe('나중에')
       expect(called('POST /api/onboarding/skill-draft/from-form')).toEqual([])
     } finally { await m.unmount() }
     // a vowel at the end: 를
     m = await mount(<FormSkills forms={['shared/양식/신청서 템플릿 서류.hwp']} phone={false} />)
-    try { expect(m.get('form-skills-question').textContent).toBe('신청서 템플릿 서류를 스킬로 만들어둘까요?') } finally { await m.unmount() }
+    try {
+      expect(m.get('form-skills-question').textContent).toBe('신청서 템플릿 서류를 스킬로 만들어둘까요?')
+      expect(m.get('form-skills-hint').textContent).toBe("팀원이 '신청서 서류 만들어줘' 하면 이 양식대로 채워요.")
+    } finally { await m.unmount() }
     signIn('member')
     m = await mount(<FormSkills forms={[QUOTE]} phone={false} />)
     try { expect(m.find('form-skills')).toBeNull() } finally { await m.unmount() }
@@ -123,7 +127,7 @@ describe('forms → team skills on the result screen', () => {
   })
 
   test('the strings exist in every language', () => {
-    for (const l of ['en', 'ko', 'ja', 'es', 'id'] as const) for (const k of ['welcome.forms.ask', 'welcome.forms.hint', 'welcome.forms.make', 'welcome.forms.shared'] as const) expect(translate(l, k, { names: 'X', kind: 'Y', title: 'Z' })).not.toContain('welcome.forms')
+    for (const l of ['en', 'ko', 'ja', 'es', 'id'] as const) for (const k of ['welcome.forms.ask', 'welcome.forms.hint', 'welcome.forms.hintMany', 'welcome.forms.make', 'welcome.forms.shared'] as const) expect(translate(l, k, { names: 'X', kind: 'Y', title: 'Z' })).not.toContain('welcome.forms')
     expect(translate('en', 'welcome.forms.ask', { names: 'Quote template' })).toBe('Make team skills from Quote template?')
   })
 })

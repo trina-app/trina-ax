@@ -19,6 +19,7 @@
 import type { Database } from 'bun:sqlite'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
+import { TEMPLATES_FOLDER } from '@mycel/shared'
 import { SKILL_DRAFT_DESCRIPTION_MAX, SKILL_DRAFT_FILES_MAX, SKILL_DRAFT_TITLE_MAX, SKILL_DRAFT_VISIBLE_INPUTS, SkillInputs, formSkillType, formStem, skillTitle, type Locale, type SavedSkillDraft, type SkillDraft, type SkillDraftFile, type SkillDraftProblem, type SkillDraftStarted, type SkillDraftState, type SkillInput } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
@@ -43,6 +44,7 @@ import { DATED, leftoversIn, nameStem, specificsOf } from './specifics'
 import { readCompanyProfile } from './profile'
 import { packSkillNames } from './skill-packs'
 import { readWelcome } from './welcome'
+import { planFormAt } from './files-organize'
 import { FORM_RULES, FORM_TEXT_MAX, formNameSpecifics, formSkillSystemPrompt, isFormMaterial, parseFormSkillDraft, type FormMaterial } from './form-skill'
 import { extractText } from '../files/extract'
 import { readRegular } from '../files/store'
@@ -331,7 +333,7 @@ export function freeSkillName(base: string, taken: (name: string) => boolean): s
 
 // ---------------------------------------------------------------- the routes
 
-const TEXT: Record<'ask' | 'formAsk' | 'formTitle' | 'formNotFile' | 'formNamed' | 'title' | 'notDone' | 'notReady' | 'noAttachments' | 'rewriteSpecific' | 'rewriteUnreadable' | 'private' | 'outside' | 'confidential' | 'unverified', Record<Locale, string>> = {
+const TEXT: Record<'ask' | 'formAsk' | 'formNotInForms' | 'formTitle' | 'formNotFile' | 'formNamed' | 'title' | 'notDone' | 'notReady' | 'noAttachments' | 'rewriteSpecific' | 'rewriteUnreadable' | 'private' | 'outside' | 'confidential' | 'unverified', Record<Locale, string>> = {
   unverified: {
     ko: '이 대화가 읽은 파일을 모두 확인할 수 없어서 팀 스킬로 만들 수 없어요.',
     en: 'Not every file this conversation read can be checked, so it cannot become a team skill.',
@@ -373,6 +375,13 @@ const TEXT: Record<'ask' | 'formAsk' | 'formTitle' | 'formNotFile' | 'formNamed'
     id: 'Jadikan formulir ini skill tim yang mengisinya.',
     ja: 'このテンプレートに記入するチームのスキルにまとめてください。',
     es: 'Convierta esta plantilla en una habilidad del equipo que la rellene.',
+  },
+  formNotInForms: {
+    ko: '팀 양식 폴더(전사 공유 › 양식)에 있는 양식만 스킬로 만들 수 있어요.',
+    en: 'Only a form in the team\'s forms folder (company-wide › Templates) can become a skill.',
+    id: 'Hanya formulir di folder templat tim (seluruh perusahaan › Templat) yang bisa dijadikan skill.',
+    ja: 'チームのテンプレートフォルダー(全社共有 › テンプレート)にあるテンプレートだけをスキルにできます。',
+    es: 'Solo una plantilla de la carpeta de plantillas del equipo (toda la empresa › Plantillas) puede ser una habilidad.',
   },
   formTitle: { ko: '양식 스킬 초안', en: 'Form skill draft', id: 'Draf skill formulir', ja: 'テンプレートスキルの下書き', es: 'Borrador de habilidad de plantilla' },
   formNotFile: {
@@ -609,6 +618,8 @@ export function startSkillDraft(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo
   return { draftChatId: id }
 }
 
+/** the forms folder's names (folder-labels TEMPLATES_FOLDER, every language), lower case */
+const TEMPLATE_NAMES = new Set((Object.values(TEMPLATES_FOLDER) as string[]).map((n) => n.normalize('NFC').toLowerCase()))
 /** a form bigger than this is not read (the start refuses it) */
 const FORM_MAX_BYTES = 30 * 1024 * 1024
 
@@ -638,6 +649,11 @@ export async function startFormSkillDraft(ctx: AppContext, rt: ChatRuntime, auth
   const name = path.posix.basename(rel)
   const closed = narrower(ctx, [rel])
   if (closed.length) throw refuse(locale, 'private', closed)
+  // only the team's forms folder (shared/양식 in any of the five languages) or a form the caller's own folder plan just
+  // put somewhere: never a personal folder, skills/, .system or any other team file
+  const segs = rel.split('/')
+  const inForms = segs.length === 3 && segs[0] === 'shared' && TEMPLATE_NAMES.has(segs[1]!.normalize('NFC').toLowerCase())
+  if (!inForms && !planFormAt(auth.user.id, rel)) throw new HttpError('validation', TEXT.formNotInForms[locale], { fields: { 'body.path': 'not_in_forms_folder' } })
   if (formNameSpecifics(rel, namesOf(ctx, auth.user.id)).length) throw new HttpError('conflict', fill(TEXT.formNamed[locale], { files: name }), { params: { reason: 'named' } })
   const had = ctx.db.query(`SELECT d.chat_id FROM onboarding_skill_drafts d JOIN chats c ON c.id = d.chat_id AND c.deleted_at IS NULL
     WHERE d.user_id = ? AND d.source_path = ? AND d.saved_path IS NULL ORDER BY d.created_at DESC LIMIT 1`).get(auth.user.id, rel) as { chat_id: string } | null

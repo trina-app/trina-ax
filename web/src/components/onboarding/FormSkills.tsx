@@ -47,7 +47,7 @@ export function FormSkills({ forms, phone }: { forms: string[]; phone: boolean }
     return (
       <div className={clsx('space-y-2', box)} data-testid="form-skills" data-state="ask">
         <p className="text-sm font-medium text-ink" data-testid="form-skills-question">{t('welcome.forms.ask', { names: stems.join(', ') })}</p>
-        <p className="text-label text-muted" data-testid="form-skills-hint">{t('welcome.forms.hint', { kind: formKind(stems[0]!) })}</p>
+        <p className="text-label text-muted" data-testid="form-skills-hint">{t(forms.length > 1 ? 'welcome.forms.hintMany' : 'welcome.forms.hint', { kind: formKind(stems[0]!) })}</p>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" className="max-md:min-h-11" onClick={() => put({ step: 'make' })} data-testid="form-skills-make">{t('welcome.forms.make')}</Button>
           <Button size="sm" variant="ghost" className="max-md:min-h-11" onClick={() => put({ step: 'later' })} data-testid="form-skills-later">{t('welcome.organize.later')}</Button>

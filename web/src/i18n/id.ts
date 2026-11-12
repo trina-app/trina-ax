@@ -4738,6 +4738,7 @@ export const id: Record<MessageKey, string> = {
   "welcome.organize.projectFailed": "{n} file tidak bisa dipindah ke proyek dan tetap di tempatnya",
   "welcome.forms.ask": "Jadikan {names} skill tim?",
   "welcome.forms.hint": "Saat rekan tim meminta 'Buatkan {kind}', AI mengisi formulir ini.",
+  "welcome.forms.hintMany": "Saat rekan tim meminta 'Buatkan {kind}', AI mengisi formulir yang sesuai.",
   "welcome.forms.make": "Buat",
   "welcome.forms.shared": "Skill '{title}' sudah dibagikan ke tim",
   "teamLink.landing": "Yang bergabung mulai dari '{skill}'",

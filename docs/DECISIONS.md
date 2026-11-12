@@ -23700,6 +23700,8 @@ setup, folder suggestions come from the Move picker (PR C), never from an AI cal
 B: a form uploaded at setup gets "이걸 스킬로 만들어둘까요?" at once (no "try it in chat first"). Built on "Setup 팀 파일:
 the AI proposes folders".
 
+Version impact: **minor** (new route, migration 288).
+
 - **Which forms.** On the 팀 파일 result screen, `formSkillPaths(plan, applied)`: rows the folder plan marked
   `form: true` that moved into the folder the plan proposed for them (a form the person sent elsewhere is no form to
   them), of a kind a skill can fill (`FORM_SKILL_TYPES`: .hwp, .hwpx, .xlsx, .docx; a Markdown or PDF "form" is not
@@ -23720,9 +23722,12 @@ the AI proposes folders".
   unsaved draft, its one rewrite, or a new draft after a failed one (as S). Read with S's `GET …/skill-draft/:chatId`,
   shared with S's `POST …/save`.
 - **The AI only names it.** The answer is `{title, description, inputs}`: the form's blanks that change every time, at
-  most 8, three visible (the rest folded as in S). It writes no steps (any it writes are ignored). A value written in the
+  most 8, three visible (the rest folded as in S). It writes no steps (any it writes are ignored). An input keeps only
+  what the card shows (name, label, required, a choice's options): `placeholder`, `prefill` and a choice's `default`
+  are dropped, because the card does not show them while every teammate's AI reads them in the SKILL.md (review,
+  2026-11-12: the form's text or words planted in it could reach teammates unseen). A value written in the
   form (a sample customer, a date, an amount, a phone) in the title, the line, a label or a placeholder is a specific:
-  one rewrite, then no card. The card's files are the form's folder and "the newest file named like it" (`like` = the
+  one rewrite, then no card. The card's files are the form's folder and "the newest file whose name has the words" (`like` = the
   stem), shown as "양식 폴더의 가장 최근 견적서 양식".
 - **The fixed procedure** (`formSteps`, in the team's language, the same for every team; the AI must not invent
   business steps): 1. the inputs; a missing must-have asked once, in one line; nothing invented. 2. the form: the newest
@@ -23733,8 +23738,19 @@ the AI proposes folders".
   from the form's kind, the inputs and today's date, "(2)" when taken. 5. the person's own folder (copied by box_shell
   into `$TRINA_TEAM/users/<id>/`, the one team folder a command may write besides its start folder), or `move_files` to
   a folder they name. 6. the link and what was filled. 7. only when filling fails (no dev environment, no HWP plugin, a
-  failed run): `make_file` with the same fields, saying the look may differ (.hwp falls back to .hwpx, else .docx). The
+  failed run): `make_file` with the same fields, saying the look may differ and why (a Hangul form: a .hwpx, or a .docx
+  when Hangul writing is off). The
   rules section is S's without "save only when asked" (saving is the skill's work) and with "never change the form".
+- **Where the start is allowed.** Only a file directly in the forms folder (`shared/양식`, any of the five languages'
+  names) or a file the caller's own applied folder plan marked as a form and moved (still remembered by the server:
+  10 minutes), never `users/`, `skills/`, `.system` or another team file (400 `not_in_forms_folder`). Names quoted in
+  the steps are one line, with backticks and `<` replaced, as `files/locations.ts` cleanLabel.
+- **Where the real fill cannot run.** box_shell is not offered in rooms, scheduled runs or shared project chats
+  (`chat/turn.ts`), nor when the team's dev environment is off or the person is outside its scope
+  (`devenv/setting.ts`); edit_hwp exists only with the HWP plugin. There, step 7 runs: make_file with the same fields,
+  and the AI must say plainly that the form itself cannot be filled here, so it made a copy with the same fields, and
+  that opening it in their own chat (or asking an admin to turn on the dev environment) fills the real form. Who gets
+  box_shell is unchanged. **Open question for the owner:** should rooms (and scheduled runs) get the fill path?
 - **Sharing** is S's: re-read from the answer, the people it is shared with must open the form's folder, a free name,
   the caller's `humanSave` of `skills/general/<slug>/SKILL.md`, audited (`onboarding.skill_share`, `sourcePath`).
   Fixed on the way: a team without `skills/general/` yet could not share any draft (the name check under a missing

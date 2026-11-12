@@ -4738,6 +4738,7 @@ export const en: Record<MessageKey, string> = {
   "welcome.organize.projectFailed": "{n, plural, one {# file} other {# files}} could not move into the project and stayed where {n, plural, one {it was} other {they were}}",
   "welcome.forms.ask": "Make team skills from {names}?",
   "welcome.forms.hint": "When a teammate asks 'Make a {kind}', the AI fills in this form.",
+  "welcome.forms.hintMany": "When a teammate asks 'Make a {kind}', the AI fills in the matching form.",
   "welcome.forms.make": "Make",
   "welcome.forms.shared": "Shared the '{title}' skill with the team",
   "teamLink.landing": "People who join start with '{skill}'",

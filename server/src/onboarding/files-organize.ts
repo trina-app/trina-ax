@@ -209,6 +209,19 @@ export function applyOrganize(ctx: AppContext, who: OrganizeCaller, id: string, 
   return job!.applied
 }
 
+/** Did one of `userId`'s applied plans (still remembered: JOB_MS) move a file it marked as a form to `to`? A form skill
+ * may start from such a file wherever the plan put it (docs/DECISIONS.md "Setup 팀 파일: forms become skills"). */
+export function planFormAt(userId: string, to: string): boolean {
+  sweepJobs()
+  const p = to.normalize('NFC')
+  for (const j of jobs.values()) {
+    if (j.userId !== userId || !j.applied || !j.status.plan) continue
+    const m = j.applied.moved.find((x) => x.to === p)
+    if (m && j.status.plan.rows.some((r) => r.path === m.from && r.form)) return true
+  }
+  return false
+}
+
 /** Folders a new team has in shared/ (any language): never sent to the trash by a plan, even when emptied. */
 const DEFAULT_FOLDERS = new Set([...Object.values(TEMPLATES_FOLDER), ...Object.values(NOTES_FOLDER), ...Object.values(BRAND_FOLDER)].map((n) => String(n).normalize('NFC').toLowerCase()))
 

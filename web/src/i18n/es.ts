@@ -4694,6 +4694,7 @@ export const es: Record<MessageKey, string> = {
   "welcome.organize.projectFailed": "{n, plural, one {# archivo no se pudo mover} other {# archivos no se pudieron mover}} al proyecto y {n, plural, one {se quedó donde estaba} other {se quedaron donde estaban}}",
   "welcome.forms.ask": "¿Crear habilidades del equipo a partir de {names}?",
   "welcome.forms.hint": "Cuando un compañero pida «Haz un {kind}», la IA rellena esta plantilla.",
+  "welcome.forms.hintMany": "Cuando un compañero pida «Haz un {kind}», la IA rellena la plantilla que corresponde.",
   "welcome.forms.make": "Crear",
   "welcome.forms.shared": "Se compartió la habilidad '{title}' con el equipo",
   "teamLink.landing": "Quien se une empieza por '{skill}'",
