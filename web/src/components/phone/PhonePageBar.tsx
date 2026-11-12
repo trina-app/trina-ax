@@ -101,7 +101,7 @@ export function PhonePageBar({ onBack, backLabel, title, titleHidden, heading, a
         </span>
       )}
       <div className="flex min-w-0 items-center justify-end">
-        <div ref={actionRef} className="flex min-w-0 items-center">{action}</div>
+        <div ref={actionRef} className="flex shrink-0 items-center">{action}</div>
       </div>
     </div>
   )
