@@ -4,9 +4,10 @@
 // never sees the key. Or they decline it. A link the admin sent (?request=<id>) opens the request here, or says what
 // became of it. The admin chooses the address, so the member is told plainly where their key or sign-in goes (the
 // host, in bold) before they enter it. Server: server/src/integrations/connections/requests.ts.
-import { Inbox, LogIn, Plug } from 'lucide-react'
+import { BadgeCheck, Inbox, LogIn, Plug } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { officialService } from '@mycel/shared'
 import type { Integration, IntegrationRequest, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
@@ -188,6 +189,8 @@ export function OwnKeyDialog({ src: r, title, intro, submit, onClose, onDecline,
   const [busy, setBusy] = useState(false)
   const key = r.auth !== 'oauth'
   const host = new URL(r.url).host
+  /** the address is exactly the official one of a service in the app's list (https, host and path) */
+  const official = officialService(r.url)
   const phone = !!mobileApp()
   const signInNext = !key && !phone
   const keyError = server.secret !== undefined ? server.secret ?? t('integrations.error.field') : submitted && key && !secret.trim() ? t('integrations.error.key') : secret.trim().length > 8000 ? t('integrations.error.keyLong') : null
@@ -258,11 +261,20 @@ export function OwnKeyDialog({ src: r, title, intro, submit, onClose, onDecline,
             <p className="mt-0.5 whitespace-pre-wrap break-words text-faint">{r.notes}</p>
           </div>
         )}
-        <div data-testid="integration-answer-host-warning">
-          <Warning>
-            <WithHost host={host} text={(h) => t(key ? 'integrations.asked.sendsKey' : 'integrations.asked.sendsSignIn', { host: h, name: r.name })} />
-          </Warning>
-        </div>
+        {/* the official address of a service in the app's list (shared/src/service-catalog.ts) needs no caution, only
+            the fact; any other address is the one to check before a key or a sign-in goes there */}
+        {official ? (
+          <p className="flex items-start gap-2 text-xs text-muted" data-testid="integration-answer-official">
+            <BadgeCheck size={14} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
+            <span><WithHost host={host} text={(h) => t(key ? 'integrations.asked.officialKey' : 'integrations.asked.officialSignIn', { host: h, name: official.name })} /></span>
+          </p>
+        ) : (
+          <div data-testid="integration-answer-host-warning">
+            <Warning>
+              <WithHost host={host} text={(h) => t(key ? 'integrations.asked.sendsKey' : 'integrations.asked.sendsSignIn', { host: h, name: r.name })} />
+            </Warning>
+          </div>
+        )}
         {key ? (
           <Field label={t('integrations.field.key')} hint={t('integrations.field.keyHint')} error={keyError}>
             <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} data-autofocus onChange={(e) => { setSecret(e.target.value); setServer((s) => ({ ...s, secret: undefined })); setError(null) }} data-testid="integration-answer-key" />

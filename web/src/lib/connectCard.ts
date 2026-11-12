@@ -2,6 +2,7 @@
 // card is, and what its buttons send to POST /api/turns/:id/connect. A key leaves the card only one way: sealed in
 // this browser for 'integration.secret' (lib/seal.ts) with the team server's sealing key. The plain key is never in a
 // request, the store, a log or an address, and never goes through /answer, whose answers reach the AI.
+import { catalogNamed, officialService, type CatalogService } from '@mycel/shared'
 import type { TurnConnectResult, TurnRequest } from '@mycel/shared/api'
 import { api, API } from './api'
 import { sealSecret } from './seal'
@@ -29,6 +30,26 @@ const nameWords = (name: string) => (name.toLowerCase().match(/[\p{L}\p{N}]+/gu)
 export function hostOffName(name: string, host: string): boolean {
   const h = host.toLowerCase()
   return !nameWords(name).some((w) => h.includes(w))
+}
+
+/**
+ * How far the card can vouch for where it connects (shared/src/service-catalog.ts, the app's list of services):
+ * - official: exactly a listed service's official address (https, host and path).
+ * - template: an admin's template (the team chose the address), or a connection the person already has (reconnect).
+ * - unlisted: any other address. `display` is the name the card uses: the AI's, or the host when the AI's name is (or
+ *   looks like) a listed service's, so a self-hosted or made-up address never reads as that service.
+ */
+export type CardTrust =
+  | { kind: 'official'; service: CatalogService }
+  | { kind: 'template' }
+  | { kind: 'unlisted'; display: string }
+  | { kind: 'none' }
+export function cardTrust(r: ConnectServiceRequest): CardTrust {
+  if (r.target !== 'service' || !r.service) return { kind: 'none' }
+  const at = officialService(r.service.url)
+  if (at) return { kind: 'official', service: at }
+  if (r.template || r.reconnect) return { kind: 'template' }
+  return { kind: 'unlisted', display: catalogNamed(r.name) ? r.service.host : r.name }
 }
 
 /** a personal connection sends no access; a team one says who may use it */
