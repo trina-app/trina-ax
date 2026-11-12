@@ -30,8 +30,9 @@ LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/nul
 U_HOME=$(dscl . -read "/Users/$SUDO_USER" NFSHomeDirectory | awk '{print $2}')
 
 OUT=$(mktemp -d /private/tmp/srt-attack.XXXXXX); chmod 755 "$OUT"
-# at the end, whatever happened: no process of a slot account is left (pkill -u names one uid: never kill -1 as root,
-# which would stop every process on the Mac)
+# at the end, whatever happened: no process of a slot account is left. Rule: root never signals -1 or a list of pids
+# (as root, kill -1 stops every process on the Mac: it froze the Mac mini on 2026-11-12); a run ends only by its own
+# uid: run-wrap-mac stop as the slot account, or pkill -u <slot uid>
 end_slots() {
   local a u
   for a in $(envv MYCEL_DEV_ENV_SLOTS | tr ',' ' '); do
@@ -76,6 +77,7 @@ cat > "/Library/LaunchDaemons/$LABEL.attackrestart.plist" <<EOF
   <key>ProgramArguments</key><array><string>$BUN</string><string>$OUT/attack.js</string></array>
   <key>EnvironmentVariables</key><dict>$(for e in "${ENVS[@]}" ATTACK_MODE=restart-spawn; do printf '<key>%s</key><string>%s</string>' "${e%%=*}" "$(printf '%s' "${e#*=}" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g')"; done)</dict>
   <key>WorkingDirectory</key><string>/</string>
+  <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>$OUT/restart.log</string>
   <key>StandardErrorPath</key><string>$OUT/restart.log</string>
 </dict></plist>

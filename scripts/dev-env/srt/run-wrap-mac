@@ -22,6 +22,9 @@
 # "Every process of the slot" is every process whose real uid is the slot account's (ps -U): a run's process that leaves
 # the process group or the session (setsid) is still one of them. The srt sandbox allows signals only within the same
 # sandbox, so a run cannot kill this script or its watchdog.
+#
+# Rule for every script of the dev environment: root never signals -1 or a list of pids (as root, kill -1 stops every
+# process of the Mac). A run ends only by its own uid: this file's stop as the slot account, or pkill -u <slot uid>.
 set -u
 # the run's own PATH (runEnv: node, Python, the Command Line Tools) goes back for the command; this script uses the
 # system's only

@@ -210,6 +210,37 @@ describe('run-wrap-mac', () => {
     expect(alive(left)).toBe(false)
     expect(groupAlive(r.pgid)).toBe(false)
   })
+  test('the command gets the run\'s PATH (sudo hands it over; this file itself uses the system PATH only)', async () => {
+    const ef = exitFile('path')
+    const f = wrapCopy()
+    const p = spawn('/bin/bash', ['-c', `export TEST_PGID=$$; exec /bin/bash "${f}" "$@"`, 'launcher', 'run', ef, '512', '2000', '60', '4096', '--', '/bin/sh', '-c', 'echo "P=$PATH"'],
+      { detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/opt/trina/node/bin:/usr/bin:/bin', HOME: tmp } })
+    let out = ''
+    p.stdout!.on('data', (d) => { out += d })
+    await new Promise((r) => p.on('exit', r))
+    expect(out.trim()).toBe('P=/opt/trina/node/bin:/usr/bin:/bin')
+    expect(fs.readFileSync(ef, 'utf8').trim()).toBe('0')
+  })
+  test('the process limit is the command\'s only: at its limit the command cannot fork, the clean-up and the exit file still happen', async () => {
+    const ef = exitFile('limit')
+    // 64 processes for the whole uid of this test's account, which runs more than that already: no fork works
+    const r = runSlot(['run', ef, '512', '64', '60', '4096', '--', '/bin/bash', '-c', '(true); echo not-reached'])
+    const res = await r.done
+    // bash gives up on the fork (exit 128); run-wrap-mac itself is not under that limit
+    expect(res.err).toContain('fork')
+    expect(res.out).not.toContain('not-reached')
+    expect(res.code).not.toBe(0)
+    expect(fs.readFileSync(ef, 'utf8').trim()).toBe(String(res.code))
+    expect(await groupGone(r.pgid)).toBe(true)
+  })
+  test('processes that keep making new ones (20 loops that respawn children): the clean-up ends all of them', async () => {
+    const ef = exitFile('respawn')
+    const loop = 'while :; do /bin/sleep 0.05 & wait; done'
+    const r = runSlot(['run', ef, '512', '2000', '60', '4096', '--', '/bin/bash', '-c', `for i in $(seq 1 20); do /bin/bash -c '${loop}' & done; sleep 1; exit 0`])
+    await r.done
+    expect(fs.readFileSync(ef, 'utf8').trim()).toBe('0')
+    expect(await groupGone(r.pgid)).toBe(true)
+  })
   test('over the memory limit: the watchdog writes .oom and kills the run (no exit code)', async () => {
     const ef = exitFile('b')
     const r = runSlot(['run', ef, '64', '2000', '60', '4096', '--', bun, '-e', 'const a=[];setInterval(()=>a.push(Buffer.alloc(32<<20,1)),100)'])

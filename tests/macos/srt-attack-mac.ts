@@ -204,16 +204,20 @@ if (PROBE) {
 }
 await attack('M13', 'a process that leaves the session (setsid nohup sleep &): gone when the command ends', 'perl -e \'use POSIX; if (fork) { exit 0 } setsid(); exec "/bin/sleep", "600"\'; nohup /bin/sleep 600 >/dev/null 2>&1 & disown; echo started', has('started'),
   {}, async () => (await slotEmpty() ? null : 'a process of the slot is still there'))
-// limits
-let bombHealth = true, bombSpawn = true
-await attack('M14', 'a fork bomb: stopped at the process limit; the server answers and can still start a program; nothing left after', ':(){ :|:& };:', () => null,
-  { timeoutMs: 20_000, limits: { pids: 256 }, during: async () => { for (let i = 0; i < 4; i++) { await Bun.sleep(3000); bombHealth &&= await health(); bombSpawn &&= await serverCanSpawn() } } },
-  async () => { await Bun.sleep(1000); return !bombHealth ? 'the server did not answer during the bomb' : !bombSpawn ? 'the server could not start a program during the bomb' : (await slotEmpty()) ? null : 'processes are left' })
-for (const [kind, js] of [['ones', 'Buffer.alloc(64<<20, 1)'], ['zeros written', 'Buffer.alloc(64<<20).fill(0)'], ['random', 'require("crypto").randomFillSync(Buffer.allocUnsafe(64<<20))']] as const) {
-  await attack(`M15 ${kind}`, `a RAM flood (${kind}) over the run's 1024 MiB: the watchdog ends it (oom); the server answers`, `node -e 'const a=[];setInterval(()=>a.push(${js}),40)'`,
-    (r) => (r.oom ? null : `not ended as oom (code ${r.code}, ${r.ms} ms)`), { timeoutMs: 60_000, limits: { memoryMiB: 1024 } },
-    async () => (await health() ? ((await slotEmpty()) ? null : 'processes are left') : 'the server does not answer'))
-}
+// limits: a fork bomb and RAM floods, only with ATTACK_LIMITS=1 (owner, 2026-11-12: not on a real machine until the
+// clean-up is proven by the unit tests)
+if (process.env.ATTACK_LIMITS === '1') {
+  // limits
+  let bombHealth = true, bombSpawn = true
+  await attack('M14', 'a fork bomb: stopped at the process limit; the server answers and can still start a program; nothing left after', ':(){ :|:& };:', () => null,
+    { timeoutMs: 20_000, limits: { pids: 256 }, during: async () => { for (let i = 0; i < 4; i++) { await Bun.sleep(3000); bombHealth &&= await health(); bombSpawn &&= await serverCanSpawn() } } },
+    async () => { await Bun.sleep(1000); return !bombHealth ? 'the server did not answer during the bomb' : !bombSpawn ? 'the server could not start a program during the bomb' : (await slotEmpty()) ? null : 'processes are left' })
+  for (const [kind, js] of [['ones', 'Buffer.alloc(64<<20, 1)'], ['zeros written', 'Buffer.alloc(64<<20).fill(0)'], ['random', 'require("crypto").randomFillSync(Buffer.allocUnsafe(64<<20))']] as const) {
+    await attack(`M15 ${kind}`, `a RAM flood (${kind}) over the run's 1024 MiB: the watchdog ends it (oom); the server answers`, `node -e 'const a=[];setInterval(()=>a.push(${js}),40)'`,
+      (r) => (r.oom ? null : `not ended as oom (code ${r.code}, ${r.ms} ms)`), { timeoutMs: 60_000, limits: { memoryMiB: 1024 } },
+      async () => (await health() ? ((await slotEmpty()) ? null : 'processes are left') : 'the server does not answer'))
+  }
+} else console.log('SKIP M14 M15 the fork bomb and the RAM floods (ATTACK_LIMITS=1 runs them)')
 await attack('M16', 'the time limit: the run ends (stopped by the runner\'s timer)', 'sleep 120', (r) => (r.ms < 20_000 ? null : `ran ${r.ms} ms`), { timeoutMs: 5000 })
 
 victim.kill()
