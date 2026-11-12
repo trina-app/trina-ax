@@ -28,7 +28,7 @@ import { handleRegistryApi } from './api.ts'
 import type { RelayLog } from './log.ts'
 import { renderMetrics, type MetricsSource } from './metrics.ts'
 import { OpsApi } from './ops-api.ts'
-import { DEFAULT_PAGE_LINKS, PAGE_RETRY_AFTER, PAGE_STATUS, htmlPage, pageMessage, pickLang, type PageKind, type PageLinks } from './pages.ts'
+import { DEFAULT_PAGE_LINKS, PAGE_RETRY_AFTER, PAGE_STATUS, headTooBigResponse, htmlPage, pageMessage, pickLang, type PageKind, type PageLinks } from './pages.ts'
 import { ipInRanges, unmapIp, visitorKey } from './proxies.ts'
 import type { KeyRow, Registry, TeamRow } from './registry.ts'
 
@@ -48,6 +48,14 @@ const NOTIFY_EVERY_MS = 60_000
 const NAME_CACHE_MS = 2000
 /** a previous instance counts as "live" (owner notified on takeover) if it sent anything this recently */
 const LIVE_INSTANCE_MS = 25_000
+/**
+ * Biggest request head the public listener reads (Node's default is 16 KB). Every team address shares the parent
+ * domain, so a page on one team address can leave cookies on the parent (Domain=<parent>) that the browser then sends
+ * to every other team address; 16 KB of them took every team offline in that browser (QA TC-346). Room for that,
+ * the cookies the relay then drops before the team server sees them (teamRequestHeaders); a head bigger than this
+ * gets a page that says how to remove them (headTooBigResponse), never a bare 400.
+ */
+export const MAX_REQUEST_HEAD = 128 * 1024
 
 interface Ctl {
   ws: WebSocket
@@ -133,7 +141,7 @@ export class RelayServer {
     http: 0, httpOffline: 0, ws: 0, wsOffline: 0, notifications: 0,
     httpSuspended: 0, httpUnknown: 0, httpMaintenance: 0, httpRedirect: 0, httpVisitorLimit: 0, clientStalls: 0,
     wsSuspended: 0, wsUnknown: 0,
-    bytesIn: 0, bytesOut: 0, regPow: 0, regClaim: 0, regOperator: 0, tlsClientErrors: 0,
+    bytesIn: 0, bytesOut: 0, regPow: 0, regClaim: 0, regOperator: 0, tlsClientErrors: 0, headTooBig: 0,
   }
 
   constructor(cfg: RelayConfig, registry: Registry, log: RelayLog) {
@@ -159,11 +167,11 @@ export class RelayServer {
       this.server = https.createServer({
         cert: fs.readFileSync(cfg.tls.cert), key: fs.readFileSync(cfg.tls.key),
         ...(clientCa ? { ca: clientCa, requestCert: true, rejectUnauthorized: true } : {}),
-        minVersion: 'TLSv1.2',
+        minVersion: 'TLSv1.2', maxHeaderSize: MAX_REQUEST_HEAD,
       }, onReq) as unknown as http.Server
       this.server.on('tlsClientError', () => { this.counters.tlsClientErrors++ })
     } else {
-      this.server = http.createServer(onReq)
+      this.server = http.createServer({ maxHeaderSize: MAX_REQUEST_HEAD }, onReq)
     }
     this.ops = new OpsApi(this, cfg.operatorKeysFile)
     this.server.requestTimeout = 0
@@ -176,7 +184,13 @@ export class RelayServer {
         try { (socket as Duplex).destroy() } catch {}
       })
     })
-    this.server.on('clientError', (_e, socket) => { try { socket.end('HTTP/1.1 400 Bad Request\r\nconnection: close\r\n\r\n') } catch {} })
+    this.server.on('clientError', (e: NodeJS.ErrnoException, socket) => {
+      if (e.code === 'ECONNRESET' || !socket.writable) { socket.destroy(); return }
+      try {
+        if (e.code === 'HPE_HEADER_OVERFLOW') { this.counters.headTooBig++; socket.end(headTooBigResponse()) }
+        else socket.end('HTTP/1.1 400 Bad Request\r\nconnection: close\r\ncontent-length: 0\r\n\r\n')
+      } catch { socket.destroy() }
+    })
   }
 
   async listen(): Promise<number> {
@@ -498,7 +512,7 @@ export class RelayServer {
       path: req.url ?? '/',
       host: (req.headers.host ?? '').toLowerCase(),
       proto: this.cfg.publicProto,
-      headers: forwardRequestHeaders(req.rawHeaders, kind),
+      headers: teamRequestHeaders(req.rawHeaders, kind, this.cfg.publicProto),
       clientIp: this.clientIp(req),
     }
     try {
@@ -1047,6 +1061,40 @@ export class RelayServer {
  */
 export function hostOnlyCookie(v: string): string {
   return v.split(';').filter((part, i) => i === 0 || !/^\s*domain\s*=/i.test(part)).join(';')
+}
+
+/**
+ * Cookies a team server is sent: the ones only this team address can have set. A `__Host-` cookie has no Domain by
+ * the browser's own rule, so another team's page cannot plant or overwrite one; the session cookie is __Host-sid
+ * (shared/src/api/common.ts). Plain-http dev relays also keep the dev session cookie (browsers refuse __Host- without
+ * Secure). Everything else in the Cookie header (cookies left on the parent domain by any page under it) is dropped:
+ * the team server reads none of it, and a pile of it no longer pushes the request over the size the team server takes.
+ */
+const DEV_SESSION_COOKIE = 'mycel-dev-sid'
+export function teamCookie(values: readonly string[], proto: 'http' | 'https'): string | null {
+  const keep: string[] = []
+  for (const v of values) {
+    for (const part of v.split(';')) {
+      const c = part.trim()
+      const eq = c.indexOf('=')
+      const name = eq < 0 ? c : c.slice(0, eq).trim()
+      if (name.startsWith('__Host-') || (proto === 'http' && name === DEV_SESSION_COOKIE)) keep.push(c)
+    }
+  }
+  return keep.length ? keep.join('; ') : null
+}
+
+/** The request headers a team server gets: forwardRequestHeaders, with one Cookie header of teamCookie only. */
+export function teamRequestHeaders(raw: readonly string[], kind: 'http' | 'ws', proto: 'http' | 'https'): HeaderList {
+  const cookies: string[] = []
+  const out: HeaderList = []
+  for (const [k, v] of forwardRequestHeaders(raw, kind)) {
+    if (k === 'cookie') cookies.push(v)
+    else out.push([k, v])
+  }
+  const cookie = teamCookie(cookies, proto)
+  if (cookie !== null) out.push(['cookie', cookie])
+  return out
 }
 
 /** An error's code or class name only: messages can quote request details (header names, values) the log must not hold. */
