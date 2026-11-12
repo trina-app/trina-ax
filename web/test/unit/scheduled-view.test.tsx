@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Schedule } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { cardLine, nextDueRead, onceDate, outcomeReason, outcomeTone, RUN_AT_DUE, scheduleState } from '../../src/lib/scheduleText'
+import { cardLine, nextDueRead, onceDate, outcomeLabel, outcomeReason, outcomeTone, RUN_AT_DUE, scheduleState } from '../../src/lib/scheduleText'
 import { snippetAround, titleFirst } from '../../src/components/SearchDialog'
 import { ScheduleView } from '../../src/pages/Scheduled'
 
@@ -67,6 +67,24 @@ describe('scheduled task page', () => {
         expect(r.length).toBeGreaterThan(0)
       }
     expect(outcomeReason({ ...base, lastOutcome: 'done' }, t)).toBe('')
+  })
+
+  test('a task paused for a project only its members use now says so, not "Project gone" (QA TC-360)', () => {
+    const paused = { ...base, repeat: 'daily' as const, date: null, enabled: false, lastOutcome: 'project_gone' as const, lastMembersOnly: true }
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      const tl = (key: MessageKey, params?: Params) => translate(locale, key, params)
+      expect(outcomeLabel(paused, tl)).toBe(tl('scheduleTemplates.outcome.members_only'))
+      expect(outcomeReason(paused, tl)).toBe(tl('scheduled.reason.members_only'))
+      expect(outcomeLabel(paused, tl)).not.toBe(tl('scheduleTemplates.outcome.project_gone'))
+    }
+    const html = decode(render({ ...paused, lastRunAt: '2026-10-28T19:18:15Z' }))
+    expect(html).toContain(t('scheduleTemplates.outcome.members_only'))
+    expect(html).toContain(t('scheduled.reason.members_only'))
+    expect(html).not.toContain(t('scheduleTemplates.outcome.project_gone'))
+    // a project that is really gone (trashed) still says so
+    const gone = { ...paused, lastMembersOnly: undefined }
+    expect(outcomeLabel(gone, t)).toBe(t('scheduleTemplates.outcome.project_gone'))
+    expect(outcomeReason(gone, t)).toBe(t('scheduled.reason.project_gone'))
   })
 
   test('search: the part of an instruction that matched, on one line', () => {

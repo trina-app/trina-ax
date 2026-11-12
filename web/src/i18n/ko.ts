@@ -593,6 +593,8 @@ export const ko = {
   "scheduled.reason.needs_keyNamed": "{name}에 내 키가 필요해요. 커넥터에서 연결한 뒤 '지금 실행'을 눌러 주세요.",
   "scheduleTemplates.outcome.project_gone": "프로젝트 없음",
   "scheduled.reason.project_gone": "작업의 프로젝트를 더 볼 수 없어서 실행하지 않았어요. 프로젝트를 다시 볼 수 있게 되거나 작업을 바꾼 뒤 '지금 실행'을 눌러 주세요.",
+  "scheduleTemplates.outcome.members_only": "이제 프로젝트 멤버만 사용",
+  "scheduled.reason.members_only": "멈췄어요. 이제 프로젝트 멤버만 쓸 수 있어요. 프로젝트에서 나를 멤버로 추가하면 다시 실행돼요.",
   'connect.team': "팀",
   'connect.key': "{name} API 키",
   'connect.keyWhere': "{host}에만 보내요. AI는 이 키를 볼 수 없어요.",

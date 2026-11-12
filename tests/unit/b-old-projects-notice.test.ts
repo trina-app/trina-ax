@@ -135,6 +135,9 @@ describe('the card for projects from before the update', () => {
     }, { timeoutMs: 10_000 })
     expect(told!.every((n) => n.membersOnly === true)).toBe(true)
     expect(JSON.stringify(told)).not.toContain('projects/')
+    // the Scheduled page says so too: a project only its members use now, not one that is gone (QA TC-360)
+    const rows = (await raw('dana', 'GET', '/api/schedules')).json.items as { id: string; lastOutcome: string | null; lastMembersOnly?: boolean }[]
+    for (const id of [taskOnSales, taskOnOps]) expect(rows.find((x) => x.id === id), id).toMatchObject({ lastOutcome: 'project_gone', lastMembersOnly: true })
     // she changed the Ops task after it paused: hers to turn on, not the server's
     db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('dana', 'schedule.edited', ?, '{}', ?)").run(taskOnOps, new Date().toISOString())
   })
@@ -177,6 +180,13 @@ describe('the card for projects from before the update', () => {
     const resumed = db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'schedule.resumed' AND target = ?").get(taskOnSales) as { actor_id: string | null; detail: string }
     expect(resumed.actor_id).toBeNull()
     expect(JSON.parse(resumed.detail)).toMatchObject({ via: 'project_member', project: ids.sales })
+    // the Scheduled page no longer says the project is gone (QA TC-360: "Project gone" stayed after the resume): the
+    // skip is history once she sees the project; neither task ran before it, so no last result at all
+    const rows = (await raw('dana', 'GET', '/api/schedules')).json.items as { id: string; lastOutcome: string | null; lastMembersOnly?: boolean }[]
+    for (const id of [taskOnSales, taskOnOps]) {
+      expect(rows.find((x) => x.id === id)?.lastOutcome ?? null, id).toBeNull()
+      expect(rows.find((x) => x.id === id)?.lastMembersOnly, id).toBeUndefined()
+    }
     // other admins: unchanged (frank is still not in Sales)
     expect(await reads('frank', 'projects/sales')).toBe(false)
   })

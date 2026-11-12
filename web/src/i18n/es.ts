@@ -575,6 +575,8 @@ export const es: Record<MessageKey, string> = {
   "scheduled.reason.needs_keyNamed": "Necesita su propia clave de {name}: conéctela en Conectores y use Ejecutar ahora.",
   "scheduleTemplates.outcome.project_gone": "Sin proyecto",
   "scheduled.reason.project_gone": "No se ejecutó: ya no ve el proyecto de la tarea. Cuando vuelva a verlo, o cambie la tarea, use Ejecutar ahora.",
+  "scheduleTemplates.outcome.members_only": "Ahora solo para miembros del proyecto",
+  "scheduled.reason.members_only": "En pausa: ahora solo los miembros del proyecto pueden usarlo. Añádase al proyecto en Proyectos y volverá a ejecutarse.",
   'connect.team': "Equipo",
   'connect.key': "Clave de API de {name}",
   'connect.keyWhere': "Solo se envía a {host}. La IA nunca la ve.",

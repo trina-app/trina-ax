@@ -575,6 +575,8 @@ export const ja: Record<MessageKey, string> = {
   "scheduled.reason.needs_keyNamed": "{name}のあなた自身のキーが必要です。コネクターで接続してから「今すぐ実行」を選んでください。",
   "scheduleTemplates.outcome.project_gone": "プロジェクトなし",
   "scheduled.reason.project_gone": "タスクのプロジェクトを閲覧できなくなったため、実行しませんでした。再び閲覧できるようになるか、タスクを変更してから「今すぐ実行」を選んでください。",
+  "scheduleTemplates.outcome.members_only": "今はプロジェクトのメンバーのみ",
+  "scheduled.reason.members_only": "一時停止中です。今はプロジェクトのメンバーだけが使えます。「プロジェクト」で自分を追加すると、再び実行されます。",
   'connect.team': "チーム",
   'connect.key': "{name}のAPIキー",
   'connect.keyWhere': "{host}にだけ送られます。AIがこのキーを見ることはありません。",
