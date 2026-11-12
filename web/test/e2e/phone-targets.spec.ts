@@ -198,12 +198,10 @@ for (const touch of [true, false])
     await page.getByTestId('content-search-input').fill('refund')
     await expect(page.getByTestId('content-hit').first()).toBeVisible()
     await expectTargets(page, '[data-testid="content-hit-file"], [data-testid="content-hit"], [data-testid="name-hit"]', 3)
-    await expectTargets(page, '[data-testid="new-folder-button"]')
-    // the ✕'s 44 px tap box ends before New folder (it overlapped it by 2.3 px)
-    const clear = page.getByRole('button', { name: 'Clear search' })
+    // the ✕ takes taps from 44 px. It once overlapped New folder beside it by 2.3 px; since #475 a phone's Files has ⊕
+    // in its top bar instead, so the ✕ has no neighbour (should New folder come back beside it, check the overlap again)
     await expectTargets(page, 'button[aria-label="Clear search"]')
-    const box = await clear.evaluate((el) => { const a = getComputedStyle(el, '::after'); const r = el.getBoundingClientRect(); return { right: r.left + r.width / 2 + parseFloat(a.width) / 2 } })
-    expect(box.right).toBeLessThanOrEqual((await page.getByTestId('new-folder-button').boundingBox())!.x)
+    await expect(page.getByTestId('new-folder-button')).toHaveCount(0)
   })
 
   test('Settings: Profile\'s theme and text size, Usage\'s period and the team\'s usage link', async ({ page }) => {
@@ -260,6 +258,56 @@ for (const touch of [true, false])
     const [c, s] = [(await clear.boundingBox())!, (await dialog.getByTestId('picker-search').boundingBox())!]
     expect(Math.round(s.x + s.width - (c.x + c.width))).toBe(8)
   })
+
+  // the third round (a real phone): the message box's ＋ menu, the team file picker's path and folders, the 404 page,
+  // and a Files row's ⋯ menu on the last row (a sheet since #475: checked in full sight)
+  test('the message box\'s ＋ menu and the team file picker\'s "Team folder" and folders', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/')
+    await page.getByTestId('attach-button').click()
+    await expect(page.getByTestId('attach-team')).toBeVisible()
+    await expectTargets(page, '[role="menu"] [data-testid^="attach-"][role="menuitem"]', 3)
+    await page.getByTestId('attach-team').click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByTestId('picker-folder').first()).toBeVisible()
+    await expectTargets(page, '[role="dialog"] [data-testid="picker-crumb-root"], [role="dialog"] [data-testid="picker-folder"]', 2)
+    // inside a folder: the path's folder button too
+    await dialog.getByTestId('picker-folder').first().click()
+    await expect(dialog.locator('nav button')).toHaveCount(2)
+    await expectTargets(page, '[role="dialog"] nav button', 2)
+  })
+
+  test('the 404 page\'s "Go to Home"', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/no-such-page')
+    await expect(page.getByTestId('not-found')).toBeVisible()
+    await expectTargets(page, '[data-testid="not-found"] a')
+  })
+
+  test('Files: the last row\'s ⋯ menu is a sheet in full sight, its items tappable above the tab bar', async ({ page }) => {
+    await signIn(page)
+    for (let i = 0; i < 16; i++)
+      expect((await page.request.post('/__test/file', { headers: { [CSRF_HEADER]: '1' }, data: { path: `many/note-${String(i).padStart(2, '0')}.md`, text: `# Note ${i}\n` } })).ok()).toBeTruthy()
+    await page.goto('/files?path=many')
+    const menus = page.getByTestId('file-menu')
+    await expect(menus).toHaveCount(16)
+    await menus.last().scrollIntoViewIfNeeded()
+    await menus.last().click()
+    const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
+    const m = (await menu.boundingBox())!
+    expect(m.y).toBeGreaterThanOrEqual(0)
+    expect(m.y + m.height).toBeLessThanOrEqual(844)
+    // every item takes a tap at its middle (nothing, the tab bar included, drawn over it), from 44 px
+    const items = menu.getByRole('menuitem')
+    expect(await items.count()).toBeGreaterThanOrEqual(3)
+    for (const it of await items.all()) {
+      const r = (await it.boundingBox())!
+      expect(r.y + r.height).toBeLessThanOrEqual(844)
+      expect(await it.evaluate((el, [x, y]) => { const hit = document.elementFromPoint(x!, y!); return !!hit && (hit === el || el.contains(hit)) }, [r.x + r.width / 2, r.y + r.height / 2])).toBe(true)
+      expect(r.height).toBeGreaterThanOrEqual(44)
+    }
+  })
   })
 
 for (const width of [768, 1440])
@@ -268,4 +316,25 @@ for (const width of [768, 1440])
     await page.goto('/login')
     expect((await page.getByTestId('login-submit').boundingBox())!.height).toBe(36)
     expect(await page.getByTestId('login-username').evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
+  })
+
+// measured on dev before the third round's change: computers keep these exactly
+const KEPT = { notFound: 20, attachItem: 36, crumb: 28, folderRow: 36 }
+
+for (const width of [768, 1440])
+  test(`a computer or tablet at ${width} px keeps the ＋ menu, the picker and the 404 link as they were`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+    await signIn(page)
+    await page.goto('/no-such-page')
+    expect((await page.locator('[data-testid="not-found"] a').boundingBox())!.height).toBe(KEPT.notFound)
+    await page.goto('/')
+    await page.getByTestId('attach-button').click()
+    expect((await page.getByTestId('attach-team').boundingBox())!.height).toBe(KEPT.attachItem)
+    await page.getByTestId('attach-team').click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByTestId('picker-folder').first()).toBeVisible()
+    expect((await dialog.getByTestId('picker-crumb-root').boundingBox())!.height).toBe(KEPT.crumb)
+    expect((await dialog.getByTestId('picker-folder').first().boundingBox())!.height).toBe(KEPT.folderRow)
+    await page.keyboard.press('Escape')
   })

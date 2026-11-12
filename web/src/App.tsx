@@ -302,6 +302,9 @@ function Gate() {
           <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
           {/* the account deletion request, a page under the profile (components/settings/AccountDeletion.tsx) */}
           <Route path="/settings/account/delete" element={<SettingsDialog onClose={settings.close} page="account-delete" />} />
+          {/* a phone's 보안·기기 opens the password form and every signed-in device as pages under it */}
+          <Route path="/settings/security/password" element={<SettingsDialog onClose={settings.close} page="security-password" />} />
+          <Route path="/settings/security/devices" element={<SettingsDialog onClose={settings.close} page="security-devices" />} />
           <Route path="/settings/:tab?" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}
@@ -356,7 +359,7 @@ function NotFound() {
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center" data-testid="not-found">
       <h1 className="text-lg font-semibold text-balance text-ink">{t('notFound.title')}</h1>
       <p className="max-w-md text-sm text-balance text-muted">{t('notFound.hint')}</p>
-      <Link to="/" className="mt-3 text-sm font-medium text-accent-text underline">
+      <Link to="/" className="mt-3 text-sm font-medium text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:px-3">
         {t('notFound.home')}
       </Link>
     </div>

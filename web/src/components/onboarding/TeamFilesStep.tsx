@@ -21,7 +21,7 @@ import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type React
 import { create } from 'zustand'
 import { SHARED_HOME, TEAM_FILES_LIMITS, teamHome, type TeamFileReason, type TreeResponse, type WelcomeProgress } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { answersFileInputs, isDesktop } from '../../lib/desktop'
+import { answersFileInputs, desktop, isDesktop } from '../../lib/desktop'
 import { onFolderUploadsForgotten, taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import type { FolderPlan } from '../../lib/folderUpload'
 import { formatSize, intlTag } from '../../lib/format'
@@ -79,9 +79,11 @@ interface Draft {
   tooBig: number
   /** the last pick held no document */
   empty: boolean
+  /** the last pick was a folder macOS keeps the app out of (its name): said instead of "empty" (QA TC-049) */
+  blocked: string | null
   placeId: string | null
 }
-const EMPTY: Draft = { screen: 'start', phase: 'idle', count: 0, docs: [], picks: null, note: null, already: new Set(), ticks: new Set(), baseline: new Set(), cut: false, tooBig: 0, empty: false, placeId: null }
+const EMPTY: Draft = { screen: 'start', phase: 'idle', count: 0, docs: [], picks: null, note: null, already: new Set(), ticks: new Set(), baseline: new Set(), cut: false, tooBig: 0, empty: false, blocked: null, placeId: null }
 const useDraft = create<Draft>(() => ({ ...EMPTY }))
 const patch = (p: Partial<Draft>) => useDraft.setState(p)
 /** moves on whenever a pick starts or is let go: an answer for an older one is dropped (no late answer) */
@@ -133,20 +135,25 @@ async function alreadyFor(docs: readonly LocalDoc[], base: string): Promise<Set<
   return there
 }
 
-/** A picked or dropped folder: walked (F2), then the AI's pick, then the list (F3). `add`: "폴더 더 고르기" (merged). */
-async function lookAt(dir: WalkDir, base: string, add: boolean) {
+/** A picked or dropped folder: walked (F2), then the AI's pick, then the list (F3). `add`: "폴더 더 고르기" (merged).
+ * `picked`: it came from the folder window (the desktop app can tell why such a folder showed nothing). */
+async function lookAt(dir: WalkDir, base: string, add: boolean, picked = false) {
   const g = ++generation
   stopLooking = false
   rankAbort?.abort()
   const before = useDraft.getState()
-  patch({ phase: 'looking', count: before.docs.length && add ? before.docs.length : 0, empty: false })
+  patch({ phase: 'looking', count: before.docs.length && add ? before.docs.length : 0, empty: false, blocked: null })
   const walked = await walkFolder(dir, { stopped: () => stopLooking, onProgress: (n) => { if (g === generation) patch({ count: (add ? before.docs.length : 0) + n }) } })
   if (g !== generation) return
   const docs = add ? mergeDocs(before.docs, walked.docs) : walked.docs
   const tooBig = (add ? before.tooBig : 0) + walked.tooBig
   if (!walked.docs.length && !walked.stopped) {
-    // nothing here: the start again (or the list as it was) with "이 폴더엔 문서가 없어요"
-    patch({ phase: 'idle', empty: true, ...(add && before.docs.length ? {} : { screen: 'start', tooBig: walked.tooBig }) })
+    // not one entry: in the desktop app on a Mac, macOS privacy may keep the app out of it (Documents, Desktop,
+    // Downloads after Don't Allow), which reads as an empty folder here; the app tells (a word, never the error's text)
+    const blocked = picked && walked.walked === 0 ? await macBlockedFolder(dir.name) : null
+    if (g !== generation) return
+    // nothing here: the start again (or the list as it was) with "이 폴더엔 문서가 없어요", or why macOS blocked it
+    patch({ phase: 'idle', empty: !blocked, blocked, ...(add && before.docs.length ? {} : { screen: 'start', tooBig: blocked ? 0 : walked.tooBig }) })
     return
   }
   const already = await alreadyFor(docs, base)
@@ -194,6 +201,18 @@ async function lookAt(dir: WalkDir, base: string, add: boolean) {
   const ticks = add ? keep(before.ticks) : new Set(grouped.recommended.map((d) => d.key))
   const baseline = add ? keep(before.baseline) : new Set(ticks)
   patch({ ...common, picks, note: !picks ? 'noAi' : grouped.recommended.length ? null : 'zero', ticks, baseline })
+}
+
+/** The folder's name when the desktop app says macOS privacy keeps it out of that folder; null otherwise (a browser, an
+ * older desktop app, Windows, an empty folder, no answer). */
+async function macBlockedFolder(name: string): Promise<string | null> {
+  const ask = desktop()?.folderProblem
+  if (!ask) return null
+  try {
+    return (await ask(name)) === 'mac-blocked' ? name : null
+  } catch {
+    return null
+  }
 }
 
 /** [그만 보기] while Safari or Firefox read the folder: the page stops waiting (files that still arrive are let go). */
@@ -325,7 +344,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
         input.current?.click()
         return
       }
-      void lookAt(dirFromHandle(h), place.folder, add)
+      void lookAt(dirFromHandle(h), place.folder, add, true)
       return
     }
     // Safari, Firefox, the desktop app: the browser reads the whole folder before the page hears of it; "폴더를 살펴보는
@@ -348,7 +367,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     inputAsk++
     if (ignoreInput) { ignoreInput = false; return }
     const dir = dirFromFiles(list)
-    if (!dir || !place) { if (useDraft.getState().phase === 'reading') patch({ phase: 'idle', empty: !!place && list.length > 0 }); return }
+    if (!dir || !place) { if (useDraft.getState().phase === 'reading') patch({ phase: 'idle', empty: !!place && list.length > 0, blocked: null }); return }
     void lookAt(dir, place.folder, adding.current)
   }
   const pickFiles = async (list: File[]) => {
@@ -436,10 +455,11 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
             <div className="flex flex-wrap items-center gap-3">
               {done && <Button variant="primary" className="max-sm:w-full" disabled={stepBusy} onClick={() => onDone(0)} data-testid="welcome-team-files-next">{nextLabel}</Button>}
               <Button variant={done ? 'secondary' : 'primary'} className="max-sm:w-full" disabled={stepBusy} onClick={() => void pickFolder(false)} data-testid="welcome-team-files-pick">
-                <FolderOpen size={14} aria-hidden /> {t('welcome.teamFiles.pickFolder')}
+                <FolderOpen size={14} aria-hidden /> {t(draft.blocked ? 'welcome.teamFiles.otherFolder' : 'welcome.teamFiles.pickFolder')}
               </Button>
             </div>
             {draft.empty && <p className="text-sm text-ink" role="status" data-testid="welcome-team-files-empty">{t('welcome.teamFiles.empty')}</p>}
+            {draft.blocked && <MacBlocked folder={draft.blocked} />}
             {draft.empty && draft.tooBig > 0 && <p className="text-label text-muted" data-testid="team-files-too-big">{t('welcome.teamFiles.tooBig', { n: draft.tooBig })}</p>}
             <p className="text-label text-muted" data-testid="welcome-team-files-hint">{t(how === 'handle' && !isDesktop() ? (windows() ? 'welcome.teamFiles.hintChromeWindows' : 'welcome.teamFiles.hintChrome') : 'welcome.teamFiles.hintInput')}</p>
             <TeamReach team={place.who} groupId={place.groupId} />
@@ -466,6 +486,13 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
       {below && (skipped > 0 || error) && <div className="mt-3 space-y-2">{notes}</div>}
     </div>
   )
+}
+
+/** macOS privacy keeps the desktop app out of the picked folder: where to turn it on (QA TC-049). The way on is the
+ * step's own folder button, which reads [다른 폴더 고르기] then (on the list: "폴더 더 고르기"), no second button. */
+function MacBlocked({ folder }: { folder: string }) {
+  const t = useT()
+  return <p className="text-sm text-ink" role="status" data-testid="welcome-team-files-blocked">{t('welcome.teamFiles.macBlocked', { folder })}</p>
 }
 
 function StepHead({ title, desc }: { title: string; desc?: string }) {
@@ -595,6 +622,7 @@ function ListView({ draft, places, place, phone, busy, later, onAddFolder, onOth
       <StepHead title={title} desc={folderName ? t('welcome.teamFiles.listDesc', { folder: folderName }) : undefined} />
       {draft.note && <p className="text-sm text-ink" role="status" data-testid="welcome-team-files-note" data-note={draft.note}>{t(NOTE[draft.note])}</p>}
       {draft.empty && <p className="text-sm text-ink" role="status" data-testid="welcome-team-files-empty">{t('welcome.teamFiles.empty')}</p>}
+      {draft.blocked && <MacBlocked folder={draft.blocked} />}
       {draft.cut && <p className="text-label text-muted" data-testid="welcome-team-files-cut">{t('welcome.teamFiles.cut', { n: draft.docs.length })}</p>}
       <div className={frame}>
         {g.recommended.length > 0 && <ul aria-label={title} data-testid="team-files-recommended">{g.recommended.map((d, i) => row(d, i))}</ul>}

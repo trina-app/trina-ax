@@ -69,6 +69,11 @@ export interface CredCtx {
   notify(n: Notice, to?: string[]): void
   /** one realtime event to one person (ChatGPT sign-in progress) */
   publish(userId: string, ev: ServerEventInput): void
+  /** one realtime event to everyone signed in (connectionsChanged) */
+  publishAll(ev: ServerEventInput): void
+  /** what reads the team's AI connections and keeps a copy: told by connectionsChanged (admin/engines.ts drops the
+   * engines' last check) */
+  changeListeners: Set<() => void>
   fetch: typeof fetch
   now(): number
   /** decrypted secrets, re-read when the row's updated_at changes (never logged) */
@@ -81,13 +86,13 @@ export interface CredCtx {
 
 export function makeCredCtx(o: {
   db: Database; secretsDir: string; config: CredCtx['config']; log: CredCtx['log']
-  notify?: CredCtx['notify']; publish?: CredCtx['publish']; fetch?: typeof fetch; now?: () => number
+  notify?: CredCtx['notify']; publish?: CredCtx['publish']; publishAll?: CredCtx['publishAll']; fetch?: typeof fetch; now?: () => number
 }): CredCtx {
   return {
     db: o.db, vault: new Vault(o.secretsDir), sealer: new Sealer(o.secretsDir, o.now), config: o.config,
     allowedKinds: allowedCredentialKinds(o.config), upstreams: modelUpstreams(o.config), log: o.log,
-    notify: o.notify ?? (() => {}), publish: o.publish ?? (() => {}), fetch: o.fetch ?? fetch, now: o.now ?? Date.now,
-    cache: new Map(), noticed: new Map(), extra: {},
+    notify: o.notify ?? (() => {}), publish: o.publish ?? (() => {}), publishAll: o.publishAll ?? (() => {}), changeListeners: new Set(),
+    fetch: o.fetch ?? fetch, now: o.now ?? Date.now, cache: new Map(), noticed: new Map(), extra: {},
   }
 }
 
@@ -101,6 +106,7 @@ export function credentialsOf(ctx: AppContext): CredCtx {
     c = makeCredCtx({
       db: ctx.db, secretsDir: resolveLayout(ctx.config).secretsDir, config: ctx.config, log: ctx.log.child({ c: 'credentials' }),
       publish: (userId, ev) => { try { ctx.services.realtime.publish(userId, ev) } catch {} },
+      publishAll: (ev) => { try { ctx.services.realtime.publishEach(() => ev) } catch {} },
     })
     c.notify = (n, to) => {
       try {
@@ -112,6 +118,21 @@ export function credentialsOf(ctx: AppContext): CredCtx {
     ctxs.set(ctx, c)
   }
   return c
+}
+
+/** open composers and Admin › AI providers ask GET /api/engines (and the "no AI" banner its state) again */
+const ENGINES_CHANGED = { type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } } as const
+
+/**
+ * The team's AI connections changed (one added, signed in again, replaced, checked, removed, switched or handed over):
+ * whatever keeps a copy of their state drops it (an engine said "sign-in needed" for up to 10 minutes after a browser
+ * sign-in), then every open screen asks again. Never throws.
+ */
+export function connectionsChanged(cc: CredCtx) {
+  for (const f of cc.changeListeners) {
+    try { f() } catch (e) { cc.log.warn('could not drop a copy of the AI connections\' state', { err: e }) }
+  }
+  cc.publishAll(ENGINES_CHANGED)
 }
 
 export function admins(db: Database): string[] {

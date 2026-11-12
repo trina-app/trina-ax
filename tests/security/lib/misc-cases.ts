@@ -56,6 +56,23 @@ function linkToken(w: World): Promise<string> {
   return link
 }
 
+/**
+ * The team link's and the invite's info pages (both made by the owner here) name their maker by display name, for
+ * anyone with the token, before sign-in: "{inviter} invited you". Nothing else about the maker: no nested object, and
+ * no other field holds their id, username, email or role; no email or photo anywhere in the answer.
+ */
+export function inviterOnlyByName(r: Resp, w: World, who: Who, what: string): void {
+  const maker = w.inst.ctx.db.query('SELECT id, username, name, email, role FROM users WHERE id = ?').get(USER_OF.owner!) as { id: string; username: string; name: string; email: string | null; role: string }
+  if (r.json?.inviterName !== maker.name) throw new Error(`${who}: ${what} names its maker as ${JSON.stringify(r.json?.inviterName)}, not by their display name`)
+  const { inviterName: _, ...rest } = r.json as Record<string, unknown>
+  if (Object.values(rest).some((v) => v !== null && typeof v === 'object')) throw new Error(`${who}: ${what} carries an object: ${r.text.slice(0, 160)}`)
+  const values = Object.values(rest).filter((v): v is string => typeof v === 'string').map((v) => v.toLowerCase())
+  const leaked = [maker.id, maker.username, maker.email].filter((s): s is string => !!s && values.some((v) => v.includes(s.toLowerCase())))
+  if (values.includes(maker.role)) leaked.push('role')
+  if (leaked.length) throw new Error(`${who}: ${what} carries the maker's ${leaked.join(', ')}`)
+  if (/@|avatar|photo|\/api\/(people|users)\//i.test(r.text)) throw new Error(`${who}: ${what} carries an email or a photo: ${r.text.slice(0, 160)}`)
+}
+
 // ---- a share proposal of the owner's (made once, ready: stopping its check changes nothing)
 const DANA_SHARE = '01900000-0000-7000-8000-00000000da9b'
 let share = false
@@ -150,13 +167,16 @@ export const MISC_SPECS: Record<string, Spec> = {
   getTeamLink: { build: (c) => c.get('/api/admin/team-link'), scope: 'byLevel' },
   createTeamLink: { build: (c) => c.post('/api/admin/team-link', { groupIds: [UNKNOWN_GROUP] }), scope: 'byLevel', check: bodyCheck('body.groupIds', 'a team link') },
   updateTeamLink: { build: (c) => c.patch('/api/admin/team-link', { addGroupIds: [UNKNOWN_GROUP] }), scope: 'byLevel', check: bodyCheck('body.addGroupIds', 'a team link change') },
-  // what the link is for: the team's name and whether it works, for anyone with the token; never its groups, maker,
-  // address or uses. An unknown token: 404 with nothing about the team
+  // what the link is for: the team's name, whether it works and, while it works, the display name of the person who
+  // made it ("{inviter} invited you", owner decision 2026-11-12; docs/DECISIONS.md "The invite pages name who invited
+  // you"), for anyone with the token; nothing else about that person (id, username, email, role, photo) and never the
+  // link's groups, address or uses. An unknown token: 404 with nothing about the team
   teamLinkInfo: { build: async (c, w) => c.post('/api/team-link/info', { token: await linkToken(w) }), scope: 'byLevel',
     check: async (r, w, who) => {
       if (r.status !== 200 || r.json?.teamName !== 'Sec Team' || r.json?.valid !== true) throw new Error(`${who}: the link's info answered ${r.status} ${r.text.slice(0, 160)}`)
-      const extra = Object.keys(r.json).filter((k) => !['teamName', 'valid', 'problem', 'expiresAt', 'skillName', 'skillTitle'].includes(k))
+      const extra = Object.keys(r.json).filter((k) => !['teamName', 'valid', 'problem', 'expiresAt', 'skillName', 'skillTitle', 'inviterName'].includes(k))
       if (extra.length) throw new Error(`${who}: the link's info carries ${extra.join(', ')}`)
+      inviterOnlyByName(r, w, who, "the link's info")
       if (who === 'anon') {
         const none = await w.as.anon.post('/api/team-link/info', { token: 'x'.repeat(43) })
         if (none.status !== 404 || none.text.includes('Sec Team')) throw new Error(`an unknown token answered ${none.status} ${none.text.slice(0, 160)}`)

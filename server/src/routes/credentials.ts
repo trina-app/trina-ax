@@ -17,16 +17,12 @@ import { sharedSubscriptionsAllowed } from '../credentials/policy'
 import {
   checkCredential, createCredential, deleteCredential, listCredentials, myCredentials, replaceSecret, setCredentialSettings, unsealOrFail, updateCredential,
 } from '../credentials/service'
-import { admins, credentialsOf } from '../credentials/store'
+import { admins, connectionsChanged, credentialsOf } from '../credentials/store'
 import { ct } from '../credentials/i18n'
 import { trialCredit } from '../credentials/hosted-chat'
-import { engineStatusCache } from '../admin/engines'
 import { aiAccessFor } from '../credentials/access'
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime } from '../chat/runtime'
-
-/** open composers ask GET /api/engines again (an engine may have gained or lost its last connection) */
-const ENGINES_CHANGED = { type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } } as const
 
 export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   const cc = () => credentialsOf(ctx)
@@ -35,11 +31,8 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   const logins = () => credentialLogins(cc(), serverLoginDeps(ctx, (kind) => {
     try { const e = getChatRuntime(ctx).engines.get(); return (kind === 'chatgpt' ? e.codex?.bin : e.claude?.bin) ?? null } catch { return null }
   }))
-  const changed = () => {
-    const cache = engineStatusCache(ctx)
-    cache.forget('claude-code'); cache.forget('codex')
-    ctx.services.realtime.publishEach(() => ENGINES_CHANGED)
-  }
+  // an engine may have gained or lost its last connection: its state is checked again, open screens ask again
+  const changed = () => connectionsChanged(cc())
 
   // the add dialog takes the gateway's key format and names the gateway (engine.anthropicGateway; never its address)
   const gateway = () => { const g = anthropicGateway(ctx.config); return g ? { label: gatewayLabel(g) } : null }

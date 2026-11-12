@@ -411,7 +411,7 @@ export default function Composer({
               type="button"
               role="menuitem"
               tabIndex={-1}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2 max-md:min-h-11"
               onClick={() => {
                 setAttachMenu(false)
                 fileRef.current?.click()
@@ -424,7 +424,7 @@ export default function Composer({
               type="button"
               role="menuitem"
               tabIndex={-1}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:hidden"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:hidden max-md:min-h-11"
               onClick={() => {
                 setAttachMenu(false)
                 camRef.current?.click()
@@ -439,7 +439,7 @@ export default function Composer({
               type="button"
               role="menuitem"
               tabIndex={-1}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2 max-md:min-h-11"
               onClick={() => {
                 // focus on the attach button first: closing the picker without picking brings it back there
                 attachButton()?.focus()

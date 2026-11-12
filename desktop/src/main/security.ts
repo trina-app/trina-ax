@@ -5,7 +5,7 @@
 // (artifact and preview frames cannot navigate away), WebRTC limited to proxied UDP, and RTCPeerConnection removed
 // from every subframe before its scripts run (an artifact must not leak data over WebRTC, which CSP doesn't cover).
 import { app, shell, type Session, type WebContents } from 'electron'
-import { realpath, stat } from 'node:fs/promises'
+import { opendir, realpath, stat } from 'node:fs/promises'
 import { originOf } from '../common/address'
 import { FolderGrants, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, restrictedFolderAction, type FolderCheck, type FolderRequest, type FolderSystem } from '../common/folder-access'
 import { isOwnUiUrl } from '../common/trust'
@@ -38,12 +38,21 @@ function inTime<T>(p: Promise<T>): Promise<T> {
   return Promise.race([p, late]).finally(() => clearTimeout(timer))
 }
 
-/** The computer as the folder rules see it: the home folder, a path with its links resolved, a folder's identity. Only
- * the path's own entries are looked at; nothing in a folder is listed or read. */
+/** The computer as the folder rules see it: the home folder, a path with its links resolved, a folder's identity, and
+ * (macOS, after a pick) whether the app gets into the folder at all: its first entry is read and nothing else, no file
+ * is opened. No time limit there: macOS may be asking the person meanwhile (FolderGrants.problem waits a few seconds). */
 const FOLDER_SYSTEM: FolderSystem = {
   home: () => app.getPath('home'),
   realpath: (path) => inTime(realpath(path)),
   identity: (path) => inTime(stat(path, { bigint: true })).then((s) => ({ dev: s.dev, ino: s.ino })),
+  readable: async (path) => {
+    const dir = await opendir(path)
+    try {
+      await dir.read()
+    } finally {
+      await dir.close().catch(() => {})
+    }
+  },
 }
 
 export const APP_WEB_PREFERENCES = {

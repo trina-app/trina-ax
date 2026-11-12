@@ -56,6 +56,37 @@ test('Providers: one row per engine with its state, what is missing, check again
   expect(realErrors(errors)).toEqual([])
 })
 
+test('a sign-in that finishes in the browser: the engine says Connected at once, without a reload, and after one', async ({ page }) => {
+  const errors = watchConsole(page)
+  await start(page)
+  // the team's subscriptions may be shared (a ChatGPT plan is one)
+  await page.goto('/admin/settings#ai')
+  const sharing = page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')
+  await sharing.press('Space')
+  await page.getByRole('dialog').getByRole('button').last().click()
+  await expect(sharing).toBeChecked()
+  await page.goto('/admin/providers')
+  const codex = page.locator('[data-engine="codex"]')
+  await expect(codex.getByTestId('engine-detail')).toBeVisible()
+  await expect(codex).toContainText(t['engines.status.not_logged_in'])
+  const asked = page.waitForRequest((r) => r.method() === 'GET' && /\/api\/admin\/engines$/.test(r.url()))
+  await page.getByTestId('provider-add-codex').click()
+  await page.getByTestId('kind-chatgpt').check()
+  await page.getByTestId('credential-label').fill('Team ChatGPT')
+  await page.getByTestId('plan-notice-ack').check()
+  await page.getByTestId('credential-submit').click()
+  await expect(page.getByTestId('chatgpt-done')).toBeVisible()
+  // the server said its engines changed: the row is read again while the dialog still shows "done"
+  await asked
+  await expect(codex).toContainText(t['engines.status.ok'])
+  await expect(codex.getByTestId('engine-detail')).toHaveCount(0)
+  await page.getByRole('dialog').getByRole('button', { name: t['common.done'] }).click()
+  await expect(page.getByTestId('credentials-codex')).toContainText('Team ChatGPT')
+  await page.reload()
+  await expect(codex).toContainText(t['engines.status.ok'])
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('the owner sets up the API engine from its row; ?engine=api opens it', async ({ page }) => {
   await start(page)
   await page.goto('/admin/providers?engine=api')
@@ -83,6 +114,8 @@ test('the old Team provider settings address opens Team settings at #ai; a group
   await expect(page.getByTestId('admin-menu').getByRole('link', { name: t['admin.settings'], exact: true })).toHaveAttribute('aria-current', 'page')
 
   const defaults = page.getByTestId('engine-defaults')
+  // the default engine lists the engines that are on by the names the composer uses (QA TC-182)
+  await expect(defaults.locator('#ai-engine option')).toHaveText(['Claude', 'ChatGPT'])
   const choice = page.getByTestId('engine-choice')
   await expect(page.getByTestId('engine-budgets')).toBeVisible()
   await expect(page.getByTestId('member-accounts')).toBeVisible()

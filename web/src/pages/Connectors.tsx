@@ -22,7 +22,7 @@ import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, exampleKeys, fits, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId, type CardState } from '../lib/googleApps'
-import { canonicalService, splitByScope } from '../lib/integrations'
+import { awaitingFirstSignIn, canonicalService, splitByScope } from '../lib/integrations'
 import { writeDraft } from '../lib/localData'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
@@ -180,14 +180,17 @@ export function ConnectorsHome() {
   // Connected: the built-in ones connected (or needing a new sign-in), then the person's own connections
   const connected: { id: string; name: string; logo: string; warn: boolean; to: string }[] = [
     ...builtIns.filter((c) => c.state === 'added' || c.state === 'reconnect').map((c) => ({ id: c.id, name: c.name, logo: c.logo, warn: c.state === 'reconnect', to: `/connectors/${c.id}` })),
-    ...mine.map((i) => {
+    ...mine.filter((i) => !awaitingFirstSignIn(i)).map((i) => {
       const c = connectorFor(i.url)
       return { id: i.id, name: i.name, logo: c ? connectorLogo(c) : '', warn: i.status !== 'connected', to: `/connectors/mcp/${i.id}` }
     }),
   ].filter((x) => fits(q, x.name))
+  // added but never signed in: not connected yet, so not under Connected; its own section says what its page says
+  // ("로그인 필요", QA TC-205)
+  const toSignIn = mine.filter(awaitingFirstSignIn).filter((i) => fits(q, i.name)).map((i) => ({ i, logo: connectorFor(i.url) }))
 
   const loading = !list.data && !list.error
-  const nothing = !!q && !cards.length && !connected.length && !fromTeamShown
+  const nothing = !!q && !cards.length && !connected.length && !toSignIn.length && !fromTeamShown
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="integrations">
       <PageHeader testId="connectors-header" title={t('integrations.title')} desc={t('connectorsPage.desc')}
@@ -235,6 +238,21 @@ export function ConnectorsHome() {
                         </span>
                         <span className="line-clamp-2 w-full text-xs leading-tight break-words">{x.name}</span>
                         {x.warn && <span className="sr-only">{t('drive.status.needs_reconnect')}</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {toSignIn.length > 0 && (
+              <section aria-labelledby="connectors-sign-in">
+                <h2 id="connectors-sign-in" className="mb-3 text-sm font-semibold">{t('integrations.status.needs_auth')}</h2>
+                <ul className="flex flex-wrap gap-x-2 gap-y-3" data-testid="sign-in-apps">
+                  {toSignIn.map(({ i, logo }) => (
+                    <li key={i.id}>
+                      <button type="button" onClick={() => navigate(`/connectors/mcp/${i.id}`)} className="group flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl p-1.5 text-center hover:bg-hover" data-testid="connected-app" data-id={i.id}>
+                        {logo ? <LogoTile src={connectorLogo(logo)} className="size-12 rounded-xl p-2" /> : <InitialTile name={i.name} />}
+                        <span className="line-clamp-2 w-full text-xs leading-tight break-words">{i.name}</span>
                       </button>
                     </li>
                   ))}

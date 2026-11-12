@@ -12,11 +12,13 @@
 // in it; `tip`: the tooltip's word when the button's name says more (a row's "⋯": "더 보기" for the eye, the room's name
 // for a screen reader); `sheetTitle`: what the menu is about, on a phone's sheet only (a row's long press: the room's
 // name, as the row is under the scrim); `focusBack`: where the keyboard goes when a menu without a button of its own
-// closes (a row's level menu: the row's "⋯").
+// closes (a row's level menu: the row's "⋯"); `footer`: words under the rows, such as why some items are off (an item's
+// `describedBy` points at them).
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
 import { dismissKeyboard } from '../../lib/viewport'
+import { useOverlayEntry } from '../../lib/backCloses'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 
 export interface MenuItem {
@@ -29,6 +31,10 @@ export interface MenuItem {
   checked?: boolean
   /** quieter words after the label (what a default stands for now) */
   hint?: string
+  /** shown but off (greyed, skipped by the arrow keys); `describedBy`: the id of the words saying why (the menu's
+   * `footer`), read out with it */
+  disabled?: boolean
+  describedBy?: string
 }
 
 /** The items in a phone's sheet (below 768px): what cannot be undone (delete) last, whatever order the caller gave,
@@ -87,9 +93,12 @@ export function useLongPress(onLong: () => void, ms = 500) {
   }
 }
 
+/** a menu's items the keyboard can reach: those that are not off */
+const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])].filter((el) => el.getAttribute('disabled') === null)
+
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const own = useRef<HTMLButtonElement>(null)
@@ -97,13 +106,16 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   const menu = useRef<HTMLDivElement>(null)
   /** when a long press opened it: the finger lifting right after is no choice of an item */
   const pressedAt = useRef(0)
+  // a phone's sheet: Back closes it, not the page under it (lib/backCloses.ts); an item that opens a page or a dialog
+  // takes its history entry over
+  useOverlayEntry(open, () => setOpen(false))
   useEffect(() => {
     if (!open) return
     // a phone's sheet over the page: the on-screen keyboard goes down first (a long press while typing), so the sheet
     // is in sight; the draft stays and the keyboard comes back only when the person taps the box again
     if (!window.matchMedia?.('(min-width: 48rem)').matches) dismissKeyboard()
     // the keyboard goes into the menu; a finger that opened it does not need a focus ring on the first item
-    if (Date.now() - pressedAt.current > 1000) (menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? menu.current?.querySelector<HTMLElement>('[role^="menuitem"]'))?.focus({ preventScroll: true })
+    if (Date.now() - pressedAt.current > 1000) (menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? usable(menu.current)[0])?.focus({ preventScroll: true })
     const h = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(false)
     document.addEventListener('pointerdown', h)
     return () => document.removeEventListener('pointerdown', h)
@@ -178,7 +190,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
       return
     }
     if (e.key === 'Tab') return setOpen(false)
-    const list = [...(menu.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])]
+    const list = usable(menu.current)
     const i = list.indexOf(document.activeElement as HTMLElement)
     const go = (n: number) => {
       e.preventDefault()
@@ -229,6 +241,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
             // phones: on the keyboard while it is still up (iOS lets a sheet open under it; lib/viewport.ts
             // --kb-inset), never higher than what is in sight, its rows scrolling
             'max-md:inset-x-0 max-md:bottom-[var(--kb-inset,0px)] max-md:max-h-[calc(var(--app-h,100dvh)-var(--safe-top))] max-md:overflow-y-auto max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
+            // its words start at the left wherever it sits (a table's right-aligned cell); an item that is off: greyed, no hover
+            'text-left [&_[role^=menuitem]:disabled]:cursor-not-allowed [&_[role^=menuitem]:disabled]:bg-transparent [&_[role^=menuitem]:disabled]:opacity-40',
           )}
         >
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(false))}</div>}
@@ -241,6 +255,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
               role={it.checked === undefined ? 'menuitem' : 'menuitemradio'}
               aria-checked={it.checked === undefined ? undefined : it.checked}
               type="button"
+              disabled={it.disabled}
+              aria-describedby={it.describedBy}
               onClick={() => {
                 if (Date.now() - pressedAt.current < 400) return
                 setOpen(false)
@@ -259,6 +275,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
               {it.checked !== undefined && <Check size={16} aria-hidden className={clsx('shrink-0 text-accent-text', !it.checked && 'invisible')} />}
             </button>
           ))}
+          {footer}
         </div>
       )}
     </div>

@@ -7,6 +7,7 @@ import { ChevronDown } from 'lucide-react'
 import { MenuButton } from './rooms/MenuButton'
 import { useMediaQuery } from './ui'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useOverlayEntry } from '../lib/backCloses'
 
 export interface TitleMenuItem {
   label: string
@@ -24,6 +25,8 @@ export function TitleMenu({ name, items, testId, heading }: { name: string; item
   const nameButton = useRef<HTMLButtonElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  // phones: Back closes the menu, not the page (lib/backCloses.ts)
+  useOverlayEntry(open, () => setOpen(false))
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
   useEffect(() => {
     if (!open) return

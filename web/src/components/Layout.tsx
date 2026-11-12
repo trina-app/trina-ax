@@ -5,7 +5,7 @@ import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { useBackCloses } from '../lib/backCloses'
+import { useOverlayEntry } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
@@ -112,8 +112,9 @@ export default function Layout() {
   }, [location.pathname])
 
   useEffect(() => setDrawer(false), [location.pathname, setDrawer])
-  // phones: Android's Back closes the drawer, then a full-screen side panel (file preview, artifact, browser), and only
-  // then leaves the page (QA TC-141). A panel kept across a move (open in folder) holds a new entry on the new page
+  // phones: Back closes the drawer, then a full-screen side panel (file preview, artifact, browser), and only then
+  // leaves the page (QA TC-141, lib/backCloses.ts). A panel kept across a move (open in folder) holds a new entry on the
+  // new page
   const phone = !useMediaQuery('(min-width: 768px)')
   // a phone's panel makes the page inert, which takes the focus from what opened it: it goes back there when the panel
   // closes (when nothing else took it meanwhile). The last focus inside the page is kept as it moves.
@@ -127,8 +128,8 @@ export default function Layout() {
     const back = lastFocus.current
     if (back?.isConnected && (document.activeElement === document.body || !document.activeElement)) back.focus({ preventScroll: true })
   }, [covered])
-  useBackCloses(drawer, () => setDrawer(false), phone)
-  useBackCloses(!!panel, closeSidePanel, phone, location.key)
+  useOverlayEntry(drawer, () => setDrawer(false))
+  useOverlayEntry(!!panel, closeSidePanel, { at: location.key })
   // any move (the sidebar's Files, a folder link, a link to the page already open): side by side again, so the page
   // shows beside a panel it keeps. The image viewer's own history entry is not a move (lib/imageViewer.ts)
   useEffect(() => setPanelExpanded(false), [location.key])
