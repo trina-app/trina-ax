@@ -29,7 +29,7 @@ In:
   `injectJavaScript`), 60 s idle.
 - Images and videos (the web input takes `image/*,video/*`). iOS: `preferredAssetRepresentationMode: compatible` turns
   HEIC into JPEG (and HEVC into H.264), and quality 0.9 re-encodes the JPEG (location and other metadata go). Android:
-  the original bytes (its photo picker already removes location), so GIFs and WebPs stay intact.
+  the original bytes, as the file input gave them, so GIFs and WebPs stay intact.
 - Fencing like file transfers: page navigation, a session reset or a team change drops the pick and deletes the copies;
   replies carry protocol, nonce, generation and id; the page checks each chunk's exact length.
 - Web: `AttachSheet` calls the bridge for 사진 보관함 when `mobileApp()` offers `photo-pick-v1`, and passes the files to

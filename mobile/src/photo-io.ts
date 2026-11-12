@@ -21,8 +21,8 @@ export function photoPickIO(): PickIO {
           // what the web input took (image/*,video/*); several at once, in the order picked
           mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, selectionLimit: limit, orderedSelection: true,
           // iOS: a HEIC photo comes as JPEG (an HEVC video as H.264), re-encoded at 0.9, which also drops its location and
-          // other metadata. Android: the original bytes (its photo picker already removes the location; re-encoding there
-          // would turn a GIF or a WebP into a still PNG).
+          // other metadata. Android: the original bytes, as its file input gave them (re-encoding there would turn a GIF or
+          // a WebP into a still PNG).
           preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
           quality: Platform.OS === 'ios' ? 0.9 : 1,
           exif: false, base64: false, legacy: false,
