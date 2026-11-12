@@ -26,15 +26,19 @@ const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memo
 const live = new Map<string, { resolve: (v: { code: number | null; signal: string | null }) => void; spec: SpawnSpec }>()
 const forwards: { runId: string; port: number; socket: string; stopped: boolean }[] = []
 let forwardFails = ''
+/** the state systemd gives a live run (the scope can be "inactive" just after systemd-run asked for it) */
+let liveState = 'active'
+/** the pid the fake spawn gives (a live one: this test process) */
+let livePid = 999_999
 const fake: SrtSystem = {
   spawn(spec) {
     let resolve!: (v: { code: number | null; signal: string | null }) => void
     const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
     live.set(spec.runId, { resolve, spec })
-    return { pid: 999_999, exited }
+    return { pid: livePid, exited }
   },
   async stop(runId) { const r = live.get(runId); if (r) { live.delete(runId); r.resolve({ code: null, signal: 'SIGTERM' }) } },
-  async unit(runId): Promise<UnitInfo> { return live.has(runId) ? { state: 'active', result: '', memoryBytes: 1 << 20 } : { state: '', result: '', memoryBytes: null } },
+  async unit(runId): Promise<UnitInfo> { return live.has(runId) ? { state: liveState, result: '', memoryBytes: 1 << 20 } : { state: '', result: '', memoryBytes: null } },
   async units() { return [...live.keys()].map((id) => `trina-dev-${id}.scope`) },
   async forget() {},
   oomKills() { return 0 },
@@ -110,7 +114,7 @@ afterAll(async () => {
 })
 beforeEach(() => {
   endAll()
-  forwards.length = 0; steps.length = 0; forwardFails = ''
+  forwards.length = 0; liveState = 'active'; livePid = 999_999; steps.length = 0; forwardFails = ''
   _previewLinks().clear()
   setSrtSystem(fake, { base, id: 'mycel', plan: PLAN })
   h.ctx.db.query('DELETE FROM dev_env_runs').run()
@@ -257,5 +261,18 @@ describe('the gateway', () => {
     expect(await previewSocket(h.ctx, { rowId: a.rowId, runId: a.runId, userId: 'erin', port: 3000 })).toMatchObject({ ok: false })
     expect(await previewSocket(h.ctx, { rowId: a.rowId, runId: a.runId, userId: 'alice', port: 1080 })).toMatchObject({ ok: false })
     expect(forwards).toHaveLength(0)
+  })
+})
+
+describe('the tracker and a run that just started', () => {
+  test('a scope systemd knows but has not started yet (inactive) with a live process still runs: its settings stay', async () => {
+    livePid = process.pid
+    liveState = 'inactive'
+    const s = await devServer('alice', chatAlice)
+    const settings = path.join(base, 'devenv', 'run', `${s.runId}.json`)
+    expect(fs.existsSync(settings)).toBe(true)
+    await pollSrt(h.ctx)
+    expect(rows()[0]).toMatchObject({ state: 'running' })
+    expect(fs.existsSync(settings)).toBe(true)
   })
 })

@@ -8,7 +8,9 @@
 //   P2 (A26): erin's dev server on the same port in another run: each link reaches only its own run, a cookie of one
 //       link does not open the other, and port-forward of run A for a port only run B listens on fails;
 //   P3: the sandbox cannot open the preview socket or list the folder it is in;
-//   P4: the run stops: the link answers 403, the forwarder and its socket are gone.
+//   P4: the run stops: the link answers 403, the forwarder and its socket are gone;
+//   P5: a dev server with a second background port, started 3 times;
+//   P6: a run writes a file in the person's own folder (users/<id>); the Files API lists it and the server reads it.
 // Results: <base>/data/preview-results.json and one "preview <id> ..." line per check.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -170,6 +172,21 @@ for (let i = 1; i <= 3; i++) {
   if (now.state === 'running') { const l = await open('erin', r.id, 3000); body = (await page(l.origin, l.cookie)).body }
   say(`P5-${i}`, now.state === 'running' && body.includes(`MARK-P5-${i}`), 'a dev server with a second background port runs and opens', { row: now, log, tool: t.slice(0, 160), body: body.slice(0, 40) })
   await h.api('erin').call(API.stopMyDevEnvRun, { params: { runId: r.id } }).catch(() => {})
+}
+
+// ---- P6: a run writes a file in the person's own folder; the Files API lists it and the server reads it ----
+{
+  const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+  const rel = 'users/alice/devenv-check/chart.png'
+  const t = await shell('alice', chat, { command: `mkdir -p "$TRINA_TEAM/users/alice/devenv-check" && python3 -c "import base64,sys; open(sys.argv[1],'wb').write(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='))" "$TRINA_TEAM/${rel}" && ls -ln "$TRINA_TEAM/${rel}"` })
+  const abs = path.join(h.team, rel)
+  const st = (() => { try { return fs.statSync(abs) } catch { return null } })()
+  const tree = await h.api('alice').call(API.tree, { query: { path: 'users/alice/devenv-check' } }).catch((e) => ({ error: String(e) }))
+  const listed = 'entries' in (tree as object) ? JSON.stringify(tree).includes('chart.png') : false
+  const dl = await h.req('alice', `/api/files/download?path=${encodeURIComponent(rel)}`)
+  const bytes = dl.status === 200 ? new Uint8Array(await dl.arrayBuffer()) : new Uint8Array()
+  const png = bytes.length > 8 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+  say('P6', /Exit code 0/.test(t) && !!st && st.uid === process.getuid!() && listed && png, 'a run writes users/alice/.../chart.png; Files lists it, owned by the server account, and the server reads it', { tool: t.slice(0, 300), uid: st?.uid, serverUid: process.getuid!(), mode: st ? (st.mode & 0o777).toString(8) : null, listed, download: dl.status, bytes: bytes.length, tree: JSON.stringify(tree).slice(0, 300) })
 }
 
 say('END', null, 'done', { serverPid: process.pid })

@@ -609,7 +609,9 @@ async function rowStatus(c: SrtConfig, r: RunRow): Promise<{ running: true; tail
     return { running: false, code, reason: a?.stopReason ?? 'exit', tail }
   }
   const u = await c.system.unit(runId)
-  if (u.state === 'active' || u.state === 'activating' || u.state === 'deactivating' || (a && !a.stopReason && u.state === '' && a.pid && alive(a.pid))) {
+  // a run this process just spawned: systemd may not know its scope yet (''), or know it but not have started it yet
+  // (inactive). While its process lives it runs; ending it here would delete its settings file before srt reads it
+  if (u.state === 'active' || u.state === 'activating' || u.state === 'deactivating' || (a && !a.stopReason && (u.state === '' || u.state === 'inactive') && a.pid && alive(a.pid))) {
     // a large log: cut it, the AI reads only the end
     try { if (fs.statSync(log).size > LOG_MAX_BYTES) { fs.truncateSync(log, 0); fs.appendFileSync(log, '(log cut at 64 MiB)\n') } } catch {}
     return { running: true, tail }
