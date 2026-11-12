@@ -56,8 +56,19 @@ import { TeamPrepared } from '../components/onboarding/TeamPrepared'
 import { MemberWelcomeCard } from '../components/onboarding/MemberWelcome'
 import { useMemberWelcome } from '../store/memberWelcome'
 import { TrinaStar } from '../components/TrinaStar'
+import { FileDropZone } from '../components/FileDropZone'
 
+// Files from this computer dropped anywhere on Home (a new chat, also a project's: ?project=) go into the box, as on a
+// chat's page (pages/Chat.tsx): the same overlay, the box's own checks (QA TC-071).
 export default function Home() {
+  return (
+    <FileDropZone className="h-full" data-testid="home-drop">
+      <HomePage />
+    </FileDropZone>
+  )
+}
+
+function HomePage() {
   const t = useT()
   const me = useMeStrict()
   const navigationType = useRealNavigationType()
