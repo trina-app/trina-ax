@@ -23934,7 +23934,7 @@ and **supersedes** two earlier decisions:
 - Rejected: re-sorting rows by state (marks stay marks); a separate "projects" section beside 트리나 기록; "N more" opening
   "모두 보기" filtered to the project (opening in place keeps the person where they are).
 - Tests: `web/test/unit/history-groups.test.ts`, `web/test/unit/sidebar.test.tsx` ("Trina history by project"),
-  `web/test/e2e/history-by-project.spec.ts`; `account-settings.spec.ts` updated (project grouping by default).
+  `web/test/e2e/history-by-project.spec.ts`; `account-settings.spec.ts` and `phone-menus-tabs.spec.ts` updated (project grouping by default).
 - Part of the navigation redesign (`docs/AGENTS/plan/20261112-1839-nav-rail.md`, phase P0a): ships now on today's
   sidebar with no flag (owner, 2026-11-12/13). The redesign's Trina panel (P2) later keeps at most eight projects with
   activity in the last 14 days and reads the group heads from the server; until then the grouping is of the loaded
