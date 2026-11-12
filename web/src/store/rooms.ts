@@ -456,6 +456,25 @@ export function settledPending(s: Pick<RoomsData, 'timeline' | 'threadViews'> & 
   return pending
 }
 
+/** The runs of my questions that ended and whose line I closed (EndedRun's X), in this browser, per person: the server
+ * lists a failed one for a day (rooms/ai.ts state), and a reload must not bring a closed line back. The last 200. */
+const CLOSED_RUNS_MAX = 200
+const closedKey = (userId: string) => `mycel.roomAiClosed:${userId}`
+export function closedRuns(userId: string | null): Set<string> {
+  if (!userId) return new Set()
+  try {
+    const v = JSON.parse(localStorage.getItem(closedKey(userId)) ?? '[]') as unknown
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  } catch { return new Set() }
+}
+function closeRun(userId: string | null, turnId: string) {
+  if (!userId) return
+  try {
+    const list = [...closedRuns(userId)].filter((x) => x !== turnId)
+    localStorage.setItem(closedKey(userId), JSON.stringify([...list, turnId].slice(-CLOSED_RUNS_MAX)))
+  } catch { /* storage full or blocked: closed for this page only */ }
+}
+
 export const useRooms = create<RoomsState>((set, get) => {
   const setPending = (roomId: string, f: (list: PendingSend[]) => PendingSend[]) =>
     set((s) => {
@@ -896,10 +915,14 @@ export const useRooms = create<RoomsState>((set, get) => {
       // either way the card goes with the turn's turn.request.closed (the end of a turn closes its cards first; one
       // closed before the merge stays out, mergeOpenRequests)
       const turns = new Set([...(get().ai[roomId]?.runs ?? []), ...r.mine].map((x) => x.turnId))
+      // the server lists the working ones and my recent failed ones (one a restart cut while this window was away, QA
+      // TC-241), not one I closed in this browser
+      const closed = closedRuns(who)
+      const mine = r.mine.filter((x) => !closed.has(x.turnId))
       set((s) => {
-        // runs that ended here (stopped, failed) stay until closed; the server lists the working ones
+        // runs that ended here (stopped, failed) stay until closed
         const ended = (s.ai[roomId]?.runs ?? []).filter((x) => x.state === 'stopped' || x.state === 'error')
-        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...r.mine, ...ended.filter((x) => !r.mine.some((m) => m.turnId === x.turnId))] } } }
+        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...mine, ...ended.filter((x) => !mine.some((m) => m.turnId === x.turnId))] } } }
       })
       if (open) useChats.setState((s) => ({ requests: mergeOpenRequests(s.requests, (q) => turns.has(q.turnId), open.items, before) }))
     },
@@ -909,6 +932,8 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     dismissAi(roomId, turnId) {
+      // closed here stays closed after a reload (the server lists a failed run for a day)
+      closeRun(myId(), turnId)
       set((s) => (s.ai[roomId] ? { ai: { ...s.ai, [roomId]: { ...s.ai[roomId]!, runs: s.ai[roomId]!.runs.filter((r) => r.turnId !== turnId) } } } : {}))
     },
 

@@ -153,8 +153,8 @@ them is `teamax-demo-1`; sign in at `http://localhost:19100`. Running it again o
 with a different owner.
 
 **Check.** The home screen shows the yellow "Development mode: no OS isolation…" banner and a **Before you start**
-list. Follow permissions → AI connection → invite the team → first skill → first backup. In **Admin → Connections
-→ Providers**, Claude Code shows "Connected" with the owner's subscription login. Send "hello" in a new chat.
+list. Follow permissions → AI connection → invite the team → first skill → first backup. In **Admin → Connections → AI accounts**,
+Claude Code shows "Connected" with the owner's subscription login. Send "hello" in a new chat.
 
 **Language.**
 - Each person: their name at the bottom left → **Settings → Profile → Language**.
@@ -388,7 +388,7 @@ them in the browser; nothing on the server's command line is needed.
   the UI/API does not return the stored secret. This does not protect against the server administrator. The page must be opened over https (or on this Mac at `http://127.0.0.1`).
 - One connection serves the whole team. Connections can be assigned to groups or people, ordered, given a monthly
   limit, switched off. When one hits its limit or is refused, the answer continues on the next one of the same engine.
-- Members can add their own connections (Settings > Providers) by default; the owner can disable them.
+- Members can add their own connections (Settings > AI accounts) by default; the owner can disable them.
   Eligible personal connections take priority. On fresh Trina teams, one company connection can serve the whole team by default; existing saved choices persist. Connection-level consent still applies. This software setting is not permission under provider terms; use only authorized accounts and plans.
 
 server.json (`engine`), for operators:

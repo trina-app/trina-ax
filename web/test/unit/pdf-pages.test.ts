@@ -3,7 +3,7 @@
 // place kept when the pages change size. Drawing, the thumbnails and scrolling are checked in the browser
 // (test/e2e/pdf-lazy-pages.spec.ts).
 import { describe, expect, test } from 'bun:test'
-import { anchorAt, anchorTop, currentPage, layoutTop, MARGIN_SCREENS, PAGE_GAP, pageHeight, pageLayout, pageStart, pageWindow } from '../../src/lib/pdfPages'
+import { anchorAt, anchorTop, currentPage, layoutTop, MARGIN_SCREENS, PAGE_GAP, pageHeight, pageLayout, pageStart, pageWindow, pageLeft, PAGE_INSET, scrollLeftAfterZoom } from '../../src/lib/pdfPages'
 
 const A4 = { width: 595, height: 842 }
 const LANDSCAPE = { width: 842, height: 595 }
@@ -191,5 +191,34 @@ describe("a pinch's point (QA TC-259: the pages zoomed around the wrong place)",
     const got = pinchEnd(300, 2, 'drawn')
     expect(got.page).toBe(0)
     expect(got.at - under(300).at).toBeGreaterThan(0.4)
+  })
+})
+
+describe('the place kept sideways when the pages zoom (QA TC-259: it drifted 16 px × (scale − 1))', () => {
+  // a 390 px phone panel: the page fitted to 358 px between two 16 px insets
+  const view = 390
+  const fit = view - 2 * PAGE_INSET
+  test('a page that fits is centred; a wider one starts one inset in', () => {
+    expect(pageLeft(fit, view)).toBe(PAGE_INSET)
+    expect(pageLeft(200, view)).toBe(95)
+    expect(pageLeft(fit * 2, view)).toBe(PAGE_INSET)
+  })
+  for (const [k, dx] of [[2, 195], [2.5, 100], [3, 20]] as const)
+    test(`${k}x around ${dx} px from the left: that place of the page stays under it`, () => {
+      const after = Math.round(fit * k)
+      const left = scrollLeftAfterZoom(0, dx, fit, after, view)
+      // the point of the page under dx, as a part of the page's width, before and after
+      const before = (dx - PAGE_INSET) / fit
+      const now = (left + dx - pageLeft(after, view)) / after
+      expect(Math.abs(now - before) * after).toBeLessThan(0.5)
+      // the old formula scaled the inset with the page
+      expect(Math.abs(left - ((0 + dx) * (after / fit) - dx) + PAGE_INSET * (after / fit - 1))).toBeLessThan(1e-9)
+    })
+  test('zoomed further from an already scrolled view, and back to the width (scrolled to 0)', () => {
+    const w2 = fit * 2
+    const w3 = fit * 3
+    const left = scrollLeftAfterZoom(300, 150, w2, w3, view)
+    expect(left).toBeCloseTo(PAGE_INSET + (300 + 150 - PAGE_INSET) * 1.5 - 150)
+    expect(scrollLeftAfterZoom(300, 195, w2, fit, view)).toBeCloseTo(Math.max(0, PAGE_INSET + (300 + 195 - PAGE_INSET) / 2 - 195))
   })
 })

@@ -257,6 +257,8 @@ export class MockServer {
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
   users: User[] = []
+  /** members who told an admin that Trina isn't ready (POST /api/me/ai-not-ready/tell; GET /api/me/ai-access notReadyTold) */
+  notReadyTold = new Set<string>()
   /** people whose "Allow all websites" for the AI's web reads is on (PUT /api/me/web-access; server/src/tools/web-allow-all.ts) */
   webAccess = new Set<string>()
   /** the team lets members turn it on: both team keys, like the server */
@@ -514,6 +516,7 @@ export class MockServer {
   fileList: FileListStatus = mockFileList()
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
+    this.notReadyTold = new Set()
     this.fileList = mockFileList()
     this.presence = new Map()
     this.presenceSent = []
@@ -1942,7 +1945,7 @@ export class MockServer {
       return this.fileList
     },
     runFileList: () => {
-      if (!this.fileList.enabled || this.fileList.forcedOff) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
+      if (!this.fileList.enabled || this.fileList.forcedOff) throw new Fail('conflict', 409, 'off', undefined, { reason: this.fileList.forcedOff ? 'forced_off' : 'off' })
       this.fileList = { ...this.fileList, running: true, lastRun: { startedAt: new Date().toISOString(), endedAt: null, trigger: 'now', read: 0, stoppedBy: null } }
       return this.fileList
     },
@@ -3052,10 +3055,16 @@ export class MockServer {
     },
     // onboarding A, B, D: the scripted AI answers everyone, there is no hosting trial credit and no company profile yet
     // (the composer's "no AI" line, Admin › AI connections and the skill forms ask for these on their own)
-    getAiAccess: (c) => ({ usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false }),
+    getAiAccess: (c) => ({ usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false, notReadyTold: this.notReadyTold.has(c.user.id) }),
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
-    // "Trina isn't ready yet": a member tells the owner and admins (the server sends one notice an hour; here nothing)
-    tellAiNotReady: (c) => c.user.role === 'owner' || c.user.role === 'admin' ? fail('forbidden', 403, '지금은 알릴 필요가 없어요.') : { told: true as const, already: false },
+    // "Trina isn't ready yet": a member tells the owner and admins (the server sends one notice an hour; here nothing is
+    // sent, only who told is kept, so "Told" survives a reload like on the server)
+    tellAiNotReady: (c) => {
+      if (c.user.role === 'owner' || c.user.role === 'admin') fail('forbidden', 403, '지금은 알릴 필요가 없어요.')
+      const already = this.notReadyTold.has(c.user.id)
+      this.notReadyTold.add(c.user.id)
+      return { told: true as const, already }
+    },
     trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: this.companyProfile }),
     // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in

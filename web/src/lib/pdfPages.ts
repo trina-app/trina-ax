@@ -122,3 +122,20 @@ export function anchorTop(layout: PageLayout, anchor: PageAnchor): number {
 export function layoutTop(drawnTop: number, originY: number, k: number): number {
   return drawnTop - originY * (1 - k)
 }
+
+/** The page column's side padding, in px (the column's px-4): a page as wide as the panel or wider starts this far in. */
+export const PAGE_INSET = 16
+
+/** Where a page `pageWidth` px wide starts in a column `viewWidth` px wide (the scroll box's content coordinates):
+ * centred while it fits (mx-auto), else one inset in. */
+export function pageLeft(pageWidth: number, viewWidth: number, inset = PAGE_INSET): number {
+  return Math.max(inset, (viewWidth - pageWidth) / 2)
+}
+
+/** The scroll left that keeps the point `dx` px right of the view's left edge on the same place of the page when the
+ * pages go from `before` to `after` px wide: only the page scales, not the inset beside it (scaling that too moved the
+ * view sideways by inset × (scale − 1); QA TC-259). */
+export function scrollLeftAfterZoom(scrollLeft: number, dx: number, before: number, after: number, viewWidth: number, inset = PAGE_INSET): number {
+  const from = pageLeft(before, viewWidth, inset)
+  return Math.max(0, pageLeft(after, viewWidth, inset) + (scrollLeft + dx - from) * (after / before) - dx)
+}

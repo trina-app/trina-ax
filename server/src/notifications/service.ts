@@ -142,9 +142,8 @@ export class Notifications {
    * source of its own (`not-ready:<member id>`), so that ask and its "알렸어요" are untouched; it is never settled (the
    * server cannot tell when it is fixed). True: told now; false: told within the window, nothing sent. */
   aiNotReady(memberId: string, now = new Date()): boolean {
+    if (this.aiNotReadyTold(memberId, now)) return false
     const source = notReadySource(memberId), at = now.toISOString()
-    const since = new Date(now.getTime() - AI_NOT_READY_WINDOW_MS).toISOString()
-    if (this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND created_at>? LIMIT 1").get(source, since)) return false
     for (const id of admins(this.ctx.db)) {
       if (id === memberId) continue
       // an earlier notice (read or not) comes back unread at the top instead of a second row
@@ -153,6 +152,13 @@ export class Notifications {
       this.record(id, 'onboarding.ai_request', source, at, true)
     }
     return true
+  }
+  /** Did this member tell the owner(s) and admins that Trina isn't ready within AI_NOT_READY_WINDOW_MS (the limit of
+   * aiNotReady, the same rows)? Their [Tell an admin] then reads "Told" after a reload too (GET /api/me/ai-access
+   * notReadyTold; owner decision 2026-11-12). */
+  aiNotReadyTold(memberId: string, now = new Date()): boolean {
+    const since = new Date(now.getTime() - AI_NOT_READY_WINDOW_MS).toISOString()
+    return !!this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND created_at>? LIMIT 1").get(notReadySource(memberId), since)
   }
   /** Is this member's ask still waiting (an unread row for any owner)? A settled or read one is not: they can ask again. */
   aiRequested(memberId: string): boolean {
