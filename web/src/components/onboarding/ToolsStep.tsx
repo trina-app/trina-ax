@@ -12,7 +12,7 @@
 //  - Last, one quiet "다른 도구 연결하기" line: the add-a-connection dialog for a team connection (kind, name, address,
 //    sign-in, who may use it), with its own errors; a saved one is one line under it.
 // Once something is connected the primary is the next step; until then only "나중에 하기". After the setup the way back
-// is Connectors in the sidebar (the Drive card has the same two effects for an owner or admin).
+// is Settings › Connectors (the Drive card has the same two effects for an owner or admin).
 import { Check, Plus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API, type DriveConnection, type Integration } from '@mycel/shared/api'
@@ -21,6 +21,7 @@ import { APP_CONNECTORS, connectorLogo, CONNECTORS, servesAt, type Connector } f
 import { builtInLogo } from '../../lib/googleApps'
 import { splitByScope } from '../../lib/integrations'
 import { aiName } from '../../lib/tabs'
+import { connectorsPlace } from '../../pages/settingsTabs'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { Button } from '../ui'
@@ -37,8 +38,6 @@ const keep = (id: string | null) => {
 }
 const kept = () => { try { return sessionStorage.getItem(FLOW_KEY) } catch { return null } }
 
-/** Where the way back is after the setup, by the sidebar's own name ("커넥터") */
-const connectorsPlace = (t: ReturnType<typeof useT>) => t('integrations.title')
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 /** the listed services the step offers (Discover's first ones after the built-ins) */

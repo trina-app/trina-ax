@@ -599,6 +599,15 @@ export const ListRoomMessagesQuery = PageQuery.extend({ around: Uuid7.optional()
 export const RoomMessagesPage = page(RoomMessage).extend({ newerCursor: z.string().nullable().optional() })
 export type RoomMessagesPage = z.infer<typeof RoomMessagesPage>
 
+/** The timeline's cursor from a message's position, as GET /api/rooms/:id/messages makes it (server/src/rooms/service.ts
+ * messages): 'newer', the messages after it (what newerCursor gives); 'older', the ones before it (nextCursor). An app
+ * that still holds a room's newest messages asks with it only for what came after them; one that keeps only the newest
+ * part of a long timeline gives the rest back to scrolling up with it. */
+export function roomTimelineCursor(dir: 'newer' | 'older', seq: number): string {
+  // base64url of the JSON the server encodes (chat/store.ts encodeCursor), without padding
+  return btoa(JSON.stringify(dir === 'newer' ? { n: String(seq) } : { s: String(seq) })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
 /** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): every word of the text, in
  * any order and any case, newest first. */
 export const ROOM_SEARCH_PAGE_MAX = 30

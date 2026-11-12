@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Plus, Search, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { CONNECTORS_HOME } from '../lib/connectors'
 import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatRelative } from '../lib/format'
@@ -430,7 +431,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
                 )}
                 {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
                 {s.lastOutcome === 'needs_key' && s.lastNeed && (
-                  <Link to={`/connectors?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
+                  <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
                     {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
                   </Link>
                 )}

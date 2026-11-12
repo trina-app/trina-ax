@@ -109,12 +109,12 @@ test('its page: Connect goes to Google, and Cancel while waiting puts Connect ba
   await discover(page)
 })
 
-test('the old addresses lead to Connectors: /settings/drive opens Drive\'s page, /settings/integrations the list; Settings\' search finds it', async ({ page }) => {
+test('the old addresses lead to Settings › Connectors: /settings/drive opens Drive\'s page, /settings/integrations the list; Settings\' search finds it', async ({ page }) => {
   await reset(page)
   await fakeDrive(page)
   await signIn(page)
   await page.goto('/settings/drive')
-  await expect(page).toHaveURL(/\/connectors\/google-drive$/)
+  await expect(page).toHaveURL(/\/settings\/connectors\/google-drive$/)
   await expect(detail(page)).toBeVisible()
 
   await page.goto('/settings/profile')
@@ -122,13 +122,15 @@ test('the old addresses lead to Connectors: /settings/drive opens Drive\'s page,
   await expect(settings.getByRole('link', { name: 'Google Drive', exact: true })).toHaveCount(0)
   await expect(settings.getByRole('link', { name: 'MCP', exact: true })).toHaveCount(0)
   await expect(settings.getByRole('link', { name: '앱 커넥터', exact: true })).toHaveCount(0)
-  // Connectors is not a section of Settings any more (it is in the sidebar)
-  await expect(settings.getByRole('link', { name: '커넥터', exact: true })).toHaveCount(0)
+  // Connectors is a section of Settings (QA TC-400), and the search finds it by Google Drive
+  await expect(settings.getByRole('link', { name: '커넥터', exact: true })).toHaveCount(1)
+  await settings.getByTestId('settings-search').fill('드라이브')
+  await expect(settings.getByTestId('settings-menu').getByRole('link')).toHaveText(['커넥터'])
 
-  for (const old of ['/settings/integrations', '/settings/connectors']) {
+  for (const old of ['/settings/integrations', '/connectors', '/settings/connectors']) {
     await page.goto(old)
-    await expect(page).toHaveURL(/\/connectors$/)
-    await expect(page.getByTestId('connectors-header')).toBeVisible()
+    await expect(page).toHaveURL(/\/settings\/connectors$/)
+    await expect(page.getByTestId('settings-dialog').getByTestId('connectors-header')).toBeVisible()
   }
 })
 

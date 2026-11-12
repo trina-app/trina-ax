@@ -25,7 +25,7 @@ test('typing during a running answer: the message waits, then goes by itself whe
   const input = page.getByTestId('composer-input')
   // the box stays usable: Stop, and once there is text the "send when done" button next to it
   await expect(input).toBeEnabled()
-  await expect(input).toHaveAttribute('placeholder', '다음 메시지를 입력하세요. 답이 끝나면 보내요')
+  await expect(input).toHaveAttribute('placeholder', '답이 끝나면 보낼 메시지')
   await expect(page.getByTestId('send-later')).toHaveCount(0)
   await input.fill('also add a short summary')
   await expect(page.getByTestId('send-later')).toBeVisible()

@@ -18,14 +18,15 @@ export const TAB_ROOT: Record<Tab, string> = { ai: '/', chats: '/rooms', project
 const under = (path: string, base: string) => path === base || path.startsWith(`${base}/`)
 
 /** the AI tab's pages besides Home and the chats: what the ☰ drawer opens (`/trash` is the deleted AI chats; the team
- * folder's Trash is `/files?view=trash`, 프로젝트's) */
-const AI_PAGES = ['/scheduled', '/skills', '/connectors', '/trash']
+ * folder's Trash is `/files?view=trash`, 프로젝트's), and an outside AI app's consent page */
+const AI_PAGES = ['/scheduled', '/skills', '/trash', '/connectors/authorize']
 
 export function tabOf(path: string): Tab | null {
   if (path === '/' || path.startsWith('/c/') || AI_PAGES.some((p) => under(path, p))) return 'ai'
   if (under(path, '/rooms')) return 'chats'
   if (under(path, '/projects') || under(path, '/files')) return 'projects'
-  if (under(path, '/settings') || under(path, '/admin') || under(path, '/activity')) return 'me'
+  // Connectors' old addresses open Settings › Connectors (App.tsx)
+  if (under(path, '/settings') || under(path, '/admin') || under(path, '/activity') || under(path, '/connectors')) return 'me'
   return null
 }
 
@@ -45,7 +46,6 @@ const PAGE_TITLE: [string, MessageKey][] = [
   ['/projects', 'projects.title'],
   ['/scheduled', 'settings.schedules'],
   ['/skills', 'skills.title'],
-  ['/connectors', 'integrations.title'],
   ['/trash', 'trash.title'],
   ['/admin', 'admin.title'],
   ['/activity', 'inbox.title'],

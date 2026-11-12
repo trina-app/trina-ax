@@ -12,8 +12,10 @@
 // list stays open or closed, remembered in this browser. Then the account menu (the person's email or ID, Settings,
 // Usage (their own, in Settings), Deleted history, Sign out), which opens above the profile line. Below
 // 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top
-// (not the team menu: the drawer belongs to the AI's tab), 검색, 예약 작업, 팀 스킬, 커넥터, 트리나 기록, and 삭제한 기록
-// at the bottom. A new AI chat is the 트리나 tab itself, the Inbox and Admin are in the 나 tab, the projects and the team
+// (not the team menu: the drawer belongs to the AI's tab), 검색, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the
+// bottom. Connectors is not here: a person connects a service once and rarely comes back, so it is a section of Settings
+// (설정 › 커넥터, the account menu's Settings; on a phone the 나 tab), like Claude's (docs/DECISIONS.md "Connectors in
+// Settings"). A new AI chat is the 트리나 tab itself, the Inbox and Admin are in the 나 tab, the projects and the team
 // folder are the 프로젝트 tab (QA TC-255: each thing in one place) and the rooms are the 대화 tab; rows are 44 px there.
 // A shared project chat I made or wrote in (docs/DECISIONS.md "Shared project chats") is a row like any other, with the
 // people icon before its title (no section of its own); its "···" offers only what I may do there. A chat of my own has
@@ -22,7 +24,7 @@
 // come first, the most recently pinned first, with a pin before the title and no header of their own; on a computer at
 // most ten of them above the five latest, all of them in "모두 보기" and in the phone's drawer.
 import clsx from 'clsx'
-import { Cable, Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, Pin, Search, Settings, Smile, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, Pin, Search, Settings, Smile, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -250,9 +252,6 @@ export default function Sidebar() {
           <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
             <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
           </NavLink>
-          <NavLink to="/connectors" className={active} onClick={close} data-testid="nav-connectors">
-            <Cable size={16} aria-hidden /> {t('integrations.title')}
-          </NavLink>
         </div>
       )}
 
@@ -375,7 +374,7 @@ export default function Sidebar() {
 }
 
 /** A computer: one labeled row each, a new AI chat and search with their shortcuts, then projects, scheduled tasks, the
- * Inbox (its count on the row, in words for a screen reader), files, team skills and Connectors. Admin is in the team menu on top
+ * Inbox (its count on the row, in words for a screen reader), files and team skills (Connectors is in Settings). Admin is in the team menu on top
  * (TeamMenu.tsx), not a row. Team skills has no count of its own: a suggestion is an Inbox notice already. */
 function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat: () => void; onSearch: () => void }) {
   const t = useT()
@@ -414,9 +413,6 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
       </NavLink>
       <NavLink to="/skills" className={active} data-testid="nav-skills">
         <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
-      </NavLink>
-      <NavLink to="/connectors" className={active} data-testid="nav-connectors">
-        <Cable size={16} aria-hidden /> {t('integrations.title')}
       </NavLink>
     </div>
   )
