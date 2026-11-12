@@ -61,8 +61,11 @@ test('✕ hides the suggestion, and it stays hidden for that file', async ({ pag
   let picker = await openMove(page, 'quotes-hanwha.txt')
   const dismiss = picker.getByTestId('move-suggested').getByTestId('move-hint-dismiss')
   await expect(dismiss).toHaveAccessibleName(t['files.dismissSuggestion'].replace('{folder}', 'docs › quotes'))
-  await dismiss.click()
+  await dismiss.focus()
+  await page.keyboard.press('Enter')
   await expect(picker.getByTestId('move-suggested')).toHaveCount(0)
+  // the focus stays in the picker: nothing else on top, so the path above the folder list
+  await expect(picker.getByRole('navigation', { name: t['files.breadcrumb'] })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
   picker = await openMove(page, 'quotes-hanwha.txt')

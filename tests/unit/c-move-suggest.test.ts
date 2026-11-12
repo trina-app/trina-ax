@@ -4,11 +4,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { PRODUCT } from '@mycel/shared'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { fileListOf } from '../../server/src/file-list/service'
 import { Units } from '../../server/src/file-list/units'
 import { RuleSet } from '../../server/src/policy/access'
-import { namePattern, same, score, THRESHOLD, words } from '../../server/src/team-files/move-suggest'
+import { CANDIDATES_MAX, FILES_PER_FOLDER, FILES_SCORED, folderOf, namePattern, rank, same, THRESHOLD, words, WORDS_PER_FILE } from '../../server/src/team-files/move-suggest'
 
 let A: CApp
 const write = (rel: string, s = 'x') => { const p = path.join(A.team, ...rel.split('/')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s) }
@@ -44,11 +45,36 @@ describe('words and scores', () => {
     expect(same('견적서', '회의록')).toBe(false)
     expect(same('to', 'today')).toBe(false)
   })
+  const F = (p: string, names: string[], ext = 'xlsx') => folderOf(p, words(p.slice(p.lastIndexOf('/') + 1)), names.map((n) => ({ words: words(n), ext })))
+  const q = (name: string) => ({ name, words: words(name.replace(/\.[^.]+$/, '')), ext: name.slice(name.lastIndexOf('.') + 1) })
   test('a folder named like the file fits; a stranger does not', () => {
-    const q = { name: '견적서_삼성.xlsx', words: ['견적서', '삼성'], ext: 'xlsx', dir: 'shared' }
-    const total = new Map([['견적서', 4], ['삼성', 0]])
-    expect(score(q, { path: 'shared/견적서', name: ['견적서'], files: [['견적서', 'lg'], ['견적서', '현대']], exts: ['xlsx', 'xlsx'] }, total)).toBeGreaterThan(0.85)
-    expect(score(q, { path: 'shared/회의록', name: ['회의록'], files: [['주간회의록']], exts: ['docx'] }, total)).toBe(0)
+    const r = rank([q('견적서_삼성.xlsx')], [F('shared/견적서', ['견적서_LG', '견적서_현대']), F('shared/회의록', ['주간회의록'], 'docx')])
+    expect(r.map((x) => x.path)).toEqual(['shared/견적서'])
+    expect(r[0]!.confidence).toBeGreaterThan(0.85)
+  })
+  test('a two-letter name alone does not take a longer word ("인사" for "인사말"); with a file that agrees it does', () => {
+    expect(rank([q('인사말.docx')], [F('shared/인사', ['급여_2025', '근로계약서'], 'docx')])).toEqual([])
+    expect(rank([q('인사.docx')], [F('shared/인사', ['급여_2025'], 'docx')]).map((x) => x.path)).toEqual(['shared/인사'])
+    expect(rank([q('인사말.docx')], [F('shared/인사', ['인사말_2024', '인사말_2023'], 'docx')]).map((x) => x.path)).toEqual(['shared/인사'])
+  })
+  test('the extension alone never makes a suggestion', () => {
+    // a weak word match (one file of ten) in a folder of the same extension stays under the threshold
+    const files = ['보고서_a', ...Array.from({ length: 9 }, (_, i) => `x${'abcdefghi'[i]}y`)]
+    expect(rank([q('보고서_삼성.xlsx')], [F('shared/qq', files)])).toEqual([])
+  })
+  test('Japanese and Chinese words inside others count too', () => {
+    expect(same('見積', '見積書')).toBe(true)
+    expect(rank([q('見積書_山田.xlsx')], [F('shared/見積', ['見積書_A', '見積書_B'])]).map((x) => x.path)).toEqual(['shared/見積'])
+  })
+  test('at the caps: the scoring finishes well under 150 ms', () => {
+    const syl = '가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허고노도로모보소오조초'
+    const word = (i: number) => syl[i % syl.length]! + syl[(i * 7) % syl.length]! + syl[(i * 13) % syl.length]!
+    const folders = Array.from({ length: CANDIDATES_MAX }, (_, f) => F(`shared/${word(f)}${word(f + 3)}`,
+      Array.from({ length: FILES_PER_FOLDER }, (_, i) => Array.from({ length: 8 }, (_, k) => word(f * 31 + i * 7 + k)).join('_'))))
+    const queries = Array.from({ length: FILES_SCORED }, (_, i) => ({ name: `${i}.xlsx`, words: Array.from({ length: WORDS_PER_FILE }, (_, k) => word(i * 11 + k) + word(k)), ext: 'xlsx' }))
+    const t0 = performance.now()
+    rank(queries, folders)
+    expect(performance.now() - t0).toBeLessThan(150)
   })
   test('the ✕ pattern drops digits', () => { expect(namePattern('견적서_SK_2025.xlsx')).toBe('견적서_sk_#.xlsx') })
 })
@@ -143,5 +169,39 @@ describe('the endpoint', () => {
     // a folder she can no longer write drops off
     expect((await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/회의록', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }) })).status).toBe(201)
     expect((await suggest('alice', ['shared/note-b.txt'])).body.recent.map((x: { path: string }) => x.path)).not.toContain('shared/회의록')
+  })
+
+  test('moving a folder: never into itself or a folder inside it (suggested or recent)', async () => {
+    write('shared/견적서/보관/old.txt')
+    // alice moved a file into shared/견적서/보관 before
+    write('shared/x-old.txt')
+    expect((await A.json('/api/files/move', { as: 'alice', ...jsonBody({ from: 'shared/x-old.txt', to: 'shared/견적서/보관/x-old.txt' }) })).status).toBe(200)
+    const r = await suggest('alice', ['shared/견적서'])
+    const all = [...folders(r.body), ...r.body.recent.map((x: { path: string }) => x.path)]
+    expect(all.some((p) => p === 'shared/견적서' || p.startsWith('shared/견적서/'))).toBe(false)
+    // with a file of the same selection, the same
+    const r2 = await suggest('alice', ['shared/견적서', 'shared/견적서_두산_2025.xlsx'])
+    expect([...folders(r2.body), ...r2.body.recent.map((x: { path: string }) => x.path)].some((p) => p === 'shared/견적서' || p.startsWith('shared/견적서/'))).toBe(false)
+  })
+
+  test('recent never names a folder with a hidden part on its way (a server temp folder above it)', async () => {
+    const hidden = `${PRODUCT.tmpPrefix}work`
+    write(`shared/${hidden}/inner/a.txt`)
+    A.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (NULL, 'alice', ?, 'create')").run(`shared/${hidden}/inner/b.txt`)
+    const r = await suggest('alice', ['shared/note-b.txt'])
+    expect(r.body.recent.map((x: { path: string }) => x.path).some((p: string) => p.includes(hidden))).toBe(false)
+  })
+
+  test('✕ only for a folder the caller can write', async () => {
+    const no = await A.json('/api/files/move-suggestions/dismiss', { as: 'alice', ...jsonBody({ paths: ['shared/견적서_두산_2025.xlsx'], folder: 'groups/finance' }) })
+    expect(no.status).toBe(404)
+    const gone = await A.json('/api/files/move-suggestions/dismiss', { as: 'alice', ...jsonBody({ paths: ['shared/견적서_두산_2025.xlsx'], folder: 'shared/nowhere' }) })
+    expect(gone.status).toBe(404)
+  })
+
+  test('a person asking too often gets 429 for a while', async () => {
+    let last = 200
+    for (let i = 0; i < 40 && last !== 429; i++) last = (await suggest('carol', ['shared/qzx_0001.bin'])).status
+    expect(last).toBe(429)
   })
 })

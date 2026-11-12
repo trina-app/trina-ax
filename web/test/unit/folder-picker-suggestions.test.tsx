@@ -56,6 +56,8 @@ test('suggested on top with ✕, then recent; a row picks the folder; ✕ hides 
     // ✕
     await m.click(m.get('move-suggested').querySelector('[data-testid="move-hint-dismiss"]') as never)
     await m.until(() => !m.find('move-suggested'), 'the suggestion gone')
+    // the focus goes to "All folders" (Recent is still there), never to the page
+    await m.until(() => document.activeElement === m.find('all-folders'), 'the focus on All folders')
     expect(calls.find((c) => c.url === '/api/files/move-suggestions/dismiss')?.body).toEqual({ paths: ['shared/q1.xlsx'], folder: 'shared/quotes' })
     expect(m.find('move-recent')).not.toBeNull()
   } finally { await m.unmount() }

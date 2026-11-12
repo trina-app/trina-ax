@@ -3,7 +3,7 @@
 // first (docs/DECISIONS.md "Move picker: suggested and recent folders"): a row picks that folder, ✕ stops suggesting it.
 import clsx from 'clsx'
 import { ChevronRight, Clock, Folder, FolderPlus, Home, Lock, Signpost, X } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { MOVE_SUGGEST_FILES, type FileEntry, type MoveSuggestions, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
@@ -61,8 +61,18 @@ export default function FolderPicker({
     }
   }, [open, movingKey])
 
+  // after ✕ the focus goes on, never to the page: the next suggestion, else "All folders", else the path above the list
+  const hintsRef = useRef<HTMLDivElement>(null)
+  const navRef = useRef<HTMLElement>(null)
+  const [refocus, setRefocus] = useState(0)
+  useEffect(() => {
+    if (!refocus) return
+    const next = hintsRef.current?.querySelector<HTMLElement>('[data-testid="move-suggested"] [data-testid="move-hint"]') ?? hintsRef.current?.querySelector<HTMLElement>('[data-testid="all-folders"]') ?? navRef.current
+    next?.focus()
+  }, [refocus])
   const dismiss = (folder: string) => {
     setHints((h) => h && { ...h, suggested: h.suggested.filter((s) => s.path !== folder) })
+    setRefocus((n) => n + 1)
     api.call(API.dismissMoveSuggestion, { body: { paths: moving, folder } }).catch(() => undefined)
   }
 
@@ -130,7 +140,7 @@ export default function FolderPicker({
       }
     >
       {hints && (hints.suggested.length > 0 || hints.recent.length > 0) && (
-        <div className="mb-3 space-y-3" data-testid="move-hints">
+        <div ref={hintsRef} className="mb-3 space-y-3" data-testid="move-hints">
           {hints.suggested.length > 0 && (
             <HintRows label={t('files.suggestedFolders')} testId="move-suggested" icon={<Folder size={15} className="text-accent-text" aria-hidden />}
               items={hints.suggested.map((s) => s.path)} current={path} pathLabel={(p) => words.path(p, ' › ')}
@@ -140,10 +150,10 @@ export default function FolderPicker({
             <HintRows label={t('files.recentFolders')} testId="move-recent" icon={<Clock size={15} className="text-faint" aria-hidden />}
               items={hints.recent.map((s) => s.path)} current={path} pathLabel={(p) => words.path(p, ' › ')} onPick={setPath} />
           )}
-          <h3 className="text-xs font-medium text-faint">{t('files.allFolders')}</h3>
+          <h3 tabIndex={-1} className="text-xs font-medium text-faint focus:outline-none" data-testid="all-folders">{t('files.allFolders')}</h3>
         </div>
       )}
-      <nav aria-label={t('files.breadcrumb')} className="mb-3 flex flex-wrap items-center gap-1 text-sm">
+      <nav ref={navRef} tabIndex={-1} aria-label={t('files.breadcrumb')} className="mb-3 flex flex-wrap items-center gap-1 text-sm focus:outline-none">
         <button type="button" className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => setPath('')}>
           <Home size={14} aria-hidden /> {t('files.root')}
         </button>
