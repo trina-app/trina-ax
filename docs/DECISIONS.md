@@ -11557,6 +11557,33 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - **Appearance leaves the account menu (2026-11-08, the owner's request).** The theme (system, light, dark) is chosen in
   Settings › Profile only, so there is one place for it and the menu is shorter (lean UI). The menu keeps 자리 비움으로
   표시, Settings, Usage, Deleted chats and Sign out. No API or data change; the stored `theme` preference is unchanged.
+## navRail: the new navigation behind one server switch (feat/nav-rail-flag, 2026-11-13, navigation redesign P0c)
+
+넣을 곳: Team AX core (`server/src/app-config.ts`, `shared/src/api/auth.ts` `Me.server.navRail`, `web/src/lib/navRail.ts`,
+`web/src/lib/rail.ts`), 이유: the navigation is the web app's; the switch is the operator's (`server.json`), like
+`roomAiMentions`. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` (approved by the owner 2026-11-13: "ux 검수하고 바로
+시작해서 끝까지 해줘"; committed here).
+
+- **One switch per server, off by default.** `"navRail": true` in `server.json` → `Me.server.navRail: true` →
+  `useNavRail()`. It turns on both new layouts at once (the computer's rail and the phone's tabs 트리나 · 대화 · 파일 · 나)
+  for everyone on that server. No per-browser override: a server is all old or all new, so nobody sees a rail on the
+  computer and the old tabs on the phone (the references' main risk: KakaoTalk 2025, Discord 2026).
+- The phases P1–P5 and P4b merge to `dev` behind it; today's sidebar, tabs and drawer stay what everyone sees and their
+  tests stay unchanged. P6 flips the default (absent = on; `false` a kill switch for one release); P7 removes the old
+  path and the switch. Releases are not held for this work.
+- **Every route has a rail place or none** (`lib/rail.ts` `railOf`): 트리나 for Home, `/new`, chats, projects, scheduled
+  tasks, team skills, deleted history, connector consent and the welcome steps; 대화 for rooms, threads and Activity's
+  멘션·스레드 (`?in=chats`); 파일; 활동; none for Admin, the Slack pages and an unknown address. Settings is a dialog: the
+  page under it decides. `web/test/unit/rail.test.ts` reads every route under `<Layout />` in `App.tsx` and fails on one
+  without a decision. Each place remembers its last page for the browser tab (sessionStorage, dropped on sign-out).
+  Started from the 11-13 draft, changed to the plan's four places (no 프로젝트 place: projects are in 트리나's list).
+- **QA:** the local QA team gets `"navRail": true` in its `server.json` and a restart, from P1 on. potenlab.trina.app gets it
+  only after P1, P2, P3 and P5 are on `dev` and passed QA. The mock has `POST /__test/nav-rail {on}` (off after every
+  reset); e2e helpers `navRail(page)` and `openRail(page, item)`.
+- Tests: `tests/unit/b-nav-rail-flag.test.ts` (Me off/on, server.json), `web/test/unit/rail.test.ts`,
+  `web/test/e2e/nav-rail-flag.spec.ts`.
+- Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
+
 ## Session markers (feat/session-status-v2, 2026-11-07)
 
 넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,
@@ -17120,6 +17147,60 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   (pin from the "···" moves the row to the top with the pin, after a reload too; unpin; a right-click; the phone's sheet;
   a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## Getting back to earlier work, part A — 지난 작업으로 돌아가기 (feat/history-way-back-a, 2026-11-12, QA TC-419 to TC-423)
+
+넣을 곳: Team AX core (`web/src/components/SearchDialog.tsx`, `web/src/lib/sessionMarkers.ts`,
+`web/src/components/chat/ChatTitleMenu.tsx`, `web/src/pages/Chat.tsx`, `web/src/pages/Files.tsx`,
+`server/src/chat/version-chats.ts`, `server/src/routes/files.ts`, `shared/src/api`), 이유: chats, search and file history
+are core. Plan: `docs/AGENTS/plan/20261112-1621-history-way-back-a.md`. The owner (2026-11-12): getting back to earlier
+work is hard, the AI history is the only way back. Option A of the research is part of every option and is built first;
+the owner has not chosen between B and C. Nothing changes in the sidebar (rooms first, five latest plus pins, "Show
+all"; the list is never re-sorted by state: 2026-11-06/07).
+
+- **⌘K "Needs attention" = the sidebar's markers** (TC-419, a bug). It used its own rule ("is it running") and words
+  ("Answering now", "Waiting to answer"): a chat waiting for my answer said "Answering now" while the sidebar showed "?",
+  and a finished answer I had not seen was not there. Now its AI chats come from the sidebar's own list (the chat store;
+  ⌘K's own first page only until that list has loaded) with `markedChats` (`lib/sessionMarkers.ts`: `markerOf` with the
+  same view, so the chat on screen shows no dot and a card open in this window is "?"), each row with the sidebar's
+  `SessionMarker` at its right end and its words (`marker.*`, the AI's question itself while this window has its card,
+  never for a confidential chat; the hover peek's colours). Order: "?" first, then a new answer, then the ring, the latest
+  first in each; then scheduled tasks to confirm and broken connections, 5 rows in all as before. ⌘K's two labels are
+  gone from all five languages.
+- **History rows say when and where** (TC-420): on the History tab's list and in the History results of a search (on All
+  and on History), grey on the right, "2시간 전 · Launch plan": the chat's last activity (`updatedAt`, `formatRelative`, as
+  the project page's list and the sidebar's peek) and its project's name when it has one (the project is no longer
+  repeated after the title there). On a phone (below 768 px) that grey line goes under the title, so the title keeps the
+  row's width (at 390 px beside it, titles were cut to a few letters). Recents rows are unchanged.
+- **History from a project** (TC-421): opened on a project's page (its files too) or in a chat of a project, the History
+  tab lists that project's chats first (the project page's own list: `GET /api/chats?projectId=`, so my pins there and
+  its shared chats I see), then the rest of my list, each once. Anywhere else nothing changes and no project is read. A
+  chat in none of this window's lists is read once to learn its project; the list waits for that instead of moving under
+  the pointer. Search results keep their order. No new control.
+- **Pin from the chat's own title menu** (TC-422; "Pinned chats" said it was not built): "상단에 고정" / "고정 해제" is the
+  title menu's first item, the row menu's own words, icon and call (`useChatActions().togglePin`), for anyone who sees
+  the chat.
+- **"Open the chat" in a file's version history** (TC-423, security). A version (and the file as it is now) already knew
+  the AI turn of the save (`file_versions.saved_turn_id`, `file_events.turn_id`) and a turn knows its chat
+  (`turns.chat_id`): **no migration**. `GET /api/files/history` adds `savedChatId` to such a version and `chatId` to
+  `current`, each **only when the viewer may open that chat now** (`chat/version-chats.ts` `openableTurnChats`, one read
+  of the turns and one check per chat): `chatFor` 'view' (their own chat, or a shared project chat of a project they see
+  now), and not in the trash, not the server's own draft, not a room's AI, not confidential unless it is theirs (all chats
+  while safe operations are on), not an answer of a shared chat hidden from them (`AnswerSight`; no record or no answer
+  id: hidden from all but its runner), and **not in a project they do not see now, their own chat too** (stricter than
+  opening it: the link stays away from a project they lost; the chat still opens from History). Any failed check gives
+  nothing. Otherwise the answer is as before: no id, no title, nothing that says a chat exists beyond the "by AI" line
+  that was already there. The owner and admins get no more than anyone. A check that fails (a read of the turns, an
+  answer that cannot be judged) gives no link for that save and never fails the history (review). The screen shows "Open the chat" (기록 열기, a
+  link to `/c/:id`, underlined) after "saved during an AI answer" only when the id is there; it closes the dialog.
+- **Left out** (option A only): Home's "Continue" line, summaries, AI search of chats, any sidebar change, the ⌘K row
+  menu and Recents rows.
+- Tests: `tests/security/version-chat-link.test.ts` (every case above for all five people, the stored version and the
+  file as it is now, the id nowhere else in the answer, a link only where `GET /api/chats/:id` opens, and a failing
+  check),
+  `web/test/unit/search-way-back.test.tsx`, `session-markers.test.tsx` (`markedChats`), `chat-title-pin.test.tsx`; e2e
+  `session-markers.spec.ts`, `search-palette.spec.ts`, `chat-pins.spec.ts`, `files.spec.ts`.
+- Version impact: **minor** (two additive, optional fields on the file history answer).
 
 ## Onboarding v6 polish: the caret after a fill, plain copy, one name (fix/onb6-polish, 2026-11-09)
 
@@ -23833,6 +23914,40 @@ Supersedes the Admin menu item "Slack" (c964122e3, 2026-11-05). The owner: "설�
   `admin-home.spec.ts` and `settings-ia.spec.ts`, the phone specs that open Slack's page.
 - Version impact: **minor** (a visible move in Admin; no API change).
 
+## Admins manage Slack too (fix/slack-admins, 2026-11-13, the owner)
+
+Supersedes "Owner only, for every Admin › Slack route: the app answers as every linked person, which is more than an
+admin's own reach" ("Slack 커넥터", 2026-11-05) and the "Who" line of "Slack inside Admin › Connected apps" (2026-11-12).
+The owner (2026-11-13, final): "Admins may manage Slack too." They agreed with the reasoning that admins already add
+team connections and change members' access, and that Slack answers as a person only after that person links their own
+Slack account.
+- **Admins and the owner:** Slack in Admin › Connected apps (Connected or Discover), its state and linked count, "Add to
+  Slack" through the official app, Reconnect (Add to Slack again), Turn off / Turn on, and Remove of the official app.
+  Routes `GET /api/admin/slack`, `POST /api/admin/slack/enabled`, `DELETE /api/admin/slack` and
+  `POST /api/admin/slack/official/install` are `auth: 'admin'`; the "Add to Slack" return finishes only for the person
+  who pressed it if they are still the owner or an admin.
+- **The owner only:** the team's own Slack app, i.e. pasting its bot and app-level tokens and its client secret
+  (`PUT /api/admin/slack/tokens` stays `auth: 'owner'`), and removing it while it is saved (`DELETE` answers an admin
+  403 `owner_only`, nothing changes): removing it would destroy the owner's setup, which an admin could not restore. An
+  admin's Turn off / on of the own app is allowed (it touches no token). No answer reveals a token to anyone, as before.
+  Picked as the option that widens access least where the decision did not say (Remove of the own app).
+- **Screens.** An admin gets the same Slack page without the own app's parts: no "Use your own Slack app instead", no
+  four steps, no "Replace tokens" and no Remove of it; one plain line says "Only the team owner can change or remove
+  this Slack app." (set up) or "Only the team owner can connect Slack here." (nothing added and no Add to Slack). The old
+  `/admin/slack` opens Slack's page for admins too. Members: unchanged.
+- **Races and role changes.** An install is never kept over an own app saved while Slack was asked (checked again in
+  the write), an admin's Remove never deletes an own app saved while the hosting service was asked (409
+  `own_app_saved`), and an install waiting for Slack's check is dropped when the person who pressed it is no longer the
+  owner or an admin. An admin whose own-app connection fails is told to ask the owner, not pointed at "Replace tokens";
+  Discover shows an admin the Slack card only where Add to Slack is offered.
+- **Audit.** Unchanged: every change (`slack.installed`, `slack.enabled`, `slack.disabled`, `slack.removed`) names who
+  made it.
+- Tests: `tests/unit/c-slack.test.ts` (route levels pinned; admin sees, turns off, refused on tokens and on removing the
+  own app), `tests/unit/c-slack-official.test.ts` (admin adds, turns off and on, removes; demoted meanwhile: not added),
+  the security route matrix (`tests/security/lib/slack-cases.ts`, by level), `web/test/unit/slack-screens.test.tsx`,
+  `web/test/e2e/slack-in-connectors.spec.ts`, `web/test/e2e/phone-admin.spec.ts`.
+- Version impact: **minor** (a wider role on existing routes; no new route).
+
 ## Files onboarding: follow-ups from hands-on QA (fix/files-onboarding-qa, 2026-11-13, QA)
 
 넣을 곳: trina-ax core (`web/src/components/onboarding/SkillShareCard.tsx`, `server/src/onboarding/form-skill.ts`,
@@ -23867,29 +23982,94 @@ Version impact: **patch** (no route, no migration).
 - Tests: `tests/unit/b-form-skill.test.ts`, `tests/unit/c-move-suggest.test.ts`, `web/test/unit/form-skills.test.tsx`,
   `web/test/unit/folder-picker-suggestions.test.tsx`.
 
-## navRail: the new navigation behind one server switch (feat/nav-rail-flag, 2026-11-13, navigation redesign P0c)
+## Activity: "Mark all as read" for the open tab (feat/activity-mark-all-read, 2026-11-13, QA TC-457)
 
-넣을 곳: Team AX core (`server/src/app-config.ts`, `shared/src/api/auth.ts` `Me.server.navRail`, `web/src/lib/navRail.ts`,
-`web/src/lib/rail.ts`), 이유: the navigation is the web app's; the switch is the operator's (`server.json`), like
-`roomAiMentions`. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` (approved by the owner 2026-11-13: "ux 검수하고 바로
-시작해서 끝까지 해줘"; committed here).
+넣을 곳: trina-ax `web/src/pages/Activity.tsx`, `server/src/notifications/service.ts` (`readAll`) and
+`shared/src/api/notifications.ts`, 이유: Activity and the notices are core.
 
-- **One switch per server, off by default.** `"navRail": true` in `server.json` → `Me.server.navRail: true` →
-  `useNavRail()`. It turns on both new layouts at once (the computer's rail and the phone's tabs 트리나 · 대화 · 파일 · 나)
-  for everyone on that server. No per-browser override: a server is all old or all new, so nobody sees a rail on the
-  computer and the old tabs on the phone (the references' main risk: KakaoTalk 2025, Discord 2026).
-- The phases P1–P5 and P4b merge to `dev` behind it; today's sidebar, tabs and drawer stay what everyone sees and their
-  tests stay unchanged. P6 flips the default (absent = on; `false` a kill switch for one release); P7 removes the old
-  path and the switch. Releases are not held for this work.
-- **Every route has a rail place or none** (`lib/rail.ts` `railOf`): 트리나 for Home, `/new`, chats, projects, scheduled
-  tasks, team skills, deleted history, connector consent and the welcome steps; 대화 for rooms, threads and Activity's
-  멘션·스레드 (`?in=chats`); 파일; 활동; none for Admin, the Slack pages and an unknown address. Settings is a dialog: the
-  page under it decides. `web/test/unit/rail.test.ts` reads every route under `<Layout />` in `App.tsx` and fails on one
-  without a decision. Each place remembers its last page for the browser tab (sessionStorage, dropped on sign-out).
-  Started from the 11-13 draft, changed to the plan's four places (no 프로젝트 place: projects are in 트리나's list).
-- **QA:** the local QA team gets `"navRail": true` in its `server.json` and a restart, from P1 on. potenlab.trina.app gets it
-  only after P1, P2, P3 and P5 are on `dev` and passed QA. The mock has `POST /__test/nav-rail {on}` (off after every
-  reset); e2e helpers `navRail(page)` and `openRail(page, item)`.
-- Tests: `tests/unit/b-nav-rail-flag.test.ts` (Me off/on, server.json), `web/test/unit/rail.test.ts`,
-  `web/test/e2e/nav-rail-flag.spec.ts`.
-- Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
+Activity cleared notices one click at a time.
+
+- **One call for the tab, on the server.** `POST /api/notifications/read` `{ tab, only? }` → `{ read }`. All: every
+  unread notice of mine (not suppressed, inside the 30 days) and every unread conversation row; `only: 'rooms'` (대화's
+  멘션·스레드 page) the conversation rows alone; Mentions / Threads the conversation rows the tab shows (no DMs tab
+  since dev's 4a68912a9). The tab rule moved from the page to shared `activityTabHas`, so the page and the server follow one rule, and
+  rows not loaded yet are read too. Only mine, nothing deleted, a second call marks nothing.
+- **A conversation row reads as opening it does.** Opening a row reads its notices and then the room (or the thread) at
+  its newest message. Mark all moves my place in the room (`markRead`), or for a thread's row in the thread
+  (`markThreadRead`), to the row's newest message, as a notification's "Mark as read" does with `room.seq`. So the
+  room's unread count, its @ mark, the attention count (tab title, Dock, the phone icon's number) follow, and my other
+  windows and devices hear it through the existing `room.read`, `room.thread` and `notifications.changed` events. A
+  room's plain messages after the row's newest one stay unread.
+- **The button** is a quiet text button at the end of the tools row ("Mark all as read", 모두 읽음 표시), shown only while
+  the open tab has an unread row (loaded rows, or for All the server's unread count), disabled while the call runs. The
+  rows and dots read at once; the page then reads the list again, and so do the sidebar's count and the tab dots.
+- **One signal per call** (follow-up review): the bulk read runs in one transaction with the rooms' per-row
+  `notifications.changed` held back (`Rooms.hold`) and sends one at the end; a thread read's own `room.updated` goes once
+  per room. `room.read` and `room.thread` still go per room and thread (each carries its own state). All builds no row
+  text (its rule always holds).
+- Tests: `tests/unit/b-rooms-inbox.test.ts` (tab by tab, only mine, idempotent, room places),
+  `web/test/unit/activity-mark-all.test.tsx`, `web/test/e2e/activity-mark-all-read.spec.ts` (1440 and 390).
+
+## Team link: show and change the groups people join (feat/team-link-groups, 2026-11-13, QA TC-458)
+
+- **Problem.** A team link made with the group "leads" put everyone who joined into leads (so its room and a project
+  that group writes). The Invite links row did not say which groups the link adds, and changing them meant a new link,
+  which breaks the address already sent.
+- **Decided (owner).** The row says it in words: "Joins: Leads" / "Joins no groups" (also the phone row of TC-390 and
+  single-use invite rows; a lead invite keeps its own text). The team link popup has the same line with a quiet
+  "Change groups", which opens the same group checks as making a link, Save / Cancel and one line: people who already
+  joined keep their groups. The checks (making and changing) carry a small "Make a new group" link to Admin › Groups;
+  no inline group making, and none in the welcome steps' folded form (it would leave the wizard).
+- **Server.** `PATCH /api/admin/team-link` takes `groupIds` (replace) beside `addGroupIds` (add, the welcome steps).
+  Admin only; unknown ids → 400; groups deleted since drop out (also from what GET shows); refused (410, reason
+  `expired`/`stopped`) on a link that no longer works; no open link → 404. Token, uses and expiry stay. Audit
+  `team_link.update` with `groupIds` (after) and `from` (before). Nobody's groups change: only people who join later.
+- **Review fixes.** A join reads the link's groups (and skill) again inside its write, so a join waiting on the
+  password hash while the admin changes the groups gets the new ones. When the replaced groups cannot open the link's
+  own skill, the skill is taken off (audited `skillCleared`; the popup says so), not refused: refusing would leave the
+  admin unable to take a wrong group off a link whose skill only that group opens, which is TC-458 itself. A skill asked
+  for in the same PATCH is still refused, as on create. A PATCH that changes nothing writes no row. Once an admin chose
+  the groups (`groupsChosen`, from the audit row with `from`), the welcome steps no longer add the team's group back.
+- Tests: `tests/unit/a-team-links.test.ts` ("changing the groups of the open link"), `tests/unit/a-team-link-starter.test.ts`,
+  `web/test/unit/team-link.test.tsx`, `web/test/unit/onboarding-polish.test.tsx`, `web/test/e2e/team-link.spec.ts`;
+  screenshots `web/test/e2e/shots-team-link-groups.spec.ts` (`TEAM_LINK_GROUPS_SHOTS`).
+
+## AI 답변 알림 — a push when an answer in my AI chat needs me (feat/push-ai-answer-done, 2026-11-12, QA TC-442)
+
+넣을 곳: Team AX core (`server/src/notifications/`, `server/src/chat/turn.ts`, `shared/src/api/notifications.ts`,
+`web/pwa/sw.js`, Settings › Notifications, `push-gateway/src/text.ts`). Why: notifications and push are core.
+
+- **Problem.** Pushes reached the phone for DMs, mentions, room notices and scheduled tasks, but not when an answer in a
+  personal AI chat finished: someone who asks Trina something and puts the phone away never heard that it was there.
+- **One event, `chat.answer_done`.** The same states as the chat list's "needs you" (`shared/src/api/attention.ts`): the
+  answer finished (`done`), failed, or the AI waits for the person (a question or a yes/no card every window shows:
+  `waiting`). The notice keeps the kind (`chat_answer_notices`, migration 347, with `chat_answer_push_deliveries`); the
+  push and the lock screen say one generic line for all three ("Trina replied in your chat."), in the person's language.
+- **Who.** The person who asked that turn (`spec.userId`): in a shared project chat the asker, never its creator or the
+  other members. Never a scheduled run (schedule.* has its own), a question from Slack (answered there), a room's AI
+  (rooms have their own), an answer the person stopped or a server stop cut off, a turn the server started by itself (no client: skill drafts,
+  merges, file ranking). Not one of the server's own chats.
+- **Not while I look at it.** The server does not know which chat a window shows, but a visible window that has a chat
+  on screen marks its answer seen (POST /api/chats/:id/seen, "Session markers"). So the notice is made before the
+  chat's update goes out, and its push waits (`push_at`: 10 s; a card 30 s, since nothing marks a card seen) and goes
+  only while the answer is still unseen, or the card still open (asked again right before and after each send). A
+  shared chat keeps one seen mark, its creator's: for another asker the push goes regardless (coalesced as below).
+- **One push per answer, never per step.** The source is the turn (a card: `<turn>.ask`, one per turn however many
+  cards it opens). A finished answer of a chat whose earlier finished answer was told within 10 minutes, unread and not
+  seen since, makes none: a burst of answers is one push.
+- **Tap.** `/c/<chatId>` (the web's chat page; push-events.ts PATH rules, ids only) while the person may still open the
+  chat, else the start page (also a browser's click: the Inbox never lists these); the service worker opens the chat
+  from the signed-in fetch of the notice.
+- **Lock screen and label (TC-365).** The payload carries ids and the event code only. The iPhone's notification
+  extension acts on `room.*` only (the APNs payload is mutable for those alone), so these pushes show the gateway's
+  generic line and no chat title; no app build. The gateway gets the line in `EVENT_TEXT`; until it is deployed it shows
+  its generic `chat.*` text ("You have a new message"). The badge number is the same one count n as before.
+- **Setting.** Settings › Notifications › Tasks and connections: "AI chat answers" (`chatAnswers`, default on; column
+  `notification_preferences.chat_answers`). Off makes no notice and cancels deliveries that wait, as the other events.
+- **Not in the Inbox.** The chat list's markers already show these chats; the notices are neither listed nor counted
+  there (`LISTED` leaves the table out), only fetched by the push.
+- Left out: quiet hours (the person just asked), the chat's title on the lock screen (it would need the extension and
+  the gateway's mutable rule for `chat.*`).
+- Tests: `tests/unit/b-chat-answer-push.test.ts`, `web/test/unit/push-worker.test.ts`, `web/test/unit/room-notify.test.tsx`,
+  `tests/unit/push-gateway.test.ts`, `tests/unit/push-locale.test.ts`.
+- Version impact: **minor**.

@@ -10,11 +10,11 @@ import { DICTS, LOCALES, translate, useLocaleStore, type MessageKey } from '../.
 import { joinNext, readJoinToken, teamLinkMessage } from '../../src/lib/team-link'
 import { namedProduct } from '../../src/lib/tabs'
 import { JoinForm, TeamJoin } from '../../src/pages/Auth'
-import { forgetPatched, linkDiffers, markPatched, TeamLinkPanel, TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
+import { forgetPatched, joinsText, linkDiffers, markPatched, TeamLinkPanel, TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
-import { installDom, mount, removeDom, type Mounted } from './dom-host'
+import { installDom, mount, removeDom, type FakeElement as FakeEl, type Mounted } from './dom-host'
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
 const URL_ = `https://acme.example/join#t=${TOKEN}`
@@ -107,6 +107,20 @@ const LINK: TeamLinkResponse = {
 const view = (data: TeamLinkResponse, skills: { path: string; name: string; description: string }[] | null = [], folded = false) =>
   renderToStaticMarkup(<TeamLinkView data={data} inviter="Olga" team="Acme" groups={[]} skills={skills} busy={false} folded={folded} onCreate={noop} onRevoke={noop} />)
 
+describe('"Joins: …" (Admin › Members\' rows and the panel; QA TC-458)', () => {
+  test('the group names, how many while they load, "Joins no groups"; every language', () => {
+    const G = [{ id: 'g1', name: 'Leads' }, { id: 'g2', name: 'Sales' }] as never
+    for (const { id } of LOCALES) {
+      const t = ((k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)) as never
+      expect(joinsText(t, ['g1', 'g2'], G)).toBe(translate(id, 'teamLink.joins', { groups: 'Leads, Sales' }))
+      expect(joinsText(t, ['g1'], [])).toBe(translate(id, 'teamLink.joins', { groups: '1' }))
+      expect(joinsText(t, [], G)).toBe(translate(id, 'teamLink.joinsNone'))
+    }
+    expect(translate('en', 'teamLink.joins', { groups: 'Leads' })).toBe('Joins: Leads')
+    expect(translate('en', 'teamLink.joinsNone')).toBe('Joins no groups')
+  })
+})
+
 // rendered to a string, the screen language is the store's first one (English): the texts are compared in English
 describe('the panel (Admin › Members, the wizard)', () => {
   test('an open link: the address, copy link, copy message, uses x/y, the expiry, change and turn off', () => {
@@ -140,6 +154,11 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain('<option value="14" selected="">')
     expect(html).toContain('skills/marketing/ad-copy/SKILL.md')
     expect(html).not.toContain('data-testid="team-link-full"')
+  })
+  test('an open link while no seat is left: the panel says so above the message (QA TC-488); not while one is', () => {
+    expect(view(LINK)).not.toContain('data-testid="team-link-no-seats"')
+    expect(view({ ...LINK, seats: { used: 10, limit: 10 } })).toContain(`data-testid="team-link-no-seats">${translate('en', 'teamLink.noSeats')}<`)
+    expect(view({ ...LINK, seats: { used: 10, limit: null } })).not.toContain('data-testid="team-link-no-seats"')
   })
   test('no seats left: the form says so and cannot make a link', () => {
     const html = view({ link: null, seats: { used: 10, limit: 10 } })
@@ -411,6 +430,57 @@ describe('on screen', () => {
     }
   })
 
+  test('the groups people join (QA TC-458): "Joins: …", Change groups opens the same checks with "Make a new group"; Save sends the new set', async () => {
+    const leads = { id: '01900000-0000-7000-8000-0000000000a1', name: 'Leads', description: '', memberIds: [] }
+    const sales = { id: '01900000-0000-7000-8000-0000000000a2', name: 'Sales', description: '', memberIds: [] }
+    const data = { ...LINK, link: { ...LINK.link!, groupIds: [leads.id] } }
+    const sent: string[][] = []
+    const m = await mount(<MemoryRouter><TeamLinkView data={data} inviter="Olga" team="Acme" groups={[leads, sales] as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} onGroups={async (ids) => { sent.push(ids); return true }} /></MemoryRouter>)
+    try {
+      expect(m.get('team-link-groups').textContent).toBe(translate('ko', 'teamLink.joins', { groups: 'Leads' }))
+      await m.click('team-link-groups-change')
+      const edit = m.get('team-link-groups-edit')
+      expect(edit.textContent).toContain(translate('ko', 'teamLink.groupsKeep'))
+      expect(m.get('group-checks-new').getAttribute('href')).toBe('/admin/groups')
+      const boxes = edit.querySelectorAll('input[type="checkbox"]') as unknown as FakeEl[]
+      expect(boxes.map((b) => (b as unknown as { checked: boolean }).checked)).toEqual([true, false])
+      // leads off, sales on (the browser turns a box over before its handlers run; the fake DOM leaves that out)
+      for (const b of boxes) {
+        const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(b), 'checked')!
+        d.set!.call(b, !d.get!.call(b))
+        await m.click(b)
+      }
+      await m.click('team-link-groups-save')
+      expect(sent).toEqual([[sales.id]])
+      await m.until(() => !m.find('team-link-groups-edit'), 'the editor closes after saving')
+    } finally { await m.unmount() }
+    // Save on the same groups sends nothing and closes
+    const same = await mount(<MemoryRouter><TeamLinkView data={data} inviter="Olga" team="Acme" groups={[leads, sales] as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} onGroups={async (ids) => { sent.push(ids); return true }} /></MemoryRouter>)
+    try {
+      await same.click('team-link-groups-change')
+      await same.click('team-link-groups-save')
+      await same.until(() => !same.find('team-link-groups-edit'), 'the editor closes')
+      expect(sent).toEqual([[sales.id]])
+    } finally { await same.unmount() }
+    // no groups: "Joins no groups"; the folded invite step has no link out to Groups
+    const none = await mount(<MemoryRouter><TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={noop} onRevoke={noop} onGroups={async () => true} /></MemoryRouter>)
+    try {
+      await none.click('team-link-manage')
+      expect(none.get('team-link-groups').textContent).toBe(translate('ko', 'teamLink.joinsNone'))
+      await none.click('team-link-groups-change')
+      expect(none.find('group-checks-new')).toBeNull()
+    } finally { await none.unmount() }
+  })
+
+  test('making a link: the group checks link to Admin › Groups (no group made in place)', async () => {
+    const g = { id: '01900000-0000-7000-8000-0000000000a1', name: 'Leads', description: '', memberIds: [] }
+    const m = await mount(<MemoryRouter><TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" team="Acme" groups={[g] as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} /></MemoryRouter>)
+    try {
+      expect(m.get('group-checks-new').getAttribute('href')).toBe('/admin/groups')
+      expect(m.get('group-checks-new').textContent).toBe(translate('ko', 'teamLink.newGroup'))
+    } finally { await m.unmount() }
+  })
+
   test('folded: "링크 관리" opens the link, copy link, QR, its facts and "새 링크로 바꾸기" in place; never "링크 끄기"', async () => {
     const made: unknown[] = []
     const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
@@ -507,6 +577,8 @@ describe('the team\'s group and the invite\'s skill', () => {
     const other = { ...there, skill: { path: 'skills/other/SKILL.md', name: 'other', title: null } }
     expect(linkDiffers(other, want)).toBe(true)
     expect(linkDiffers({ ...there, groupIds: [] }, want)).toBe(true)
+    // an admin chose the link's groups (Admin › Members' "Change groups"): the team's group is not put back
+    expect(linkDiffers({ ...there, groupIds: [], groupsChosen: true }, want)).toBe(false)
     markPatched(other, want)
     expect(linkDiffers(other, want)).toBe(false)
     // another wish for the same link is still sent

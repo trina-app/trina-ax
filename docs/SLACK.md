@@ -2,18 +2,26 @@
 
 People ask the team's AI from Slack: `@trina-ax` in a channel, or a direct message to the app. Each question runs a
 normal chat as the person who asked, with their own permissions, engine, budget and usage, and the full answer is also
-in that chat in the app. It is off until the team's owner sets it up; it works on hosted and self-hosted servers alike,
+in that chat in the app. It is off until the team's owner or an admin sets it up; it works on hosted and self-hosted servers alike,
 also on an office Mac without a public address (Socket Mode: the server connects out to Slack).
 
-Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터" and "Slack through the official Trina AX app".
+Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터", "Slack through the official Trina AX app" and "Admins manage
+Slack too".
 
-There are two ways to have the Slack app. Where the hosting service serves the server, the owner adds **the official
-app** with one button and copies nothing (below). Anywhere else the owner makes **the team's own app** from our
-manifest (the four steps).
+There are two ways to have the Slack app. Where the hosting service serves the server, the owner or an admin adds
+**the official app** with one button and copies nothing (below). Anywhere else the owner makes **the team's own app**
+from our manifest (the four steps).
+
+**Who.** The owner and admins see Slack in Admin › Connected apps, its state and how many people linked, and can add the
+official app, Reconnect it, turn Slack off and on, and remove the official app. Only the owner saves, replaces or
+removes the team's own app's tokens: the server refuses an admin there (`PUT /api/admin/slack/tokens` is owner-only;
+`DELETE /api/admin/slack` with the own app saved answers 403 `owner_only`), and the page shows an admin one line
+instead of the four steps and "Replace tokens". No answer ever carries a token, to anyone. Members have no Admin; each
+links their own Slack in Settings › Connectors. Every change is in the audit log with who made it.
 
 ## The official app ("Add to Slack")
 
-Slack's page in **Admin › Connected apps** (`/admin/connectors/slack`, the owner's only: Slack is one row of that list,
+Slack's page in **Admin › Connected apps** (`/admin/connectors/slack`, the owner's and admins': Slack is one row of that list,
 not an Admin menu item of its own; the old `/admin/slack` leads there) shows **Add to Slack** when the hosting service
 serves this server (a hosted team, or a self-installed server the hosting service registered, the same rule as Google
 sign-in through it) and no own app is saved. Press it, choose your workspace in Slack and allow it: you come back to
@@ -37,7 +45,7 @@ four steps.
 - **Only a Slack workspace admin or owner can add it.** The hosting service asks Slack who allowed it (`users.info`);
   anyone else gets "A Slack workspace admin has to add it." and the app is taken off the workspace again (unless the
   workspace is already added here).
-- **Only the owner who pressed it finishes it.** Slack sends the browser to the hosting service, which sends it back
+- **Only the owner or admin who pressed it finishes it** (still the owner or an admin when the browser comes back). Slack sends the browser to the hosting service, which sends it back
   only to this team's address it recorded (`/api/integrations/slack/official/callback`) with a one-time handoff (10
   minutes, time to sign in here first) that only this flow's verifier redeems. A browser signed in as someone else is refused; one with no session
   is asked to sign in first and then goes on. 10 minutes, used once, the newest only.

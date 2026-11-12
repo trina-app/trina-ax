@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { diffSnapshots, readInside, skipName, takeSnapshot, SnapshotStore } from '../../server/src/devenv/snapshot'
+import { diffSnapshots, openFilePath, readInside, skipName, takeSnapshot, SnapshotStore } from '../../server/src/devenv/snapshot'
 import { boxCwd, usesCredentials } from '../../server/src/devenv/tool'
 import { purgeOldJobs } from '../../server/src/devenv/jobs'
 import { stepLabel } from '@mycel/shared'
@@ -29,7 +29,8 @@ describe('pure parts', () => {
   test('snapshots skip build output and secrets, catch mtime tricks, see deletes', () => {
     for (const n of ['node_modules', '.git', '.env', '.env.local', 'dist', '.next', '.venv']) expect(skipName(n)).toBe(true)
     expect(skipName('src')).toBe(false)
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devenv-snap-'))
+    // a real path, as the callers pass `within` (macOS: /var is a link to /private/var)
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'devenv-snap-')))
     const w = (p: string, t: string) => { fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); fs.writeFileSync(path.join(root, p), t) }
     w('app/a.txt', 'one'); w('app/node_modules/x/i.js', 'x'); w('app/.env', 'SECRET=1'); w('app/dist/o.js', 'o')
     const store = new SnapshotStore(path.join(root, '.store'))
@@ -51,6 +52,21 @@ describe('pure parts', () => {
     expect(readInside(path.join(root, 'app/link.txt'), path.join(root, 'app'))).toBeNull()
     expect(readInside(path.join(root, 'app/dirlink/x.txt'), path.join(root, 'app'))).toBeNull()
     expect(readInside(path.join(root, 'app/a.txt'), path.join(root, 'app'))?.bytes.toString()).toBe('two')
+    // the check uses the path of the open file, not of the name now: a folder link swapped back to a real folder
+    // after the open still shows the outside file
+    const fd = fs.openSync(path.join(root, 'app/dirlink/x.txt'), 'r')
+    try {
+      fs.renameSync(path.join(root, 'app/dirlink'), path.join(root, 'dirlink-was')); w('app/dirlink/x.txt', 'inside')
+      expect(openFilePath(fd)).toBe(path.join(root, 'outside/x.txt'))
+      fs.rmSync(path.join(root, 'app/dirlink'), { recursive: true }); fs.renameSync(path.join(root, 'dirlink-was'), path.join(root, 'app/dirlink'))
+    } finally { fs.closeSync(fd) }
+    // '..' in the middle and another case of the folder name (case-insensitive disks) still check the real file
+    // (no path.join: it would drop the '..')
+    w('outside.txt', 'SERVER SECRET 3')
+    expect(readInside(`${root}/app/dirlink/../outside.txt`, path.join(root, 'app'))).toBeNull()
+    expect(readInside(`${root}/app/../app/a.txt`, path.join(root, 'app'))?.bytes.toString()).toBe('two')
+    if (process.platform === 'darwin') expect(readInside(`${root}/APP/a.txt`, path.join(root, 'app'))?.bytes.toString()).toBe('two')
+    expect(readInside(path.join(root, 'app/a.txt'), path.join(root, 'ap'))).toBeNull()
     const s3 = takeSnapshot(root, 'app', s2, store)
     expect(Object.keys(s3.files).some((k) => k.includes('link'))).toBe(false)
     fs.rmSync(path.join(root, 'app/link.txt')); fs.rmSync(path.join(root, 'app/dirlink'))

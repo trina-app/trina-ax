@@ -134,6 +134,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en/id/ja/es)' },
   'server/src/admin/handover.ts': { why: '팀장 넘기기 refusals and the role-refresh lines (ko next to en/id/ja/es)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
+  'server/src/devenv/messages.ts': { why: 'dev environment refusals in the team settings (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
   'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
   'server/src/credentials/hosted-speech.ts': { why: 'hosted transcription failures: free hours used up, hosting key refused (ko next to en/id/ja/es)' },
@@ -336,4 +337,11 @@ test('storage diagnostics use Spanish decimal separators on Mac and Linux', () =
     expect(messages.ja).toContain('1.5 GB')
     expect(messages.en).toContain('1.5 GB')
   }
+})
+
+describe('address card "Allow all websites" (QA TC-512)', () => {
+  test('names no Browser row: a phone has none (its switch is under Allowed for Trina), and the server cannot tell a phone', () => {
+    const browser = { en: 'Browser', ko: '브라우저', id: 'Browser', ja: 'ブラウザー', es: 'Navegador' } as const
+    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) expect(URL_GATE_TEXT.all[l]).not.toContain(browser[l])
+  })
 })

@@ -69,6 +69,7 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome } from '@mycel/shared/api'
+import { activityTabHas } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
 import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
@@ -307,7 +308,7 @@ export class MockServer {
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
   /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
-  teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
+  teamLink: { id: string; token: string; groupIds: string[]; groupsChosen?: boolean; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
@@ -382,11 +383,13 @@ export class MockServer {
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
   notifyPrefs = MockServer.notifyPrefsDefault()
   static notifyPrefsDefault() {
-    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
   }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
+  /** a file whose content now is an AI save (/__test/ai-version current): the chat named, or null */
+  aiCurrent = new Map<string, string | null>()
   connection: ConnectionStatus = defaultConnection()
   /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
   teamAddress: string | null = null
@@ -630,6 +633,7 @@ export class MockServer {
     this.scheduleRunMs = 200
     this.budgets = []
     this.versions = []
+    this.aiCurrent = new Map()
     this.trash = []
     this.uploads.clear()
     this.attachments.clear()
@@ -1012,7 +1016,7 @@ export class MockServer {
     const named = l.skillPath ? this.teamLinkSkill(l.skillPath, viewer) : null
     const skill = l.skillPath ? { path: l.skillPath, name: named?.name ?? null, title: named?.title ?? null } : null
     return {
-      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const },
+      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const, groupsChosen: !!l.groupsChosen },
       seats: { used, limit: null },
     }
   }
@@ -2862,7 +2866,8 @@ export class MockServer {
     history: (c) => {
       const f = this.files.get(c.query.path!)
       const items = this.versions.filter((v) => v.path === c.query.path)
-      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: null, at: f.mtime } : null
+      const ai = this.aiCurrent.get(c.query.path!)
+      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: ai === undefined ? null : uuidv7(), at: f.mtime, ...(ai ? { chatId: ai } : {}) } : null
       const events = current ? [{ id: 1, at: f!.mtime, kind: 'edited' as const, by: current.author, turnId: null, path: c.query.path!, from: null, size: current.size }] : []
       return { path: c.query.path, items, currentSha256: current?.sha256 ?? null, canRestore: this.access(c.query.path!, c.user) === 'write', current, events }
     },
@@ -3185,14 +3190,16 @@ export class MockServer {
       this.teamLink = { id: uuidv7(), token, groupIds: c.body.groupIds ?? [], skillPath: c.body.skillPath ?? null, maxUses: c.body.maxUses ?? 20, uses: 0, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInDays ?? 14) * 86_400_000).toISOString() }
       return { status: 201, body: this.teamLinkResponse(c.req, c.user) }
     },
-    // like the server: the open link's skill changes and groups are added; its address stays
+    // like the server: the open link's skill changes and groups are added or replaced (`groupIds`); its address stays
     updateTeamLink: (c) => {
       const l = this.teamLink
       if (!l || l.uses >= l.maxUses) fail('not_found', 404)
-      const b = c.body as { skillPath?: string | null; addGroupIds?: string[] }
+      const b = c.body as { skillPath?: string | null; addGroupIds?: string[]; groupIds?: string[] }
       if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
+      if ((b.groupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
       if (b.skillPath !== undefined) l!.skillPath = b.skillPath
-      l!.groupIds = [...new Set([...l!.groupIds, ...(b.addGroupIds ?? [])])]
+      l!.groupIds = [...new Set([...(b.groupIds ?? l!.groupIds), ...(b.addGroupIds ?? [])])]
+      if (b.groupIds) l!.groupsChosen = true
       return this.teamLinkResponse(c.req, c.user)
     },
     revokeTeamLink: () => {
@@ -4432,6 +4439,20 @@ export class MockServer {
       return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length, roomUnreadCount: 0 }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
+    // the server's rule (server/src/notifications/service.ts readAll): All every unread notice of mine, a tab its own
+    markAllNotificationsRead: (c) => {
+      let read = 0
+      for (const n of this.inbox) {
+        if (n.userId !== c.user.id || n.readAt) continue
+        const item = this.inboxItem(n)
+        if (c.body.only === 'rooms' && !item.room) continue
+        if (!activityTabHas(item, c.body.tab)) continue
+        n.readAt = now()
+        read++
+      }
+      if (read) this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+      return { read }
+    },
     markNotificationRead: (c) => {
       const n = this.inbox.find((x) => x.id === c.params.id && x.userId === c.user.id) ?? fail('not_found', 404)
       n.readAt ??= now()
@@ -5139,6 +5160,22 @@ export class MockServer {
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
     else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
+    else if (p === '/__test/ai-version') {
+      // a stored version of a file that an AI answer saved (POST {path, by, chatId?}): `chatId` only where the server would
+      // name the chat (the viewer may open it now: server/src/chat/version-chats.ts); without it, "by AI" alone.
+      // `current: true`: the file as it is now is that AI save (its history's current entry)
+      const path = String(body.path)
+      if (body.current) {
+        this.aiCurrent.set(path, typeof body.chatId === 'string' ? body.chatId : null)
+        return Response.json({ ok: true })
+      }
+      const by = this.users.find((u) => u.id === String(body.by)) ?? this.users[0]!
+      this.versions.push({
+        id: uuidv7(), path, version: this.versions.filter((v) => v.path === path).length + 1, sha256: crypto.randomUUID().replace(/-/g, '').padEnd(64, '0'), size: 30,
+        author: { id: by.id, name: by.name }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now(), savedBy: { id: by.id, name: by.name }, savedTurnId: uuidv7(),
+        ...(typeof body.chatId === 'string' ? { savedChatId: body.chatId } : {}),
+      })
+    }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)

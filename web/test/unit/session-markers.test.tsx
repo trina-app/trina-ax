@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { uuidv7, type Chat, type Me, type Room, type ServerEvent, type TurnRequest } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { roomLightsDot, roomWantsMe } from '../../src/lib/rooms'
-import { attentionCount, iconBadge, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
+import { attentionCount, iconBadge, markedChats, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
 import { useChats } from '../../src/store/chats'
 import { dispatch } from '../../src/store/live'
 import { useRooms } from '../../src/store/rooms'
@@ -62,6 +62,30 @@ describe('one marker per row', () => {
     expect(waitingOrRunning(chat({ unseen: true, lastOutcome: 'paused' }))).toBe(true)
     expect(waitingOrRunning(chat({ unseen: true }))).toBe(false)
     expect(waitingOrRunning(chat())).toBe(false)
+  })
+})
+
+describe("⌘K's Needs attention (QA TC-419)", () => {
+  test('every chat whose row shows a marker, with that marker: "?" first, then a new answer, then the ring; the latest first in each', () => {
+    const waits = ask({ title: 'waits', updatedAt: iso(5) })
+    const failed = chat({ title: 'failed', unseen: true, lastOutcome: 'error', updatedAt: iso(30) })
+    const fresh = chat({ title: 'new', unseen: true, updatedAt: iso(40) })
+    const older = chat({ title: 'older new', unseen: true, updatedAt: iso(20) })
+    const running = chat({ title: 'running', runState: 'running', updatedAt: iso(50) })
+    const queued = chat({ title: 'queued', runState: 'queued', updatedAt: iso(45) })
+    const idle = chat({ title: 'idle', updatedAt: iso(60) })
+    const got = markedChats([idle, running, older, waits, queued, fresh, failed])
+    expect(got.map((x) => [x.chat.title, x.marker.kind, x.marker.reason])).toEqual([
+      ['failed', 'ask', 'error'], ['waits', 'ask', 'card'], ['new', 'new', 'new'], ['older new', 'new', 'new'], ['running', 'running', 'running'], ['queued', 'running', 'queued'],
+    ])
+    // each is the row's own marker (markerOf), the one the sidebar shows
+    for (const x of got) expect(x.marker).toEqual(markerOf(x.chat)!)
+  })
+
+  test('the same view as the sidebar: the chat on screen shows no dot; a card open in this window is "?"', () => {
+    const fresh = chat({ unseen: true }), other = chat({ runState: 'running' })
+    expect(markedChats([fresh, other], { here: fresh.id }).map((x) => x.chat.id)).toEqual([other.id])
+    expect(markedChats([fresh, other], { cards: new Set([other.id]) }).map((x) => [x.chat.id, x.marker.kind])).toEqual([[other.id, 'ask'], [fresh.id, 'new']])
   })
 })
 
