@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"mycel/native/internal/bundle"
 	"mycel/native/internal/fwstatus"
 	"mycel/native/internal/plan"
 )
@@ -43,6 +44,10 @@ type Status struct {
 	Updates *UpdateSettings `json:"updates"`
 	// SystemPackages: the one list's sync (sync.go); nil on a server from before the list
 	SystemPackages *SystemPackagesStatus `json:"systemPackages,omitempty"`
+	// RootUnfinished: root programs that are not the ones of root/VERSION's release (an update stopped while it
+	// replaced them one by one and wrote root/VERSION last: a reset or power cut, QA TC-340); empty when they all match
+	// or that release's version folder is gone
+	RootUnfinished []string `json:"rootUnfinished,omitempty"`
 }
 
 // SystemPackagesStatus is the sync of the list in root/ (root/packages.synced against root/packages.json).
@@ -93,6 +98,13 @@ func cmdStatus(e *env, args []string) (int, error) {
 		_ = json.Unmarshal(s.ServerStopped, &b)
 		fmt.Fprintf(e.stdout, "  SERVER STOPPED at %s since %s: %s\n", b.Version, b.Since, b.Detail)
 	}
+	if len(s.RootUnfinished) > 0 {
+		if updateRunning(e.root(".update.lock")) {
+			fmt.Fprintf(e.stdout, "  an update is running now: it is replacing the root programs (%s so far)\n", strings.Join(s.RootUnfinished, ", "))
+		} else {
+			fmt.Fprintf(e.stdout, "  AN UPDATE DID NOT FINISH: some root programs (%s) are not those of root files %s. Run the update again: sudo mycel-ctl update (with the same --version if you gave one)\n", strings.Join(s.RootUnfinished, ", "), orNone(s.RootVersion))
+		}
+	}
 	printUpdateSettings(e.stdout, s.Updates, in, in.Systemd && fileExists(systemdRunDir))
 	if s.SystemPackages != nil {
 		fmt.Fprintf(e.stdout, "  system packages: %s\n", s.SystemPackages.Summary)
@@ -125,6 +137,36 @@ func rootVersion(e *env) string {
 	return strings.TrimSpace(string(b))
 }
 
+// rootPrograms are the programs an update replaces in root/ one by one (update.go updateRoot).
+var rootPrograms = []string{"mycel-bootstrap", "mycel-launcher", "mycel-sandbox", "mycel-ctl", "mycel-account"}
+
+// rootUnfinished lists the root programs whose content differs from the copy in app/versions/<root/VERSION>/root/.
+// A program missing on either side is not counted (an older kit without it); no version folder means no check.
+func rootUnfinished(e *env, rv string) []string {
+	if rv == "" || !bundle.ValidVersion(rv) {
+		return nil
+	}
+	kit := filepath.Join(e.base, "app", "versions", rv, "root")
+	if st, err := os.Stat(kit); err != nil || !st.IsDir() {
+		return nil
+	}
+	var out []string
+	for _, n := range rootPrograms {
+		want, _, err := bundle.HashFile(filepath.Join(kit, n))
+		if err != nil {
+			continue
+		}
+		have, _, err := bundle.HashFile(e.root(n))
+		if err != nil {
+			continue
+		}
+		if have != want {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 func unitNames(id string) []string {
 	return []string{id + "-firewall.service", id + "-firewall.timer", id + "-launcher.service", id + "-server.service", id + "-update.service", id + "-update.timer"}
 }
@@ -132,6 +174,7 @@ func unitNames(id string) []string {
 func collectStatus(e *env, in *Install) Status {
 	s := Status{ID: in.ID, Base: in.Base, Version: currentVersion(in.Base), RootVersion: rootVersion(e), Units: map[string]string{}, History: []json.RawMessage{},
 		Updates: collectUpdateSettings(e, in)}
+	s.RootUnfinished = rootUnfinished(e, s.RootVersion)
 	if line, synced, pending := syncStatus(e, e.now()); line != "" {
 		s.SystemPackages = &SystemPackagesStatus{Summary: line, List: listSum(e), Pending: pending, Synced: synced}
 	}
