@@ -4300,6 +4300,7 @@ export const en: Record<MessageKey, string> = {
   "slack.err.not_served": "The hosting service does not serve this server's Slack now. Ask whoever runs the server to check it.",
   "slack.err.removed": "The app was removed from Slack. Add it to Slack again.",
   "slack.admin.removeOfficialBody": "The app is taken out of your Slack workspace and everyone's account links are deleted.",
+  "slack.admin.removeRemovedBody": "Slack leaves Connected apps and everyone's account links are deleted. You can add it again later.",
   "slack.official.title": "Add {product} to Slack",
   "slack.official.hint": "Choose your workspace in Slack and allow it. Nothing to copy; it turns on by itself.",
   "slack.official.add": "Add to Slack",

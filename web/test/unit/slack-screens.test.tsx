@@ -148,7 +148,16 @@ describe('Admin › Connected apps › Slack: the official app (the hosting serv
   test('removed in Slack: Remove beside Add to Slack clears it, after a confirm', async () => {
     admin = base({ mode: 'official', official: true, enabled: true, lastError: 'removed', linked: 3, workspace: { teamId: 'T0ACME', name: 'Acme', url: null } })
     const m = await mount(<MemoryRouter initialEntries={['/admin/connectors/slack']}><AdminSlack /><DialogHost /></MemoryRouter>)
+    // the confirm says what goes (not "taken out of your Slack workspace": it is out already); Cancel deletes nothing
     await m.click(await m.until(() => m.find('slack-remove'), 'Remove'))
+    await m.until(() => m.find('dialog-confirm'), 'the confirm')
+    expect(document.body.textContent).toContain("Slack leaves Connected apps and everyone's account links are deleted.")
+    const cancel = [...document.body.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cancel')!
+    await m.click(cancel as never)
+    await m.until(() => (m.find('dialog-confirm') ? null : true), 'the confirm closed')
+    expect(calls).not.toContain('DELETE /api/admin/slack')
+    expect(m.find('slack-removed')).not.toBeNull()
+    await m.click('slack-remove')
     await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
     await m.until(() => (calls.includes('DELETE /api/admin/slack') && !m.find('slack-removed') ? true : null), 'removed')
     // nothing left: Add to Slack, and no Remove

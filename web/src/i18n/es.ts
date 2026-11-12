@@ -4256,6 +4256,7 @@ export const es: Record<MessageKey, string> = {
   "slack.err.not_served": "Ahora el servicio de alojamiento no atiende el Slack de este servidor. Pida a quien administra el servidor que lo revise.",
   "slack.err.removed": "La aplicación se quitó de Slack. Añádala a Slack de nuevo.",
   "slack.admin.removeOfficialBody": "La aplicación se quita de su espacio de trabajo de Slack y se borran los vínculos de cuenta de todos.",
+  "slack.admin.removeRemovedBody": "Slack se quita de Apps conectadas y se borran los vínculos de cuenta de todos. Puede volver a añadirlo más tarde.",
   "slack.official.title": "Añadir {product} a Slack",
   "slack.official.hint": "Elija su espacio de trabajo en Slack y permítalo. No hay nada que copiar; se activa solo.",
   "slack.official.add": "Añadir a Slack",

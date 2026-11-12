@@ -104,8 +104,10 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
   const [params, setParams] = useSearchParams()
   const [outcome] = useState(() => params.get('slack'))
   useEffect(() => { if (params.has('slack')) setParams((p) => { p.delete('slack'); return p }, { replace: true }) }, [params, setParams])
-  const remove = async (official: boolean) => {
-    if (!(await confirmDialog({ title: t('slack.admin.removeTitle'), body: t(official ? 'slack.admin.removeOfficialBody' : 'slack.admin.removeBody'), confirm: t('slack.admin.remove'), danger: true }))) return
+  // what Remove deletes: the own app's tokens, the official app's install, or (removed in Slack already) only the row
+  const remove = async (kind: 'own' | 'official' | 'removed') => {
+    const body = kind === 'own' ? 'slack.admin.removeBody' : kind === 'official' ? 'slack.admin.removeOfficialBody' : 'slack.admin.removeRemovedBody'
+    if (!(await confirmDialog({ title: t('slack.admin.removeTitle'), body: t(body), confirm: t('slack.admin.remove'), danger: true }))) return
     const v = await act(() => api.call(SLACK.removeSlack))
     if (v) { state.setData(v); setReplacing(false) }
   }
@@ -150,13 +152,13 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
                     {official
-                      ? <button type="button" className="text-danger underline underline-offset-2 max-md:min-h-11" onClick={() => void remove(true)} data-testid="slack-remove">{t('slack.admin.remove')}</button>
+                      ? <button type="button" className="text-danger underline underline-offset-2 max-md:min-h-11" onClick={() => void remove('official')} data-testid="slack-remove">{t('slack.admin.remove')}</button>
                       : <button type="button" className="underline underline-offset-2 max-md:min-h-11" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>}
                   </p>
                 </Card>
               )}
               {addable ? (
-                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={() => setOwnApp(true)} onRemove={() => void remove(true)} />
+                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={() => setOwnApp(true)} onRemove={() => void remove('removed')} />
               ) : (!s.tokens || replacing) && phone ? (
                 <Card flat testId="slack-on-computer">
                   {!s.tokens && (
@@ -180,7 +182,7 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                   </ol>
                   {s.tokens && (
                     <button type="button" className="mt-5 text-xs text-danger underline underline-offset-2 max-md:min-h-11" data-testid="slack-remove"
-                      onClick={() => void remove(false)}>{t('slack.admin.remove')}</button>
+                      onClick={() => void remove('own')}>{t('slack.admin.remove')}</button>
                   )}
                   {!s.tokens && s.official && (
                     <button type="button" className="mt-5 text-xs text-accent underline underline-offset-2 max-md:min-h-11" data-testid="slack-use-official"
