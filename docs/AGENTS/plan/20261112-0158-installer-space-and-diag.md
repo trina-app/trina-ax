@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:58
 - Branch: `fix/installer-space-and-diag`
-- Status: in progress
+- Status: done
 - Where: `scripts/install-linux.sh`, `native/cmd/mycel-ctl/`, `server/src/system/system-packages.ts` (Team AX core).
   Why: the Linux installer, the root update tool and Diagnostics are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, bug fixes with no new API or option
@@ -54,4 +54,18 @@ the version folder it created. A check that asks for too much refuses an update 
 
 ## Result
 
-(filled in at the end)
+- The space check runs twice: before the packages and downloads (step 2c) and again right before the stop. The new
+  version is copied into `.install-stage` (root-only, 700) while the server runs; step 9 renames it in.
+- The EXIT trap (`on_exit`) has three phases: `stopped` (root/ swapped back from a hard-link copy, the version folder
+  this run added removed, the units that ran started again), `switched` (units started again), `started` (nothing).
+  Ctrl-C and a closed SSH session go through it too.
+- Lima VM, Ubuntu 24.04 arm64, real kits 0.4.0 -> 0.5.0-beta.1: 1 GB free -> refused ("needs about 1.2 GB free, it has
+  1.0 GB"), units active, root/VERSION 0.4.0, no partial; a failure injected in step 7 after the stop
+  (`chattr +i root/systemd`) -> root/ back to 0.4.0's files (launcher sha checked), no 0.5 folder, the units
+  started again, health 0.4.0 (a launcher still starting was not counted as running: fixed, a repair run then listed
+  all four); a normal update -> 0.5.0-beta.1 with about 2 s of server downtime. The VM found one bug
+  that the plan did not foresee: a copy of root/ that stops half way (a file that cannot be linked) was put back
+  incomplete; the copy is now made under another name and renamed when complete (test added).
+- mycel-ctl in the VM with 600 MB free: before "write ...: no space left on device" (after a download); now "not
+  enough free space for 0.4.0 on the disk of /var/lib/mycel: it needs about 1.4 GB free, it has 0.6 GB; nothing was
+  changed" before the download.
