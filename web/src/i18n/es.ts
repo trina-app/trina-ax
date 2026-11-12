@@ -1226,6 +1226,8 @@ export const es: Record<MessageKey, string> = {
   'inbox.open': 'Abrir Actividad',
   // Activity (pages/Activity.tsx): the notices as a page of their own, like Slack's
   'feed.tab.all': 'Todo',
+  'feed.tab.dms': 'Mensajes directos',
+  'feed.tab.dmsShort': 'MD',
   'feed.tab.mentions': 'Menciones',
   'feed.tab.threads': 'Hilos',
   'feed.unreads': 'No leídos',

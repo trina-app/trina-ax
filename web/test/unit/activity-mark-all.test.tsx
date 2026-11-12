@@ -94,6 +94,23 @@ test('Mentions: one call for the tab; its row and dot read at once, the thread r
   } finally { await m.unmount() }
 })
 
+test('DMs: one call for the tab; the DM\'s row reads (its thread reply under Threads too), the team room\'s mention stays', async () => {
+  inbox = fresh()
+  const m = await open('?tab=dms')
+  try {
+    expect(m.find('activity-tab-dms-unread')).not.toBeNull()
+    await m.click('activity-mark-all-read')
+    await m.until(() => !m.find('activity-tab-dms-unread'), 'the DMs dot gone')
+    expect(sent).toEqual([{ tab: 'dms' }])
+    expect(m.find('activity-mark-all-read')).toBeNull()
+    // the DM's row was the Threads tab's only one; Mentions and All keep theirs
+    expect(m.find('activity-tab-threads-unread')).toBeNull()
+    expect(m.find('activity-tab-mentions-unread')).not.toBeNull()
+    expect(m.find('activity-tab-all-unread')).not.toBeNull()
+    expect(inbox.filter((x) => !x.readAt).map((x) => x.code)).toEqual(['room.mention', 'connection.reconnect'])
+  } finally { await m.unmount() }
+})
+
 test('All: every unread notice, the app\'s own too; no button once all is read', async () => {
   inbox = fresh()
   const m = await open('')
@@ -103,7 +120,7 @@ test('All: every unread notice, the app\'s own too; no button once all is read',
     await m.until(() => unreadRows(m) === 0, 'every row read')
     expect(sent).toEqual([{ tab: 'all' }])
     expect(m.find('activity-mark-all-read')).toBeNull()
-    for (const tab of ['all', 'mentions', 'threads']) expect(m.find(`activity-tab-${tab}-unread`)).toBeNull()
+    for (const tab of ['all', 'dms', 'mentions', 'threads']) expect(m.find(`activity-tab-${tab}-unread`)).toBeNull()
     expect(inbox.every((x) => x.readAt)).toBe(true)
   } finally { await m.unmount() }
 })

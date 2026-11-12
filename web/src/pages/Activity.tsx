@@ -1,13 +1,11 @@
 // Activity (what used to be the Inbox, in Settings › Notifications): a page of its own, read like Slack's Activity. The
-// title and its tabs (All · Mentions · Threads, a dot on a tab with something unread; no DMs tab: direct and group chats
-// are read in the conversation list, owner 2026-11-13, and their mentions and followed replies are under these tabs);
-// under them "Unreads" and a search that narrow what is loaded; the notices grouped under their day (Today, Yesterday,
-// a date), newest first. A row is the writer's photo (a bell for a notice of the app's own), who and the time, the
-// line, and underneath where it was (a DM, #room › Thread) or what it is about. The unread count sits on the right. The
-// whole row opens the place and reads it; a notice with nowhere to open keeps its "Mark as read". The preferences stay
-// in Settings › Notifications (the gear).
+// title and its tabs (All · DMs · Mentions · Threads, a dot on a tab with something unread); under them "Unreads" and a
+// search that narrow what is loaded; the notices grouped under their day (Today, Yesterday, a date), newest first. A row
+// is the writer's photo (a bell for a notice of the app's own), who and the time, the line, and underneath where it was
+// (a DM, #room › Thread) or what it is about. The unread count sits on the right. The whole row opens the place and reads
+// it; a notice with nowhere to open keeps its "Mark as read". The preferences stay in Settings › Notifications (the gear).
 // Opened from a phone's 대화 tab (its 멘션·스레드 row, `?in=chats`: lib/screens.ts CHATS_ACTIVITY) it is that tab's page of
-// the conversations only: the same tabs, rows of rooms (no notice of the app's own: the server sends only
+// the conversations only: All · Mentions · Threads, rows of rooms (no notice of the app's own: the server sends only
 // those, GET /api/notifications?only=rooms), named "멘션·스레드". "Nothing here" is never said while older pages are left:
 // a tab, "Unreads" or a search that shows nothing of what is loaded reads the next pages by itself (AUTO_PAGES of them,
 // once for that choice), then says "not in the latest N" with "Load more". A read again (a new notice, the rooms
@@ -38,18 +36,22 @@ import { Tooltip } from '../components/Tooltip'
 
 type T = ReturnType<typeof useT>
 type Filter = ActivityTab
-const FILTERS: { id: Filter; label: MessageKey; icon?: typeof Bell }[] = [
+/** `short`: the word on a phone, where the four share the width */
+const FILTERS: { id: Filter; label: MessageKey; short?: MessageKey; icon?: typeof Bell }[] = [
   { id: 'all', label: 'feed.tab.all' },
+  { id: 'dms', label: 'feed.tab.dms', short: 'feed.tab.dmsShort', icon: MessageCircle },
   { id: 'mentions', label: 'feed.tab.mentions', icon: AtSign },
   { id: 'threads', label: 'feed.tab.threads', icon: MessagesSquare },
 ]
 /** A tab. The tab list scrolls sideways, which cuts anything drawn outside it: the focus ring is drawn inside the tab.
- * A phone: the three share the width equally, 44px tall, words only (no icons), never scrolling sideways. */
+ * A phone: the four share the width equally, 44px tall, words only (no icons), never scrolling sideways. */
 export const tabCls = 'inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition focus-visible:-outline-offset-2 max-md:h-11 max-md:min-w-0 max-md:justify-center max-md:px-1'
 const isFilter = (s: string | null): s is Filter => FILTERS.some((f) => f.id === s)
 /** while nothing loaded shows, this many older pages (30 rows each) are read by themselves, once per tab, Unreads and
  * search text: 300 rows with the first page, then "Load more" */
 const AUTO_PAGES = 9
+/** the conversations' tabs (opened from 대화): DMs are that tab's own list */
+const CHATS_FILTERS = FILTERS.filter((f) => f.id !== 'dms')
 
 /** Which tabs a notice shows under (shared: the server marks a tab read by the same rule) */
 export const inFilter = activityTabHas
@@ -77,13 +79,13 @@ export default function Activity() {
   return <ActivityPage key={chats ? 'chats' : 'all'} chats={chats} />
 }
 
-/** `chats`: the conversations only (opened from 대화): rows of rooms */
+/** `chats`: the conversations only (opened from 대화): rows of rooms, without the DMs tab */
 function ActivityPage({ chats }: { chats: boolean }) {
   const t = useT(), locale = useLocale()
   const [params, setParams] = useSearchParams()
-  // a tab that is not there (an old ?tab=dms link): All
+  const filters = chats ? CHATS_FILTERS : FILTERS
   const asked = params.get('tab')
-  const filter: Filter = isFilter(asked) ? asked : 'all'
+  const filter: Filter = isFilter(asked) && filters.some((f) => f.id === asked) ? asked : 'all'
   const shows = (item: InboxNotification, f: Filter) => inFilter(item, f) && (!chats || isRoomRow(item))
   const title = chats ? t('feed.chats') : t('inbox.title')
   const setFilter = (f: Filter) => setParams((p) => { const n = new URLSearchParams(p); if (f === 'all') n.delete('tab'); else n.set('tab', f); return n }, { replace: true })
@@ -263,9 +265,9 @@ function ActivityPage({ chats }: { chats: boolean }) {
             </Tooltip>
           </div>
           <div role="tablist" aria-label={title} className="scroll-thin -mb-px mt-2 flex gap-1 overflow-x-auto max-md:mt-0 max-md:grid max-md:auto-cols-[minmax(0,1fr)] max-md:grid-flow-col max-md:gap-0 max-md:overflow-visible" data-testid="activity-tabs">
-            {FILTERS.map(({ id, label, icon: Icon }) => {
+            {filters.map(({ id, label, short, icon: Icon }) => {
               const on = filter === id
-              const word = t(label)
+              const word = phone && short ? t(short) : t(label)
               return (
                 <button key={id} type="button" role="tab" aria-selected={on} onClick={() => setFilter(id)}
                   className={clsx(tabCls, on ? 'border-ink font-semibold text-ink' : 'border-transparent text-muted hover:text-ink')}
