@@ -48,8 +48,11 @@ describe('the table', () => {
     expect(chainOf('/admin/settings/ai')).toEqual(['/settings', '/admin', '/admin/settings', '/admin/settings/ai'])
   })
 
-  test('one screen: the Trash view and a picked-out row are the folder still; elsewhere the whole address counts', () => {
-    expect(sameScreen('/files', '/files?view=trash')).toBe(true)
+  test('one screen: a picked-out row is the folder still; the Trash is one screen; elsewhere the whole address counts', () => {
+    expect(sameScreen('/files', '/files?view=trash')).toBe(false)
+    expect(sameScreen('/files?view=trash', `${f('a')}&view=trash`)).toBe(true)
+    expect(parentOf('/files?view=trash')).toBe('/files')
+    expect(chainOf(`${f('a')}&view=trash`)).toEqual(['/files', `${f('a')}&view=trash`])
     expect(sameScreen(f('a'), `${f('a')}&select=x&access=1`)).toBe(true)
     expect(sameScreen(f('a'), f('b'))).toBe(false)
     expect(sameScreen('/admin/folders', '/admin/folders?view=people')).toBe(false)
@@ -65,7 +68,8 @@ describe('the table', () => {
     expect(screenOf('/connectors').tab).toBe('ai')
     expect(screenOf('/activity').tab).toBe('me')
     expect(screenOf('/welcome').tab).toBeNull()
-    expect(rootTab('/files?view=trash')).toBe('files')
+    expect(rootTab('/files')).toBe('files')
+    expect(rootTab('/files?view=trash')).toBeNull()
     expect(rootTab('/?project=p1')).toBeNull()
     expect(rootTab('/settings')).toBe('me')
     expect(rootTab('/settings/memory')).toBeNull()
@@ -86,9 +90,18 @@ describe('a navigation on a phone', () => {
     expect(plan(items('/settings', '/admin', '/admin/members', '/connectors/x', '/admin/groups'), '/admin', 'replace')).toEqual({ back: 3, replace: undefined, push: [] })
   })
 
-  test('the same screen: a replace (Team folder ↔ Trash, a row picked out)', () => {
-    expect(plan(items('/files', f('a')), `${f('a')}&view=trash`)).toEqual({ back: 0, replace: `${f('a')}&view=trash`, push: [] })
+  test('the same screen: a replace (a row picked out)', () => {
     expect(plan(items('/files', f('a')), `${f('a')}&select=x`)).toEqual({ back: 0, replace: `${f('a')}&select=x`, push: [] })
+  })
+
+  test('the Trash is a place under the team folder: a push from there, Back returns; from a folder it goes back to the team folder first', () => {
+    expect(plan(items('/files'), '/files?view=trash')).toEqual({ back: 0, replace: undefined, push: ['/files?view=trash'] })
+    // out with its ‹ (the team folder): back, not a new entry
+    expect(plan(items('/files', '/files?view=trash'), '/files')).toEqual({ back: 1, replace: undefined, push: [] })
+    // from a folder deeper down (a link): back to the team folder, then the Trash
+    expect(plan(items('/files', f('a'), f('a/b')), `${f('a/b')}&view=trash`)).toEqual({ back: 2, replace: undefined, push: [`${f('a/b')}&view=trash`] })
+    // a folder opened from the Trash: down from the team folder
+    expect(plan(items('/files', '/files?view=trash'), f('a/b'))).toEqual({ back: 1, replace: undefined, push: [f('a'), f('a/b')] })
   })
 
   test('Files is a tree: a folder deeper gets the folders between; another branch goes back to where they meet', () => {
