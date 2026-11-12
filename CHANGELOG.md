@@ -118,6 +118,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - `sudo mycel-ctl update` says how many running answers it waits for. The answers still running when the wait ends are stopped by the engine launcher itself just before it restarts, so the server knows they ended.
 - Getting started's "도구 연결" shows the same cards as Connectors: Google Drive, then Notion, Linear, Atlassian, Canva and Figma. One 연결 connects your own account in one click, with nothing to type. Google Drive on a server without it says "아직 설정 안 됨" instead of disappearing. The address form stays as the last choice.
 - Windows: uninstalling the app now also removes its trina-ax:// link handler, so links no longer point at the removed app (only when the handler still points into the install folder; updates keep it).
+- Members can now ask an admin to add **any connector in the list** (Notion, Linear and the rest), not only the Google apps. "Request sent" has **Cancel request** to take it back.
+- **Admin › Connectors** shows what members asked for, with **Add** (the usual "Connect for the team") and **Dismiss**. Members are told when they can use it.
 
 ## 0.5.1 — 2026-11-12
 
