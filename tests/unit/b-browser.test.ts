@@ -90,7 +90,7 @@ describe('browser tools', () => {
     expect(d.data.message.content).not.toContain('## Browser (desktop app)')
   })
 
-  test('the "no browser here" line only in the person\'s own chat on the web or a phone: never in a confidential chat, a room, a shared chat or a turn without that flag (a scheduled run, Slack)', () => {
+  test('the "no browser here" line only with the web-or-phone flag (turn.ts sets it for the person\'s own chat there): never in a confidential chat, a room or a shared chat, even with the flag', () => {
     const user = loadPrincipal(h.ctx.db, 'alice')!
     const base: PromptInput = { user, groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null, now: new Date('2026-11-12T09:00:00Z') }
     const cases: [string, PromptInput, boolean][] = [

@@ -22257,19 +22257,24 @@ Since #430 ("A welcome for invited people") the team link's and the single-use i
 (`POST /api/team-link/info`, `GET /api/invites/:token`) carry `inviterName` for anyone who holds the link, signed out
 too. The permission matrix said a link's maker must never show there, so it failed on dev. The owner decided to show
 it, like Slack's "X invited you": the join page says "{inviter} invited you to {team}".
-- **The display name only** (`users.name`, the name people set for themselves). Never the maker's id, username, email,
-  role or photo, and no object about them. The route already sends only that: nothing was trimmed.
+- **The display name only** (`users.name`, the name the team sees). Never the maker's id, username, email, role or
+  photo, and no object about them. The routes already sent only that.
 - **Only while the link or invite works.** A revoked, expired or used link or invite, a team link while every seat is
-  taken, or a maker who is disabled, deleted or no longer an admin answers `inviterName: null`. A wrong token is a 404 with nothing about the team or
-  anyone in it, as before.
-- This replaces "never its … maker" in the matrix case's comment (`tests/security/lib/misc-cases.ts teamLinkInfo`); the
-  invite's case (`tests/security/lib/cases.ts inviteInfo`) gets the same check. `tests/unit/b-member-welcome.test.ts`
-  "the join pages name the inviter": exactly the allowed fields, a maker with an email and a photo, and every way a link
-  stops working.
+  taken, or a maker who is disabled, deleted or no longer allowed to make it answers `inviterName: null`. A wrong
+  token is a 404 with nothing about the team or anyone in it, as before.
+- **One trim:** an invite while every seat is taken answered `valid: true` with the name, but accepting it is refused
+  (409). It now names nobody there, like the team link's `full`. `valid` stays as it was, so the page does not say
+  "expired or used" for a team that only needs a seat.
+- This replaces "never its … maker" in the matrix case's comment (`tests/security/lib/misc-cases.ts teamLinkInfo`).
+  The invite's case (`tests/security/lib/cases.ts inviteInfo`) gets the same check. `tests/unit/b-member-welcome.test.ts`
+  "the join pages name the inviter" checks two things. First, a maker with an email and a photo gives only the allowed
+  fields. Second, the name goes in each case above: revoked, expired, used, seats taken, and a maker disabled, demoted
+  or deleted.
 
 Also here: `tests/unit/b-chat.test.ts` expected no "## Browser" section in a person's own web chat. #460 (QA TC-242)
 added one on purpose: `NO_BROWSER_RULE`, which tells the AI that the desktop app has the browser. The test now expects
 that line and not the desktop app's browser rules. `tests/unit/b-browser.test.ts` checks the line is never in a
-confidential chat, a room, a shared chat or a turn that is not from the web or a phone.
+confidential chat, a room or a shared chat, and only comes with the web-or-phone flag.
 
-Version impact: none (tests and this note; no code, API or data change).
+Version impact: patch (tests, and the invite page on a full team no longer names the inviter; no API shape or data
+change).

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 import { ALL_SET_MS } from '../../server/src/onboarding/member-welcome'
+import { Plan, seatsUsed, setPlanForTests } from '../../server/src/system/limits'
 
 const PW = 'tulip meadow 2026'
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -174,7 +175,7 @@ describe('the join pages name the inviter', () => {
     }
   })
 
-  test('a link or invite that does not work names nobody: revoked, expired, used up, its maker disabled, demoted or deleted, a wrong token', async () => {
+  test('a link or invite that does not work names nobody: revoked, expired, used, every seat taken, its maker disabled, demoted or deleted, a wrong token', async () => {
     const w = await maker('wes', 'Wes Park')
     const none = { valid: false, inviterName: null }
     // revoked
@@ -196,6 +197,19 @@ describe('the join pages name the inviter', () => {
     link = (await w.client.call('POST', '/api/admin/team-link', { maxUses: 1 })).link
     expect((await guest().try('POST', '/api/team-link/join', { token: tokenOf(link.url), username: 'uma', name: 'Uma', password: PW })).status).toBe(201)
     expect((await linkInfo(tokenOf(link.url))).body).toMatchObject({ ...none, problem: 'used_up' })
+    inv = await w.client.call('POST', '/api/admin/invites', {})
+    expect((await guest().try('POST', `/api/invites/${inv.token}/accept`, { username: 'ugo', name: 'Ugo', password: PW })).status).toBe(201)
+    expect((await inviteInfo(inv.token)).body).toMatchObject(none)
+    // every seat taken (a plan's member limit): joining is refused, so the page names nobody; the invite keeps
+    // valid: true (its page does not say "expired or used"), the team link says "full"
+    link = (await w.client.call('POST', '/api/admin/team-link', {})).link
+    inv = await w.client.call('POST', '/api/admin/invites', {})
+    setPlanForTests(Plan.parse({ format: 1, plan: 'team', maxConcurrency: 3, memoryMiB: 4096, cpuCores: 2, diskGiB: 50, maxActiveMembers: seatsUsed(h.ctx.db) }))
+    try {
+      expect((await linkInfo(tokenOf(link.url))).body).toMatchObject({ ...none, problem: 'full' })
+      expect((await inviteInfo(inv.token)).body).toMatchObject({ valid: true, inviterName: null })
+    } finally { setPlanForTests(undefined) }
+    expect((await inviteInfo(inv.token)).body).toMatchObject({ valid: true, inviterName: 'Wes Park' })
     // the maker disabled (their link and invites end with it), demoted or deleted by a change the admin screens never
     // make (the check at every use)
     for (const [username, change] of [['wren', null], ['wynn', "role = 'member'"], ['wade', "deleted_at = '2026-01-01T00:00:00.000Z'"]] as const) {
