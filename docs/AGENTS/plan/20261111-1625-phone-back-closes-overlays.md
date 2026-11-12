@@ -80,3 +80,9 @@ Built as planned, in `web/src/lib/backCloses.ts` (`useOverlayEntry`, `holdOverla
 on its way is lost, and WebKit merges two back() calls in a row into one, hence the one `go(-n)`, the hand-over in the
 same moment and the push again after landing. The Files row ⋯ and Search's row ⋯ are not MenuButtons yet (files and
 menus-tabs agents): they get Back when they are. PR: https://github.com/trina-app/trina-ax/pull/452
+
+Review fixes (on dev, with #457): one history traversal at a time. `history.go`/`back`/`forward` are wrapped, and
+another's traversal counts as on its way until its popstate. The phone screen history's steps arrive as the window
+event `mycel:history-steps` (#457's `lib/historySteps.ts`). No back-off of ours starts during either. The app's step
+back from inside an overlay (the room's ‹ with the @ list open) goes past the overlays' entries, so one tap leaves the
+page. A push made during our back is pushed again only when the browser dropped it.
