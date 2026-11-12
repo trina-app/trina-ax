@@ -32,17 +32,24 @@ const iso = (v: number) => new Date(v).toISOString()
  *   networkPerMinute anonymous requests this minute (any area, an IPv4 /24 or an IPv6 /48: networkKey()) gets through.
  *   A person starting a connection sends about 5 (Claude's server: /mcp, two metadata, register; the browser:
  *   authorize), so they still get in; a flooding network does not. Its refused requests are not counted in the bucket.
+ * - widePerMinute: in a busy minute an IPv6 /32 (wideNetworkKey(), one ISP's or cloud's allocation, which holds 65,536
+ *   /48s) also gets at most this many in total, so ever new /48s of one block give no fresh share (owner 2026-11-12,
+ *   review of #482: about 1,000 /48s filled the old 30,000 cap). 120 is 4 /48 shares, about 24 new connections a
+ *   minute from one /32 while the server is busy. IPv4 has no such level (a /24 is already small).
  * - anonymousPerMinute: the last-resort cap for everyone, so the work and the rows written stay bounded. Only requests
- *   let in count, so filling it during busy minutes takes (30,000 - 2,400) / 30 = about 900 networks (/24s or /48s) in
- *   one minute; filling the busy level takes 14 addresses (2,400 / 180). Its bound on rows: at most 30,000 requests
- *   a minute write rows (about 3 each: the address's buckets, the network, plus one hour-long row for register).
+ *   let in count. 6,000 (was 30,000): one accepted request costs about 2-4 ms of main-thread SQLite work on a loaded
+ *   2-core host, so 6,000 is about 20 s of work a minute, 30,000 was about 100 s. Filling it in a busy minute takes
+ *   (6,000 - 2,400) / 30 = 120 IPv4 /24s, or (6,000 - 2,400) / 120 = 30 IPv6 /32s; one /32 with all its /48s sends at
+ *   most 2,400 + 120 (or only 120, if others made the minute busy). Filling the busy level takes 14 addresses
+ *   (2,400 / 180). Its bound on rows: at most 6,000 requests a minute write rows (about 3-4 each: the address's
+ *   buckets, the network, an IPv6 request's /32, plus one hour-long row for register).
  */
 export const OAUTH_LIMITS: {
-  perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; busyPerMinute: number; networkPerMinute: number
+  perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; busyPerMinute: number; networkPerMinute: number; widePerMinute: number
   mcpPerGrantPerMinute: number; clients: number; idleClientMs: number; pending: number; pendingPerClient: number
 } = {
   perAddress: { register: [[60_000, 12], [3600_000, 240]], authorize: [[60_000, 180], [600_000, 200]], default: [[60_000, 180]] },
-  anonymousPerMinute: 30_000, busyPerMinute: 2400, networkPerMinute: 30, mcpPerGrantPerMinute: 300,
+  anonymousPerMinute: 6000, busyPerMinute: 2400, networkPerMinute: 30, widePerMinute: 120, mcpPerGrantPerMinute: 300,
   clients: 2000, idleClientMs: 7 * 24 * 3600_000, pending: 2000, pendingPerClient: 50,
 }
 /** A registered app that has no connection and no sign-in in progress: removed a week after its last use (one
@@ -75,6 +82,13 @@ export function networkKey(ip: string | null): string {
   if (k.endsWith('::/64')) return k.split(':').slice(0, 3).join(':') + '::/48'
   const v4 = /^(\d+\.\d+\.\d+)\.\d+$/.exec(k)
   return v4 ? v4[1] + '.0/24' : k
+}
+
+/** The coarser network of an IPv6 address for the busy-minute share (OAUTH_LIMITS.widePerMinute): its /32, so a block
+ * of many /48s is one network too. null for IPv4 (and IPv4-mapped) and an unknown address: they have one level. */
+export function wideNetworkKey(ip: string | null): string | null {
+  const k = ipKey(ip)
+  return k.endsWith('::/64') ? k.split(':').slice(0, 2).join(':') + '::/32' : null
 }
 
 /** An active owner or admin right now (the users table, not the role when a grant was made). mcp:admin needs this. */
@@ -137,26 +151,32 @@ export class RemoteOAuth {
   /**
    * A request no credential vouches for yet. Order, first the read-only refusals that write nothing (so a flood from
    * ever new addresses adds no rows then): a shared bucket at its last-resort cap; in a busy minute (past
-   * busyPerMinute), a network that already sent networkPerMinute. Then the address's own buckets (an address over its
-   * limit does not spend the shared one); then the network's count and the shared bucket. `shared: false`: only the address's buckets (token, which with a live code or refresh token, see
+   * busyPerMinute), a network that already sent networkPerMinute, or an IPv6 /32 that already sent widePerMinute.
+   * Then the address's own buckets (an address over its limit does not spend the shared one); then the network's (and
+   * an IPv6 /32's) count and the shared bucket. `shared: false`: only the address's buckets (token, which with a live code or refresh token, see
    * liveCredential(); an upload link that is live).
    * An /mcp call with a live access token goes through granted() instead.
    */
   ingress(area: string, ip: string | null, o: { shared?: boolean } = {}) {
     this.enabled()
-    const shared = o.shared !== false
+    const shared = o.shared !== false, wide = wideNetworkKey(ip)
     if (shared) {
       const used = this.peek('global', 'all')
       if (used >= OAUTH_LIMITS.anonymousPerMinute) throw new OAuthError('slow_down', 429)
       // a busy minute: a network over its share is refused before anything is written, so ever new addresses of one
       // network add no rows (and spend nothing). All callers without an address share one network ('unknown').
-      if (used >= OAUTH_LIMITS.busyPerMinute && this.peek('network', networkKey(ip)) >= OAUTH_LIMITS.networkPerMinute) throw new OAuthError('slow_down', 429)
+      // An IPv6 address also by its /32, so ever new /48s of one large block do not get a fresh share each.
+      if (used >= OAUTH_LIMITS.busyPerMinute) {
+        if (this.peek('network', networkKey(ip)) >= OAUTH_LIMITS.networkPerMinute) throw new OAuthError('slow_down', 429)
+        if (wide && this.peek('wide-network', wide) >= OAUTH_LIMITS.widePerMinute) throw new OAuthError('slow_down', 429)
+      }
     }
     const who = ipKey(ip)
     for (const [window, limit] of OAUTH_LIMITS.perAddress[area] ?? OAUTH_LIMITS.perAddress.default!) this.rate(window === 60_000 ? area : `${area}@${window}`, who, limit, window)
     if (shared) {
       // counted in every minute (not only busy ones), so a network that sent much before the minute got busy is known
       this.count('network', networkKey(ip))
+      if (wide) this.count('wide-network', wide)
       this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute)
     }
     this.housekeep()

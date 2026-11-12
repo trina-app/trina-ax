@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { OAUTH_LIMITS, RemoteOAuth, connectorOrigin, ipKey, networkKey, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
+import { OAUTH_LIMITS, RemoteOAuth, connectorOrigin, ipKey, networkKey, remoteOAuthOf, wideNetworkKey } from '../../server/src/connectors/remote-mcp/oauth'
 import { challenge, hash } from '../../server/src/connectors/remote-mcp/policy'
 import { harness, withOwner, type Harness } from './a-lib'
 
@@ -243,3 +243,77 @@ test('network keys of the busy-minute share: IPv4 by its /24, IPv6 by its /48', 
   expect(networkKey('::1')).toBe('0:0:0::/48')
   expect(networkKey('not an address')).toBe('not an address')
 })
+
+test('wide network keys of the busy-minute share: an IPv6 /32; none for IPv4 or an unknown address', () => {
+  expect(wideNetworkKey(null)).toBeNull()
+  expect(wideNetworkKey('203.0.113.9')).toBeNull()
+  expect(wideNetworkKey('::ffff:203.0.113.200')).toBeNull()
+  expect(wideNetworkKey('not an address')).toBeNull()
+  expect(wideNetworkKey('2001:db8:1:2::1')).toBe('2001:db8::/32')
+  expect(wideNetworkKey('2001:DB8:ffff:1::9')).toBe('2001:db8::/32')
+  expect(wideNetworkKey('2001:db9::1')).toBe('2001:db9::/32')
+  expect(wideNetworkKey('::1')).toBe('0:0::/32')
+})
+
+// Owner 2026-11-12 (review of #482): about 1,000 /48s of one large IPv6 block filled the 30,000 last-resort cap in a
+// minute and then a new person got 429; and 30,000 accepted requests a minute was too much main-thread work.
+const fresh = () => { const start = Math.floor(Date.now() / 60_000) * 60_000 + 60_000; return () => start + 1000 }
+const admitted = (f: () => void) => { try { f(); return true } catch { return false } }
+const rowCount = (h: Harness) => (h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n
+
+test('busy minute, real limits: 1,010 IPv6 /48s spread over 4 /32s do not fill the cap; a new person still registers', async () => {
+  const h = await harness('remote-wide-v6'); running.push(h)
+  const svc = new RemoteOAuth(h.ctx.db, { origin }); svc.now = fresh()
+  // QA TC-168's IPv4 flood makes the minute busy first: 15 addresses x 170
+  let v4 = 0
+  for (let a = 1; a <= 15; a++) for (let i = 0; i < 170; i++) if (admitted(() => svc.ingress('metadata', `198.51.${a}.1`))) v4++
+  expect(v4).toBe(OAUTH_LIMITS.busyPerMinute + 10)
+  // then 1,010 /48s x 30 from fresh /64s, the /48s spread over 4 /32s: each /32 gets its 120, nothing more
+  const before = rowCount(h)
+  let v6 = 0
+  for (let net = 0; net < 1010; net++) for (let i = 0; i < 30; i++) {
+    if (admitted(() => svc.ingress('metadata', `2001:${(0xdb8 + net % 4).toString(16)}:${net.toString(16)}:${i.toString(16)}::1`))) v6++
+  }
+  expect(v6).toBe(4 * OAUTH_LIMITS.widePerMinute)
+  // a fresh /48 of a flooding /32 is refused before anything is written, also a registration (hour-long rows)
+  const rows = rowCount(h)
+  expect(admitted(() => svc.ingress('register', '2001:db8:ffff:1::1'))).toBe(false)
+  expect(admitted(() => svc.ingress('metadata', '2001:dbb:fffe::1'))).toBe(false)
+  expect(rowCount(h)).toBe(rows)
+  expect(rows - before).toBeLessThan(4 * OAUTH_LIMITS.widePerMinute * 4) // about 3 rows per request let in
+  // a new person: Claude's server (IPv4 or IPv6 in another /32) discovers and registers, the browser authorizes
+  for (const claude of ['160.79.104.20', '2600:1f18:1234:5678::20']) {
+    for (const area of ['mcp', 'metadata', 'metadata', 'register']) expect(admitted(() => svc.ingress(area, claude))).toBe(true)
+  }
+  expect(admitted(() => svc.ingress('authorize', '2a02:1234:5678:9::50'))).toBe(true)
+}, 300_000)
+
+test('busy minute, real limits: one /32 sending from ever new /48s gets 2,400 + 120 at most; IPv4 /24s keep 30 each', async () => {
+  const h = await harness('remote-wide-one'); running.push(h)
+  const svc = new RemoteOAuth(h.ctx.db, { origin }); svc.now = fresh()
+  let n = 0
+  for (let net = 0; net < 1010; net++) for (let i = 0; i < 30; i++) if (admitted(() => svc.ingress('metadata', `2001:db8:${net.toString(16)}:${i.toString(16)}::1`))) n++
+  expect(n).toBe(OAUTH_LIMITS.busyPerMinute)
+  // IPv4 is unchanged: each /24 still gets its 30 in the busy minute, a fresh address in it no more
+  const v4: boolean[] = []
+  for (let i = 0; i < 40; i++) v4.push(admitted(() => svc.ingress('metadata', `203.0.113.${i + 1}`)))
+  expect(v4.filter(Boolean).length).toBe(OAUTH_LIMITS.networkPerMinute)
+  expect(admitted(() => svc.ingress('register', '160.79.104.20'))).toBe(true)
+}, 300_000)
+
+test('the last-resort cap bounds accepted anonymous work per minute at 6,000; refusals at the cap write nothing', async () => {
+  const h = await harness('remote-cap'); running.push(h)
+  const svc = new RemoteOAuth(h.ctx.db, { origin }); svc.now = fresh()
+  expect(OAUTH_LIMITS.anonymousPerMinute).toBe(6000)
+  // 300 ever new IPv4 /24s x 30 (each within its share), then ever new IPv6 /32s x 120
+  let n = 0
+  for (let net = 0; net < 300; net++) for (let i = 0; i < 30; i++) if (admitted(() => svc.ingress('metadata', `10.${net >> 8}.${net & 255}.${i + 1}`))) n++
+  for (let wide = 0; wide < 10; wide++) for (let i = 0; i < 120; i++) if (admitted(() => svc.ingress('metadata', `2001:${(0x100 + wide).toString(16)}:${i.toString(16)}::1`))) n++
+  expect(n).toBe(OAUTH_LIMITS.anonymousPerMinute)
+  const rows = rowCount(h)
+  for (let i = 0; i < 50; i++) expect(admitted(() => svc.ingress('register', `192.0.${i}.1`))).toBe(false)
+  expect(rowCount(h)).toBe(rows)
+  // the next minute starts empty
+  const next = svc.now() + 60_000; svc.now = () => next
+  expect(admitted(() => svc.ingress('register', '192.0.2.1'))).toBe(true)
+}, 300_000)
