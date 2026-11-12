@@ -159,7 +159,8 @@ describe('folders API', () => {
       expect(x.status, label).toBe(409)
       expect(x.body.error.params.reason, label).toBe('project_members_only')
     }
-    for (const p of ['projects/apollo', 'projects/apollo/notes', 'projects/not-there', 'projects/not-there/x', 'PROJECTS/Apollo', 'Projects/apollo/notes']) {
+    // (another letter case is projects/ only where the disk ignores case: docs/DECISIONS.md "Only the lowercase projects/")
+    for (const p of ['projects/apollo', 'projects/apollo/notes', 'projects/not-there', 'projects/not-there/x', ...(h.ctx.files.fx.caseInsensitive ? ['PROJECTS/Apollo', 'Projects/apollo/notes'] : [])]) {
       await refused(admin.try('POST', '/api/admin/folders', { path: p, rules: [{ subjectType: 'user', subjectId: 'adam', access: 'write' }] }), `create ${p}`)
       await refused(admin.try('POST', '/api/admin/folders', { path: p, create: false, rules: [] }), `create false ${p}`)
       await refused(owner.try('POST', '/api/admin/folder-rules/preview', { changes: [{ path: p, rules: [{ subjectType: 'user', subjectId: 'olga', access: 'read' }] }] }), `preview ${p}`)

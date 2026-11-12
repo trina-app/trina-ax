@@ -47,6 +47,9 @@ export type ProxyTurnEvent =
   | { type: 'auth' }
   | { type: 'budget' }
   | { type: 'rate_limit'; retryAt: string | null; credentialId?: string }
+  /** a short 429 or a 529: the engine tries again by itself (on); the provider answered again (off). Shown to the person
+   * while it lasts (QA TC-388); the turn goes on */
+  | { type: 'busy'; on: boolean }
   | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' }
   /** a request named a tool outside the turn's lockdown (checkToolNames): the answer stops */
   | { type: 'lockdown'; reason: string }
@@ -245,6 +248,14 @@ export interface ModelProxy { url: string; port: number; stop(): Promise<void> }
 export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   const { db } = o
   let serverPort = 0
+  // turns told "busy" (a short 429 or a 529) and not yet told it is over: only those hear "busy: off" on the next answer.
+  // A turn that ends while busy stays here; the set is emptied when it grows large (the web app clears the line itself)
+  const busyTurns = new Set<string>()
+  const busy = (turnId: string, on: boolean) => {
+    if (on === busyTurns.has(turnId)) return
+    if (on) { if (busyTurns.size >= 10_000) busyTurns.clear(); busyTurns.add(turnId) } else busyTurns.delete(turnId)
+    o.onTurnEvent?.(turnId, { type: 'busy', on })
+  }
   const refusedAudit = (row: TokenRow | null, reason: string, extra: Record<string, unknown> = {}) =>
     audit(db, { actor: row?.user_id ?? null, action: 'proxy.refused', target: row?.turn_id ?? null, detail: { reason, ...(row?.credential_id ? { credentialId: row.credential_id } : {}), ...extra } })
   /** the turn of a request whose token was found (also a revoked one): for the log line of a request a stop ended */
@@ -369,9 +380,15 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
           o.onTurnEvent?.(row.turn_id, { type: 'rate_limit', retryAt: until.toISOString(), credentialId: cred.credentialId })
           return apiError(403, 'permission_error', 'subscription_limited', { 'retry-after': String(s) })
         }
-        // a short burst limit: status and retry-after as they came, the SDK retries
+        // a short burst limit: status and retry-after as they came, the SDK retries; the person is told it is busy
+        busy(row.turn_id, true)
       }
-      if (up.status >= 200 && up.status < 300) broker.succeeded(cred.credentialId)
+      // 529: the provider is overloaded; the SDK retries it like a short limit
+      if (up.status === 529) busy(row.turn_id, true)
+      if (up.status >= 200 && up.status < 300) {
+        broker.succeeded(cred.credentialId)
+        busy(row.turn_id, false)
+      }
       const counts = url.pathname === '/v1/messages' && up.status < 400
       const record = (m: string, u: Record<string, unknown>) => { if (Object.keys(u).length) broker.record(cred.credentialId, row.turn_id, m, u) }
       if (counts && (up.headers.get('content-type') ?? '').includes('text/event-stream') && up.body) {

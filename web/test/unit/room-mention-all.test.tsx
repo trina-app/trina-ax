@@ -334,3 +334,23 @@ test('a sent message: "@전체" stands out as a mention of me (not for its sende
   await m2.until(() => m2.find('mention-menu'), 'the @ list', WAIT)
   expect(rows(m2).some((x) => x.startsWith('all:'))).toBe(false)
 }, DOM_TEST_MS)
+
+test('a sent "@트리나": it stands out only while the server takes it (Me.server.roomAiMentions, as the "@" list); off, it is plain text, in a thread too', async () => {
+  const r = room()
+  const said = message({ roomId: r.id, seq: 1, author: BEN, body: '@트리나 hello' })
+  const reply = message({ roomId: r.id, seq: 2, author: BEN, body: '@트리나 hi', threadRootId: said.id })
+  // (mounted: a static render reads the session's first state, without Me)
+  const marked = async (on: boolean, variant?: 'reply') => {
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: 'member' }, server: on ? { roomAiMentions: true } : {} } as unknown as Me } })
+    const m = await mount(variant ? <RoomMessages roomId={r.id} messages={[reply]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} variant="reply" threadRootId={said.id} /> : <RoomMessages roomId={r.id} messages={[said]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
+    await m.settle()
+    const html = m.html()
+    await m.unmount()
+    expect(html).toMatch(/@트리나(<\/span>)? h/)
+    return /<span class="font-medium text-accent-text"[^>]*>@트리나<\/span>/.test(html)
+  }
+  expect(await marked(true)).toBe(true)
+  expect(await marked(false)).toBe(false)
+  expect(await marked(true, 'reply')).toBe(true)
+  expect(await marked(false, 'reply')).toBe(false)
+}, DOM_TEST_MS)

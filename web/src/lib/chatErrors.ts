@@ -24,6 +24,8 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   proxy_down: 'health',
   // the server's disk is full: the storage card shows what uses the space
   storage_full: 'system',
+  // the engine firewall is not in effect on the server: the health page's firewall line says why (QA TC-310)
+  network_protection_off: 'health',
 }
 
 /** The admin menu's words for a place, in the language on screen: "관리자 › AI 계정". */

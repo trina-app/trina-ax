@@ -23,7 +23,7 @@ import (
 // supported for hosting): ① the engine firewall (needs CAP_NET_ADMIN), ② the launcher as the engine account, ③ the
 // bootstrap as the server account, with the same arguments and environment as the systemd units. A child that dies is
 // started again after 1 s; SIGTERM/SIGINT stop both (SIGKILL after 30 s); orphans are reaped (PID 1 or subreaper);
-// the firewall is re-applied every 2 minutes. When /sys/fs/cgroup is a writable cgroup v2 tree, the launcher and the
+// the firewall is re-applied every 30 seconds. When /sys/fs/cgroup is a writable cgroup v2 tree, the launcher and the
 // server get delegated cgroups of their own (what systemd's Delegate= gives), else the launcher runs with --cgroup
 // auto and no turn limits.
 func cmdSupervise(e *env, args []string) (int, error) {
@@ -68,7 +68,7 @@ func cmdSupervise(e *env, args []string) (int, error) {
 	}
 	sigs := make(chan os.Signal, 16)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGCHLD)
-	fwTick := time.NewTicker(2 * time.Minute)
+	fwTick := time.NewTicker(30 * time.Second)
 	defer fwTick.Stop()
 	poll := time.NewTicker(250 * time.Millisecond)
 	defer poll.Stop()

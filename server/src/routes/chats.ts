@@ -43,6 +43,7 @@ import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { adoptLeftoverFolders } from '../chat/members-only-once'
+import { dismissUpdateNotice, joinUpdateNoticeProjects, updateNoticeProjects } from '../chat/old-projects'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
@@ -644,6 +645,11 @@ export const chatsRoutes: RouteModule = {
       const creators = new Map<string, Principal | null>()
       return { items: rows.filter((r) => canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r))).map((r) => projectOut(r, p, mayEdit(ctx, p, r), auth.user.id, creators, aud)) }
     })
+
+    // the owner's or an admin's card for team projects from before the update (chat/old-projects.ts; Admin › Home)
+    kit.handle(API.getProjectsUpdateNotice, ({ auth }) => ({ items: updateNoticeProjects(ctx, principal(ctx, auth)).map((r) => ({ id: r.id, name: r.name })) }))
+    kit.handle(API.joinProjectsUpdateNotice, ({ c, auth }) => joinUpdateNoticeProjects(ctx, { id: auth.user.id, name: auth.user.name }, c.get('locale')))
+    kit.handle(API.dismissProjectsUpdateNotice, ({ auth }) => { dismissUpdateNotice(ctx, auth.user.id) })
 
     kit.handle(API.createProject, ({ c, body, auth }) => {
       const locale = c.get('locale')

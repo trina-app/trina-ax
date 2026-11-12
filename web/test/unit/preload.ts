@@ -25,6 +25,9 @@
 //   one such file, about 550 failures in the 88 files CI ran after it, none with Bun 1.4.4). React keeps that depth to
 //   itself, so it cannot be put back: while it is open, each file fails at once with one line that names the file that
 //   most likely left it (the last one that started with act() closed).
+// - The theme in use (lib/theme.ts keeps it in its module, not in a store) is 'system' again, as at page load. A file
+//   that picked light or dark (session-theme) left it for the next, so mobile.test.ts's appearance-v1 heard
+//   system:false. With no fake document, applyTheme only sets that value.
 //
 // The start of a file is a beforeAll that a loader plugin puts in front of each test file's own code, on its first line
 // (line numbers in errors stay right). Tests without installDom still see no `window`: the fake document is taken away
@@ -33,6 +36,7 @@ import { plugin } from 'bun'
 import { mock, setSystemTime } from 'bun:test'
 import * as React from 'react'
 import * as zustand from 'zustand'
+import { applyTheme } from '../../src/lib/theme'
 import { domInstalled, installDom, removeDom } from './dom-host'
 
 type Store = { getState(): unknown; getInitialState(): unknown; setState(state: unknown, replace: true): void }
@@ -101,6 +105,7 @@ export function fileStart(file = '') {
     } catch { /* not configurable: left as it is */ }
   }
   setSystemTime()
+  applyTheme('system') // after removeDom and the globals: with no window it only sets the theme in use
   for (const s of stores) {
     const state = s.getState() as { reset?: unknown }
     if (typeof state?.reset === 'function' && state.reset.length === 0) {

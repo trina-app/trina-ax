@@ -20,6 +20,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,6 +29,7 @@ import (
 	"golang.org/x/sys/unix"
 	"mycel/native/internal/bootflags"
 	"mycel/native/internal/bundle"
+	"mycel/native/internal/version"
 )
 
 // UpdateResult is `mycel-ctl update --json` (spec 3.6.5 step 6). Exit codes: ok 0, rolled_back 10, verify_failed 20,
@@ -87,6 +89,8 @@ type updater struct {
 	force     bool
 	busy      int
 	busyWith  string
+	// say: an administrator's wait, which tells on stderr how many answers it waits for
+	say       bool
 	deferred  bool
 	turnedOff bool
 	// gateVersion: the release the scheduled gate decided on (its window, hold and staged roll-out); run() installs only
@@ -107,6 +111,9 @@ type updater struct {
 	// runVersionAdmin runs app/versions/<v>'s admin.js as the server account (nil: not asked)
 	runVersionAdmin func(v string, args []string, env []string) (string, error)
 	restartSrv      func() error
+	// prepareLauncher tells the launcher that it restarts for an update: the turns that still run end now as stopped
+	// for the update (a confirmed end, never a broken connection: QA TC-338)
+	prepareLauncher func(reason string)
 	sleep           func(time.Duration)
 	// maintenance is the server's own operation running now (a backup, a restore), "" for none (status/status.json)
 	maintenance func() string
@@ -182,10 +189,15 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	u.runAsSrv = u.runAsServer
 	u.runVersionAdmin = u.runVersionAsServer
 	u.restartSrv = u.restartServer
+	u.prepareLauncher = u.launcherPrepareStop
 	u.sleep = time.Sleep
 	u.maintenance = u.serverMaintenance
 	if updateTestHook != nil {
 		updateTestHook(u)
+	}
+	// a hold of the release that runs here and answers is over (QA TC-334): neither the timer nor this run waits for it
+	if _, note := readHold(e, in); note != "" {
+		res.Notes = append(res.Notes, note)
 	}
 	if u.scheduled {
 		// the window and a quiet moment first, without the lock: an administrator's `mycel-ctl update` meanwhile is not
@@ -284,6 +296,9 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 		why = "already at " + feed.Version
 	}
 	if why != "" {
+		if half := rootUnfinished(u.e, root); len(half) > 0 {
+			why += "; " + unfinishedError(half, root, feed.Version).Error()
+		}
 		clearDeferred(u.e)
 		clearFailedUpTo(u.e, u.res.From) // a hold of a version the app has reached is over
 		return u.syncOnly(why), nil
@@ -301,6 +316,11 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	// later. Only for a release newer than the app that runs (root files catching up with the running version are not
 	// held), never on a hosted server (its control plane picks), and never for an administrator's `mycel-ctl update`.
 	if !u.in.Hosted && u.res.From != "" && compareVersions(feed.Version, u.res.From) > 0 {
+		// an older copy of a head a hold or resume changed (root/feed-seen.json): left, so it cannot lift a hold
+		fu, _ := u.feedURL()
+		if older, seen := olderCopy(u.e, fu, feed); older {
+			return u.syncOnly("the feed answered with an older copy of release " + feed.Version + " (a newer one, changed " + seen + ", was seen); waiting for the current one"), nil
+		}
 		if w := rolloutTurn(feed, installIDOf(u.in, s), serverChannel(u.e.base), u.e.now()); w.wait {
 			// a deferral left by an earlier release (no quiet moment for it) must not carry its three days over to this
 			// one: at this release's turn the last resort would cut answers off at the first check
@@ -416,6 +436,9 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	needsRoot := true
 	if bundleFile != "" {
 		u.attempted = true
+		if err := u.checkSpace("", 0); err != nil {
+			return err
+		}
 		if err := extractBundle(bundleFile, dir); err != nil {
 			u.res.Result = "verify_failed"
 			return err
@@ -430,19 +453,33 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the feed moved from "+u.gateVersion+" to "+feed.Version+" while this run waited for a quiet moment; the next check decides on "+feed.Version
 			return nil
 		}
+		// root files half replaced (an update that stopped, from a kit newer than the feed say): the release that would
+		// be skipped here cannot finish them, so an administrator's run says so instead of "already at" (QA TC-340
+		// retest). The update timer skips as before (its gate adds the reason): it would fail at every check.
+		skip := func(why string) error {
+			if half := rootUnfinished(u.e, rootVersion(u.e)); len(half) > 0 && !u.scheduled {
+				return unfinishedError(half, rootVersion(u.e), feed.Version)
+			}
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+			return nil
+		}
 		if version == "" {
 			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
-				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
-				return nil
+				return skip(why)
 			}
 		}
 		if onlyRoot && !needsRoot {
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "release "+feed.Version+" does not change root files"
-			return nil
+			return skip("release " + feed.Version + " does not change root files")
 		}
 		if feed.Version == u.res.From && rootVersion(u.e) == feed.Version {
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "already at "+feed.Version
-			return nil
+			u.retireNow()
+			return skip("already at " + feed.Version)
+		}
+		// the publisher paused the release (rollout.go hold; the held head also names it as its own minFrom, which holds
+		// the timers that do not know hold): not installed until it resumes, by the timer or by hand. A server that
+		// already runs it may finish its root files.
+		if feed.Rollout != nil && feed.Rollout.Hold != nil && (u.res.From == "" || compareVersions(feed.Version, u.res.From) > 0) {
+			return fmt.Errorf("the publisher paused release %s (since %s); it is not installed until the roll-out resumes", feed.Version, feed.Rollout.Hold.At)
 		}
 		if feed.MinFrom != "" && u.res.From != "" && compareVersions(u.res.From, feed.MinFrom) < 0 {
 			return fmt.Errorf("%s cannot update to %s by itself (needs %s or newer first)", u.res.From, feed.Version, feed.MinFrom)
@@ -472,10 +509,17 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		return nil
 	}
 	if m.Version == u.res.From {
+		u.retireNow()
 		u.res.Result = "ok"
 		return nil
 	}
 	return u.updateApp(dir, m.Version)
+}
+
+// unfinishedError: root files (half) are not those of root/VERSION (root) and the release the feed names (feed) is no
+// newer, so this run cannot finish them.
+func unfinishedError(half []string, root, feed string) error {
+	return fmt.Errorf("an update did not finish: some root files (%s) are not those of %s, the version in root/VERSION, and the feed's release %s does not replace them. %s", strings.Join(half, ", "), orNone(root), feed, rerunHint)
 }
 
 // lastOldUpdater is the last release whose updaters (the app's own and mycel-ctl) read only the feed's needsRoot and
@@ -696,6 +740,9 @@ func (u *updater) download(f *ReleaseFeed, dir string) error {
 		if err := allowedURL(b.URL); err != nil {
 			return err
 		}
+		if err := u.checkSpace(f.Version, b.Size); err != nil {
+			return err
+		}
 		file := filepath.Join(u.work, "bundle.tar.zst")
 		out, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
@@ -731,9 +778,81 @@ func (u *updater) download(f *ReleaseFeed, dir string) error {
 	return fmt.Errorf("release %s has no bundle for linux-%s", f.Version, u.arch)
 }
 
+// ---------- free space (QA TC-339) ----------
+
+// spaceMargin is left free after an update: the server, the database and the team folder go on writing.
+const spaceMargin = 256 << 20
+
+// spaceNeeded is about what an update writes on the install's disk: the archive it downloads (0 for --bundle, which
+// is on disk already), the archive unpacked in .install-tmp and that copy in app/versions (each about the size of the
+// version that runs now, or three times the archive when that is larger), the copy of the database the new version
+// makes before it migrates (db: the size of data/app.db, as install-linux.sh counts it), and a margin.
+func spaceNeeded(archive, current, db int64) uint64 {
+	unpacked := current
+	if 3*archive > unpacked {
+		unpacked = 3 * archive
+	}
+	return uint64(archive + 2*unpacked + db + spaceMargin)
+}
+
+// treeSize: the bytes of the regular files under dir (links are not followed); 0 when it cannot be read.
+func treeSize(dir string) int64 {
+	var n int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if i, e := d.Info(); e == nil {
+				n += i.Size()
+			}
+		}
+		return nil
+	})
+	return n
+}
+
+func gib(b uint64) string { return fmt.Sprintf("%.1f GB", float64(b)/(1<<30)) }
+
+// checkSpace refuses an update that would not fit before anything is downloaded or changed, saying how much it needs:
+// a full disk used to end in a bare "no space left on device" from the download or the copy.
+func (u *updater) checkSpace(version string, archive int64) error {
+	_, free, _, err := diskUsage(u.e.base)
+	if err != nil {
+		return nil // unknown: the update says what failed, as before
+	}
+	cur := int64(0)
+	if v := currentVersion(u.e.base); v != "" {
+		cur = treeSize(filepath.Join(u.e.base, "app", "versions", v))
+	}
+	var db int64
+	if st, err := os.Lstat(filepath.Join(u.e.base, "data", "app.db")); err == nil && st.Mode().IsRegular() {
+		db = st.Size()
+	}
+	need := spaceNeeded(archive, cur, db)
+	if free >= need {
+		return nil
+	}
+	return spaceError(u.e.base, version, need, free)
+}
+
+func spaceError(base, version string, need, free uint64) error {
+	what := "the update"
+	if version != "" {
+		what = version
+	}
+	return fmt.Errorf("not enough free space for %s on the disk of %s: it needs about %s free, it has %s; nothing was changed. Free some space (old backups in Admin > System > Backups, apt's cache: sudo apt-get clean) and run it again", what, base, gib(need), gib(free))
+}
+
 // ---------- root files ----------
 
-// rootDiff lists the files of the bundle's root/ that differ from <base>/root (relative paths).
+// ctlProgram is root's mycel-ctl. Updates replace it before the other root files (rootDiff, install-linux.sh): a reset
+// after any of them changed then leaves the new mycel-ctl, whose `status` says "AN UPDATE DID NOT FINISH" and whose
+// `update` does not answer "already at" (QA TC-340 retest: 0.4.0's mycel-ctl has neither). The new mycel-ctl with the
+// old other root files is a state updates always had (the old walk put it before the launcher, the sandbox helper and
+// the unit templates, and a kit older than root/VERSION keeps newer root files): the units on disk call only
+// `firewall apply` and `update --only-if-needs-root --scheduled`, and units are rendered only after every file is in.
+const ctlProgram = "mycel-ctl"
+
+// rootDiff lists the files of the bundle's root/ that differ from <base>/root (relative paths): mycel-ctl first
+// (ctlProgram), then the others in name order.
 func rootDiff(bundleRoot, installed string) ([]string, error) {
 	var diff []string
 	err := filepath.WalkDir(bundleRoot, func(p string, d fs.DirEntry, err error) error {
@@ -756,6 +875,13 @@ func rootDiff(bundleRoot, installed string) ([]string, error) {
 	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
+	}
+	for i, rel := range diff {
+		if rel == ctlProgram {
+			copy(diff[1:i+1], diff[:i])
+			diff[0] = ctlProgram
+			break
+		}
 	}
 	return diff, err
 }
@@ -795,8 +921,6 @@ func (u *updater) updateRoot(dir, v string) error {
 		}
 	}
 	systemd := u.in.Systemd && fileExists(systemdRunDir)
-	// before the files change: a process from before an older install-linux.sh update stays with no other sign
-	stale := systemd && u.boxdStale()
 	if len(diff) == 0 {
 		// root files already those of v: say so (rootNeeded compares root/VERSION with the feed's rootSince, and a server
 		// whose files are right would otherwise be sent here again by every check)
@@ -806,16 +930,7 @@ func (u *updater) updateRoot(dir, v string) error {
 			}
 			u.res.Notes = append(u.res.Notes, "root files already match "+v+": root/VERSION is "+v+" now")
 		}
-		if err := u.syncUnits(systemd, false); err != nil {
-			return err
-		}
-		if stale {
-			if !u.waitForTurns() {
-				return u.deferUpdate(v, boxdUnit+" not restarted")
-			}
-			u.restartBoxd()
-		}
-		return nil
+		return u.syncUnits(systemd, false)
 	}
 	stage := u.e.root(".new")
 	if err := os.RemoveAll(stage); err != nil {
@@ -839,13 +954,7 @@ func (u *updater) updateRoot(dir, v string) error {
 	if !u.waitForTurns() {
 		return u.deferUpdate(v, "root files not replaced")
 	}
-	units, boxd := false, stale
-	// also when a later step fails: the next run finds root/mycel-boxd already new and would not restart it
-	defer func() {
-		if boxd && systemd {
-			u.restartBoxd()
-		}
-	}()
+	units := false
 	for _, rel := range diff {
 		dest := u.e.root(rel)
 		if err := mkdirAll755(filepath.Dir(dest)); err != nil {
@@ -863,9 +972,6 @@ func (u *updater) updateRoot(dir, v string) error {
 		if strings.HasPrefix(rel, "systemd/") {
 			units = true
 		}
-		if rel == boxdProgram {
-			boxd = true
-		}
 	}
 	if err := writeRootFile(u.e.root("VERSION"), []byte(v+"\n"), 0o644); err != nil {
 		return err
@@ -878,6 +984,16 @@ func (u *updater) updateRoot(dir, v string) error {
 		return fmt.Errorf("firewall: %v", err)
 	}
 	if systemd {
+		// the answers that still run after the wait end as stopped for the update, with their end confirmed, before the
+		// restart cuts the launcher's connections (the server then says so and gives their turn slots back)
+		if u.prepareLauncher != nil {
+			// "update-root": the app stays (the server is not restarted next), so its queue need not wait for the switch
+			reason := "update"
+			if v == u.res.From {
+				reason = "update-root"
+			}
+			u.prepareLauncher(reason)
+		}
 		if out, err := exec.Command(u.e.systemctl, "restart", u.in.ID+"-launcher.service").CombinedOutput(); err != nil {
 			return fmt.Errorf("restart launcher: %v %s", err, out)
 		}
@@ -887,114 +1003,158 @@ func (u *updater) updateRoot(dir, v string) error {
 	return nil
 }
 
-// The dev environment's root helper: root/<boxdProgram> comes with every kit, and only a server with the dev env has
-// the service (scripts/dev-env/install-trial.sh writes it, with this name for every install id). Without the service the
-// file runs nothing, so a server without the dev env has no step here. A hosted team VM with the service takes the same
-// step: the control plane's update runs this code too.
+// The box runner of the dev environment is gone (docs/DECISIONS.md "Dev environment: box runner removed, srt only"). A
+// server where scripts/dev-env/install-trial.sh ran (up to v0.5.0-beta.1) still has its root service, the boxes it
+// started (rootless podman as mycel-devbox, with mounts of project folders), the drop-in that turned the box on for the
+// team server, and root/mycel-boxd from the kit. This step stops the service and the boxes, takes away the mounts, the
+// unit, the drop-in and the program, so the server does not run with MYCEL_DEV_ENV=1 and no srt and no box keeps
+// writing project folders. The box state (the mycel-devbox account, the box volumes, the podman storage) stays: a
+// delete through a mount that is still there deletes team files, so the note says where it is and how to remove it.
+// Every step is a note, never a failure.
+//
+// It runs in two places: before the server restarts on the new version (updateApp), and when the server already runs
+// this version (retireNow). The second one is for the first update to this release: the mycel-ctl that runs it is the
+// one of the older version, which has no such step.
 const (
-	boxdProgram = "mycel-boxd"
-	boxdUnit    = "mycel-boxd.service"
+	retiredBoxProgram = "mycel-boxd"
+	retiredBoxUnit    = "mycel-boxd.service"
+	retiredBoxUser    = "mycel-devbox"
 )
 
-// boxdSock is the default of mycel-boxd --listen (install-trial.sh keeps it). boxdWait is the time for its checks, the
-// same as in install-trial.sh. Variables for the tests.
+// retiredBoxState: the folders that install-trial.sh made, for the note. retiredBoxMounts: where its mounts were.
+// Variables for the tests.
 var (
-	boxdSock = "/run/mycel-boxd/boxd.sock"
-	boxdWait = 30 * time.Second
-	boxdExe  = func(pid string) string { return "/proc/" + pid + "/exe" }
+	retiredBoxState = func(base string) []string {
+		return []string{filepath.Join(base, "boxd"), filepath.Join(base, "boxd-storage"), "/var/lib/mycel-boxd", "/var/lib/mycel-boxd-trial", "/home/" + retiredBoxUser}
+	}
+	retiredBoxMounts = func(base string) []string {
+		return []string{filepath.Join(base, "boxd"), filepath.Join(base, "boxd-storage"), "/var/lib/mycel-boxd", "/run/mycel-boxd"}
+	}
+	mountInfo = "/proc/self/mountinfo"
 )
 
-// boxdStale: the service runs root/mycel-boxd, but its process has other content than that file. The path of the process
-// says "(deleted)" also for a file that was replaced with the same content, and that needs no restart, so this compares
-// the content, as install-trial.sh does. A service that runs another path, has no process, or has a program that cannot
-// be read is not stale: a restart stops the boxes.
-func (u *updater) boxdStale() bool {
-	unit, err := os.ReadFile(filepath.Join(systemdUnitDir, boxdUnit))
-	if err != nil || !strings.Contains(string(unit), "\nExecStart="+u.e.root(boxdProgram)+" ") {
-		return false
-	}
-	out, err := exec.Command(u.e.systemctl, "show", "-p", "MainPID", "--value", boxdUnit).Output()
-	pid := strings.TrimSpace(string(out))
-	if err != nil || pid == "" || pid == "0" {
-		return false
-	}
-	running, _, err := bundle.HashFile(boxdExe(pid))
+// mountsUnder lists the mount points below (or at) these folders, deepest first. mountinfo escapes space, tab, newline
+// and backslash as octal.
+func mountsUnder(roots []string) []string {
+	b, err := os.ReadFile(mountInfo)
 	if err != nil {
-		return false
+		return nil
 	}
-	file, _, err := bundle.HashFile(u.e.root(boxdProgram))
-	if err != nil || running == file {
-		return false
-	}
-	u.res.Notes = append(u.res.Notes, boxdUnit+" runs an old program, not the file "+u.e.root(boxdProgram)+": it restarts")
-	return true
-}
-
-// restartBoxd runs the new root/mycel-boxd after this update replaced it, before the team server restarts (updateApp).
-// A helper that starts stops the boxes that run (native/cmd/mycel-boxd setup fails closed), so only a changed program
-// comes here, and only a service that runs this file restarts: one from an earlier trial runs another path and would
-// stop the boxes for nothing. A service that an administrator stopped stays stopped; a failed one restarts. The server
-// works without boxes, so a failure is a note and the update goes on.
-func (u *updater) restartBoxd() {
-	unit, err := os.ReadFile(filepath.Join(systemdUnitDir, boxdUnit))
-	if err != nil {
-		return
-	}
-	if !strings.Contains(string(unit), "\nExecStart="+u.e.root(boxdProgram)+" ") {
-		u.res.Notes = append(u.res.Notes, boxdUnit+" does not run "+u.e.root(boxdProgram)+", so it keeps the old program: run scripts/dev-env/install-trial.sh again")
-		return
-	}
-	if out, _ := exec.Command(u.e.systemctl, "is-active", boxdUnit).Output(); strings.TrimSpace(string(out)) == "inactive" {
-		u.res.Notes = append(u.res.Notes, boxdUnit+" is stopped, so it stays stopped: its next start runs the new "+boxdProgram)
-		return
-	}
-	if out, err := exec.Command(u.e.systemctl, "restart", boxdUnit).CombinedOutput(); err != nil {
-		u.res.Notes = append(u.res.Notes, fmt.Sprintf("restart of %s failed, so boxes may not work: %v %s (journalctl -u %s, then `sudo systemctl restart %s`)",
-			boxdUnit, err, strings.TrimSpace(string(out)), boxdUnit, boxdUnit))
-		return
-	}
-	if why := boxdProblem(); why != "" {
-		u.res.Notes = append(u.res.Notes, fmt.Sprintf("%s restarted, but boxes may not work: %s (journalctl -u %s)", boxdUnit, why, boxdUnit))
-		return
-	}
-	u.res.Notes = append(u.res.Notes, boxdProgram+" changed: "+boxdUnit+" restarted; boxes that ran have stopped and start again at their next use")
-}
-
-// boxdProblem asks the helper after a restart and says why boxes do not work, or "". The exit status of `systemctl
-// restart` cannot say this: the unit is Type=simple, so systemctl is done when the process starts, also for a program that
-// stops at once. The helper answers after its checks; until then the socket file of the old process refuses a connection.
-func boxdProblem() string {
-	for end := time.Now().Add(boxdWait); ; {
-		var st struct {
-			Ev        string `json:"ev"`
-			Available bool   `json:"available"`
-			Reason    string `json:"reason"`
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) < 5 {
+			continue
 		}
-		if line, err := boxdAsk(); err == nil && json.Unmarshal(line, &st) == nil {
-			if st.Ev == "status" && !st.Available {
-				return "boxes are not available: " + st.Reason
+		mp := f[4]
+		for _, esc := range []struct{ from, to string }{{`\040`, " "}, {`\011`, "\t"}, {`\012`, "\n"}, {`\134`, `\`}} {
+			mp = strings.ReplaceAll(mp, esc.from, esc.to)
+		}
+		for _, r := range roots {
+			if mp == r || strings.HasPrefix(mp, r+"/") {
+				out = append(out, mp)
+				break
 			}
-			return "" // a boxd from before the status for root says no, but it answers: it runs
 		}
-		if time.Now().After(end) {
-			return "no answer on " + boxdSock + " after " + boxdWait.String()
+	}
+	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
+	return out
+}
+
+// stopBoxes ends the boxes of the box account (they run in its own systemd session, not in the service) and takes
+// away the box mounts. A mount that stays is a note: nothing is deleted below it.
+func (u *updater) stopBoxes() {
+	if acct, err := lookupAccount(retiredBoxUser); err == nil {
+		rundir := fmt.Sprintf("/run/user/%d", acct.uid)
+		if out, err := exec.Command("runuser", "-u", retiredBoxUser, "--", "env", "XDG_RUNTIME_DIR="+rundir, "podman", "rm", "-af", "-t", "5").CombinedOutput(); err != nil {
+			u.res.Notes = append(u.res.Notes, fmt.Sprintf("the boxes of %s did not stop: %v %s", retiredBoxUser, err, strings.TrimSpace(string(out))))
 		}
-		time.Sleep(500 * time.Millisecond)
+	}
+	roots := retiredBoxMounts(u.e.base)
+	for _, m := range mountsUnder(roots) {
+		if err := unix.Unmount(m, 0); err != nil {
+			_ = unix.Unmount(m, unix.MNT_DETACH)
+		}
+	}
+	if left := mountsUnder(roots); len(left) > 0 {
+		u.res.Notes = append(u.res.Notes, "box mounts are still there: "+strings.Join(left, ", ")+". Do not delete below them; reboot, then remove the box state")
 	}
 }
 
-// boxdAsk sends one status request. boxd takes only this request from root.
-func boxdAsk() ([]byte, error) {
-	c, err := net.DialTimeout("unix", boxdSock, 2*time.Second)
-	if err != nil {
-		return nil, err
+// retireBoxRunner says whether the team server must restart (its drop-in went). Nothing to do on a server where
+// install-trial.sh never ran, which is almost every server.
+func (u *updater) retireBoxRunner(systemd bool) bool {
+	reload, restart := false, false
+	unit := filepath.Join(systemdUnitDir, retiredBoxUnit)
+	if systemd && fileExists(unit) {
+		if out, err := exec.Command(u.e.systemctl, "disable", "--now", retiredBoxUnit).CombinedOutput(); err != nil {
+			u.res.Notes = append(u.res.Notes, fmt.Sprintf("%s did not stop: %v %s", retiredBoxUnit, err, strings.TrimSpace(string(out))))
+		}
+		u.stopBoxes()
+		if err := os.Remove(unit); err != nil {
+			u.res.Notes = append(u.res.Notes, "cannot remove "+unit+": "+err.Error())
+		} else {
+			reload = true
+			u.res.Notes = append(u.res.Notes, "the box runner of the dev environment is removed: "+retiredBoxUnit+" and its boxes are stopped and its unit file is gone")
+		}
 	}
-	defer c.Close()
-	c.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := c.Write([]byte(`{"op":"status"}` + "\n")); err != nil {
-		return nil, err
+	// the drop-in is the box trial's when it names the box socket and not the srt runner (install-srt.sh writes the
+	// same file with MYCEL_DEV_ENV_RUNNER=srt, and uninstall-srt.sh knows its own file by that line)
+	dropin := filepath.Join(systemdUnitDir, u.in.ID+"-server.service.d", "dev-env.conf")
+	if b, err := os.ReadFile(dropin); err == nil && strings.Contains(string(b), "MYCEL_BOXD_SOCK") && !strings.Contains(string(b), "MYCEL_DEV_ENV_RUNNER=srt") {
+		if err := os.Remove(dropin); err != nil {
+			u.res.Notes = append(u.res.Notes, "cannot remove "+dropin+": "+err.Error())
+		} else {
+			reload, restart = true, true
+			_ = os.Remove(filepath.Dir(dropin)) // only when empty
+			u.res.Notes = append(u.res.Notes, "the dev environment is off: "+dropin+" turned on the removed box runner. To use the dev environment, install srt: scripts/dev-env/srt/install-srt.sh")
+		}
 	}
-	return bufio.NewReader(c).ReadBytes('\n')
+	if reload {
+		if out, err := exec.Command(u.e.systemctl, "daemon-reload").CombinedOutput(); err != nil {
+			u.res.Notes = append(u.res.Notes, fmt.Sprintf("daemon-reload failed: %v %s", err, strings.TrimSpace(string(out))))
+		}
+		_ = exec.Command(u.e.systemctl, "reset-failed", retiredBoxUnit).Run()
+	}
+	// /usr/local/sbin: only an older install-trial.sh put the program there
+	for _, prog := range []string{u.e.root(retiredBoxProgram), "/usr/local/sbin/" + retiredBoxProgram} {
+		if fileExists(prog) && (reload || prog == u.e.root(retiredBoxProgram)) {
+			if err := os.Remove(prog); err != nil {
+				u.res.Notes = append(u.res.Notes, "cannot remove "+prog+": "+err.Error())
+			}
+		}
+	}
+	if !reload {
+		return restart
+	}
+	var left []string
+	for _, p := range retiredBoxState(u.e.base) {
+		if fileExists(p) {
+			left = append(left, p)
+		}
+	}
+	if len(left) > 0 {
+		u.res.Notes = append(u.res.Notes, "the box state stays: "+strings.Join(left, ", ")+" (and the account "+retiredBoxUser+"). docs/INSTALL-LINUX.md \"Removed: the box runner\" says how to remove it")
+	}
+	return restart
+}
+
+// retireNow: the server runs this version already (the first update to it ran an older mycel-ctl). The retire step,
+// and a restart of the team server when its drop-in went. The update timer waits for a quiet moment first; an
+// administrator's run does not.
+func (u *updater) retireNow() {
+	if !u.in.Systemd || !fileExists(systemdRunDir) || !u.retireBoxRunner(true) {
+		return
+	}
+	if u.scheduled && !u.waitForTurns() {
+		u.res.Notes = append(u.res.Notes, "the team server restarts at the next quiet check: until then it runs with the old drop-in")
+		return
+	}
+	if err := u.restartSrv(); err != nil {
+		u.res.Notes = append(u.res.Notes, "the team server did not restart: "+err.Error()+". Run `sudo systemctl restart "+u.in.ID+"-server`")
+		return
+	}
+	u.res.Notes = append(u.res.Notes, "the team server restarted without the box drop-in")
 }
 
 // syncUnits renders the units from root/systemd and root/install.json on every update (not only when a template
@@ -1052,10 +1212,13 @@ func copyFile(src, dest string) error {
 }
 
 // waitForTurns waits until the launcher runs no turn before a restart. An administrator's update waits at most
-// maxWait; turns still running then become "interrupted" when the launcher restarts (the server is not told to stop
-// taking turns, spec 3.6.5). A scheduled run waits until quietBy and then gives up (false) instead, unless force.
+// maxWait and says so while answers run; turns still running then end as stopped for the update (prepareLauncher)
+// when the launcher restarts (the server is not told to stop taking turns, spec 3.6.5). A scheduled run waits until
+// quietBy and then gives up (false) instead, unless force.
 func (u *updater) waitForTurns() bool {
 	if !u.scheduled {
+		u.say = true
+		defer func() { u.say = false }()
 		u.waitQuiet(u.e.now().Add(u.maxWait))
 		return true
 	}
@@ -1077,6 +1240,15 @@ func (u *updater) waitQuiet(deadline time.Time) bool {
 		}
 		if err == nil && n == 0 && m == "" {
 			return true
+		}
+		if u.say && err == nil && (n != u.busy || m != u.busyWith || i == 0) {
+			// an administrator's update: what it waits for, on stderr (stdout stays the result, also with --json)
+			left := deadline.Sub(u.e.now()).Round(time.Second)
+			if m != "" {
+				fmt.Fprintf(u.e.stderr, "waiting for %d running answer(s) and the server's %s to end (at most %s more)\n", n, m, left)
+			} else {
+				fmt.Fprintf(u.e.stderr, "waiting for %d running answer(s) to end (at most %s more); answers still running then stop and can be sent again\n", n, left)
+			}
 		}
 		u.busy, u.busyWith = n, m
 		if !u.e.now().Before(deadline) {
@@ -1113,6 +1285,28 @@ func (u *updater) launcherLiveTurns() (int, error) {
 	return countProcs(agt.uid, "mycel-launcher")
 }
 
+// launcherPrepareStop asks the launcher, as the server account (like launcherLiveTurns), to end the turns that run
+// now for reason before its restart. An older launcher, or none running: nothing (the restart then cuts them as before).
+func (u *updater) launcherPrepareStop(reason string) {
+	srv, err := lookupAccount(u.in.ServerUser)
+	if err != nil {
+		return
+	}
+	self, _ := os.Executable()
+	cmd := exec.Command(self, "launcher-status-as-server", "--sock", filepath.Join(u.e.base, "run-launcher", "launcher.sock"), "--prepare-stop", reason)
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	cmd.Dir = "/"
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(srv.uid), Gid: uint32(srv.gid), Groups: []uint32{}}}
+	out, err := cmd.Output()
+	var ev struct {
+		Ev    string `json:"ev"`
+		Ended int    `json:"ended"`
+	}
+	if err == nil && json.Unmarshal(out, &ev) == nil && ev.Ev == "prepared" && ev.Ended > 0 {
+		u.res.Notes = append(u.res.Notes, fmt.Sprintf("%d answer(s) still running were stopped for the update; they can be sent again", ev.Ended))
+	}
+}
+
 // countProcs counts processes of uid whose name is not except.
 func countProcs(uid int, except string) (int, error) {
 	ents, err := os.ReadDir("/proc")
@@ -1141,16 +1335,23 @@ func countProcs(uid int, except string) (int, error) {
 func cmdLauncherStatusChild(e *env, args []string) (int, error) {
 	fs := flag.NewFlagSet("launcher-status-as-server", flag.ContinueOnError)
 	sock := fs.String("sock", "", "launcher.sock")
-	if err := fs.Parse(args); err != nil || *sock == "" {
-		return 2, usageError{"--sock"}
+	prepare := fs.String("prepare-stop", "", "instead of the status: tell the launcher it stops for this reason (update, update-root)")
+	if err := fs.Parse(args); err != nil || *sock == "" || (*prepare != "" && *prepare != "update" && *prepare != "update-root") {
+		return 2, usageError{"--sock [--prepare-stop update|update-root]"}
 	}
 	c, err := net.DialTimeout("unix", *sock, 3*time.Second)
 	if err != nil {
 		return 1, err
 	}
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := c.Write([]byte(`{"op":"status"}` + "\n")); err != nil {
+	req := `{"op":"status"}`
+	wait := 5 * time.Second
+	if *prepare != "" {
+		// the launcher ends the running turns first (a kill takes up to 5 s) and answers then
+		req, wait = `{"op":"prepare-stop","reason":"`+*prepare+`"}`, 15*time.Second
+	}
+	_ = c.SetDeadline(time.Now().Add(wait))
+	if _, err := c.Write([]byte(req + "\n")); err != nil {
 		return 1, err
 	}
 	line, err := bufio.NewReader(c).ReadString('\n')
@@ -1220,6 +1421,7 @@ func (u *updater) updateApp(dir, v string) error {
 		return fmt.Errorf("switch: %v %s", err, strings.TrimSpace(out))
 	}
 	if systemd {
+		_ = u.retireBoxRunner(systemd)
 		if err := u.restartSrv(); err != nil {
 			return err
 		}
@@ -1542,89 +1744,4 @@ func (u *updater) restartServer() error {
 // a part of the main version is its leading digits (parseInt, none = 0), an identifier is numeric only when it is all
 // digits (/^\d+$/), and both become float64 like a JavaScript number. testdata/version-order.json is checked by both
 // sides (TestCompareVersionsMatchesServer here, tests/unit/g-update.test.ts there).
-func compareVersions(a, b string) int {
-	split := func(v string) ([]float64, []string) {
-		core := strings.SplitN(v, "+", 2)[0]
-		main, pre, hasPre := strings.Cut(core, "-")
-		var nums []float64
-		for _, x := range strings.Split(main, ".") {
-			n, _ := jsNumber(x[:len(x)-len(strings.TrimLeft(x, "0123456789"))])
-			nums = append(nums, n)
-		}
-		if !hasPre {
-			return nums, nil
-		}
-		return nums, strings.Split(pre, ".")
-	}
-	xn, xp := split(a)
-	yn, yp := split(b)
-	for i := 0; i < len(xn) || i < len(yn); i++ {
-		var p, q float64
-		if i < len(xn) {
-			p = xn[i]
-		}
-		if i < len(yn) {
-			q = yn[i]
-		}
-		if p != q {
-			if p < q {
-				return -1
-			}
-			return 1
-		}
-	}
-	if xp == nil || yp == nil {
-		switch {
-		case xp == nil && yp == nil:
-			return 0
-		case xp != nil:
-			return -1
-		default:
-			return 1
-		}
-	}
-	for i := 0; i < len(xp) || i < len(yp); i++ {
-		if i >= len(xp) {
-			return -1
-		}
-		if i >= len(yp) {
-			return 1
-		}
-		p, q := xp[i], yp[i]
-		if p == q {
-			continue
-		}
-		pn, pok := jsNumber(p)
-		qn, qok := jsNumber(q)
-		switch {
-		case pok && qok:
-			if pn < qn {
-				return -1
-			}
-			if pn > qn {
-				return 1
-			}
-		case pok != qok:
-			if pok {
-				return -1
-			}
-			return 1
-		default:
-			if p < q {
-				return -1
-			}
-			return 1
-		}
-	}
-	return 0
-}
-
-// jsNumber reads an all-digit string as JavaScript's Number() does (the nearest float64); ok is false for "" and
-// anything else.
-func jsNumber(s string) (float64, bool) {
-	if s == "" || strings.TrimLeft(s, "0123456789") != "" {
-		return 0, false
-	}
-	n, err := strconv.ParseFloat(s, 64)
-	return n, err == nil || errors.Is(err, strconv.ErrRange)
-}
+func compareVersions(a, b string) int { return version.Compare(a, b) }

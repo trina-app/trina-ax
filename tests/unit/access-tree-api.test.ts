@@ -144,7 +144,8 @@ describe('one level', () => {
 
   test('refused: personal folders, .system/, temp names and paths outside the team folder, before anything is read', async () => {
     // and nothing inside a team project, any letter case, there or not (docs/DECISIONS.md "Project contents only for members")
-    for (const p of ['users', 'users/alice', 'Users/alice', '.system', '.system/trash', 'shared/.MYCEL-TMP-r', '../etc', 'projects/apollo/drafts', 'PROJECTS/Apollo/drafts', 'projects/apollo/nope-3a9']) {
+    // (PROJECTS/ is projects/ only where the disk ignores case: docs/DECISIONS.md "Only the lowercase projects/")
+    for (const p of ['users', 'users/alice', 'Users/alice', '.system', '.system/trash', 'shared/.MYCEL-TMP-r', '../etc', 'projects/apollo/drafts', ...(h.ctx.files.fx.caseInsensitive ? ['PROJECTS/Apollo/drafts'] : []), 'projects/apollo/nope-3a9']) {
       const r = await admin.try('GET', `/api/admin/access/tree?path=${encodeURIComponent(p)}`)
       expect(r.status, p).toBe(400)
       expect(JSON.stringify(r.body), p).not.toContain('Alice-private')

@@ -11,6 +11,7 @@
 // TIOCSTI risk --new-session addresses is covered by "no controlling terminal" (setsid) + the seccomp filter.
 //
 // Fail closed (spec 3.3.9): a turn is refused when the firewall status is missing, stale or for another uid/port, when
+// the live check finds the firewall not in effect (firewallLive: the table was flushed or changed after the status), when
 // the sandbox files changed owner or mode, when the plan's concurrent-turn limit is reached, when the turn cgroup is
 // required but unavailable, or when an engine-account process listens on the model proxy port (squatting, 3.4.4).
 package main
@@ -34,6 +35,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+	"mycel/native/internal/fwprobe"
 	"mycel/native/internal/fwstatus"
 	"mycel/native/internal/plan"
 )
@@ -260,6 +262,9 @@ func elfInterpreter(p string) (string, error) {
 type bwrapParams struct {
 	EngineDir, EngineReal, Bridge, BridgeReal, Helper, ToolsSock, ToolsSockReal, Chat, EtcDir, CA, Landlock, Ldso string
 	Codex, AllowListen                                                                                            bool
+	// NetProxy > 0: the turn gets its own network namespace and the helper forwards 127.0.0.1:NetProxy to the host's
+	// model proxy (mycel-sandbox netns_linux.go, QA TC-309: host abstract unix sockets out of reach)
+	NetProxy int
 	Libs                                                                                                          []libMount
 	UsrLib64                                                                                                      bool
 	Args                                                                                                          []string
@@ -301,9 +306,16 @@ func buildBwrapArgs(p bwrapParams) ([]string, error) {
 		"--disable-userns",
 		"--die-with-parent",
 		"--cap-drop", "ALL",
+	}
+	if p.NetProxy > 0 {
+		// only inside the turn's user namespace, for the helper's unshare(CLONE_NEWNET) and loopback; it drops them
+		// (and checks) before Landlock, seccomp and the engine
+		a = append(a, "--cap-add", "CAP_SYS_ADMIN", "--cap-add", "CAP_NET_ADMIN")
+	}
+	a = append(a,
 		"--hostname", "mycel-turn",
 		"--ro-bind", "/usr/lib", "/usr/lib",
-	}
+	)
 	if p.UsrLib64 {
 		a = append(a, "--ro-bind-try", "/usr/lib64", "/usr/lib64")
 	}
@@ -360,6 +372,9 @@ func buildBwrapArgs(p bwrapParams) ([]string, error) {
 	}
 	if p.AllowListen {
 		a = append(a, "--allow-listen")
+	}
+	if p.NetProxy > 0 {
+		a = append(a, "--net-proxy", strconv.Itoa(p.NetProxy))
 	}
 	a = append(a, "--", p.EngineReal)
 	return append(a, p.Args...), nil
@@ -458,6 +473,10 @@ func (t *turnEnv) begin(cgName string) error {
 		if err != nil {
 			return fmt.Errorf("firewall_not_loaded: %v", err)
 		}
+		// the file says what was loaded at the last apply; another tool may have taken the table away since (QA TC-310)
+		if err := firewallLive(); err != nil {
+			return fmt.Errorf("firewall_off: %v", err)
+		}
 	}
 	if lx.bwrap {
 		for _, p := range lx.sbxFiles {
@@ -513,7 +532,7 @@ func (t *turnEnv) command(cmdPath string, args []string, chat, sessDir string) (
 		EngineDir: filepath.Dir(real), EngineReal: real, Bridge: filepath.Clean(*bridgePath), BridgeReal: t.bridgeReal(),
 		Helper: *sandboxHelper, ToolsSock: filepath.Clean(*toolsSock), ToolsSockReal: resolvePath(*toolsSock), Chat: filepath.Clean(chat), EtcDir: filepath.Clean(*sandboxEtc),
 		CA: filepath.Clean(*caBundle), Landlock: *landlockMode, Ldso: ldso, Codex: t.codex && !t.login, AllowListen: *allowListen,
-		Libs: lx.libs, UsrLib64: lx.usrLib64, Args: args,
+		NetProxy: *proxyPort, Libs: lx.libs, UsrLib64: lx.usrLib64, Args: args,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -753,6 +772,7 @@ func platformStatus(ev map[string]any) {
 		ev["scoped"] = lx.landlockAbi >= 6 && *landlockMode != "off"
 		ev["seccomp"] = lx.seccomp
 		ev["listen"] = map[bool]string{true: "allowed", false: "denied"}[*allowListen]
+		ev["net"] = "private" // every turn has its own network namespace, the proxy forwarded (QA TC-309)
 	}
 	ev["kernel"] = lx.kernel
 	ev["cgroup"] = lx.cgState
@@ -773,8 +793,37 @@ func platformStatus(ev map[string]any) {
 		} else {
 			fw["problem"] = err.Error()
 		}
+		// what the kernel does right now (the diagnostics' firewall line), not only what the file says
+		if lerr := firewallLive(); lerr != nil {
+			fw["live"], fw["liveProblem"] = false, lerr.Error()
+		} else {
+			fw["live"] = true
+		}
 		ev["firewall"] = fw
 	}
 }
 
 func isENOSYS(err error) bool { return errors.Is(err, syscall.ENOSYS) }
+
+// firewallLive checks that the engine firewall is in effect now (fwprobe, as the engine account), before every turn.
+// Nothing is kept: a pass kept for a few seconds let a turn started right after a good probe run with the table
+// flushed (QA TC-310 retest), and a probe takes well under 25 ms. A failure is tried once more before the turn is
+// refused (the next turn probes again, and the firewall timer re-applies the table within 30 seconds). One probe at
+// a time.
+func firewallLive() error {
+	fwLive.Lock()
+	defer fwLive.Unlock()
+	if err := fwLiveProbe(*proxyPort, time.Second); err != nil {
+		// one quick retry before refusing: a momentary hiccup (the 30 s apply swapping the table in one transaction)
+		time.Sleep(fwLiveRetry)
+		return fwLiveProbe(*proxyPort, time.Second)
+	}
+	return nil
+}
+
+var fwLiveRetry = 200 * time.Millisecond
+
+var (
+	fwLive      sync.Mutex
+	fwLiveProbe = fwprobe.Probe
+)

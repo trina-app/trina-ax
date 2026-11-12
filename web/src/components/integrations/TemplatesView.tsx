@@ -15,7 +15,7 @@ import { useSearchParams } from 'react-router-dom'
 import type { Group, Integration, IntegrationTemplate, IntegrationTemplateMember, MyIntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { connectorFor, connectorLogo } from '../../lib/connectors'
-import { isEmptyAccess } from '../../lib/integrations'
+import { connectionRowStatus, isEmptyAccess } from '../../lib/integrations'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { formatDate } from '../../lib/format'
@@ -105,7 +105,7 @@ export function useFromTeam({ team, latest, version, query, onOpen, onConnected 
       const conn = x.connection && (latest?.find((i) => i.id === x.connection!.id) ?? x.connection)
       return { name: x.name, row: conn ? (
         <ConnectorRow key={x.id} id={conn.id} logo={logoOf(conn.url)} name={conn.name} team
-          status={conn.status === 'connected' ? 'connected' : conn.status === 'needs_auth' ? 'reconnect' : 'attention'} onOpen={() => onOpen(conn)} />
+          status={connectionRowStatus(conn)} onOpen={() => onOpen(conn)} />
       ) : (
         <ConnectorRow key={x.id} id={x.id} logo={logoOf(x.url)} name={x.name} team status="connect" testId="template-row" onOpen={() => setOpen(x)} onConnect={() => setOpen(x)} />
       ) }
@@ -126,7 +126,9 @@ export function useFromTeam({ team, latest, version, query, onOpen, onConnected 
       }}
     />
   )
-  return { rows, ready, dialog }
+  // the addresses of the team's templates for this person (connected or not): Discover does not offer them again
+  const urls = items.map((x) => x.url)
+  return { rows, ready, dialog, urls }
 }
 
 /** Admin › MCP, a template's "N connected": who it is for, each with whether they connected it and when, or whether

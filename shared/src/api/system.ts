@@ -58,6 +58,10 @@ export const UpdateStatus = z.object({
   lastCheckedAt: IsoTime.nullable(),
   /** previous version kept for roll-back */
   previous: z.string().nullable(),
+  /** the previous version cannot open this database (its reader level is below what the database needs since the
+   * update migrated it): Go back is not offered; going back means restoring the backup made before the update
+   * (docs/BACKUP-RESTORE.md "Going back to the version before an update"). Absent from older servers. */
+  previousNeedsRestore: z.boolean().optional(),
   /** false: this server has no release feed (update.feedUrl null) or no release key, so it never looks for new
    * versions online; a new version comes from re-running the installer. Absent from older servers. */
   feed: z.boolean().optional(),
@@ -75,10 +79,11 @@ export const UpdateStatus = z.object({
   /** when the window next opens: `now` = inside it, `today` / `tomorrow` = the day (in the team's zone) it starts.
    * null: the window never opens (equal start and end). Absent without `window`. */
   nextWindow: z.object({ at: IsoTime, day: z.enum(['now', 'today', 'tomorrow']) }).nullable().optional(),
-  /** why the available release will not install by itself even in the window: rollout = not this server's turn yet;
+  /** why the available release will not install by itself even in the window: paused = the publisher paused its
+   * roll-out (a bad release; scripts/release/hold.ts); rollout = not this server's turn yet;
    * failed = a try of it failed or was rolled back here (on hold); root_failed = root's update of it failed. null/absent:
    * nothing holds it. Absent from older servers. */
-  hold: z.enum(['rollout', 'failed', 'root_failed']).nullable().optional(),
+  hold: z.enum(['paused', 'rollout', 'failed', 'root_failed']).nullable().optional(),
   /** staged roll-out of a stable release (server/src/system/rollout.ts): the feed's newer release reaches this
    * server's automatic updates at this time ("this server's turn"; it comes with hold 'rollout'); null: this release's
    * roll-out leaves the server out. Absent when nothing waits for it (and from older servers). "Update now" does not wait. */

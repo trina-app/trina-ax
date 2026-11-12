@@ -21,6 +21,11 @@ export const SLACK_SPECS: Record<string, Spec> = {
   cancelSlackLink: { build: c => c.post('/api/slack/link/cancel', NO_TOKEN), scope: 'nobody' },
   // "Sign in with Slack" for the caller's own account (Slack not set up here: 409 after the permission check)
   startSlackSignIn: { build: c => c.post('/api/slack/signin', {}), scope: 'self' },
+  // "Add to Slack" (the hosting service's official app): the owner's alone (no hosting service here: 409 after the
+  // permission check)
+  startSlackInstall: { build: c => c.post('/api/admin/slack/official/install', {}), scope: 'byLevel' },
 }
 // GET /api/integrations/slack/oauth/callback: the state's person and session binding is tested in tests/unit/c-slack.test.ts
-export const SLACK_RAW_COVERED = ['RAW GET SLACK_CALLBACK_PATH']
+// (the official app's handoff: tests/unit/c-slack-official.test.ts); GET /api/integrations/slack/official/callback, the
+// owner binding of "Add to Slack": tests/unit/c-slack-official.test.ts
+export const SLACK_RAW_COVERED = ['RAW GET SLACK_CALLBACK_PATH', 'RAW GET SLACK_BROKER_TEAM_INSTALL_RETURN_PATH']

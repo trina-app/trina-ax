@@ -51,17 +51,16 @@ export function clampLimit(k: LimitKey, v: number, plan: DevEnvTeamResponse['pla
   return r.int ? Math.round(x) : Math.round(x * 100) / 100
 }
 
-/** Does this save need the warning accepted? srt, turning on, and the stored consent is for another version. */
-export const needsWarning = (r: Pick<DevEnvTeamResponse, 'runner' | 'warningVersion' | 'setting'>, d: Pick<DevEnvTeamDraft, 'enabled'>) =>
-  r.runner === 'srt' && d.enabled && r.warningVersion !== undefined && r.setting.consent?.warningVersion !== r.warningVersion
+/** Does this save need the warning accepted? Turning on, and the stored consent is for another version. */
+export const needsWarning = (r: Pick<DevEnvTeamResponse, 'warningVersion' | 'setting'>, d: Pick<DevEnvTeamDraft, 'enabled'>) =>
+  d.enabled && r.setting.consent?.warningVersion !== r.warningVersion
 
-/** The body of a save: only what changed. On the box runner only the sites (the rest is per project). */
-export function teamBody(r: Pick<DevEnvTeamResponse, 'runner' | 'warningVersion' | 'setting' | 'plan'>, d: DevEnvTeamDraft, accept: boolean): UpdateDevEnvTeamBody {
+/** The body of a save: only what changed. */
+export function teamBody(r: Pick<DevEnvTeamResponse, 'warningVersion' | 'setting' | 'plan'>, d: DevEnvTeamDraft, accept: boolean): UpdateDevEnvTeamBody {
   const s = r.setting
   const body: UpdateDevEnvTeamBody = {}
   const sites = sitesOf(d.sites)
   if (JSON.stringify(sites) !== JSON.stringify(s.extraDomains)) body.extraDomains = sites
-  if (r.runner !== 'srt') return body
   if (d.enabled !== s.enabled) body.enabled = d.enabled
   const scope = { mode: d.mode, groupIds: d.mode === 'selected' ? d.groupIds : [], userIds: d.mode === 'selected' ? d.userIds : [] }
   if (scope.mode !== s.scope.mode || JSON.stringify([...scope.groupIds].sort()) !== JSON.stringify([...s.scope.groupIds].sort())
@@ -73,6 +72,6 @@ export function teamBody(r: Pick<DevEnvTeamResponse, 'runner' | 'warningVersion'
     if (v !== s.limits[k]) limits[k] = v
   }
   if (Object.keys(limits).length) body.limits = limits
-  if (accept && needsWarning(r, d) && r.warningVersion !== undefined) body.acceptWarning = r.warningVersion
+  if (accept && needsWarning(r, d)) body.acceptWarning = r.warningVersion
   return body
 }

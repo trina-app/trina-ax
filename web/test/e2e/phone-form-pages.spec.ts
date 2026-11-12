@@ -122,7 +122,7 @@ test('a group that saves on its own keeps its draft too: AI defaults, Back to th
 })
 
 test('the dev environment, where the server has it: its own group', async ({ page }) => {
-  expect((await page.request.post('/__test/dev-env', { data: { srt: true } })).ok()).toBe(true)
+  expect((await page.request.post('/__test/dev-env', { data: {} })).ok()).toBe(true)
   await page.goto('/admin/settings')
   await page.getByTestId('team-settings-row-dev-env').click()
   await expect(page).toHaveURL(/\/admin\/settings\/dev-env$/)
@@ -198,7 +198,8 @@ test('switches sit on the right of their name, the line under the name; short nu
 })
 
 test('System: values on the right of their label, long ones under it; its buttons are 44 px', async ({ page }) => {
-  await page.goto('/admin/system')
+  // each part of System is a page of its own on a phone (pages/admin/systemGroups.ts; phone-admin-system.cases.ts)
+  await page.goto('/admin/system/health')
   const facts = page.getByTestId('system-facts')
   await expect(facts).toBeVisible()
   for (const row of await facts.locator(':scope > div').all()) {
@@ -207,7 +208,9 @@ test('System: values on the right of their label, long ones under it; its button
     expect(Math.abs(value.y - label.y), 'on one line').toBeLessThan(4)
     expect(value.x).toBeGreaterThan(label.x + label.width)
   }
-  for (const name of [t['common.refresh'], t['system.changeMode'], t['system.backupNow']]) {
+  // (changing the connection mode is a computer's: a phone says so, QA TC-270)
+  for (const [group, name] of [['health', t['common.refresh']], ['backups', t['system.backupNow']]] as const) {
+    await page.goto(`/admin/system/${group}`)
     const h = (await page.getByRole('button', { name, exact: true }).first().boundingBox())!.height
     expect(Math.round(h), name).toBeGreaterThanOrEqual(44)
   }
@@ -228,7 +231,7 @@ test('nothing on these pages is wider than the screen, in Spanish too', async ({
     await signIn(page)
     const pages: [string, string][] = [
       ...['', ...GROUPS].map((g): [string, string] => [g ? `/admin/settings/${g}` : '/admin/settings', 'admin-content']),
-      ['/admin/system', 'admin-content'],
+      ...['', 'storage', 'updates', 'health', 'connection', 'connected', 'backups', 'export'].map((g): [string, string] => [g ? `/admin/system/${g}` : '/admin/system', 'admin-content']),
       // Browser is a part of 트리나에게 허용한 것 on a phone (QA TC-263): that page holds it
       ...['profile', 'security', 'memory', 'allowances', 'notifications', 'about'].map((s): [string, string] => [`/settings/${s}`, 'settings-content']),
     ]

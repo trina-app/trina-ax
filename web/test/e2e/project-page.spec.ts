@@ -139,7 +139,7 @@ test('at phone width the page fits: the box first, then the lines, then the chat
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   // a server with the dev environment on: still no line for it here
-  await page.request.post('/__test/dev-env', { data: { srt: true } })
+  await page.request.post('/__test/dev-env', { data: {} })
   await signIn(page)
   const id = await newProject(page, ['Weekly numbers'])
   await page.goto(`/projects/${id}`)
@@ -161,10 +161,12 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     // Bob's project, with a file and a chat of the owner from before (her own chats stay hers)
     const made = await page.request.post('/__test/project', { data: { name: 'Falcon', by: 'bob', instructions: '# Falcon\n\nContracts only.', files: { 'plan.md': 'plan' }, chats: [['olga', 'My old notes']] } })
     const { id } = (await made.json()) as { id: string }
-    // the list: her card, no "not a member" tag
+    // the list: her card (a phone's row, QA TC-380), no "not a member" tag
     await page.goto('/projects')
-    await expect(page.getByTestId('project-card').filter({ hasText: 'Falcon' })).toBeVisible()
-    await page.getByTestId('project-card').filter({ hasText: 'Falcon' }).getByRole('link').click()
+    const item = page.getByTestId(/^project-(card|row)$/).filter({ hasText: 'Falcon' })
+    await expect(item).toBeVisible()
+    await expect(item).not.toContainText('멤버가 아니')
+    await item.getByRole('link').click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
     const block = page.getByTestId('project-members-only')
     await expect(block).toContainText('멤버만 이 프로젝트를 열 수 있어요. 나를 멤버로 추가하면 파일을 볼 수 있어요.')
@@ -186,8 +188,16 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(block).toHaveCount(0)
     await expect(page.getByTestId('project-summary')).toHaveText('Contracts only.')
-    await page.getByTestId('project-files-toggle').click()
-    await expect(page.getByTestId('project-files').getByRole('button', { name: 'plan.md' })).toBeVisible()
+    if (vp.size.width < 768) {
+      // a phone: the files row opens the project's files on a screen of its own (QA TC-254), Back comes here
+      await page.getByTestId('project-files-open').click()
+      await expect(page.getByTestId('project-file').filter({ hasText: 'plan.md' })).toBeVisible()
+      await page.goBack()
+      await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
+    } else {
+      await page.getByTestId('project-files-toggle').click()
+      await expect(page.getByTestId('project-files').getByRole('button', { name: 'plan.md' })).toBeVisible()
+    }
     await expect(page.getByTestId('project-members')).toContainText('2명')
     // in its members now, as anyone added is
     const bob = await page.request.get(`/api/projects/${id}/access`)

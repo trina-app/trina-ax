@@ -90,7 +90,8 @@ export function viewText(v: OfficeUpdateView): string {
   if (v.available) {
     // a stable release's staged roll-out (system/rollout.ts): when the nightly run takes it here
     const t = v.available.turnAt
-    const turn = t === undefined ? '' : t ? `, 이 맥 차례 / this Mac's turn ${local(t, v.timeZone)}` : ', 자동으로 오지 않음 / not by itself (teamax update now)'
+    const turn = v.available.paused ? ', 배포가 잠시 멈춤 / paused by the publisher'
+      : t === undefined ? '' : t ? `, 이 맥 차례 / this Mac's turn ${local(t, v.timeZone)}` : ', 자동으로 오지 않음 / not by itself (teamax update now)'
     lines.push(`새 버전 / available     ${v.available.version} (${v.available.channel}${turn})`)
   }
   if (v.lastUpdate) lines.push(`마지막 업데이트 / last  ${v.lastUpdate.from} → ${v.lastUpdate.to} ${v.lastUpdate.result} ${local(v.lastUpdate.at, v.timeZone)}${v.lastUpdate.error ? ` (${v.lastUpdate.error})` : ''}`)

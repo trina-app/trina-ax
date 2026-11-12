@@ -129,6 +129,7 @@ func scheduledHooks(t *testing.T, tb *testBase, r *schedRun) {
 	updateTestHook = func(u *updater) {
 		u.e.now = r.clock.now
 		u.sleep = r.clock.sleep
+		u.prepareLauncher = func(string) {} // never the real one (it runs this binary as the server account)
 		u.liveTurns = func() (int, error) {
 			r.calls++
 			if r.turns == nil {
@@ -870,7 +871,10 @@ func TestScheduledUpdateShortHoldBeforeRootFiles(t *testing.T) {
 		t.Fatalf("0.2.20: %d", code)
 	}
 	must(t, os.Remove(filepath.Join(tb.base, "app/current")))
-	must(t, os.Symlink("versions/0.2.20", filepath.Join(tb.base, "app/current"))) // say an administrator got 0.2.20 in, then wants 0.2.18 back
+	must(t, os.Symlink("versions/0.2.20", filepath.Join(tb.base, "app/current"))) // say an administrator got the 0.2.20 app in, then wants 0.2.18 back
+	// its root files are not in yet, so the hold of 0.2.20 is not over (a hold of the version that runs, root files and
+	// all, is: TestScheduledUpdateDropsHoldOfTheRunningVersion)
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/VERSION"), []byte("0.2.18\n"), 0o644))
 	tb.health.Store("0.2.20")
 	if code, _ := tb.update(t, "--version", "0.2.18", "--pubkey", f.key); code == 0 {
 		t.Fatal("the roll-back was meant to fail")
@@ -985,5 +989,26 @@ func TestRootJobForOldApps(t *testing.T) {
 		if c.skipped && (r.Detail != "release 0.2.20 does not change root files" || f.downloaded() != 0) {
 			t.Fatalf("app %s root %s: %+v", c.app, c.root, r)
 		}
+	}
+}
+
+// QA TC-334: 0.4.0's updater left a hold of the release that now runs (it reported rolled_back while the bootstrap went
+// forward again). The next check, inside the window or not, drops it with a note; it never says the release waits.
+func TestScheduledUpdateDropsHoldOfTheRunningVersion(t *testing.T) {
+	f := newFeedServer(t)
+	publishSince(t, f, "/server/stable.json", "0.2.21", true, "0.2.21")
+	tb, _ := feedBase(t, f, "0.2.21", "0.2.21")
+	updateTestHook = nil
+	defaultsDir = t.TempDir()
+	t.Cleanup(func() { defaultsDir = "/etc/default" })
+	must(t, os.WriteFile(filepath.Join(tb.base, "app/state.json"), []byte(`{"format":1,"current":"0.2.21","previous":null,"pending":null,"history":[]}`+"\n"), 0o640))
+	b, _ := json.Marshal(failedUpdate{Version: "0.2.21", Result: "rolled_back", At: at("2026-11-01T18:10:00Z").t, Failures: 1, Until: at("2026-11-02T14:10:00Z").t, RootIn: true})
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/update-failed.json"), b, 0o644))
+	// 13:30 KST: outside the window
+	r := &schedRun{clock: at("2026-11-02T04:30:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	code, res := tb.scheduled(t, f)
+	if code != 0 || !res.Skipped || readFailed(&env{base: tb.base}) != nil || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "release 0.2.21 runs here and answers") {
+		t.Fatalf("%d %+v", code, res)
 	}
 }

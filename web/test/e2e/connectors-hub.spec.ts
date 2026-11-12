@@ -6,6 +6,7 @@
 // admin-app-connectors.spec.ts.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const header = (page: Page) => page.getByTestId('connectors-header')
@@ -13,7 +14,7 @@ const header = (page: Page) => page.getByTestId('connectors-header')
 const discover = (page: Page, title = '둘러보기') => expect(page.getByTestId('connector-discover-title')).toHaveText(title)
 const card = (page: Page, id: string) => page.locator(`[data-testid="connector-card"][data-id="${id}"]`)
 
-test('Discover: what can be added now first (Google not set up here: last), the rest behind Show all; a card opens its page with Connect', async ({ page }) => {
+test('Discover: the Google ones first (QA TC-138, also not set up), the rest behind Show all; a card opens its page with Connect', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -24,7 +25,8 @@ test('Discover: what can be added now first (Google not set up here: last), the 
   await discover(page)
   const top = page.getByTestId('connector-list').getByTestId('connector-card')
   await expect(top).toHaveCount(10)
-  await expect(top.first()).toHaveAttribute('data-id', 'notion')
+  await expect(top.first()).toHaveAttribute('data-id', 'google-drive')
+  await expect(top.nth(5)).toHaveAttribute('data-id', 'notion')
   await page.getByTestId('connector-show-all').click()
   await expect(top).not.toHaveCount(10)
 
@@ -33,7 +35,10 @@ test('Discover: what can be added now first (Google not set up here: last), the 
   const detail = page.getByTestId('connector-detail')
   await expect(detail.getByRole('heading', { name: 'Notion' })).toBeVisible()
   await expect(detail.getByTestId('connector-back')).toBeFocused()
-  await expect(detail.getByTestId('connector-tools-note')).toBeVisible()
+  // before connecting (QA TC-132): the tools Notion lists on its own page, and its privacy, terms and help pages
+  await expect(detail.getByTestId('connector-tools-listed').locator('li').first()).toHaveText('notion-search')
+  await expect(detail.getByTestId('connector-tools-link')).toHaveAttribute('href', 'https://developers.notion.com/guides/mcp/mcp-supported-tools')
+  await expect(detail.getByTestId('connector-privacy-link')).toHaveAttribute('href', 'https://www.notion.com/trust/privacy-policy')
   await detail.getByTestId('connector-connect').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
@@ -84,8 +89,9 @@ test('a field that needs fixing under Advanced opens it', async ({ page }) => {
   await dialog.getByTestId('integration-auth-none').check()
   await dialog.getByTestId('integration-advanced').click()
   await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
-  // an API with no sign-in and no usage notes saves; the point here is that Advanced shows its choices in one line
-  await expect(dialog.getByTestId('integration-advanced-summary')).toContainText('API')
+  // an API with no sign-in and no usage notes saves; the point here is that Advanced shows its choices in one line, in
+  // plain words: no kind ("MCP 서버" / "API") and no sign-in where there is none (QA TC-204)
+  await expect(dialog.getByTestId('integration-advanced-summary')).toHaveText('매번 묻기')
 })
 
 test('Admin: a connector page Connects with one team key, and its ⌄ makes a template for the whole team', async ({ page }) => {
@@ -95,7 +101,10 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await discover(page, '둘러보기')
   await card(page, 'linear').getByTestId('connector-open').click()
   const detail = page.getByTestId('connector-detail')
+  // the main button connects for the team (QA TC-134); the ⌄ has a template and the admin's own
+  await expect(detail.getByTestId('connector-connect')).toHaveText('팀용으로 연결')
   await detail.getByTestId('integration-add-more').click()
+  await expect(page.getByTestId('connector-connect-mine')).toHaveText('나만 쓰기')
   await page.getByTestId('connector-connect-template').click()
   const dialog = page.getByRole('dialog')
   await dialog.getByTestId('integration-advanced').click()
@@ -105,6 +114,13 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await detail.getByTestId('connector-connect').click()
   await page.getByRole('dialog').getByTestId('integration-advanced').click()
   await expect(page.getByRole('dialog').getByTestId('integration-who-team')).toBeChecked()
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  // members may not add their own (Team settings): no "Just for me" either, the server would refuse it
+  expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { personalIntegrations: false } })).ok()).toBeTruthy()
+  await page.reload()
+  await page.getByTestId('connector-detail').getByTestId('integration-add-more').click()
+  await expect(page.getByTestId('connector-connect-template')).toBeVisible()
+  await expect(page.getByTestId('connector-connect-mine')).toHaveCount(0)
 })
 
 test('Connectors is in the sidebar, not in Settings; the old Settings address leads to it', async ({ page }) => {
@@ -171,3 +187,40 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await audit()).toEqual([])
   })
 }
+
+// QA TC-179: a template the team set up (here Notion) is in Your connectors with Connect until the member connects it,
+// and not offered again in Discover
+test('a team template for a listed service shows once: in Your connectors, not again in Discover', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const made = await page.request.post('/api/admin/integration-templates', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth' } })
+  expect(made.status()).toBe(201)
+  await page.context().clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await page.goto('/connectors')
+  await discover(page)
+  await expect(page.getByTestId('connected-apps').getByTestId('template-row').filter({ hasText: 'Notion' })).toHaveCount(1)
+  await page.getByTestId('connector-show-all').click()
+  await expect(card(page, 'notion')).toHaveCount(0)
+})
+
+// QA TC-134 retest: "Connect for the team" is for the whole team unless the admin narrows it under Advanced
+test('Admin: "Connect for the team" saved without opening Advanced reaches the whole team', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.context().route('https://mcp.linear.app/**', (r) => r.fulfill({ contentType: 'text/html', body: '<p>Synthetic sign-in</p>' }))
+  await page.goto('/admin/connectors')
+  await discover(page, '둘러보기')
+  await card(page, 'linear').getByTestId('connector-open').click()
+  await page.getByTestId('connector-detail').getByTestId('connector-connect').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
+  // who it is for, without opening Advanced; Change opens the chooser
+  await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
+  await dialog.getByTestId('integration-for-change').click()
+  await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'true')
+  await expect(dialog.getByTestId('integration-access-everyone')).toBeFocused()
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
+  await dialog.getByTestId('integration-save').click()
+  expect((await sent).postDataJSON()).toMatchObject({ name: 'Linear', access: { everyone: true, groups: [], users: [] } })
+})

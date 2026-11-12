@@ -76,22 +76,23 @@ The page cannot change a card when:
 - the server has no public address (`tunnel.host`): Google has nowhere to send people back;
 - this computer cannot run the library (the Mac app).
 
-**Members can connect their own Gmail** (and the same per app): on by default. Off: Connect is turned off, a sign-in
-is refused, and connections made before are kept but not used (`PUT /api/admin/google-apps/:app/members`, settings
-`integrations.googleApps.<app>.members`, audited `google_app.members_switch`). The switch is for everyone, admins too.
+**Everyone may connect their own Gmail** (and the same per app) once it is set up. There is no team switch any more
+(docs/DECISIONS.md "No members' switch for connectors", 2026-11-12): `PUT /api/admin/google-apps/:app/members` stays for
+older apps and changes nothing, and a stored `integrations.googleApps.<app>.members` "false" is ignored.
 
 ## What members see
 
-- The card says what the AI can do and lists every tool ("Show all tools"). **Connect** goes straight to Google; back
-  in Trina the person confirms the Google account shown.
-- Connected: **Try in chat**, **Settings** (Ask before each change, or Always allow), ⋯ (Reconnect, Disconnect).
+- The app's page says in one line what the AI can do and shows every tool as a chip. **Connect** goes straight to
+  Google (the desktop app opens it in the system browser); back in Trina the person confirms the Google account shown.
+- Connected: **Connected** and ⋯ (**Settings**: Ask before each change, or Always allow; Reconnect; Disconnect).
 - Not set up on the team yet: **Ask admin to add it** in place of Connect. The owner and the admins get one notice per
   app in Activity that opens its setup; once members can connect it, each member who asked hears that it is ready
   ([INTEGRATIONS.md](INTEGRATIONS.md) "A member asks for an app"). The same for Google Drive.
 - Reading is free. Anything that changes or sends (a mail, an event, a document edit) shows the confirm card with
   everything it sends, and **Always allow** on it: the person's own choice for that app, which Settings turns back.
   After the person's chat read their team chat rooms, and in a room, every change asks again (other people's words could
-  have asked for it). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
+  have asked for it). So does every change in a chat that read something from outside, a mail included
+  ([DECISIONS.md](DECISIONS.md) "Connector write cards: outside content asks"). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
   pinned, otherwise nothing is sent.
 - In a team chat room, @트리나 may use the asker's own Google apps (only the asker's). What it found goes through the
   room's private answer: only the asker sees it until they share it.
@@ -106,12 +107,20 @@ is refused, and connections made before are kept but not used (`PUT /api/admin/g
 
 ## Hosted servers
 
-A hosted team without its own client signs in through the hosting service's Google app: the Drive broker
+A hosted team without its own client, and a self-installed server the hosting service registered (the broker URL set,
+no Google Drive client of its own; [GOOGLE-DRIVE.md](GOOGLE-DRIVE.md) "Hosted teams (and registered servers)"), signs
+in through the hosting service's Google app: the Drive broker
 (`shared/src/cloud-protocol/drive-broker.ts`) with the `app` field and that app's fixed scopes
 (`GOOGLE_APP_BROKER_SCOPES`), the browser coming back to `/api/integrations/google-apps/callback`. Refresh and revoke go
 through the hosting service too (`app` in refresh). Until Google has reviewed the hosting service's app, only its test
 users can sign in; a hosting service that does not offer an app yet (an older one answers `invalid_request`) makes that
 card say "Not available yet" (`reason: "service_limited"`) for ten minutes before it is tried again.
+
+On a self-installed server the hosting service serves, the cards look as on a hosted team: "Set up by the hosting
+service" (`blocked: "hosted"`, no redirect address shown). While it does not serve it (not registered yet, or removed),
+each card can be set up on the page as on any self-installed server. A card that has a client of its own (written on
+this page, or the operator's `MYCEL_GOOGLE_<APP>_CLIENT_FILE`) keeps signing in with it and never calls the hosting
+service.
 
 ## Disconnecting
 

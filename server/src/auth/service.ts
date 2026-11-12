@@ -25,7 +25,7 @@ import { canChooseEngine } from '../admin/engine-choice'
 import { teamIconOfMe } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
 import { windowsAppSourceOf } from '../system/windows-app'
-import { teamAddressOf } from '../system/connection'
+import { reachedAt, teamAddressOf, type ReachedAt } from '../system/connection'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { devEnvFlag } from '../devenv/setting'
 import { firstSignIn } from '../onboarding/member-welcome'
@@ -230,7 +230,7 @@ export class AuthService implements SessionService {
     // the cookie keeps the normal lifetime either way: the server decides when a temporary sign-in ends, and a changed
     // password turns it into a normal session without a new cookie
     if (tokenMode === 'cookie') c.header('Set-Cookie', sessionCookie(c.req.url, s.token, Math.floor(SESSION_TTL_MS / 1000)), { append: true })
-    const me = this.me(userId, s.id)
+    const me = this.me(userId, s.id, reachedAt(c))
     return tokenMode === 'bearer' ? { me, token: s.token } : { me }
   }
 
@@ -243,7 +243,8 @@ export class AuthService implements SessionService {
     try { return pluginsOf(this.ctx).hwpPreviewOn() } catch { return false }
   }
 
-  me(userId: string, sessionId: string): Me {
+  /** `at`: where this request reached the server (reachedAt(c)), for the team address of a server without a relay */
+  me(userId: string, sessionId: string, at?: ReachedAt | null): Me {
     const u = getUser(this.db, userId)
     if (!u) return fail('unauthorized')
     const s = this.db.query('SELECT id, client, expires_at, temp_login FROM sessions WHERE id = ?').get(sessionId) as { id: string; client: ClientKind; expires_at: string; temp_login: number } | null
@@ -255,8 +256,9 @@ export class AuthService implements SessionService {
     const prefs = parsePrefs(u.prefs)
     if (!choose) { delete prefs.engine; delete prefs.model }
     const windowsApp = windowsAppSourceOf(this.ctx.config)
-    // the team's own address for its members (Settings › 앱): the relay's or the public one, never the request's host
-    const address = teamAddressOf(this.ctx)
+    // the team's own address for its members (Settings › 앱): the relay's or the public one; without a relay the one
+    // this request reached the server at
+    const address = teamAddressOf(this.ctx, at)
     // my status message, also one that starts later (docs/DECISIONS.md "상태 메시지")
     const status = myStatusOf(this.db, u.id)
     return {

@@ -454,6 +454,8 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options,
       multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
       ...(extra?.details?.length ? { details: extra.details } : {}),
+      ...(extra?.buttons && options.length === 3 ? { buttons: true as const } : {}),
+      ...(extra?.note ? { note: extra.note } : {}),
     } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     return { value: typeof v === 'string' && options.some((o) => o.value === v) ? v : null, missing }
@@ -578,6 +580,8 @@ function skillTools(exec: TurnExec): Tool[] {
           }
         }
         exec.noteTaint('read', { file_path: skill.path })
+        // the person's own personal skill: what an AI turn that wrote it had seen comes with it (chat/turn.ts noteOwnSkill)
+        exec.noteOwnSkill(skill.path)
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
         addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(skill.path))])
         // reporting is auxiliary (admin/skill-usage.ts: team and group skills, never a personal one); a loaded skill is a

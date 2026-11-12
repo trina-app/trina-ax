@@ -23,8 +23,9 @@ on:
         required: true
 
 concurrency:
-  # a release's test run has its own group: a push to main never cancels it
-  group: ci-${{ inputs.ref && format('release-{0}', inputs.ref) || github.ref }}
+  # a called run (release.yml, msstore.yml) has its own group per calling workflow: a push to main never cancels it, and
+  # a store package's tests never cancel the release's tests of the same commit (github.workflow is the caller's name)
+  group: ci-${{ inputs.ref && format('call-{0}-{1}', github.workflow, inputs.ref) || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -109,6 +110,9 @@ jobs:
           # go test covers the seccomp filter (errnos on a child), the Landlock probe, the bwrap argv golden, the
           # nft rule golden, plan / firewall-status parsing, the bundle verifier and the launcher symlink fix
           cd native && go vet ./... && go test ./...
+          # the test binary is the sandboxed helper: with cgo it is dynamic and TestExecNetProxy (QA TC-309) skips, so
+          # run the package again static like the release build (-v: the log shows it ran, not skipped)
+          CGO_ENABLED=0 go test -count=1 -v ./cmd/mycel-sandbox/
       - name: Pinned browser against Chrome for Testing Stable
         timeout-minutes: 2
         run: bun scripts/system/browser-staleness.ts

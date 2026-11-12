@@ -81,7 +81,24 @@ export const PresenceFrame = z.object({
   people: z.array(z.object({ id: UserId, state: PresenceState })),
 })
 export type PresenceFrame = z.infer<typeof PresenceFrame>
-export const ControlFrame = z.discriminatedUnion('type', [HelloFrame, ResyncFrame, ResetFrame, PongFrame, ErrorFrame, PresenceFrame])
+/** A page sends "typing" at most this often while keys are pressed in a room's box (docs/DECISIONS.md "입력 중 표시"). */
+export const ROOM_TYPING_EVERY_MS = 3000
+/** A person drops off the line this long after their last "typing" (no "stopped" needed: a closed laptop says nothing). */
+export const ROOM_TYPING_EXPIRES_MS = 5000
+/**
+ * Someone else is writing in a room's box (threadRootId null) or a thread's box (docs/DECISIONS.md "입력 중 표시"). A
+ * state, not an event: no seq, never replayed, nothing stored. Only to the other members who can read that place; only
+ * the person's id (the page names them as it names them elsewhere). `typing: false`: they sent, emptied the box or left.
+ */
+export const RoomTypingFrame = z.object({
+  type: z.literal('room.typing'),
+  roomId: Uuid7,
+  threadRootId: Uuid7.nullable(),
+  userId: UserId,
+  typing: z.boolean(),
+})
+export type RoomTypingFrame = z.infer<typeof RoomTypingFrame>
+export const ControlFrame = z.discriminatedUnion('type', [HelloFrame, ResyncFrame, ResetFrame, PongFrame, ErrorFrame, PresenceFrame, RoomTypingFrame])
 export type ControlFrame = z.infer<typeof ControlFrame>
 
 // ---------------- server -> client: events (seq, replayable) ----------------
@@ -177,6 +194,13 @@ export const ConnectServiceRequest = z.object({
    * connection from the template (its address, sign-in method and header fixed), only while the template is the
    * version shown here; older servers omit it */
   template: z.object({ id: z.string(), version: z.number().int().positive() }).optional(),
+  /** the person already has this connection and it needs a sign-in or a new key: the card is for that one (its address
+   * and sign-in), never a second connection; older servers omit it */
+  reconnect: z.boolean().optional(),
+  /** the AI named a service in the app's list (or something that looks like it) at an address that is not that service's
+   * official one: the card is titled by the host and says this is not {name}'s official address, which is `url`;
+   * older servers omit it */
+  notOfficial: z.object({ name: z.string(), url: z.string() }).optional(),
   /** the AI's one line on what it is for */
   why: z.string().optional(),
   /** the server's line shown first: why it asks (this chat holds messages from the person's conversations, which the
@@ -223,6 +247,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('message.step', z.object({ chatId: Uuid7, messageId: Uuid7, step: Step })),
   /** finished: done / error / stopped; the full final message (content, steps, file summary, usage) */
   ev('message.done', z.object({ chatId: Uuid7, messageId: Uuid7, status: MessageStatus, message: Message })),
+  /** the AI provider is busy (a short 429 or a 529) and the engine is trying again: busy true; false when the provider
+   * answers again. The web app also clears it when text or a step of that answer arrives, or the answer ends. */
+  ev('turn.busy', z.object({ chatId: Uuid7, messageId: Uuid7, turnId: Uuid7, busy: z.boolean() })),
   ev('queue.position', z.object({ chatId: Uuid7, messageId: Uuid7, turnId: Uuid7, position: z.number().int().nonnegative(), epoch: z.string().optional(), revision: z.number().int().nonnegative().optional() })),
   /** artifact being written (status writing, content so far, throttled) or saved (status done, summary) */
   ev('artifact.updated', z.object({
@@ -310,6 +337,9 @@ export const ClientFrame = z.discriminatedUnion('type', [
   /** this window is in use or idle (docs/DECISIONS.md "접속 상태"): sent when it changes and after each `hello` (the
    * server takes a newly connected window as active until it says otherwise); never queued while disconnected */
   z.object({ type: z.literal('presence'), state: WindowActivity }),
+  /** I am writing in this room's box (threadRootId null) or this thread's box, or stopped (sent, emptied, left). At most
+   * every ROOM_TYPING_EVERY_MS while typing; never queued while disconnected. The server relays it as RoomTypingFrame. */
+  z.object({ type: z.literal('room.typing'), roomId: Uuid7, threadRootId: Uuid7.nullable(), typing: z.boolean() }),
 ])
 export type ClientFrame = z.infer<typeof ClientFrame>
 

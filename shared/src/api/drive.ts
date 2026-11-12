@@ -11,9 +11,9 @@ export type DriveShareFolder = z.infer<typeof DriveShareFolder>
 /** A team share as a member it is for sees it: its name and folders. Never the account, never a token. */
 export const DriveTeamShare = z.object({ id: z.string(), name: z.string(), folders: z.array(DriveShareFolder), wholeDrive: z.boolean() })
 export type DriveTeamShare = z.infer<typeof DriveTeamShare>
-/** `personalAllowed`: the team lets members connect their own Drive (Admin › Connectors › Google Drive; older servers
- * leave it out: allowed). While it is false an owner or admin may still connect their own, turning it on at the confirm
- * (completeDriveFlow `membersOn`). `teamShares`: the Drives an admin shares with this person, usable without a connection. */
+/** `personalAllowed`: always true now (no members' switch since 2026-11-12, docs/DECISIONS.md "No members' switch for
+ * connectors"); kept for older apps, which may still read false from an older server. `teamShares`: the Drives an admin
+ * shares with this person, usable without a connection. */
 export const DriveConnection = z.object({
   configured: z.boolean(), status: z.enum(['disabled', 'disconnected', 'connected', 'needs_reconnect']),
   account: DriveAccount.nullable(), scopes: z.array(z.string()), expiresAt: z.string().nullable(),
@@ -30,9 +30,9 @@ export type DriveFlow = z.infer<typeof DriveFlow>
  * "service" a hosted server that signs in through the hosting service (nothing to set up).
  * `blocked`: why the page cannot set it up ("hosted" the hosting service owns it, "server" the operator's own client,
  * "public_host" no public https address to send Google back to). Never the client secret, never the client ID. */
-/** `membersCanConnect`: members may connect their own Google Drive (on for a new team; a team made before migration
- * 339 keeps what it had: off unless an admin turned it on or its members had connected before this switch). `sharesOn`: team shares that work now. A Google client alone turns
- * nothing on: it only makes Drive available. */
+/** `membersCanConnect`: always true now: once Google Drive is set up every member may connect their own (no members'
+ * switch since 2026-11-12, docs/DECISIONS.md "No members' switch for connectors"; kept for older apps). `sharesOn`: team
+ * shares that work now. */
 export const DriveAdminStatus = z.object({
   configured: z.boolean(), source: z.enum(['app', 'server', 'service', 'none']), canSetUp: z.boolean(),
   blocked: z.enum(['hosted', 'server', 'public_host']).nullable(), redirectUri: z.string().nullable(), connectedMembers: z.number().int(),
@@ -54,8 +54,8 @@ export const DriveShareName = z.string().trim().min(1).max(60)
 export const UpdateDriveShareBody = z.object({
   name: DriveShareName.optional(), folders: z.array(DriveId).max(50).optional(), wholeDrive: z.boolean().optional(), access: IntegrationAccess.optional(),
 }).strict()
-/** `membersOn`: an owner or admin who connects their own Drive while members may not connect theirs also turns that on,
- * in the same step as the confirm (docs/DECISIONS.md "W6"); refused for anyone else, and needed then. */
+/** `membersOn`: ignored (kept so an older app's request still parses); there is no members' switch to turn on since
+ * 2026-11-12 (docs/DECISIONS.md "No members' switch for connectors"). */
 export const CompleteDriveFlowBody = z.object({ membersOn: z.literal(true).optional() })
 /** `connectUrl`: on a hosted team that signs in through the hosting service, its own start page for this sign-in
  * (it explains Google's screen, then links to `authorizationUrl`). The web opens it first; the phone app opens Google. */
@@ -69,12 +69,12 @@ export const DRIVE = {
   myDriveConnection: endpoint({ method: 'GET', path: '/api/integrations/google-drive', auth: 'user', owner: 'C', response: DriveConnection, summary: 'Own Google Drive connection; never a token.' }),
   authorizeDrive: endpoint({ method: 'POST', path: '/api/integrations/google-drive/authorize', auth: 'user', owner: 'C', body: z.object({}), response: Authorization, summary: 'Start personal Google authorization in a system browser.' }),
   driveFlow: endpoint({ method: 'GET', path: '/api/integrations/google-drive/flows/:id', auth: 'user', owner: 'C', response: DriveFlow, summary: 'Poll the flow started by this same signed-in session.' }),
-  completeDriveFlow: endpoint({ method: 'POST', path: '/api/integrations/google-drive/flows/:id/complete', auth: 'user', owner: 'C', body: CompleteDriveFlowBody, response: DriveConnection, summary: 'Confirm the Google account shown by this own authorization flow. While members may not connect their own Drive, an owner or admin confirms with membersOn: true, which turns that switch on with the connection.' }),
+  completeDriveFlow: endpoint({ method: 'POST', path: '/api/integrations/google-drive/flows/:id/complete', auth: 'user', owner: 'C', body: CompleteDriveFlowBody, response: DriveConnection, summary: 'Confirm the Google account shown by this own authorization flow. membersOn is ignored (no members switch since 2026-11-12).' }),
   cancelDriveFlow: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive/flows/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Cancel this own authorization flow.' }),
   disconnectDrive: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive', auth: 'user', owner: 'C', response: z.object({ disconnected: z.literal(true), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: 'Immediately disable own Drive access, then attempt Google revocation.' }),
   driveAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-drive', auth: 'admin', owner: 'C', response: DriveAdminStatus, summary: 'Whether Google Drive is set up on this server, by whom, and how many members are connected; never the client.' }),
   setDriveClient: endpoint({ method: 'PUT', path: '/api/admin/google-drive/client', auth: 'admin', owner: 'C', body: SetDriveClientBody, response: DriveAdminStatus, summary: 'Set up Google Drive with a Google OAuth web client (stored as a private server file; members then connect their own account). Refused on hosted servers, without a public address, and when the operator set the client.' }),
-  setDriveMembers: endpoint({ method: 'PUT', path: '/api/admin/google-drive/members', auth: 'admin', owner: 'C', body: z.object({ on: z.boolean() }).strict(), response: DriveAdminStatus, summary: 'Let members connect their own Google Drive, or not (off: their own connections are not used and none can be made).' }),
+  setDriveMembers: endpoint({ method: 'PUT', path: '/api/admin/google-drive/members', auth: 'admin', owner: 'C', body: z.object({ on: z.boolean() }).strict(), response: DriveAdminStatus, summary: 'The old members switch, kept for older apps: admin-only, changes nothing (every member may connect their own once Google Drive is set up).' }),
   listDriveShares: endpoint({ method: 'GET', path: '/api/admin/google-drive/shares', auth: 'admin', owner: 'C', response: z.object({ items: z.array(DriveShare) }), summary: 'Drives shared with the team: account, folders, who may use them; never a token.' }),
   authorizeDriveShare: endpoint({ method: 'POST', path: '/api/admin/google-drive/shares/authorize', auth: 'admin', owner: 'C', body: z.object({ shareId: z.string().optional() }).strict(), response: Authorization, summary: 'Start the Google sign-in for a Drive to share with the team (or a new sign-in for one, shareId). Polled and cancelled like an own flow.' }),
   completeDriveShareFlow: endpoint({ method: 'POST', path: '/api/admin/google-drive/shares/flows/:id/complete', auth: 'admin', owner: 'C', body: z.object({ name: DriveShareName.optional() }).strict(), response: DriveShare, summary: 'Confirm the Google account: a new share (no folders and nobody yet), or the new sign-in of a share.' }),

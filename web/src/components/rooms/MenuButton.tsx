@@ -13,7 +13,8 @@
 // for a screen reader); `sheetTitle`: what the menu is about, on a phone's sheet only (a row's long press: the room's
 // name, as the row is under the scrim); `focusBack`: where the keyboard goes when a menu without a button of its own
 // closes (a row's level menu: the row's "⋯"); `footer`: words under the rows, such as why some items are off (an item's
-// `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header).
+// `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header);
+// `describedBy`: the id of the words that describe the button (a phone's choice row: its short line, phone/PhoneChoice.tsx).
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
@@ -98,17 +99,20 @@ const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLEle
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const own = useRef<HTMLButtonElement>(null)
   const button = buttonRef ?? own
   const menu = useRef<HTMLDivElement>(null)
+  // the keyboard was in the menu while it was open (Safari moves it to the page when an item is tapped, so the menu may
+  // not hold it at the moment it closes)
+  const hadFocus = useRef(false)
   /** when a long press opened it: the finger lifting right after is no choice of an item */
   const pressedAt = useRef(0)
   // a phone's sheet: Back closes it, not the page under it (lib/backCloses.ts); an item that opens a page or a dialog
   // takes its history entry over
-  useOverlayEntry(open, () => setOpen(false))
+  useOverlayEntry(open, () => close())
   useEffect(() => {
     if (!open) return
     // a phone's sheet over the page: the on-screen keyboard goes down first (a long press while typing), so the sheet
@@ -180,6 +184,14 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   /** the keyboard back to the button, or where the caller says when there is none on screen */
   const hiddenButton = () => button.current?.offsetParent === null
   const giveBack = () => (hiddenButton() && focusBack ? focusBack() : button.current?.focus())
+  /** closes it; a keyboard or screen reader that was in the menu goes back to its button (or where `focusBack` says), so
+   * a pick, Back or a tap outside never drops it on the page's top */
+  const close = () => {
+    const inside = hadFocus.current || !!menu.current?.contains(document.activeElement)
+    hadFocus.current = false
+    setOpen(false)
+    if (inside) giveBack()
+  }
   const onKey = (e: KeyboardEvent) => {
     if (!open) return
     if (e.key === 'Escape') {
@@ -209,6 +221,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
           ref={button}
           type="button"
           aria-label={label}
+          aria-describedby={describedBy}
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={toggle}
@@ -221,10 +234,11 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
       {dot && <span aria-hidden className="pointer-events-none absolute top-2 right-2 size-1.5 rounded-full bg-accent" data-testid={testId ? `${testId}-dot` : undefined} />}
       {/* phones: a sheet from the bottom with 48px rows over a scrim (a tap on it closes), not a small menu by the finger */}
       {/* (a finger held on it must not reach the message's own long press, which would open the sheet again) */}
-      {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && setOpen(false)} />}
+      {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && close()} />}
       {open && (
         <div
           ref={menu}
+          onFocus={() => { hadFocus.current = true }}
           role="menu"
           // a finger held on an item is no long press of the row or message under it (it would open the menu again and
           // swallow the item), nor a right-click of it
@@ -248,7 +262,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
         >
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(false))}</div>}
           {/* the menu's name (aria-label above), shown: not one of its items */}
-          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
+          {/* (a phone's long sheet, the time zones: it stays at the top while the rows scroll) */}
+          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:sticky max-md:top-0 max-md:z-[1] max-md:bg-surface max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
           {sheetTitle && <p aria-hidden className="truncate px-3 pt-2 pb-2 text-sm text-muted md:hidden" data-testid="menu-sheet-title">{sheetTitle}</p>}
           {sheetOrder(items).map((it, i, all) => (
             <button
@@ -260,9 +275,9 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
               aria-describedby={it.describedBy}
               onClick={() => {
                 if (Date.now() - pressedAt.current < 400) return
-                setOpen(false)
-                // a menu without a button on screen: the item is gone with it, the keyboard goes back where it came from
-                if (hiddenButton() && focusBack && menu.current?.contains(document.activeElement)) focusBack()
+                // the item is gone with the menu: the keyboard goes back to the button (or where it came from) before the
+                // item runs, so a dialog it opens gives it back there
+                close()
                 it.onSelect()
               }}
               className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover', it.danger && i > 0 && !all[i - 1]!.danger && dangerLine)}

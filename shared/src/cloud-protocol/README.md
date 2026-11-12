@@ -25,6 +25,7 @@ here as `@mycel/shared/cloud-protocol` and only adds what the control plane and 
 | `relay-ops-schema.ts` | zod mirrors of the operator API bodies for the control plane | control-plane 3.6.2 |
 | `push-gateway.ts` | push gateway API (`push-gateway/`, team server → native push): `POST /v1/send` body (`parsePushGatewaySend`, strict), the `Authorization: MycelPush` header, `pushGatewaySigningString`, error codes and their status. **Erasable TypeScript, no imports at all** (Node and Bun load it as it is) | `push-gateway/README.md` |
 | `drive-broker.ts` | Google Drive sign-in broker (control plane `src/drive-broker/`, hosted teams): `POST /api/drive-broker/v1/{status,start,redeem,refresh,revoke}` bodies (strict parsers), the `Authorization: TrinaDriveBroker` header signed with the relay team key, `driveBrokerSigningString`, the one Google return address and the team return address, error codes. **Erasable TypeScript, no imports at all** | `docs/GOOGLE-DRIVE.md` "Hosted teams" |
+| `slack-broker.ts` | the official Slack app's broker (control plane `src/slack-broker/`, hosted teams and registered servers): `POST /api/slack-broker/v1/{status,install,redeem,token,poll,uninstall,signin/start,signin/redeem}` bodies (strict parsers), the `Authorization: TrinaSlackBroker` header signed with the relay team key, `slackBrokerSigningString`, the one Slack redirect URL and the team return addresses, the long-poll events, the sealed bot token (`X25519-HKDF-SHA256-A256GCM`), error codes. **Erasable TypeScript, no imports at all** | `docs/SLACK.md` "The official app" |
 | `signing.ts` | canonical JSON (signed JSON documents, e.g. ax-hostd job `cpSig`) and the signing strings (`register`, `rotate`, `reattach`) | control-plane 3.5.2, isolation §6.1 |
 | `vectors.ts`, `vectors/vectors.json` | test vectors for other implementations (Go: mycel-enroll, ax-hostd): canonical JSON, signatures from a fixed RFC 8032 test seed, tenant-command gate cases, enroll documents | — |
 
@@ -33,7 +34,7 @@ Rules:
 - Additive changes only once a field is in use (new optional fields, new commands). A removed or renamed field needs a
   new version (`v: 2` / `format: 2`).
 - **plan.json: a new optional field is not free.** The Go reader (`native/internal/plan`, used by mycel-ctl apply-plan,
-  the launcher and mycel-boxd) refuses a key it does not know, even with a `null` value, and a refused plan fails
+  the launcher) refuses a key it does not know, even with a `null` value, and a refused plan fails
   `apply-plan` (the previous plan stays) and, in an enroll answer, the whole enroll. So a new plan.json field has no
   zod default (parsing must not add it), and the control plane writes it only to a tenant whose kit knows it:
   `TenantStatus.rootVersion` for apply-plan, `EnrollRequest.kitVersion` for an enroll (`""`/unknown = older). Fields

@@ -17,7 +17,7 @@ import path from 'node:path'
 import { uuidv7 } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { projectZoneFolders } from '../policy/zone'
-import { badSegment, hiddenEntry } from '../policy/names'
+import { badSegment, hiddenEntry, volumeKey } from '../policy/names'
 import { audit } from '../admin/audit'
 import { getSetting, setSetting } from '../admin/settings'
 import { inZone } from '../policy/zone'
@@ -27,7 +27,10 @@ const DONE = 'projectsMembersOnly.v1'
 
 export async function membersOnlyOnce(ctx: AppContext): Promise<void> {
   try {
-    if (getSetting(ctx.db, DONE)) return
+    // who was the owner or an admin at the update (chat/old-projects.ts; loaded here, as the modules below: it imports the
+    // project modules), in its own try so a failure never skips the steps
+    const remember = async () => { try { (await import('./old-projects')).rememberUpdateStaff(ctx) } catch (e) { ctx.log.warn('who was an admin at the update not kept', { err: e }) } }
+    if (getSetting(ctx.db, DONE)) { await remember(); return }
     // (loaded here, not at the top: context.ts runs this at start, before those modules may be imported)
     const { markLapsed } = await import('./schedule-scope')
     const { resetEngineSessions } = await import('./runtime')
@@ -35,8 +38,9 @@ export async function membersOnlyOnce(ctx: AppContext): Promise<void> {
     const staff = new Set((db.query("SELECT id FROM users WHERE role IN ('owner', 'admin')").all() as { id: string }[]).map((u) => u.id))
     // 1. shared answers of projects in projects/
     let answers = 0
-    const rows = db.query(`SELECT r.message_id, r.reads FROM shared_answer_reads r JOIN chats c ON c.id = r.chat_id JOIN projects p ON p.id = c.project_id
-      WHERE p.folder_path LIKE 'projects/%'`).all() as { message_id: string; reads: string | null }[]
+    // (LIKE ignores ASCII case: inZone keeps only the zone as the disk compares names)
+    const rows = (db.query(`SELECT r.message_id, r.reads, p.folder_path FROM shared_answer_reads r JOIN chats c ON c.id = r.chat_id JOIN projects p ON p.id = c.project_id
+      WHERE p.folder_path LIKE 'projects/%'`).all() as { message_id: string; reads: string | null; folder_path: string }[]).filter((r) => inZone(r.folder_path))
     db.transaction(() => {
       for (const r of rows) {
         let groups: { c?: unknown }[]
@@ -69,6 +73,8 @@ export async function membersOnlyOnce(ctx: AppContext): Promise<void> {
     let sessions = 0
     for (const id of staff) { try { sessions += resetEngineSessions(ctx, id) } catch { /* their next turn starts fresh anyway when it cannot resume */ } }
     setSetting(db, DONE, new Date().toISOString())
+    // who was the owner or an admin at the update, for the card about projects from before it (chat/old-projects.ts)
+    await remember()
     // (a new team, or one with nothing to take away: no row)
     if (answers || gone.length || schedules || sessions) audit(db, { actor: null, action: 'projects.members_only', target: null, detail: { answers, roleRules: gone.map((r) => ({ path: r.path, role: r.subject_id })), schedules, sessions } })
   } catch (e) { ctx.log.error('the members-only start steps did not finish; they run again at the next start', { err: e }) }
@@ -85,7 +91,7 @@ export function adoptLeftoverFolders(ctx: AppContext, actor: string): number {
   const db = ctx.db
   let adopted = 0
   const root = ctx.files.fx.root
-  const fold = (p: string) => p.normalize('NFC').toLowerCase()
+  const fold = (p: string) => volumeKey(p, ctx.files.fx.caseInsensitive)
   const used = new Set((db.query('SELECT folder_path FROM projects').all() as { folder_path: string }[]).map((r) => fold(r.folder_path)))
   for (const t of db.query("SELECT original_path FROM trash_items WHERE restored_at IS NULL AND kind = 'folder'").all() as { original_path: string }[]) used.add(fold(t.original_path))
   for (const [top, name] of projectZoneFolders(root)) {

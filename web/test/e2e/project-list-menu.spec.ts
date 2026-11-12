@@ -31,9 +31,12 @@ async function chat(page: Page, title: string, projectId?: string) {
   return (await r.json()) as { id: string; projectId: string | null; shared?: unknown }
 }
 
-const card = (page: Page, name: string) => page.getByTestId('project-card').filter({ has: page.getByRole('link', { name: new RegExp(`^${name}`) }) })
-/** the card's "…" opened: on a computer it shows on hover and opens a menu at the button; on a touch phone it always
- * shows and opens a bottom sheet with the project's name on top */
+/** every project on the list: a computer's cards, a phone's rows (QA TC-380: a phone list, the card's "…" kept on each
+ * row) */
+const items = (page: Page) => page.getByTestId(/^project-(card|row)$/)
+const card = (page: Page, name: string) => items(page).filter({ has: page.getByRole('link', { name: new RegExp(`^${name}`) }) })
+/** the card's (a phone's row's) "…" opened: on a computer it shows on hover and opens a menu at the button; on a touch
+ * phone it always shows and opens a bottom sheet with the project's name on top */
 async function openCard(page: Page, name: string, phone: boolean) {
   const more = card(page, name).getByTestId('project-card-menu')
   if (phone) {
@@ -102,7 +105,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect(shared.shared).toBeTruthy()
       await project(page, 'Budget', 'finance')
       await page.goto('/projects')
-      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      await expect(items(page)).toHaveCount(2)
 
       // no shared chats: the plain confirm; cancel keeps it
       let menu = await openCard(page, 'Budget', vp.phone)
@@ -113,7 +116,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(dialog.getByTestId('project-delete-shared')).toHaveCount(0)
       await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
       await expect(dialog).toHaveCount(0)
-      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      await expect(items(page)).toHaveCount(2)
 
       // shared chats: the sentence that says they go to their creators' trash, by the trash's name (no red line); delete
       menu = await openCard(page, 'Launch', vp.phone)
@@ -124,7 +127,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'delete confirm with shared chats')
       await dialog.getByTestId('dialog-confirm').click()
       await expect(dialog).toHaveCount(0)
-      await expect(page.getByTestId('project-card')).toHaveCount(1)
+      await expect(items(page)).toHaveCount(1)
       await expect(card(page, 'Launch')).toHaveCount(0)
       expect((await page.request.get(`/api/projects/${launch}`)).status()).toBe(404)
       // the shared chat (mine) is in my trash now, mine alone and without project
@@ -165,13 +168,21 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await make('Hiring', '')
       await make(budget, 'Draft next year\'s budget.')
       await page.goto('/projects')
-      await expect(page.getByText(t['projects.desc'], { exact: true })).toBeVisible()
-      const cards = page.getByTestId('project-card')
+      // the page's one line of what projects are: on a computer (a phone has "+" in its top bar and no intro: QA TC-254)
+      await expect(page.getByText(t['projects.desc'], { exact: true })).toHaveCount(vp.phone ? 0 : 1)
+      const cards = items(page)
       await expect(cards).toHaveCount(3)
 
-      // no instructions: the project page's own words, in the same two lines' room
-      await expect(card(page, 'Hiring').getByTestId('project-card-about')).toHaveText(t['projects.noInstructions'])
-      await expect(card(page, 'Budget').getByTestId('project-card-about')).toHaveText('Draft next year\'s budget.')
+      if (vp.phone) {
+        // a phone's rows (QA TC-380): no instructions and no "지침이 없어요." on the list (the project's page has them)
+        await expect(page.getByTestId('project-card-about')).toHaveCount(0)
+        await expect(page.getByText(t['projects.noInstructions'])).toHaveCount(0)
+        await expect(page.getByText('Draft next year\'s budget.')).toHaveCount(0)
+      } else {
+        // no instructions: the project page's own words, in the same two lines' room
+        await expect(card(page, 'Hiring').getByTestId('project-card-about')).toHaveText(t['projects.noInstructions'])
+        await expect(card(page, 'Budget').getByTestId('project-card-about')).toHaveText('Draft next year\'s budget.')
+      }
       // who sees it, as the project page's 멤버 line counts (the owner reads its own people): no folder path
       await expect(card(page, 'Launch').getByTestId('project-card-who')).toHaveText(translate('ko', 'projects.whoMembers', { n: 2 }))
       await expect(card(page, 'Hiring').getByTestId('project-card-who')).toHaveText(t['chat.whoMe'])
@@ -179,19 +190,24 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
 
       const box = async (name: string) => (await card(page, name).getByRole('link').boundingBox())!
       const [launch, hiring, long] = [await box('Launch'), await box('Hiring'), await box('Budget')]
-      // the long name takes more than one line
       const nameHeight = async (name: string) => (await card(page, name).getByText(name, { exact: true }).boundingBox())!.height
-      expect(await nameHeight(budget)).toBeGreaterThan((await nameHeight('Launch')) * 1.5)
-      // a card without instructions, or with one short line, is as tall as one with two lines
-      expect(Math.round(hiring.height)).toBe(Math.round(launch.height))
       if (vp.phone) {
-        // one card per row, the column's width, none beside another; the long name makes its own row taller
+        // one row per project, one under another, from the screen's edge, all as tall: the long name is cut to one line
         expect(new Set([launch, hiring, long].map((b) => Math.round(b.x))).size).toBe(1)
+        expect(Math.round(launch.x)).toBe(0)
         expect(new Set([launch, hiring, long].map((b) => Math.round(b.width))).size).toBe(1)
         const rows = [launch, hiring, long].sort((a, b) => a.y - b.y)
         expect(rows.every((b, i) => i === 0 || b.y >= rows[i - 1].y + rows[i - 1].height)).toBe(true)
-        expect(long.height).toBeGreaterThan(launch.height)
+        // (the first row has no hairline above it: 1 px less)
+        const heights = [launch, hiring, long].map((b) => b.height)
+        expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1.5)
+        expect(Math.round(launch.height)).toBeGreaterThanOrEqual(48)
+        expect(Math.round(await nameHeight(budget))).toBe(Math.round(await nameHeight('Launch')))
       } else {
+        // the long name takes more than one line
+        expect(await nameHeight(budget)).toBeGreaterThan((await nameHeight('Launch')) * 1.5)
+        // a card without instructions, or with one short line, is as tall as one with two lines
+        expect(Math.round(hiring.height)).toBe(Math.round(launch.height))
         // three in one row, all as tall as the card with the long name
         expect(new Set([launch, hiring, long].map((b) => Math.round(b.y))).size).toBe(1)
         expect(new Set([launch, hiring, long].map((b) => Math.round(b.height))).size).toBe(1)
@@ -276,7 +292,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // Bob's account switched off: nobody active is in Kite any more
       await post(page, '/__test/project', { name: 'Kite', by: 'bob', participants: [] })
       await page.goto('/projects')
-      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      await expect(items(page)).toHaveCount(2)
       expect((await patch(page, '/api/admin/users/bob', { status: 'disabled' })).ok()).toBeTruthy()
       await page.reload()
       await expect(card(page, 'Kite').getByTestId('project-card-who')).toHaveText(t['projects.noMembers'])
@@ -302,7 +318,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'move to the trash confirm')
       await dialog.getByTestId('dialog-confirm').click()
       await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveText(` · ${t['chat.project.inTrash']}`)
-      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      await expect(items(page)).toHaveCount(2)
       // again: for good, the card goes
       menu = await openCard(page, 'Falcon', vp.phone)
       await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
@@ -321,7 +337,22 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await post(page, '/__test/project', { name: 'Falcon', by: 'bob', instructions: 'Falcon: answer in short bullet points.' })
       expect((await post(page, '/api/projects', { name: 'Launch', scope: 'team', instructions: '' })).status()).toBe(201)
       await page.goto('/projects')
-      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      await expect(items(page)).toHaveCount(2)
+      if (vp.phone) {
+        // a phone's row (QA TC-380): a lock after the name, its words for screen readers; no instructions on any row
+        await expect(card(page, 'Falcon').locator('svg.lucide-lock')).toBeVisible()
+        await expect(card(page, 'Falcon')).toContainText(t['projects.cardMembersOnly'])
+        await expect(card(page, 'Launch').locator('svg.lucide-lock')).toHaveCount(0)
+        await expect(page.getByTestId('project-card-about')).toHaveCount(0)
+        await expect(card(page, 'Falcon')).not.toContainText('short bullet points')
+        await expect(page.getByText(t['projects.noInstructions'])).toHaveCount(0)
+        const rowBox = async (name: string) => (await card(page, name).getByRole('link').boundingBox())!
+        // as tall as each other (the first row has no hairline above it: 1 px less)
+        expect(Math.abs((await rowBox('Falcon')).height - (await rowBox('Launch')).height)).toBeLessThanOrEqual(1.5)
+        await audit(page, 'rows of a project the admin is not in')
+        if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/projects-not-a-member-${vp.name}-light.png` })
+        return
+      }
       const about = (name: string) => card(page, name).getByTestId('project-card-about')
       await expect(about('Falcon')).toHaveText(t['projects.cardMembersOnly'])
       await expect(about('Falcon').locator('svg')).toHaveCount(1)

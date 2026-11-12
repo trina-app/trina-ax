@@ -29,7 +29,7 @@ import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
-import { useChats, useQueuePosition } from '../../store/chats'
+import { useChats, useProviderBusy, useQueuePosition } from '../../store/chats'
 import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
@@ -45,7 +45,7 @@ import AiAccessButton from './AiAccessButton'
 import NotReadyButton from './NotReadyButton'
 import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText } from '../../lib/chatErrors'
-import { Button, CopyButton, IconButton, inputCls, useCopy } from '../ui'
+import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
 import AskCard from './AskCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
@@ -62,6 +62,7 @@ import { SkillChip } from './SkillChip'
 import { copyRoomIds, WithRoomNames } from '../RoomNames'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
+import { EngineSheet } from './EngineSheet'
 import { Tooltip } from '../Tooltip'
 import { useViewerItem } from '../ImageViewer'
 import { attachmentItem } from '../../lib/imageViewer'
@@ -624,6 +625,7 @@ export function AssistantMessage({
   const locale = useLocale()
   const streaming = m.status === 'streaming'
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
+  const providerBusy = useProviderBusy(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
   // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them
   const waitingForYou = streaming && requests.length > 0
@@ -703,6 +705,9 @@ export function AssistantMessage({
           <StepPostView.Provider value={sendHere ? (p) => sendHere.onView({ to: p.threadRootId ? 'thread' : 'room', roomId: p.roomId, rootId: p.threadRootId ?? null, messageId: p.messageId, cut: false }) : null}>
             <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
           </StepPostView.Provider>
+        )}
+        {providerBusy && !waitingForYou && (queuePos === undefined || queuePos === 0) && (
+          <p className="mb-2 text-sm text-muted" role="status" data-testid="provider-busy">{t('chat.providerBusy')}</p>
         )}
         {thinking && (queuePos === undefined || queuePos === 0) && (
           <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
@@ -854,12 +859,34 @@ function AnsweredBy({ m, className }: { m: ViewMessage; className?: string }) {
   )
 }
 
-/** "다른 모델로 다시 시도": the engines and models the person may pick, for a new answer to the same question. */
+/** "다른 모델로 다시 시도": the engines and models the person may pick, for a new answer to the same question. A phone: the
+ * choices as a sheet (EngineSheet; a tap outside, Escape or Back closes it); a computer: the small list, which a click
+ * outside or Escape closes too. */
 function RetryWithModel({ m, busy, retryWith, onPick }: { m: ViewMessage; busy: boolean; retryWith: NonNullable<Parameters<typeof AssistantMessage>[0]['retryWith']>; onPick: (p: EnginePick) => void }) {
   const t = useT()
   const [open, setOpen] = useState(false)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false)
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setOpen(false)
+      box.current?.querySelector<HTMLElement>('[data-testid="retry-other-model"]')?.focus()
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', key)
+    }
+  }, [open])
+  const current = { engine: (m.engine ?? undefined) as EngineId | undefined, model: m.model }
+  if (phone && !busy) return <EngineSheet engines={retryWith.engines} models={retryWith.models} current={current} onPick={onPick} label={t('chat.retryOtherModel')} title={t('chat.retryOtherModel')} look="secondary" testId="retry-other-model" />
   return (
-    <div className="relative">
+    <div ref={box} className="relative">
       <Button size="sm" variant="secondary" disabled={busy} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="retry-other-model">
         {t('chat.retryOtherModel')} <ChevronDown size={13} aria-hidden />
       </Button>
@@ -868,7 +895,7 @@ function RetryWithModel({ m, busy, retryWith, onPick }: { m: ViewMessage; busy: 
           <EngineOptions
             engines={retryWith.engines}
             models={retryWith.models}
-            current={{ engine: (m.engine ?? undefined) as EngineId | undefined, model: m.model }}
+            current={current}
             onPick={(p) => {
               setOpen(false)
               onPick(p)

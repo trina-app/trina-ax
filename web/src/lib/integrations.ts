@@ -326,15 +326,9 @@ export function lastCheckNote(i: Pick<Integration, 'status' | 'lastError' | 'too
   return i.toolsUpdatedAt ? { key: 'integrations.checkFailedKept', reason: i.lastError, date: i.toolsUpdatedAt } : { key: 'integrations.lastCheckFailed', reason: i.lastError, date: null }
 }
 
-/** An address without what does not change the service (letter case, a trailing slash), to compare two of them. */
-export function canonicalService(url: string): string {
-  try {
-    const u = new URL(url)
-    return `${u.host}${u.pathname.replace(/\/+$/, '')}`.toLowerCase()
-  } catch {
-    return url.trim().toLowerCase()
-  }
-}
+/** An address without what does not change the service (letter case, a trailing slash), to compare two of them
+ * (shared/src/service-catalog.ts, the server compares the same way). */
+export { canonicalService } from '@mycel/shared'
 
 /** Why a sign-in did not finish, as the server records it (server/src/integrations/connections/service.ts FlowFailure),
  * in words: an own app's Client ID or Secret refused (the person's own: check it under Advanced; a template's: ask who set
@@ -447,4 +441,12 @@ export function requestIdFrom(search: string): string | null {
  * as "로그인 필요", not under "연결됨" (QA TC-205). One whose sign-in lapsed keeps its stored sign-in and stays there. */
 export function awaitingFirstSignIn(i: Pick<Integration, 'auth' | 'hasSecret'>): boolean {
   return i.auth === 'oauth' && !i.hasSecret
+}
+
+/** What a connection's line in Connectors' "Your connectors" says (own and made from a team template alike):
+ * never signed in → "로그인 필요" like its page (QA TC-205), never "Connected" or "Reconnect"; a lapsed sign-in →
+ * Reconnect; any other problem → Needs attention. */
+export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status'>): 'signin' | 'connected' | 'reconnect' | 'attention' {
+  if (awaitingFirstSignIn(i)) return 'signin'
+  return i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'
 }

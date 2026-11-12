@@ -34,7 +34,7 @@ import { missingTemplateKey } from '../integrations/connections/schedule-needs'
 import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type ScopeSource } from './schedule-scope'
 import { inZone } from '../policy/zone'
 import { volumeKey } from '../policy/names'
-import { canRead } from './projects'
+import { canRead, membersOnlyNow } from './projects'
 
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
@@ -210,6 +210,36 @@ export class Schedules {
     return this.get(userId, id)
   }
 
+  /**
+   * The person started to read this project again (chat/project-joins.ts: Add me, "Add me to these", a group): their
+   * tasks that a due run paused because they did not see it (runDue: `schedule.project_gone`, paused) are turned on
+   * again, with their next time from now. Only a task untouched since that pause (its latest audit row is that pause,
+   * for this project), still off, confirmed, not a finished one-time task, and that can run now. Audited
+   * `schedule.resumed` (no actor: the server did it, `via: project_member`). Returns the ids turned on.
+   */
+  resumeForProject(userId: string, projectId: string, now = new Date()): string[] {
+    const rows = this.db.query(`SELECT * FROM schedules s WHERE s.user_id = ? AND s.enabled = 0
+      AND EXISTS(SELECT 1 FROM schedule_project_skips k WHERE k.schedule_id = s.id AND k.project_id = ?)`).all(userId, projectId) as ScheduleRow[]
+    const resumed: string[] = []
+    for (const s of rows) {
+      const last = this.db.query('SELECT action, detail FROM audit_log WHERE target = ? ORDER BY id DESC LIMIT 1').get(s.id) as { action: string; detail: string | null } | null
+      let d: { project?: unknown; paused?: unknown } | null = null
+      try { d = JSON.parse(last?.detail ?? 'null') } catch { d = null }
+      if (last?.action !== 'schedule.project_gone' || d?.project !== projectId || d?.paused !== true) continue
+      if (needsReview(s) || this.resumeBlockedReason(s, now)) continue
+      if (s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(userId))) continue
+      if (this.templateProjectGone(s)) continue
+      const next = nextRun(s, now, this.rt.timeZone)
+      if (!next) continue
+      this.db.transaction(() => {
+        this.db.query('UPDATE schedules SET enabled = 1, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ? AND enabled = 0').run(next.toISOString(), s.id)
+        audit(this.db, { actor: null, action: 'schedule.resumed', target: s.id, detail: { nextRunAt: next.toISOString(), via: 'project_member', project: projectId } })
+      })()
+      resumed.push(s.id)
+    }
+    return resumed
+  }
+
   /** "지금 실행" (Settings): one run now with the rules of a scheduled run, as its person: unattended (nothing waits
    * for anyone), only the addresses and connections its card allowed, the budgets, the person's access and, for a
    * template, its folders. It is outside the schedule: the next run, on/off and a pending occurrence stay as they are;
@@ -253,18 +283,42 @@ export class Schedules {
   }
 
   /** lastOutcome with when it came: the run's end, or when an occurrence was skipped. A "Run now" run moves only
-   *  last_chat_id (runNow), so the Scheduled page shows this time for the last run, not last_run_at. */
-  lastResult(userId: string, id: string): { outcome: LastOutcome; at: string | null } | null {
-    const row = this.db.query(`SELECT code, run_outcome, at FROM (
+   *  last_chat_id (runNow), so the Scheduled page shows this time for the last run, not last_run_at.
+   *  A skip for a project its owner did not see ('project_gone') is read against the project now (QA TC-360): once
+   *  they see it again (Add me resumed the task) it is history, and the result before it is the last one; while they
+   *  still do not, `membersOnly` says it is a project only its members use now (not one that is gone). */
+  lastResult(userId: string, id: string): { outcome: LastOutcome; at: string | null; membersOnly?: true } | null {
+    let row = this.lastRow(userId, id, true)
+    let membersOnly = false
+    if (row?.code === 'project_gone') {
+      const s = this.get(userId, id)
+      // a check that cannot be made (the owner is no longer there) keeps the skip as it is
+      let gone: string | null | undefined
+      try { gone = s ? this.projectGoneNow(s) : undefined } catch { gone = undefined }
+      if (gone === null) row = this.lastRow(userId, id, false)
+      else if (gone) membersOnly = membersOnlyNow(this.db, this.rt.ctx.files, userId, gone)
+    }
+    if (!row) return null
+    if (row.code !== 'done') return { outcome: row.code, at: row.at, ...(membersOnly ? { membersOnly: true as const } : {}) }
+    const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
+    return { outcome: outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error', at: row.at }
+  }
+
+  /** The newest run or skipped occurrence of a task; without its project skips when `projectSkips` is false. */
+  private lastRow(userId: string, id: string, projectSkips: boolean): { code: LastOutcome; run_outcome: string | null; at: string | null } | null {
+    return this.db.query(`SELECT code, run_outcome, at FROM (
       SELECT status code, run_outcome, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
       UNION ALL SELECT code, NULL run_outcome, created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
       UNION ALL SELECT 'needs_key' code, NULL run_outcome, created_at at FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
-      UNION ALL SELECT 'project_gone' code, NULL run_outcome, created_at at FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
-    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null; at: string | null } | null
-    if (!row) return null
-    if (row.code !== 'done') return { outcome: row.code, at: row.at }
-    const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
-    return { outcome: outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error', at: row.at }
+      UNION ALL SELECT 'project_gone' code, NULL run_outcome, created_at at FROM schedule_project_skips WHERE schedule_id=? AND user_id=? AND ?
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId, id, userId, projectSkips ? 1 : 0) as { code: LastOutcome; run_outcome: string | null; at: string | null } | null
+  }
+
+  /** The project a task's owner does not see now (its project, or the team project its template's folder is in), as a
+   *  due run reads it (runDue); null when they see it, or the task has none. */
+  private projectGoneNow(s: ScheduleRow): string | null {
+    if (s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id))) return s.project_id
+    return this.templateProjectGone(s)
   }
 
   /** A run of this task is queued or running now (its chat is last_chat_id: start() commits it with the turn). */

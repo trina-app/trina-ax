@@ -1,33 +1,36 @@
-// Admin › Connectors (/admin/connectors; MCP and App connectors were two pages before, their addresses lead here). The
-// Admin shell says whose these are ("Applies to everyone in <team>" above every Admin page, AdminLayout.tsx); the title
-// is the same noun as Settings'. One page: first, under "Connected", the team's connections (company accounts),
-// templates and requests, each with who may use it in a chip after its name (the whole team, groups, people). Admins
-// manage them all but use one in their own chats only when the rule includes them, so each row says so. Members'
-// personal connections are not listed (nobody but the owner can use those). Then Discover: Google Drive first (its page:
-// on or not, how many members use it, the one-time Google setup), Gmail, Google Calendar, Google Docs and Google Sheets
-// (each its own setup, GoogleAppAdmin.tsx; ?app=gmail opens one), then known MCP services; a card opens its page, whose
-// Connect adds it with one team key and whose ⌄ makes it a template. Nothing connected yet: Discover right under the
-// title. The search filters both sections. "Add" takes any MCP server or API by its address, either for the team with
-// one key or as a template each member connects with their own key (components/integrations/TemplatesView.tsx). Its ⌄
-// menu also asks one member to connect a service as their own (a popup, components/integrations/RequestDialog.tsx); such
-// a request is a row in the same list while it waits, and for a while after it was declined or expired. ?drive=1 (a
-// notice, the old App connectors address) opens Google Drive's page.
+// Admin › Connectors (/admin/connectors; MCP and App connectors were two pages before, their addresses lead here), in the
+// same layout as the Connectors page (pages/Connectors.tsx), with what only an admin does inside it. The Admin shell says
+// whose these are ("Applies to everyone in <team>" above every Admin page, AdminLayout.tsx). On top the title, the
+// search and Add (any MCP server or API by its address, for the team with one key or as a template each member connects
+// with their own key; its ⌄ also asks one member to connect a service as their own, RequestDialog.tsx). Then two
+// sections, one line each:
+// - **Connected**: the Google connectors that are on (members may connect their own, or a Drive is shared with the
+//   team), the team's connections (a warning on the line when nobody may use one, or not the admin looking), its
+//   templates (TemplatesView.tsx) and the requests to members while they wait (and for a while after).
+// - **Discover**: what is not on yet: Google Drive, Gmail, Google Calendar, Google Docs, Google Sheets, then the listed
+//   MCP services (lib/connectors.ts), the first ten and Show all. A row opens its page; its + sets a Google one up (or
+//   opens its page) and adds a listed service for the team.
+// Pages, each its own address: a Google connector's (/admin/connectors/<id>, GoogleAdminPage.tsx: the member's page with
+// Team settings; the old ?drive=1 and ?app=gmail lead there, AdminLayout.tsx), a listed service's (ConnectorDetail:
+// Connect ⌄ for the team or as a template) and a team connection's (/admin/connectors/mcp/<id>: its row with who may use
+// it, test, edit, delete and its tools). Members' personal connections are not listed (nobody but the owner can use
+// those).
 import { Plus, Send } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
+import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, GoogleAppView, Group, Integration, IntegrationRequest, IntegrationTemplate, RequestableService, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { APP_CONNECTORS, appConnectorLogo, CONNECTORS, type Connector } from '../../lib/connectors'
-import { canonicalService, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
+import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../../lib/connectors'
+import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
+import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
 import { Badge, EmptyState, useMediaQuery } from '../../components/ui'
-import { ConnectorDetail, ConnectorDiscover, ConnectorsHeader, discoverHits, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds } from '../../components/integrations/ConnectorsView'
-import { DriveAdminDetail, driveAdminLine, driveAdminOn, DriveSetupDialog } from '../../components/integrations/DriveConnector'
-import { DriveAdminSettings } from '../../components/integrations/DriveShares'
-import { GoogleAppAdminDetail, googleAppAdminLine, googleAppAdminOn, GoogleAppSetupDialog } from '../../components/integrations/GoogleAppAdmin'
-import { builtInLogo, builtInName, GOOGLE_APP_ORDER, isGoogleApp } from '../../lib/googleApps'
+import { ConnectorDetail, ConnectorRow, ConnectorsHeader, DiscoverCard, DISCOVER_FIRST, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds, type DiscoverItem } from '../../components/integrations/ConnectorsView'
+import { driveAdminLine, driveAdminOn, DriveSetupDialog } from '../../components/integrations/DriveConnector'
+import { googleAppAdminLine, googleAppAdminOn, GoogleAppSetupDialog } from '../../components/integrations/GoogleAppAdmin'
+import { DriveAdminPage, GoogleAppAdminPage } from '../../components/integrations/GoogleAdminPage'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
 import { RequestDialog, RequestRow, requestFormOf, shownRequests, useTeamRequests } from '../../components/integrations/RequestDialog'
 import { AudienceChip, IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
@@ -35,6 +38,9 @@ import { TemplateRow } from '../../components/integrations/TemplatesView'
 import { toast } from '../../store/ui'
 import { Loadable, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
+import { MemberAsks, useMemberAsks } from '../../components/integrations/MemberAsks'
+
+type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'listed'; c: Connector } | { kind: 'team'; id: string }
 
 export default function AdminIntegrations() {
   const t = useT()
@@ -51,29 +57,45 @@ export default function AdminIntegrations() {
   const [driveSetup, setDriveSetup] = useState(false)
   // Gmail, Google Calendar, Google Docs and Google Sheets on this server (an older server has none): set up per card
   const gapps = useLoad(async () => { try { return (await api.call(API.googleAppsAdminStatus)).apps } catch { return [] as GoogleAppAdminStatus[] } })
+  // Team settings' "Members can add their own connections": off, the admin's own ("Just for me") is refused too
+  const personal = useLoad(async () => { try { return (await api.call(API.listIntegrations)).personalAllowed } catch { return true } })
+  // the admin's own view of them (Connectors'), for each page's tools
+  const views = useLoad(async () => { try { return (await api.call(API.myGoogleApps)).apps } catch { return [] as GoogleAppView[] } })
   const [gappSetup, setGappSetup] = useState<GoogleAppId | null>(null)
   const setGapp = (st: GoogleAppAdminStatus) => gapps.setData((a) => a?.map((x) => (x.id === st.id ? st : x)) ?? a)
-  // a connector's page, opened from Discover: its own address, /admin/connectors/<id> (the old ?drive=1 and ?app=gmail
-  // lead there, AdminLayout.tsx), in place of the list; Back or its way back return to the list
-  const { sub } = useParams()
+  // a page: /admin/connectors/<id> (a Google connector, a listed service) or /admin/connectors/mcp/<id> (a team
+  // connection), in place of the list; the way back returns to the list
+  const { sub, item } = useParams()
   const navigate = useNavigate()
   const upTo = useUpTo()
-  const open: { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'mcp'; c: Connector } | null = !sub ? null
-    : sub === APP_CONNECTORS[0].id ? { kind: 'drive' }
+  const open: Open | null = !sub ? null
+    : sub === 'google-drive' ? { kind: 'drive' }
       : isGoogleApp(sub) ? { kind: 'gapp', id: sub }
-        : (() => { const c = CONNECTORS.find((x) => x.id === sub); return c ? { kind: 'mcp' as const, c } : null })()
-  const setOpen = (o: { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'mcp'; c: Connector } | null) => {
+        : sub === 'mcp' ? (item ? { kind: 'team', id: item } : null)
+          : (() => { const c = CONNECTORS.find((x) => x.id === sub); return c ? { kind: 'listed' as const, c } : null })()
+  const pathOf = (o: Open) => (o.kind === 'drive' ? '/admin/connectors/google-drive' : o.kind === 'gapp' ? `/admin/connectors/${o.id}` : o.kind === 'listed' ? `/admin/connectors/${o.c.id}` : `/admin/connectors/mcp/${o.id}`)
+  const setOpen = (o: Open | null) => {
     if (!o) { if (sub) upTo('/admin/connectors'); return }
-    const id = o.kind === 'drive' ? APP_CONNECTORS[0].id : o.kind === 'gapp' ? o.id : o.c.id
-    if (id !== sub) navigate(`/admin/connectors/${id}`)
+    navigate(pathOf(o))
   }
-  // an address of a connector this page does not know (a typo, an old link): the list
-  useEffect(() => { if (sub && !open) navigate('/admin/connectors', { replace: true }) }, [sub, open, navigate])
+  // an address of a connector this page does not know (a typo, an old link), or a team connection that is gone: the list
+  const teamGone = open?.kind === 'team' && !!state.data && !state.data.some((i) => i.id === open.id)
+  useEffect(() => { if ((sub && !open) || teamGone) navigate('/admin/connectors', { replace: true }) }, [sub, open, teamGone, navigate])
   // the phone's bar names the connector whose page this is
-  useAdminBar(open ? (open.kind === 'drive' ? APP_CONNECTORS[0].name : open.kind === 'gapp' ? builtInName(open.id) : open.c.name) : null)
+  const teamOpen = open?.kind === 'team' ? state.data?.find((i) => i.id === open.id) : undefined
+  useAdminBar(open ? (open.kind === 'drive' || open.kind === 'gapp' ? builtInName(open.kind === 'drive' ? 'google-drive' : open.id) : open.kind === 'listed' ? open.c.name : teamOpen?.name ?? '') : null)
   const requests = useTeamRequests()
+  // what members asked to have added (QA TC-133), read again when the team's list changes
+  const memberAsks = useMemberAsks(state.data?.length)
+  const addAsked = (s: RequestableService) => {
+    if (s === 'google-drive') return setOpen({ kind: 'drive' })
+    if (isGoogleApp(s)) return setOpen({ kind: 'gapp', id: s })
+    const c = CONNECTORS.find((x) => x.id === s)
+    if (c) setDialog({ connector: c, toList: true })
+  }
   const [ask, setAsk] = useState<{ initial?: RequestForm } | null>(null)
   const [query, setQuery] = useState('')
+  const [all, setAll] = useState(false)
   const reloadList = state.reload
   const reload = useCallback(() => void reloadList(), [reloadList])
   useEffect(() => reloadAsked.on(() => void reloadList()), [reloadList])
@@ -85,10 +107,7 @@ export default function AdminIntegrations() {
   const person = { id: me.user.id, groupIds: me.groups.map((g) => g.id) }
   const ids = useSectionIds()
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const DRIVE = APP_CONNECTORS[0]
-  // back from a connector's page: where it was opened from
-  // (a computer: the keyboard to Discover; a phone keeps the list's place, lib/backStack.ts useKeptScroll)
-  const back = () => { setOpen(null); if (!phone) goToSection(ids.discover) }
+  const back = () => setOpen(null)
   // added from Discover (or from Add over a connector's page): the search is cleared (it was looking for what the new
   // row may not match) and the keyboard goes to the list the new row is in (once it is there: a template comes with the
   // list loaded again), since the button that opened the dialog is gone
@@ -97,6 +116,16 @@ export default function AdminIntegrations() {
     setOpen(null)
     setQuery('')
     void Promise.resolve(listed).then(() => goToSection(ids.connected))
+  }
+  /** what needs the admin's attention stays on the line: nobody may use it, or the admin cannot */
+  const accessWarning = (i: Integration) => {
+    const nobody = isEmptyAccess(i.access ?? NOBODY)
+    const notMine = !nobody && !covers(i.access, person)
+    return (nobody || notMine) ? (
+      <span className="inline-flex shrink-0" data-testid="integration-access-warning">
+        <Badge tone="warn">{t(nobody ? 'integrations.users.nobody' : 'integrations.users.notMe')}</Badge>
+      </span>
+    ) : null
   }
   return (
     <>
@@ -115,95 +144,131 @@ export default function AdminIntegrations() {
         {(list) => {
           const tpls = templates.data ?? []
           const d = drive.data
-          if (open?.kind === 'drive' && d) return (
-            <DriveAdminDetail status={d} onSetUp={() => setDriveSetup(true)} onBack={back}>
-              <DriveAdminSettings status={d} onStatus={(st) => drive.setData(st)} />
-            </DriveAdminDetail>
-          )
+          if (open?.kind === 'drive' && d) return <DriveAdminPage status={d} onSetUp={() => setDriveSetup(true)} onStatus={(st) => drive.setData(st)} />
           const gs = open?.kind === 'gapp' ? gapps.data?.find((x) => x.id === open.id) : undefined
-          if (gs) return <GoogleAppAdminDetail status={gs} onSetUp={() => setGappSetup(gs.id)} onStatus={setGapp} onBack={back} />
-          if (open?.kind === 'mcp') {
+          if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} />
+          if (open?.kind === 'listed') {
             const c = open.c
-            const have = [...list, ...tpls].find((i) => canonicalService(i.url) === canonicalService(c.url))
-            const tools = list.find((i) => canonicalService(i.url) === canonicalService(c.url))?.tools.map((x) => x.name)
+            const have = [...list, ...tpls].find((i) => servesAt(c, i.url))
+            const tools = list.find((i) => servesAt(c, i.url))?.tools.map((x) => x.name)
             return (
-              <ConnectorDetail testId="connector-detail" logo={`/icons/connectors/${c.logo}`} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={back}
+              <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={back}
                 action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span> : (
-                  <SplitAction label={t('aiApps.connect')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
+                  // QA TC-134: one click for the team (one shared key, the admin picks who), or a template each member
+                  // connects, or the admin's own connection (their Connectors page)
+                  <SplitAction label={t('connectors.connectTeam')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
                     items={[
-                      { label: t('connectors.connectTeam'), onSelect: () => setDialog({ connector: c, toList: true }), testId: 'connector-connect-team' },
                       { label: t('connectors.connectTemplate'), onSelect: () => setDialog({ connector: c, startAs: 'template', toList: true }), testId: 'connector-connect-template' },
+                      ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(`/connectors/${c.id}`), testId: 'connector-connect-mine' }] : []),
                     ]} />
                 )}
-                description={t('connectors.mcp.about', { name: c.name })} tools={tools} />
+                description={t('connectors.mcp.aboutForTeam', { name: c.name })} address={have ? undefined : c.url} docs={have ? undefined : CONNECTOR_DOCS[c.id]} tools={tools} />
             )
           }
-          // a Google client alone is "Ready to set up", not on: on is members connecting their own, or a share
-          const driveCard = [
-            ...(d ? [{ id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: d.configured && !driveAdminOn(d) ? t('driveAdmin.ready') : driveAdminLine(t, d), state: driveAdminOn(d) ? 'added' as const : 'available' as const }] : []),
-            ...GOOGLE_APP_ORDER.flatMap((id) => {
-              const g = gapps.data?.find((x) => x.id === id)
-              return g ? [{ id, name: builtInName(id), logo: builtInLogo(id), line: googleAppAdminLine(t, g), state: googleAppAdminOn(g) ? 'added' as const : 'available' as const }] : []
+          if (open?.kind === 'team') {
+            if (!teamOpen) return null
+            const c = connectorFor(teamOpen.url)
+            return (
+              <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={teamOpen.name} line={c ? t(`integrations.catalog.${c.id}`) : teamOpen.url} official={!!c} onBack={back}
+                description={t('connectors.mcp.aboutTeam', { name: teamOpen.name })} noTools>
+                <ul className="-mx-2 divide-y divide-line rounded-xl bg-surface" data-testid="team-integrations">
+                  <IntegrationRow i={teamOpen} actions={actions} onEdit={() => setDialog({ existing: teamOpen })}
+                    audience={<AudienceChip access={teamOpen.access ?? NOBODY} groups={groups.data} users={users.data} />}
+                    alert={accessWarning(teamOpen)}
+                    extra={<AccessLine i={teamOpen} groups={groups.data ?? []} users={users.data ?? []} />} />
+                </ul>
+              </ConnectorDetail>
+            )
+          }
+
+          const q = query.trim()
+          // Google Drive and the Google apps this server knows: on (set up: everyone may connect their own; Connected) or
+          // not yet (Discover)
+          const builtIns: (DiscoverItem & { on: boolean })[] = BUILT_IN_ORDER.flatMap((id: BuiltInId): (DiscoverItem & { on: boolean })[] => {
+            const openIt = () => setOpen(id === 'google-drive' ? { kind: 'drive' } : { kind: 'gapp', id })
+            if (id === 'google-drive') {
+              if (!d) return []
+              const on = driveAdminOn(d)
+              return [{ id, name: builtInName(id), logo: builtInLogo(id), line: driveAdminLine(t, d), on, state: on ? 'added' as const : 'available' as const,
+                onOpen: openIt, onAdd: () => { openIt(); if (d.canSetUp && !d.configured) setDriveSetup(true) } }]
+            }
+            const g = gapps.data?.find((x) => x.id === id)
+            if (!g) return []
+            const on = googleAppAdminOn(g)
+            return [{ id, name: builtInName(id), logo: builtInLogo(id), line: googleAppAdminLine(t, g), on, state: on ? 'added' as const : 'available' as const,
+              onOpen: openIt, onAdd: () => { openIt(); if (g.canSetUp && !g.configured) setGappSetup(id) } }]
+          })
+          // Connected: one line each, by name; then the templates and the requests
+          const rows: { name: string; row: ReactNode }[] = [
+            ...builtIns.filter((b) => b.on && fits(q, b.name)).map((b) => ({ name: b.name, row: (
+              <ConnectorRow key={b.id} id={b.id} logo={b.logo} name={b.name} status="on" onOpen={b.onOpen} />
+            ) })),
+            ...list.filter((i) => matchesQuery(i, query)).map((i) => {
+              const c = connectorFor(i.url)
+              return { name: i.name, row: (
+                <ConnectorRow key={i.id} id={i.id} logo={c ? connectorLogo(c) : undefined} name={i.name} note={accessWarning(i)} testId="team-connection"
+                  status={connectionRowStatus(i)}
+                  onOpen={() => setOpen({ kind: 'team', id: i.id })} />
+              ) }
             }),
-          ]
-          const reqs = shownRequests(requests.list)
-          const q = query.trim().toLocaleLowerCase()
-          const shown = [...list].filter((i) => matchesQuery(i, query)).sort((a, b) => a.name.localeCompare(b.name))
-          const shownTpls = tpls.filter((x) => !q || x.name.toLocaleLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name))
-          const shownReqs = reqs.filter((r) => !q || `${r.name} ${r.url} ${r.user.name}`.toLocaleLowerCase().includes(q))
-          const rows = shown.length + shownTpls.length + shownReqs.length
-          if (q && !rows && !discoverHits(t, query, driveCard).count) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
-          // nothing connected yet: no heading and no empty box, Discover leads under the line above
+          ].sort((a, b) => a.name.localeCompare(b.name))
+          const shownTpls = tpls.filter((x) => fits(q, x.name)).sort((a, b) => a.name.localeCompare(b.name))
+          const shownReqs = shownRequests(requests.list).filter((r) => fits(q, r.name, r.url, r.user.name))
+          const connected = rows.length + shownTpls.length + shownReqs.length
+          // Discover: what is not on yet, the Google ones first; the listed services the team has not connected
+          const urls = [...list, ...tpls].map((i) => i.url)
+          const listed: DiscoverItem[] = CONNECTORS.filter((c) => !isConnected(c, urls)).map((c) => ({
+            id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c), state: 'available' as const,
+            onOpen: () => setOpen({ kind: 'listed', c }), onAdd: () => setDialog({ connector: c, toList: true }),
+          }))
+          const cards = [...builtIns.filter((b) => !b.on), ...listed].filter((c) => fits(q, c.name, c.line))
+          const shownCards = q || all ? cards : cards.slice(0, DISCOVER_FIRST)
+          if (q && !connected && !cards.length) return <EmptyState title={t('integrations.noMatch', { q })} />
           return (
-            <>
-              {rows > 0 && (
+            <div className="space-y-8 pb-10">
+              {!q && <MemberAsks asks={memberAsks} onAdd={addAsked} />}
+              {/* nothing connected yet: no heading and no empty box, Discover leads under the title */}
+              {connected > 0 && (
                 <section aria-labelledby={ids.connected} data-testid="team-connected">
                   <h3 id={ids.connected} tabIndex={-1} className={`mb-1 ${sectionTitleCls}`}>{t('connectors.connected')}</h3>
-                  <ul className="-mx-2 divide-y divide-line" data-testid="team-integrations">
-                    {shownTpls.map((x) => (
-                      <TemplateRow key={x.id} tpl={x} groups={groups.data} users={users.data} onEdit={() => setDialog({ template: x })} onDeleted={() => void templates.reload()} />
-                    ))}
-                    {shown.map((i) => {
-                      // what needs the admin's attention stays on the line: nobody may use it, or the admin cannot
-                      const nobody = isEmptyAccess(i.access ?? NOBODY)
-                      const notMine = !nobody && !covers(i.access, person)
-                      return (
-                        <IntegrationRow
-                          key={i.id}
-                          i={i}
-                          actions={actions}
-                          onEdit={() => setDialog({ existing: i })}
-                          audience={<AudienceChip access={i.access ?? NOBODY} groups={groups.data} users={users.data} />}
-                          alert={(nobody || notMine) && (
-                            <span className="inline-flex" data-testid="integration-access-warning">
-                              <Badge tone="warn">{t(nobody ? 'integrations.users.nobody' : 'integrations.users.notMe')}</Badge>
-                            </span>
-                          )}
-                          extra={<AccessLine i={i} groups={groups.data ?? []} users={users.data ?? []} />}
-                        />
-                      )
-                    })}
-                    {shownReqs.map((r: IntegrationRequest) => (
-                      <RequestRow key={r.id} r={r} onWithdraw={() => void requests.withdraw(r)} onAskAgain={() => setAsk({ initial: requestFormOf(r) })} />
-                    ))}
-                  </ul>
+                  <ul data-testid="connected-apps">{rows.map((x) => x.row)}</ul>
+                  {(shownTpls.length > 0 || shownReqs.length > 0) && (
+                    <ul className="-mx-2 divide-y divide-line border-t border-line" data-testid="team-integrations">
+                      {shownTpls.map((x) => (
+                        <TemplateRow key={x.id} tpl={x} groups={groups.data} users={users.data} onEdit={() => setDialog({ template: x })} onDeleted={() => void templates.reload()} />
+                      ))}
+                      {shownReqs.map((r: IntegrationRequest) => (
+                        <RequestRow key={r.id} r={r} onWithdraw={() => void requests.withdraw(r)} onAskAgain={() => setAsk({ initial: requestFormOf(r) })} />
+                      ))}
+                    </ul>
+                  )}
                 </section>
               )}
-              <ConnectorDiscover titleId={ids.discover} className={rows > 0 ? 'mt-6 border-t border-line pt-6' : undefined} connected={[...list, ...tpls]} query={query}
-                onAdd={(c) => setDialog({ connector: c, toList: true })} onCustom={phone ? undefined : () => setDialog({ toList: true })} customNote={t('admin.onComputerAdd')}
-                builtIns={driveCard}
-                onOpenBuiltIn={(id) => setOpen(isGoogleApp(id) ? { kind: 'gapp', id } : { kind: 'drive' })}
-                onAddBuiltIn={(id) => {
-                  if (isGoogleApp(id)) {
-                    setOpen({ kind: 'gapp', id })
-                    const g = gapps.data?.find((x) => x.id === id)
-                    if (g?.canSetUp && !g.configured) setGappSetup(id)
-                    return
-                  }
-                  setOpen({ kind: 'drive' }); if (d?.canSetUp && !d.configured) setDriveSetup(true)
-                }}
-                onOpen={(c) => setOpen({ kind: 'mcp', c })} />
-            </>
+              {cards.length > 0 && (
+                <section aria-labelledby={ids.discover} data-testid="connector-discover">
+                  <div className="mb-1 flex items-center gap-2">
+                    <h3 id={ids.discover} tabIndex={-1} className={sectionTitleCls} data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h3>
+                    {!q && cards.length > DISCOVER_FIRST && (
+                      // a text link; on a phone 44 px tall (and at least as wide), still without a box
+                      <button type="button" className="touch-hit ml-auto text-sm text-muted hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-end" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
+                        {all ? t('connectors.showLess') : t('connectorsPage.showAll', { count: cards.length })}
+                      </button>
+                    )}
+                  </div>
+                  <ul className="grid gap-x-6 sm:grid-cols-2" data-testid="connector-list">
+                    {shownCards.map((c) => <DiscoverCard key={c.id} c={c} admin />)}
+                  </ul>
+                  <p className="mt-5 text-sm text-muted" data-testid="connector-not-listed">
+                    {t('integrations.discover.customHint')}{' '}
+                    {phone ? <span data-testid="connector-custom-note">{t('admin.onComputerAdd')}</span> : (
+                      <button type="button" className="font-medium text-accent-text underline underline-offset-2" onClick={() => setDialog({ toList: true })} data-testid="connector-custom">
+                        {t('integrations.discover.custom')}
+                      </button>
+                    )}
+                  </p>
+                </section>
+              )}
+            </div>
           )
         }}
       </Loadable>
@@ -239,6 +304,7 @@ export default function AdminIntegrations() {
           onSaved={(i, next) => {
             setDialog(null)
             actions.saved(i, next, !dialog.existing)
+            void memberAsks.reload()
             added(dialog.toList)
           }}
         />

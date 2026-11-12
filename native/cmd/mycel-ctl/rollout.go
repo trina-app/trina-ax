@@ -41,6 +41,15 @@ type rolloutSpec struct {
 	Salt    string     `json:"salt"`
 	Ramp    []rampStep `json:"ramp,omitempty"`
 	Since   string     `json:"since,omitempty"`
+	// Hold: the publisher paused the roll-out (scripts/release/hold.ts): no server takes the release by itself
+	Hold *rolloutHold `json:"hold,omitempty"`
+	// ChangedAt: when a hold or resume last signed the head (feed-seen.json keeps the newest one seen)
+	ChangedAt string `json:"changedAt,omitempty"`
+}
+
+type rolloutHold struct {
+	At     string `json:"at"`
+	Reason string `json:"reason"`
 }
 
 // UnmarshalJSON reads the feed with its rollout read leniently (readRollout): never an error because of it.
@@ -105,6 +114,22 @@ func readRollout(raw json.RawMessage) *rolloutSpec {
 	if since, ok := m["since"].(string); ok {
 		if _, ok := publishedMs(since); ok {
 			r.Since = since
+		}
+	}
+	// hold: an object with a time at (else left out); a reason that is not a string of at most 500 characters is ""
+	if h, ok := m["hold"].(map[string]any); ok {
+		if at, ok := h["at"].(string); ok {
+			if _, ok := publishedMs(at); ok {
+				r.Hold = &rolloutHold{At: at}
+				if reason, ok := h["reason"].(string); ok && utf8.RuneCountInString(reason) <= 500 {
+					r.Hold.Reason = reason
+				}
+			}
+		}
+	}
+	if c, ok := m["changedAt"].(string); ok {
+		if _, ok := publishedMs(c); ok {
+			r.ChangedAt = c
 		}
 	}
 	return r
@@ -194,6 +219,9 @@ func rolloutPercent(f *ReleaseFeed, channel string, now time.Time) float64 {
 	if r == nil {
 		return 100
 	}
+	if r.Hold != nil {
+		return 0
+	}
 	if len(r.Ramp) == 0 || skipsRamp(f, channel) {
 		return r.Percent
 	}
@@ -214,6 +242,9 @@ type rolloutWait struct {
 	wait   bool
 	at     *time.Time
 	bucket int
+	// paused: the publisher holds the release (rollout.hold); its turn comes only with a resume
+	paused bool
+	hold   rolloutHold
 }
 
 func rolloutTurn(f *ReleaseFeed, installID, channel string, now time.Time) rolloutWait {
@@ -221,6 +252,10 @@ func rolloutTurn(f *ReleaseFeed, installID, channel string, now time.Time) rollo
 		return rolloutWait{}
 	}
 	w := rolloutWait{wait: true, bucket: rolloutBucket(f.Rollout.Salt, installID)}
+	if f.Rollout.Hold != nil {
+		w.paused, w.hold = true, *f.Rollout.Hold
+		return w
+	}
 	start, ok := rampStart(f, now)
 	if len(f.Rollout.Ramp) == 0 || skipsRamp(f, channel) || !ok {
 		return w
@@ -247,6 +282,13 @@ func rolloutTurn(f *ReleaseFeed, installID, channel string, now time.Time) rollo
 
 // detail is what the scheduled run and `mycel-ctl status` say while the server waits (times in loc).
 func (w rolloutWait) detail(version string, loc *time.Location) string {
+	if w.paused {
+		why := ""
+		if w.hold.Reason != "" {
+			why = ": " + w.hold.Reason
+		}
+		return fmt.Sprintf("the publisher paused release %s (since %s%s); it is not installed until the roll-out resumes", version, w.hold.At, why)
+	}
 	turn := "this release's roll-out leaves this server out"
 	if w.at != nil {
 		turn = "this server's turn comes at " + w.at.In(loc).Format("2006-01-02 15:04 MST")
@@ -291,4 +333,47 @@ func appCheckedFeed(base string) *ReleaseFeed {
 		return nil
 	}
 	return rec.Feed
+}
+
+// ---------- root/feed-seen.json: the newest head a hold or resume changed ----------
+
+// seenHead is the newest channel head with a changedAt (a hold or resume) this timer verified: a head of the same
+// version with an earlier changedAt (or none) is an older copy served again, and the scheduled run leaves it, so it
+// cannot lift a hold (rollout.ts newerHeadSeen). Root's file.
+type seenHead struct {
+	URL       string `json:"url"`
+	Version   string `json:"version"`
+	ChangedAt string `json:"changedAt"`
+}
+
+func changedMs(r *rolloutSpec) (int64, bool) {
+	if r == nil {
+		return 0, false
+	}
+	return publishedMs(r.ChangedAt)
+}
+
+// olderCopy says whether f (read from feedURL) is an older copy of the head recorded in root/feed-seen.json; otherwise
+// it records f when it carries a changedAt and is not older than the recorded version (an older version's head served
+// in between does not reset the record). A record of another feed address (a channel switch) does not count.
+func olderCopy(e *env, feedURL string, f *ReleaseFeed) (bool, string) {
+	var s seenHead
+	if b, err := readRootFile(e.root("feed-seen.json"), 4<<10); err != nil || json.Unmarshal(b, &s) != nil || s.URL != feedURL || !bundle.ValidVersion(s.Version) {
+		s = seenHead{}
+	}
+	if s.Version == f.Version {
+		if seen, ok := publishedMs(s.ChangedAt); ok {
+			got, gok := changedMs(f.Rollout)
+			if !gok || got < seen {
+				return true, s.ChangedAt
+			}
+		}
+	}
+	newer := s.Version == "" || compareVersions(f.Version, s.Version) > 0 || (s.Version == f.Version && s.ChangedAt != f.Rollout.ChangedAt)
+	if _, ok := changedMs(f.Rollout); ok && newer {
+		if b, err := json.Marshal(seenHead{URL: feedURL, Version: f.Version, ChangedAt: f.Rollout.ChangedAt}); err == nil {
+			_ = writeRootFile(e.root("feed-seen.json"), append(b, '\n'), 0o644)
+		}
+	}
+	return false, ""
 }

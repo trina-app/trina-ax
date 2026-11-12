@@ -10,8 +10,13 @@
 // (`template`), or found because the address the AI filled in is a template's that is for this person. Connecting it
 // goes through the template's own path (templates.ts connect): its address, sign-in method and header fixed, only
 // while the template is the version the card showed, and it becomes the person's own connection.
+// A service in the app's list (shared/src/service-catalog.ts) is that service only at its official address (or its
+// official host): its name at another address is an unknown service named by its host, never shown as the listed one
+// (docs/DECISIONS.md "The chat's connect card trusts the app's list"). A
+// service the person already uses is not connected twice: a working one is said, their own that needs a sign-in or a
+// new key gets a card for that same connection (`reconnect`).
 import { z } from 'zod'
-import { addressHasSecret, ConnectServiceInput, hasSecret, uuidv7 } from '@mycel/shared'
+import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, officialService, posesAsListed, sameListedService, ConnectServiceInput, hasSecret, stepLabel, trustedServiceName, uuidv7, type CatalogService } from '@mycel/shared'
 import { IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
@@ -43,6 +48,8 @@ export function connectRows(db: Database, userId: string, scope: 'personal' | 't
 }
 
 export const CONNECT_TOOL = 'connect_service'
+/** stepLabel's browser tools: connect_service is not one */
+const NO_BROWSER_TOOLS: ReadonlySet<string> = new Set()
 /** tool names the result lists at most (the AI gets them all as tools: in this answer where it goes on, else from the
  * next message), and each one's length */
 const TOOLS_LISTED = 30
@@ -80,7 +87,9 @@ type ToolOut = { content: McpContent[]; isError?: boolean; summary: string }
 const json = (v: unknown) => [{ type: 'text' as const, text: JSON.stringify(v) }]
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 /** the same service: the stored address and the AI's, without a trailing slash */
-const sameAddress = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
+/** the same address (a trailing slash aside), or two official addresses of the same listed service (Atlassian's v1 and
+ * v2, shared/src/service-catalog.ts otherUrls): a connection saved at the older one is that service, never a second */
+export const sameAddress = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '') || sameListedService(a, b)
 /** a connection's state for the AI, as words and the stored reason code (never the service's own words) */
 const stateOf = (r: Row) => r.status === 'connected' ? 'connected' : r.status === 'needs_auth' ? `needs a sign-in or a new key${r.last_error ? ` (${r.last_error})` : ''}` : `not working${r.last_error ? ` (${r.last_error})` : ''}`
 const accessFor = (a: 'me' | 'everyone', me: string): IntegrationAccess => a === 'everyone' ? { everyone: true, groups: [], users: [] } : { everyone: false, groups: [], users: [me] }
@@ -94,11 +103,17 @@ export const CONNECTED_NEXT = {
 } as const
 
 /** the tool result when the card connected it; `drive`: Google Drive, whose tools every turn already has */
-function connectedResult(exec: TurnExec, out: { name: string; status: string; tools?: string[] }, drive = false): ToolOut {
-  exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectConnected', exec.spec.locale) }))
+function connectedResult(exec: TurnExec, out: { name: string; status: string; tools?: string[]; note?: string }, drive = false, label?: string): ToolOut {
+  exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectConnected', exec.spec.locale), ...(label ? relabel(st.label, label) : {}) }))
   const next = drive ? null : CONNECTED_NEXT[exec.noteConnected(out.name) ?? 'next']
   return { content: json({ connected: true, ...out, ...(next ? { next } : {}) }), summary: `${CONNECT_TOOL} -> connected` }
 }
+/** the step's label set to the card's (a label that already starts with it keeps what was added after it) */
+const relabel = (current: string, label: string) => current === label || current.startsWith(`${label} · `) ? {} : { label }
+/** what the AI is told when its address for a listed service was not used */
+const replacedNote = (given: string, s: CatalogService) => `The address you gave (${given}) is not ${s.name}'s official address and was not used: the card used ${s.name}'s official address, ${s.url}. Never tell the person the other address was connected.`
+/** a connection that works for this person: connected, and one made from a template holds their own key or sign-in */
+const works = (r: Row) => r.status === 'connected' && (!r.template_id || !!r.secret_enc)
 /** a tool name as the service wrote it, for the AI to read: no control, format or line-separator characters (no hidden
  * text, no direction overrides), at most TOOL_NAME_MAX characters */
 const toolName = (name: string) => [...name.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')].slice(0, TOOL_NAME_MAX).join('').trim()
@@ -114,6 +129,25 @@ function templateCard(t: NonNullable<ReturnType<typeof getTemplate>>, why: strin
     kind: 'connect_service', requestId: uuidv7(), target: 'service', name: t.name, scope: 'personal',
     service: { kind: t.kind, url: t.url, host: new URL(t.url).host, auth: t.auth, authHeader: t.auth_header },
     template: { id: t.id, version: t.version }, ...(why ? { why } : {}), expiresAt,
+  }
+}
+/** The person's own connection (not from a template, not a Google app, which signs in on its own page) that needs a new
+ * sign-in or key (QA TC-127): the card offers it again for that connection. */
+export function ownNeedsSignIn(r: Row | null, userId: string): boolean {
+  return !!r && r.scope === 'personal' && r.owner_user_id === userId && !r.template_id && !r.google_app && r.auth !== 'none'
+    && (r.status === 'needs_auth' || !r.secret_enc || /^(refused|no_secret|sign_in)\b/.test(r.last_error ?? ''))
+}
+/** The card for signing in again to (or giving a new key for) the person's own connection: its saved name, address and
+ * sign-in. It never makes a second connection, and "Not now" leaves this one as it is (ConnectCard.created false). */
+function reconnectCard(r: Row, why: string | undefined, expiresAt: string): Extract<TurnRequest, { kind: 'connect_service' }> {
+  // saved before the list's rule (#582) under a listed name at another address: titled by its host, like a new card,
+  // and the card says it is not that service's official address
+  const shown = posesAsListed(r.name, r.url) ? trustedServiceName(r.name, r.url) : { name: r.name, claimed: undefined }
+  return {
+    kind: 'connect_service', requestId: uuidv7(), target: 'service', name: shown.name, scope: 'personal',
+    ...(shown.claimed ? { notOfficial: { name: shown.claimed.name, url: shown.claimed.url } } : {}),
+    service: { kind: r.kind, url: r.url, host: new URL(r.url).host, auth: r.auth, authHeader: r.auth_header },
+    reconnect: true, ...(why ? { why } : {}), expiresAt,
   }
 }
 /** this person's own connection made from the template, if they connected it */
@@ -149,8 +183,24 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const why = a.data.why?.trim() ? oneLine(a.data.why) : undefined
   const expiresAt = () => new Date(Date.now() + rt.askUserTimeoutMs()).toISOString()
   let card: Extract<TurnRequest, { kind: 'connect_service' }>
+  /** the person's own connection a reconnect card is for (the card signs in again or takes a new key for it) */
+  let existing: Row | null = null
+  /** the listed service the AI's name pretends to be at an address that is not its official one (the card says so) */
+  let claimed: CatalogService | undefined
+  /** the AI's address for a listed service, which the card did not use */
+  let note: string | undefined
 
-  if (a.data.template) {
+  if (a.data.connection) {
+    // the person's own connection that needs a new sign-in or key: anyone else's is the same as none
+    const r = getRow(db, a.data.connection)
+    if (!r || r.scope !== 'personal' || r.owner_user_id !== viewer.id) return early('No card: there is no such connection of this person. Use the id listed under "Connected services".', 'no connection')
+    if (r.google_app) return early(`${r.name} signs in again on its own page: the person can do it in ${SCREEN.connectors(L, r.name)} (Reconnect). No card was shown.`, 'google app')
+    if (r.template_id) return early(`"${r.name}" is made from a team template: call connect_service with template "${r.template_id}" instead.`, 'from template')
+    if (!ownNeedsSignIn(r, viewer.id)) return early(`"${r.name}" does not need a new sign-in or key now (${stateOf(r)}). Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'connection fine', false)
+    if (!getTeamSettings(db).personalIntegrations) return early(`This person's own connection "${r.name}" needs a sign-in or a new key, but this team does not allow personal connections now (an admin turned them off), so no card was shown. Tell the person to ask an admin.`, 'personal connections off')
+    existing = r
+    card = reconnectCard(r, why, expiresAt())
+  } else if (a.data.template) {
     // an admin's template: only one that is for this person (anyone else's is the same as none)
     const t = getTemplate(db, a.data.template)
     if (!t || !templateCovers(db, t.id, viewer.id)) return early('No card: there is no such template for this person. Use the id listed under "Connected services", or fill in the service (kind, url, auth).', 'no template')
@@ -161,19 +211,34 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     let d: ReturnType<ReturnType<typeof googleDriveOf>['status']>
     try { d = googleDriveOf(rt.ctx).status(spec.userId) } catch { return early('Google Drive cannot be connected for this account now.', 'drive unavailable') }
     if (!d.configured) return early('Google Drive is not set up on this team server: an admin or the server\'s operator has to set it up first (docs/INTEGRATIONS.md). Tell the person; no card was shown.', 'drive not configured')
-    if (d.personalAllowed === false) {
-      const shared = (d.teamShares ?? []).map((x) => `"team:${x.name}"`)
-      return early(`This team's admin has not let members connect their own Google Drive, so no card was shown.${shared.length ? ` The team shares ${shared.length === 1 ? 'a Drive' : 'Drives'} with this person: use the Drive tools (${DRIVE_TOOL_NAMES.join(', ')}) with source ${shared.join(' or ')}.` : ' Tell the person to ask an admin.'}`, 'drive members off', false)
-    }
     if (d.status === 'connected') return early(`Google Drive is already connected for this person. Its tools (${DRIVE_TOOL_NAMES.join(', ')}) are yours in this chat; if you do not have them now, from the person's next message.`, 'drive connected', false)
     card = { kind: 'connect_service', requestId: uuidv7(), target, name: 'Google Drive', scope: 'personal', ...(why ? { why } : {}), expiresAt: expiresAt() }
   } else {
-    const { kind, url, auth } = a.data
+    // a service in the app's list (shared/src/service-catalog.ts), compared by how its name looks ("Nоtion" with a
+    // Cyrillic о, "노션"): at its official address, or under its own name at its official host (another path, or no
+    // address at all), it is that service, with the list's address, sign-in and spelling. Its name at any other address
+    // (a self-hosted or regional edition, or a made-up one) is not that service: an unknown service, named by its host,
+    // so no card reads as the listed service's while it connects somewhere else (owner decision 2026-11-12).
+    // (trustedServiceName, the same rule the step line uses) a name that mixes Latin with another alphabet inside a word
+    // ("Nоtion" with a Cyrillic о) is never shown as given either, whatever look-alike table it gets past
+    const trusted = trustedServiceName(a.data.name, a.data.url)
+    const listed = trusted.listed
+    const posing = !listed && a.data.url && trusted.name !== a.data.name ? trusted.name : null
+    claimed = trusted.claimed
+    if (listed && a.data.url && officialService(a.data.url)?.id !== listed.id) note = replacedNote(a.data.url, listed)
+    const kind = listed ? CATALOG_KIND : a.data.kind
+    const url = listed ? listed.url : a.data.url
+    const auth = listed ? CATALOG_AUTH : a.data.auth
     const missing = [!kind && 'kind', !url && 'url', !auth && 'auth'].filter(Boolean)
     if (missing.length) return early(`Invalid input: a service needs ${missing.join(', ')}. Find them in the service's documentation (its MCP endpoint or API base, and how it signs in).`, 'invalid input')
     const scope = a.data.scope ?? 'personal'
+    // who can do it instead, by name, and where (docs/DECISIONS.md "Refusals say why, who and what next"). First, so a
+    // member never learns anything about the team's connections from a team request.
+    if (scope === 'team' && !isAdmin(viewer.role)) {
+      return early(`Only an admin can add a team connection, and this person is not one. ${refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'team connections are added by admins', grant: ['an admin'], how: SCREEN.adminMcp(L) }, next: 'offer a personal connection instead (scope personal), or tell them an admin can add it for the team' })}`, 'team needs an admin')
+    }
     // the same field checks as a connection added in Settings (https only, no user name or password, the header's name)
-    const input = IntegrationInput.safeParse({ kind, name: a.data.name, url, auth, authHeader: auth === 'header' ? a.data.authHeader ?? null : null, notes: kind === 'http' ? a.data.notes ?? null : null, writePolicy: 'ask' })
+    const input = IntegrationInput.safeParse({ kind, name: listed ? listed.name : posing ?? a.data.name, url, auth, authHeader: auth === 'header' ? a.data.authHeader ?? null : null, notes: kind === 'http' ? a.data.notes ?? null : null, writePolicy: 'ask' })
     if (!input.success) return early(zodText(input.error), 'invalid input')
     const svc = integrationsOf(rt.ctx)
     let authHeader: string | null = null
@@ -182,51 +247,74 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     }
     const address = normUrl(input.data.url)
     if (obviouslyPrivate(address)) return early('That address names this computer or a private or office network, which connections may not use. Use the service\'s public https address from its documentation.', 'private address')
-    // an admin's template for this person at this address: their own key goes there through the template, not as a
-    // second connection of their own
-    const tpl = (db.query('SELECT id FROM integration_templates ORDER BY name, id').all() as { id: string }[])
-      .map((r) => getTemplate(db, r.id)!).find((t) => t && sameAddress(t.url, address) && templateCovers(db, t.id, viewer.id))
-    if (tpl) {
-      const mine = fromTemplate(db, tpl.id, viewer.id)
-      if (templateDone(mine)) return early(`"${tpl.name}" (an admin's template) is already connected with this person's own key. Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'template connected', false)
-      // not a new connection of their own: no team / personal-connections / limit / same-address checks for it
-      card = templateCard(tpl, why, expiresAt())
+    // what this person already uses for this service (their own, one made from a template, a team one they may use):
+    // a working one is said, without a card; their own that needs a sign-in or a new key gets a card for that same
+    // connection, never a second one (QA bug 2: a member's own Notion and the team's Notion template)
+    const { rows, count } = connectRows(db, viewer.id, scope)
+    // the whole address (a query can name another instance of a service), as the earlier same-address check did
+    const same = rows.filter((r) => sameAddress(r.url, address))
+    // a connection is named only to someone who may use it (an admin's team request sees every team connection, not
+    // only theirs: one limited to other people is said without its name)
+    const usable = (r: Row) => r.scope === 'personal' || mayUse(db, r, viewer.id)
+    const working = same.find(works)
+    if (working && !usable(working)) return early(`A team connection to this address already exists and works, but this person is not among the people who may use it. An admin can change who may use it in ${SCREEN.adminMcp(L)}. No card was shown.`, 'already connected')
+    if (working) return early(`${working.scope === 'team' ? `A team connection, "${working.name}",` : `This person's own connection "${working.name}"`} is already connected to this service. Its tools are yours in this chat; if you do not have them now, from the person's next message. No card was shown.${note ? ` ${note}` : ''}`, 'already connected', false)
+    const own = same.find((r) => r.scope === 'personal' && r.owner_user_id === viewer.id)
+    const ownTemplate = own?.template_id ? getTemplate(db, own.template_id) : null
+    if (own && !own.template_id) {
+      if (!getTeamSettings(db).personalIntegrations) return early(`This person's own connection "${own.name}" needs a sign-in or a new key, but this team does not allow personal connections now (an admin turned them off), so no card was shown. Tell the person to ask an admin.`, 'personal connections off')
+      existing = own
+      card = reconnectCard(own, why, expiresAt())
+    } else if (ownTemplate) {
+      // their own connection from an admin's template: its card, for the same connection (templates.ts connect updates it)
+      card = { ...templateCard(ownTemplate, why, expiresAt()), reconnect: true }
     } else {
-      // who can do it instead, by name, and where (docs/DECISIONS.md "Refusals say why, who and what next")
-      if (scope === 'team' && !isAdmin(viewer.role)) {
-        return early(`Only an admin can add a team connection, and this person is not one. ${refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'team connections are added by admins', grant: ['an admin'], how: SCREEN.adminMcp(L) }, next: 'offer a personal connection instead (scope personal), or tell them an admin can add it for the team' })}`, 'team needs an admin')
-      }
-      if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
-        return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
-      }
-      const { rows, count } = connectRows(db, viewer.id, scope)
-      const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-      if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
-      const dup = rows.find((r) => sameAddress(r.url, address))
-      if (dup) {
-        const fix = dup.status === 'connected'
-          ? 'Its tools are yours in this chat; if you do not have them now, from the person\'s next message.'
-          : `It needs attention: ${dup.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix its key or sign-in in ${SCREEN.connectors(L)}`}.`
-        return early(`${dup.scope === 'team' ? 'A team connection' : 'A connection of this person'} to this address already exists: "${dup.name}", ${stateOf(dup)}. ${fix} No card was shown.`, 'already exists', dup.status !== 'connected')
-      }
-      // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
-      // connection is saved with exactly what it showed (cleaned as the store cleans them, so nothing changes on the way)
-      const notes = input.data.kind === 'http' ? cleanNotes(input.data.notes) : null
-      card = {
-        kind: 'connect_service', requestId: uuidv7(), target: 'service', name: oneLine(input.data.name), scope,
-        service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}), expiresAt: expiresAt(),
+      // an admin's template for this person at this address: their own key goes there through the template, not as
+      // a second connection of their own
+      const tpl = (db.query('SELECT id FROM integration_templates ORDER BY name, id').all() as { id: string }[])
+        .map((r) => getTemplate(db, r.id)!).find((t) => t && sameAddress(t.url, address) && templateCovers(db, t.id, viewer.id))
+      if (tpl) {
+        const mine = fromTemplate(db, tpl.id, viewer.id)
+        if (templateDone(mine)) return early(`"${tpl.name}" (an admin's template) is already connected with this person's own key. Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'template connected', false)
+        // not a new connection of their own: no team / personal-connections / limit / same-address checks for it
+        card = { ...templateCard(tpl, why, expiresAt()), ...(mine ? { reconnect: true } : {}) }
+      } else {
+        if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
+          return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
+        }
+        const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
+        if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        // one that does not work and is not this person's to fix (a team connection): an admin fixes it
+        const dup = same[0]
+        if (dup) {
+          const fix = `It needs attention: ${dup.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix its key or sign-in in ${SCREEN.connectors(L)}`}.`
+          return early(`${dup.scope === 'team' ? 'A team connection' : 'A connection of this person'} to this address already exists${usable(dup) ? `: "${dup.name}", ${stateOf(dup)}` : ''}. ${fix} No card was shown.`, 'already exists')
+        }
+        // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
+        // connection is saved with exactly what it showed (cleaned as the store cleans them, so nothing changes on the way)
+        const notes = input.data.kind === 'http' ? cleanNotes(input.data.notes) : null
+        card = {
+          kind: 'connect_service', requestId: uuidv7(), target: 'service', name: oneLine(input.data.name), scope,
+          service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}),
+          ...(claimed ? { notOfficial: { name: claimed.name, url: claimed.url } } : {}), expiresAt: expiresAt(),
+        }
       }
     }
   }
 
+  // the step line names what the card names (QA TC-135 retest). stepLabel already gives the trusted name from the AI's
+  // input (the host for an address that is not a listed service's official one); a step takes one patch per call
+  // (TurnExec.patchToolStep), so the card's own name (a template's or a reconnect's) goes with the outcome below
+  const shownLabel = stepLabel(CONNECT_TOOL, { name: card.name, target: card.target }, L, NO_BROWSER_TOOLS)
   // a scheduled run: nobody is there to finish a card (waitForPerson would answer at once)
   if (spec.clientKind === 'schedule') {
-    exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
+    exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectNotConnected', L), ...relabel(st.label, shownLabel) }))
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
   // after a room read this card is the call's only one (chat/turn.ts ownCard): the room card's line goes on top
   if (exec.ownCard(CONNECT_TOOL)) card = { ...card, lead: tr('roomsSeenWhy', L) }
-  const kept: ConnectCard = { integrationId: null, running: null, changed: false, version: null, created: false }
+  // a reconnect card is for the person's own connection: another key or sign-in goes to it, and Not now never removes it
+  const kept: ConnectCard = { integrationId: existing?.id ?? null, running: null, changed: false, version: existing?.version ?? null, created: false }
   exec.connectCards.set(card.requestId, kept)
   let answer: unknown
   try { answer = await exec.waitForPerson(card, { timeoutMs: rt.askUserTimeoutMs() }) } finally { exec.connectCards.delete(card.requestId) }
@@ -234,17 +322,17 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   // never "skipped" for a connection that then appears
   if (kept.running) await kept.running.catch(() => {})
   const o = ConnectOutcome.safeParse(answer)
-  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true)
+  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true, shownLabel)
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
   // changed or removed in Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
   // through it
   if (kept.integrationId && (!made || (card.target === 'service' && !asShown(made, card)))) { made = null; kept.changed = true }
-  if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}) }) }
-  exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
-  const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix it in ${SCREEN.connectors(L)}`}`
+  if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}), ...(note ? { note } : {}) }, false, shownLabel) }
+  exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectNotConnected', L), ...relabel(st.label, shownLabel) }))
+  const reason = made ? `"${made.name}" ${kept.created ? 'was added but is not working yet' : 'is still not working'} (${stateOf(made)}); ${made.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix it in ${SCREEN.connectors(L)}`}`
     : kept.changed ? 'the connection this card made was changed or removed in Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
-  return { content: json({ skipped: true, ...(reason ? { reason } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
+  return { content: json({ skipped: true, ...(reason ? { reason } : {}), ...(note ? { note } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
 }
 
 /** POST /api/turns/:id/connect for the turn's owner (the route checked that): connect, done or skip on an open card. */

@@ -3,6 +3,8 @@
 // each person's access and why; its rules change in the edit panel there (AccessEdit.tsx). "By person"
 // (AccessPeople.tsx) shows, read only, what one person and their AI see and why; changing a folder's rules from there
 // opens the same panel in By folder (`?edit=<path>&back=<the person view>`), and closing it goes back.
+// A phone (QA TC-377, TC-379): the header's button place is the Admin bar (barActions.tsx: By folder's + and its
+// Filters icon), and By folder / By person take a row of their own, with By person's search under them.
 import { ArrowRight, Loader2, Trash2 } from 'lucide-react'
 import { lazy, Suspense, useId, useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -13,6 +15,7 @@ import { isSkillsPath } from '../../lib/access-view'
 import { IconButton, Spinner, TabPanel, Tabs, confirmDialog, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, useActionOk, useOneAtATime } from './common'
 import { FolderHeaderSlots } from './folder-slots'
+import { AdminBarActions } from './barActions'
 
 const AccessPeople = lazy(() => import('./AccessPeople'))
 const AccessTree = lazy(() => import('./AccessTree'))
@@ -136,24 +139,32 @@ export default function Folders() {
         title={t('admin.folders')}
         desc={t('folders.pageDesc')}
         testId="folders-header"
-        actions={<span ref={setActions} className="contents" />}
+        actions={phone ? undefined : <span ref={setActions} className="contents" />}
         controls={
           <>
-            <Tabs
-              segmented
-              value={view}
-              onChange={choose}
-              panels={panels}
-              items={[
-                { id: 'folders', label: t('accessView.byFolder') },
-                { id: 'people', label: t('accessView.byPerson') },
-              ]}
-              label={t('accessView.tabs')}
-            />
+            {/* a phone: the two views alone on their row (the search of By person under them) */}
+            <div className={phone ? 'flex w-full' : 'contents'} data-testid="folders-views">
+              <Tabs
+                segmented
+                value={view}
+                onChange={choose}
+                panels={panels}
+                items={[
+                  { id: 'folders', label: t('accessView.byFolder') },
+                  { id: 'people', label: t('accessView.byPerson') },
+                ]}
+                label={t('accessView.tabs')}
+              />
+            </div>
             <span ref={setFilter} className="contents" />
           </>
         }
       />}
+      {phone && !inDetail && (
+        <AdminBarActions>
+          <span ref={setActions} className="contents" />
+        </AdminBarActions>
+      )}
       <TabPanel base={panels} value={view} style={{ '--folders-head': `${head}px` } as CSSProperties}>
         <Suspense fallback={<Spinner />}>{view === 'people' ? <AccessPeople /> : <AccessTree />}</Suspense>
       </TabPanel>

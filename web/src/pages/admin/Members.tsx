@@ -13,6 +13,11 @@
 // Removing that person works as for anyone: their personal files go to the owner's archive. The owner removes anyone
 // (one confirm); an admin removes members only and types their password again (ReauthDialog). The inbox entry opens
 // /admin/members?member=<id>: that person's row is marked and scrolled to.
+// A phone (below 768 px; QA TC-377, TC-379, TC-382): Invite is the bar's + and the other ways (Add member, the team
+// invite link) its ⋯ (barActions.tsx), not a button block over the list; one full-width search with the Filters icon in
+// it; a row says the role in words and opens the person's page, where the owner changes it (and in the row's ⋯ › Edit).
+// The team invite link under Invite links is a list row there too (QA TC-390): its name with Copy link only and ⋯ on the
+// right, its groups, uses and end date under the name.
 // The owner hands the role over from a person's "…" (팀장 넘기기, components/handover/HandoverDialog.tsx) and may flag an
 // invite "이 사람이 팀장이에요" (components/handover/LeadInvite.tsx, docs/DECISIONS.md "W6"); a flagged one is listed as
 // "팀장 링크 · 받는 사람: …".
@@ -49,6 +54,7 @@ import { useHandover } from '../../store/handover'
 import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
+import { AdminBarActions, BarAdd, BarMore } from './barActions'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -183,9 +189,10 @@ export default function Members() {
       if (u.role === 'admin' && r.role === 'member') toast({ level: 'info', text: t('teamLink.adminHint') })
       await users.reload()
     })
-  /** `compact`: a phone's row, where the role sits on the right as plain words (a choice for the owner) */
-  const roleCell = (u: User, compact = false) =>
-    roleEditable(u) ? (
+  /** `compact`: a phone's person page, where the role sits on the right of its row as plain words (a choice for the
+   * owner); `words`: a phone's list row, the role in words only (the row opens the person's page to change it) */
+  const roleCell = (u: User, compact = false, words = false) =>
+    roleEditable(u) && !words ? (
       <InlineRole user={u} busy={roleBusy.busy === u.id} onChange={(r) => void changeRole(u, r)} compact={compact} />
     ) : (
       // compact: the size the select has on a touch screen (16 px there, index.css), so the rows' roles line up
@@ -193,6 +200,20 @@ export default function Members() {
         {t(`role.${u.role}`)}
       </span>
     )
+  const rolePill = (
+    <FilterPill
+      label={t('members.role')}
+      value={roleFilter}
+      onChange={setRoleFilter}
+      options={[
+        { value: 'all', label: t('members.roleAll') },
+        { value: 'owner', label: t('role.owner') },
+        { value: 'admin', label: t('role.admin') },
+        { value: 'member', label: t('role.member') },
+      ]}
+      testId="member-role-filter"
+    />
+  )
   /** Every row's "…": the folders this person sees (anyone's), then the actions on the people this viewer manages. */
   const menuItems = (u: User): MemberMenuItem[] => [
     { label: t('accessView.membersLink'), icon: <FolderLock size={14} aria-hidden />, onSelect: () => navigate(personViewLink({ person: u.id })), testId: 'member-access-link' },
@@ -243,8 +264,28 @@ export default function Members() {
     )
   })()
 
+  // the team invite link's row (under Invite links): its details, Copy link only and its "…" (to change it or turn it off)
+  const link = teamLink.data?.link
+  const linkDetails = link && (
+    <>
+      {link.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {t('teamLink.uses', { used: link.uses, max: link.maxUses })} ·{' '}
+      {Date.parse(link.expiresAt) < Date.now() ? t('members.expired') : t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}
+    </>
+  )
+  const linkCopy = link?.url && <CopyButton text={link.url} label={t('teamLink.copyLink')} showLabel className="border border-line" />
+  const linkMenu = (
+    <MemberMenu
+      name={t('teamLink.title')}
+      items={[
+        { label: t('members.teamLinkOpen'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setTeamLinkOpen(true), testId: 'team-link-row-open' },
+        { label: t('teamLink.revoke'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void revokeTeamLink(), danger: true, testId: 'team-link-row-revoke' },
+      ]}
+    />
+  )
+
   return (
     <>
+
       {personPage}
       <div hidden={!!personPage} className="contents">
       <AdminPageHeader
@@ -256,8 +297,8 @@ export default function Members() {
         }
         desc={t('members.pageDesc')}
         testId="members-header"
-        // one main button (a phone: the other ways to add under its ⌄; components/PageActions.tsx)
-        actions={
+        // one main button with the other ways beside it (a phone: the bar's + and ⋯, below)
+        actions={phone ? undefined : (
           <PageActions
             menuLabel={t('members.inviteMore')}
             primary={{ label: t('members.inviteToTeam'), icon: <Plus size={14} aria-hidden />, onSelect: () => setInviteOpen(true), testId: 'invite-new' }}
@@ -266,28 +307,33 @@ export default function Members() {
               { label: t('teamLink.title'), icon: <Link2 size={14} aria-hidden />, onSelect: () => setTeamLinkOpen(true), testId: 'team-link-open' },
             ]}
           />
-        }
-        // a phone: the search and a Filters button share one row (components/PhoneFilters.tsx)
+        )}
+        // a phone: one full-width search with the Filters icon in it (components/PhoneFilters.tsx)
         controls={
-          <>
-            <SearchBox value={query} onChange={setQuery} label={t('members.search')} testId="member-search" className="sm:w-80" />
-            <PhoneFilters active={roleFilter === 'all' ? 0 : 1} testId="member-filters">
-              <FilterPill
-                label={t('members.role')}
-                value={roleFilter}
-                onChange={setRoleFilter}
-                options={[
-                  { value: 'all', label: t('members.roleAll') },
-                  { value: 'owner', label: t('role.owner') },
-                  { value: 'admin', label: t('role.admin') },
-                  { value: 'member', label: t('role.member') },
-                ]}
-                testId="member-role-filter"
-              />
-            </PhoneFilters>
-          </>
+          phone ? (
+            <SearchBox value={query} onChange={setQuery} label={t('members.search')} testId="member-search" end={<PhoneFilters icon active={roleFilter === 'all' ? 0 : 1} testId="member-filters">{rolePill}</PhoneFilters>} />
+          ) : (
+            <>
+              <SearchBox value={query} onChange={setQuery} label={t('members.search')} testId="member-search" className="sm:w-80" />
+              <PhoneFilters active={roleFilter === 'all' ? 0 : 1} testId="member-filters">{rolePill}</PhoneFilters>
+            </>
+          )
         }
       />
+      {/* a phone: Invite is the bar's +, the other ways its ⋯ (not while a person's page is on show) */}
+      {phone && !personPage && (
+        <AdminBarActions>
+          <BarMore
+            label={t('members.inviteMore')}
+            testId="invite-new-more"
+            items={[
+              { label: t('members.add'), icon: <UserPlus size={18} aria-hidden />, onSelect: () => setAddOpen(true), testId: 'member-add' },
+              { label: t('teamLink.title'), icon: <Link2 size={18} aria-hidden />, onSelect: () => setTeamLinkOpen(true), testId: 'team-link-open' },
+            ]}
+          />
+          <BarAdd label={t('members.inviteToTeam')} onClick={() => setInviteOpen(true)} testId="invite-new" />
+        </AdminBarActions>
+      )}
       <section className="mb-8" aria-label={t('members.title')}>
         <Loadable state={users}>
           {({ items, noAi, noAiUntil }) => {
@@ -298,9 +344,10 @@ export default function Members() {
                   {t('members.noMatch')}
                 </p>
               )
-            // a phone: one compact row per member (components/CompactRow.tsx): the name, the role on the right (the
-            // owner's choice of member ↔ admin stays right there) and "…"; a second line only for what it adds: the
-            // username when it is not the name, the email the search found, what needs a look
+            // a phone: one compact row per member (components/CompactRow.tsx): the name, the role on the right in words
+            // (QA TC-382: no select in a row; the owner changes it on the person's page or in ⋯ › Edit) and "…"; a
+            // second line only for what it adds: the username when it is not the name, the email the search found,
+            // what needs a look
             return phone ? (
               <ul className="divide-y divide-line border-y border-line" data-testid="members-list">
                 {list.map((u) => {
@@ -316,7 +363,7 @@ export default function Members() {
                       className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}
                       testId={`member-card-${u.username}`}
                       title={u.name}
-                      chip={roleCell(u, true)}
+                      chip={roleCell(u, true, true)}
                       second={(username || byEmail || flagged) && (
                         <>
                           {username && <span className="truncate">{u.username}</span>}
@@ -383,24 +430,25 @@ export default function Members() {
           </h2>
           <OneLine className="mt-0.5 mb-2 text-xs text-muted">{t('members.invitesDesc')}</OneLine>
           <div className="divide-y divide-line border-y border-line text-sm">
-            {teamLink.data?.link && (
+            {link && (phone ? (
+              // a phone (QA TC-390): a list row, as Admin › System's backups: the name with Copy link only and "…" on its
+              // right, the details under it across the row (squeezed between the name and the buttons they were one word
+              // per line)
+              <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 py-1.5" data-testid="team-link-row">
+                <Link2 size={14} className="text-muted" aria-hidden />
+                <span className="font-medium break-words">{t('teamLink.title')}</span>
+                <span className="flex items-center gap-1">{linkCopy}{linkMenu}</span>
+                <p className="col-start-2 col-end-4 pb-1 text-xs text-muted" data-testid="team-link-details">{linkDetails}</p>
+              </div>
+            ) : (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5" data-testid="team-link-row">
                 <Link2 size={14} className="shrink-0 text-muted" aria-hidden />
                 <span className="font-medium">{t('teamLink.title')}</span>
-                <span className="min-w-0 flex-1 text-xs text-muted">
-                  {teamLink.data.link.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {t('teamLink.uses', { used: teamLink.data.link.uses, max: teamLink.data.link.maxUses })} ·{' '}
-                  {Date.parse(teamLink.data.link.expiresAt) < Date.now() ? t('members.expired') : t('teamLink.until', { date: formatDateTime(teamLink.data.link.expiresAt, locale) })}
-                </span>
-                {teamLink.data.link.url && <CopyButton text={teamLink.data.link.url} label={t('teamLink.copyLink')} showLabel className="border border-line" />}
-                <MemberMenu
-                  name={t('teamLink.title')}
-                  items={[
-                    { label: t('members.teamLinkOpen'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setTeamLinkOpen(true), testId: 'team-link-row-open' },
-                    { label: t('teamLink.revoke'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void revokeTeamLink(), danger: true, testId: 'team-link-row-revoke' },
-                  ]}
-                />
+                <span className="min-w-0 flex-1 text-xs text-muted">{linkDetails}</span>
+                {linkCopy}
+                {linkMenu}
               </div>
-            )}
+            ))}
             {!!invites.data?.length && (
               <ul className="divide-y divide-line" data-testid="invite-list">
                 {invites.data.map((i) => {

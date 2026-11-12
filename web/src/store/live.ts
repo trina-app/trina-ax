@@ -11,6 +11,7 @@ import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { startActivity } from '../lib/presence'
+import { setTypingOut } from '../lib/roomTyping'
 import { t } from '../i18n'
 import { useChats } from './chats'
 import { useDeckBuilds } from './deckBuilds'
@@ -20,6 +21,7 @@ import { transferredHere, useHandover } from './handover'
 import { useJobs } from './jobs'
 import { usePeople } from './people'
 import { usePresence } from './presence'
+import { useTyping } from './typing'
 import { useRooms } from './rooms'
 import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
@@ -89,6 +91,7 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'message.delta':
     case 'message.step':
     case 'message.done':
+    case 'turn.busy':
     case 'turn.request':
     case 'turn.request.closed':
     case 'artifact.updated':
@@ -106,6 +109,8 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       // a message the server gave me a notice of: told in the desktop app like the Inbox and push (store/sessionMarkers.ts)
       roomMessage(ev, meta)
       useRooms.getState().handleEvent(ev)
+      // its writer is no longer typing it (their "stopped" may come a moment later)
+      if (ev.data.message.author) useTyping.getState().sent(ev.data.roomId, ev.data.message.threadRootId ?? null, ev.data.message.author.id)
       // a new message meant for me rings once on this device (store/roomSound.ts); an edit or a delete never does
       roomMessageSound(ev.data.roomId, ev.data.message, meta.replay)
       return
@@ -276,10 +281,14 @@ export function startLive() {
     },
     // who is online or away (docs/DECISIONS.md "접속 상태"): the whole list after each hello, then changes
     onPresence: (f) => usePresence.getState().apply(f),
+    // someone else writing in a room's or thread's box (docs/DECISIONS.md "입력 중 표시")
+    onTyping: (f) => useTyping.getState().apply(f),
     onState: (s: ConnState) => {
       useUi.getState().setConn(s)
       // the server out of reach for a while: the dots would be guesses (the list comes again after the next hello)
       if (s === 'offline' || s === 'signed-out') usePresence.getState().clear()
+      // a "stopped" may have been missed while the link was down: nobody stays "typing" on a guess
+      if (s !== 'open') useTyping.getState().clear()
       // session.ended (handled above) comes before the close and already says why
       if (s === 'signed-out' && useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('expired')
     },
@@ -291,6 +300,8 @@ export function startLive() {
   })
   relay = new BrowserRelay((f) => client?.send(f))
   activity = startActivity((state) => client?.send({ type: 'presence', state }))
+  // this window's "typing" in a room's box (lib/roomTyping.ts decides when; dropped while disconnected)
+  setTypingOut((roomId, threadRootId, typing) => client?.send({ type: 'room.typing', roomId, threadRootId, typing }))
   client.start()
   // neither the session markers nor the room sound ever stop the live updates
   try { startSessionMarkers() } catch { /* no markers' extras in this window */ }
@@ -311,6 +322,8 @@ export function stopLive() {
   client = null
   relay = null
   usePresence.getState().clear()
+  useTyping.getState().clear()
+  setTypingOut(() => {})
   window.removeEventListener('online', nudge)
   document.removeEventListener('visibilitychange', onVisible)
 }

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import type { InboxNotification, Locale, NotificationPreferences } from '@mycel/shared/api'
+import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
-import { useInboxUnread } from '../../store/inbox'
-import { ErrorNote, Skeleton, Switch } from '../ui'
+import { useInboxUnread, useNoticeUnread } from '../../store/inbox'
+import { ErrorNote, Skeleton, Switch, useMediaQuery } from '../ui'
 import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { DesktopNotifications } from './DesktopNotifications'
@@ -18,7 +18,7 @@ import { RoomNotifySettings } from './RoomNotifySettings'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
-import { builtInName } from '../../lib/googleApps'
+import { requestableName } from '../../lib/googleApps'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings) */
 const workKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
@@ -55,14 +55,13 @@ export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'tem
 export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
 export const END_REASONS: ReadonlySet<string> = new Set<DevEnvEndReason>(['timeout', 'oom', 'stopped', 'idle', 'disk', 'setting', 'expired', 'lost'])
 
-/** The text of a dev environment notice: with the job or the project while the person can still read that project. */
+/** The text of a dev environment notice: with the job while the person can still see its project. A notice of the
+ * removed box runner has no job: the generic text of its event. */
 const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
   const d = item.devEnv
-  // srt runner: a job with no exit code says why it ended (a reason the page does not know is the old text)
+  // a job with no exit code says why it ended (a reason the page does not know is the old text)
   if (d?.job && d.job.exitCode === null && d.job.reason && END_REASONS.has(d.job.reason)) return t('notifications.event.dev_env.jobReason', { name: d.job.name, why: t(`devEnv.end.${d.job.reason as DevEnvEndReason}`) })
   if (d?.job) return d.job.exitCode === null ? t('notifications.event.dev_env.jobNoCode', { name: d.job.name }) : t('notifications.event.dev_env.jobEnded', { name: d.job.name, code: d.job.exitCode })
-  if (d?.stopCode === 'disk') return t('notifications.event.dev_env.boxDisk', { project: d.projectName })
-  if (d?.stopCode === 'busy_max') return t('notifications.event.dev_env.boxBusy', { project: d.projectName })
   return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
 }
 
@@ -71,15 +70,16 @@ type T = ReturnType<typeof useT>
 /** A member's ask to add an app (shared/src/api/service-requests.ts): to an owner or admin, who asks ("Alice and 2
  * others asked to add Gmail"); to the member who asked, that it is ready. Never an admin's name. */
 const serviceRequestText = (item: InboxNotification, sr: NonNullable<InboxNotification['serviceRequest']>, t: T) => {
-  const service = builtInName(sr.service)
+  const service = requestableName(sr.service)
   if (item.code === 'service.ready') return t('notifications.event.service.readyNamed', { service })
   if (!sr.name) return t('notifications.event.service.requestSomeone', { service })
   return sr.others ? t('notifications.event.service.requestMore', { name: sr.name, n: sr.others, service }) : t('notifications.event.service.requestNamed', { name: sr.name, service })
 }
 
-/** Where an app's setup is in Admin › Connected apps: Google Drive's page, or a Google app's. */
+/** Where an app's setup is in Admin › Connected apps: Google Drive's page, a Google app's, or a listed service's page
+ * (its "Connect for the team"). */
 export const serviceSetupLink = (service: NonNullable<InboxNotification['serviceRequest']>['service']) =>
-  service === 'google-drive' ? '/admin/connectors?drive=1' : `/admin/connectors?app=${encodeURIComponent(service)}`
+  service === 'google-drive' ? '/admin/connectors?drive=1' : isGoogleRequestable(service) ? `/admin/connectors?app=${encodeURIComponent(service)}` : `/admin/connectors/${encodeURIComponent(service)}`
 
 /** Someone started to see a project I am in (docs/DECISIONS.md "Project contents only for members": an owner or admin
  * who added themselves, or anyone through a group): who, while their account is there, and the project, while I still
@@ -122,6 +122,11 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'schedule.failure' && item.needsKey) return title
     ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
     : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+  // a task paused because only the project's members can use it now (the owner or an admin who may add themselves):
+  // it starts again once they do (docs/DECISIONS.md "Projects from before the update: one card, Add me to these")
+  if (item.code === 'schedule.failure' && item.projectGone && item.membersOnly) return title
+    ? isolate(locale, 'notifications.event.schedule.membersOnlyNamed', { title }, ['title'])
+    : t('notifications.event.schedule.membersOnly')
   // a run that did not start because its owner no longer sees the task's project
   if (item.code === 'schedule.failure' && item.projectGone) return title
     ? isolate(locale, 'notifications.event.schedule.projectGoneNamed', { title }, ['title'])
@@ -165,7 +170,11 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
 export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
-  const unread = useInboxUnread()
+  // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
+  // counts (store/inbox.ts); a computer, the whole Inbox (as the sidebar)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const whole = useInboxUnread(), notices = useNoticeUnread()
+  const unread = phone ? notices : whole
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)

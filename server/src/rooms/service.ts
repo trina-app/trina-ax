@@ -269,6 +269,9 @@ export class Rooms {
       this.roomEvent(roomId, 'updated', new Set([userId]))
       // a push of this room that waits or is on its way is checked again (rooms/alerts.ts noticeWanted)
       cancelPushUser(this.ctx, userId)
+      // muted or not, a counted row of it moves between the Inbox's room part and the rest (notifications/service.ts
+      // roomUnreadCount): the count is read again
+      if ((level === 'off') !== !!me.muted && countedUnreadIn(this.db, userId, roomId)) this.notifySignal(userId)
     }
     return this.get(userId, roomId)
   }
@@ -550,6 +553,21 @@ export class Rooms {
     return searchRoomFiles(this.db, userId, o)
   }
 
+  /** Team files a person copied in with a phone's attach sheet (rooms/files.ts teamCopy), now sent in message
+   * `messageId`: one audit row each (room.team_file), by its team path, with the room as room audits name it (a DM's or
+   * group chat's kind only) and how many other members could not open the team file at the send (never who, never the
+   * contents). Never throws: the message is sent already. */
+  private auditTeamCopies(userId: string, room: RoomRow, messageId: string, fileIds: readonly string[]) {
+    try {
+      const copies = this.db.query(`SELECT id, team_path FROM room_files WHERE message_id = ? AND team_path IS NOT NULL AND id IN (${fileIds.map(() => '?').join(',')})`).all(messageId, ...fileIds) as { id: string; team_path: string }[]
+      if (!copies.length) return
+      const others = (this.db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(room.id, userId) as { user_id: string }[]).map((m) => fileOpener(this.ctx, m.user_id))
+      for (const f of copies) {
+        audit(this.db, { actor: userId, action: 'room.team_file', target: f.team_path, detail: { ...roomAuditRef(room), message: messageId, file: f.id, unable: others.filter((opens) => !opens(f.team_path)).length } })
+      }
+    } catch (e) { this.ctx.log.warn('room team file audit failed', { err: e }) }
+  }
+
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
    * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it.
    * With threadRootId it is a reply in that message's thread (see the top of this file).
@@ -585,6 +603,14 @@ export class Rooms {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
       if (n !== fileIds.length) fail('validation', undefined, { fields: { 'body.fileIds': 'unknown file' } })
     }
+    // team files copied in with a phone's attach sheet (rooms/files.ts teamCopy) were copied with my access then: the
+    // send gives them to the whole room, so I must still be able to open each team file now. One I may not open any
+    // more: nothing is sent, that copy is removed, and the refusal names it (params.files: the copies taken out, so the
+    // app does not put them back in the box)
+    if (fileIds.length && !answer) {
+      const revoked = roomFilesOf(this.ctx).revokedTeamCopies(userId, roomId, fileIds)
+      if (revoked.ids.length) fail('forbidden', tr('roomTeamFileNoAccess', o.locale ?? DEFAULT_LOCALE, { names: revoked.names.join(', ') }), { params: { reason: 'team_file_access', files: revoked.ids.join(',') } })
+    }
     // "@트리나 …" (a person picked from the list under the same name wins), only while the server allows it
     // (AppConfig.roomAiMentions; off by default: the side chat asks the AI beside a room); anything that stops the
     // question stops the send. Off: the text is an ordinary message.
@@ -610,6 +636,7 @@ export class Rooms {
       if (root) this.follow(root, userId, seq, mentions)
       else this.db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ? AND last_read_seq < ?').run(seq, roomId, userId, seq)
     })()
+    if (fileIds.length && !answer) this.auditTeamCopies(userId, room, id, fileIds)
     if (root) this.markThreadNoticesRead(userId, roomId, root.id, seq)
     else {
       this.readEvent(roomId, userId)

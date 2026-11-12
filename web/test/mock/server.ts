@@ -42,7 +42,7 @@
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
-// POST /__test/dev-env {srt?: true, network?: 'offline', sites?: string[]} turns the dev environment (experiment) on until
+// POST /__test/dev-env {network?: 'offline', sites?: string[]} turns the dev environment (experiment) on until
 // the next reset (sites: the first person's own allowed sites).
 // POST /__test/html-pdf {on: boolean} says whether this server prints HTML to PDF (Me.server.htmlPdf; off by default, as
 // a server without a headless browser) until the next reset; GET /__test/html-pdf lists the pages printed so far.
@@ -70,7 +70,7 @@ import type { MemberWelcome } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, RoomTypingFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   SetStatusBody, type MyStatus, type StatusClear,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
@@ -107,7 +107,8 @@ import path from 'node:path'
 import { MockPlugins } from './plugins'
 import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
 import type { GoogleAppId } from '@mycel/shared/api'
-import { isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
+import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
+import { catalogAt as catalogAtUrl } from '@mycel/shared'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
@@ -253,6 +254,9 @@ export class MockServer {
   presence = new Map<string, 'online' | 'away'>()
   /** the `presence` frames the pages sent (their own window's state), oldest first; GET /__test/presence reads them */
   presenceSent: { user: string; windowId: string; state: string }[] = []
+  /** the `room.typing` frames the pages sent, oldest first; GET /__test/typing reads them, POST tells every socket one
+   * (someone else typing, as server/src/rooms/typing.ts relays it) */
+  typingSent: { user: string; roomId: string; threadRootId: string | null; typing: boolean; at: number }[] = []
   sessions = new Map<string, string>() // token -> user id
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
@@ -428,8 +432,8 @@ export class MockServer {
   apiEngineEnabled = false
   /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
   driveClient: 'none' | 'app' = 'none'
-  /** Admin › Connectors › Google Drive: "Members can connect their own Google Drive" (off for a new team, like the server) */
-  driveMembers = false
+  /** Members may connect their own Google Drive: always, once it is set up (no members' switch, like the server) */
+  readonly driveMembers = true
   /** Drives shared with the team (server/src/integrations/google-drive/shares.ts); never a token here either */
   driveShares: MockDriveShare[] = []
   /** a share sign-in under way: its flow id, and which share it signs in again for */
@@ -466,8 +470,8 @@ export class MockServer {
    * team setting is off */
   oftenAsked: { team: string[]; groups: Record<string, string[]> } = { team: [], groups: {} }
   /** POST /__test/dev-env: the dev environment (experiment) is on until the next reset (Me.server.devEnv, Team settings
-   * › Dev environment); srt: true is the srt runner (warning version 2, the queue of the chat's runs); otherwise its
-   * endpoints answer 404, like a server without MYCEL_DEV_ENV */
+   * › Dev environment, warning version 2, the queue of the chat's runs); otherwise its endpoints answer 404, like a
+   * server without MYCEL_DEV_ENV */
   devEnv: { srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
   /** POST /__test/html-pdf: the server prints HTML to PDF ("PDF로 저장" in an .html preview); the pages printed, with how */
   htmlPdf = false
@@ -490,9 +494,8 @@ export class MockServer {
   }
   devEnvTeamView() {
     if (!this.devEnv) fail('not_found', 404)
-    const srt = !!this.devEnv!.srt
-    return { setting: this.devEnvTeam, defaultDomains: ['registry.npmjs.org', 'pypi.org', 'github.com'], plan: srt ? { plan: 'starter', maxRunning: 1, cpus: 2, memoryMiB: 3072, pids: 1024, network: 'open' } : null,
-      runner: srt ? 'srt' as const : 'box' as const, warningVersion: srt ? 2 : 1, availability: { available: true } }
+    return { setting: this.devEnvTeam, defaultDomains: ['registry.npmjs.org', 'pypi.org', 'github.com'], plan: { plan: 'starter', maxRunning: 1, cpus: 2, memoryMiB: 3072, pids: 1024, network: 'open' },
+      warningVersion: 2, availability: { available: true } }
   }
 
   constructor(o: { setup?: boolean } = {}) {
@@ -522,6 +525,7 @@ export class MockServer {
     this.fileList = mockFileList()
     this.presence = new Map()
     this.presenceSent = []
+    this.typingSent = []
     this.statuses = new Map()
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
@@ -582,9 +586,12 @@ export class MockServer {
     this.deckThumbs = true
     this.deckTier = 'quick'
     this.allConfidential = false
+    this.roomAiMentions = true
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
+    this.beforeUpdate = new Set()
+    this.updateNoticeDismissed = new Set()
     this.trashedProjects.clear()
     this.projectRowIds.clear()
     this.memories = []
@@ -608,7 +615,6 @@ export class MockServer {
     this.codexSignedIn = false
     this.apiEngineEnabled = false
     this.driveClient = 'none'
-    this.driveMembers = false
     this.driveShares = []
     this.driveShareFlow = null
     this.credentials = []
@@ -716,6 +722,8 @@ export class MockServer {
   sources = new Map<string, MessageSourceFile[]>()
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
+  /** POST /__test/room-ai-mentions {on}: "@트리나" in a room (Me.server.roomAiMentions); on in the mock, off on a real server */
+  roomAiMentions = true
   /** POST /__test/artifact: what the next "artifact" answer writes */
   nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
   access(path: string, user: User): 'none' | 'read' | 'write' {
@@ -780,6 +788,16 @@ export class MockServer {
   entry(path: string, n: FileNode, user: User): FileEntry {
     return { name: path.slice(path.lastIndexOf('/') + 1), path, type: n.type, size: n.type === 'file' ? n.data!.byteLength : null, mtime: n.mtime, mime: n.type === 'file' ? mimeOf(path) : null, access: this.access(path, user),
       ...(n.type === 'file' && this.downloadOnly.has(path) ? { downloadOnly: true as const } : {}) }
+  }
+  /** POST /__test/project {beforeUpdate: true}: a team project from before the update to members-only projects; and who
+   * dismissed the card about them (server/src/chat/old-projects.ts) */
+  beforeUpdate = new Set<string>()
+  updateNoticeDismissed = new Set<string>()
+  /** like server/src/chat/old-projects.ts updateNoticeProjects: the owner's or an admin's projects from before the update
+   * they manage and do not read now, until they dismiss the card */
+  updateNoticeOf(u: User): Project[] {
+    if (u.role === 'member' || this.updateNoticeDismissed.has(u.id)) return []
+    return this.projects.filter((p) => this.beforeUpdate.has(p.id) && !p.inTrash && this.projectManages(p, u) && !this.projectSees(p, u)).sort((a, b) => a.name.localeCompare(b.name))
   }
   /** POST /__test/download-only {path}: a file Safe operations 1A generated (quarantined: FileEntry.downloadOnly) */
   downloadOnly = new Set<string>()
@@ -1181,7 +1199,12 @@ export class MockServer {
     this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
   }
   /** like server/src/integrations/service-requests.ts serviceState */
-  serviceState(service: RequestableService): 'not_set_up' | 'available' | 'other' {
+  serviceState(service: RequestableService, userId?: string): 'not_set_up' | 'available' | 'other' {
+    // a listed service (QA TC-133): added for this member once a team connection to its address is one they may use
+    if (!isGoogleRequestable(service)) {
+      const u = this.users.find((x) => x.id === userId)
+      return u && this.integrations.some((x) => x.scope === 'team' && x.status === 'connected' && catalogAtUrl(x.url)?.id === service && this.integrationAllows(x, u)) ? 'available' : 'not_set_up'
+    }
     if (service === 'google-drive') return this.driveClient === 'none' ? 'not_set_up' : this.driveMembers ? 'available' : 'other'
     const r = this.googleApps.reasonOf(this.googleApps.app(service)!)
     return r === 'not_set_up' ? 'not_set_up' : r === null ? 'available' : 'other'
@@ -1192,7 +1215,7 @@ export class MockServer {
     const at = now(), touched = new Set<RequestableService>()
     for (const r of this.serviceRequests.filter((x) => !x.closedAt)) {
       const u = this.users.find((x) => x.id === r.userId)
-      const reason = !u || u.status !== 'active' || u.role !== 'member' ? 'left' as const : this.serviceState(r.service) === 'available' ? 'added' as const : null
+      const reason = !u || u.status !== 'active' || u.role !== 'member' ? 'left' as const : this.serviceState(r.service, r.userId) === 'available' ? 'added' as const : null
       if (!reason) continue
       r.closedAt = at; r.reason = reason; touched.add(r.service)
       if (reason === 'added') this.note(r.userId, { kind: 'service_ready', service: r.service, requestId: r.id })
@@ -1271,8 +1294,9 @@ export class MockServer {
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
-        // the e2e specs still cover "@트리나" in rooms (the real server's default is off: AppConfig.roomAiMentions)
-        roomAiMentions: true as const,
+        // the e2e specs still cover "@트리나" in rooms (the real server's default is off: AppConfig.roomAiMentions);
+        // POST /__test/room-ai-mentions {on: false} turns it off until the next reset
+        ...(this.roomAiMentions ? { roomAiMentions: true as const } : {}),
         ...(this.devEnv ? { devEnv: true as const } : {}),
         ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
         // the HWP preview, as hwpPreview below answers it: on unless the HWP Preview plugin is installed and turned off
@@ -1535,7 +1559,8 @@ export class MockServer {
       const requestId = 'cc-notion'
       const request: TurnRequest = {
         kind: 'connect_service', requestId, target: 'service', name: 'Notion', scope: 'personal',
-        service: { kind: 'mcp', url: 'https://mcp.notion.example/mcp', host: 'mcp.notion.example', auth: 'none', authHeader: null },
+        // Notion's official address (shared/src/service-catalog.ts): a listed name at another address gets no button
+        service: { kind: 'mcp', url: 'https://mcp.notion.com/mcp', host: 'mcp.notion.com', auth: 'none', authHeader: null },
         why: '출시 페이지를 읽으려면 Notion 연결이 필요해요.', expiresAt: new Date(Date.now() + 60_000).toISOString(),
       }
       this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
@@ -2053,7 +2078,7 @@ export class MockServer {
     // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
     mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
     slackAdmin: () => ({
-      enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
+      mode: 'own', official: false, enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
       signIn: false, redirectUrl: null,
     }),
@@ -2314,6 +2339,18 @@ export class MockServer {
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
     },
     getRoomAi: (c) => (this.rooms.some((r) => r.id === c.params.id) ? { answering: 0, mine: [] } : fail('not_found', 404)),
+    // "팀 파일" in a room's box (server/src/routes/rooms.ts attachRoomTeamFile, short): a team file I may read becomes my
+    // upload in a room of POST /__test/rooms; the room's other people (its peers) who cannot open it are counted
+    attachRoomTeamFile: (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      const path: string = c.body.path
+      const n = this.files.get(path)
+      if (!n || n.type !== 'file' || this.access(path, c.user) === 'none') fail('not_found', 404)
+      const name = path.slice(path.lastIndexOf('/') + 1)
+      const mime = mimeOf(path) ?? 'application/octet-stream'
+      const file = { id: uuidv7(), name, size: n!.data!.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'document', thumb: false }
+      return { status: 201, body: { file, unable: path.startsWith('users/') ? room.peers.length : 0 } }
+    },
     markRoomRead: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       Object.assign(room, { lastReadSeq: Math.max(room.lastReadSeq, c.body.seq), unreadCount: 0, mentioned: false })
@@ -2411,6 +2448,22 @@ export class MockServer {
       return { status: 201, body: p }
     },
     getProject: (c) => this.projectFor(c, c.query.manage === '1'),
+    getProjectsUpdateNotice: (c) => ({ items: this.updateNoticeOf(c.user).map((p) => ({ id: p.id, name: p.name })) }),
+    // "Add me to these": a member of each, as Add me saves it (its members told)
+    joinProjectsUpdateNotice: (c) => {
+      let joined = 0, skipped = 0
+      for (const p of this.updateNoticeOf(c.user)) {
+        const pm = this.projectMembers.get(p.folderPath)
+        if (!pm) { skipped++; continue }
+        const before = new Set(this.sharedAudience(p).map((u) => u.id))
+        pm.participants = [...pm.participants, { subjectType: 'user', subjectId: c.user.id }]
+        pm.version++
+        for (const id of before) this.note(id, { kind: 'project_joined', joinerId: c.user.id, projectId: p.id })
+        joined++
+      }
+      return { joined, skipped }
+    },
+    dismissProjectsUpdateNotice: (c) => { this.updateNoticeDismissed.add(c.user.id); return undefined },
     // a new name is management (also without reading it); its instructions and chat sharing are its contents
     updateProject: (c) => {
       const p = this.projectFor(c, true)
@@ -2510,7 +2563,7 @@ export class MockServer {
       p.folderPath = to
       return p
     },
-    // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on (srt) needs the
+    // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on needs the
     // current warning accepted
     devEnvTeam: () => this.devEnvTeamView(),
     myDevEnvSites: (c) => this.devEnvSitesOf(c.user.id),
@@ -2531,7 +2584,7 @@ export class MockServer {
       const b = c.body
       const before = this.devEnvTeam
       const after = { ...before, limits: { ...before.limits, ...(b.limits ?? {}) }, ...(b.extraDomains ? { extraDomains: b.extraDomains } : {}), ...(b.scope ? { scope: b.scope } : {}), ...(b.network ? { network: b.network } : {}), ...(b.enabled !== undefined ? { enabled: b.enabled } : {}) }
-      if (v.runner === 'srt' && after.enabled && !(before.enabled && before.consent?.warningVersion === v.warningVersion) && after.consent?.warningVersion !== v.warningVersion) {
+      if (after.enabled && !(before.enabled && before.consent?.warningVersion === v.warningVersion) && after.consent?.warningVersion !== v.warningVersion) {
         if (b.acceptWarning !== v.warningVersion) fail('conflict', 409, '먼저 개발 환경 경고를 확인해 주세요.')
         after.consent = { by: { id: c.user.id, name: c.user.name }, at: now(), warningVersion: v.warningVersion }
       }
@@ -3785,9 +3838,7 @@ export class MockServer {
       ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, teamShares: [] }
       : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers,
           teamShares: this.driveShares.filter((x) => x.status === 'connected' && this.driveShareCovers(x, c.user)).map((x) => ({ id: x.id, name: x.name, folders: x.folders, wholeDrive: x.wholeDrive })) }),
-    authorizeDrive: (c) => {
-      // an owner or admin may start their own while members may not (docs/DECISIONS.md "W6")
-      if (!this.driveMembers && c.user.role === 'member') fail('forbidden', 403, 'drive_members_off')
+    authorizeDrive: () => {
       return { flowId: 'personal-flow', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic', expiresAt: new Date(Date.now() + 600_000).toISOString() }
     },
     // the share sign-in (mock Google): pending once, then the synthetic account is back
@@ -3797,7 +3848,8 @@ export class MockServer {
       return { flowId: f!.id, state: f!.polls++ < 1 ? 'pending' : 'ready', account: { name: 'Admin Fixture', email: 'drive-admin@example.test' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), reason: null }
     },
     cancelDriveFlow: () => { this.driveShareFlow = null; return undefined },
-    setDriveMembers: (c) => { this.driveMembers = c.body.on; this.settleServiceRequests(); return this.driveAdminStatus() },
+    // the old members' switch: changes nothing (docs/DECISIONS.md "No members' switch for connectors")
+    setDriveMembers: () => this.driveAdminStatus(),
     listDriveShares: () => ({ items: this.driveShares.map((x) => ({ ...x, usedBy: this.driveShareUsers(x) })) }),
     authorizeDriveShare: (c) => {
       this.driveShareFlow = { id: 'share-flow-' + uuidv7(), shareId: c.body.shareId ?? null, polls: 0 }
@@ -3897,9 +3949,8 @@ export class MockServer {
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
     },
     setGoogleAppMembers: (c) => {
-      const app = this.googleApps.app(c.params.app) ?? fail('not_found', 404)
-      app.members = c.body.on
-      this.settleServiceRequests()
+      this.googleApps.app(c.params.app) ?? fail('not_found', 404)
+      // the old members' switch: changes nothing (docs/DECISIONS.md "No members' switch for connectors")
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
     },
     // a member asks the owner and the admins to add an app (like server/src/integrations/service-requests.ts)
@@ -3911,7 +3962,7 @@ export class MockServer {
       this.settleServiceRequests()
       const open = this.serviceRequests.find((r) => r.userId === c.user.id && r.service === service && !r.closedAt)
       if (open) return { service, state: 'already' as const, askedAt: open.createdAt }
-      const st = this.serviceState(service)
+      const st = this.serviceState(service, c.user.id)
       if (st === 'available') fail('conflict', 409, undefined, undefined, { reason: 'can_connect' })
       if (st === 'other') fail('conflict', 409, undefined, undefined, { reason: 'not_requestable' })
       const day = new Date(Date.now() - 86_400_000).toISOString()
@@ -3930,6 +3981,26 @@ export class MockServer {
       return { service, state: 'sent' as const, askedAt: at }
     },
 
+    withdrawService: (c) => {
+      for (const r of this.serviceRequests.filter((x) => x.userId === c.user.id && x.service === c.params.service && !x.closedAt)) { r.closedAt = now(); r.reason = null }
+      return undefined
+    },
+    teamServiceRequests: () => {
+      const by = new Map<string, { service: RequestableService; askers: { id: string; name: string }[]; askedAt: string }>()
+      for (const r of [...this.serviceRequests].filter((x) => !x.closedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+        const u = this.users.find((x) => x.id === r.userId)
+        if (!u || u.status !== 'active') continue
+        const x = by.get(r.service) ?? { service: r.service, askers: [], askedAt: r.createdAt }
+        x.askers.push({ id: u.id, name: u.name }); by.set(r.service, x)
+      }
+      return { items: [...by.values()] }
+    },
+    dismissServiceRequests: (c) => {
+      for (const r of this.serviceRequests.filter((x) => x.service === c.params.service && !x.closedAt)) { r.closedAt = now(); r.reason = null }
+      for (const n of this.inbox) if (n.kind === 'service_request' && n.service === c.params.service) n.readAt ??= now()
+      return undefined
+    },
+
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
     listIntegrations: (c) => ({
       items: this.integrations.filter((x) => this.integrationAllows(x, c.user)).map((x) => this.integrationView(x, c.user)),
@@ -3940,7 +4011,7 @@ export class MockServer {
       if (c.body.access) fail('validation', 400, '사용할 사람은 팀 연결에만 정해요.', { 'body.access': 'team connections only' })
       return { status: 201, body: this.addIntegration(c.user, c.body, 'personal') }
     },
-    updateIntegration: (c) => this.patchIntegration(c.user, c.params.id, c.body),
+    updateIntegration: (c) => { const r = this.patchIntegration(c.user, c.params.id, c.body); this.settleServiceRequests(); return r },
     deleteIntegration: (c) => {
       const x = this.manageableIntegration(c.user, c.params.id)
       this.integrations = this.integrations.filter((y) => y.id !== x.id)
@@ -3982,6 +4053,8 @@ export class MockServer {
           f.flow.state = 'completed'
           // made from an admin's request: connected now that the member signed in
           for (const r of this.integrationRequests) if (r.integrationId === x.id && this.requestState(r) === 'waiting') Object.assign(r, { state: 'connected', endedAt: now() })
+          // a team connection that works now: members who asked for that listed service and may use it hear it is ready
+          this.settleServiceRequests()
         }
       }
       return f.flow
@@ -4116,7 +4189,7 @@ export class MockServer {
     disablePlugin: (c) => this.plugins.set(c.params.id, false) ?? fail('not_found', 404),
     rollbackPlugin: () => { throw new Fail('conflict', 409, undefined, undefined, { reason: 'no_rollback' }) },
     uninstallPlugin: (c) => { if (!this.plugins.remove(c.params.id)) fail('not_found', 404); return undefined },
-    createTeamIntegration: (c) => ({ status: 201, body: this.addIntegration(c.user, c.body, 'team') }),
+    createTeamIntegration: (c) => { const body = this.addIntegration(c.user, c.body, 'team'); this.settleServiceRequests(); return { status: 201, body } },
 
     // nothing connected, no scheduled tasks yet
     listConnected: () => ({ items: [] }),
@@ -4214,8 +4287,8 @@ export class MockServer {
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: (c) => {
       const mine = this.inbox.filter((n) => n.userId === c.user.id)
-      // no conversation rows here (the specs that need them answer GET /api/notifications themselves)
-      return { items: mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length, roomUnreadCount: 0 }
+      // no conversation rows here (the specs that need them answer GET /api/notifications themselves): only=rooms is none
+      return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length, roomUnreadCount: 0 }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
     markNotificationRead: (c) => {
@@ -4803,6 +4876,12 @@ export class MockServer {
       if (Array.isArray(body.connections)) this.handover.connections = body.connections as MockServer['handover']['connections']
       if (body.race === true) this.handover.race = true
     }
+    else if (p === '/__test/typing' && req.method === 'GET') return Response.json({ sent: this.typingSent })
+    else if (p === '/__test/typing') {
+      // {roomId, threadRootId?, userId, typing}: someone else writes (or stopped) in that place
+      const frame = JSON.stringify(RoomTypingFrame.parse({ type: 'room.typing', roomId: body.roomId, threadRootId: body.threadRootId ?? null, userId: body.userId, typing: body.typing !== false }))
+      for (const ws of this.sockets) ws.send(frame)
+    }
     else if (p === '/__test/presence' && req.method === 'GET') return Response.json({ sent: this.presenceSent })
     else if (p === '/__test/presence') {
       // {people: [{id, state}]}: a change, told to every socket like the server's presence frame ('offline' takes one out)
@@ -4846,7 +4925,7 @@ export class MockServer {
     else if (p === '/__test/dev-env') {
       if (body.network === 'offline') this.devEnvTeam.network = 'offline'
       if (Array.isArray(body.sites)) this.devEnvSites.set(this.users[0]!.id, { sites: (body.sites as string[]).map((host) => ({ host, createdAt: now() })), full: false })
-      this.devEnv = body.srt ? { srt: { running: [], waiting: [] } } : {}
+      this.devEnv = { srt: { running: [], waiting: [] } }
     }
     else if (p === '/__test/pack-examples') this.packExamples = (body.examples as typeof this.packExamples | undefined) ?? {}
     else if (p === '/__test/packs-fail') this.packsFail = body.on !== false
@@ -4895,6 +4974,7 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    else if (p === '/__test/room-ai-mentions') this.roomAiMentions = body.on !== false
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
@@ -4945,6 +5025,8 @@ export class MockServer {
       this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
       const pr: Project = { id: uuidv7(), name: String(body.name), folderPath, instructions: String(body.instructions ?? ''), createdBy: { id: by.id, name: by.name }, createdAt: now(), canEdit: true }
       this.projects.push(pr)
+      // made before the update to members-only projects (the card on Admin › Home, GET /api/projects/update-notice)
+      if (body.beforeUpdate === true) this.beforeUpdate.add(pr.id)
       for (const [name, text] of Object.entries((body.files as Record<string, string> | undefined) ?? {})) this.putFile(`${folderPath}/${name}`, text)
       // a chat of the caller there (`chatsOf`: whose, by id; their own chats stay theirs, also after they lose it)
       for (const [uid, title] of (body.chats as [string, string][] | undefined) ?? []) {
@@ -5597,8 +5679,9 @@ export class MockServer {
           ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...self.presence].map(([id, state]) => ({ id, state })) })))
         },
         message(ws, msg) {
-          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string }
+          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string; roomId?: string; threadRootId?: string | null; typing?: boolean }
           if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
+          if (f.type === 'room.typing') self.typingSent.push({ user: ws.data.user, roomId: String(f.roomId), threadRootId: f.threadRootId ?? null, typing: !!f.typing, at: Date.now() })
           if (f.type === 'presence') self.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
         },
         close(ws) {

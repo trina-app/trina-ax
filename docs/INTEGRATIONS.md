@@ -186,7 +186,7 @@ their own".
 ## A member asks for an app
 
 The other direction: a member who opens an app the team has not set up (Google Drive, Gmail, Google Calendar, Google
-Docs, Google Sheets: the apps an admin sets up once for everyone) taps **Ask admin to add it** on its page, like an app
+Docs, Google Sheets: the apps an admin sets up once for everyone; since QA TC-133 also every listed service) taps **Ask admin to add it** on its page, like an app
 request in Slack. It takes the place of the Connect button that could not work and of the "not set up" line; afterwards
 the page says "Request sent", opened again "Already asked", and the app's card says "Asked".
 
@@ -194,8 +194,7 @@ the page says "Request sent", opened again "Already asked", and the app's card s
   server refuses any other name (400 `unknown_service`: no free text from a member reaches an admin), an app the member
   can connect already (409 `can_connect`), one an admin turned off for members or this computer cannot run (409
   `not_requestable`; also a setup that is not the admins' to make: a hosted team's, an operator's file), and owners
-  and admins (403: they set it up themselves). Listed MCP services are not asked for: a member adds those with their
-  own account.
+  and admins (403: they set it up themselves). (Listed MCP services: see below.)
 - One open request per member and app; asking again while it is open answers `already` and sends nothing. At most 10
   new requests per member a day (429). Audited `service_request.ask`.
 - The owner and the admins get one notice per app in Activity (`service.request`, table `service_request_notices`),
@@ -203,12 +202,26 @@ the page says "Request sent", opened again "Already asked", and the app's card s
   row opens the app's setup in Admin › Connected apps. The names are read when the inbox is shown. The 30-second check
   keeps these notices with whoever is an owner or admin now: someone who no longer is loses them, someone who became one
   gets those of the apps asked for now.
-- Once members can connect the app (an admin set it up, or turned the members' switch on after that; also a setup made
+- Once members can connect the app (an admin set it up; also a setup made
   elsewhere, checked every 30 seconds; not while the hosting service's Google review lets only its test users in), the
   requests close, the admins' notice counts as read and says "Added", and each
   member who asked gets one notice that it is ready (`service.ready`), which opens its page. Inbox only, never an OS
   push. Requests also close after 30 days, or when their member leaves or becomes an owner or admin; then they may ask
   again.
+- **Every listed service too** (QA TC-133): Notion, Linear and the rest of `shared/src/service-catalog.ts`, by their
+  ids (never an address or a name a member types). Such a service is added for a member once a team connection to its
+  official address exists that they may use: their request closes as 'added' with the 'service.ready' notice (checked
+  when a team connection is made or changed, and on the 30-second check), and asking again is `can_connect`. A member
+  who may add their own connections keeps Connect on the page; the ask for the team's is a line under it. A member's
+  own connection to the service does not stop the ask.
+- **Taking it back:** "Cancel request" under "Request sent" (`DELETE /api/integrations/service-requests/:service`, one's
+  own only; audited `service_request.withdraw`). It still counts toward the 10 a day.
+- **Admin › Connectors, "Asked by members":** one line per app or service with open requests (who asked), **Add** (a
+  Google one: its page; a listed service: "Connect for the team") and **Dismiss** (`POST
+  /api/admin/service-requests/:service/dismiss`: closes them, nobody is told, they may ask again; audited
+  `service_request.dismiss`). `GET /api/admin/service-requests` lists them. A request taken back or dismissed is closed
+  with no reason (`closed_reason` NULL), so no migration. The notice of a listed service opens its page in Admin ›
+  Connectors.
 - Nothing a member gets names an admin. Code: `server/src/integrations/service-requests.ts`,
   `service-request-notices.ts`, migration `343_c_service_requests.sql`; web `components/integrations/AskAdmin.tsx`.
   Decisions: [DECISIONS.md](DECISIONS.md) "A member asks an admin to add an app".
@@ -223,6 +236,13 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
 (`shared/src/tools.ts`), `ConnectServiceRequest` (`shared/src/api/ws.ts`), `TurnConnectBody` / `TurnConnectResult`
 (`shared/src/api/chats.ts`).
 
+- **A known service only at its official address.** For a service in the app's list (`shared/src/service-catalog.ts`,
+  the Discover list) the card says "Official {name} address" only for exactly its official address (https, host and
+  path). Its name, a look-alike ("Nоtion", "노션") or a name holding it, at any other address (a self-hosted GitLab, a
+  made-up address) is an unknown service named by its host, with a warning and the host in bold; it is not refused.
+  A service the person already uses is not connected twice: a working one gets no card, their own that needs a
+  sign-in or key gets a card for that same connection (`reconnect`). A team connection is never named to someone who
+  may not use it. docs/DECISIONS.md "The chat's connect card trusts the app's list".
 - **The key never reaches the AI.** It is not in the tool's input or result, the steps, the audit lines
   (`tool_events`), the engine's session file, the logs, the realtime events, the admin audit or any error text. The
   card seals it in the browser for the purpose `'integration.secret'` (the same sealing as AI connections) and sends it
@@ -270,6 +290,10 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   private, personal connections off, a team connection asked for by a member, a connection to the same address that
   the person (or the team) already has (its name and state), the team limit, Google Drive not set up on this server
   (an admin or the operator has to set it up), Google Drive already connected.
+- **Signing in again to one's own connection** (QA TC-127): when the person's own connection (not one from a template,
+  not a Google app) needs a new sign-in or key, the AI's list of connections names its id, and `connection` (or the
+  connection's own address filled in) opens the card for it ("Sign in again to …", `reconnect`): the sign-in or key
+  goes to that connection, the limit does not count it, and "Not now" leaves it as it is.
 - **Sign-in services** are added first; the card then runs the usual sign-in (`POST /api/integrations/:id/authorize`)
   and, once it finished, tells the server ("done"), which checks the connection before telling the AI. The card says
   that signing in opens a sign-in page in a new window, to check that it is the service the person expects, and that

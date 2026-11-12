@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { DICTS, translate } from '../../src/i18n'
 import { notesSummary, ReleaseNotes } from '../../src/components/ReleaseNotes'
 import { formatDateTime } from '../../src/lib/format'
-import { bannerFor, cardZone, finishedRun, legacyWindow, onOfficeStatus, shareOfficeStatus } from '../../src/lib/officeUpdate'
+import { bannerFor, cardZone, officeTurn, finishedRun, legacyWindow, onOfficeStatus, shareOfficeStatus } from '../../src/lib/officeUpdate'
 import { browserTimeZone, isKnownTimeZone } from '../../src/lib/time-zones'
 import OfficeUpdate from '../../src/pages/admin/OfficeUpdate'
 import { UpdateWindowField } from '../../src/pages/admin/TeamSettings'
@@ -17,6 +17,21 @@ const at = '2026-10-21T09:00:00.000Z'
 const st = (o: Partial<OfficeUpdateStatus> = {}): OfficeUpdateStatus => ({
   current: '0.2.0', channel: 'stable', paused: false, time: '03:00', nextWindowAt: at, lastCheckAt: at, last: { kind: 'available', at, version: '0.2.1', message: null },
   available: { version: '0.2.1', channel: 'stable', notes: '', publishedAt: at }, lastUpdate: null, running: null, requested: false, agentInstalled: true, desktop: null, ...o,
+})
+
+describe('a paused release (the publisher holds it, server/src/system/rollout.ts)', () => {
+  test('the banner and the card say it is paused, not a turn or "never"', () => {
+    const paused = st({ available: { version: '0.2.1', channel: 'stable', notes: '', publishedAt: at, turnAt: null, paused: true } })
+    expect(officeTurn(paused)).toEqual({ kind: 'paused' })
+    expect(bannerFor(me('owner'), paused, null)?.turn).toEqual({ kind: 'paused' })
+    expect(officeTurn(st({ available: { version: '0.2.1', channel: 'stable', notes: '', publishedAt: at, turnAt: null } }))).toEqual({ kind: 'never' })
+    const words = translate('en', 'officeUpdate.bannerPaused')
+    expect(words).toMatch(/^Updates are paused by \S.* for now$/)
+    expect(words).not.toContain('{product}')
+    // the card says it
+    const html = renderToStaticMarkup(createElement(OfficeUpdate, { status: paused, reload: async () => {} }))
+    expect(html).toContain(words)
+  })
 })
 
 describe('new version banner', () => {

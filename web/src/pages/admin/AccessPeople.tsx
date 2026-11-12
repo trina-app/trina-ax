@@ -303,7 +303,7 @@ function PersonPicker({ users, groups, value, onPick }: { users: User[] | null; 
   return (
     <div>
       <InFolderHeader slot="filter">
-      <div className="relative w-full sm:w-72">
+      <div className="relative w-full md:w-72">
         <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
         <input
           ref={input}

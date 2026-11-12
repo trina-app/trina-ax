@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { DriveConnection as Connection, DriveFlow } from '@mycel/shared/api'
 import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { driveSignInUrl } from '../../lib/driveSignIn'
+import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
 import { Button, confirmDialog } from '../ui'
 
@@ -12,14 +12,14 @@ import { Button, confirmDialog } from '../ui'
 export interface SignInOps<C> {
   authorize: () => Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }>
   poll: (id: string) => Promise<DriveFlow>
-  complete: (id: string, opts: { membersOn?: true }) => Promise<C>
+  complete: (id: string) => Promise<C>
   cancel: (id: string) => Promise<unknown>
   current: () => Promise<C>
 }
 
 /**
  * Connecting the person's own Google account (Drive, or one Google app): authorize in a window reserved during the
- * click (the phone app: the browser), poll the flow, then the person confirms the account they signed in with.
+ * click (the phone app: its browser; the desktop app: the system browser, once the server answered), poll the flow, then the person confirms the account they signed in with.
  * `onConnected`: the connection once it is complete (here or in another window). `generation` is shared with the
  * caller's own requests: starting over makes older answers stale. `reason`: why the last start or flow failed, as the
  * server says it ("drive_broker_unavailable", a flow's "consent_denied"), for a caller that words it (the welcome steps'
@@ -64,16 +64,19 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
   const start = async () => {
     const g = ++generation.current
     setBusy(true); setError(false); setReason(null); setFlow(null); setAuthorizationUrl(null)
-    // Reserve the web popup during the click. If blocked, show the same checked URL as a normal link.
-    if (!mobileApp()) { popup.current = window.open('about:blank', '_blank'); if (popup.current) popup.current.opener = null; setPopupBlocked(!popup.current) }
+    // A browser reserves its window during the click; if it was blocked, the page shows the same checked URL as a
+    // normal link. The desktop app reserves none and opens the address once it is known (lib/driveSignIn.ts).
+    const place = signInPlace()
+    popup.current = reserveSignInWindow(place)
+    setPopupBlocked(place === 'browser' && !popup.current)
     try {
       const result = await calls.current.authorize()
       if (g !== generation.current) return
-      const url = driveSignInUrl(result, !!mobileApp())
+      const url = driveSignInUrl(result, place === 'phone')
       setAuthorizationUrl(url)
       setFlow({ flowId: result.flowId, state: 'pending', account: null, expiresAt: result.expiresAt, reason: null })
-      if (mobileApp()) await openExternal(url, { purpose: 'google-oauth' })
-      else if (popup.current) popup.current.location.replace(url)
+      if (place === 'phone') await openExternal(url, { purpose: 'google-oauth' })
+      else openSignInWindow(place, popup.current, url)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }
@@ -93,14 +96,12 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
     catch { if (g === generation.current) setError(true) }
     finally { if (g === generation.current) setBusy(false) }
   }
-  /** `membersOn`: the members' switch is off and the owner or admin confirming turns it on with the connection (the
-   * press named that; Google Drive only) */
-  const complete = async (opts: { membersOn?: true } = {}) => {
+  const complete = async () => {
     if (flow?.state !== 'ready') return
     const g = ++generation.current
     setBusy(true); setError(false); setReason(null)
     try {
-      const r = await calls.current.complete(flow.flowId, opts)
+      const r = await calls.current.complete(flow.flowId)
       if (g !== generation.current) return
       setFlow(null); setAuthorizationUrl(null); popup.current?.close(); connected.current(r)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null) } }
@@ -114,7 +115,7 @@ export type SignInFlowState = ReturnType<typeof useSignInFlow>
 const DRIVE_OPS: SignInOps<Connection> = {
   authorize: () => api.call(API.authorizeDrive, { body: {} }),
   poll: (id) => api.call(API.driveFlow, { params: { id } }),
-  complete: (id, opts) => api.call(API.completeDriveFlow, { params: { id }, body: opts.membersOn ? { membersOn: true } : {} }),
+  complete: (id) => api.call(API.completeDriveFlow, { params: { id }, body: {} }),
   cancel: (id) => api.call(API.cancelDriveFlow, { params: { id } }),
   current: () => api.call(API.myDriveConnection),
 }

@@ -1,6 +1,7 @@
 // Admin: Home first (what needs attention, then one card per area), a grouped menu that stays put while a page
 // scrolls, and explanations kept to one line with "More" (pages/admin/AdminLayout.tsx, Home.tsx, common.tsx OneLine).
 import { expect, test, type Page } from '@playwright/test'
+import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS, type MessageKey } from '../../src/i18n'
 import { turnWhen } from '../../src/lib/updateTurn'
@@ -299,7 +300,7 @@ test('a new version is an attention item for the owner; a failed update status i
   await answerUpdate(page, () => ({ json: NEW_STATUS }))
   await page.goto('/admin')
   const row = page.getByTestId('attention-update')
-  await expect(row.getByRole('link', { name: t['adminHome.update.off'].replace('{version}', '0.3.0') })).toHaveAttribute('href', '/admin/system')
+  await expect(row.getByRole('link', { name: t['adminHome.update.off'].replace('{version}', '0.3.0') })).toHaveAttribute('href', '/admin/system/updates')
 
   // managed (hosted) installs are updated by the provider: no item
   await page.unroute('**/api/admin/update')
@@ -377,6 +378,20 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await page.goto('/admin')
   await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rolloutNever'].replace('{version}', '0.3.0'))
   await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+  // a release the publisher paused (hold 'paused', server/src/system/rollout.ts): says so, and offers no install (the
+  // server refuses it), automatic updates on or off
+  for (const json of [{ ...auto, hold: 'paused', turnAt: null }, { ...NEW_STATUS, auto: false, hold: 'paused' }, { ...auto, needsRoot: true, hold: 'paused', turnAt: null }]) {
+    await page.unroute('**/api/admin/update')
+    await answerUpdate(page, () => ({ json }))
+    await page.goto('/admin')
+    await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.paused'].replace('{version}', '0.3.0').replace('{product}', PRODUCT.displayName))
+    await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toHaveCount(0)
+    // Admin › System says the same and offers no install either (QA TC-361: it showed "New version" and Install update)
+    await page.goto('/admin/system/updates')
+    await expect(page.getByTestId('update-paused')).toHaveText(t['adminHome.update.paused'].replace('{version}', '0.3.0').replace('{product}', PRODUCT.displayName))
+    await expect(page.getByRole('button', { name: t['system.installUpdate'] })).toHaveCount(0)
+    await expect(page.getByTestId('update-needs-root')).toHaveCount(0)
+  }
   // a release that needs root waits for this server's turn too: the update timer installs it then; never by itself: the command
   {
     const turnAt = new Date(Date.now() + 3 * 86_400_000).toISOString()
@@ -410,7 +425,7 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await answerUpdate(page, () => ({ json: { ...auto, needsRoot: true, hold: 'root_failed' } }))
   await page.goto('/admin')
   await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rootFailed'].replace('{version}', '0.3.0'))
-  await expect(page.getByTestId('attention-update')).toHaveAttribute('href', '/admin/system')
+  await expect(page.getByTestId('attention-update')).toHaveAttribute('href', '/admin/system/updates')
   await page.unroute('**/api/admin/update')
   await answerUpdate(page, () => ({ json: { ...NEW_STATUS, needsRoot: true } }))
   await page.goto('/admin')
@@ -495,4 +510,63 @@ test('an admin who is not the owner does not ask for the update status', async (
   await expect(page.getByTestId('admin-home-members')).toBeVisible()
   await expect(page.getByTestId('admin-home-system')).toBeVisible()
   expect(asked).toEqual([])
+})
+
+// QA TC-360 (docs/DECISIONS.md "Projects from before the update: one card, Add me to these"): the owner who lost team
+// projects at the update to members-only projects gets one card naming them, Add me to these (asks first, then she is
+// in all of them) and a dismiss; on a phone the same card is in the Admin list. Members get none.
+for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: '390', size: { width: 390, height: 844 } }]) {
+  test(`projects from before the update: one card, Add me to these, dismiss (${vp.name})`, async ({ page }) => {
+    const errors = watchConsole(page)
+    await page.setViewportSize(vp.size)
+    await start(page)
+    await dismissHwp(page)
+    const ids: Record<string, string> = {}
+    for (const [name, beforeUpdate] of [['Falcon', true], ['Harbor', true], ['Comet', false]] as const) {
+      const made = await page.request.post('/__test/project', { data: { name, by: 'bob', beforeUpdate, files: { 'plan.md': 'plan' } } })
+      ids[name] = ((await made.json()) as { id: string }).id
+    }
+    await page.goto('/admin')
+    const card = page.getByTestId('admin-old-projects')
+    await expect(card).toBeVisible()
+    await expect(card.getByRole('heading')).toHaveText('2 projects from before the update are for their members only now')
+    await expect(page.getByTestId('admin-old-projects-names')).toHaveText('Falcon, Harbor')
+    await expect(card).toContainText(t['adminHome.oldProjects.body'])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    // the dismiss is a 44px target on a phone
+    if (vp.size.width < 768) expect((await page.getByTestId('admin-old-projects-dismiss').boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    await page.getByTestId('admin-old-projects-add').click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading')).toHaveText('Add yourself to 2 projects?')
+    await expect(dialog).toContainText(t['projects.addMeBody'])
+    await dialog.getByTestId('dialog-confirm').click()
+    await expect(card).toHaveCount(0)
+    // she is in the two, and only those
+    const mine = ((await (await page.request.get('/api/projects')).json()) as { items: { name: string }[] }).items.map((p) => p.name).sort()
+    expect(mine).toEqual(['Falcon', 'Harbor'])
+    await page.goto(`/projects/${ids.Falcon}`)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await page.goto(`/projects/${ids.Comet}`)
+    await expect(page.getByTestId('project-members-only')).toBeVisible()
+    expect(realErrors(errors)).toEqual([])
+  })
+}
+
+test('projects from before the update: the dismiss keeps it closed; a member never gets the card', async ({ page }) => {
+  await start(page)
+  await dismissHwp(page)
+  await page.request.post('/__test/project', { data: { name: 'Falcon', by: 'bob', beforeUpdate: true } })
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-old-projects')).toBeVisible()
+  await page.getByTestId('admin-old-projects-dismiss').click()
+  await expect(page.getByTestId('admin-old-projects')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByTestId('admin-home-members')).toBeVisible()
+  await expect(page.getByTestId('admin-old-projects')).toHaveCount(0)
+  // still not a member: the dismiss changes nothing else
+  expect(((await (await page.request.get('/api/projects')).json()) as { items: unknown[] }).items).toHaveLength(0)
+  // a member asks: nothing
+  await page.context().clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  expect(((await (await page.request.get('/api/projects/update-notice')).json()) as { items: unknown[] }).items).toEqual([])
 })

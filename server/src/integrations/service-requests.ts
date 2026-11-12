@@ -20,7 +20,9 @@
 //     admins now (notifications/service.ts syncServiceRequests).
 //   - An app whose setup is not the admins' to make (a hosted team's, an operator's) cannot be asked for: nobody could
 //     answer it here.
-import { isRequestableService, SERVICE_REQUESTS_PER_DAY, type AskServiceResult, type RequestableService, type ServiceRequest } from '@mycel/shared/api'
+import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type AskServiceResult, type RequestableService, type ServiceRequest, type TeamServiceRequest } from '@mycel/shared/api'
+import { catalogAt } from '@mycel/shared'
+import { mayUse, selectRows, type Row } from './connections/store'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -28,7 +30,6 @@ import { audit } from '../admin/audit'
 import { admins } from '../credentials/store'
 import { NOTIFICATION_RETENTION_MS, notifyServiceReady, notifyServiceRequested, settleServiceRequestNotices, syncServiceRequestNotices } from '../notifications/service'
 import { googleDriveOf } from './google-drive/oauth'
-import { membersCanConnect } from './google-drive/shares'
 import { googleAppsOf } from './google-apps/service'
 import { setupOf } from './google-apps/config'
 import { isHosted } from '../system/deployment'
@@ -43,15 +44,28 @@ const CHECK_MS = 30_000
  * make: a hosted team's comes from the hosting service, an operator's file from the server). */
 export type ServiceState = 'not_set_up' | 'available' | 'other'
 
-export function serviceState(ctx: AppContext, service: RequestableService): ServiceState {
+export function serviceState(ctx: AppContext, service: RequestableService, userId?: string): ServiceState {
+  // a service of the app's list (QA TC-133): added for this member once a team connection to its official address
+  // exists that they may use. Any admin may connect it for the team here, so it is never 'other'
+  if (!isGoogleRequestable(service)) return userId && teamCovers(ctx, service, userId) ? 'available' : 'not_set_up'
   if (service === 'google-drive') {
     const drive = googleDriveOf(ctx)
     if (!drive.enabled) return isHosted(ctx.config) || drive.clientFromEnv ? 'other' : 'not_set_up'
-    return membersCanConnect(ctx.db) ? 'available' : 'other'
+    return 'available'
   }
   const reason = googleAppsOf(ctx).reasonOf(service)
   if (reason === 'not_set_up') return isHosted(ctx.config) || setupOf(ctx, service).byOperator ? 'other' : 'not_set_up'
   return reason === null ? 'available' : 'other'
+}
+
+/** A working team connection to one of the listed service's official addresses (any spelling of it) that this member may
+ * use. */
+function teamCovers(ctx: AppContext, service: string, userId: string): boolean {
+  const rows = ctx.db.query(`${selectRows(ctx.db)} WHERE scope = 'team'`).all() as Row[]
+  // at any of its official addresses (Atlassian's v1 and v2: catalogAt); only one that works: a team connection that
+  // needs a sign-in or fails would close the request and say "ready" for something the member cannot use yet (review
+  // of #601)
+  return rows.some((r) => r.status === 'connected' && catalogAt(r.url)?.id === service && mayUse(ctx.db, r, userId))
 }
 
 const refuse = (code: 'bad_request' | 'forbidden' | 'conflict' | 'rate_limited', reason: string): never => { throw new HttpError(code, undefined, { params: { reason } }) }
@@ -73,7 +87,7 @@ export function askService(ctx: AppContext, user: { id: string; role: string }, 
   const open = () => db.query('SELECT created_at FROM service_requests WHERE user_id = ? AND service = ? AND closed_at IS NULL').get(user.id, service) as { created_at: string } | null
   const was = open()
   if (was) return { service, state: 'already', askedAt: was.created_at }
-  const state = serviceState(ctx, service)
+  const state = serviceState(ctx, service, user.id)
   if (state === 'available') refuse('conflict', 'can_connect')
   if (state === 'other') refuse('conflict', 'not_requestable')
   const nowMs = Date.now(), now = new Date(nowMs).toISOString()
@@ -101,9 +115,11 @@ export function settleServiceRequests(ctx: AppContext, service?: RequestableServ
   if (!rows.length) return 0
   const now = new Date().toISOString(), cutoff = new Date(Date.now() - NOTIFICATION_RETENTION_MS).toISOString()
   const states = new Map<string, ServiceState | null>()
-  const stateOf = (s: RequestableService) => {
-    if (!states.has(s)) { try { states.set(s, serviceState(ctx, s)) } catch { ctx.log.warn('app request check deferred'); states.set(s, null) } }
-    return states.get(s)
+  // a Google app's state is the team's; a listed service's is the member's (a team connection they may use)
+  const stateOf = (s: RequestableService, userId: string) => {
+    const key = isGoogleRequestable(s) ? s : `${s}\n${userId}`
+    if (!states.has(key)) { try { states.set(key, serviceState(ctx, s, userId)) } catch { ctx.log.warn('app request check deferred'); states.set(key, null) } }
+    return states.get(key)
   }
   const ready: { userId: string; id: string }[] = []
   const touched = new Set<string>()
@@ -112,7 +128,7 @@ export function settleServiceRequests(ctx: AppContext, service?: RequestableServ
     const close = db.query('UPDATE service_requests SET closed_at = ?, closed_reason = ? WHERE id = ? AND closed_at IS NULL')
     for (const r of rows) {
       const left = r.role !== 'member' || r.status !== 'active' || r.deleted_at !== null
-      const reason = left ? 'left' : !isRequestableService(r.service) || r.created_at < cutoff ? 'expired' : stateOf(r.service) === 'available' ? 'added' : null
+      const reason = left ? 'left' : !isRequestableService(r.service) || r.created_at < cutoff ? 'expired' : stateOf(r.service, r.user_id) === 'available' ? 'added' : null
       if (!reason || !close.run(now, reason, r.id).changes) continue
       closed++
       touched.add(r.service)
@@ -122,6 +138,48 @@ export function settleServiceRequests(ctx: AppContext, service?: RequestableServ
   for (const x of ready) notifyServiceReady(ctx, x.userId, x.id)
   for (const s of touched) if (!db.query('SELECT 1 FROM service_requests WHERE service = ? AND closed_at IS NULL').get(s)) settleServiceRequestNotices(ctx, s)
   return closed
+}
+
+/** A member takes back their own open request (nothing happens when there is none). Closed with no reason (the
+ * column's CHECK allows NULL: withdrawn or dismissed); it still counts toward the day's limit. Audited. With none left
+ * for the app, the admins' notice counts as read. */
+export function withdrawService(ctx: AppContext, userId: string, raw: string) {
+  if (!isRequestableService(raw)) refuse('bad_request', 'unknown_service')
+  const n = ctx.db.query('UPDATE service_requests SET closed_at = ? WHERE user_id = ? AND service = ? AND closed_at IS NULL').run(new Date().toISOString(), userId, raw).changes
+  if (!n) return
+  audit(ctx.db, { actor: userId, action: 'service_request.withdraw', detail: { service: raw } })
+  if (!ctx.db.query('SELECT 1 FROM service_requests WHERE service = ? AND closed_at IS NULL').get(raw)) settleServiceRequestNotices(ctx, raw)
+}
+
+/** The open requests, by app, for the owner and the admins: who asked (active members), newest first. */
+export function teamServiceRequests(ctx: AppContext): { items: TeamServiceRequest[] } {
+  const rows = ctx.db.query(`SELECT r.service, r.created_at, u.id, u.name FROM service_requests r JOIN users u ON u.id = r.user_id
+    WHERE r.closed_at IS NULL AND u.status = 'active' AND u.deleted_at IS NULL ORDER BY r.created_at DESC, r.id DESC`).all() as { service: string; created_at: string; id: string; name: string }[]
+  const by = new Map<string, TeamServiceRequest>()
+  for (const r of rows) {
+    if (!isRequestableService(r.service)) continue
+    const x = by.get(r.service) ?? { service: r.service, askers: [], askedAt: r.created_at }
+    x.askers.push({ id: r.id, name: r.name })
+    by.set(r.service, x)
+  }
+  return { items: [...by.values()] }
+}
+
+/** An owner or admin closes the open requests for an app without adding it: nobody is told, the members may ask again.
+ * Audited; the admins' notice counts as read. */
+export function dismissServiceRequests(ctx: AppContext, actor: string, raw: string) {
+  if (!isRequestableService(raw)) refuse('bad_request', 'unknown_service')
+  const n = ctx.db.query('UPDATE service_requests SET closed_at = ? WHERE service = ? AND closed_at IS NULL').run(new Date().toISOString(), raw).changes
+  if (!n) return
+  audit(ctx.db, { actor, action: 'service_request.dismiss', detail: { service: raw, requests: n } })
+  settleServiceRequestNotices(ctx, raw)
+}
+
+/** A team connection was made or changed (its address, who may use it): requests for the listed service at that
+ * address close for the members who may use it now. */
+export function afterTeamConnection(ctx: AppContext, url: string) {
+  const c = catalogAt(url)
+  if (c) afterServiceSetup(ctx, c.id)
 }
 
 /** After an admin set up an app or turned its members' switch: its requests close now when members can connect it. */

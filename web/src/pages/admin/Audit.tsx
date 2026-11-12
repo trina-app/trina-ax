@@ -2,9 +2,9 @@
 // list scrolls; the list reads as sentences grouped by day, with repeats folded into one row ("Dion signed in · 5 times").
 // The filters live in the address (lib/activity.ts), so a filtered view can be reloaded or shared. Paged by the API.
 // A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): the bar says the page's name (the title is
-// for screen readers), and only the search with one Filters button stays at the top; the kind, the person, the time and
-// Clear open under it (components/PhoneFilters.tsx), so the kinds never run off the screen (in Spanish they need about
-// 550 px). A row opens the record's own page (/admin/audit/<id>, adminScreens.ts) with what is behind it, and Back
+// for screen readers), and only the search stays at the top, the whole row, with the Filters icon in it (QA TC-379); the
+// kind, the person, the time and Clear open under it (components/PhoneFilters.tsx), so the kinds never run off the
+// screen (in Spanish they need about 550 px). A row opens the record's own page (/admin/audit/<id>, adminScreens.ts) with what is behind it, and Back
 // returns to the list where it was.
 import clsx from 'clsx'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -166,13 +166,21 @@ export default function Audit() {
         <StickyHeader className="-mt-3 mb-1 flex flex-wrap items-center gap-2 py-2" testId="activity-header">
           <h2 className="sr-only">{t('admin.audit')}</h2>
           <div className="flex w-full flex-wrap items-center gap-2" data-testid="activity-filters">
-            {search}
-            <PhoneFilters active={(f.kind ? 1 : 0) + (f.who ? 1 : 0) + (f.range !== 'any' ? 1 : 0)} testId="activity-more">
-              {kinds}
-              {who}
-              {when}
-              {active && clearButton}
-            </PhoneFilters>
+            {/* one field: the search, then the Filters icon inside its end (44 px, over the field's 1 px frame) */}
+            <div className={clsx(ctl, 'flex w-full min-w-0 items-center pr-0 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-11')} data-testid="activity-search-field">
+              <label className="flex min-w-0 flex-1 items-center gap-2 self-stretch">
+                <Search size={14} className="shrink-0 text-faint" aria-hidden />
+                <input type="search" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
+              </label>
+              <span className="-my-px flex shrink-0">
+                <PhoneFilters icon active={(f.kind ? 1 : 0) + (f.who ? 1 : 0) + (f.range !== 'any' ? 1 : 0)} testId="activity-more">
+                  {kinds}
+                  {who}
+                  {when}
+                  {active && clearButton}
+                </PhoneFilters>
+              </span>
+            </div>
           </div>
         </StickyHeader>
       ) : (

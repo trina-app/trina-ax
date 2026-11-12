@@ -11,7 +11,7 @@ import type { ReactNode } from 'react'
 import { PRODUCT } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
 import { useMe } from '../../store/session'
-import { teamAddressHost } from '../../lib/team-address'
+import { teamAddressShown } from '../../lib/team-address'
 
 type Translate = ReturnType<typeof useT>
 
@@ -35,7 +35,7 @@ const AppIcon = ({ className }: { className: string }) => <img src="/icons/icon-
  * page is at. Not location.host first: in the desktop app over the office network that is 192.168.x.x */
 function Host() {
   const me = useMe()
-  return <>{teamAddressHost(me?.team.address) ?? (typeof location === 'undefined' ? '' : location.host)}</>
+  return <>{teamAddressShown(me?.team.address) ?? (typeof location === 'undefined' ? '' : location.host)}</>
 }
 
 /** the team page, as a calm outline */

@@ -16,6 +16,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
 import { audienceOf, authorizationUrl, canSignIn, flowReasonKey, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
+import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -24,12 +25,10 @@ import { Badge, Button, IconButton, Switch, confirmDialog } from '../ui'
 import { Tooltip } from '../Tooltip'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
- * The phone app has no sign-in return yet: no window there. */
+ * The phone app has no sign-in return yet: no window there. Nor in the desktop app, whose window handler refuses a blank
+ * window: there the sign-in page opens in the system browser once its address is known (lib/driveSignIn.ts). */
 export function reserveSignInWindow(): Window | null {
-  if (mobileApp()) return null
-  const w = window.open('about:blank', '_blank')
-  if (w) w.opener = null
-  return w
+  return reserveWindow(signInPlace())
 }
 
 export interface SignInState {
@@ -127,7 +126,7 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
         return
       }
       setS({ id, flowId: r.flowId, url, state: 'pending', reason: null })
-      if (popup.current && !popup.current.closed) popup.current.location.replace(url)
+      openSignInWindow(signInPlace(), popup.current, url)
     } catch (e) {
       if (g !== generation.current) return
       popup.current?.close()
@@ -183,6 +182,19 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
       switching.current.delete(key)
     }
   }
+  /** end the person's own Always allow, so the connection's changes ask again: their own connection's write rule back
+   * to "ask"; on a team connection only their own choice (never the team's rule) */
+  const askAgain = async (i: Integration) => {
+    try {
+      replace(i.scope === 'team'
+        ? await api.call(API.stopAlwaysAllow, { params: { id: i.id } })
+        : await api.call(API.updateIntegration, { params: { id: i.id }, body: { writePolicy: 'ask' } }))
+      toast({ level: 'success', text: t('integrations.alwaysAllow.stopped', { name: i.name }) })
+    } catch (e) {
+      if (gone(e)) return
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
   const refresh = async (i: Integration) => {
     setChecking(i.id)
     try {
@@ -224,7 +236,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     else if (i.status === 'needs_auth') toast({ level: 'info', text: t('integrations.savedNeedsSignIn') })
     else toast({ level: 'success', text: created ? t('integrations.connected') : t('common.saved') })
   }
-  return { checking, refresh, remove, signIn, saved, setTool }
+  return { checking, refresh, remove, signIn, saved, setTool, askAgain }
 }
 
 export type IntegrationActions = ReturnType<typeof useIntegrationActions>
@@ -285,7 +297,9 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
   const meta: string[] = []
   if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
   if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
-  meta.push(i.lastUsedAt ? t('integrations.lastUsed', { date: formatDateTime(i.lastUsedAt, locale) }) : t('integrations.neverUsed'))
+  // a call that failed counts as tried (the server keeps when): while it is failing the line says "Last tried", and
+  // "Not used yet" only when nothing was ever tried
+  meta.push(i.lastUsedAt ? t(failing ? 'integrations.lastTried' : 'integrations.lastUsed', { date: formatDateTime(i.lastUsedAt, locale) }) : t('integrations.neverUsed'))
   const signInButton = manage && canSignIn(i) && !phone && !flow && (
     <Button size="sm" variant={i.status === 'needs_auth' ? 'primary' : 'secondary'} className="shrink-0" onClick={() => void actions.signIn.start(i.id)} data-testid="integration-signin-start">
       <LogIn size={14} aria-hidden /> {t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn')}
@@ -311,7 +325,7 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="max-w-full truncate text-sm font-medium" title={i.name}>{i.name}</span>
               {audience}
-              {i.writePolicy === 'allow' && <Badge tone="warn">{t('integrations.write.allow')}</Badge>}
+              {(i.writePolicy === 'allow' || i.alwaysAllowedByMe) && <Badge tone="warn">{t(i.scope === 'team' && i.writePolicy === 'allow' ? 'integrations.write.allow' : 'integrations.alwaysAllow.badge')}</Badge>}
               {alert}
             </span>
             <span className={clsx('mt-0.5 block truncate text-xs', failing ? 'text-danger' : note ? 'text-warn' : 'text-muted')} title={i.lastError ?? undefined}>
@@ -351,6 +365,17 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
             {meta.join(' · ')}
           </p>
           {i.writePolicy === 'deny' && <p className="mt-1"><Badge>{t('integrations.write.deny')}</Badge></p>}
+          {/* the person's own Always allow (a write card's choice): what it means, and the way back (QA TC-130) */}
+          {(i.alwaysAllowedByMe || (i.scope === 'personal' && i.writePolicy === 'allow')) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5" data-testid="integration-always-allow">
+              <p className="min-w-0 flex-[1_1_16rem] text-xs text-muted">{t('integrations.alwaysAllow.line')}</p>
+              {(i.alwaysAllowedByMe || manage) && (
+                <Button size="sm" className={phone ? 'touch-hit' : undefined} onClick={() => void actions.askAgain(i)} data-testid="integration-always-allow-stop">
+                  {t('integrations.alwaysAllow.stop')}
+                </Button>
+              )}
+            </div>
+          )}
           {manage && canSignIn(i) && phone && <p className="mt-1 text-xs text-muted">{t('integrations.signIn.phone')}</p>}
           {extra}
           {manage && (

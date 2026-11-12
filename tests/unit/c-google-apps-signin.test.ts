@@ -1,10 +1,11 @@
 // Gmail, Calendar, Docs and Sheets: the admin's setup per card and a person's Google sign-in (server/src/integrations/
 // google-apps/, docs/GOOGLE-APPS.md). Covered: the admin status and its checklist, a card's own client (written private,
 // never shown) and "the same Google app as Drive", the sign-in (PKCE, the app's fixed scopes, the same person in the
-// browser, the account confirmed), the connection hidden from the generic list with only its own app's tools, the team
-// switch (on by default), Always allow from the page, disconnect and when Google is asked to revoke, the hosting
-// service's sign-in with the `app` field (and an older one that refuses it), Google Drive's members switch on for new
-// teams only (migration 341), and canaries: no token or client secret in an answer, the database outside sealed
+// browser, the account confirmed), the connection hidden from the generic list with only its own app's tools, no team
+// switch (the old call changes nothing), Always allow from the page, disconnect and when Google is asked to revoke, the hosting
+// service's sign-in with the `app` field (and an older one that refuses it), on a hosted server and on a self-installed
+// one the hosting service registered (a card's own client still wins there), Google Drive open to members even on a
+// team that kept "off" from migration 341, and canaries: no token or client secret in an answer, the database outside sealed
 // columns, the audit log or the server's log. Fake Google and a fake library on 127.0.0.1 only.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -13,11 +14,11 @@ import { makeCApp, PEOPLE, type CApp, type Person } from '../lib/c-app'
 import { WORK } from '../lib/env'
 import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow, ALL_SCOPES } from '../lib/fake-google-apps'
 import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
-import { FakeDriveBroker } from '../lib/fake-drive-broker'
+import { BROKER_ORIGIN, FakeDriveBroker } from '../lib/fake-drive-broker'
+import { loadOrCreateKey } from '../../server/src/relay-client/registration'
 import { googleAppsOf, scopesCover, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { appsSecretsDir } from '../../server/src/integrations/google-apps/config'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
-import { membersCanConnect } from '../../server/src/integrations/google-drive/shares'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
 import { getRow, savedTools } from '../../server/src/integrations/connections/store'
 import { GOOGLE_USERINFO } from '../../server/src/integrations/google-drive/client'
@@ -173,21 +174,22 @@ test('a broader scope Google granted in place of a narrower one counts; short id
   expect(apps.flow('bob', 'bob-session', 'calendar', f.flowId)).toMatchObject({ state: 'failed', reason: 'scope_denied' })
 })
 
-test('the team switch: on by default; off stops sign-ins and the AI\'s tools; Always allow from the page', async () => {
+test('no team switch: the old call changes nothing, sign-ins and the AI\'s tools stay; Always allow from the page', async () => {
   await setUp('gmail')
   await connect('alice')
   const chat = A.chat('alice')
   const tools = () => [...integrationToolProvider(A.ctx).build({ userId: 'alice', chatId: chat, turnId: A.turn('alice', chat), browser: false, scheduled: false }).tools].map((t) => t.name)
   expect(tools()).toContain('my_gmail__search_gmail_messages')
   expect(tools().some((n) => n.includes('drive'))).toBe(false)
+  // the switch an older app may still send: changes nothing (docs/DECISIONS.md "No members' switch for connectors"),
+  // and only an admin may send it; a stored "off" from before is ignored too
   const off = await put('carol', '/api/admin/google-apps/gmail/members', { on: false })
-  expect(off.body).toMatchObject({ membersCanConnect: false })
+  expect(off.body).toMatchObject({ membersCanConnect: true })
   expect((await put('alice', '/api/admin/google-apps/gmail/members', { on: true })).status).toBe(403)
-  expect(tools()).toEqual([])
-  expect((await A.json('/api/integrations/google-apps', { as: 'alice' })).body.apps[0]).toMatchObject({ available: false, reason: 'members_off', status: 'connected' })
-  await expect(apps.authorize('bob', 'bob-session', 'gmail')).rejects.toMatchObject({ reason: 'members_off' })
-  await put('carol', '/api/admin/google-apps/gmail/members', { on: true })
+  A.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('integrations.googleApps.gmail.members', 'false')").run()
   expect(tools()).toContain('my_gmail__send_gmail_message')
+  expect((await A.json('/api/integrations/google-apps', { as: 'alice' })).body.apps[0]).toMatchObject({ available: true, reason: null, status: 'connected' })
+  expect(A.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'google_app.members_switch'").get()).toEqual({ n: 0 })
   const allow = await A.json('/api/integrations/google-apps/gmail', { method: 'PATCH', as: 'alice', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ writePolicy: 'allow' }) })
   expect(allow.body).toMatchObject({ writePolicy: 'allow' })
   expect((await A.json('/api/integrations/google-apps/calendar', { method: 'PATCH', as: 'alice', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ writePolicy: 'allow' }) })).status).toBe(404)
@@ -275,9 +277,48 @@ test('hosted: signs in through the hosting service with the app; an older one th
   expect(apps.view('bob', 'gmail')).toMatchObject({ available: true })
 })
 
-test('Google Drive\'s members switch: on for a new team; a team that existed keeps what it had (migration 341)', () => {
-  // makeCApp's people are added after the migrations ran: a new team
-  expect(membersCanConnect(A.ctx.db)).toBe(true)
+test('self-installed with the broker URL and no client of its own: the hosting service\'s sign-in once it serves it, shown as on a hosted team', async () => {
+  ;(A.ctx.config as any).deployment = 'self'
+  const gd = new FakeGoogleDrive(), broker = new FakeDriveBroker(gd)
+  broker.onAccess = (token, who) => lib.tokens.set(token, who)
+  broker.trusted = 'not-registered-yet'
+  const fetcher = async (raw: string, init: RequestInit = {}) => {
+    if (raw === GOOGLE_USERINFO) {
+      const who = lib.tokens.get(new Headers(init.headers).get('authorization')?.replace('Bearer ', '') ?? '')
+      return who ? Response.json({ sub: `sub-${who}`, name: who, email: `${who}@acme.example` }) : Response.json({}, { status: 401 })
+    }
+    return broker.fetch(raw, init)
+  }
+  const saved = process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL
+  process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL = BROKER_ORIGIN
+  let drive: ReturnType<typeof googleDriveOf>
+  try { drive = googleDriveOf(A.ctx, { config: null, fetch: fetcher }) } finally { if (saved === undefined) delete process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL; else process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL = saved }
+  apps = googleAppsOf(A.ctx, { fetch: fetcher })
+  // not served (not registered yet): the card is the admin's to set up, as on any self-installed server
+  expect(await drive.checkBroker()).toBe(false)
+  expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: false, source: 'none', blocked: null, redirectUri: REDIRECT })
+  // registered: the same as a hosted team ("set up by the hosting service", no address shown)
+  broker.trusted = loadOrCreateKey(A.ctx.config.dataDir).publicKey
+  expect(await drive.checkBroker()).toBe(true)
+  expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null })
+  expect((await put('carol', '/api/admin/google-apps/gmail/client', { clientId: 'x', clientSecret: 'y' })).body.error.params.reason).toBe('setup_hosted')
+  const f = await apps.authorize('alice', 'alice-session', 'gmail')
+  expect(JSON.parse(broker.requests.find((r) => r.path === DRIVE_BROKER_PATHS.start)!.body)).toMatchObject({ purpose: 'personal', app: 'gmail' })
+  expect(await apps.callback(broker.browserReturn(f.authorizationUrl, 'alice'), browser('alice'))).toBe(true)
+  expect(await apps.complete('alice', 'alice-session', 'gmail', f.flowId)).toMatchObject({ status: 'connected' })
+  // a card with a client of its own (written before the broker URL was set) signs in directly; its page stays open
+  const dir = appsSecretsDir(A.ctx)
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); fs.chmodSync(path.dirname(dir), 0o700); fs.chmodSync(path.dirname(path.dirname(dir)), 0o700)
+  fs.writeFileSync(path.join(dir, 'calendar.json'), JSON.stringify({ ...APP_CLIENT, redirectUri: REDIRECT }), { mode: 0o600 })
+  const cal = (await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps.find((x: { id: string }) => x.id === 'calendar')
+  expect(cal).toMatchObject({ configured: true, source: 'server', blocked: 'server' })
+  const before = broker.requests.length
+  const fc = await apps.authorize('bob', 'bob-session', 'calendar')
+  expect(new URL(fc.authorizationUrl).searchParams.get('client_id')).toBe(APP_CLIENT.clientId)
+  expect(broker.requests.length).toBe(before)
+})
+
+test('Google Drive: members may connect their own even on a team that existed before migration 341 (its stored "off" is ignored)', () => {
   const dir = path.join(WORK, `c-google-apps-mig-${process.pid}-${i}`)
   fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(path.join(dir, 'm'), { recursive: true })
@@ -285,18 +326,12 @@ test('Google Drive\'s members switch: on for a new team; a team that existed kee
   const old = openDb(path.join(dir, 'app.db'), { migrationsDir: path.join(dir, 'm') })
   old.query("INSERT INTO users (id, username, name, role) VALUES ('olga', 'olga', 'Olga', 'owner')").run()
   migrate(old)
-  expect(membersCanConnect(old)).toBe(false)
+  // the old value stays as data (no migration), and nothing reads it
   expect(old.query("SELECT value FROM settings WHERE key='integrations.driveMembers'").get()).toEqual({ value: 'false' })
   // the new column and table are there, and only the four apps fit
   expect(() => old.query("INSERT INTO integrations (id, scope, owner_user_id, kind, name, slug, url, auth, status, created_at, updated_at, google_app) VALUES ('x','personal','olga','mcp','n','s','https://google-apps.invalid/x','oauth','connected','t','t','drive')").run()).toThrow()
   old.close()
-  // a team whose members had turned it on keeps it on
-  const dir2 = path.join(dir, 'b')
-  fs.mkdirSync(dir2)
-  const on = openDb(path.join(dir2, 'app.db'), { migrationsDir: path.join(dir, 'm') })
-  on.query("INSERT INTO users (id, username, name, role) VALUES ('olga', 'olga', 'Olga', 'owner')").run()
-  on.query("INSERT INTO settings (key, value) VALUES ('integrations.driveMembers', 'true')").run()
-  migrate(on)
-  expect(membersCanConnect(on)).toBe(true)
-  on.close()
+  A.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('integrations.driveMembers', 'false')").run()
+  expect(googleDriveOf(A.ctx).status('alice').personalAllowed).toBe(true)
+  A.ctx.db.query("DELETE FROM settings WHERE key='integrations.driveMembers'").run()
 })

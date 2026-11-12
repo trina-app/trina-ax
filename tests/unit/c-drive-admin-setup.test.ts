@@ -52,18 +52,15 @@ test('an admin sets it up with the downloaded file: a private client.json, membe
   expect(readDriveConfig(file, h.ctx.config.teamRoot)).toEqual({ clientId: 'synthetic-app-client.apps.googleusercontent.com', clientSecret: SECRET, redirectUri: REDIRECT })
   expect(fs.readdirSync(clientDir(h)).filter((n) => n.endsWith('.tmp'))).toEqual([])
 
-  // members now see Drive is there, and the AI is offered its tools, without a restart; connecting their own waits
-  // for the admin's switch (a client alone turns nothing on)
-  // (a new team lets members connect their own; an admin who turns it off stops that)
+  // members now see Drive is there, and the AI is offered its tools, without a restart; every member may connect their
+  // own (no team switch: docs/DECISIONS.md "No members' switch for connectors"). The old switch an older app may still
+  // send changes nothing and is still an admin's call only
   expect((await bob.try('GET', '/api/integrations/google-drive')).body).toMatchObject({ configured: true, status: 'disconnected', personalAllowed: true })
-  expect((await owner.try('PUT', '/api/admin/google-drive/members', { on: false })).body).toMatchObject({ membersCanConnect: false })
-  expect((await bob.try('GET', '/api/integrations/google-drive')).body).toMatchObject({ personalAllowed: false })
-  expect((await bob.try('POST', '/api/integrations/google-drive/authorize', {})).status).toBe(403)
-  expect((await bob.try('PUT', '/api/admin/google-drive/members', { on: true })).status).toBe(403)
-  expect((await owner.try('PUT', '/api/admin/google-drive/members', { on: true })).body).toMatchObject({ membersCanConnect: true })
+  expect((await owner.try('PUT', '/api/admin/google-drive/members', { on: false })).body).toMatchObject({ membersCanConnect: true })
   expect((await bob.try('GET', '/api/integrations/google-drive')).body).toMatchObject({ personalAllowed: true })
+  expect((await bob.try('PUT', '/api/admin/google-drive/members', { on: true })).status).toBe(403)
   expect((await bob.try('POST', '/api/integrations/google-drive/authorize', {})).status).toBe(200)
-  expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action='drive.members_switch'").all()).toEqual([{ detail: JSON.stringify({ on: false }) }, { detail: JSON.stringify({ on: true }) }])
+  expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action='drive.members_switch'").all()).toEqual([])
   expect(reg.available('drive_search')).toBe(true)
   expect(h.ctx.services.turnTools?.find((t) => t.name === 'drive_read')?.available?.({} as never) ?? true).toBe(true)
 

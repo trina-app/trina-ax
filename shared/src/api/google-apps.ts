@@ -17,7 +17,7 @@ export type GoogleAppTool = z.infer<typeof GoogleAppTool>
  * A person's view of one app.
  * `available`: the person can connect it now. `reason` when not:
  *  - "not_set_up": no Google app for this card on this server (members: ask an admin; admins: set it up)
- *  - "members_off": the team does not let members connect it (Admin › Connectors)
+ *  - "members_off": unused since 2026-11-12 (no members' switch); kept so an older app still parses an older server
  *  - "unsupported": this computer cannot run it (the Mac app for now)
  *  - "service_limited": a hosted team whose hosting service's Google app is still in Google's review: only its test
  *    users can sign in (a refused sign-in says so)
@@ -51,7 +51,8 @@ const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string(
  * `blocked`: why this page cannot set it up ("hosted", "server", "public_host", "unsupported").
  * `driveAppAvailable`: Google Drive has a Google app this card can use ("Use the same Google app as Drive").
  * `apis`: the Google APIs to switch on in Google Cloud for this card (shown as a checklist).
- * `membersCanConnect`: the team switch, on by default.
+ * `membersCanConnect`: always true (no members' switch since 2026-11-12, docs/DECISIONS.md "No members' switch for
+ *   connectors"); kept for older apps.
  */
 export const GoogleAppAdminStatus = z.object({
   id: GoogleAppId,
@@ -84,5 +85,5 @@ export const GOOGLE_APPS = {
   disconnectGoogleApp: endpoint({ method: 'DELETE', path: `/api/integrations/google-apps${AppParam}`, auth: 'user', owner: 'C', response: z.object({ disconnected: z.literal(true), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: "Remove this app's sign-in at once; Google is asked to revoke only when it was the person's last Google sign-in here." }),
   googleAppsAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-apps', auth: 'admin', owner: 'C', response: z.object({ apps: z.array(GoogleAppAdminStatus) }), summary: 'Whether each Google app is set up, by whom, the APIs to switch on, the team switch and how many members connected; never the client.' }),
   setGoogleAppClient: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/client`, auth: 'admin', owner: 'C', body: SetGoogleAppClientBody, response: GoogleAppAdminStatus, summary: "Set up one app with the same Google app as Google Drive, or its own Google OAuth web client. Refused on hosted servers, without a public address, when the operator set it, and where it cannot run." }),
-  setGoogleAppMembers: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/members`, auth: 'admin', owner: 'C', body: z.object({ on: z.boolean() }).strict(), response: GoogleAppAdminStatus, summary: 'Let members connect their own account for this app, or not (off: their connections are not used and none can be made).' }),
+  setGoogleAppMembers: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/members`, auth: 'admin', owner: 'C', body: z.object({ on: z.boolean() }).strict(), response: GoogleAppAdminStatus, summary: 'The old members switch, kept for older apps: admin-only, changes nothing (every member may connect their own once the app is set up).' }),
 } as const

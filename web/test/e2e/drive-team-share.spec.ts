@@ -57,7 +57,8 @@ test('an admin shares a Drive: sign in with Google, confirm, choose folders and 
   await reset(page)
   await signIn(page)
   await setUpClient(page)
-  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('설정 대기')
+  // set up: on for everyone; nothing shared yet
+  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('켜짐')
   await expect(card(page).getByTestId('drive-shares-empty')).toBeVisible()
   const errors = watchConsole(page)
   await shareFinance(page)
@@ -74,11 +75,11 @@ test('an admin shares a Drive: sign in with Google, confirm, choose folders and 
   await row.getByRole('menuitem', { name: '공유 중지' }).click()
   await page.getByRole('dialog').getByRole('button', { name: '공유 중지', exact: true }).click()
   await expect(card(page).getByTestId('drive-shares-empty')).toBeVisible()
-  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('설정 대기')
+  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('켜짐')
   expect(realErrors(errors)).toEqual([])
 })
 
-test('a member sees the shared Drive with only its folders, and their own Connect follows the switch', async ({ page }) => {
+test('a member sees the shared Drive with only its folders, and can connect their own too (no members\' switch)', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await setUpClient(page)
@@ -92,17 +93,7 @@ test('a member sees the shared Drive with only its folders, and their own Connec
   await expect(shared).toContainText('팀이 공유한 Drive: 회사 Drive')
   await expect(shared).toContainText('폴더: Finance')
   await expect(shared).not.toContainText('HR')
-  // the switch is off: no Connect for their own Drive
-  await page.goto('/settings/drive')
-  await expect(page.getByTestId('drive-detail').getByTestId('drive-team-share')).toContainText('회사 Drive')
-  await expect(page.getByTestId('drive-detail').getByTestId('drive-connect')).toHaveCount(0)
-  // on: both
-  await page.context().clearCookies()
-  await signIn(page)
-  await openDrive(page)
-  await card(page).getByTestId('drive-members-switch').check({ force: true })
-  await page.context().clearCookies()
-  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  // both: the team's Drive and Connect for their own
   await page.goto('/settings/drive')
   await expect(page.getByTestId('drive-detail').getByTestId('drive-connect')).toBeEnabled()
   await expect(page.getByTestId('drive-detail').getByTestId('drive-team-share')).toContainText('회사 Drive')

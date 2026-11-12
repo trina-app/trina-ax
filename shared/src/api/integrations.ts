@@ -133,6 +133,10 @@ export const Integration = z.object({
    * when the service registers the app itself, for people who only use it, and on a member's connection made from a
    * template (the template's app). Older servers omit it. */
   oauthClient: OAuthClientView.nullable().optional(),
+  /** a team connection whose changes the caller chose to send without asking (Always allow on a write card, QA
+   * TC-130): their own choice, not the team's rule; it still asks after the chat read something from outside. Older
+   * servers omit it. */
+  alwaysAllowedByMe: z.boolean().optional(),
 })
 export type Integration = z.infer<typeof Integration>
 
@@ -363,6 +367,7 @@ export const INTEGRATIONS = {
   deleteIntegration: endpoint({ method: 'DELETE', path: '/api/integrations/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Delete a connection (OAuth: revocation is tried, the local tokens go first).' }),
   refreshIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/refresh', auth: 'user', owner: 'C', body: z.object({}), response: Integration, summary: 'Check the connection now; MCP: save its current tool list.' }),
   authorizeIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/authorize', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: IsoTime }), summary: 'Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app.' }),
+  stopAlwaysAllow: endpoint({ method: 'DELETE', path: '/api/integrations/:id/always-allow', auth: 'user', owner: 'C', response: Integration, summary: 'Ask again before the AI changes something at a team connection: ends my own Always allow there (never the team\'s rule).' }),
   setIntegrationTool: endpoint({ method: 'POST', path: '/api/integrations/:id/tools', auth: 'user', owner: 'C', body: z.object({ name: z.string().min(1).max(200), enabled: z.boolean() }).strict(), response: Integration, summary: 'Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on.' }),
   integrationFlow: endpoint({ method: 'GET', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: IntegrationFlow, summary: 'Poll a sign-in started by this same session.' }),
   listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration) }), summary: 'Every team connection, with who may use it.' }),

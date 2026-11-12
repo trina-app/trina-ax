@@ -38,7 +38,7 @@ import { TeamSettings } from '@mycel/shared/api'
 import { defaultTimeZone, isValidTimeZone, zonedParts, zonedToUtc } from '../system/time-zone'
 import { compareVersions } from '../system/update'
 import { DEFAULT_UPDATE_WINDOW, inWindow } from '../system/update-job'
-import { rolloutTurn, type RolloutTurn } from '../system/rollout'
+import { newerHeadSeen, rolloutTurn, type RolloutTurn } from '../system/rollout'
 import { CHANNELS, decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
 import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
@@ -68,7 +68,7 @@ export interface UpdateState {
   last: { kind: ResultKind; at: string; version: string | null; message: string | null } | null
   /** a newer version on the feed that is not installed yet; turnAt: when the nightly run may take it in its staged
    * roll-out (null: never with this release), absent when nothing waits (officeRolloutTurn) */
-  available: { version: string; channel: Channel; notes: string; publishedAt: string; turnAt?: string | null } | null
+  available: { version: string; channel: Channel; notes: string; publishedAt: string; turnAt?: string | null; paused?: boolean } | null
   /** the last install attempt */
   lastUpdate: { from: string; to: string; at: string; result: 'updated' | 'rolled-back' | 'failed'; error: string | null } | null
   /** versions that failed and were rolled back: the nightly run does not try them again */
@@ -79,6 +79,9 @@ export interface UpdateState {
   desktop: { version: string; at: string } | null
   /** a nightly update that found answers running until its window closed, since when (the last resort after 3 days) */
   deferred?: { version: string; since: string } | null
+  /** the newest head seen that a hold or resume changed (system/rollout.ts changedAt): an older copy of the same version's
+   * head served again is not taken by the nightly run (newerHeadSeen) */
+  seenHead?: { channel?: Channel; version: string; changedAt: string } | null
 }
 const emptyState = (): UpdateState => ({ lastCheckAt: null, last: null, available: null, lastUpdate: null, failed: {}, running: null, desktop: null, deferred: null })
 
@@ -812,14 +815,25 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
       if (e instanceof NotPublished) return finish({ kind: 'up-to-date', version: current, message: e.message })
       return finish({ kind: e instanceof ReleaseError ? 'refused' : 'failed', version: null, message: (e as Error).message })
     }
+    // an older copy of a head this Mac has seen changed by a hold or resume (system/rollout.ts changedAt): the nightly
+    // run leaves it, so a copy served again cannot lift a hold
+    const seen = readUpdateState(home).seenHead
+    const stale = !!seen && seen.channel === set.channel && newerHeadSeen({ version: seen.version, rollout: { changedAt: seen.changedAt } }, r)
+    if (stale) {
+      patchUpdateState(home, (s) => { s.lastCheckAt = d.now().toISOString() })
+      return finish({ kind: 'skipped', version: r.version, message: `the feed answered with an older copy of the ${r.version} manifest (changed ${r.rollout?.changedAt ?? 'never'}, seen ${seen!.changedAt}); waiting for the current one` })
+    }
     const dec = decide(current, r)
     // the staged roll-out (system/rollout.ts): the nightly run waits for this Mac's turn; "update now" does not
     const turn = dec.kind === 'install' ? officeRolloutTurn(home, r, set.channel, d.now()) : null
     patchUpdateState(home, (s) => {
       s.lastCheckAt = d.now().toISOString()
       s.available = dec.kind === 'install' || dec.kind === 'too-old'
-        ? { version: r.version, channel: r.channel, notes: r.notes, publishedAt: r.publishedAt, ...(turn?.wait ? { turnAt: turn.at?.toISOString() ?? null } : {}) }
+        ? { version: r.version, channel: r.channel, notes: r.notes, publishedAt: r.publishedAt, ...(turn?.wait ? { turnAt: turn.at?.toISOString() ?? null } : {}), ...(turn?.wait && turn.paused ? { paused: true } : {}) }
         : null
+      // kept until a newer version's changed head: an older version's head served in between does not reset it
+      const keep = s.seenHead && s.seenHead.channel === set.channel && typeof s.seenHead.version === 'string' && VERSION_RE.test(s.seenHead.version) && compareVersions(s.seenHead.version, r.version) > 0
+      if (r.rollout?.changedAt && !keep) s.seenHead = { channel: set.channel, version: r.version, changedAt: r.rollout.changedAt }
     })
     if (dec.kind === 'older' || dec.kind === 'too-old') return finish({ kind: 'refused', version: r.version, message: dec.reason })
     if (dec.kind === 'current') {
@@ -828,6 +842,8 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
       return finish({ kind: 'up-to-date', version: current, message: null })
     }
     if (o.reason === 'check') return finish({ kind: 'available', version: r.version, message: null })
+    // the publisher paused the release (system/rollout.ts hold): not installed until it resumes, "update now" neither
+    if (turn?.wait && turn.paused) return finish({ kind: 'skipped', version: r.version, message: `the publisher paused ${r.version} (since ${r.rollout?.hold?.at}${r.rollout?.hold?.reason ? `: ${r.rollout.hold.reason}` : ''}); not installed until the roll-out resumes` })
     const failedBefore = readUpdateState(home).failed[r.version]
     if (failedBefore && o.reason === 'schedule') return finish({ kind: 'skipped', version: r.version, message: `${r.version} failed on ${failedBefore.at} and was rolled back; not tried again at night (teamax update now tries again)` })
     if (turn?.wait && o.reason === 'schedule') {

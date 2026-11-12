@@ -250,51 +250,21 @@ test('when its admin is disabled the share stops, its tokens go, and the admins 
   expect((await text('drive_read', { fileId: 'in-1' })).text).toContain('IN-FOLDER budget')
 })
 
-// docs/DECISIONS.md "W6" (onboarding v6's 도구 연결, re-check N1): an owner or admin may start their own sign-in while
-// the switch is off; the switch turns on only with the confirmed account, and only when the confirm asks for it
-test('the members’ switch off: an owner or admin may still sign in to their own Drive; the confirm with membersOn turns it on; a cancel or a confirm without it changes nothing; members are refused', async () => {
-  // a team made before migration 341 (or one whose admin turned it off)
+// docs/DECISIONS.md "No members' switch for connectors" (2026-11-12, replaces "W6"): once Google Drive is set up every
+// member may connect their own
+test('no members’ switch: a stored "off" from before is ignored and the old call changes nothing; their own Drive and the team share both work', async () => {
+  // a team made before migration 341 kept "off"; an older app may still send the switch
+  membersMayConnect(a.ctx.db, false)
   setMembersCanConnect(a.ctx, 'carol', false)
-  expect(() => svc.authorize('alice', 'alice-session')).toThrow('drive_members_off')
-  // the owner starts; cancelling changes nothing
-  const first = svc.authorize('dana', 'dana-session')
-  svc.cancel('dana', 'dana-session', first.flowId)
-  expect(svc.status('alice').personalAllowed).toBe(false)
-  // signed in, but confirmed without asking to turn the switch on: refused, nothing changes
-  const f = svc.authorize('dana', 'dana-session')
-  await svc.callback(fake.authorize(f.authorizationUrl, 'dana'), { userId: 'dana', sessionId: 'dana-session' })
-  expect(() => svc.complete('dana', 'dana-session', f.flowId)).toThrow('drive_members_off')
-  expect(svc.status('dana').status).toBe('disconnected')
-  expect(svc.status('alice').personalAllowed).toBe(false)
-  // the confirm that names it: connected, and the switch is on for everyone, in one step, audited
-  expect(svc.complete('dana', 'dana-session', f.flowId, { membersOn: true })).toMatchObject({ status: 'connected', personalAllowed: true })
   expect(svc.status('alice').personalAllowed).toBe(true)
-  expect(a.ctx.db.query("SELECT actor_id AS actor, detail FROM audit_log WHERE action = 'drive.members_switch' ORDER BY id DESC LIMIT 1").get()).toMatchObject({ actor: 'dana' })
-  // an admin may too; a member who asks for it while it is off is still refused
-  setMembersCanConnect(a.ctx, 'carol', false)
-  const c = svc.authorize('carol', 'carol-session')
-  await svc.callback(fake.authorize(c.authorizationUrl, 'carol'), { userId: 'carol', sessionId: 'carol-session' })
-  expect(svc.complete('carol', 'carol-session', c.flowId, { membersOn: true }).status).toBe('connected')
-  setMembersCanConnect(a.ctx, 'carol', false)
-  expect(() => svc.authorize('alice', 'alice-session')).toThrow('drive_members_off')
-  setMembersCanConnect(a.ctx, 'carol', false)
-})
-
-test('the members’ switch: off for a team made before migration 341; their own Drive only while it is on; the team share works either way', async () => {
-  setMembersCanConnect(a.ctx, 'carol', false)
-  expect(svc.status('alice').personalAllowed).toBe(false)
-  expect(() => svc.authorize('alice', 'alice-session')).toThrow('drive_members_off')
-  setMembersCanConnect(a.ctx, 'carol', true)
+  expect(a.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'drive.members_switch'").get()).toEqual({ n: 0 })
   const f = svc.authorize('alice', 'alice-session')
   await svc.callback(fake.authorize(f.authorizationUrl, 'alice'), { userId: 'alice', sessionId: 'alice-session' })
-  svc.complete('alice', 'alice-session', f.flowId)
+  expect(svc.complete('alice', 'alice-session', f.flowId)).toMatchObject({ status: 'connected', personalAllowed: true })
   // both: their own by default, the team's by name, each result says its source and the other (this fake answers
   // every account from the same tree)
   const mine = await text('drive_read', { fileId: 'out-1' })
   expect(mine.structured).toMatchObject({ source: 'mine', otherSources: ['team:Company Drive'] })
   expect((await text('drive_read', { fileId: 'in-1', source: 'team:Company Drive' })).structured).toMatchObject({ source: 'team:Company Drive', otherSources: ['mine'] })
   expect((await text('drive_read', { fileId: 'x', source: 'team:Nope' })).text).toContain('"team:Company Drive"')
-  setMembersCanConnect(a.ctx, 'carol', false)
-  expect((await text('drive_read', { fileId: 'out-1', source: 'mine' })).isError).toBe(true)
-  expect((await text('drive_read', { fileId: 'in-1' })).structured).toMatchObject({ source: 'team:Company Drive' })
 })

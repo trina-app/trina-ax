@@ -24,6 +24,7 @@ import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { compareVersions, UpdateManager } from './update'
+import { requiredReaderLevel } from '../db'
 import { rolloutTurn } from './rollout'
 import { lastPrune, PRUNE_FIRST_MS, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
 import { SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic } from './system-packages'
@@ -34,7 +35,7 @@ import { pruneOld } from './retention'
 import { absoluteFloor, cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
-import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, updateWindowAnswer } from './update-job'
+import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, settleUpdateJob, updateWindowAnswer } from './update-job'
 import { zonedParts } from './time-zone'
 import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
@@ -69,6 +70,13 @@ export interface OpsOptions {
 
 /** Reported failures of the desktop app's office-network direct connection (POST /api/connect-info/lan-failure). */
 export type LanFailureCode = 'unreachable' | 'cert_mismatch' | 'timeout'
+/** A firewall reason as one plain line for the Health line: an older `mycel-ctl` wrote nft's whole answer (the echoed
+ * command and its "^^^^^" marker, QA TC-310) into the status file. The full text stays in the firewall timer's journal. */
+export const oneLineReason = (why: string): string => {
+  const line = (why.split('\n')[0] ?? '').replace(/\s*\(nft list: [^)]*$/, '').replace(/\bError:\s*/g, '').trim()
+  return line || 'not loaded'
+}
+
 const LAN_FAILURE_WINDOW_MS = 24 * 3600_000
 const LAN_FAILURE_PER_SESSION_MS = 3600_000
 
@@ -95,6 +103,7 @@ export class OpsService {
     this.updates = new UpdateManager({
       appDir: this.layout.appDir, dataDir: ctx.config.dataDir, version: ctx.version, channel: ctx.config.update.channel,
       feedUrl: ctx.config.update.feedUrl, log: ctx.log.child({ c: 'update' }), allowUnsigned: o.allowUnsignedUpdates, rootDir: this.layout.rootDir,
+      dbReaderLevel: () => requiredReaderLevel(ctx.db),
     })
     // the team disk (system/storage.ts): writes are refused near full where the resource limits apply; the grace state
     // of a team over its plan's limit is kept in the settings table
@@ -117,6 +126,12 @@ export class OpsService {
 
   private now() { return this.o.now?.() ?? new Date() }
 
+  /** the language of the person who started a job (job-runner.ts) */
+  private jobLocale(userId: string | null): Locale {
+    const u = userId ? (this.ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale | null } | null) : null
+    return u?.locale ?? teamDefaultLocale(this.ctx.db)
+  }
+
   /** Take the maintenance lock (false: another operation runs). */
   tryLock(name: string): boolean { if (this.busy) return false; this.busy = name; return true }
   unlock() { this.busy = null }
@@ -137,7 +152,7 @@ export class OpsService {
 
   /** What holds the available release back from installing by itself, from the very decision the automatic update makes
    * (autoUpdateDecision), the window and running answers aside. null: nothing (or nothing to install). */
-  updateHold(): 'rollout' | 'failed' | 'root_failed' | null {
+  updateHold(): 'paused' | 'rollout' | 'failed' | 'root_failed' | null {
     try {
       const feed = this.updates.lastFeed()
       if (!feed || !this.updates.installed) return null
@@ -148,10 +163,11 @@ export class OpsService {
       const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
         window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true,
         channel: this.ctx.config.update.channel })
-      return d.go ? null : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
+      return d.go ? null : d.why === 'paused' ? 'paused' : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
     } catch { return null }
   }
 
+  private pausedLogged: string | null = null
   private autoFile() { return path.join(this.ctx.config.dataDir, 'update-auto.json') }
 
   /** One automatic-update check (hourly): the feed, the roll-out, the team's update window, no running answer; then the
@@ -169,8 +185,14 @@ export class OpsService {
         rootHold: this.rootUpdateFailure()?.version ?? null, channel: this.ctx.config.update.channel })
     }
     const first = decide()
-    if (!first.go) return first.why
     const log = this.ctx.log.child({ c: 'update' })
+    // said once per hold, not at every hourly check
+    const pausedKey = feed?.rollout?.hold ? `${feed.version} ${feed.rollout.hold.at}` : null
+    if (!first.go && first.why === 'paused' && feed?.rollout?.hold && this.pausedLogged !== pausedKey) {
+      this.pausedLogged = pausedKey
+      log.info('automatic update: the publisher paused this release; not installing it', { version: feed.version, since: feed.rollout.hold.at, reason: feed.rollout.hold.reason })
+    }
+    if (!first.go) return first.why
     if (!await this.lockAfterPrune('update')) {
       log.info('automatic update: another operation runs, trying again in an hour', { to: first.version, holder: this.busy })
       return 'busy'
@@ -278,6 +300,11 @@ export class OpsService {
     const o = j as Record<string, unknown>
     const until = typeof o.until === 'string' ? new Date(o.until) : null
     if (typeof o.version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version) || !until || Number.isNaN(until.getTime())) return null
+    // this server runs that version (or a newer one) with root files of it or newer: that update went through, whatever
+    // the file says (QA TC-334: 0.4.0's updater reported a roll-back while the bootstrap went forward to 0.5.0 again).
+    // mycel-ctl removes such a file at its next run (schedule.go readHold).
+    const root = this.updates.rootVersion()
+    if (compareVersions(this.ctx.version, o.version) >= 0 && root && compareVersions(root, o.version) >= 0) return null
     return { version: o.version, rolledBack: o.result === 'rolled_back', until }
   }
 
@@ -581,6 +608,9 @@ export class OpsService {
       // the bootstrap records its stop as a roll-back "stopped: …" (native/cmd/mycel-bootstrap block()); this server
       // runs, so it was started again since: say what happened in plain words, not the bootstrap's instructions
       if (h && recent && h.result === 'rolled_back' && h.detail?.startsWith('stopped: ')) add('update', 'update', t(M.update), 'ok', t(M.updateStopped(h.to, this.ctx.version)))
+      // a Go back to an older version that came back to this one (rolled_back <older> -> <this>, QA TC-336): it runs
+      // fine, only the way back did not happen
+      else if (h && recent && h.result === 'rolled_back' && h.from && h.to === this.ctx.version && compareVersions(h.from, h.to) < 0) add('update', 'update', t(M.update), 'ok', t(M.goBackBounced(h.from, h.to, !this.updates.canRead(h.from), h.detail ?? '')))
       else if (h && recent && h.result !== 'ok') add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
       // went forward again after a failed start (detail "started again after …"): the version plus that it recovered
       else if (h && recent && h.result === 'ok' && h.detail?.startsWith('started again')) add('update', 'update', t(M.update), 'ok', `${t(M.updateOk(this.ctx.version))}. ${t(h.detail === 'started again after it was stopped' ? M.updateRestarted : M.updateRecovered)}`)
@@ -694,22 +724,27 @@ export class OpsService {
   private async linuxChecks(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
     M: typeof MAC_M, hosted: boolean) {
     const L = this.layout
+    // the launcher first: its report says whether the rules are in effect right now (it tests them as the engine
+    // account), which the status file cannot tell after another tool flushed the table (QA TC-310)
+    let st: LauncherStatus | null = null
+    const sock = this.ctx.config.engine.launcherSock
+    const probe = sock ? await probeSocket(sock).catch(() => 'error' as const) : null
+    if (sock && probe === 'ok') st = await (this.o.launcherStatus ?? launcherStatus)(sock).catch(() => null)
+
     const fw = this.firewallStatus()
     if (!fs.existsSync(L.firewallStatusFile)) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallMissing))
     else if (!fw || this.now().getTime() - Date.parse(fw.at) > 15 * 60_000) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallStale))
-    else if (!fw.loaded || fw.rules === 0) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallOff(fw.error ?? (fw.loaded ? 'no rules' : 'not loaded'))))
+    else if (!fw.loaded || fw.rules === 0) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallOff(oneLineReason(fw.error ?? (fw.loaded ? 'no rules' : 'not loaded')))))
+    else if (st?.firewall?.live === false) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(ML.firewallNotLive(oneLineReason(st.firewall.liveProblem ?? 'not in effect'), hosted)))
     else add('pf_anchor', 'pf_anchor', t(M.firewall), 'ok', t(ML.firewallOkLinux(fw.rules, fw.proxyPort)))
 
-    let st: LauncherStatus | null = null
-    const sock = this.ctx.config.engine.launcherSock
     if (sock) {
-      const r = await probeSocket(sock).catch(() => 'error' as const)
+      const r = probe
       if (r === 'ok') add('launcher', 'launcher', t(M.launcher), 'ok', t(M.launcherOk))
       else if (r === 'missing' || r === 'refused') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherNotRunning(L.label, null, L.unitDir)))
       else if (r === 'denied') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDenied))
       else if (r === 'timeout') add('launcher', 'launcher', t(M.launcher), 'warn', t(M.launcherTimeout))
       else if (r !== 'too_long') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDown))
-      if (r === 'ok') st = await (this.o.launcherStatus ?? launcherStatus)(sock).catch(() => null)
     }
     const bad: CheckStatus = hosted ? 'fail' : 'warn'
     if (!st) add('sandbox', 'sandbox', t(M.sandbox), 'unknown', t(ML.sandboxUnknown))
@@ -820,6 +855,14 @@ export class OpsService {
     this.timers.push(setInterval(status, 30_000))
     // what a backup the last stop (or a power loss) interrupted left behind; the next backup's prune does the same
     try { this.backups.removeUnfinished() } catch (e) { log.warn('unfinished backups not removed', { err: e }) }
+    // an update job whose version did not stay (a Go back that bounced, a version the bootstrap sent back): failed, with
+    // what happened (update-job.ts settleUpdateJob, QA TC-336)
+    if (this.updates.installed) {
+      try {
+        const id = settleUpdateJob({ db: this.ctx.db, running: this.ctx.version, history: this.updates.history(), now: this.now(), canRead: (v) => this.updates.canRead(v), locale: (u) => this.jobLocale(u) })
+        if (id) log.warn('the last update job did not stay: marked failed', { job: id, running: this.ctx.version })
+      } catch (e) { log.warn('update job not checked', { err: e }) }
+    }
     this.timers.push(setInterval(() => {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))

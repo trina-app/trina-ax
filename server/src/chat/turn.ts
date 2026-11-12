@@ -38,7 +38,7 @@ import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, ownPersonalSkill, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
@@ -59,7 +59,7 @@ import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
-import { devEnvFlag, devEnvRunner, mayUseBox, mayUseDevEnv } from '../devenv/setting'
+import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../policy/refusal'
@@ -202,6 +202,14 @@ export function continueAfterConnect(names: string[], added: string[]): string {
     'Do not ask the person to send the question again and do not repeat what you already wrote.]'
 }
 
+/** How the engine launcher's orderly stop (mycel-launcher ending.go) ended or refused a launch: an update after which
+ * this server switches versions ('update'), an update of the root files only ('update-root'), or another stop
+ * ('restart', the launcher's "shutdown"). */
+export type LauncherStop = 'update' | 'update-root' | 'restart'
+function launcherStopOf(signal: unknown): LauncherStop | null {
+  return signal === 'update' ? 'update' : signal === 'update-root' ? 'update-root' : signal === 'shutdown' ? 'restart' : null
+}
+
 export class TurnExec {
   content = ''
   /** a shared chat's steps keep a line that names paths aside (StoredStep.sv; ChatStore.viewSteps) */
@@ -312,6 +320,24 @@ export class TurnExec {
   private readonly wallEndsAt: number
   private activeCore: Running | null = null
   private terminationUnconfirmed = false
+  /** an engine of this turn started (the launcher's started event): it ran, so a restart never queues it again */
+  private engineStarted = false
+  /** waiting in launcherReady for a stopping launcher to come back */
+  private waitingLauncher = false
+  /** The turn never ran: it waits for the launcher and no engine of it started. A server stop puts it back in the queue
+   * (ChatRuntime.shutdown) instead of failing it. */
+  get neverRan(): boolean { return this.waitingLauncher && !this.engineStarted && !this.producedOutput }
+  /** set by the server's stop for a turn that never ran: its end puts it back in the queue instead of ending it */
+  private requeueOnEnd = false
+  /** The server stops (ChatRuntime.shutdown) while this turn never ran: stop it and end it back in the queue, with its
+   * place, for the next start (no error, no answer end announced, nothing delivered to a room, Slack or the inbox). */
+  interruptForRequeue(cause: 'update' | 'restart') {
+    if (!this.neverRan) return this.interrupt(cause)
+    this.requeueOnEnd = true
+    this.interrupt(cause)
+  }
+  /** why a stop for 'shutdown' happened: an update (the answer says so) or another restart */
+  private interruptedFor: 'update' | 'restart' | null = null
   private quarantined = false
   /** the process group of the latest engine launch (the launcher's started event); null: none reported */
   private enginePgid: number | null = null
@@ -453,6 +479,14 @@ export class TurnExec {
     this.halt(reason)
   }
 
+  /** The server or the engine launcher stops (a restart, an update): the answer ends as interrupted, and says it was
+   * the update when it was one (QA TC-338: it read as an engine crash). */
+  interrupt(cause: 'update' | 'restart') {
+    if (this.stopReason || this.status === 'finished') return
+    this.interruptedFor = cause
+    this.stop('shutdown')
+  }
+
   /** What every stop of the answer does (Stop, a time limit, shutdown: `reason`; a used-up budget: none, checkBudget),
    * in one place so they never drift apart. */
   private halt(reason?: 'stopped' | 'timeout' | 'shutdown') {
@@ -586,15 +620,13 @@ export class TurnExec {
     // never in a room: the in-app browser shows the person's signed-in pages, and a room's messages are other people's
     this.browser = !this.restricted && !this.room && !this.shared && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
-    // dev environment EXPERIMENT (devenv/setting.ts), never in a scheduled run (nobody there answers the credential
-    // card), an approved template run (its scope is fixed) or a company profile draft (web_fetch only). The box: a
-    // project chat whose box this person may use.
-    // srt: any chat of a person in scope, with or without a project; the folder access is the person's (devenv/srt).
+    // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
+    // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
+    // scope, with or without a project; the folder access is the person's (devenv/srt).
     if (devEnvFlag() && !this.templateScope && !this.restricted && !this.room && !this.shared && spec.clientKind !== 'schedule') {
       const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
       const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
-      if (devEnvRunner() === 'srt') { if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project } }
-      else if (project && mayUseBox(rt.db, rt.files, project, spec.userId)) this.devEnv = { project }
+      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project }
     }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
@@ -776,9 +808,12 @@ export class TurnExec {
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
     // a chat started from a skill is called by the skill's name people read, not "/card-news" (title.ts)
     if (invoked && skillPlaceholderTitle(rt.db, spec.chatId, invoked.skill, skillAlias(invoked.skill.path))) rt.publishChat(spec.userId, spec.chatId, 'updated')
-    // a project's skill: anyone who writes the project's folder may have written it (outside content, as project
-    // instructions are: chat/runtime.ts projectTaints)
-    if (invoked?.skill.project) this.taint()
+    // a skill someone else may have written is outside content (remember protection), as project instructions are
+    // (chat/runtime.ts projectTaints) and as the skill tool's load is (chat/tools.ts): a team, group or project skill
+    // (anyone who may write its folder may have written it). Only the person's own personal skill is their own words
+    // (QA TC-326: "/weekly-report" of a group skill kept a memory with no card)
+    if (invoked && !ownPersonalSkill(invoked.skill.path, spec.userId)) this.taint()
+    else if (invoked) this.noteOwnSkill(invoked.skill.path)
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
     if (spec.clientKind === 'schedule') {
@@ -950,7 +985,7 @@ export class TurnExec {
         this.closeThinking()
         if (exit?.session?.b64) this.stashSession(sid, exit.session.b64)
         if (this.stopReason) break
-        if (this.stoppedAtLimit(exit)) break
+        if (this.stoppedAtLimit(exit) || this.refusedForFirewall(exit)) break
         if (managed && this.switchCredential('claude-code', exclude)) {
           // another account: never continue its session (signed thinking blocks, caches): fresh, with the history
           resume = false; sid = crypto.randomUUID()
@@ -1133,7 +1168,7 @@ export class TurnExec {
         // to swap it (design tab 2 "로그인 파일")
         for (const n of notes) { audit(rt.db, { actor: null, action: 'engine.codex_auth', target: spec.turnId, detail: { note: n.slice(0, 300) } }); rt.log.warn('codex login note', { turn: this.id, note: n }) }
         if (this.stopReason) break
-        if (this.stoppedAtLimit(exit)) break
+        if (this.stoppedAtLimit(exit) || this.refusedForFirewall(exit)) break
         if (managed && this.switchCredential('codex', exclude)) { attempt--; continue }
         if (this.proxyError) { this.error = this.proxyError; break }
         // agent-own: the engine account has no Codex login yet (the owner runs the codex-login command once)
@@ -1207,6 +1242,8 @@ export class TurnExec {
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",
    * "업스트림 오류"). Budget and subscription limit stop the engine at once; after a 401 the engine fails by itself. */
   private onProxyEvent(ev: ProxyTurnEvent) {
+    // the provider is busy and the engine tries again (QA TC-388): a line in the chat while it lasts
+    if (ev.type === 'busy') return this.setBusy(ev.on)
     // what a Codex search asked for: for its step only, never the answer's outcome
     if (ev.type === 'search') {
       this.searchAsks.push({ commands: ev.commands, refused: ev.refused?.length ? ev.refused : null })
@@ -1229,6 +1266,15 @@ export class TurnExec {
     }
     // stop the engine at once: it must not retry or refresh by itself on a refused / limited connection
     if (ev.type !== 'auth') this.handle?.kill()
+  }
+
+  /** The person's windows show "The AI service is busy. Still trying…" under this answer while `busy` (turn.busy). Sent
+   * only when it changes; a room answer has its own run status. The web app clears it on text, a step or the end. */
+  private busy = false
+  private setBusy(on: boolean) {
+    if (this.busy === on || this.room) return
+    this.busy = on
+    this.rt.hub.publish(this.spec.userId, { type: 'turn.busy', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, busy: on } })
   }
 
   /** A run's tokens that its total never replaced (it crashed or was killed) count as they are. */
@@ -1319,8 +1365,33 @@ export class TurnExec {
     return true
   }
 
-  /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn */
-  private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void) {
+  /** The Linux launcher refused the attempt because the engine firewall is not in effect: `firewall_off: …` (its live
+   * test before the turn found the rules gone or changed, e.g. after `nft flush ruleset`) or `firewall_not_loaded: …`
+   * (the status file). The answer says so in plain words, never "stopped partway", and is not retried as a crash: the
+   * same check would refuse again (QA TC-310). */
+  private refusedForFirewall(exit: { ev?: string; message?: unknown } | null): boolean {
+    if (exit?.ev !== 'error' || !/^firewall_(off|not_loaded):/.test(String(exit.message ?? ''))) return false
+    this.error = engineError('network_protection_off', this.spec.locale)
+    this.rt.log.error('turn refused: the engine firewall is not in effect', { turn: this.id, message: String(exit.message).slice(0, 300) })
+    return true
+  }
+
+  /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn. While the launcher
+   * stops or restarts (its orderly stop, QA TC-338) the launch waits for the next one; a launch it refused (nothing of
+   * it started) is made again then. */
+  private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[] }> {
+    for (let i = 0; ; i++) {
+      this.waitingLauncher = true
+      try { await this.rt.launcherReady(this.abort.signal) } finally { this.waitingLauncher = !!this.stopReason && !this.engineStarted }
+      const r = await this.launchOnce(core, lr, onLine)
+      if (!r.refused) return r
+      this.rt.launcherStopped(r.refused)
+      if (this.stopReason) return r
+      if (i >= 2) { this.interrupt(r.refused === 'restart' ? 'restart' : 'update'); return r }
+    }
+  }
+
+  private async launchOnce(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[]; refused?: LauncherStop }> {
     if (this.remainingWallMs() <= 0) this.expireWall()
     // a run that ended without its total (crash, kill): its calls' tokens stay counted; then the budget once more
     // (other answers of this person may have used it up since the last attempt)
@@ -1339,6 +1410,10 @@ export class TurnExec {
     const err = new Utf8Text(20000)
     const notes: string[] = []
     let exit: any = null
+    /** the launcher's orderly stop ended the engine (its exit says "update" / "shutdown": mycel-launcher ending.go) */
+    let launcherStop: LauncherStop | null = null
+    /** the launcher refused the launch while it stops (`launcher_stopping: <reason>`): nothing of it started */
+    let refused: LauncherStop | undefined
     try {
     const it = h.events[Symbol.asyncIterator]()
     const abandoned = new Promise<'abandoned'>((r) => {
@@ -1350,7 +1425,7 @@ export class TurnExec {
       if (next === 'abandoned') { try { h.close?.() } catch {} throw new Error('engine end not confirmed by the release time; turn abandoned') }
       if (next.done) break
       const e = next.value
-      if (e.ev === 'started') { this.enginePgid = e.pgid; core.turns.bind(this.id, e.pgid) }
+      if (e.ev === 'started') { this.enginePgid = e.pgid; this.engineStarted = true; core.turns.bind(this.id, e.pgid) }
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') {
@@ -1358,6 +1433,9 @@ export class TurnExec {
         // Native terminal replies are emitted after cleanup (including sandbox startup failures).
         // SocketLauncher synthesizes transport errors with this prefix; a broken socket proves nothing.
         if (e.ev === 'exit' || !e.message.startsWith('launcher: ')) this.terminationUnconfirmed = false
+        if (e.ev === 'exit') launcherStop = launcherStopOf(e.signal) ?? launcherStop
+        const stopping = e.ev === 'error' ? /^launcher_stopping: ([a-z-]+)$/.exec(e.message) : null
+        if (stopping) refused = launcherStopOf(stopping[1]) ?? undefined
       }
       else if (e.ev === 'note') notes.push(e.message)
     }
@@ -1366,6 +1444,7 @@ export class TurnExec {
       this.error = engineError('crash', this.spec.locale)
       throw new Error('launcher ended without a termination acknowledgement')
     }
+    if (refused) return { exit: null, stderr: '', notes, refused }
     return { exit, stderr: err.text, notes }
     } catch (error) {
       if (this.terminationUnconfirmed) {
@@ -1377,6 +1456,18 @@ export class TurnExec {
       throw error
     } finally {
       this.handle = null
+      // its end is confirmed (no quarantine): the answer ends as interrupted, never retried as a crash
+      if (launcherStop) {
+        // a launcher stopped by an installer while an update switches this server (office mode, macOS) said only
+        // "shutdown"
+        let cause: 'update' | 'restart' = launcherStop === 'restart' ? 'restart' : 'update'
+        if (cause === 'restart') { try { cause = this.rt.shutdownCause() } catch {} }
+        this.rt.log.info('engine launcher stopped the turn', { turn: this.id, stop: launcherStop, cause })
+        // first: the queue holds before this turn's end gives its slot back (a queued answer would start into the
+        // stopping launcher and be cut too)
+        this.rt.launcherStopped(launcherStop)
+        this.interrupt(cause)
+      }
     }
   }
 
@@ -1713,9 +1804,10 @@ export class TurnExec {
   private outsideMark = 0
 
   /**
-   * Files of the person's own folder whose content went to the model (TurnFiles.readPaths, noteReads): reading the own
-   * folder is no outside content in itself, but a file whose newest content an AI turn wrote carries what that turn's
-   * chat had seen (fileOutsideLevel): 1 taints this chat (remember asks), 2 also marks it as having used something from
+   * Files of the person's own folder whose content went to the model (TurnFiles.readPaths, noteReads): a file a person
+   * put there (an upload, an edit or copy on the Files screen, one changed outside the app) is outside content (1: its
+   * bytes are not the person's own message, QA TC-326), and a file whose content an AI turn wrote carries what that
+   * turn's chat had seen (fileOutsideLevel): 1 taints this chat (remember asks), 2 also marks it as having used something from
    * outside (markOutside: no room card is skipped). Web text, a room's words or a connection's answer saved into the
    * person's folder do not come back in as the person's own (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기").
    */
@@ -1726,10 +1818,20 @@ export class TurnExec {
     const budget = { left: OWN_HASH_BUDGET }
     for (const p of paths) {
       if (!p.startsWith(mine)) continue
-      level = Math.max(level, this.fileOutsideLevel(p, 0, budget))
+      // a file's bytes are not the person's typed words: one a person put there (an upload, an edit or copy on the Files
+      // screen, a file changed outside the app) counts as outside content (1) too (QA TC-326)
+      level = Math.max(level, this.fileOutsideLevel(p, 0, budget, true))
       if (level >= 2) break
     }
     this.applyOutside(level)
+  }
+
+  /** A personal skill of the person's own that goes to the model ("/name", the skill tool): their own words, but one an
+   * AI turn wrote carries what that turn's chat had seen (fileOutsideLevel without `people`: a skill the person wrote or
+   * imported stays theirs), so planted text cannot come back through a skill the AI saved (QA TC-326). */
+  noteOwnSkill(rel: string) {
+    if (!ownPersonalSkill(rel, this.spec.userId)) return
+    this.applyOutside(this.fileOutsideLevel(rel))
   }
 
   /** What an own-folder read or name carried (noteOwnReads, noteOwnNames): 1 taints the chat, 2 also marks it outside. */
@@ -1920,21 +2022,27 @@ export class TurnExec {
    * its source's (`depth` copies back, then 2); a history cut short (longer than FILE_TIMELINE_MAX or the walk's reads) counts as 2; and the marks of every
    * AI turn that produced exactly these bytes anywhere (bytesOutsideLevel: a copy on the Files screen or of a folder, a
    * restore from the trash or a version, a copy whose source changed since). A file only people wrote, or with no known
-   * history, carries none. */
+   * history, carries none, but with `people` (content given to the model to read: noteOwnReads) 1. */
   /** fileOutsideLevel for a scheduled run's check of "my folder" (chat/schedule-cover.ts) */
   ownFileOutside(rel: string): number { return this.fileOutsideLevel(rel) }
-  private fileOutsideLevel(rel: string, depth = 0, budget = { left: OWN_HASH_BUDGET }): number {
+  private fileOutsideLevel(rel: string, depth = 0, budget = { left: OWN_HASH_BUDGET }, people = false): number {
     if (depth > 4) return 2
     try {
       const { entries: all, cut } = fileTimelineWalk(this.rt.db, rel, { limit: FILE_TIMELINE_MAX })
       if (cut) return 2
-      let level = 0
+      let level = 0, known = false
       for (const e of all) {
         if (!CONTENT_KINDS.has(e.kind)) continue
+        known = true
         if (e.turnId) level = Math.max(level, this.turnOutsideLevel(e.turnId))
-        if (level < 2 && e.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1, budget))
+        // `people` (what the AI is given to read, noteOwnReads): content a person put there, not written by an AI turn
+        // (an upload, an edit or a copy on the Files screen): its words are the file's, not the person's own message
+        else if (people) level = Math.max(level, 1)
+        if (level < 2 && e.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1, budget, people))
         if (level >= 2) return 2
       }
+      // ...and a file with no known content event (changed outside the app, a sync, events past their retention)
+      if (people && !known) level = Math.max(level, 1)
       if (depth === 0) level = Math.max(level, this.bytesOutsideLevel(rel, budget))
       return level
     } catch { return 2 }
@@ -3369,6 +3477,16 @@ export class TurnExec {
     if (this.clock) clearInterval(this.clock)
     if (this.wallClock) clearTimeout(this.wallClock)
     if (this.stopGrace) clearTimeout(this.stopGrace)
+    if (this.requeueOnEnd && !this.engineStarted && !this.producedOutput && !this.terminationUnconfirmed) {
+      let back = false
+      try { back = this.endBackInQueue() } catch (e) { this.rt.log.error('queueing the turn for the restart failed', { err: e, turn: this.id }) }
+      if (back) {
+        this.status = 'finished'
+        try { this.rt.turnFinished(this) } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
+        this.resolveDone()
+        return
+      }
+    }
     let status: MessageStatus = 'error'
     try { status = this.finishState() } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
@@ -3381,6 +3499,29 @@ export class TurnExec {
     } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
     try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
     finally { this.resolveDone() }
+  }
+
+  /** The end of a turn that never ran, at the server's stop (interruptForRequeue): queued again with its place
+   * (queue_seq, started_at), its answer waiting as before; recoverState runs it after the restart. True if it is. */
+  private endBackInQueue(): boolean {
+    this.finishStep('held answers', () => this.dropHeldAnswers())
+    for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
+    this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('proxy', () => this.proxyUnsubscribe?.())
+    try { revokeProxyTokens(this.rt.db, this.id) } catch {}
+    const db = this.rt.db
+    const ok = db.transaction(() => {
+      const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL WHERE id=? AND status='running'").run(this.id)
+      if (!r.changes) return false
+      db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(this.spec.assistantId)
+      return true
+    })()
+    if (!ok) return false
+    // then the registry entry only (revoke would write the row's end); not before: a failed requeue ends normally and
+    // its revoke must still find the entry and write the end
+    try { if (this.registered) this.activeCore?.turns.release(this.id) } catch {}
+    this.rt.log.info('turn queued again for the restart (it never ran)', { turn: this.id })
+    return true
   }
 
   /** An engine that stopped, or a turn that threw: on a full disk say so (the error is ENOSPC / SQLite full, the engine's
@@ -3434,7 +3575,7 @@ export class TurnExec {
       if (this.producedOutput) this.limitReason = 'time_limit'
       else this.error = this.timeoutSource === 'wall' ? engineError('wall_timeout', this.spec.locale) : engineError('timeout', this.spec.locale)
     }
-    if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
+    if (this.stopReason === 'shutdown') this.error = engineError(this.interruptedFor === 'update' ? 'updating' : 'interrupted', this.spec.locale)
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
     else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit

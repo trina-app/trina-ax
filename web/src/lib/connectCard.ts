@@ -2,6 +2,7 @@
 // card is, and what its buttons send to POST /api/turns/:id/connect. A key leaves the card only one way: sealed in
 // this browser for 'integration.secret' (lib/seal.ts) with the team server's sealing key. The plain key is never in a
 // request, the store, a log or an address, and never goes through /answer, whose answers reach the AI.
+import { officialService, posesAsListed, trustedServiceName, type CatalogService } from '@mycel/shared'
 import type { TurnConnectResult, TurnRequest } from '@mycel/shared/api'
 import { api, API } from './api'
 import { sealSecret } from './seal'
@@ -29,6 +30,42 @@ const nameWords = (name: string) => (name.toLowerCase().match(/[\p{L}\p{N}]+/gu)
 export function hostOffName(name: string, host: string): boolean {
   const h = host.toLowerCase()
   return !nameWords(name).some((w) => h.includes(w))
+}
+
+/**
+ * How far the card can vouch for where it connects (shared/src/service-catalog.ts, the app's list of services):
+ * - official: exactly a listed service's official address (https, host and path).
+ * - template: an admin's template (the team chose the address and name), or a connection the person already has
+ *   (reconnect; named by its host when its name poses as a listed service's).
+ * - unlisted: any other address. `display` is the name the card uses: the AI's, or the host when the AI's name is (or
+ *   looks like) a listed service's or mixes alphabets in a word, so a self-hosted or made-up address never reads as
+ *   that service.
+ */
+export type CardTrust =
+  | { kind: 'official'; service: CatalogService }
+  | { kind: 'template'; display: string }
+  | { kind: 'unlisted'; display: string }
+  | { kind: 'none' }
+export function cardTrust(r: ConnectServiceRequest): CardTrust {
+  if (r.target !== 'service' || !r.service) return { kind: 'none' }
+  const at = officialService(r.service.url)
+  if (at) return { kind: 'official', service: at }
+  // an admin's template keeps the admin's name; anything else that is (or looks like) a listed service's name, or mixes
+  // alphabets in a word, at an address that is not the official one is named by its host: a new card, and a reconnect
+  // card for a connection saved under such a name before the list's rule (#582)
+  const display = !r.template && posesAsListed(r.name, r.service.url) ? r.service.host : r.name
+  if (r.template || r.reconnect) return { kind: 'template', display }
+  return { kind: 'unlisted', display }
+}
+
+/** The listed service a card's name claims at an address that is not that service's official one, and its official host:
+ * from the server (`notOfficial`), or worked out here for an older server's card (never for an admin's template, whose
+ * name is the admin's, nor for the official address itself). */
+export function notOfficialOf(r: ConnectServiceRequest, trust: CardTrust): { name: string; host: string } | null {
+  if (trust.kind === 'official' || trust.kind === 'none' || r.template || !r.service) return null
+  const claim = r.notOfficial ?? trustedServiceName(r.name, r.service.url).claimed
+  if (!claim) return null
+  try { return { name: claim.name, host: new URL(claim.url).host } } catch { return null }
 }
 
 /** a personal connection sends no access; a team one says who may use it */

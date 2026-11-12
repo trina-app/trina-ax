@@ -6,8 +6,9 @@
 //    or logged;
 //  - "drive": the same Google app as Google Drive (its client file or the operator's, followed when it changes: a new
 //    Drive client is a new key, so connections made with the old one sign in again);
-//  - "service": a hosted server without a client of its own signs in through the hosting service's Google app (the
-//    Drive broker, google-drive/broker.ts, with the `app` field);
+//  - "service": a server without a client of its own whose Drive signs in through the hosting service (hosted, or
+//    self-installed with MYCEL_GOOGLE_DRIVE_BROKER_URL) uses the hosting service's Google app (the Drive broker,
+//    google-drive/broker.ts, with the `app` field);
 //  - "none".
 // Every card's redirect address is https://<tunnel.host>/api/integrations/google-apps/callback (one callback for all
 // four; the flow says which app). The settings row `integrations.googleApps.<app>.client` remembers what the page set.
@@ -20,7 +21,6 @@ import { GOOGLE_APPS_BROKER_TEAM_RETURN_PATH } from '@mycel/shared/cloud-protoco
 import type { AppContext } from '../../context'
 import { getSetting } from '../../admin/settings'
 import { resolveLayout } from '../../system/layout'
-import { isHosted } from '../../system/deployment'
 import { googleDriveOf } from '../google-drive/oauth'
 import { brokerKey } from '../google-drive/broker'
 
@@ -95,8 +95,9 @@ export function setupOf(ctx: AppContext, app: GoogleAppId, env: Record<string, s
     const c: AppClient = { clientId: drive.config.clientId, clientSecret: drive.config.clientSecret, redirectUri }
     return { ...off, source: 'drive', mode: 'direct', client: c, key: 'drive:' + keyOf(c) }
   }
-  // a hosted server without a client of its own: the hosting service's Google app, once it answered for this team
-  if (isHosted(ctx.config) && drive.mode === 'broker' && drive.broker) return { ...off, source: 'service', mode: 'broker', key: `${brokerKey(drive.broker.o.origin)}:${app}` }
+  // no client of its own and Drive through the broker (hosted, or self-installed with the broker URL): the hosting
+  // service's Google app, once it answered for this server
+  if (drive.mode === 'broker' && drive.broker) return { ...off, source: 'service', mode: 'broker', key: `${brokerKey(drive.broker.o.origin)}:${app}` }
   return off
 }
 

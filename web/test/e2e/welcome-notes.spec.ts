@@ -147,10 +147,11 @@ test('a phone: 회사 소개 saves; the skills step is put off; 도구 연결 is
   await page.getByTestId('skills-later').click()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
-  // straight to the invite: 도구 연결 is for a computer, recorded as put off; ← 이전 goes to 팀 파일
+  // straight to the invite: 도구 연결 is for a computer, recorded as put off and not counted on the phone (4/4, QA
+  // TC-271); the bar's ‹ goes to 팀 파일
   await expect(page.getByTestId('invite-step')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress-phone')).toHaveText('5/5 팀원 초대')
-  await page.getByTestId('welcome-back').click()
+  await expect(page.getByTestId('welcome-bar-title')).toHaveText('4/4 팀원 초대')
+  await page.getByTestId('welcome-bar-back').click()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()

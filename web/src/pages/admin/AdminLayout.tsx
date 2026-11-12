@@ -16,7 +16,8 @@
 // (‹ and the page's name; the phone top bar steps aside for /admin). The list is always under a page, also one opened
 // from a link, and Back returns to it at the same place (lib/backStack.ts; docs/DECISIONS.md "Admin and Settings on
 // phones: a list you tap into"). Team settings is one more list there: its groups, each a page at
-// /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); computers keep it one page.
+// /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); System too, at /admin/system/<group> under
+// "‹ System" (systemGroups.ts). Computers keep each one page.
 import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
@@ -31,10 +32,12 @@ import { PhonePageBar } from '../../components/phone/PhonePageBar'
 import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
 import { teamSettingsGroup, teamSettingsRedirect } from './teamSettingsGroups'
+import { systemGroup, systemRedirect } from './systemGroups'
 import { APP_CONNECTORS, CONNECTORS } from '../../lib/connectors'
 import { folderName } from '../../lib/access-view'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
+import { AdminBarSlot } from './barActions'
 
 const Home = lazy(() => import('./Home'))
 const PhoneRoot = lazy(() => import('./PhoneRoot'))
@@ -98,9 +101,10 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
 const PHONE_LABEL: Partial<Record<string, MessageKey>> = { providers: 'admin.team.providers', connectors: 'admin.team.integrations', 'ai-apps': 'admin.team.aiApps' }
 const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
 
-/** The name of an address for the phone's ‹ label: Admin's list and pages (a group of Team settings by its own name),
- * and Settings' (lib/backStack.ts). */
-function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | undefined): string | null {
+/** The name of an address for the phone's ‹ label: Admin's list and pages (a group of Team settings or System by its
+ * own name), and Settings' (lib/backStack.ts). Every page pushed under Admin (an item's page, a group) has the page
+ * above it named here (test/unit/admin-back-names.test.ts); the bar shows it whole (phone/PhonePageBar.tsx). */
+export function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | undefined, who: Parameters<typeof systemGroup>[1]): string | null {
   const path = to.split(/[?#]/)[0]!
   if (path === '/admin') return t('admin.title')
   // a folder of Folder permissions (under its rule editor): its name; By person (under a person): that view
@@ -112,7 +116,7 @@ function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | 
   }
   if (path.startsWith('/admin/')) {
     const [id, sub] = path.slice('/admin/'.length).split('/')
-    const group = id === 'settings' ? teamSettingsGroup(sub, devEnv) : undefined
+    const group = id === 'settings' ? teamSettingsGroup(sub, devEnv) : id === 'system' ? systemGroup(sub, who) : undefined
     if (group) return t(group.label)
     const s = MENU.flatMap((g) => g.items).find((x) => x.id === id)
     return s ? t(phoneLabel(s)) : null
@@ -139,7 +143,8 @@ function redirectOf(section: string, sub: string | undefined, search: string, ph
     if (q.get('drive') === '1') return '/admin/connectors/google-drive'
   }
   // a connector this app does not list (a typo, an old link): the list
-  if (section === 'connectors' && sub && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
+  // (a team connection's page is /admin/connectors/mcp/<id>)
+  if (section === 'connectors' && sub && sub !== 'mcp' && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
   if (section === 'plugins' && !sub && q.get('focus')) return `/admin/plugins/${encodeURIComponent(q.get('focus')!)}`
   // a phone: an engine is a page of its own (?engine= opened its row in place)
   if (phone && section === 'providers' && !sub && q.get('engine') && q.get('tab') !== 'team') return `/admin/providers/${encodeURIComponent(q.get('engine')!)}`
@@ -189,11 +194,15 @@ export default function AdminLayout() {
   const resized = firstWidth.current.phone !== phone
   const admin = isAdmin(me)
   const devEnv = me.server.devEnv
-  // Team settings: a group's page on a phone, the one page on a computer (teamSettingsGroups.ts); no other page has
-  // pages under it
+  // who sees which of System's groups (systemGroups.ts)
+  const who = { owner: isOwner(me), features: me.server.features }
+  // Team settings and System: a group's page on a phone, the one page on a computer (teamSettingsGroups.ts,
+  // systemGroups.ts); no other page has pages under it
   const redirect = !admin ? null
-    : redirectOf(section, sub, search, phone) ?? (section === 'settings' ? teamSettingsRedirect({ sub, hash, phone, devEnv }) : sub && !ADMIN_DETAILS[section] ? `/admin/${section}${search}${hash}` : null)
-  const group = section === 'settings' ? teamSettingsGroup(sub, devEnv) : undefined
+    : redirectOf(section, sub, search, phone) ?? (section === 'settings' ? teamSettingsRedirect({ sub, hash, phone, devEnv })
+      : section === 'system' ? systemRedirect({ sub, phone, ...who })
+      : sub && !ADMIN_DETAILS[section] ? `/admin/${section}${search}${hash}` : null)
+  const group = section === 'settings' ? teamSettingsGroup(sub, devEnv) : section === 'system' ? systemGroup(sub, who) : undefined
   const menu = MENU.map((g) => ({ ...g, items: g.items.filter((s) => !s.ownerOnly || isOwner(me)) })).filter((g) => g.items.length)
   const known = menu.some((g) => g.items.some((s) => s.id === section))
   // the page that stays (no redirect, allowed): only then may the list be put under it
@@ -205,13 +214,15 @@ export default function AdminLayout() {
   useListUnderPage(adminChain(here), phone, final, section === 'folders' ? DETOURS : undefined)
   useKeptScroll(content, 'admin', phone && admin && !redirect && known)
   const up = adminParent(here) ?? '/admin'
-  const name = (p: string) => pageName(p, t, devEnv)
+  const name = (p: string) => pageName(p, t, devEnv, who)
   // a folder, a person in By person, the rule editor: the same address with another query is still the page above it
   const label = useBackLabel(up, name) ?? (isAdminDetail(here) && entryBelow(location.key) === location.pathname ? name(up) : null)
   // (useBackLabel names a page by its path only: the editor's ‹ goes to a folder, named by its query)
   const goBack = useGoBack(up)
   // what the page on show tells the bar: an item's name as the title, a check before ‹ leaves (phoneBar.ts)
   const [bar, setBar] = useState<AdminBar | null>(null)
+  // the bar's place for the page's own buttons, + and ⋯ (barActions.tsx); a computer's page keeps its buttons
+  const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
   const back = () => {
     if (!bar?.beforeBack) return goBack()
     void bar.beforeBack().then((ok) => ok && goBack())
@@ -223,6 +234,7 @@ export default function AdminLayout() {
 
   const page = (
     <AdminBarProvider value={setBar}>
+    <AdminBarSlot value={phone ? barSlot : null}>
     <Suspense fallback={<Spinner />}>
       {section === '' && <Home />}
       {section === 'members' && <Members />}
@@ -238,6 +250,7 @@ export default function AdminLayout() {
       {section === 'settings' && <TeamSettingsPage />}
       {section === 'system' && <System />}
     </Suspense>
+    </AdminBarSlot>
     </AdminBarProvider>
   )
 
@@ -245,7 +258,8 @@ export default function AdminLayout() {
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="admin-phone">
         {/* the list's bar: ‹ back to where it came from (the 나 list: "‹ Settings"); its big title is in the list */}
-        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
+        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title"
+          action={<span ref={setBarSlot} className="contents" />} />
         <div ref={content} className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
           {section === '' ? (
             <Suspense fallback={<Spinner />}>

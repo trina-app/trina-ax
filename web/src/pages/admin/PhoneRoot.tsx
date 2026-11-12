@@ -14,6 +14,7 @@ import { Badge } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { JobLine } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
+import { OldProjectsCard } from './OldProjectsCard'
 import { useAdminOverview } from './overview'
 
 export interface PhoneMenuGroup {
@@ -94,6 +95,8 @@ export default function PhoneRoot({ groups }: { groups: PhoneMenuGroup[] }) {
           ))}
         </PhoneListGroup>
       ) : null}
+
+      <OldProjectsCard compact />
 
       {o.owner && <OwnerSetup compact />}
 

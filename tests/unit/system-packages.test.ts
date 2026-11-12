@@ -38,7 +38,7 @@ function lib(snippet: string, env: Record<string, string> = {}) {
 const systems = Object.keys(LIST.distros).flatMap((d) => LIST.arches.map((a) => [d, a] as const))
 
 /** the scripts that install system packages or programs: each reads the list (packages.sh) */
-const INSTALLERS = ['scripts/install-linux.sh', 'scripts/image/customize.sh', 'scripts/dev-env/srt/install-srt.sh', 'scripts/dev-env/install-trial.sh', 'scripts/office/office-install.sh']
+const INSTALLERS = ['scripts/install-linux.sh', 'scripts/image/customize.sh', 'scripts/dev-env/srt/install-srt.sh', 'scripts/office/office-install.sh']
 /** the scripts that stage the image's files: each copies the list next to customize.sh */
 const STAGERS = ['scripts/image/build.sh', 'scripts/image/build-ami.sh', 'scripts/image/test-customize.sh']
 /** code lines (full-line comments out), with their numbers */
@@ -97,7 +97,7 @@ describe('the list (scripts/system/packages.json)', () => {
     // Gmail, Calendar, Docs and Sheets (the Google Workspace library): every default install, never --minimal
     expect(pythonsFor(LIST, ['default'])).toEqual(['workspace-mcp'])
     expect(pythonsFor(LIST, ['minimal'])).toEqual([])
-    for (const g of ['image', 'srt', 'boxes']) expect(LIST.groups[g]!.install).toBe('on-request')
+    for (const g of ['image', 'srt']) expect(LIST.groups[g]!.install).toBe('on-request')
     expect(LIST.groups.browser!.artifacts).toEqual(['chrome-headless-shell'])
     expect(LIST.groups.srt!.artifacts).toEqual(['node', 'srt'])
     // no SSH server on a team VM (D15)
@@ -107,7 +107,7 @@ describe('the list (scripts/system/packages.json)', () => {
 
 describe('packages.sh reads the list', () => {
   test('syntax', () => {
-    for (const f of ['scripts/system/packages.sh', ...INSTALLERS, ...STAGERS, 'scripts/image/ami-chroot.sh', 'scripts/office/office-uninstall.sh', 'scripts/dev-env/vm-setup.sh']) {
+    for (const f of ['scripts/system/packages.sh', ...INSTALLERS, ...STAGERS, 'scripts/image/ami-chroot.sh', 'scripts/office/office-uninstall.sh']) {
       const p = Bun.spawnSync(['/bin/bash', '-n', path.join(REPO, f)], { stderr: 'pipe' })
       expect(`${f}: ${p.exitCode} ${p.stderr.toString()}`).toBe(`${f}: 0 `)
     }
@@ -127,7 +127,7 @@ describe('packages.sh reads the list', () => {
 
   test('the same groups and packages for every system, profile and group', () => {
     const bun = ['--bun', process.execPath]
-    const sets = [['minimal'], ['default'], ['image'], ['srt'], ['boxes'], ['core', 'media', 'fonts', 'devenv'], ['google-apps'], ['minimal', 'docker', 'google-apps']]
+    const sets = [['minimal'], ['default'], ['image'], ['srt'], ['core', 'media', 'fonts', 'devenv'], ['google-apps'], ['minimal', 'docker', 'google-apps']]
     // one shell reads the list once and prints every case (a bun start per case is slow)
     const lines: string[] = [], want: string[] = []
     for (const names of sets) {
@@ -462,6 +462,31 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.rmSync(d, { recursive: true, force: true })
   })
 
+  test('/etc/os-release as a link (Debian and Ubuntu: ../usr/lib/os-release) names the system as the sync wrote it', () => {
+    // QA: Diagnostics kept "Not yet brought to this version's list" after a sync, because the server refused the link
+    // and read "-/<machine-id>" while packages.sh and mycel-ctl follow it
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-os-link-'))
+    fs.mkdirSync(path.join(d, 'usr', 'lib'), { recursive: true }); fs.mkdirSync(path.join(d, 'etc'))
+    fs.writeFileSync(path.join(d, 'usr', 'lib', 'os-release'), 'PRETTY_NAME="Ubuntu 24.04.3 LTS"\nID=ubuntu\nVERSION_ID="24.04"\n')
+    fs.symlinkSync('../usr/lib/os-release', path.join(d, 'etc', 'os-release'))
+    fs.writeFileSync(path.join(d, 'etc', 'machine-id'), '0123456789abcdef0123456789abcdef\n')
+    const env = { PK_OS_RELEASE: path.join(d, 'etc', 'os-release'), PK_MACHINE_ID: path.join(d, 'etc', 'machine-id') }
+    const want = 'ubuntu-24.04/0123456789abcdef0123456789abcdef'
+    expect(lib('pk_os_identity', env).out).toBe(want)
+    expect(osIdentity({ osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID })).toBe(want)
+    const root = path.join(d, 'root'); fs.mkdirSync(root)
+    fs.writeFileSync(path.join(root, 'packages.json'), '{"format":1}')
+    const sum = new Bun.CryptoHasher('sha256').update('{"format":1}').digest('hex')
+    fs.writeFileSync(path.join(root, 'packages.synced'), JSON.stringify({ format: 1, list: sum, result: 'ok', at: '2026-11-07T00:00:00Z', os: want }))
+    expect(systemPackagesDiagnostic(root, { by: 'hosted', when: (x) => x, os: { osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID } })?.status).toBe('ok')
+    // a link to something that is not a file (a device, a folder) still reads as nothing; root/ files never follow links
+    fs.rmSync(path.join(d, 'etc', 'os-release')); fs.symlinkSync('/dev/zero', path.join(d, 'etc', 'os-release'))
+    expect(osIdentity({ osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID })).toBe('-/0123456789abcdef0123456789abcdef')
+    fs.rmSync(path.join(root, 'packages.json')); fs.symlinkSync(path.join(d, 'usr', 'lib', 'os-release'), path.join(root, 'packages.json'))
+    expect(systemPackagesDiagnostic(root, { by: 'hosted', when: (x) => x, os: { osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID } })).toBeNull()
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
   test('a name in the list that is not a package name stops pk_packages (no option, no glob reaches apt)', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-name-'))
     for (const bad of ['-oAPT::Get::Hack=1', 'lib*', 'a b']) {
@@ -686,7 +711,6 @@ describe('every install path reads the list', () => {
     'scripts/linux/build-whisper.sh': { why: 'the build machine\'s compiler for whisper-cli, not a server', lines: ['apt-get install -y --no-install-recommends build-essential cmake'] },
     'scripts/dev-env/srt/vm-check.sh': { why: 'a throwaway test VM of the srt spike', lines: ['apt-get install -y -q jq curl', 'apt-get install -y -q --no-install-recommends pandoc'] },
     'scripts/dev-env/srt/spike-vm.sh': { why: 'the srt design spike\'s VM', lines: ['apt-get install -y -q unzip curl jq'] },
-    'scripts/dev-env/Containerfile': { why: 'the inside of a dev environment box (podman image), not the server', lines: ['apt-get install -y --no-install-recommends nodejs npm'] },
     'tests/linux/Dockerfile': { why: 'the Linux test container', lines: ['apt-get install -y --no-install-recommends ripgrep poppler-utils'] },
     'tests/linux/Dockerfile.srt': { why: 'the srt attack test container', lines: ['apt-get install -y --no-install-recommends bubblewrap socat'] },
     'tests/linux/Dockerfile.safe-ops': { why: 'the safe operations test container', lines: ['apt-get install -y --no-install-recommends libheif-examples'] },
@@ -785,7 +809,7 @@ describe('every install path reads the list', () => {
 
   test('no script or container file keeps a package list of its own (except the allowed few, with a reason)', () => {
     const files = scanned()
-    for (const f of [...INSTALLERS, ...STAGERS, 'scripts/dev-env/vm-setup.sh', 'scripts/dev-env/Containerfile', 'docker/Dockerfile', 'docker/entrypoint.sh']) expect(files).toContain(f)
+    for (const f of [...INSTALLERS, ...STAGERS, 'docker/Dockerfile', 'docker/entrypoint.sh']) expect(files).toContain(f)
     for (const f of [...Object.keys(ALLOWED), ...Object.keys(PINS_ALLOWED)]) expect(`${f}: ${files.includes(f)}`).toBe(`${f}: true`) // no stale entry
     // no stale fragment: each names a command its file still has
     for (const [f, a] of [...Object.entries(ALLOWED), ...Object.entries(PINS_ALLOWED)]) {

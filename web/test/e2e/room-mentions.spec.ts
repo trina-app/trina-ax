@@ -238,3 +238,23 @@ test("a thread's reply box: a picked name stands out and the reply mentions them
   await expect.poll(() => room.sent.length).toBe(1)
   expect(room.sent[0]).toMatchObject({ body: '@소라님 네', mentions: [SORA.id], threadRootId: SEEN.id })
 })
+
+for (const on of [false, true]) {
+  test(`"@트리나" with room AI mentions ${on ? 'on: stands out in the box and on a sent message' : 'off (the real default): plain text in the box and on a sent message'}`, async ({ page }) => {
+    await reset(page)
+    // (the mock takes "@트리나" unless told otherwise; a real server only with AppConfig.roomAiMentions)
+    expect((await page.request.post('/__test/room-ai-mentions', { data: { on } })).ok()).toBeTruthy()
+    await routeRoom(page, { members: [MJ, SORA], messages: [{ id: '019a5f00-0000-7000-8000-000000000002', author: SORA, body: '@트리나 hello' }] })
+    await signIn(page)
+    await page.goto(`/rooms/${ROOM_ID}`)
+    const box = page.getByTestId('room-input')
+    await expect(box).toBeVisible()
+    const said = page.getByTestId('room-message').filter({ hasText: 'hello' })
+    await expect(said).toContainText('@트리나 hello')
+    await expect(said.locator('span.text-accent-text')).toHaveText(on ? ['@트리나'] : [])
+    await box.click()
+    await page.keyboard.type('@트리나 hi')
+    await expect(box).toHaveValue('@트리나 hi')
+    expect(await tokens(page)).toEqual(on ? ['ai:@트리나'] : [])
+  })
+}

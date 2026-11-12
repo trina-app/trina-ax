@@ -24,6 +24,13 @@ describe('the return page', () => {
     expect(replaced).toEqual([`/api/integrations/slack/oauth/callback?state=${STATE}&code=1234.5678.abcdef`])
     await m.unmount()
   })
+  test('the official app: the hosting service\'s handoff in place of the code; "Add to Slack" to its own callback', () => {
+    const H = 'H'.repeat(43)
+    expect(resumeTarget(`?state=${STATE}&handoff=${H}`)).toBe(`/api/integrations/slack/oauth/callback?state=${STATE}&handoff=${H}`)
+    expect(resumeTarget(`?state=${STATE}&handoff=${H}&to=install`)).toBe(`/api/integrations/slack/official/callback?state=${STATE}&handoff=${H}`)
+    for (const q of [`state=${STATE}&handoff=short`, `state=${STATE}&handoff=${H}&code=1234.5678.abcdef`, `state=${STATE}&code=1234.5678.abcdef&to=install`, `state=${STATE}&handoff=${H}&to=elsewhere`, `state=${STATE}&to=install`])
+      expect(resumeTarget(`?${q}`)).toBeNull()
+  })
   test('anything else goes nowhere', async () => {
     for (const q of [`state=${STATE}&code=https://evil.example/x`, `state=${STATE}&code=//evil.example/abcdef`, 'state=short&code=1234.5678.abcdef', `state=${STATE}`, '']) expect(resumeTarget(`?${q}`)).toBeNull()
     const m = await mount(<MemoryRouter initialEntries={['/slack/signin-return?state=x&code=https://evil.example']}><Routes><Route path="/slack/signin-return" element={<SlackSignInReturn />} /></Routes></MemoryRouter>)
@@ -39,6 +46,12 @@ describe('the end page', () => {
   test('linked: done, back to the app', async () => {
     const m = await page('slack=linked')
     expect(m.get('slack-done-text').textContent).toBe('Your Slack account is linked. You can close this window and go back to the app.')
+    await m.unmount()
+  })
+  test('added to Slack (started in the desktop or phone app): done, back to the app; no Connectors link', async () => {
+    const m = await page('slack=installed')
+    expect(m.get('slack-done-text').textContent).toBe('Added to Slack. You can close this window and go back to the app.')
+    expect(m.html()).not.toContain('Open Connectors')
     await m.unmount()
   })
   test('another account, or a name that is not an outcome', async () => {

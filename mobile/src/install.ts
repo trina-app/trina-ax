@@ -1,7 +1,7 @@
 // A reinstall of the app, and ending the session the WebView kept. No native imports: tests load this file.
 import type { Slot } from './device'
 import { sameTeam } from './protocol'
-import { WIPE_JS } from './leave'
+import { JOIN_TOKEN_KEY, wipeJs } from './leave'
 
 export interface InstallDeps {
   /** an id in the keychain, which iOS keeps when the app is deleted */
@@ -59,12 +59,13 @@ export class ReinstallSignOut {
   private done = false
   private token: string | null = null
   constructor(readonly origin: string, private finish: () => Promise<void>, private newToken: () => string, private wipe = false) {}
-  /** The script for the page at `url` of the team `origin`, or null. */
-  script(origin: string, url: string): string | null {
+  /** The script for the page at `url` of the team `origin`, or null. `entry`: the address the phone opened the team at
+   * (a link's /join#t=… or /invite/<token>), where the owed sign-out goes back to after the server's 204. */
+  script(origin: string, url: string, entry?: string): string | null {
     if (this.done || origin !== this.origin || !sameTeam(origin, url) || this.pages >= MAX_SIGN_OUT_PAGES) return null
     this.pages++
     this.token = this.newToken()
-    return signOutScript(origin, this.token, this.wipe)
+    return signOutScript(origin, this.token, this.wipe, entry && sameTeam(origin, entry) ? entry : undefined)
   }
   /** A message from the page: true when it was this sign-out's answer (then it is not a bridge message). */
   answer(raw: string): boolean {
@@ -82,11 +83,17 @@ export class ReinstallSignOut {
 
 /** POST <team>/api/auth/logout (the server removes this phone's push device with the session), the answer back to the
  * app with the one-time token, and the sign-in page once the session is gone. The sign-out owed to a team left
- * (`wipe`) keeps the page the person opened (an invite link's /invite/<token> or /join#t=…): reloaded after a 204 (a
- * replace to the same URL with a #fragment would not load), left as it is after a 401 (there was no session). */
-export function signOutScript(origin: string, token: string, wipe = false): string {
-  return (wipe ? WIPE_JS : '') + `fetch(${JSON.stringify(`${origin}/api/auth/logout`)},{method:'POST',credentials:'same-origin',headers:{'x-mycel-csrf':'1'}})`
+ * (`wipe`) keeps the page the person opened (an invite link's /invite/<token> or /join#t=…): the join page's token
+ * stays in session storage, and after a 204 the page loads `entry` (the address the phone opened, with its #t=; signed
+ * in, /join had sent the person Home and the address no longer has it), else the page on screen again. The same path
+ * with only another #fragment would not load: the address is set first, then reloaded. Left as it is after a 401
+ * (there was no session). */
+export function signOutScript(origin: string, token: string, wipe = false, entry?: string): string {
+  const reopen = entry
+    ? `try{var e=new URL(${JSON.stringify(entry)});if(e.pathname+e.search===location.pathname+location.search){history.replaceState(history.state,'',e.href);location.reload()}else location.replace(e.href)}catch(x){location.reload()}`
+    : 'location.reload()'
+  return (wipe ? wipeJs([JOIN_TOKEN_KEY]) : '') + `fetch(${JSON.stringify(`${origin}/api/auth/logout`)},{method:'POST',credentials:'same-origin',headers:{'x-mycel-csrf':'1'}})`
     + `.then(function(r){return r.status},function(){return 0}).then(function(s){`
     + `try{window.ReactNativeWebView.postMessage(JSON.stringify({signOut:${JSON.stringify(token)},status:s}))}catch(e){}`
-    + (wipe ? 'if(s===204)location.reload()});true;' : `if(s===204||s===401)location.replace('/login')});true;`)
+    + (wipe ? `if(s===204){${reopen}}});true;` : `if(s===204||s===401)location.replace('/login')});true;`)
 }

@@ -101,6 +101,9 @@ export const CHAT_ERROR_MESSAGES = {
   refused: { code: 'forbidden', ko: 'AI가 이 요청에 답하지 않았어요. 표현을 바꿔 다시 시도해 주세요.', en: 'The AI declined this request. Try rephrasing it.', id: 'AI menolak permintaan ini. Coba ubah kalimatnya.', ja: "AIがこのリクエストを拒否しました。表現を変えてお試しください。", es: "La IA rechazó esta solicitud. Intente reformularla." },
   crash: { code: 'internal', ko: "답하다가 멈췄어요. 다시 해 주세요.", en: "The answer stopped partway. Please try again.", id: "Jawaban berhenti di tengah jalan. Coba lagi.", ja: "回答の途中で止まりました。もう一度お試しください。", es: "La respuesta se detuvo a medias. Vuelva a intentarlo." },
   interrupted: { code: 'unavailable', ko: '서버가 다시 시작되어 답변이 중단됐어요.', en: 'The answer was interrupted because the server restarted.', id: 'Jawaban terputus karena server dimulai ulang.', ja: "サーバーが再起動したため、回答が中断されました。", es: "La respuesta se interrumpió porque se reinició el servidor." },
+  // an update ended the answer (the server or the engine launcher restarted for it: chat/turn.ts, the launcher's orderly
+  // stop, QA TC-338): not a crash; the person sends it again
+  updating: { code: 'unavailable', ko: "트리나가 업데이트되는 동안 답이 멈췄어요. 다시 보내 주세요.", en: "This answer stopped because Trina was updating. Send it again.", id: "Jawaban ini berhenti karena Trina sedang diperbarui. Kirim lagi.", ja: "トリナの更新中だったため、この回答は止まりました。もう一度送ってください。", es: "Esta respuesta se detuvo porque Trina se estaba actualizando. Vuelva a enviarla." },
   // the AI cannot start here (no engine program, none set up, the core down): a member is told it is not ready and can
   // tell an admin with one button; the owner and admins read their own words with [Connect AI] (web/src/lib/chatErrors.ts)
   engine_missing: { code: 'engine_unavailable', ko: "트리나가 아직 준비되지 않았어요.", en: "Trina isn't ready yet.", id: "Trina belum siap.", ja: "トリナはまだ準備ができていません。", es: "Trina todavía no está lista." },
@@ -127,6 +130,10 @@ export const CHAT_ERROR_MESSAGES = {
   // the server's disk is full (ENOSPC, SQLite full; server/src/chat/turn.ts): not the engine's fault, and only an admin
   // can free the space (QA TC-209: it read as an engine crash)
   storage_full: { code: 'storage_full', ko: "서버 저장 공간이 가득 차서 답하지 못했어요. 관리자가 공간을 비워야 해요.", en: "The server's storage is full, so the AI couldn't answer. An admin has to free up space.", id: "Penyimpanan server penuh, jadi AI tidak bisa menjawab. Admin perlu mengosongkan ruang.", ja: "サーバーの保存容量がいっぱいのため、回答できませんでした。管理者が空き容量を確保する必要があります。", es: "El almacenamiento del servidor está lleno, así que la IA no pudo responder. Un administrador tiene que liberar espacio." },
+  // the Linux launcher refused the turn because the engine's firewall is not in effect (a flushed nftables table, or a
+  // status file the firewall timer stopped writing; QA TC-310): the AI must not run without it. The timer puts the
+  // rules back within 30 seconds, so a try a minute later usually works.
+  network_protection_off: { code: 'engine_unavailable', ko: "서버의 네트워크 보호가 꺼져 있어서 지금은 AI가 답할 수 없어요. 1분 뒤 다시 해 보고, 계속되면 관리자에게 트리나 서버를 확인해 달라고 해 주세요.", en: "The server's network protection is off, so the AI can't answer right now. Try again in a minute; if it keeps happening, ask your admin to check Trina's server.", id: "Perlindungan jaringan server sedang mati, jadi AI tidak bisa menjawab sekarang. Coba lagi dalam semenit; jika terus terjadi, minta admin Anda memeriksa server Trina.", ja: "サーバーのネットワーク保護がオフのため、今はAIが回答できません。1分ほどしてからもう一度お試しください。続く場合は、管理者にトリナのサーバーを確認してもらってください。", es: "La protección de red del servidor está desactivada, así que la IA no puede responder ahora. Vuelva a intentarlo en un minuto; si persiste, pida a su administrador que revise el servidor de Trina." },
 } as const satisfies Record<string, { code: ErrorCode } & Record<Locale, string>>
 
 /** Any request that failed because the server's disk is full (ENOSPC, SQLite full: server/src/app.ts), sign-in and

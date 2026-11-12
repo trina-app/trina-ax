@@ -9,6 +9,8 @@ describe('adminParent', () => {
     expect(adminParent('/admin/members')).toBe('/admin')
     expect(adminParent('/admin/members?member=bob')).toBe('/admin')
     expect(adminParent('/admin/settings/general')).toBe('/admin/settings')
+    expect(adminParent('/admin/system/backups')).toBe('/admin/system')
+    expect(adminParent('/admin/system')).toBe('/admin')
   })
   test('an item\'s own page under its page', () => {
     expect(adminParent('/admin/connectors/gmail')).toBe('/admin/connectors')
@@ -35,6 +37,7 @@ test('adminChain: the pages above, outermost first, without 나', () => {
   expect(adminChain('/admin')).toEqual([])
   expect(adminChain('/admin/usage')).toEqual(['/admin'])
   expect(adminChain('/admin/connectors/gmail')).toEqual(['/admin', '/admin/connectors'])
+  expect(adminChain('/admin/system/storage')).toEqual(['/admin', '/admin/system'])
   expect(adminChain('/admin/folders?folder=a&rules=a')).toEqual(['/admin', '/admin/folders', '/admin/folders?folder=a'])
 })
 
@@ -42,6 +45,8 @@ test('isAdminDetail: a page under another page of its section', () => {
   expect(isAdminDetail('/admin/connectors/gmail')).toBe(true)
   expect(isAdminDetail('/admin/folders?folder=a')).toBe(true)
   expect(isAdminDetail('/admin/settings/general')).toBe(true)
+  expect(isAdminDetail('/admin/system/health')).toBe(true)
+  expect(isAdminDetail('/admin/system')).toBe(false)
   expect(isAdminDetail('/admin/connectors')).toBe(false)
   expect(isAdminDetail('/admin')).toBe(false)
 })

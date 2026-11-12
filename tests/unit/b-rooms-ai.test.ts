@@ -80,6 +80,15 @@ async function ask(user: string, roomId: string, body: string): Promise<{ q: Roo
 }
 const messages = async (user: string, roomId: string) => (await h.api(user).call(API.listRoomMessages, { params: { id: roomId }, query: {} })).items
 const answerTo = async (user: string, roomId: string, q: RoomMessage) => (await messages(user, roomId)).find((m) => m.authorKind === 'ai' && m.replyTo?.id === q.id)
+/** post my private preview to the room: the server's "confirm" first when it used material someone cannot see, then
+ * the same call with its key (the app's confirm card); the message */
+async function post(user: string, roomId: string, messageId: string): Promise<RoomMessage> {
+  const r = await h.api(user).call(API.shareRoomMessage, { params: { id: roomId, messageId }, body: {} })
+  if (r.status === 'sent') return r.message
+  const again = await h.api(user).call(API.shareRoomMessage, { params: { id: roomId, messageId }, body: { confirmKey: r.confirmKey } })
+  if (again.status !== 'sent') throw new Error('asked again after the key')
+  return again.message
+}
 const sessionOf = (roomId: string, user: string) => h.ctx.db.query('SELECT id, session_tainted, room_outside FROM chats WHERE room_id = ? AND user_id = ?').get(roomId, user) as { id: string; session_tainted: number; room_outside: number } | null
 
 describe('calling the AI', () => {
@@ -190,7 +199,7 @@ describe('the AI in a room', () => {
     expect(ws.alice!.frames.some((f) => f.type === 'room.message.updated' && f.data.message.id === q.id && !!f.data.message.answeredPrivately)).toBe(false)
     // once alice posts it, the line goes: the answer is there
     const preview = (await answerTo('alice', roomId, q))!
-    await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+    await post('alice', roomId, preview.id)
     const after = await messages('erin', roomId)
     expect(after.find((m) => m.id === q.id)?.answeredPrivately).toBeUndefined()
     expect(after.some((m) => m.id === preview.id && m.visibility === 'room')).toBe(true)
@@ -217,7 +226,7 @@ describe('the AI in a room', () => {
     // only alice may post it: bob (in the DM) and erin (not) get 404
     expect((await h.req('bob', `/api/rooms/${dm.id}/messages/${preview.id}/share`, { method: 'POST' })).status).toBe(404)
     expect((await h.req('erin', `/api/rooms/${dm.id}/messages/${preview.id}/share`, { method: 'POST' })).status).toBe(404)
-    const shared = await h.api('alice').call(API.shareRoomMessage, { params: { id: dm.id, messageId: preview.id } })
+    const shared = await post('alice', dm.id, preview.id)
     expect(shared).toMatchObject({ id: preview.id, visibility: 'room', sourceCount: 0 })
     expect(shared.seq).toBeGreaterThan(preview.seq)
     expect(shared.preview).toBeUndefined()
@@ -226,7 +235,7 @@ describe('the AI in a room', () => {
     expect(await h.api('bob').call(API.roomMessageSources, { params: { id: dm.id, messageId: preview.id } })).toEqual({ files: [], unavailable: 0 })
     expect(h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'room.ai_share' AND target = ?").get(preview.id)).toMatchObject({ actor_id: 'alice', detail: expect.stringContaining('"sourcesLeftOut":1') })
     // posting again changes nothing
-    expect((await h.api('alice').call(API.shareRoomMessage, { params: { id: dm.id, messageId: preview.id } })).seq).toBe(shared.seq)
+    expect((await post('alice', dm.id, preview.id)).seq).toBe(shared.seq)
   })
 
   test('a private preview brings a room its asker hid back, for them only (docs/DECISIONS.md "대화 숨기기")', async () => {
@@ -595,7 +604,7 @@ describe('putting AI answers away', () => {
     expect(r.status).toBe(409)
     expect((await r.json()).error.params.reason).toBe('room_ai_reasons_changed')
     expect((await answerTo('alice', roomId, q))?.preview).toMatchObject({ folders: ['projects/falcon'], joinedLater: ['Bob Lee'] })
-    const shared = await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+    const shared = await post('alice', roomId, preview.id)
     expect(shared.visibility).toBe('room')
   })
 })
@@ -850,7 +859,7 @@ describe('the AI in a thread', () => {
     expect(await answerIn('bob', roomId, root.id, q)).toBeUndefined()
     // nothing of the answer reached him (the question itself is his to see)
     expect(ws.bob!.frames.some((f) => (f.type === 'room.message' || f.type === 'room.message.updated') && f.data.message.id === mine.id)).toBe(false)
-    const shared = await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: mine.id } })
+    const shared = await post('alice', roomId, mine.id)
     expect(shared).toMatchObject({ visibility: 'room', threadRootId: root.id, sourceCount: 0 })
     expect((await messages('bob', roomId)).some((m) => m.id === mine.id)).toBe(false)
     expect((await answerIn('bob', roomId, root.id, q))?.id).toBe(mine.id)
@@ -1222,7 +1231,7 @@ describe('a preview from before each question kept its own scope', () => {
     // a later question with other reasons (alice's own folder) is the session's scope now
     const two = await ask('alice', roomId, `@트리나 todo\n${fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'todo' })}`)
     expect((await answerTo('alice', roomId, two.q))?.preview).toMatchObject({ personal: true, folders: [] })
-    const shared = await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+    const shared = await post('alice', roomId, preview.id)
     expect(shared.visibility).toBe('room')
     expect((h.ctx.db.query('SELECT decision FROM room_ai_turns WHERE answer_id = ?').get(preview.id) as { decision: string }).decision).toBe(stored)
     // no scope and no reasons kept: it cannot be checked, so it is not posted; the person is told to ask again
@@ -1359,7 +1368,7 @@ describe('what makes an answer private: what some member could not see, per ques
       const a = await ask('alice', roomId, `@트리나 brief?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { say: `[brief](/files/view?path=${encodeURIComponent(BRIEF)}) says Autumn Upgrade` })}`)
       const preview = (await answerTo('alice', roomId, a.q))!
       expect(preview.visibility).toBe('private')
-      await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+      await post('alice', roomId, preview.id)
       // bob's AI tries that file (refused), lists the top of the team folder (members may list it, not read it) and
       // searches everything bob may read: all of it is what every member sees
       const one = await ask('bob', roomId, `@트리나 what is the 2027 budget?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { tool: 'list', args: { path: '.' } }, { tool: 'grep', args: { pattern: 'NOAH-NOPE-zzz' } }, { say: 'I could not find it in the files you can open.' })}`)
@@ -1379,7 +1388,7 @@ describe('what makes an answer private: what some member could not see, per ques
       expect((await answerTo('erin', roomId, two.q))?.visibility).toBe('room')
       // the private preview, posted later, is decided on what its own question used
       const p = (await answerTo('bob', roomId, mine.q))!
-      expect((await h.api('bob').call(API.shareRoomMessage, { params: { id: roomId, messageId: p.id } })).visibility).toBe('room')
+      expect((await post('bob', roomId, p.id)).visibility).toBe('room')
     }) } finally { for (const id of joined) h.ctx.db.query('DELETE FROM folder_rules WHERE id = ?').run(id) }
   })
 
@@ -1399,5 +1408,92 @@ describe('what makes an answer private: what some member could not see, per ques
     const groups = await ask('alice', roomId, `@트리나 groups?\n${fake({ tool: 'list', args: { path: 'groups' } }, { say: 'marketing' })}`)
     expect(await answerTo('bob', roomId, groups.q)).toBeUndefined()
     expect((await answerTo('alice', roomId, groups.q))?.preview).toMatchObject({ personal: false, outside: false })
+  })
+})
+
+// ---------------- QA TC-329: posting a private preview asks first, as "대화방에 보내기" does ----------------
+describe('posting a private preview asks first when it used what some people here cannot see', () => {
+  const shareOnce = (user: string, roomId: string, messageId: string, confirmKey?: string) =>
+    h.api(user).call(API.shareRoomMessage, { params: { id: roomId, messageId }, body: confirmKey ? { confirmKey } : {} })
+  /** what the AI said that this person sees (the question repeats the fake engine's words, so it is left out) */
+  const aiSays = async (user: string, roomId: string) => JSON.stringify((await messages(user, roomId)).filter((m) => m.authorKind === 'ai').map((m) => m.body))
+  const audits = (id: string) => h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'room.ai_share' AND target = ?").all(id) as { detail: string }[]
+
+  test('an answer from files erin cannot open: "confirm" with how many and where (never who), nothing posted; with the key it posts', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const { q } = await ask('alice', roomId, `@트리나 falcon numbers?\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { say: 'FALCON-PRIVATE-NUMBERS 42' })}`)
+    const preview = (await answerTo('alice', roomId, q))!
+    expect(preview).toMatchObject({ visibility: 'private', preview: { folders: ['projects/falcon'] } })
+    const ask1 = await shareOnce('alice', roomId, preview.id)
+    expect(ask1).toMatchObject({ status: 'confirm', people: 1, provenance: { people: 1, places: [{ kind: 'folder', path: 'projects/falcon' }], otherPlaces: false } })
+    if (ask1.status !== 'confirm') throw new Error('expected a confirm')
+    // the source file erin cannot open: named to alice (she may open it), with the count
+    expect(ask1.files).toEqual([{ name: 'plan.md', path: 'projects/falcon/plan.md', missing: false, attach: 'no', unable: 1 }])
+    expect(JSON.stringify(ask1)).not.toMatch(/erin|Erin/)
+    // nothing went: erin still sees no answer, and nothing is audited
+    expect(await aiSays('erin', roomId)).not.toContain('FALCON-PRIVATE-NUMBERS')
+    expect(audits(preview.id)).toHaveLength(0)
+    // a key that is not the one shown: asked again, nothing posted
+    expect(await shareOnce('alice', roomId, preview.id, 'not-the-key')).toMatchObject({ status: 'confirm', reason: 'changed', confirmKey: ask1.confirmKey })
+    expect(await aiSays('erin', roomId)).not.toContain('FALCON-PRIVATE-NUMBERS')
+    // yes, with the key: it is the room's now, its source erin cannot open left out; audited as confirmed
+    const sent = await shareOnce('alice', roomId, preview.id, ask1.confirmKey)
+    expect(sent).toMatchObject({ status: 'sent', message: { id: preview.id, visibility: 'room', sourceCount: 0 } })
+    expect((await messages('erin', roomId)).find((m) => m.id === preview.id)?.body).toContain('FALCON-PRIVATE-NUMBERS')
+    const a = audits(preview.id)
+    expect(a).toHaveLength(1)
+    expect(JSON.parse(a[0]!.detail)).toMatchObject({ confirmed: true, people: 1, sourcesLeftOut: 1 })
+    expect(a[0]!.detail).not.toContain('erin')
+    // posted: the same call again gives the message, nothing asked
+    expect(await shareOnce('alice', roomId, preview.id)).toMatchObject({ status: 'sent', message: { id: preview.id } })
+  })
+
+  test('an answer that used nothing some member cannot see (the web alone) posts at once, as before', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const { q } = await ask('alice', roomId, `@트리나 news?\n${fake({ webSearch: { query: 'q4 upgrade news', hits: [{ title: 'News', url: 'https://news.example/a' }] } }, { say: 'WEB-ONLY-ANSWER' })}`)
+    const preview = (await answerTo('alice', roomId, q))!
+    expect(preview).toMatchObject({ visibility: 'private', preview: { outside: true, folders: [], personal: false } })
+    const sent = await shareOnce('alice', roomId, preview.id)
+    expect(sent).toMatchObject({ status: 'sent', message: { id: preview.id, visibility: 'room' } })
+    expect((await messages('erin', roomId)).find((m) => m.id === preview.id)?.body).toContain('WEB-ONLY-ANSWER')
+    const a = audits(preview.id)
+    expect(a).toHaveLength(1)
+    expect(JSON.parse(a[0]!.detail)).not.toHaveProperty('confirmed')
+  })
+
+  test('the key of one preview never posts another', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const one = await ask('alice', roomId, `@트리나 falcon?\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { say: 'FIRST-PRIVATE' })}`)
+    const two = await ask('alice', roomId, `@트리나 falcon again?\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { say: 'SECOND-PRIVATE' })}`)
+    const p1 = (await answerTo('alice', roomId, one.q))!, p2 = (await answerTo('alice', roomId, two.q))!
+    const k1 = await shareOnce('alice', roomId, p1.id)
+    const k2 = await shareOnce('alice', roomId, p2.id)
+    if (k1.status !== 'confirm' || k2.status !== 'confirm') throw new Error('expected confirms')
+    // the same reasons, the same people: still another key, and the first one's key asks again for the second
+    expect(k1.confirmKey).not.toBe(k2.confirmKey)
+    expect(await shareOnce('alice', roomId, p2.id, k1.confirmKey)).toMatchObject({ status: 'confirm', reason: 'changed', confirmKey: k2.confirmKey })
+    const erins = await aiSays('erin', roomId)
+    expect(erins).not.toContain('SECOND-PRIVATE')
+    expect(erins).not.toContain('FIRST-PRIVATE')
+    // nobody else can use alice's key either: her preview is not theirs (404)
+    expect((await h.req('erin', `/api/rooms/${roomId}/messages/${p1.id}/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmKey: k1.confirmKey }) })).status).toBe(404)
+  })
+
+  test('someone who joined after the key was shown is asked about first', async () => {
+    // (erin starts it: alice's group chats this hour are spent by the tests above)
+    const roomId = await groupChat('erin', ['alice', 'carol'])
+    const { q } = await ask('alice', roomId, `@트리나 falcon?\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { say: 'GROUP-PRIVATE' })}`)
+    const p = (await answerTo('alice', roomId, q))!
+    const k = await shareOnce('alice', roomId, p.id)
+    if (k.status !== 'confirm') throw new Error('expected a confirm')
+    const before = k.people
+    await invite('erin', roomId, ['bob'])
+    // the reasons changed (bob joined after the question): told first (409), the preview updated
+    const r = await h.req('alice', `/api/rooms/${roomId}/messages/${p.id}/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmKey: k.confirmKey }) })
+    expect(r.status).toBe(409)
+    // asked again: now two people would newly see it, and the old key no longer fits
+    const k2 = await shareOnce('alice', roomId, p.id, k.confirmKey)
+    expect(k2).toMatchObject({ status: 'confirm', reason: 'changed', people: before + 1 })
+    expect(await aiSays('bob', roomId)).not.toContain('GROUP-PRIVATE')
   })
 })

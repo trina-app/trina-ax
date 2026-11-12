@@ -138,6 +138,10 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: the run did not start because its owner no longer sees the task's project (its folder's
    * access was taken away, or it is in the trash); older servers omit it */
   projectGone: z.literal(true).optional(),
+  /** with projectGone: the project is still there and the person (the owner or an admin) may add themselves; only its
+   * members can use it since "Project contents only for members". The task is paused and starts again once they are a
+   * member (docs/DECISIONS.md "Projects from before the update: one card, Add me to these"); older servers omit it */
+  membersOnly: z.literal(true).optional(),
   /** 'schedule.failure' only: the task's save folder lapsed (moved, renamed, deleted, its permissions changed, or the
    * person's write access gone); its runs save in the person's own folder until they check it again on the Scheduled
    * page; older servers omit it */
@@ -201,23 +205,22 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
-  /** 'dev_env.job' and 'dev_env.box' only, while the person can read the project folder, and 'dev_env.box' for an admin too.
-   * The text stays in the job's own row, not in the inbox. exitCode null: no exit code is known; note says why, in
-   * English, from boxd. reason: why the job ended (srt runner: timeout, oom, stopped, disk, setting, expired, lost; older
-   * rows and the box omit it). stopCode: why the box stopped. A job of the srt runner from a chat with no project has
-   * projectId and projectName ''. */
+  /** 'dev_env.job' only, while the person can see the project. The text stays in the job's own row, not in the inbox.
+   * exitCode null: no exit code is known; note says why, in English. reason: why the job ended (timeout, oom, stopped,
+   * disk, setting, expired, lost; older rows omit it). A job from a chat with no project has projectId and projectName
+   * ''. 'dev_env.box' (a stop of the removed box runner) never has it. */
   devEnv: z.object({
     projectId: z.string(), projectName: z.string(),
     job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string(), tail: z.string(), reason: z.string().optional() }).optional(),
-    stopCode: z.string().optional(),
   }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
 /** GET /api/notifications: `unreadCount` counts every unread row; `roomUnreadCount` is its part that is conversation rows
- * (mentions, replies in threads I follow), which the rooms list counts too (a phone's 나 tab leaves them to 대화). */
+ * (mentions, replies in threads I follow) of rooms I did not mute, which the rooms list counts too (a phone's 나 tab
+ * leaves them to 대화). `only=rooms`: the conversation rows alone (a phone's 멘션·스레드), the counts the same. */
 export const NOTIFICATIONS = {
   getNotification: endpoint({ method: 'GET', path: '/api/notifications/:id', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Read an own notification without marking read; current-access filtered and never cached.' }),
-  listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative(), roomUnreadCount: z.number().int().nonnegative().optional() }), summary: 'Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it.' }),
+  listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional(), only: z.enum(['rooms']).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative(), roomUnreadCount: z.number().int().nonnegative().optional() }), summary: 'Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it.' }),
   markNotificationRead: endpoint({ method: 'POST', path: '/api/notifications/:id/read', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Mark an own notification read.' }),
   getNotificationPreferences: endpoint({ method: 'GET', path: '/api/notification-preferences', auth: 'user', owner: 'B', response: NotificationPreferences, summary: 'Own inbox event preferences. OS push opt-in is separate.' }),
   updateNotificationPreferences: endpoint({ method: 'PATCH', path: '/api/notification-preferences', auth: 'user', owner: 'B', body: NotificationPreferences.partial().strict(), response: NotificationPreferences, summary: 'Change own inbox event preferences and room notification settings (room default, thread replies, quiet hours).' }),

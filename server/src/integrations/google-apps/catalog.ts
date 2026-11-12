@@ -15,13 +15,9 @@ import type { RemoteTool } from '../connections/mcp'
 export const APP_IDS: readonly GoogleAppId[] = ['gmail', 'calendar', 'docs', 'sheets']
 export const isAppId = (v: unknown): v is GoogleAppId => typeof v === 'string' && (APP_IDS as readonly string[]).includes(v)
 
-/** settings key: members may connect their own account for this app (Admin › Connectors; absent: on, decision 5) */
-export const membersSettingKey = (app: GoogleAppId) => `integrations.googleApps.${app}.members`
-/** May members connect (and use) their own account for this app? On unless an admin turned it off. */
-export function membersOn(db: Database, app: GoogleAppId): boolean {
-  const row = db.query('SELECT value FROM settings WHERE key = ?').get(membersSettingKey(app)) as { value: string } | null
-  return row?.value !== 'false'
-}
+// Members connect their own account for an app once it is set up; there is no team switch (docs/DECISIONS.md "No
+// members' switch for connectors", 2026-11-12). A stored "off" (`integrations.googleApps.<app>.members`) from before is
+// ignored.
 
 /** what people and the AI call each app */
 export const APP_NAMES: Record<GoogleAppId, string> = { gmail: 'Gmail', calendar: 'Google Calendar', docs: 'Google Docs', sheets: 'Google Sheets' }

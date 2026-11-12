@@ -94,7 +94,13 @@ export class TurnRegistry {
   }
   /** end of turn: token is useless from now on */
   revoke(turnId: string, status: 'done' | 'error' | 'stopped' | 'interrupted' = 'done', err?: string) {
-    const t = this.byId.get(turnId); if (!t) return
+    if (!this.release(turnId)) return
+    this.db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(status, new Date().toISOString(), err ?? null, turnId)
+  }
+  /** The token is useless from now on, the turn's row is left as it is (a turn that never ran goes back to the queue:
+   * chat/turn.ts endBackInQueue). False: no such live turn. */
+  release(turnId: string): boolean {
+    const t = this.byId.get(turnId); if (!t) return false
     t.revoked = true; this.byHash.delete(t.tokenHash); this.byId.delete(turnId)
     if (t.stopReason) {
       this.endedStops.set(turnId, t.stopReason)
@@ -102,7 +108,7 @@ export class TurnRegistry {
     }
     t.abort.abort()
     t.waiters.splice(0).forEach((f) => f())
-    this.db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(status, new Date().toISOString(), err ?? null, turnId)
+    return true
   }
   /** Validate a bridge connection. Returns the turn or a reason. */
   async authenticate(token: unknown, peer: Peer, waitMs = 3000, seen?: (t: Turn) => void): Promise<Turn | string> {

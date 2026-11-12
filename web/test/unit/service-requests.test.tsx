@@ -10,7 +10,8 @@ import { InboxNotification, uuidv7, type GoogleAppId, type GoogleAppView } from 
 import { DICTS, translate } from '../../src/i18n'
 import { noticeLink, noticeText, serviceSetupLink } from '../../src/components/settings/Notifications'
 import { GoogleAppDetail, type AskProps, type GoogleAppsState } from '../../src/components/integrations/GoogleAppConnector'
-import { askable } from '../../src/components/integrations/AskAdmin'
+import { askable, AskAdminAction, ListedAsk, type ServiceAsks } from '../../src/components/integrations/AskAdmin'
+import { MemberAsks } from '../../src/components/integrations/MemberAsks'
 import { GOOGLE_APP_IDS, MOCK_GOOGLE_TOOLS } from '../mock/googleApps'
 
 const en = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('en', k, p)
@@ -44,9 +45,59 @@ describe('the notices', () => {
     expect(noticeLink(notice({ eventType: 'service.ready', code: 'service.ready', sourceId: uuidv7(), serviceRequest: { service: 'calendar' } }))).toEqual({ to: '/connectors/calendar', testId: 'notification-service-ready-link' })
     for (const s of ['gmail', 'calendar', 'docs', 'sheets'] as const) expect(serviceSetupLink(s)).toBe(`/admin/connectors?app=${s}`)
   })
-  test('only the five built-in apps can be asked for', () => {
-    expect(['google-drive', 'gmail', 'calendar', 'docs', 'sheets'].map(askable)).toEqual(['google-drive', 'gmail', 'calendar', 'docs', 'sheets'])
-    for (const id of ['notion', 'linear', 'mcp', '']) expect(askable(id)).toBeNull()
+  test('the five built-in apps and every listed service can be asked for (QA TC-133); nothing else', () => {
+    expect(['google-drive', 'gmail', 'calendar', 'docs', 'sheets', 'notion', 'linear'].map(askable)).toEqual(['google-drive', 'gmail', 'calendar', 'docs', 'sheets', 'notion', 'linear'])
+    for (const id of ['slack', 'mcp', 'Notion', '']) expect(askable(id)).toBeNull()
+  })
+  test('a listed service: its name in both notices, and the admin\'s opens its page in Admin › Connectors', () => {
+    expect(text(notice({ sourceId: 'notion', serviceRequest: { service: 'notion', name: 'Alice Kim', others: 0, open: true } }))).toBe('Alice Kim asked to add Notion')
+    expect(text(notice({ eventType: 'service.ready', code: 'service.ready', sourceId: uuidv7(), serviceRequest: { service: 'linear' } }))).toBe('Linear is ready. You can connect it now.')
+    expect(noticeLink(notice({ sourceId: 'notion', serviceRequest: { service: 'notion', name: 'A', others: 0, open: true } }))).toEqual({ to: '/admin/connectors/notion', testId: 'notification-service-request-link' })
+    expect(serviceSetupLink('figma')).toBe('/admin/connectors/figma')
+  })
+})
+
+describe('a listed service\'s page for a member (QA TC-133)', () => {
+  const asks = (state: 'none' | 'sent' | 'already', error: string | null = null) => ({
+    ready: true, open: state === 'none' ? 0 : 1, stateOf: () => state, ask: async () => {}, withdraw: async () => {}, busy: null, error: error ? { service: 'notion' as const, text: error } : null, reload: async () => 0,
+  }) as unknown as ServiceAsks
+  const listed = (a: ServiceAsks, inline: boolean) => renderToStaticMarkup(<ListedAsk asks={a} service="notion" name="Notion" inline={inline} />)
+  test('one who may connect their own: Connect stays, the ask for the team\'s is a line under it', () => {
+    const out = listed(asks('none'), true)
+    expect(out).toContain(en('serviceRequest.teamLine', { name: 'Notion' }))
+    expect(out).toContain('data-testid="service-ask"')
+    expect(out).not.toContain('service-asked-note')
+  })
+  test('one who may not: the ask is the page\'s action; after it, when they will hear', () => {
+    expect(listed(asks('none'), false)).not.toContain('service-ask"')
+    const sent = listed(asks('sent'), false)
+    expect(sent).toContain('data-testid="service-asked-note"')
+    expect(sent).toContain(en('serviceRequest.waiting', { name: 'Notion' }).replace("'", '&#x27;'))
+    expect(listed(asks('none', 'nope'), false)).toContain('nope')
+  })
+  test('once asked: the status with "Cancel request" to take it back', () => {
+    const out = renderToStaticMarkup(<AskAdminAction state="sent" busy={false} onAsk={() => {}} onWithdraw={() => {}} />)
+    expect(out).toContain(en('serviceRequest.sent'))
+    expect(out).toContain('data-testid="service-withdraw"')
+    expect(out).toContain(en('serviceRequest.withdraw'))
+    // no withdraw offered: the status only
+    expect(renderToStaticMarkup(<AskAdminAction state="already" busy={false} onAsk={() => {}} />)).not.toContain('service-withdraw')
+  })
+})
+
+describe('Admin › Connectors: what members asked for', () => {
+  const page = (items: { service: string; askers: { id: string; name: string }[] }[]) => renderToStaticMarkup(
+    <MemberAsks asks={{ items: items.map((x) => ({ ...x, askedAt: '2026-11-12T00:00:00.000Z' })), setItems: () => {}, reload: async () => {} } as never} onAdd={() => {}} />)
+  test('nothing when nobody asked; one line per service with who asked, Add and Dismiss', () => {
+    expect(page([])).toBe('')
+    const out = page([{ service: 'notion', askers: [{ id: 'e', name: 'Erin Yoo' }, { id: 'a', name: 'Alice Kim' }] }, { service: 'gmail', askers: [{ id: 'a', name: 'Alice Kim' }] }])
+    expect(out).toContain(en('serviceRequest.admin.title'))
+    expect(out).toContain('Notion')
+    expect(out).toContain('Gmail')
+    expect(out).toContain(en('serviceRequest.admin.more', { name: 'Erin Yoo', n: 1 }))
+    expect(out).toContain(en('serviceRequest.admin.one', { name: 'Alice Kim' }))
+    expect(out.split('data-testid="member-ask-add"').length - 1).toBe(2)
+    expect(out.split('data-testid="member-ask-dismiss"').length - 1).toBe(2)
   })
 })
 
@@ -54,7 +105,7 @@ describe('a Google app\'s page for a member, not set up', () => {
   const flow = { flow: null, inProgress: false, busy: false, error: false, authorizationUrl: null, start: async () => {}, cancel: async () => {}, complete: async () => {}, setError: () => {} }
   const g = (apps: GoogleAppView[]) => ({ apps, load: async () => {}, busy: null, setPolicy: async () => {}, disconnect: async () => {}, flows: Object.fromEntries(GOOGLE_APP_IDS.map((id) => [id, flow])) as unknown as Record<GoogleAppId, GoogleAppsState['flows']['gmail']> }) as unknown as GoogleAppsState
   const v: GoogleAppView = { id: 'gmail', available: false, reason: 'not_set_up', status: 'disconnected', account: null, writePolicy: 'ask', serviceDown: false, tools: MOCK_GOOGLE_TOOLS.gmail }
-  const page = (ask?: AskProps) => renderToStaticMarkup(<MemoryRouter><GoogleAppDetail v={v} g={g([v])} onChat={() => {}} ask={ask} /></MemoryRouter>)
+  const page = (ask?: AskProps) => renderToStaticMarkup(<MemoryRouter><GoogleAppDetail v={v} g={g([v])} ask={ask} /></MemoryRouter>)
   const ask = (state: AskProps['state'], error: string | null = null): AskProps => ({ state, busy: false, onAsk: () => {}, error })
 
   test('the button takes the place of the Connect that cannot work and of the "not set up" line', () => {

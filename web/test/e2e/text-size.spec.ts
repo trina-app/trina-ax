@@ -4,6 +4,9 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { ko } from '../../src/i18n/ko'
+import { DICTS } from '../../src/i18n'
+import { PRODUCT } from '@mycel/shared'
+import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 
 const rootSize = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).fontSize)
@@ -132,7 +135,7 @@ test.describe('on a 390px phone', () => {
       expect(await sideways(page), path).toEqual([])
     }
     // the phone's tabs keep their names whole
-    for (const tab of ['tab-ai', 'tab-chats', 'tab-files', 'tab-me']) {
+    for (const tab of ['tab-ai', 'tab-chats', 'tab-projects', 'tab-me']) {
       const fits = await page.getByTestId(tab).evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().right <= window.innerWidth)
       expect(fits, tab).toBe(true)
     }
@@ -142,4 +145,44 @@ test.describe('on a 390px phone', () => {
     await expect(page.getByRole('dialog', { name: ko['sidebar.label'] })).toBeVisible()
     expect(await sideways(page), 'drawer').toEqual([])
   })
+})
+
+// the tab bar's labels in the languages with the longest words ("Proyectos", "プロジェクト"; QA TC-255), at the largest
+// step (140 %) on a 360 px phone: each on one line inside its tab (cut with "…" if it must be), the whole word still
+// the tab's name, nothing past the screen's edge
+test.describe('the tab labels on a 360px phone at 140 %', () => {
+  test.use({ viewport: { width: 360, height: 780 }, hasTouch: true, isMobile: true })
+  for (const locale of ['ja', 'es'] as const) {
+    test(`${locale}: four labels, each on one line inside its tab`, async ({ page }) => {
+      const t = DICTS[locale]
+      await reset(page, { teamLocale: locale, usersFollowTeam: true })
+      await page.addInitScript(() => localStorage.setItem('mycel.textSize', 'largest'))
+      await signIn(page)
+      await page.goto('/projects')
+      await expect(page.getByTestId('projects-team-folder-row')).toBeVisible()
+      expect(await rootSize(page)).toBe('22.4px')
+      const tabs = page.getByTestId('bottom-tabs')
+      await expect(tabs.getByRole('link')).toHaveCount(4)
+      for (const [id, word] of [['tab-ai', PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName], ['tab-chats', t['tabs.chats']], ['tab-projects', t['tabs.projects']], ['tab-me', t['tabs.me']]] as const) {
+        const link = tabs.getByTestId(id)
+        // the whole word is the tab's name, however much of it shows
+        await expect(link).toHaveAccessibleName(new RegExp(word))
+        const m = await link.getByTestId('bottom-tab-label').evaluate((el) => {
+          const r = el.getBoundingClientRect()
+          const tab = el.closest('a')!.getBoundingClientRect()
+          const s = getComputedStyle(el)
+          return { lines: Math.round(r.height / parseFloat(s.lineHeight)), wrap: s.whiteSpace, left: r.left, right: r.right, tabLeft: tab.left, tabRight: tab.right, W: window.innerWidth }
+        })
+        expect(m.lines, `${locale} ${id}`).toBe(1)
+        expect(m.wrap).toBe('nowrap')
+        expect(m.left, `${locale} ${id}`).toBeGreaterThanOrEqual(m.tabLeft - 0.5)
+        expect(m.right, `${locale} ${id}`).toBeLessThanOrEqual(m.tabRight + 0.5)
+        expect(m.tabRight).toBeLessThanOrEqual(m.W + 0.5)
+      }
+      // the four tabs share the bar evenly (a long word does not widen its tab)
+      const widths = await tabs.getByRole('link').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width)))
+      expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+    })
+  }
 })

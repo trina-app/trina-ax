@@ -93,6 +93,14 @@ die() { echo "install: $*" >&2; exit 1; }
 say() { echo "install: $*"; }
 warn() { WARNINGS+=("$*"); echo "install: warning: $*" >&2; }
 val() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
+# reader_level <version folder>: the highest `-- min_compatible_reader: N` in the first lines of its migrations (1 when
+# none says more), the level that version reads (server/src/system/update.ts bundleReaderLevel)
+reader_level() {
+  local l
+  l=$(awk 'FNR <= 10 && /^--[ \t]*min_compatible_reader:[ \t]*[0-9]+[ \t]*$/ { gsub(/[^0-9]/, ""); if ($0 + 0 > m) m = $0 + 0 } END { print (m > 1 ? m : 1) }' "$1"/server/migrations/*.sql 2>/dev/null)
+  case "$l" in '' | *[!0-9]*) l=1 ;; esac
+  echo "$l"
+}
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) val "$@"; FROM=$2; shift 2 ;;
@@ -249,7 +257,8 @@ if [ "$CMD" = uninstall ]; then
     KEEP_AUTH="$BASE/.codex-auth-kept"
     rm -rf "$KEEP_AUTH"; mv -T "$BASE/agent/codex-auth" "$KEEP_AUTH"
   fi
-  rm -rf "$BASE/app" "$BASE/root" "$BASE/run" "$BASE/run-launcher" "$BASE/agent" "$BASE/status" "$BASE/.install-tmp"
+  rm -rf "$BASE/app" "$BASE/root" "$BASE/run" "$BASE/run-launcher" "$BASE/agent" "$BASE/status" "$BASE/.install-tmp" \
+    "$BASE/.install-stage" "$BASE/.install-root-old" "$BASE/.install-root-old.new" "$BASE/.install-root-failed"
   if [ -n "$KEEP_AUTH" ]; then
     mkdir -m 700 "$BASE/agent"; mv -T "$KEEP_AUTH" "$BASE/agent/codex-auth"
     # root-owned until a reinstall gives it back (no deleted uid owns the login)
@@ -354,8 +363,6 @@ for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account se
   [ -f "$KROOT/$f" ] || die "$KROOT/$f missing (not a Linux kit? bun scripts/build-bundle.ts --os linux)"
 done
 for f in bin/bun bin/pandoc server/src/main.js server/src/admin.js server/src/account.js server/src/office-worker.js native/mycel-gate native/mycel-bridge native/mycel-safeops; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
-# root/mycel-boxd is not in the list above: a repair without --from uses the installed version, and a version from before
-# the kit had mycel-boxd has no such file (every kit from now on has it: build-bundle.ts LINUX_ROOT_NATIVE)
 if [ "$ALLOW_UNSIGNED" = 0 ] && [ ! -f "$BUNDLE/manifest.sig" ]; then die "the kit is not signed (use --allow-unsigned for development builds)"; fi
 
 # ---- 1) system checks (also `check`) ----
@@ -385,7 +392,6 @@ elf_arch() {
   case "$mach" in 3e00) echo amd64 ;; b700) echo arm64 ;; *) echo "elf-$mach" ;; esac
 }
 KIT_ELFS=("$BUNDLE/bin/bun" "$BUNDLE/native/mycel-gate" "$BUNDLE/native/mycel-bridge" "$KROOT/mycel-bootstrap" "$KROOT/mycel-launcher" "$KROOT/mycel-sandbox" "$KROOT/mycel-ctl")
-[ ! -f "$KROOT/mycel-boxd" ] || KIT_ELFS+=("$KROOT/mycel-boxd")
 for f in "${KIT_ELFS[@]}"; do
   a=$(elf_arch "$f")
   [ "$a" = "$ARCH" ] || die "${f#"$FROM"/} is $a, this server is $ARCH: use the $ARCH kit"
@@ -493,6 +499,160 @@ if [ "$CMD" = check ]; then
 fi
 trap 'rm -rf "$KIT_WORK" "$RKIT" "$ITMP"' EXIT
 
+# BEGIN update space and rollback
+# QA TC-339: an update with about 1 GB free stopped both units, ran out of space copying the new version, and exited
+# with the units stopped, root/VERSION at the new version while the old app was current, and a half copy filling the
+# disk. Now: free space is checked before anything stops, the new version is copied while the server still runs, and a
+# failure after the stop puts root's files back and starts the units that ran before.
+# tests/unit/install-linux-space.test.ts runs the text between BEGIN and END.
+STAGE="$BASE/.install-stage"        # root-only (700): the new version, copied while the server runs
+ROOT_OLD="$BASE/.install-root-old"  # root/ as it was before step 7 (hard links: no space), put back by a failure
+PHASE=running WAS_ACTIVE=() DEST_NEW=0 OLD_CURRENT="" UNITS_DONE=0
+dev_of() { stat -c %d "$1" 2>/dev/null; }
+# the nearest folder of PATH that exists (a fresh install has no $BASE yet)
+existing_dir() { local p=$1; while [ ! -d "$p" ]; do p=$(dirname "$p"); done; printf '%s\n' "$p"; }
+kb_of() { local s=0 f; for f in "$@"; do [ -e "$f" ] || continue; s=$(( s + $(du -sk "$f" | cut -f1) )); done; echo "$s"; }
+free_kb() { df -Pk "$(existing_dir "$1")" | awk 'NR==2 {print $4}'; }
+gb() { awk -v k="$1" 'BEGIN { printf "%.1f GB", k / 1048576 }'; }
+# need_space PATH KB: refuse before anything changed when the file system of PATH has less than KB plus a margin free
+SPACE_MARGIN_KB=$(( 512 * 1024 ))
+need_space() {
+  local have need=$(( $2 + SPACE_MARGIN_KB ))
+  have=$(free_kb "$1" 2>/dev/null) || have=""
+  [[ "$have" =~ ^[0-9]+$ ]] || die "cannot read the free space of $1 (df); nothing was changed"
+  [ "$have" -ge "$need" ] && return 0
+  local what="the server keeps running"; [ "$CMD" = install ] && what="nothing was installed"
+  die "not enough free space for $VERSION on the disk of $1: it needs about $(gb "$need") free, it has $(gb "$have"). Nothing was changed and $what. Free some space (old backups in Admin › System › Backups, apt's cache: sudo apt-get clean) and run it again."
+}
+# need_on PATH KB: KB more is written on the file system of PATH (check_space adds them up per file system)
+declare -A NEED_KB=() NEED_AT=()
+need_on() { local d; d=$(dev_of "$(existing_dir "$1")"); NEED_KB[$d]=$(( ${NEED_KB[$d]:-0} + $2 )); NEED_AT[$d]=${NEED_AT[$d]:-$1}; }
+check_space() { local d; for d in "${!NEED_KB[@]}"; do need_space "${NEED_AT[$d]}" "${NEED_KB[$d]}"; done; }
+# space_for_version: what this run writes on each file system (need_on): the version (a fresh copy), root's files (the
+# old ones stay until the end, for a roll-back), engines from another disk or from --engine FILE, and the copy of the
+# database the server makes before it migrates. A half copy an earlier run left (app/versions/<v>.partial) is removed
+# after the stop: it counts as free.
+space_for_version() {
+  local f
+  NEED_KB=() NEED_AT=()
+  need_on "$BASE/app/versions" $(( $(kb_of "$BUNDLE") - $(kb_of "$BASE/app/versions/$VERSION.partial") ))
+  need_on "$BASE" $(( - $(kb_of "$STAGE") ))   # a stage a killed run left: removed before the copy
+  need_on "$BASE/root" "$(kb_of "$KROOT" "$BUNDLE/bin/pandoc" "$BUNDLE/native/mycel-safeops")"
+  for f in "$CLAUDE_FILE" "$CODEX_FILE"; do [ -z "$f" ] || need_on "$BASE/app/engines" "$(kb_of "$f")"; done
+  for f in "${DL_WORK:-/nonexistent}"/engine-*; do
+    [ ! -f "$f" ] || [ "$(dev_of "$f")" = "$(dev_of "$(existing_dir "$BASE/app/engines")")" ] || need_on "$BASE/app/engines" "$(kb_of "$f")"
+  done
+  need_on "$BASE/data" "$(kb_of "$BASE/data/app.db")"
+  # (the copy is made in $STAGE, on the install folder's disk: a second disk for app/ needs it on both)
+  [ "$(dev_of "$(existing_dir "$BASE")")" = "$(dev_of "$(existing_dir "$BASE/app/versions")")" ] || need_on "$BASE" "$(kb_of "$BUNDLE")"
+}
+# drop_stale: what a run that did not finish left on the disk, removed before the copy needs the space (QA TC-339: an
+# installer before this check left app/versions/<v>.partial filling the disk, so every new run ran out of space again).
+# The partial of the version this run installs is never used by the server; links are not followed (rm -rf removes a
+# link itself) and a version folder behind a link is left alone. After the update lock: a `mycel-ctl update` that ran
+# has finished with its own <v>.partial.
+drop_stale() {
+  rm -rf "$STAGE"
+  if [ -d "$BASE/app/versions" ] && [ ! -L "$BASE/app" ] && [ ! -L "$BASE/app/versions" ] && [ -e "$BASE/app/versions/$VERSION.partial" ]; then
+    rm -rf "$BASE/app/versions/$VERSION.partial"
+    say "removed app/versions/$VERSION.partial, left by an earlier run that did not finish"
+  fi
+}
+# refresh_units: a failure after the root files changed and before step 13 put the new units in: the units are rendered
+# from the root files in place, so the new root programs never start from the old units' flags (best effort)
+# shellcheck disable=SC2317  # (called by on_exit, which runs from the EXIT trap)
+refresh_units() {
+  local d f r=1
+  [ "$SYSTEMD" = 1 ] && [ "$UNITS_DONE" = 0 ] && [ -x "$BASE/root/mycel-ctl" ] || return 0
+  d=$(mktemp -d) || return 1
+  if "$BASE/root/mycel-ctl" render-units --base "$BASE" --out "$d" >/dev/null 2>&1; then
+    r=0
+    for f in "$d"/*; do [ -f "$f" ] && install -m 644 "$f" "$UNIT_DIR/$(basename "$f")" && chown root:root "$UNIT_DIR/$(basename "$f")" || r=1; done
+    [ "$r" = 1 ] || systemctl daemon-reload >/dev/null 2>&1 || r=1
+  fi
+  rm -rf "$d"
+  return "$r"
+}
+# The units that run now, so a failure starts exactly these again (an admin's stopped unit stays stopped).
+record_active() {
+  have_systemd || return 0
+  local u
+  for u in "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.timer"; do
+    # (a unit that is still starting counts: seen in a VM, the launcher a moment after an earlier start)
+    case "$(systemctl is-active "$u" 2>/dev/null || true)" in active|activating|reloading) WAS_ACTIVE+=("$u") ;; esac
+  done
+}
+# root/ before step 7 changes it: every file there is replaced by a rename or by `install` (which unlinks first), so
+# hard links keep the old files at no extra space
+# (made under another name and renamed when complete: a copy that stopped half way is never put back)
+keep_root() {
+  rm -rf "$ROOT_OLD" "$ROOT_OLD.new"
+  [ -d "$BASE/root" ] && [ ! -L "$BASE/root" ] || return 0
+  if ! cp -al "$BASE/root" "$ROOT_OLD.new"; then rm -rf "$ROOT_OLD.new"; die "keeping a copy of $BASE/root failed"; fi
+  mv -T "$ROOT_OLD.new" "$ROOT_OLD"
+}
+# The EXIT trap of an install, update or repair. Before the stop, and once the units run again at the end (PHASE=started),
+# it only cleans up. In between, a failure:
+# - before app/current switched (PHASE=stopped): root/ goes back to the copy (root/VERSION too), the new version folder
+#   this run made and the staged copy are removed, and the units that ran start again on the version that ran;
+# - after the switch (PHASE=switched), or once the last steps began without a switch (PHASE=committed: the engine
+#   firewall, config and units are of the new root files): root/ stays new (the new version needs it), units rendered
+#   from it when step 13 had not put them in yet, and the units start again; after a switch the bootstrap goes back to
+#   the previous version by itself when the new one does not start.
+# A second Ctrl-C or a closed SSH session while it puts things back is ignored: it never leaves root/ half swapped.
+# shellcheck disable=SC2317  # (it runs from the EXIT trap)
+on_exit() {
+  local rc=$? u started=()
+  trap '' INT TERM HUP PIPE
+  set +e
+  if [ "$rc" -ne 0 ] && { [ "$PHASE" = stopped ] || [ "$PHASE" = switched ] || [ "$PHASE" = committed ]; }; then
+    local units_note=""
+    [ "$PHASE" = stopped ] || refresh_units || units_note=" (the units could not be rendered from the new root files: run the installer again)"
+    if [ "$PHASE" = stopped ]; then
+      if [ -d "$ROOT_OLD" ]; then
+        rm -rf "$BASE/.install-root-failed"
+        if mv -T "$BASE/root" "$BASE/.install-root-failed" 2>/dev/null && mv -T "$ROOT_OLD" "$BASE/root"; then
+          rm -rf "$BASE/.install-root-failed"
+        else
+          [ -d "$BASE/root" ] || mv -T "$BASE/.install-root-failed" "$BASE/root"
+          echo "install: putting back $BASE/root failed; run the installer again (repair)" >&2
+        fi
+      fi
+      rm -rf "${DEST:-/nonexistent}.partial"
+      if [ "$DEST_NEW" = 1 ] && [ -n "${DEST:-}" ] && [ "$(readlink "$BASE/app/current" 2>/dev/null)" != "versions/$VERSION" ]; then rm -rf "$DEST"; fi
+    fi
+    if have_systemd; then
+      for u in ${WAS_ACTIVE[@]+"${WAS_ACTIVE[@]}"}; do systemctl start "$u" >/dev/null 2>&1 && started+=("$u"); done
+    fi
+    if [ "$PHASE" = stopped ]; then
+      echo "install: the $CMD did not finish (exit $rc). $BASE/root is as it was$([ -n "$OLD_CURRENT" ] && echo " and ${OLD_CURRENT#versions/} is still the app")$([ ${#started[@]} -gt 0 ] && echo "; started again: ${started[*]}"). See the message above, then run it again." >&2
+    else
+      if [ "$PHASE" = switched ]; then
+        echo "install: the $CMD did not finish after the switch to $VERSION (exit $rc)$([ ${#started[@]} -gt 0 ] && echo "; started again: ${started[*]} (the server goes back to ${OLD_CURRENT#versions/} by itself if $VERSION does not start)")$units_note. See the message above." >&2
+      else
+        echo "install: the $CMD did not finish in its last steps (exit $rc): the root files of $VERSION stay$([ ${#started[@]} -gt 0 ] && echo "; started again: ${started[*]}")$units_note. See the message above, then run it again." >&2
+      fi
+    fi
+    [ ${#started[@]} -eq ${#WAS_ACTIVE[@]} ] || echo "install: not every unit started again: sudo systemctl start ${WAS_ACTIVE[*]}" >&2
+  fi
+  rm -rf "$KIT_WORK" "$RKIT" "$ITMP" "${DL_WORK:-}" "$STAGE" "$ROOT_OLD" "$ROOT_OLD.new"
+  exit "$rc"
+}
+# stage_version: the kit's version copied to $STAGE/$VERSION (a root-only folder: the server account cannot reach it
+# while its processes run), owned by the server account, on the disk. Step 9 renames it into app/versions.
+stage_version() {
+  rm -rf "$STAGE"; mkdir -m 700 "$STAGE"; chown root:root "$STAGE"
+  cp -a --no-preserve=ownership "$BUNDLE" "$STAGE/$VERSION" || { rm -rf "$STAGE"; die "copying $VERSION to $STAGE failed (is the disk full?)"; }
+  chown -R "$SRV_USER:$SRV_GRP" "$STAGE/$VERSION"
+  find "$STAGE/$VERSION" -type d -exec chmod 755 {} +
+  chmod -R go-w "$STAGE/$VERSION"
+  # on disk before it gets its name (QA TC-279): after a power loss, a version whose files never reached the disk fails
+  # the bootstrap's check, the server rolls back to the version before, which may not read the migrated DB, and stops.
+  # sync -f: one syncfs of the file system with the new version, not an fsync per file.
+  sync -f "$STAGE/$VERSION" || { rm -rf "$STAGE"; die "writing $VERSION to the disk failed"; }
+}
+# END update space and rollback
+
 # ---- 2b) public address, app connectors and the Google Drive client: checked before anything changes ----
 # (runs on every install / repair / update; the server account still runs here, so its files are read with O_NOFOLLOW,
 # non-blocking, as a regular single-link file of at most 1 MiB, and nothing from them is trusted without a check)
@@ -545,6 +705,10 @@ fs.writeFileSync(e.MYCEL_I_OUT, JSON.stringify(out, null, 2) + "\n", { mode: 0o6
 ' || { rm -f "$KIT_WORK/drive-in.json" "$KIT_WORK/drive-client.json"; die "nothing changed (see the message above)"; }
   rm -f "$KIT_WORK/drive-in.json"
 fi
+
+# ---- 2c) free space for the new version, before packages and downloads use any (QA TC-339; again before the stop) ----
+space_for_version
+check_space
 
 # ---- 3) distribution packages: the list's groups for this system (root/packages.json). The always groups stop the
 # install when they cannot be installed or are below their floor; the default groups (not with --minimal) only warn:
@@ -638,6 +802,14 @@ elif [ "$RESTRICT_USERNS" = 1 ]; then
   say "AppArmor: bwrap may already create user namespaces here (another profile allows it); no profile added"
 fi
 userns_ok || imgwarn "bwrap cannot create a user namespace as an unprivileged account (kernel.unprivileged_userns_clone=0, user.max_user_namespaces=0, a container without nesting, or an AppArmor profile in the way)"
+# every turn gets its own network namespace (QA TC-309): mycel-sandbox needs CAP_SYS_ADMIN + CAP_NET_ADMIN of the
+# turn's user namespace from bwrap. A distribution profile that strips them (e.g. a bwrap-userns-restrict AppArmor
+# profile) would make every turn fail; say so now, in plain words
+netns_ok() { runuser -u nobody -- bwrap --unshare-user --unshare-pid --disable-userns --die-with-parent --cap-drop ALL \
+  --cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN --ro-bind / / --proc /proc --dev /dev unshare -n true >/dev/null 2>&1; }
+if userns_ok && ! netns_ok; then
+  imgwarn "bwrap cannot give an AI turn its own network here (an AppArmor or SELinux policy removes namespace capabilities from bwrap's sandbox); every answer would fail. Allow /usr/bin/bwrap user namespaces without restriction (see /etc/apparmor.d/$ID-bwrap)"
+fi
 # nftables works here (a container needs CAP_NET_ADMIN in its own network namespace)
 { nft add table inet mycel_probe && nft delete table inet mycel_probe; } >/dev/null 2>&1 || imgwarn "nft cannot add a table (needs nf_tables and CAP_NET_ADMIN in this network namespace)"
 if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then
@@ -712,7 +884,10 @@ fi
 # (After the update lock above: a `mycel-ctl update` that runs finishes first and cannot switch these away.)
 # Root-only, on disk (/tmp may be a small tmpfs); removed when the installer ends.
 DL_WORK=$(mktemp -d /var/tmp/mycel-install.XXXXXX)
-trap 'rm -rf "$KIT_WORK" "$RKIT" "$ITMP" "$DL_WORK"' EXIT
+trap on_exit EXIT
+# a signal (Ctrl-C, a closed SSH session) goes through the same trap: the units are never left stopped
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 PY_NOT_READY=" "
 if [ "$LIST_OK" = 1 ]; then
   if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
@@ -763,7 +938,27 @@ for name in claude codex; do
   [ "$(elf_arch "$stage")" = "$ARCH" ] || die "engine $name: the download is not a Linux $ARCH program"
 done
 
+# ---- free space again (the packages and downloads above took some), then the new version copied while the server
+# still runs (QA TC-339). Nothing has stopped yet, so a refusal changes nothing. ----
+drop_stale
+space_for_version
+check_space
+# The copy: in a root-only folder of the install folder (the server account owns app/versions, and its processes still
+# run: root copies and chowns only where they cannot reach), renamed into app/versions after the stop. A first install
+# (no install folder yet) copies after the stop, as before.
+STAGED=0
+if [ -d "$BASE" ] && [ ! -L "$BASE" ] && [ "$(stat -c %u "$BASE")" = 0 ]; then
+  say "copying $VERSION while the server runs"
+  stage_version
+  STAGED=1
+fi
+
 # ---- stop the units and every process of both accounts before touching their folders ----
+# from here on a failure starts the units that run now again (on_exit)
+OLD_CURRENT=$(readlink "$BASE/app/current" 2>/dev/null || true)
+rm -rf "$ROOT_OLD" "$ROOT_OLD.new" "$BASE/.install-root-failed"   # (an earlier run that was killed: never put back a copy from then)
+record_active
+PHASE=stopped
 stop_units
 kill_accounts
 
@@ -806,6 +1001,7 @@ mk "$SRV_USER" "$AGT_GRP" 2750 "$BASE/run/tools"
 # (macOS gives new files the folder's group by itself.)
 mk "$AGT_USER" "$SRV_GRP" 2750 "$BASE/run-launcher"
 mk root root 755 "$BASE/root"
+keep_root
 
 # ---- 7) root-owned files ----
 # root/VERSION names the kit the root programs came from. An older kit (re-run to repair after in-app updates) leaves
@@ -817,73 +1013,50 @@ if [[ "$ROOT_V" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$ ]] && [ "$(kitbun "$ADMIN_
   ROOT_KEEP=1
   warn "the root programs (bootstrap, launcher, sandbox helper, mycel-ctl) stay at $ROOT_V, newer than this kit ($VERSION); to go back, uninstall (the data is kept) and install $VERSION"
 fi
-# BEGIN boxd restart
+# BEGIN box runner retire
 # native/cmd/mycel-ctl/update_test.go runs the text between BEGIN and END.
-BOXD_SOCK=/run/mycel-boxd/boxd.sock
-boxd_sum() { if [ -f "$BASE/root/mycel-boxd" ]; then sha256sum "$BASE/root/mycel-boxd" | cut -d' ' -f1; fi; }
-# Says why boxes do not work, or nothing. The unit is Type=simple, so `systemctl restart` is done when the process starts,
-# and the socket file of the old process stays until boxd ends its checks: ask boxd. boxd takes this request from root.
-boxd_problem() {
-  python3 -I - "$BOXD_SOCK" <<'BOXD_ASK'
-import json, socket, sys, time
-end = time.time() + 30
-while True:
-    try:
-        s = socket.socket(socket.AF_UNIX)
-        s.settimeout(5)
-        s.connect(sys.argv[1])
-        s.sendall(b'{"op":"status"}\n')
-        st = json.loads(s.makefile().readline())
-        if st.get("ev") == "status" and not st.get("available"):
-            print("boxes are not available:", st.get("reason"))
-        break
-    except (OSError, ValueError):
-        if time.time() > end:
-            print("no answer on", sys.argv[1])
-            break
-        time.sleep(0.5)
-BOXD_ASK
+# The box runner of the dev environment is gone (docs/DECISIONS.md "Dev environment: box runner removed, srt only"). The
+# same step as retireBoxRunner in native/cmd/mycel-ctl/update.go: the service of scripts/dev-env/install-trial.sh (up to
+# v0.5.0-beta.1), its drop-in of the team server (only when it names the box socket and not srt: install-srt.sh writes
+# the same file) and root/mycel-boxd go. The team server is stopped here (stop_units) and starts after the
+# daemon-reload below. The box state stays: box folders were mounts of project folders, and a delete through a mount
+# deletes team files (docs/INSTALL-LINUX.md "Removed: the box runner"). Every step is a warning, never a stop.
+box_mounts() { findmnt -rn -o TARGET 2>/dev/null | grep -E "^($BASE/boxd|$BASE/boxd-storage|/var/lib/mycel-boxd|/run/mycel-boxd)(/|\$)" | sort -r || true; }
+retire_box_runner() {
+  local unit="$UNIT_DIR/mycel-boxd.service" dropin="$UNIT_DIR/$ID-server.service.d/dev-env.conf" done=0 p m left=""
+  if [ "$SYSTEMD" = 1 ] && have_systemd && [ -f "$unit" ]; then
+    systemctl disable --now mycel-boxd.service >/dev/null 2>&1 || warn "mycel-boxd.service did not stop"
+    # the boxes run in the box account's own systemd session, not in the service; their mounts are host mounts
+    if id mycel-devbox >/dev/null 2>&1; then
+      runuser -u mycel-devbox -- env XDG_RUNTIME_DIR="/run/user/$(id -u mycel-devbox)" podman rm -af -t 5 >/dev/null 2>&1 \
+        || warn "the boxes of mycel-devbox did not stop"
+    fi
+    for m in $(box_mounts); do umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || true; done
+    [ -z "$(box_mounts)" ] || warn "box mounts are still there: $(box_mounts | tr '\n' ' '). Do not delete below them; reboot, then remove the box state"
+    rm -f "$unit" /usr/local/sbin/mycel-boxd && done=1
+    systemctl reset-failed mycel-boxd.service >/dev/null 2>&1 || true
+    say "the box runner of the dev environment is removed: mycel-boxd.service and its boxes are stopped and its unit file is gone"
+  fi
+  if [ -f "$dropin" ] && grep -qs MYCEL_BOXD_SOCK "$dropin" && ! grep -qs MYCEL_DEV_ENV_RUNNER=srt "$dropin"; then
+    rm -f "$dropin"; rmdir "$(dirname "$dropin")" 2>/dev/null || true; done=1
+    warn "the dev environment is off: $dropin turned on the removed box runner. To use the dev environment, install srt: scripts/dev-env/srt/install-srt.sh"
+  fi
+  rm -f "$BASE/root/mycel-boxd"
+  [ "$done" = 1 ] || return 0
+  for p in "$BASE/boxd" "$BASE/boxd-storage" /var/lib/mycel-boxd /var/lib/mycel-boxd-trial /home/mycel-devbox; do [ ! -e "$p" ] || left="$left $p"; done
+  [ -z "$left" ] || warn "the box state stays:$left (and the account mycel-devbox). docs/INSTALL-LINUX.md \"Removed: the box runner\" says how to remove it"
 }
-# The same rule as restartBoxd in native/cmd/mycel-ctl/update.go: a start of boxd stops the boxes that run, so only a
-# changed program comes here, and only a service that runs this file restarts. A service that an administrator stopped
-# stays stopped; a failed one restarts. Without this step the old process runs on from a deleted file. The team server
-# is stopped here (stop_units) and starts after this step. The server works without boxes, so a failure is a warning.
-boxd_restart() {  # the boxd_sum from before the install
-  local unit="$UNIT_DIR/mycel-boxd.service" out why
-  [ "$SYSTEMD" = 1 ] && have_systemd && [ -f "$unit" ] || return 0
-  [ "$1" != "$(boxd_sum)" ] || return 0
-  case $'\n'"$(cat "$unit")" in
-    *$'\n'"ExecStart=$BASE/root/mycel-boxd "*) ;;
-    *) warn "mycel-boxd.service does not run $BASE/root/mycel-boxd, so it keeps the old program: run scripts/dev-env/install-trial.sh again"; return 0 ;;
-  esac
-  if [ "$(systemctl is-active mycel-boxd.service 2>/dev/null || true)" = inactive ]; then
-    say "mycel-boxd.service is stopped, so it stays stopped: its next start runs the new mycel-boxd"
-    return 0
-  fi
-  if ! out=$(systemctl restart mycel-boxd.service 2>&1); then
-    warn "restart of mycel-boxd.service failed, so boxes may not work: $out (journalctl -u mycel-boxd, then \`sudo systemctl restart mycel-boxd\`)"
-    return 0
-  fi
-  why=$(boxd_problem 2>&1 || true)
-  if [ -n "$why" ]; then
-    warn "mycel-boxd.service restarted, but boxes may not work: $why (journalctl -u mycel-boxd)"
-    return 0
-  fi
-  say "mycel-boxd changed: mycel-boxd.service restarted; boxes that ran have stopped and start again at their next use"
-}
-# END boxd restart
+# END box runner retire
 rootfile() {  # mode name
   if [ "$ROOT_KEEP" = 1 ] && [ -f "$BASE/root/$2" ] && [ ! -L "$BASE/root/$2" ]; then return 0; fi
   nolink "$BASE/root/$2"
   install -o root -g root -m "$1" "$KROOT/$2" "$BASE/root/$2" || die "installing root/$2 failed"
 }
-for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account set-claude-token; do rootfile 755 "$f"; done
-# the dev environment's root helper. It runs only from here, never from a version folder (the server account owns those),
-# and only when scripts/dev-env/install-trial.sh added its service: this file alone changes nothing. A kit without it (a
-# repair from an older installed version) leaves the file in place.
-BOXD_BEFORE=$(boxd_sum)
-[ ! -f "$KROOT/mycel-boxd" ] || rootfile 755 mycel-boxd
-boxd_restart "$BOXD_BEFORE"
+# mycel-ctl first (as in mycel-ctl update, update.go ctlProgram): a reset after any root program changed then leaves the
+# new mycel-ctl, whose `status` says "AN UPDATE DID NOT FINISH" (0.4.0's has no such check; QA TC-340 retest). The new
+# mycel-ctl works with the old programs and units until the rest are in.
+for f in mycel-ctl mycel-bootstrap mycel-launcher mycel-sandbox mycel-account set-claude-token; do rootfile 755 "$f"; done
+retire_box_runner
 rootfile 644 safe-fs.sh
 # the one list of system packages, its flat copy and its reader: `mycel-ctl update` syncs this machine to them
 # (packages.sh sync) and compares root/packages.synced with the list. A kit from before the list has none.
@@ -1050,13 +1223,11 @@ ENGINE_ARGS=""
 # ---- 9) server version (fresh copy, chown only what root just copied), app/current and state.json ----
 DEST="$BASE/app/versions/$VERSION"
 nolink "$DEST"
-rm -rf "$DEST.partial"; cp -a --no-preserve=ownership "$BUNDLE" "$DEST.partial"
-chown -R "$SRV_USER:$SRV_GRP" "$DEST.partial"
-find "$DEST.partial" -type d -exec chmod 755 {} +
-chmod -R go-w "$DEST.partial"
-# on disk before it gets its name (QA TC-279): after a power loss, a version whose files never reached the disk fails
-# the bootstrap's check, the server rolls back to the version before, which may not read the migrated DB, and stops.
-# sync -f: one syncfs of the file system with the new version (and the engines in app/), not an fsync per file.
+[ -e "$DEST" ] || DEST_NEW=1
+# (copied before the stop when it could be, and on disk already: stage_version)
+[ "$STAGED" = 1 ] || stage_version
+# a rename on the same disk; an app/ on another disk gets a copy, synced before it gets its name
+rm -rf "$DEST.partial"; mv -T "$STAGE/$VERSION" "$DEST.partial"
 sync -f "$DEST.partial" || die "writing $DEST to the disk failed"
 rm -rf "$DEST"; mv -T "$DEST.partial" "$DEST"
 # folders from here on warn instead of stopping: the rename is done, and some file systems refuse fsync on a folder
@@ -1082,12 +1253,21 @@ case "$ACTION" in
     chown -h "$SRV_USER:$SRV_GRP" "$BASE/app/.current-install"
     mv -f -T "$BASE/app/.current-install" "$BASE/app/current"
     RUNNING=$VERSION
+    # a failure from here on keeps the new root files (the new version needs them) and starts the units again
+    [ "$ACTION" = init ] || PHASE=switched
     [ "$ACTION" = switch ] && say "switching $CUR -> $VERSION ($CUR stays for roll-back; the server goes back to it by itself if $VERSION does not start)"
     ;;
   repair) RUNNING=$CUR ;;
   older)
     RUNNING=$CUR
-    warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running; $VERSION is staged in app/versions"
+    # an older image tag (Docker) or kit: say plainly whether that version could run at all. A version below the reader
+    # level of the running one's migrations cannot open the database it updated (exit 75), so neither Go back nor this
+    # kit brings it back; only the backup made before the update does (QA TC-336)
+    if [ "$(reader_level "$BASE/app/versions/$VERSION")" -lt "$(reader_level "$BASE/app/versions/$CUR")" ]; then
+      warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running. $VERSION cannot read the database $CUR has updated: to go back to it, restore the backup made before the update (docs/BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux; in Docker, a copy of the whole volume from before the update, started with the older tag); otherwise use the $CUR kit or image"
+    else
+      warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running; $VERSION is staged in app/versions"
+    fi
     ;;
   *) die "unexpected plan: $ACTION" ;;
 esac
@@ -1206,6 +1386,8 @@ if { [ -n "$PUBLIC_HOST" ] || [ -n "$APP_CONNECTORS" ]; } && [ -f "/etc/default/
 fi
 
 # ---- 12) the engine firewall: loaded before any engine can run, or no install ----
+# from here on the firewall, the units and config are of the new root files: a failure keeps them (on_exit)
+[ "$PHASE" = switched ] || PHASE=committed
 # (image mode: no engine runs in the build; $ID-firewall.service loads it at boot, before the launcher)
 if [ "$IMAGE_MODE" = 1 ]; then
   say "image mode: engine firewall not loaded ($ID-firewall.service loads it at boot)"
@@ -1231,6 +1413,7 @@ if [ "$SYSTEMD" = 1 ]; then
   fi
   mkdir -p "$UNIT_DIR"
   for f in "$ITMP/units"/*; do install -o root -g root -m 644 "$f" "$UNIT_DIR/$(basename "$f")"; done
+  UNITS_DONE=1
   # (image mode: no running systemd; the booted VM reads the units)
   if have_systemd; then systemctl daemon-reload; fi
   # both units are stopped (above): stopping their empty slice makes systemd create it again with the limits it has now
@@ -1278,6 +1461,8 @@ systemctl restart "$ID-firewall.timer" || die "starting $ID-firewall.timer faile
 [ "$AUTO_UPDATE" = 1 ] && { systemctl restart "$ID-update.timer" || warn "starting $ID-update.timer failed"; }
 systemctl restart "$ID-launcher.service" || die "starting $ID-launcher failed (journalctl -u $ID-launcher -n 50)"
 systemctl restart "$ID-server.service" || die "starting $ID-server failed (journalctl -u $ID-server -n 50)"
+# the units run (step 15 reports what they run): nothing for on_exit to put back or start
+PHASE=started
 
 # ---- 15) wait until the server answers with the version app/current points to ----
 WAIT=60; [ "$ACTION" = switch ] && WAIT=180

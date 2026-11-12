@@ -2,7 +2,10 @@
 // server/src/routes/slack.ts).
 //
 // Each team makes an internal Slack app in its own workspace from the manifest below and pastes its two tokens; the
-// server keeps one Socket Mode connection to Slack (no public address needed). People link their Slack account to their
+// server keeps one Socket Mode connection to Slack (no public address needed). Or, where the hosting service serves
+// the server, the owner adds the official app with "Add to Slack" and copies nothing (mode 'official': the hosting
+// service holds the app's secrets and its one connection, and hands this server only its workspace's envelopes and
+// bot token). People link their Slack account to their
 // own account here with a one-time link they get in Slack; asking @app in Slack then runs a normal chat turn as them.
 // No response of this API ever carries a token: they come in sealed in the browser ('slack.token') and the screen
 // only learns whether they are saved.
@@ -14,17 +17,24 @@ import { SealedSecret } from './credentials'
 /** off: not turned on (or no tokens) · connecting · connected · error: lastError says why */
 export const SlackState = z.enum(['off', 'connecting', 'connected', 'error'])
 export type SlackState = z.infer<typeof SlackState>
-/** reason codes only (never Slack's own text): the screen puts them in the reader's words */
-export const SlackErrorCode = z.enum(['invalid_auth', 'token_revoked', 'missing_scope', 'not_bot_token', 'not_app_token', 'enterprise_install', 'workspace_changed', 'socket_mode_off', 'app_mismatch', 'unreachable', 'ratelimited', 'key_unsafe', 'unknown'])
+/** reason codes only (never Slack's own text): the screen puts them in the reader's words. The official app's own:
+ * broker_unreachable (the hosting service does not answer now), not_served (it does not serve this server now),
+ * removed (the app was removed from the workspace: "Add to Slack" again) */
+export const SlackErrorCode = z.enum(['invalid_auth', 'token_revoked', 'missing_scope', 'not_bot_token', 'not_app_token', 'enterprise_install', 'workspace_changed', 'socket_mode_off', 'app_mismatch', 'unreachable', 'ratelimited', 'key_unsafe', 'broker_unreachable', 'not_served', 'removed', 'unknown'])
 export type SlackErrorCode = z.infer<typeof SlackErrorCode>
 
 export const SlackWorkspace = z.object({ teamId: z.string(), name: z.string(), url: z.string().nullable() })
 export type SlackWorkspace = z.infer<typeof SlackWorkspace>
 
 export const SlackAdmin = z.object({
+  /** own: the team's own Slack app (its tokens pasted here); official: the hosting service's app, added with "Add to
+   * Slack" (only its bot token is here) */
+  mode: z.enum(['own', 'official']),
+  /** the hosting service serves this server now: "Add to Slack" can be used (while no own app is saved) */
+  official: z.boolean(),
   /** the owner turned it on (off by default) */
   enabled: z.boolean(),
-  /** both tokens are saved */
+  /** both tokens are saved (the official app: its bot token) */
   tokens: z.boolean(),
   workspace: SlackWorkspace.nullable(),
   /** the app's name as people find it in Slack (`@` and `/invite` go by it): the bot user's display name as Slack says
@@ -106,5 +116,6 @@ export const SLACK = {
   previewSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/preview', auth: 'user', owner: 'C', body: SlackLinkBody, response: SlackLinkPreview, summary: 'What confirming this one-time link would link: the Slack account and me. Changes nothing.' }),
   confirmSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/confirm', auth: 'user', owner: 'C', body: SlackLinkBody, response: MySlack, summary: 'Link the Slack account of this one-time link to me (used up).' }),
   startSlackSignIn: endpoint({ method: 'POST', path: '/api/slack/signin', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ authorizationUrl: z.string().url() }), summary: 'Start "Sign in with Slack" to link the Slack account I sign in to (10 minutes, this session only).' }),
+  startSlackInstall: endpoint({ method: 'POST', path: '/api/admin/slack/official/install', auth: 'owner', owner: 'C', body: z.object({ origin: z.string().max(200).optional() }), response: z.object({ authorizationUrl: z.string().url() }), summary: '"Add to Slack": Slack\'s install page of the hosting service\'s official app (10 minutes, this owner only). `origin`: the address the page is open at, where links in Slack open.' }),
   cancelSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/cancel', auth: 'user', owner: 'C', body: SlackLinkBody, response: empty, status: 204, summary: 'Throw this one-time link away without linking.' }),
 } as const

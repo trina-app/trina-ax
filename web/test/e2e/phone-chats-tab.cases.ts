@@ -4,6 +4,9 @@
 // 2. A mention and a thread reply: 멘션·스레드 on top of the 대화 list opens them as a page of the 대화 tab (‹ 대화, the
 //    phone's Back to the list), and each unread thing is counted once across the tabs: the rooms' on 대화, only the app's
 //    own notices on 나 (and on 나's 활동 row). The whole Activity stays in 나. A computer is as it was.
+// Past the first page (#530's review): 35 newer notices of the app's own and one mention. 멘션·스레드 asks the server for
+// conversation rows only, and Activity's 멘션 tab reads older pages by itself; neither says "nothing here" while older
+// pages are left. Settings › 알림's way to Activity (the whole count) is not on a phone.
 // Each test runs in WebKit (the iPhone app's engine: phone-chats-tab.webkit.spec.ts) and Chromium (Android's:
 // phone-chats-tab.spec.ts).
 import { expect, test, type Page } from '@playwright/test'
@@ -44,6 +47,28 @@ async function start(page: Page) {
     return route.fulfill(json(q.includes('견적') ? { items: [HIT], rooms: [{ id: TEAM, kind: 'team', name: '디자인 리뷰', peers: [MINJUN, SEOYEON], memberCount: 3 }], nextCursor: null } : { items: [], rooms: [], nextCursor: null }))
   })
   await signIn(page)
+}
+
+/** An admin's busy week: 35 notices of the app's own (a connection to sign in again), all newer than one mention; the
+ * Inbox answered as the server does: newest first, 30 a page, `only=rooms` the conversation rows alone. The second
+ * page comes `slow` ms late. */
+async function startBusy(page: Page, slow = 0) {
+  await reset(page)
+  await routeRooms(page, ROOMS)
+  const app: Item[] = Array.from({ length: 35 }, (_, i) => ({ id: id(200 + i), eventType: 'connection.reconnect', sourceId: id(1200 + i), code: 'connection.reconnect', createdAt: ago(1 + i * 0.01), readAt: null, chatId: null, link: 'connections', outcome: null }))
+  const mention = { ...INBOX[0]!, createdAt: ago(5), room: { ...(INBOX[0]!.room as Item), at: ago(5) } }
+  const asked: string[] = []
+  await page.route('**/api/notifications?*', async (route) => {
+    const p = new URL(route.request().url()).searchParams
+    asked.push(p.toString())
+    const all = p.get('only') === 'rooms' ? [mention] : [...app, mention]
+    const from = Number(p.get('cursor') ?? 0), limit = Number(p.get('limit') ?? 30)
+    if (from > 0 && slow) await new Promise((r) => setTimeout(r, slow))
+    const next = from + limit < all.length ? String(from + limit) : null
+    return route.fulfill({ json: { items: all.slice(from, from + limit), nextCursor: next, unreadCount: 36, roomUnreadCount: 1 } })
+  })
+  await signIn(page)
+  return asked
 }
 
 const palette = (page: Page) => page.getByTestId('search-palette')
@@ -193,6 +218,58 @@ export function chatsTabCases() {
     })
   })
 
+  test.describe('a phone, past the first page', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test('35 newer notices of the app and one mention: 멘션·스레드 shows the mention at once, never "nothing here"', async ({ page }) => {
+      const asked = await startBusy(page)
+      // 나 counts the app's 35, 대화's row has its dot
+      await expect(tab(page, 'me').getByTestId('tab-me-unread')).toContainText('35')
+      await tab(page, 'chats').click()
+      await expect(page.getByTestId('rooms-activity-unread')).toBeVisible()
+      await page.getByTestId('rooms-activity').click()
+      await expect(page).toHaveURL(/\/activity\?in=chats$/)
+      const rows = page.getByTestId('notification-room-row')
+      await expect(rows).toHaveCount(1)
+      await expect(rows.first().getByTestId('notification-room-line')).toContainText('견적서 확인 부탁해요')
+      await expect(page.getByText(t['feed.chatsEmpty'])).toHaveCount(0)
+      await expect(page.getByTestId('notification-item').filter({ hasNot: rows })).toHaveCount(0)
+      // asked for the conversation rows alone; one page was all of them
+      expect(asked.some((q) => q.includes('only=rooms'))).toBe(true)
+      await expect(page.getByRole('button', { name: t['common.loadMore'] })).toHaveCount(0)
+    })
+
+    test('나 › 활동 › 멘션: older pages are read by themselves until the mention shows; no "nothing here" meanwhile', async ({ page }) => {
+      const asked = await startBusy(page, 1500)
+      await tab(page, 'me').click()
+      await page.getByTestId('settings-inbox').click()
+      await expect(page).toHaveURL(/\/activity$/)
+      await expect(page.getByTestId('notification-item')).toHaveCount(30)
+      await page.getByTestId('activity-tab-mentions').click()
+      // the second page is on its way: a skeleton, not the empty text
+      await expect(page.locator('.animate-pulse').first()).toBeVisible()
+      await expect(page.getByText(t['feed.emptyFiltered'])).toHaveCount(0)
+      await expect(page.getByText(t['notifications.empty'])).toHaveCount(0)
+      const rows = page.getByTestId('notification-room-row')
+      await expect(rows).toHaveCount(1)
+      await expect(page.getByText(t['feed.emptyFiltered'])).toHaveCount(0)
+      expect(asked.filter((q) => q.includes('cursor=30')).length).toBeGreaterThanOrEqual(1)
+      expect(asked.some((q) => q.includes('only=rooms'))).toBe(false)
+    })
+
+    test('Settings › 알림: no way to Activity with the whole count on a phone (나\'s 활동 row has the split)', async ({ page }) => {
+      await startBusy(page)
+      await tab(page, 'me').click()
+      await expect(page.getByTestId('settings-inbox-unread')).toContainText('35')
+      await page.getByTestId('settings-row-notifications').click()
+      await expect(page.getByTestId('notifications')).toBeVisible()
+      // its way to Activity is the computer's (hidden here); its count is the 나 tab's all the same, never the whole 36
+      await expect(page.getByTestId('notifications-activity')).toBeHidden()
+      await expect(page.getByTestId('notifications-activity')).toContainText('35')
+      await expect(page.getByTestId('notifications')).not.toContainText('36')
+    })
+  })
+
   test.describe('a computer', () => {
     test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -206,6 +283,11 @@ export function chatsTabCases() {
       await expect(palette(page)).toBeVisible()
       await expect(palette(page).getByRole('tab')).toHaveText(['all', 'chats', 'projects', 'files', 'skills', 'scheduled', 'mcp'].map((x) => t[`search.tab.${x}` as keyof typeof t]))
       await expect(palette(page).getByRole('combobox')).toHaveAttribute('placeholder', t['search.placeholder'])
+      // Settings › 알림's way to Activity: the whole count, as the sidebar
+      await page.keyboard.press('Escape')
+      await page.goto('/settings/notifications')
+      await expect(page.getByTestId('notifications-activity')).toBeVisible()
+      await expect(page.getByTestId('notifications-activity')).toContainText('3')
     })
   })
 }

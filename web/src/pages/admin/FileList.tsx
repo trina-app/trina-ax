@@ -5,7 +5,7 @@
 // it cannot run. "Run now" starts a capped run at once. Lean: no list of folders, no per-file view. Saves at once, like
 // the AI groups above. While a run goes, the status is read again every few seconds. A Run now from a screen that is
 // out of date (someone else, or the host, turned it off since) says so plainly and reads the status again, so the
-// button goes away.
+// button goes away. On a phone (below 768 px; QA TC-382) Run now is a list row across the screen under the status.
 import { Loader2, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FileListSignIn, FileListStatus, Locale } from '@mycel/shared/api'
@@ -13,7 +13,8 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime, formatNumber } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Button, confirmDialog, Switch } from '../../components/ui'
+import { Button, confirmDialog, Switch, useMediaQuery } from '../../components/ui'
+import { PhoneListRow } from '../../components/phone/PhoneList'
 import { Loadable, SettingsSection, useAction, useLoad } from './common'
 
 const POLL_MS = 4000
@@ -75,6 +76,7 @@ export function FileListStatusLines({ d, onData }: { d: FileListStatus; onData: 
   const locale = useLocale()
   const [starting, setStarting] = useState(false)
   const on = d.enabled && !d.forcedOff
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const runNow = async () => {
     setStarting(true)
     try {
@@ -103,15 +105,35 @@ export function FileListStatusLines({ d, onData }: { d: FileListStatus; onData: 
     if (d.signIn) lines.push({ key: 'uses', text: t('fileList.uses', { engine: engineName(d.signIn), account: account(d.signIn) }) })
     if (d.problem && d.problem !== 'forced_off') lines.push({ key: 'problem', text: t(`fileList.problem.${d.problem}`), tone: 'warn' })
   }
+  const status = (
+    <ul id="file-list-status" className="min-w-0 space-y-1 text-sm text-muted" data-testid="file-list-status">
+      {lines.map((l) => <li key={l.key} className={l.tone === 'warn' ? 'text-warn' : undefined} data-testid={`file-list-${l.key}`}>{l.text}</li>)}
+    </ul>
+  )
+  const canRun = d.problem !== 'no_ai' && d.problem !== 'no_cheap_model'
+  // a phone (QA TC-382): Run now is a list row across the screen under the status, as in Settings, not a small button;
+  // while a run goes the row says so
+  if (phone)
+    return (
+      <div className="mt-2">
+        {status}
+        {on && (
+          <ul className="-mx-4 mt-3 border-y border-line" data-testid="file-list-run-row">
+            {d.running
+              ? <PhoneListRow icon={<Loader2 size={16} className="animate-spin" />} title={<span role="status" data-testid="file-list-running">{t('fileList.running')}</span>} />
+              : <PhoneListRow icon={<Play size={16} />} title={t('fileList.runNow')} onClick={() => void runNow()} disabled={starting || !canRun} testId="file-list-run"
+                  end={starting ? <Loader2 size={16} className="shrink-0 animate-spin text-muted" aria-hidden /> : undefined} />}
+          </ul>
+        )}
+      </div>
+    )
   return (
     <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-8">
-      <ul id="file-list-status" className="min-w-0 space-y-1 text-sm text-muted" data-testid="file-list-status">
-        {lines.map((l) => <li key={l.key} className={l.tone === 'warn' ? 'text-warn' : undefined} data-testid={`file-list-${l.key}`}>{l.text}</li>)}
-      </ul>
+      {status}
       {on && (
         d.running
           ? <span className="inline-flex shrink-0 items-center gap-1.5 text-sm text-muted" role="status" data-testid="file-list-running"><Loader2 size={14} className="animate-spin" aria-hidden /> {t('fileList.running')}</span>
-          : <Button size="sm" className="shrink-0 self-start sm:self-auto" busy={starting} disabled={d.problem === 'no_ai' || d.problem === 'no_cheap_model'} onClick={() => void runNow()} data-testid="file-list-run"><Play size={14} aria-hidden /> {t('fileList.runNow')}</Button>
+          : <Button size="sm" className="shrink-0 self-start sm:self-auto" busy={starting} disabled={!canRun} onClick={() => void runNow()} data-testid="file-list-run"><Play size={14} aria-hidden /> {t('fileList.runNow')}</Button>
       )}
     </div>
   )

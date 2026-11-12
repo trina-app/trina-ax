@@ -352,11 +352,11 @@ test('TC-269 step 5 / TC-270 step 3: AI apps: tappable rows, no outline Connect 
   await expect(page.getByRole('dialog')).toBeVisible()
 })
 
-test('TC-269 step 6: page intros (English): the line is not cut beside the button; the scope line once, on the list; Team … names', async ({ page }) => {
+test('TC-269 step 6: page intros (English): the line is not cut beside a button; the scope line once, on the list; Team … names', async ({ page }) => {
   await openAdminPage(page, 'members', /\/admin\/members$/)
   const desc = (await page.getByTestId('members-header-desc').boundingBox())!
-  const actions = (await page.getByTestId('members-header-actions').boundingBox())!
-  expect(actions.y).toBeGreaterThanOrEqual(desc.y + desc.height - 1)
+  // the buttons are the bar's (TC-377, phone-admin-bar.cases.ts): the line has the row
+  await expect(page.getByTestId('members-header-actions')).toHaveCount(0)
   expect(desc.width).toBeGreaterThan(300)
   await expect(page.getByTestId('admin-content').getByTestId('page-scope')).toHaveCount(0)
   await page.getByTestId('admin-back').click()
