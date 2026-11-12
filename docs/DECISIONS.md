@@ -23244,3 +23244,40 @@ Adds to "The chat's connect card trusts the app's list".
 - **Admin page.** A Google connector's page in Admin › Connectors has Team settings in the layout of Admin › Team
   settings: who can use it (everyone, each with their own account, and how many connected), Drive's shares, and the
   Google APIs a card with its own Google app needs.
+
+## 입력 중 표시 — "Alice is typing…" in rooms, 1:1s and threads (feat/room-typing-indicator, 2026-11-12, QA TC-392)
+
+- **What people see.** One quiet line just above the message box while someone else writes in that place: "Alice is
+  typing…", "Alice and Carol are typing…", from three people "Several people are typing…" (Korean "김소라님이 입력 중…",
+  the honorific rule of `shared/src/honorific.ts`). Names as this app shows them elsewhere (the people directory, then
+  the room's member list); someone it cannot name is left out, never shown as an id. Never the person themself (their
+  other windows included). A room's box shows the room's typing; a thread's box (beside the room or a file) only that
+  thread's.
+- **Same socket, no storage.** Client frame `room.typing {roomId, threadRootId, typing}` and control frame `room.typing
+  {roomId, threadRootId, userId, typing}` (`shared/src/api/ws.ts`), like `presence`: no seq, never in the replay
+  buffer, no table, no migration. The page never queues its own while disconnected. An older server answers the new
+  client frame with an error frame the page ignores; an older page skips the new server frame.
+- **Timing.** The page sends "typing" at most every `ROOM_TYPING_EVERY_MS` (3 s) while the person changes the text
+  (not when a draft is put back or another tab changes it), and "stopped" at once when the box is sent (before the
+  message), emptied, left (blur) or closed with its room or thread. Receivers drop a person `ROOM_TYPING_EXPIRES_MS`
+  (5 s) after their last ping, at "stopped", when that person's message arrives in that place, and everyone when the
+  connection is not open (`web/src/lib/roomTyping.ts`, `web/src/store/typing.ts`).
+- **Server rules** (`server/src/rooms/typing.ts`, started with presence in `chat/runtime.ts`). The checks of a message:
+  the sender is a member of a room that is not archived; for a thread they see its root and it is a message of the
+  timeline. Anything else is dropped without an answer (a room's existence is not told). Relayed only to the other
+  members who can read the place: in a thread those who see its root (a later member of a group chat does not). At
+  most 20 frames per 10 s per person and 5 places at once; a "stopped" goes out only after a relayed "typing", to the
+  same people; a person's places stop when their last window closes.
+- **Trina answering** already has its line under the messages ("Trina is answering", `RoomAiStatus`), so the new line
+  does not repeat it: one indicator per thing.
+- **Layout.** The line floats over the bottom of the messages, in space the message lists keep free (their bottom
+  padding went from 16 to 24 px), so the box never moves and no message is covered, also at 390 px in the phone app's
+  WebView. On a phone it steps aside while the "@" list floats there. A short fade, none with reduced motion.
+  `aria-live="polite"` and atomic; the words change only when the people change, so screen readers are not told on
+  every ping.
+- Tests: `tests/unit/b-room-typing.test.ts` (readers only, not outsiders or members who cannot see a thread's root, no
+  storage or replay, budget, places, archived rooms, last window), `web/test/unit/room-typing.test.tsx` (words in en and
+  ko, the sender's throttle and stop, expiry, places, the socket frame, the box: stop before the send, blur, thread
+  scope, never me), `web/test/e2e/room-typing.spec.ts` (a second member through the mock's `POST /__test/typing`, the
+  box does not move, contrast, 390 px).
+- Version impact: **minor**.

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 09:35
 - Branch: `feat/room-typing-indicator`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`shared/src/api/ws.ts`, `server/src/rooms/`, `web/src/`). Why: rooms are core chat (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new user-visible feature with a new WebSocket frame (older pages and servers ignore it)
 
@@ -61,4 +61,8 @@ server), the rooms unit tests.
 
 ## Result
 
-Filled in at the end.
+Built as planned. One change: the line floats in space the message lists keep free at their bottom (their padding went
+from 16 to 24 px) instead of over a coloured strip, so it never covers a message and needs no background matching the
+room or the thread panel. The sender's output goes through `setTypingOut` (`lib/roomTyping.ts`, set by `store/live.ts`)
+so the box does not import the socket wiring. Decisions: docs/DECISIONS.md "입력 중 표시". PR: see the pull request
+that adds this plan.

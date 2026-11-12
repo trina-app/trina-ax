@@ -412,7 +412,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       {room && askHint.show && <RoomAskHint onAsk={() => { if (threadId) closeThread(); setSideOpen(true) }} onClose={askHint.seen} />}
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
-        <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-4">
+        <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-6">
           {timeline?.loading && messages.length > 0 && !timeline.error && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
           {timeline?.loading && !messages.length && !timeline.error && <Skeleton lines={5} className="pt-4" />}
           {!!timeline?.error && !notFound && (
