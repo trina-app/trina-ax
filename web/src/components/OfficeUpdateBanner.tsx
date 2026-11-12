@@ -40,7 +40,7 @@ export default function OfficeUpdateBanner() {
     <div role="status" className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-accent-soft px-3 py-1.5 text-center text-xs font-medium text-accent-text" data-testid="office-update-banner">
       <Sparkles size={14} aria-hidden />
       <span>{t('officeUpdate.banner', { version: b.version })}</span>
-      <button type="button" className="underline underline-offset-2" onClick={() => navigate('/admin/system')}>
+      <button type="button" className="underline underline-offset-2" onClick={() => navigate('/admin/system/updates')}>
         {t('officeUpdate.now')}
       </button>
       {b.turn?.kind === 'never' ? <span className="text-muted">{t('officeUpdate.bannerNever')}</span>
