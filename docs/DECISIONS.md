@@ -22506,3 +22506,59 @@ change).
   `TestPendingOlderVersionExit75GoesBackAtOnce`, `tests/unit/g-update-goback.test.ts`, `g-prune.test.ts`,
   `web/test/unit/update-outcome.test.ts`.
 - Version impact: **patch** (root update: bootstrap and mycel-ctl; one optional API field; no migration).
+
+## Linux turns get their own network namespace; the model proxy is forwarded (fix/engine-abstract-sockets, 2026-11-12, QA TC-309)
+
+On Ubuntu 24.04 (kernel 6.8) a turn could connect to host services' abstract unix sockets (storage daemons and other
+system services listen on them). bwrap ran without `--unshare-net` so the proxy's tcp-peer
+check and the nftables uid rule would see the engine itself; abstract sockets are not IP (nftables does not see them),
+not files (bwrap's mounts do not hide them), and Landlock scopes them only from ABI 6 (Linux 6.12), while a self-install
+runs `--landlock required`. TCP, UDP, IPv6, metadata and DNS were already refused.
+- **Every bwrap turn runs in a new network namespace with only loopback** (abstract sockets belong to a network
+  namespace). The helper does it, not bwrap: `mycel-sandbox exec --net-proxy <proxy port>` (`netns_linux.go`). bwrap gets
+  `--cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN` after `--cap-drop ALL`; they are capabilities of the turn's own
+  (nested, `--disable-userns`) user namespace, never of the host. The helper clears the ambient set, starts the
+  forwarder, `unshare(CLONE_NEWNET)` on its locked thread, brings `lo` up, listens on 127.0.0.1:<port> there, hands the
+  listener over (after Landlock), waits for "ready", clears every capability set on every thread (`AllThreadsSyscall`) and checks each `/proc/self/task/*/status` (exit 70 if any
+  is left), then Landlock, seccomp and execve as before.
+- **The forwarder** (`mycel-sandbox forward`) stays in the host namespace (with bwrap's own pid 1, see below): it accepts in
+  the turn's namespace and connects to 127.0.0.1:<port> on the host. So the engines' URLs (`ANTHROPIC_BASE_URL`,
+  `HTTPS_PROXY`, Codex's provider) stay the same; the proxy's tcp-peer check finds the forwarder, a process of the
+  turn's session (same sid); the nftables rule still applies (engine account); it is in the turn cgroup and dies with
+  bwrap's pid namespace. It starts with no capabilities (ambient cleared before its execve). The engine is its parent
+  and the same uid, so its memory (`/proc/<pid>/mem`) must be out of reach: the helper hands the listener over only
+  after its own Landlock domain is in place, and Landlock refuses ptrace access from a domain to a process outside it.
+  A non-dumpable forwarder would also do it, but then `/proc/<pid>/fd` belongs to root and the launcher's tcp-peer
+  lookup cannot find the owner (the first run: managed turns failed). So it makes itself non-dumpable only when the
+  engine has no Landlock domain (`--landlock off`, or best-effort on a kernel without Landlock): then the proxy refuses
+  its connections and the turn cannot reach the model, but it never gets the host namespace (installs run
+  `--landlock required`). bwrap's pid 1 (the pid namespace's init; no `--as-pid-1`) is also in the host namespace and
+  the same uid. Landlock keeps the engine out of it too; without a domain the helper refuses the turn (exit 70) unless
+  Yama's `ptrace_scope` is 1 or more, since pid 1 is not the engine's descendant (review of #557). Its seccomp variant
+  (`seccomp.Options{Forwarder}`) refuses AF_UNIX `socket()`, `socketpair()`, `execve`/`execveat` on top of the engine
+  policy. It forwards only to that one port.
+- **Not chosen.** seccomp on connect()/sendto(): the filter sees only the pointer to the address, not `sun_path[0]`.
+  Refusing `socket(AF_UNIX)` for the engine: the bridge needs `tools.sock` (a path socket, which works across network
+  namespaces and still does). User-notify supervision: deciding on memory the engine can change after the check is the
+  TOCTOU the kernel documentation warns about. bwrap `--unshare-net` with a relay outside the sandbox: the proxy would
+  see the relay, not a turn process, and the tcp-peer check would need a second path. Landlock scope alone: kernels
+  before 6.12 stay open (it still applies where available).
+- **cgo**: `syscall.AllThreadsSyscall` refuses in a cgo binary, so a cgo-built `mycel-sandbox` refuses `--net-proxy`
+  with a plain reason (exit 70); `native/build.sh` builds with `CGO_ENABLED=0`. The Go test of the namespace is
+  skipped under cgo (CI's `go test` on a runner with gcc) and a second test checks the refusal there.
+- **Installer**: `install-linux.sh` runs bwrap with the two `--cap-add` and `unshare -n` as `nobody`; when user
+  namespaces work but that fails (a distribution profile that strips bwrap's namespace capabilities), it stops with a
+  plain message instead of every turn failing with exit 70.
+- **Side effects**: with the namespace a flushed ruleset (QA TC-310) no longer gives a running turn the network; only
+  the forwarder's one port is reachable. UDP to 127.0.0.1:53 now leaves the socket ("sent") into the turn's own
+  loopback instead of being rejected by nftables; the Linux job's DNS check now puts a root echo on the host's
+  127.0.0.1:53 and asserts that the turn gets no answer.
+- Tests: `mycel-sandbox` Go test through bwrap (proxy port answers; another host loopback port and a host abstract
+  socket are refused; capabilities zero; the forwarder's memory cannot be opened with and without Landlock; a control run
+  without the flag reaches all three); seccomp forwarder table;
+  bwrap argv golden; Linux job (`tests/linux`): a root-owned `@mycel-t1-host` listener answers the server account but
+  not a turn, no abstract name of the host (listed through `/proc/1/net/unix`, bwrap's pid 1) accepts, `status.net = "private"`, and the managed Claude / Codex turns
+  reach the real model proxy through the forwarder.
+
+Version impact: patch (security fix in the Linux engine sandbox; the launcher status gains `net`; no API, data or
+migration change).

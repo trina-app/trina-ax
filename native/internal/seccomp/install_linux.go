@@ -21,8 +21,11 @@ func Program(allowListen bool) ([]Insn, error) { return Build(NativeTable(), all
 
 // Install sets no_new_privs and loads the filter on every thread of the process (TSYNC: the Go runtime has several
 // threads, and the one that later calls execve must carry the filter). The filter survives execve.
-func Install(allowListen bool) error {
-	prog, err := Program(allowListen)
+func Install(allowListen bool) error { return InstallOpts(Options{AllowListen: allowListen}) }
+
+// InstallOpts is Install for the policy variant o.
+func InstallOpts(o Options) error {
+	prog, err := BuildOpts(NativeTable(), o)
 	if err != nil {
 		return err
 	}

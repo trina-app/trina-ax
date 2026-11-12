@@ -805,6 +805,14 @@ elif [ "$RESTRICT_USERNS" = 1 ]; then
   say "AppArmor: bwrap may already create user namespaces here (another profile allows it); no profile added"
 fi
 userns_ok || imgwarn "bwrap cannot create a user namespace as an unprivileged account (kernel.unprivileged_userns_clone=0, user.max_user_namespaces=0, a container without nesting, or an AppArmor profile in the way)"
+# every turn gets its own network namespace (QA TC-309): mycel-sandbox needs CAP_SYS_ADMIN + CAP_NET_ADMIN of the
+# turn's user namespace from bwrap. A distribution profile that strips them (e.g. a bwrap-userns-restrict AppArmor
+# profile) would make every turn fail; say so now, in plain words
+netns_ok() { runuser -u nobody -- bwrap --unshare-user --unshare-pid --disable-userns --die-with-parent --cap-drop ALL \
+  --cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN --ro-bind / / --proc /proc --dev /dev unshare -n true >/dev/null 2>&1; }
+if userns_ok && ! netns_ok; then
+  imgwarn "bwrap cannot give an AI turn its own network here (an AppArmor or SELinux policy removes namespace capabilities from bwrap's sandbox); every answer would fail. Allow /usr/bin/bwrap user namespaces without restriction (see /etc/apparmor.d/$ID-bwrap)"
+fi
 # nftables works here (a container needs CAP_NET_ADMIN in its own network namespace)
 { nft add table inet mycel_probe && nft delete table inet mycel_probe; } >/dev/null 2>&1 || imgwarn "nft cannot add a table (needs nf_tables and CAP_NET_ADMIN in this network namespace)"
 if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then
