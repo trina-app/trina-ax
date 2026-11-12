@@ -56,6 +56,10 @@ export const MEMORY_RECHECK_MS = 2000
  * Only the launch waits: the turn is claimed, holds its slot and counts as running from dispatch, as before. */
 export const START_BURST = 3
 export const START_SPREAD_MS = 200
+/** after the engine launcher stopped for an update, queued answers wait at least this long (the update restarts this
+ * server next, and they run on the new version) and at most LAUNCHER_HOLD_MAX_MS for a launcher that is back */
+const UPDATE_HOLD_MS = 120_000
+const LAUNCHER_HOLD_MAX_MS = 10 * 60_000
 /** settings key: the server stopped answers for an update (shutdown); the next start's recovery reads and clears it */
 export const STOPPED_FOR_UPDATE = 'chat.stoppedForUpdate'
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
@@ -228,6 +232,18 @@ export class ChatRuntime {
   quarantineProbeMs = QUARANTINE_PROBE_MS
   /** how long an answered turn waits for a slot after its card opened before it goes on anyway (tests) */
   slotWaitMaxMs = SLOT_WAIT_MAX_MS
+  /** the engine launcher stops or restarts (its orderly stop, QA TC-338): queued answers stay queued and launches wait
+   * (launcherReady) until a launcher answers that is not stopping */
+  private launcherHold: { cause: 'update' | 'restart'; since: number; waiters: (() => void)[] } | null = null
+  private holdTimer: ReturnType<typeof setTimeout> | null = null
+  /** how often a hold asks the launcher whether it is back; how long an update's hold lasts at least (tests) */
+  launcherHoldPollMs = 1000
+  updateHoldMs = UPDATE_HOLD_MS
+  /** a launcher answers that takes turns again (tests replace it) */
+  launcherBack: () => Promise<boolean> = async () => {
+    const st = await launcherStatus(this.ctx.config.engine.launcherSock ?? path.join(this.ctx.engineConfig.runDir, 'launcher.sock'), 1000)
+    return !!st && !st.stopping
+  }
   /** why the server stops now (shutdown): an update (its answers say so, QA TC-338) or another restart; tests set it */
   shutdownCause: () => 'update' | 'restart' = () => updateUnderway(this.ctx.config, this.ctx.version) ? 'update' : 'restart'
   private dispatching = false
@@ -535,9 +551,49 @@ export class ChatRuntime {
     this.queueRevision++
   }
 
+  /** The launcher said it stops (a turn's exit or a refused launch, chat/turn.ts): hold the queue until it is back. */
+  launcherStopped(cause: 'update' | 'restart') {
+    if (this.closing) return
+    if (this.launcherHold) { if (cause === 'update') this.launcherHold.cause = 'update'; return }
+    this.launcherHold = { cause, since: Date.now(), waiters: [] }
+    this.log.info('engine launcher stopping: queued answers wait for it', { cause })
+    this.pollLauncherHold()
+  }
+  get launcherHeld() { return !!this.launcherHold }
+  /** resolves once no hold is on (or the turn is stopped) */
+  launcherReady(signal?: AbortSignal): Promise<void> {
+    const h = this.launcherHold
+    if (!h || signal?.aborted) return Promise.resolve()
+    return new Promise((r) => { h.waiters.push(r); signal?.addEventListener('abort', () => r(), { once: true }) })
+  }
+  private pollLauncherHold() {
+    this.holdTimer = setTimeout(async () => {
+      this.holdTimer = null
+      const h = this.launcherHold
+      if (!h || this.closing) return
+      let back = false
+      try { back = await this.launcherBack() } catch {}
+      const held = Date.now() - h.since
+      if ((back && held >= (h.cause === 'update' ? this.updateHoldMs : 0)) || held >= LAUNCHER_HOLD_MAX_MS) {
+        this.endLauncherHold(back ? 'launcher back' : 'launcher not back in time')
+        this.schedule()
+      } else this.pollLauncherHold()
+    }, this.launcherHoldPollMs)
+    this.holdTimer.unref?.()
+  }
+  private endLauncherHold(why: string) {
+    const h = this.launcherHold
+    if (!h) return
+    this.launcherHold = null
+    if (this.holdTimer) clearTimeout(this.holdTimer)
+    this.holdTimer = null
+    this.log.info('engine launcher hold ended', { why, cause: h.cause, ms: Date.now() - h.since })
+    for (const w of h.waiters.splice(0)) w()
+  }
+
   schedule() {
     try { this.grantResumes() } catch (err) { this.log.error('resuming answered turns failed', { err }) }
-    if (!this.acceptingTurns || this.dispatching) return
+    if (!this.acceptingTurns || this.dispatching || this.launcherHold) return
     this.dispatching = true
     try {
     const limit = this.concurrency()
@@ -1236,6 +1292,7 @@ export class ChatRuntime {
     // turns still in the start gate are stopped below and leave it then (ungate); nothing launches after this
     if (this.launchTimer) clearTimeout(this.launchTimer)
     this.launchTimer = null
+    this.endLauncherHold('server stopping')
     this.shutdownP = (async () => {
       const execs = [...this.running.values()]
       let cause: 'update' | 'restart' = 'restart'

@@ -1209,7 +1209,7 @@ func (u *updater) waitQuiet(deadline time.Time) bool {
 		if err == nil && n == 0 && m == "" {
 			return true
 		}
-		if u.say && (n != u.busy || m != u.busyWith || i == 0) {
+		if u.say && err == nil && (n != u.busy || m != u.busyWith || i == 0) {
 			// an administrator's update: what it waits for, on stderr (stdout stays the result, also with --json)
 			left := deadline.Sub(u.e.now()).Round(time.Second)
 			if m != "" {

@@ -32,6 +32,10 @@ async function setup(name: string, o: { reuse?: boolean } = {}) {
   rt.quarantineProbeMs = 60 * 60_000
   ;(rt as any).probedAt = Date.now()
   rt.startSpreadMs = 0
+  // the launcher's hold (QA TC-338): back at once unless a test says otherwise
+  rt.launcherHoldPollMs = 20
+  rt.updateHoldMs = 0
+  rt.launcherBack = async () => true
   setSetting(h.ctx.db, 'concurrency', 1)
 }
 afterEach(async () => {
@@ -64,6 +68,18 @@ function launcherStops(signal: 'update' | 'shutdown', launches: { n: number }) {
       yield { ev: 'exit', code: 0, signal }
     })() } } } }
     await (exec as any).launch(core, {}, () => {})
+  }
+}
+/** an engine launch the launcher refuses `refusals` times while it stops (nothing starts), then runs normally */
+function launcherRefuses(refusals: number, launches: { n: number }) {
+  return async (exec: TurnExec) => {
+    const core = { turns: { bind() {} }, launcher: { launch: () => { launches.n++; const refuse = launches.n <= refusals; return { kill() {}, events: (async function* () {
+      if (refuse) { yield { ev: 'error', message: 'launcher_stopping: update' }; return }
+      yield { ev: 'started', pid: 999_998, pgid: 999_998 }
+      yield { ev: 'exit', code: 0 }
+    })() } } } }
+    const r = await (exec as any).launch(core, {}, () => {})
+    expect(r.exit).toMatchObject({ ev: 'exit', code: 0 })
   }
 }
 /** an engine that runs until the turn is stopped */
@@ -173,3 +189,40 @@ test('an answer that did not end before the server stopped for the update: the n
   await setup('recover-update', { reuse: true })
   expect(message(crashed.assistantMessage.id).error).toMatchObject({ params: { reason: 'interrupted' } })
 }, 60_000)
+
+test('while the launcher is not back after an update stop, queued messages stay queued; they run once it is', async () => {
+  await setup('hold')
+  const a = newChat(), b = newChat(), c = newChat()
+  let back = false
+  rt.launcherBack = async () => back
+  engines.set(a, launcherStops('update', { n: 0 }))
+  const first = send(a)
+  const q1 = send(b)
+  expect(await waitFor(() => turnStatus(first.turnId) === 'interrupted')).toBe(true)
+  expect(rt.launcherHeld).toBe(true)
+  const q2 = send(c) // a new question meanwhile: accepted, it waits too
+  await Bun.sleep(150)
+  expect([turnStatus(q1.turnId), turnStatus(q2.turnId)]).toEqual(['queued', 'queued'])
+  expect(rt.queueDiagnostics().quarantined).toBe(0)
+  // an update's hold also lasts its minimum while the launcher is back already
+  rt.updateHoldMs = 60_000
+  back = true
+  await Bun.sleep(150)
+  expect(turnStatus(q1.turnId)).toBe('queued')
+  rt.updateHoldMs = 0
+  expect(await waitFor(() => turnStatus(q1.turnId) === 'done' && turnStatus(q2.turnId) === 'done')).toBe(true)
+  expect(execs.map((e) => e.id).slice(1)).toEqual([q1.turnId, q2.turnId])
+  expect(rt.launcherHeld).toBe(false)
+}, 30_000)
+
+test('a launch the stopping launcher refused (nothing started) is made again once it is back, and the answer ends normally', async () => {
+  await setup('refused')
+  const a = newChat()
+  const launches = { n: 0 }
+  engines.set(a, launcherRefuses(1, launches))
+  const t = send(a)
+  expect(await waitFor(() => turnStatus(t.turnId) === 'done')).toBe(true)
+  expect(launches.n).toBe(2)
+  expect(message(t.assistantMessage.id).status).toBe('done')
+  expect(rt.queueDiagnostics().quarantined).toBe(0)
+}, 30_000)

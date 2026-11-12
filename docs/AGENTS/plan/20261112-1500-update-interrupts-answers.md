@@ -20,5 +20,10 @@ engine, so the turn failed as a crash and its slot stayed quarantined (#442/#493
   version, or the office updater runs) picks `updating`; a settings note lets the next start's recovery say the same
   for an answer that did not end in time. Queue and schedules: unchanged, tested.
 - `shared/src/api/errors.ts` + web i18n (5 locales): the `updating` chat error.
+- Review round 1: per-turn end channels instead of a shared WaitGroup (reuse panic); a prepare-stop also refuses new
+  turns (`launcher_stopping: <reason>`, before anything starts) and the status says `stopping`; the server holds its
+  queue after a launcher stop until a launcher answers that is not stopping (an update's hold lasts 2 minutes at
+  least: the server restarts next and the queue runs on the new version), and a refused launch waits and is made
+  again; the signal stop fits in TimeoutStopSec (6 s, then SIGKILL); a second signal exits at once.
 - Tests: unit tests with the fake engine (launcher stop, server stop, restart with queue and schedule, recovery), the
   real launcher binary (prepare-stop, SIGTERM, normal end), Go test for the ctl order and wait message.

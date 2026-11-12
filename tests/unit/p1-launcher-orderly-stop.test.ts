@@ -33,12 +33,12 @@ async function startLauncher() {
   return { launcher, sock, agent, engine }
 }
 
-type Turn = { pid: number; child: number; exit: Promise<any> }
+type Turn = { pid: number; child: number; exit: Promise<any>; exitAt: () => number }
 /** start a turn; resolves once its engine runs, with the exit event to come */
 function startTurn(l: { sock: string; agent: string; engine: string }, chat: string, stdin = 'run\n'): Promise<Turn> {
   return new Promise((res, rej) => {
     const c = net.createConnection(l.sock)
-    let buf = '', pid = 0, resolveExit!: (e: any) => void
+    let buf = '', pid = 0, resolveExit!: (e: any) => void, at = 0
     const exit = new Promise<any>((r) => (resolveExit = r))
     c.setEncoding('utf8')
     c.on('connect', () => c.write(JSON.stringify({ op: 'run', turnId: 't-' + chat, chatDir: path.join(l.agent, chat), cmd: l.engine, args: [], env: {}, token: 'x', systemPrompt: '', stdin, timeoutMs: 600_000 }) + '\n'))
@@ -47,11 +47,12 @@ function startTurn(l: { sock: string; agent: string; engine: string }, chat: str
       let i
       while ((i = buf.indexOf('\n')) >= 0) {
         const ev = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1)
-        if (ev.ev === 'started') { pid = ev.pid; if (stdin === 'quick\n') res({ pid, child: 0, exit }) }
+        const t = { exit, exitAt: () => at }
+        if (ev.ev === 'started') { pid = ev.pid; if (stdin === 'quick\n') res({ pid, child: 0, ...t }) }
         else if (ev.ev === 'stdout') {
           const m = /child (\d+)/.exec(Buffer.from(ev.b64, 'base64').toString())
-          if (m && pid) res({ pid, child: Number(m[1]), exit })
-        } else if (ev.ev === 'exit' || ev.ev === 'error') { resolveExit(ev); c.end(); if (!pid) res({ pid: 0, child: 0, exit }) }
+          if (m && pid) res({ pid, child: Number(m[1]), ...t })
+        } else if (ev.ev === 'exit' || ev.ev === 'error') { at = performance.now(); resolveExit(ev); c.end(); if (!pid) res({ pid: 0, child: 0, ...t }) }
       }
     })
     c.on('error', rej)
@@ -69,21 +70,24 @@ function ask(sock: string, req: object): Promise<any> {
   })
 }
 
-test('prepare-stop "update": the running turns end with a confirmed exit saying so; the launcher goes on', async () => {
+test('prepare-stop "update": the running turns end with a confirmed exit saying so, new ones are refused until the restart', async () => {
   const l = await startLauncher()
   const a = await startTurn(l, 'chat-a'), b = await startTurn(l, 'chat-b')
   const answer = await ask(l.sock, { op: 'prepare-stop', reason: 'update' })
+  const answeredAt = performance.now()
   expect(answer).toEqual({ ev: 'prepared', ended: 2 })
   // each exit was sent before the answer: the server reads a confirmed end
   expect(await a.exit).toMatchObject({ ev: 'exit', signal: 'update' })
   expect(await b.exit).toMatchObject({ ev: 'exit', signal: 'update' })
+  expect(a.exitAt()).toBeLessThan(answeredAt)
+  expect(b.exitAt()).toBeLessThan(answeredAt)
   expect(await waitFor(() => !alive(a.pid) && !alive(a.child) && !alive(b.pid) && !alive(b.child), { timeoutMs: 8000 })).toBe(true)
-  // a turn after it runs as usual, and its stop by the server is a plain stop again
+  // until the restart, a new turn is refused before anything of it starts, and the status says why
   const c = await startTurn(l, 'chat-c')
-  expect(alive(c.pid)).toBe(true)
+  expect(c.pid).toBe(0)
+  expect(await c.exit).toEqual({ ev: 'error', message: 'launcher_stopping: update' })
+  expect(await ask(l.sock, { op: 'status' })).toMatchObject({ ev: 'status', liveTurns: 0, stopping: 'update' })
   expect(await ask(l.sock, { op: 'prepare-stop', reason: 'nonsense' })).toMatchObject({ ev: 'error' })
-  expect(alive(c.pid)).toBe(true)
-  expect(await ask(l.sock, { op: 'status' })).toMatchObject({ ev: 'status', liveTurns: 1 })
 }, 30_000)
 
 test('SIGTERM: every running turn ends with "shutdown" (or the prepared "update") before the launcher exits', async () => {
@@ -94,12 +98,12 @@ test('SIGTERM: every running turn ends with "shutdown" (or the prepared "update"
   expect(await Promise.race([l.launcher.exited, Bun.sleep(10_000).then(() => 'still running')])).toBe(0)
   expect(alive(a.pid) || alive(a.child)).toBe(false)
 
-  // an update said so first: a turn started after the prepare ends with "update" at the stop
+  // an update said so first: the stop after it exits at once with nothing left to end
   const m = await startLauncher()
-  await ask(m.sock, { op: 'prepare-stop', reason: 'update' })
   const b = await startTurn(m, 'chat-b')
-  m.launcher.kill('SIGTERM')
+  await ask(m.sock, { op: 'prepare-stop', reason: 'update' })
   expect(await b.exit).toMatchObject({ ev: 'exit', signal: 'update' })
+  m.launcher.kill('SIGTERM')
   expect(await Promise.race([m.launcher.exited, Bun.sleep(10_000).then(() => 'still running')])).toBe(0)
 }, 40_000)
 

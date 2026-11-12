@@ -1343,8 +1343,21 @@ export class TurnExec {
     return true
   }
 
-  /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn */
-  private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void) {
+  /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn. While the launcher
+   * stops or restarts (its orderly stop, QA TC-338) the launch waits for the next one; a launch it refused (nothing of
+   * it started) is made again then. */
+  private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[] }> {
+    for (let i = 0; ; i++) {
+      await this.rt.launcherReady(this.abort.signal)
+      const r = await this.launchOnce(core, lr, onLine)
+      if (!r.refused) return r
+      this.rt.launcherStopped(r.refused)
+      if (this.stopReason) return r
+      if (i >= 2) { this.interrupt(r.refused); return r }
+    }
+  }
+
+  private async launchOnce(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[]; refused?: 'update' | 'restart' }> {
     if (this.remainingWallMs() <= 0) this.expireWall()
     // a run that ended without its total (crash, kill): its calls' tokens stay counted; then the budget once more
     // (other answers of this person may have used it up since the last attempt)
@@ -1365,6 +1378,8 @@ export class TurnExec {
     let exit: any = null
     /** the launcher's orderly stop ended the engine (its exit says "update" / "shutdown": mycel-launcher ending.go) */
     let launcherStop: 'update' | 'restart' | null = null
+    /** the launcher refused the launch while it stops (`launcher_stopping: <reason>`): nothing of it started */
+    let refused: 'update' | 'restart' | undefined
     try {
     const it = h.events[Symbol.asyncIterator]()
     const abandoned = new Promise<'abandoned'>((r) => {
@@ -1385,6 +1400,8 @@ export class TurnExec {
         // SocketLauncher synthesizes transport errors with this prefix; a broken socket proves nothing.
         if (e.ev === 'exit' || !e.message.startsWith('launcher: ')) this.terminationUnconfirmed = false
         if (e.ev === 'exit' && (e.signal === 'update' || e.signal === 'shutdown')) launcherStop = e.signal === 'update' ? 'update' : 'restart'
+        const stopping = e.ev === 'error' ? /^launcher_stopping: (update|shutdown)$/.exec(e.message) : null
+        if (stopping) refused = stopping[1] === 'update' ? 'update' : 'restart'
       }
       else if (e.ev === 'note') notes.push(e.message)
     }
@@ -1393,6 +1410,7 @@ export class TurnExec {
       this.error = engineError('crash', this.spec.locale)
       throw new Error('launcher ended without a termination acknowledgement')
     }
+    if (refused) return { exit: null, stderr: '', notes, refused }
     return { exit, stderr: err.text, notes }
     } catch (error) {
       if (this.terminationUnconfirmed) {
@@ -1410,6 +1428,9 @@ export class TurnExec {
         // "shutdown"
         if (launcherStop === 'restart') { try { launcherStop = this.rt.shutdownCause() } catch {} }
         this.rt.log.info('engine launcher stopped the turn', { turn: this.id, cause: launcherStop })
+        // first: the queue holds before this turn's end gives its slot back (a queued answer would start into the
+        // stopping launcher and be cut too)
+        this.rt.launcherStopped(launcherStop)
         this.interrupt(launcherStop)
       }
     }
