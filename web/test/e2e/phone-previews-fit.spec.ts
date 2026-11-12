@@ -145,25 +145,28 @@ test('a pinch on a PDF keeps the place under the fingers there, at 2x and 2.5x (
   await expect(first.locator('canvas')).toBeVisible()
   const width = async () => Math.round((await first.boundingBox())!.width)
   const fitted = await width()
-  /** the place on the pages at client y: a page and how far down it (0 to 1) */
-  const placeAt = (y: number) =>
-    panel.locator('[data-page]').evaluateAll((els, y) => {
+  /** the place on the pages at client (x, y): a page, how far down it and how far across it (0 to 1) */
+  const placeAt = (x: number, y: number) =>
+    panel.locator('[data-page]').evaluateAll((els, [x, y]) => {
       for (const el of els) {
         const r = el.getBoundingClientRect()
-        if (y >= r.top && y < r.bottom) return { page: Number((el as HTMLElement).dataset.page), at: (y - r.top) / r.height }
+        if (y >= r.top && y < r.bottom) return { page: Number((el as HTMLElement).dataset.page), at: (y - r.top) / r.height, across: (x - r.left) / r.width }
       }
       return null
-    }, y)
-  /** where that place is now, in client y */
-  const yOf = (p: { page: number; at: number }) => panel.locator(`[data-page="${p.page}"]`).evaluate((el, at) => { const r = el.getBoundingClientRect(); return r.top + at * r.height }, p.at)
+    }, [x, y])
+  /** where that place is now, in client coordinates */
+  const pointOf = (p: { page: number; at: number; across: number }) =>
+    panel.locator(`[data-page="${p.page}"]`).evaluate((el, p) => { const r = el.getBoundingClientRect(); return { x: r.left + p.across * r.width, y: r.top + p.at * r.height } }, p)
   const zoomKeeps = async (y: number, zoom: () => Promise<void>, want: number, name: string) => {
-    const place = (await placeAt(y))!
+    const place = (await placeAt(x, y))!
     expect(place).not.toBeNull()
     await zoom()
     // drawn at the new width (the placeholder's own width: a pinch's live transform is gone then)
     await expect.poll(() => first.evaluate((el) => (el as HTMLElement).offsetWidth)).toBeGreaterThan(fitted * want * 0.95)
     // the same line of the page under the fingers (the finding: ~500 px lower at 2x, ~1,000 at 2.5x)
-    await expect.poll(async () => Math.abs((await yOf(place)) - y)).toBeLessThan(30)
+    await expect.poll(async () => Math.abs((await pointOf(place)).y - y)).toBeLessThan(30)
+    // and the same place across it (it drifted sideways by the pages' 16 px inset × (scale − 1): 16 px at 2x, 24 at 2.5x)
+    await expect.poll(async () => Math.abs((await pointOf(place)).x - x)).toBeLessThan(5)
     await shot(page, name)
   }
   const x = (await panel.boundingBox())!.x + 195

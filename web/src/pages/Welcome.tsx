@@ -23,7 +23,7 @@ import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -80,6 +80,9 @@ function WelcomeSteps() {
   const [brandNote, setBrandNote] = useState(false)
   const region = useRef<HTMLDivElement>(null)
   const computer = !useMediaQuery(PHONE_QUERY)
+  // a step put off and opened again from the end screen: once it is answered, back to the end screen (which lists what
+  // is still put off), not Home (QA TC-206)
+  const fromDone = useRef(false)
 
   const open = async () => {
     setLoadError(null)
@@ -131,6 +134,7 @@ function WelcomeSteps() {
   const go = async (p: WelcomeProgress, from: WelcomeStep) => {
     for (const id of phoneSkips(p, from, computer)) p = await useWelcome.getState().update({ step: { id, state: 'skipped' } })
     setBrandNote(false)
+    if (fromDone.current) { fromDone.current = false; return setStep('done') }
     const n = nextStep(p, from, computer)
     if (n) return setStep(n)
     if (!p.doneShownAt) return setStep('done')
@@ -212,7 +216,7 @@ function WelcomeSteps() {
         {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
         {!gate && step === 'tools' && <ToolsStep busy={busy} done={progress.steps.tools === 'done'} nextLabel={nextLabel('tools')} onDone={() => void mark('tools', 'done')} onSkip={() => void mark('tools', 'skipped')} />}
         {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} onStep={(s) => { setError(null); setStep(s) }} />}
-        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} />}
+        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} computer={computer} onStep={(s) => { fromDone.current = true; setError(null); setStep(s) }} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
     </Page>
@@ -573,8 +577,10 @@ const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
  * A press opens that skill's form on 팀 스킬 only (`/skills?run=`, the form members land on; its defaults read the
  * company intro and the brand folder): nothing runs until its own 실행, and closing it stays on 팀 스킬. This screen never
  * waits on a result. A row whose deck started earlier keeps its one line about where the deck is.
+ * Under it, the steps put off (QA TC-206), each with 지금 하기: the step opens here and, answered, comes back to this
+ * screen. Put off still counts as answered (the setup is finished), as W6 decided.
  */
-function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: boolean }) {
+function DoneStep({ progress, aiReady, computer, onStep }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; onStep: (s: WelcomeStep) => void }) {
   const t = useT()
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE_QUERY)
@@ -601,6 +607,8 @@ function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: b
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [own, title])
   const home = () => navigate('/')
+  // the steps put off (still counted as answered, docs/DECISIONS.md "W6"): named, each with a way back now (QA TC-206)
+  const later = countedSteps(progress, aiReady).filter((s) => s !== 'ai' && progress.steps[s] === 'skipped' && offeredHere(s, computer))
   const tryOwn = aiReady && !!own
   const make = aiReady && !own && !!kept
   return (
@@ -626,6 +634,20 @@ function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: b
           <button type="button" className={clsx(quietLink, 'text-sm max-sm:w-full')} onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</button>
         )}
       </div>
+      {later.length > 0 && (
+        <div data-testid="welcome-done-later">
+          <p className="text-sm text-muted">{t('welcome.done.later')}</p>
+          <ul className="mt-2 divide-y divide-line rounded-xl border border-line">
+            {later.map((s) => (
+              <li key={s} className="flex items-center gap-3 px-4 py-2 text-sm" data-testid="welcome-done-later-step" data-step={s}>
+                <span className="min-w-0 flex-1">{t(STEP_LABEL[s]!)}</span>
+                <Button size="sm" onClick={() => onStep(s)} data-testid="welcome-done-later-open">{t('welcome.done.laterOpen')}</Button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-faint">{t('welcome.done.laterHint')}</p>
+        </div>
+      )}
     </div>
   )
 }

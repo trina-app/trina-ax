@@ -109,6 +109,9 @@ type Reader = { member: MemberRow; who: Principal | null }
 /** What one question used (its session's read scope and outside mark when it ended): what decide() looks at. */
 export interface TurnScope { sources: ReadSource[]; outside: boolean }
 
+/** how long a run that ended in an error is still listed for its asker (state) */
+export const ENDED_ERROR_MS = 24 * 3_600_000
+
 interface TurnRow { turn_id: string; room_id: string; user_id: string; chat_id: string; question_id: string; status: 'active' | 'posted' | 'private' | 'stopped' | 'error'; answer_id: string | null; decision: string | null; error: string | null; scope: string | null; created_at: string; ended_at: string | null }
 
 const services = new WeakMap<AppContext, RoomAi>()
@@ -746,10 +749,13 @@ export class RoomAi implements RoomTurns {
     return n
   }
 
-  /** GET /api/rooms/:id/ai */
+  /** GET /api/rooms/:id/ai: my working runs, and my runs that ended in an error lately (ENDED_ERROR_MS): a run cut by a
+   * restart ended while nobody was connected, and its room.ai.run went to no one, so the asker learns it here after the
+   * reconnect or a reload (QA TC-241). Not the stopped ones: the asker stopped them. */
   state(userId: string, roomId: string): RoomAiState {
     const { me } = roomsOf(this.ctx).mine(userId, roomId)
-    const mine = this.db.query("SELECT * FROM room_ai_turns WHERE room_id = ? AND user_id = ? AND status = 'active' ORDER BY created_at").all(roomId, userId) as TurnRow[]
+    const since = new Date(Date.now() - ENDED_ERROR_MS).toISOString()
+    const mine = this.db.query("SELECT * FROM room_ai_turns WHERE room_id = ? AND user_id = ? AND (status = 'active' OR (status = 'error' AND ended_at > ?)) ORDER BY created_at").all(roomId, userId, since) as TurnRow[]
     return { answering: this.count(roomId, me), mine: mine.map((t) => this.runOf(t)) }
   }
 

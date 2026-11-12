@@ -1030,6 +1030,36 @@ describe('the later steps and the end', () => {
     } finally { await m.unmount() }
   })
 
+  test('steps put off: the end screen names them, each with 지금 하기; one done from there comes back to the end screen without it (QA TC-206)', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', tools: 'skipped', invite: null } })
+    withGroup()
+    const m = await app()
+    const later = () => m.container.querySelectorAll('[data-testid="welcome-done-later-step"]').map((li) => li.getAttribute('data-step'))
+    try {
+      await m.until(() => stepOf(m) === 'invite', 'the invite')
+      await m.until(() => m.find('team-link-message'), 'the message')
+      // the invite put off too: the setup ends (W6: put off counts as answered), and the end screen says what is left
+      await m.click('invite-step-skip')
+      await m.click(await m.until(() => m.find('invite-step-later'), 'the ask'))
+      await m.until(() => m.find('welcome-done-later'), 'the end screen with what was put off')
+      expect(progress!.finishedAt).not.toBeNull()
+      expect(later()).toEqual(['skills', 'files', 'tools', 'invite'])
+      expect(m.get('welcome-done-later').textContent).toContain('나중에 하기로 남겨 둔 단계예요')
+      expect(primaries(m)).toBe(1)
+      // 지금 하기 on the invite: it opens here; done, back to the end screen, which lists what is still put off
+      const row = m.container.querySelectorAll('[data-testid="welcome-done-later-step"]').find((li) => li.getAttribute('data-step') === 'invite')!
+      await m.click(row.querySelector('button')!)
+      await m.until(() => stepOf(m) === 'invite', 'the invite again')
+      await m.until(() => m.find('team-link-message'), 'the message again')
+      await m.click('invite-step-done')
+      await m.until(() => stepOf(m) === 'done' && later().length === 3, 'back to the end screen')
+      expect(later()).toEqual(['skills', 'files', 'tools'])
+      expect(progress!.steps.invite).toBe('done')
+      expect(at(m)).not.toBe('/')
+    } finally { await m.unmount() }
+  })
+
   test('the invite with a shared skill: the link made for it, the message names it; the end screen tries it first (the form a member lands on), 홈으로 quiet', async () => {
     signIn('owner')
     progress = ran({ shared: { at: '2026-11-04T00:05:00.000Z', skills: [{ path: QUOTE_SKILL, title: '견적서 쓰기' }], landing: QUOTE_SKILL }, landingSkill: QUOTE_SKILL })
