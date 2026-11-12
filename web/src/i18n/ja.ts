@@ -723,6 +723,7 @@ export const ja: Record<MessageKey, string> = {
   'files.waitingConnection': "接続待ち",
   'files.uploadingName': "{name}をアップロードしています",
   'files.uploadedName': "{name}をアップロードしました",
+  'files.uploadedCount': "{n, plural, one {#件アップロードしました} other {#件アップロードしました}}",
   'files.incompleteUpload': "ファイルが完全に届きませんでした。再アップロードしてください。",
   'files.newFolder': "新しいフォルダー",
   'files.add': "追加",

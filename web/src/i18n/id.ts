@@ -747,6 +747,7 @@ export const id: Record<MessageKey, string> = {
   'files.waitingConnection': 'Menunggu koneksi',
   'files.uploadingName': 'Mengunggah {name}',
   'files.uploadedName': '{name} terunggah',
+  'files.uploadedCount': '{n} file diunggah',
   'files.incompleteUpload': 'Berkas tidak diterima utuh. Unggah ulang.',
   'files.newFolder': 'Folder baru',
   'files.add': 'Tambah',

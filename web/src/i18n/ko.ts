@@ -746,6 +746,7 @@ export const ko = {
   'files.waitingConnection': '연결을 기다리는 중',
   'files.uploadingName': '{name} 올리는 중',
   'files.uploadedName': '{name} 올렸어요',
+  'files.uploadedCount': '{n}개 올렸어요',
   'files.incompleteUpload': '파일이 다 도착하지 않았어요. 다시 올려 주세요.',
   'files.newFolder': '새 폴더',
   'files.add': '추가',

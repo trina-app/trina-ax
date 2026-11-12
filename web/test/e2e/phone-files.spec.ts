@@ -3,8 +3,7 @@
 //   1. Files › Team folder › Groups › leads: one bar (‹ to the folder above, the folder's name, ⊕ with New folder /
 //      Upload as a sheet), the search scrolls away, rows "name" + "date · size", "팀 폴더" at most once
 //   2. Trash: a place you open from the team folder; folder names in words (not storage paths), a short toast
-//   3. Upload 3 files from ⊕: they are listed in two lines (the finished uploads' summary is components/FileUploads.tsx,
-//      another change)
+//   3. Upload 3 files from ⊕: the finished uploads fold into one line ("3개 올렸어요"); the files are listed in two lines
 // TC-249: a row's ⋯ near the end of a long list is a sheet over the tab bar with 44 px rows, closes on an outside tap
 // (Back closes it too: rooms/MenuButton's history entry, #452); "Select" in it starts a selection whose actions sit at the
 // bottom. A tablet's touch screen shows ⋯ without hovering (FILES-21).
@@ -136,7 +135,7 @@ test('step 2: the trash is a place: folder names in words, a one-line note, a sh
   await expect(title(page)).toHaveText(t['files.title'])
 })
 
-test('step 3: three files uploaded from ⊕ are listed in two lines', async ({ page }) => {
+test('step 3: three files uploaded from ⊕ fold into one finished line and are listed in two lines', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await file(page, 'groups/leads/a.txt')
@@ -146,7 +145,14 @@ test('step 3: three files uploaded from ⊕ are listed in two lines', async ({ p
   const chooser = page.waitForEvent('filechooser')
   await page.getByRole('menu').getByRole('menuitem', { name: t['files.upload'] }).click()
   await (await chooser).setFiles(['one', 'two', 'three'].map((n) => ({ name: `견적-${n}.txt`, mimeType: 'text/plain', buffer: Buffer.from(`quote ${n}`) })))
+  // the finished ones: one line, not a row each
+  const list = page.getByTestId('upload-list')
+  await expect(list.getByTestId('upload-done-summary')).toHaveText(new RegExp(translate('ko', 'files.uploadedCount', { n: 3 })))
+  await expect(list.locator('li[data-status="done"]')).toHaveCount(1)
   for (const n of ['one', 'two', 'three']) await expect(row(page, `견적-${n}.txt`).getByTestId('file-row-meta')).toContainText(' · ')
+  // × clears it
+  await list.getByTestId('upload-done-summary').getByRole('button').click()
+  await expect(list).toHaveCount(0)
 })
 
 test("TC-249: a row's ⋯ at the end of a long list is a sheet over the tab bar; Select starts a selection with its actions at the bottom", async ({ page }) => {

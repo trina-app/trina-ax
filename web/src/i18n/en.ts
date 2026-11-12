@@ -747,6 +747,7 @@ export const en: Record<MessageKey, string> = {
   'files.waitingConnection': 'Waiting for the connection',
   'files.uploadingName': 'Uploading {name}',
   'files.uploadedName': '{name} uploaded',
+  'files.uploadedCount': '{n, plural, one {# file uploaded} other {# files uploaded}}',
   'files.incompleteUpload': 'The file did not arrive whole. Upload it again.',
   'files.newFolder': 'New folder',
   'files.add': 'Add',
