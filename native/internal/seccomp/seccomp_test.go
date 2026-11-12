@@ -132,6 +132,42 @@ func TestPolicyTable(t *testing.T) {
 	}
 }
 
+// The forwarder variant (mycel-sandbox forward): everything the engine policy refuses, plus unix sockets (it is the
+// one turn process in the host network namespace, where the host's abstract @sockets are) and execve.
+func TestForwarderPolicy(t *testing.T) {
+	f, err := BuildOpts(NativeTable(), Options{Forwarder: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := mustProg(t, false)
+	for _, nr := range NativeTable().Deny {
+		if act(t, f, nr) != eperm {
+			t.Errorf("syscall %d allowed in the forwarder", nr)
+		}
+	}
+	if act(t, f, unix.SYS_SOCKET, unix.AF_UNIX, unix.SOCK_STREAM) != eafno || act(t, e, unix.SYS_SOCKET, unix.AF_UNIX, unix.SOCK_STREAM) != RetAllow {
+		t.Error("AF_UNIX: refused only in the forwarder")
+	}
+	for _, nr := range []uint32{unix.SYS_SOCKETPAIR, unix.SYS_EXECVE, unix.SYS_EXECVEAT, unix.SYS_LISTEN} {
+		if act(t, f, nr) != eperm {
+			t.Errorf("forwarder: syscall %d allowed", nr)
+		}
+		if nr != unix.SYS_LISTEN && act(t, e, nr) != RetAllow {
+			t.Errorf("engine: syscall %d refused", nr)
+		}
+	}
+	for _, c := range [][]uint64{{unix.AF_INET, unix.SOCK_STREAM}, {unix.AF_INET6, unix.SOCK_STREAM}} {
+		if act(t, f, unix.SYS_SOCKET, c...) != RetAllow {
+			t.Errorf("forwarder: socket %v refused", c)
+		}
+	}
+	for _, nr := range []uint32{unix.SYS_ACCEPT4, unix.SYS_CONNECT, unix.SYS_READ, unix.SYS_WRITE, unix.SYS_EPOLL_PWAIT, unix.SYS_RECVMSG} {
+		if act(t, f, nr) != RetAllow {
+			t.Errorf("forwarder: syscall %d refused", nr)
+		}
+	}
+}
+
 // ---------- the real kernel: a child installs the filter and reports errnos ----------
 
 const childEnv = "MYCEL_SECCOMP_TEST_CHILD"

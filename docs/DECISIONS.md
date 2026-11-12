@@ -6465,7 +6465,13 @@ Asked for on 2026-11-03: a person says "connect Higgsfield" in a chat, the AI fi
 - **One create path.** The endpoint makes the connection through `service.ts create`, as Settings and an admin's request to a member do: the same checks, limits, sealing for that connection, first check and audit. A team connection needs an admin, read again from the database when the card is finished (the endpoint is for any signed-in person, and a role can change while a card waits); "Just me" names the admin in the rule, since admins are not users of team connections otherwise.
 - **A wrong key keeps the card and the connection.** The turn remembers which connection a card made, and the next key replaces that one's key: one card makes one connection at most, never a pile of failed ones. "Not now" after a failed key removes that connection again, the way Settings removes one (audited): it never worked, and "not now" means do not add it. A card whose time runs out leaves it in Settings for the person to finish, and the AI is told it was added but does not work yet.
 - **Answers without a card** for what the person could not finish anyway (a bad field, an address that is not https or is private, personal connections off, a team connection asked for by a member, the limit, Google Drive not set up here) and for a connection to the same address they already have (its name and state), so the AI says so instead of showing a card that would fail.
-- **The new connection's tools come with the next message**, not in the answer that connected it: a turn's tools are fixed when it starts (the engines' tool lists, the model proxy's names). The design asked for the AI to try a tool right after connecting; the rule says to offer that for the next message instead.
+- **The same answer goes on with the new connection** (owner decision 2026-11-12, QA TC-128, feat/connect-then-continue; replaces "the new connection's tools come with the next message"). After a service is connected on the card, the AI continues the same answer with its tools, and the person never sends the question again.
+  - Claude: the attempt ends, the turn rebuilds its tool set for the same person and chat (`buildToolSet`), then resumes the session with the turn context and a server note.
+  - API engine: the tools are listed again from the next round.
+  - Codex (fresh runs, no session): keeps "next message". Google Drive's tools were always offered.
+  - Limits: at most 2 continuations per answer. Each gets only the rounds the answer has left; fewer than 2 pauses the answer at `tool_limit`. Budget, time and Stop apply as to any attempt. Not now, a timeout or a stop means no continuation.
+  - Only the asker can finish the card, and only the asker's own connections come in.
+  - Tests: `tests/unit/connect-continue.test.ts`, `web/test/e2e/connect-continue.spec.ts`.
 - **Not offered** in scheduled runs (nobody to finish a card: "skipped" at once), to sub-agents (`PARENT_ONLY_TOOLS`) or in confidential chats (not a local tool, like the connections themselves).
 - **2026-11-03 review.** The card shows an HTTP API's notes (they reach the AI in later chats, so a prompt-injected AI could otherwise plant instructions the person approves blindly) and the connection is saved with exactly those; the host is the card's main line, with a caution when the name is not in it; the tool waits for a connect still running when the card closes; a retry on a team card applies a changed "Who may use it"; "Not now" keeps a connection holding a finished sign-in; the message box warns only on near-certain keys (`hasLikelySecret`), not on a commit hash or a document link.
 - **Second 2026-11-03 review.** Text the person approves on the card holds nothing they cannot see: a name, notes or line with format, default-ignorable, private-use or C1 characters (zero-width ones, bidi overrides and isolates, the tag block, variation selectors) is refused without a card and again where the card is saved, rather than cleaned, because the AI wrote it and a silent clean-up would hide that it tried (emoji joiners and selectors stay, so Korean, Japanese and emoji names work). Every later connect or done reads the rules again (personal connections allowed, the admin role, the connection still at the card's address, kind and sign-in); one changed in Settings meanwhile ends what the card can do, before the key is opened. The address is checked for keys with the stricter `addressHasSecret`, so a generated MCP instance id is no longer refused as a key. The key warning covers every box whose text reaches the AI and finds more providers' keys, but a labelled value only when it looks like a secret, so code such as `apiKey = process.env.API_KEY` goes out. The card's behaviour is tested by rendering it with react-dom into a small DOM of our own (`web/test/unit/dom-host.ts`) rather than adding a DOM library to the dependencies.
@@ -8357,8 +8363,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   (not 403: a room's existence is not told). The owner and admins have no way into a room they are not in, through the
   API or a room file. The author is the session's person: the request schemas are `.strict()`, so a body naming
   `author`, `authorId`, `authorKind` or `visibility` is refused (400), and edit and delete are the author's only (403).
-  Message text from another member is data, shown as plain text in the app (never Markdown or HTML); the AI step must
-  treat it as untrusted input too, and can rely on `author_id` being the real sender.
+  Message text from another member is data: never HTML in the app (shown as plain text until 2026-11-12; since then as
+  Markdown, see "Markdown in people's messages"); the AI step must treat it as untrusted input too, and can rely on
+  `author_id` being the real sender.
 - **KakaoTalk's unread number** (removed 2026-11-06: no read receipts, see "스레드와 반응"). Every message carried `unread`: members who may see it (`visible_from_seq < seq`) and
   whose `last_read_seq < seq`. The sender has read their own message (sending moves their read position to it). Reads
   only move forward (`POST /api/rooms/:id/read`, clamped to the room's last seq). Nobody's read position is in any
@@ -11372,7 +11379,8 @@ things, "what needs me" was in four places, and Android's back looped (‹ in a 
 page, so the phone's back opened the chat again). The owner approved four tabs. Below 768 px:
 
 - **Tabs: 트리나 · 대화 · 파일 · 나.** 트리나 is Home (greeting, message box, the 7-day goal row for admins, then the
-  three latest AI chats as plain rows, under "트리나 기록"); 대화 is rooms, DMs and group chats; 나 is Settings. The AI has one
+  three latest AI chats as plain rows, under "트리나 기록"; since 2026-11-12 Home lists no chats: "Phones: Home like the AI
+  apps"); 대화 is rooms, DMs and group chats; 나 is Settings. The AI has one
   name in the chrome: "트리나" where the product is named after it (`PRODUCT_NAMED_AFTER_AI`), the product's short name
   in the core edition (`aiName`).
 - **Where the app opens is one constant**, `START_TAB` in `lib/tabs.ts` (now `'ai'`). The sign-in landing
@@ -13156,7 +13164,8 @@ middle of a word on a phone.
   link then opens nothing (a touch held 500 ms, as the menu's own timer). A click from the keyboard or a screen reader
   always opens, and a message still being sent (no menu) opens on any press.
 - **Not in this change:** link previews (an unfurl needs the server to fetch the page, with SSRF rules), links in the
-  room list's last-message line (the row is one link already), Markdown in people's messages.
+  room list's last-message line (the row is one link already). (Markdown in people's messages came on 2026-11-12:
+  "Markdown in people's messages".)
 ## 대화방의 트리나: an answer cut by a restart tells the asker (fix/room-ai-restart-error, 2026-11-12, QA TC-241)
 
 - **Problem.** With room AI mentions on, a question answered while the server restarted ended `error` on the server
@@ -15625,7 +15634,8 @@ accounts, relay names); nothing about plans or billing.
 - **Settings › 앱: "팀 주소 · 새 기기에서 앱을 열고 이 주소를 넣으세요 [복사]".** `GET /api/me` `team.address`
   (`teamAddressOf`): the relay address when the server has one, else `https://<publicAddress>`, else absent (no row).
   Signed-in people only (it is in `/api/me`); never the address a request came in at, so the office-network address
-  never shows. The install pictures draw the same address (they drew `location.host`). Anonymous visitors still get no
+  never shows. (Since 2026-11-12 this holds for a server on a relay only; a server with no relay and no public address
+  gives the address it is reached at: "Team address for a server not on a relay".) The install pictures draw the same address (they drew `location.host`). Anonymous visitors still get no
   team name (`SetupStatus.teamName` stays null).
 - **Used or expired links lead with signing in**: the invite and team-link problem pages add "이미 가입했다면
   로그인하세요." and a full-width [로그인]; both join forms end with "이미 가입했어요? 로그인".
@@ -19262,7 +19272,8 @@ Admin › Connectors with one connection showed one row and blank space. They al
 their own: Admin and Settings use the same names (Providers, Connectors, AI apps), and Admin said "For the whole team"
 only in small grey type beside a "Yours" tab.
 
-- **One page, no tabs.** Settings › Connectors and Admin › Connectors list the connections first, then **Discover**
+- **One page, no tabs.** (Since 2026-11-12 the person's own page is Connectors in the sidebar and Settings has no
+  Connectors section: "Connectors: the page is in the sidebar".) Settings › Connectors and Admin › Connectors list the connections first, then **Discover**
   (the same Top connectors grid with Show all) under its own heading, after a hairline. The tab state is gone; nothing
   else used it. With nothing connected yet there is no empty box and no heading: Discover comes first, in Settings under
   the one existing empty line ("No MCP connected yet"). Someone who may not add connections sees only their
@@ -19324,8 +19335,8 @@ logo's header (28 px).
   logo's middle is in line with the rows' icons and the ▾ with the profile line's ▾. The button is 44 px high with the
   rows' hover background, the same while the menu is open, a focus ring, `aria-haspopup="menu"` and `aria-expanded`.
 - **The menu** (under the button, the sidebar's width): the team again with its whole name (the button may cut it) and
-  its address (`GET /api/me` `team.address`, the one Settings › 앱 shows, never the address the page was opened at;
-  none known: no line; the menu's description for a screen reader), then **팀원 초대** / Invite people and **관리자** /
+  its address (`GET /api/me` `team.address`, the one Settings › 앱 shows, never the address the page was opened at
+  on a server with a relay; without a relay, see "Team address for a server not on a relay", 2026-11-12; none known: no line; the menu's description for a screen reader), then **팀원 초대** / Invite people and **관리자** /
   Admin. Admin keeps its word: it is the page's
   own name and the 나 tab's row, and the menu around it already says "team". Nothing personal: Settings, Usage, the
   away switch and Sign out stay in the profile menu at the bottom. No plan banner, no settings submenu.
@@ -19985,7 +19996,7 @@ between them. Decided after two product reviews.
   recently pinned first, with its pin.
 - **The headings: quiet labels, a third level.** `text-micro` (11 px), 500, `text-faint`, the in-list date headings' look
   and spacing in 트리나 기록 (16 px above, 4 px below), on the left edge of the title, the icons and "더 보기"; no
-  chevron, hover, count or box, so they read under 대화 (12 px, 600, ink) and not as a row like "더 보기" (12 px, muted,
+  chevron, hover, count or box, so they read under 대화 (12 px, 600, ink; 14 px bold since 2026-11-12, "Sidebar: section titles as large as the rows") and not as a row like "더 보기" (12 px, muted,
   a button). An `<h3>` in a list item of its own that is not counted as an item (`role="presentation"`), so the fold's
   `aria-controls` and `hidden` cover them. English first: "Team rooms", "Group chats", "Direct messages"; ko "팀 대화방",
   "그룹 대화", "1:1 대화"; es, id, ja in the words those files already use for group chats and DMs.
@@ -21308,7 +21319,8 @@ the references, the review). This is the first part (navigation); the page patte
 - **‹ and its label.** ‹ is `useGoBack` as everywhere (lib/back.ts: back in history, else the list in place of the
   entry). Its label names where Back goes: "‹ Admin", "‹ Settings", the admin page that opened this one ("‹ Usage"
   over Team settings' limits); ‹ alone when Back goes somewhere without a name here (Admin opened from ☰ › Search) or to
-  the same page. It is shown only when it fits beside the centred title.
+  the same page. It is shown only when it fits beside the centred title (changed 2026-11-12: the title moves over so the
+  label still shows, see "Phones: ‹ keeps its label").
 - **The list is always under a page** (`lib/backStack.ts`). A page entered from outside its list's area (an Inbox
   notice, a link in a chat or in Settings, a push opening the phone app, a pasted address) gets its entry replaced by
   the list and is pushed again, keeping `?query` and `#hash`, so Back goes page → list → where you were (Android's
@@ -21963,7 +21975,8 @@ changes them.
    Admin › Members' invite dialog, and the server API is unchanged. This supersedes the welcome-step part of "W6 —
    easy owner handover".
 2. When voice input can't be used on this server, nobody sees a mic, owners and admins included. There is no
-   crossed-out mic hint. The composer's AI picker shows only when there is more than one choice.
+   crossed-out mic hint. The composer's AI picker shows only when there is more than one choice (changed 2026-11-12: with one engine, no picker
+   whatever its models; "Composer: no AI picker with only one engine").
 3. The 7-day goal card's title invites people to make documents with colleagues. It names up to three of the team's
    own skills: the goal's skill first, never the intro deck. The count and days follow it in small type. This
    supersedes the "7일 안에 3명이 … 써 보기" title in "G" and "W5".
@@ -22173,8 +22186,9 @@ also during another member's answer, whose live text is not on the viewer's scre
   is only a last-resort cap.
 - Trade-off: during a busy minute, Claude's or ChatGPT's servers get about 6 new connections a minute per egress
   network. Connected apps are not affected.
-- Owner to decide: whether to add a coarser IPv6 level (e.g. per /32), so that one large IPv6 block cannot fill the
-  30,000 cap.
+- Decided 2026-11-12: an IPv6 /32 level and a 6,000 cap ("Connector sign-in: an IPv6 /32 share and a 6,000
+  last-resort cap"). It was: whether to add a coarser IPv6 level (e.g. per /32), so that one large IPv6 block cannot
+  fill the 30,000 cap.
 
 ## A resync drops every cached room member list (fix/rooms-small-audit, 2026-11-11, audit rows 71, 76, 77)
 
@@ -22458,6 +22472,471 @@ change).
   "참고한 파일 · 올리는 답의 출처 목록에서 빠져요", no attach switch: sources are left out, never copied), with lines of its own
   under the provenance line: "올리면 대화방 모두가 이 내용을 봐요." when nothing is at stake, "웹이나 연결된 서비스의 내용",
   and the earlier-hidden-answer line. The app's own confirm with a row per reason is gone, and with it its strings.
+
+## Go back only where it can work; no false hold after going forward (fix/goback-and-false-hold, 2026-11-12, QA TC-334, TC-336)
+
+- **Why (TC-334).** 0.4.0's `mycel-ctl update` reports `rolled_back` as soon as `state.json` records the roll-back and
+  writes `root/update-failed.json` (20 hours), not knowing that the new bootstrap goes forward to 0.5.0 again. 0.5.0
+  then ran fine while `mycel-ctl status` said "HELD: release 0.5.0 was rolled back". 0.4.0's code cannot change.
+- **A hold of the version that runs is over.** `mycel-ctl` (status, update, the timer) drops a hold when all of these
+  are true: `app/current` is that version or newer, `root/VERSION` is that version or newer (a root update that failed
+  before its root files went in keeps its back-off), `state.json` has nothing pending and is not stopped (`blocked`),
+  and `/api/health` answers ok with the running version. The file is removed (as root; a reader without root only
+  ignores it) and one plain note line says so. The file is read again right before the removal: a hold another run
+  wrote meanwhile (this runs before the update lock) stays. `state.json` is not written from root: it is the server account's
+  file, and the bootstrap rewrites it; the bootstrap's own history line ("started again after 0.4.0 could not read
+  the database…") already tells the story. The server (`rootUpdateFailure`) ignores such a hold by the same version
+  rule.
+- **Why (TC-336).** Admin › System offered Go back to `state.previous` with no reader check. 0.4.0 (reader level 4)
+  then exited 75 on the database 0.5.0 had migrated (level 6), the bootstrap went back to 0.5.0, and the job said
+  `rolledBack` to 0.4.0.
+- **Reader level of a kept version** = the highest `min_compatible_reader` among its bundle's migrations
+  (`bundleReaderLevel`, the rule `publish-server.ts` already uses); the database needs the highest among its applied
+  migrations (`requiredReaderLevel`). Every raise of `SCHEMA_READER_LEVEL` comes with a migration that declares it, so
+  the two agree (0.4.0: 4 and 4). Lower: `UpdateStatus.previousNeedsRestore` (optional), no Go back button, a plain
+  line pointing to the QA-checked steps of #554, [BACKUP-RESTORE.md "Going back to the version before an update
+  (Linux)"](BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux) (automatic updates off, the
+  `pre-migrate` copy staged, `mycel-ctl update --version <older>` with its first-line check, cancel by removing
+  `restore-pending.json`). `POST /api/admin/update {rollback}` and `admin.js rollback` (it reads the level from
+  `app.db`, read-only) refuse it; `admin.js switch` stays an administrator's explicit choice. Docker: only a copy of the
+  whole volume from before the update, started with the older tag (`mycel-ctl update` is not used in the container,
+  and the newer image migrates again at its next start).
+- **Honest outcome.** The job is "done" before the restart, so it cannot know. At start, `settleUpdateJob` marks the
+  newest update job (finished within a day) failed when it started from the version that runs again, named another
+  one, and the bootstrap's history records sending that one back (`rolled_back <it> -> <running>` after the job
+  finished; a plain restart or an administrator's switch is not such a failure): "Could not go back to 0.4.0; still on 0.5.0" plus the reader reason or the bootstrap's line, in the starter's
+  language. The web says "Update finished" only after `/api/health` answers with the job's version; back on the
+  version it started from (uptime shorter than the wait, or a gap without uptime), it reads the job again and shows
+  its words; no answer in 4 minutes: "still restarting".
+- **Bootstrap**: a pending version older than `previous` (a Go back) that exits 75 is rolled back at once ("0.4.0 cannot read the database: 0.5.0 has
+  already updated it (exit 75)"), not after three starts with "exited 3 times". Diagnostics says a bounced Go back in
+  plain words (ok, not a failed update). A newer pending version that exits 75 keeps the usual tries
+  (`TestForwardedExit75StopsAtOnce`). The version order moved to `native/internal/version` so the bootstrap and
+  mycel-ctl share it.
+- **Docker / older kit**: the installer's "older kit" warning names the reader problem and the restore steps when the
+  kit's version is below the running one's level; docs/INSTALL-DOCKER.md no longer advises Roll back for that case.
+- Tests: ctl `TestStatusDropsHoldOfTheRunningVersion`, `TestScheduledUpdateDropsHoldOfTheRunningVersion`
+  (`TestScheduledUpdateShortHoldBeforeRootFiles` keeps the newer-hold rule with root files not yet in), bootstrap
+  `TestPendingOlderVersionExit75GoesBackAtOnce`, `tests/unit/g-update-goback.test.ts`, `g-prune.test.ts`,
+  `web/test/unit/update-outcome.test.ts`.
+- Version impact: **patch** (root update: bootstrap and mycel-ctl; one optional API field; no migration).
+
+## Linux turns get their own network namespace; the model proxy is forwarded (fix/engine-abstract-sockets, 2026-11-12, QA TC-309)
+
+On Ubuntu 24.04 (kernel 6.8) a turn could connect to host services' abstract unix sockets (storage daemons and other
+system services listen on them). bwrap ran without `--unshare-net` so the proxy's tcp-peer
+check and the nftables uid rule would see the engine itself; abstract sockets are not IP (nftables does not see them),
+not files (bwrap's mounts do not hide them), and Landlock scopes them only from ABI 6 (Linux 6.12), while a self-install
+runs `--landlock required`. TCP, UDP, IPv6, metadata and DNS were already refused.
+- **Every bwrap turn runs in a new network namespace with only loopback** (abstract sockets belong to a network
+  namespace). The helper does it, not bwrap: `mycel-sandbox exec --net-proxy <proxy port>` (`netns_linux.go`). bwrap gets
+  `--cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN` after `--cap-drop ALL`; they are capabilities of the turn's own
+  (nested, `--disable-userns`) user namespace, never of the host. The helper clears the ambient set, starts the
+  forwarder, `unshare(CLONE_NEWNET)` on its locked thread, brings `lo` up, listens on 127.0.0.1:<port> there, hands the
+  listener over (after Landlock), waits for "ready", clears every capability set on every thread (`AllThreadsSyscall`) and checks each `/proc/self/task/*/status` (exit 70 if any
+  is left), then Landlock, seccomp and execve as before.
+- **The forwarder** (`mycel-sandbox forward`) stays in the host namespace (with bwrap's own pid 1, see below): it accepts in
+  the turn's namespace and connects to 127.0.0.1:<port> on the host. So the engines' URLs (`ANTHROPIC_BASE_URL`,
+  `HTTPS_PROXY`, Codex's provider) stay the same; the proxy's tcp-peer check finds the forwarder, a process of the
+  turn's session (same sid); the nftables rule still applies (engine account); it is in the turn cgroup and dies with
+  bwrap's pid namespace. It starts with no capabilities (ambient cleared before its execve). The engine is its parent
+  and the same uid, so its memory (`/proc/<pid>/mem`) must be out of reach: the helper hands the listener over only
+  after its own Landlock domain is in place, and Landlock refuses ptrace access from a domain to a process outside it.
+  A non-dumpable forwarder would also do it, but then `/proc/<pid>/fd` belongs to root and the launcher's tcp-peer
+  lookup cannot find the owner (the first run: managed turns failed). So it makes itself non-dumpable only when the
+  engine has no Landlock domain (`--landlock off`, or best-effort on a kernel without Landlock): then the proxy refuses
+  its connections and the turn cannot reach the model, but it never gets the host namespace (installs run
+  `--landlock required`). bwrap's pid 1 (the pid namespace's init; no `--as-pid-1`) is also in the host namespace and
+  the same uid. Landlock keeps the engine out of it too; without a domain the helper refuses the turn (exit 70) unless
+  Yama's `ptrace_scope` is 1 or more, since pid 1 is not the engine's descendant (review of #557). Its seccomp variant
+  (`seccomp.Options{Forwarder}`) refuses AF_UNIX `socket()`, `socketpair()`, `execve`/`execveat` on top of the engine
+  policy. It forwards only to that one port.
+- **Not chosen.** seccomp on connect()/sendto(): the filter sees only the pointer to the address, not `sun_path[0]`.
+  Refusing `socket(AF_UNIX)` for the engine: the bridge needs `tools.sock` (a path socket, which works across network
+  namespaces and still does). User-notify supervision: deciding on memory the engine can change after the check is the
+  TOCTOU the kernel documentation warns about. bwrap `--unshare-net` with a relay outside the sandbox: the proxy would
+  see the relay, not a turn process, and the tcp-peer check would need a second path. Landlock scope alone: kernels
+  before 6.12 stay open (it still applies where available).
+- **cgo**: `syscall.AllThreadsSyscall` refuses in a cgo binary, so a cgo-built `mycel-sandbox` refuses `--net-proxy`
+  with a plain reason (exit 70); `native/build.sh` builds with `CGO_ENABLED=0`. The Go test of the namespace is
+  skipped under cgo (CI's `go test` on a runner with gcc) and a second test checks the refusal there.
+- **Installer**: `install-linux.sh` runs bwrap with the two `--cap-add` and `unshare -n` as `nobody`; when user
+  namespaces work but that fails (a distribution profile that strips bwrap's namespace capabilities), it stops with a
+  plain message instead of every turn failing with exit 70.
+- **Side effects**: with the namespace a flushed ruleset (QA TC-310) no longer gives a running turn the network; only
+  the forwarder's one port is reachable. UDP to 127.0.0.1:53 now leaves the socket ("sent") into the turn's own
+  loopback instead of being rejected by nftables; the Linux job's DNS check now puts a root echo on the host's
+  127.0.0.1:53 and asserts that the turn gets no answer.
+- Tests: `mycel-sandbox` Go test through bwrap (proxy port answers; another host loopback port and a host abstract
+  socket are refused; capabilities zero; the forwarder's memory cannot be opened with and without Landlock; a control run
+  without the flag reaches all three); seccomp forwarder table;
+  bwrap argv golden; Linux job (`tests/linux`): a root-owned `@mycel-t1-host` listener answers the server account but
+  not a turn, no abstract name of the host (listed through `/proc/1/net/unix`, bwrap's pid 1) accepts, `status.net = "private"`, and the managed Claude / Codex turns
+  reach the real model proxy through the forwarder.
+
+Version impact: patch (security fix in the Linux engine sandbox; the launcher status gains `net`; no API, data or
+migration change).
+
+## Composer: no AI picker with only one engine (fix/one-engine-no-picker, 2026-11-12, the owner, QA TC-182)
+
+When only one AI engine is available, the composer shows no AI picker, however many models that engine has (the owner:
+"숨겨"). The model for new chats is chosen in Settings › "AI for new chats" (people who may pick) or by the team default
+in Admin › Team settings › AI defaults. With two or more engines the picker is unchanged. This supersedes the "more
+than one choice" rule of "Home and Getting started polish" (2026-11-11), point 2.
+
+## Phones: Back goes to the screen's parent; tab taps do not pile up history (fix/phone-back-parent, 2026-11-12)
+
+- **Each tab's root is the first history entry.** Back at the top of 대화, 파일 or 나 leaves the app (Android) or does
+  nothing (the iOS swipe): Back never walks into other tabs. Material's "back to the start tab first" was not taken.
+  (In the Android app since feat/phone-nav-bridge, 2026-11-12: Back at another tab's root goes to the start tab first.)
+- **A screen pushed from another tab stays on the current tab's stack** (a file from a chat, a notice's page from
+  Activity): Back returns where you came from, as native tab bars do. The screen table's parent (`lib/screens.ts`) is
+  used for pages opened from outside, for ‹ at a stack's root and for Files' folders.
+- **The stack lives in each entry's history state**, not in a memory of our own ("Phone navigation: four tabs" rejected
+  that because a reload or a web view restore loses it). The saved stacks of the other tabs are in sessionStorage, per
+  person, without pages whose address holds a token. A restored stack is capped at 12 entries (WebKit allows 100
+  `pushState` calls per 30 s).
+
+## Sidebar: section titles as large as the rows, and bold (fix/sidebar-section-titles, 2026-11-12, QA TC-149)
+
+The sidebar's section titles (대화, 트리나 기록) are as large as the rows and bold (`SidebarSectionTitle`: `text-sm
+font-bold text-ink`), not a step smaller. Weight and colour alone, with no line or box, set the sections apart (the
+owner prefers a lean UI). The labels inside the lists (팀 대화방, 그룹 대화, 1:1 대화, the dates) and 더 보기 / 접기 stay
+small and grey. This replaces the 2026-11-07 "a step under the rows, 12 px semibold".
+
+## AI chat: a file dropped anywhere on the chat attaches to its box (fix/chat-drop-anywhere, 2026-11-12, QA TC-071)
+
+The AI chat page is a `FileDropZone`, like a room, a thread and the ✦ side chat (#309, already on dev): a file dropped on
+the header, the message list or the box attaches to the box. Only files from this computer count; text, links and the
+app's own drags do not. Home and a project's new-chat box have no message list and still take drops on the box only.
+Regression test: `web/test/e2e/chat-drop.spec.ts`.
+
+## Phones: 44 px targets, second round (fix/phone-tap-16px-2, 2026-11-12, QA TC-189, TC-259)
+
+"Phones: 44 px targets and 16 px fields" stands (#527 followed it for the ＋ menu, the team file picker and the 404 link,
+with nothing new). Two additions:
+- A control already placed with `absolute` (a field's ✕) uses `touch-hit-placed`: the same 44 px box without
+  `position: relative`, so it stays where it is.
+- `phone-targets.spec.ts` also measures controls below the fold and inside menus: `expectTargets(page, selector,
+  atLeast)` scrolls each one into view and fails when it finds none.
+- After a PDF zoom only the page scales, not the inset beside it.
+
+## "Trina isn't ready yet": "Told" survives a reload (fix/ai-not-ready-told-remembered, 2026-11-12, the owner, QA TC-188)
+
+Amends “"Trina isn't ready yet": the chat error by role”. A member's [Tell an admin] reads "Told" until the server
+would take a new press: while a `not-ready:<member>` notice is newer than one hour (`AI_NOT_READY_WINDOW_MS`, the same
+record that limits the notices). The state comes from the server (`GET /api/me/ai-access` `notReadyTold`, optional),
+never from the browser. Each member sees only their own; the owner and admins always read `false` and keep
+[Connect AI]. The server cannot tell when the AI has been fixed: the card goes away once answers work again, and if the
+AI breaks again within the hour the member reads "Told" (the admins were told less than an hour ago). A tab kept open
+past the hour shows "Told" until the next reload.
+
+## Phones: Settings sections as rows and switches; computer-only setup not offered (fix/phone-settings-rows, 2026-11-12, QA TC-261..TC-263)
+
+- The pages under Security use the existing "page under a section" of `SettingsDialog` (two routes next to
+  `/settings/account/delete`); their parent in `lib/screens.ts` is `/settings/security`.
+- "This device off" is per device on the server (the existing per-session endpoints), not the person-wide opt-out; the
+  all-devices opt-out is the separate red row.
+- "Connect on a computer" in the connection dialog is for the phone app only; a phone browser can still sign in through
+  a popup.
+
+## Phones: Files with one bar; the Trash is a place (fix/phone-files, 2026-11-12, QA TC-258)
+
+- **The Trash on phones is a row at the end of the team folder**, like iOS Files' "Recently Deleted". In
+  `lib/screens.ts` it is **its own screen whose parent is the team folder**: going in is a push, Back and ‹ return to the
+  team folder, a folder opened from it goes down from the team folder, and a link to it from a deeper folder goes back
+  to the team folder first. Before, it was the same screen as the folder (a replace, made for the pill switch), so the
+  phone's Back from it left Files.
+- **No jumps to a folder further up on phones**: ‹ goes up one folder; the 파일 tab goes to the top.
+- The summary of finished uploads is phones only; computers keep a row per finished file.
+
+## AI defaults list only the engines that can be the default (fix/ai-defaults-only-on-engines, 2026-11-12, QA TC-182)
+
+Admin › Team settings › AI defaults › Default engine lists only the engines the server accepts as the team default:
+switched on, there on this installation, and not Codex in beta. They use the AI's own names (`ENGINE_LABEL`: Claude,
+ChatGPT, API), as the composer and Settings › AI for new chats do; Admin › AI accounts keeps the engines' own names. A
+saved default that is off now stays shown as "<name> (off)" with a line saying to pick another one. Neither the screen
+nor the server changes it by itself.
+
+## Team files: a folder macOS blocks (fix/mac-folder-denied, 2026-11-12, QA TC-049)
+
+In the desktop app on macOS, after a folder-window pick is granted, the main process lists the picked folder's first
+entry (nothing is opened). EPERM or EACCES there reaches the team page only as the word `'mac-blocked'`, never the path
+or the error text, through the optional bridge call `folderProblem(folderName)`. The page asks only when a pick listed
+no entry at all. It then says macOS blocked the folder and where to turn Trina on (System Settings › Privacy &
+Security › Files and Folders), and the step's folder button reads "Pick another folder". An empty folder still says it
+is empty. Windows and Linux never probe. There is no "Open System Settings" link while the app's `openExternal` stays
+http(s)-only.
+
+## Phones: Back closes the open sheet, menu or dialog first (fix/phone-back-closes-overlays, 2026-11-12, QA TC-245)
+
+- Phones only, at the same 768 px line as the drawer and the sheets; a computer's dialog gets no history entry.
+- A closed layer's entry is backed off in a microtask, after that moment's effects have run, with one `history.go(-n)`
+  for all of them: something that opens or navigates in the same moment takes the entry over instead (in Chromium and
+  WebKit a push made while a back is in flight is lost), and WebKit merges two `back()` calls in a row into one.
+- An overlay opened while our back is in flight pushes its entry after the back lands. A page pushed meanwhile is pushed
+  again after the back lands, only if the browser dropped it (the landed entry is not already that page, by router key
+  and address), so exactly one entry is left.
+- Entries of closed layers are skipped: Back goes on past them, Forward onto one goes back, and a reload that lands on
+  one goes back off it.
+- The Files row ⋯ dropdown and the Search row ⋯ are not `MenuButton`s yet; they get Back when they are converted.
+
+## Every change to the team's AI connections refreshes their state at once (fix/claude-signin-status-refresh, 2026-11-12)
+
+Every change to the team's AI connections goes through `connectionsChanged(cc)` (`credentials/store.ts`): a sign-in
+finishing, add, replace, check, remove, switch, the assignee prune, the handover and the deletion of an account with
+its own connections. It drops each cached copy of their state (the engine status cache registers a listener) and sends
+`engine_choice_changed`; Admin › AI providers reads its engines again on that notice, so a finished sign-in shows the
+engine as connected at once. A cache entry from a check that started before a change is never kept.
+
+## Connector sign-in: an IPv6 /32 share and a 6,000 last-resort cap (fix/connector-signin-ipv6-cap, 2026-11-12, the owner, QA TC-168)
+
+Decides the open item of "Connector sign-in: a busy minute slows only the flooding networks" (2026-11-11).
+- In a busy minute (past 2,400 anonymous OAuth requests), an IPv6 /32 gets 120 in total, on top of each /48's 30. Each
+  /48 adds at most its own 30 to its /32. IPv4 keeps one /24 level.
+- The last-resort cap is 6,000 a minute (was 30,000), so accepted anonymous work stays at about 20–30 s a minute on a
+  small host.
+- Trade-offs: about 120 IPv4 /24s (or 30 IPv6 /32s) can fill the cap and stop new connections for the rest of that
+  minute; 4 /48s inside a large provider's /32 can shut that /32 out during a busy minute. Connected apps are not
+  affected.
+
+## Phones: no whole-page zoom in the app; the picture viewer zooms on its own (fix/phone-no-page-zoom, 2026-11-12, QA TC-246)
+
+- **Only the phone app and the installed app hold the page zoom.** A normal phone browser tab keeps the browser's own
+  pinch zoom, for accessibility: people zoom web pages there.
+- **Inside the app, the text size setting replaces page zoom** for accessibility: Settings › Profile › 글자 크기
+  (`lib/textSize.ts`, up to 140 %, every rem follows it). Touch-screen fields are already 16 px (`index.css`), and
+  `maximum-scale=1` also stops iOS from zooming into a field on focus.
+- Web side only, no native change, so it reaches every installed app at once.
+
+## Phones: Admin's pages below the list (fix/phone-admin-pages, 2026-11-12, QA TC-267..TC-270)
+
+- **Admin's parents in one table** (`adminScreens.ts`, pure, no React). `lib/screens.ts`' `case 'admin'` calls
+  `adminParent`, so the phone history puts Connectors under a connector, the folder under its rule editor, and so on;
+  AdminLayout's `useListUnderPage` uses `adminChain(here)` and keeps the Files/Projects detour for Folder permissions.
+- **Members, Groups, Providers and Activity log items have a page on phones only**; on a computer their address leads
+  to the same thing in the page (`?member=`, `?engine=`, the list). Connectors and Plugins already had pages on
+  computers, so they got their address on every width.
+- **The rule editor's entry is `&rules=<path>`** (a rule row outside the tree has no folder under it). Back from the
+  editor closes it without asking (the browser cannot ask first); ‹ in the bar asks.
+- **Filters in a sheet everywhere** (one `PhoneFilters`), not on Activity log only.
+- **"Team …" names on the phone's Admin list and bar only**; the computer's sidebar keeps the nouns (its title says
+  whose they are).
+- **No "Ask a member to connect" on a phone** (it was in Add ⌄, which goes with Add by address).
+
+## A link inside a quote is not one the person typed (fix/quoted-links-not-typed, 2026-11-12)
+
+"Ask Trina about this" quotes another person's message into the asker's side chat as Markdown `> ` lines, and the web
+address gate (`tools/url-gate.ts` `typedUrls`) read the quote as typed by the asker: a link someone else wrote opened
+with no card and outside the link budget.
+- **Quote lines are left out of the typed links.** A link only inside a quote asks first, like any link the person did
+  not write; one the person writes outside the quote still opens without asking. The rule is in one place,
+  `chat/read-rooms.ts` `isQuoteLine` / `withoutQuoteLines` (a line starting with `>`, spaces before it allowed), which
+  also decides that a chat "has read rooms". A person's own `> ` quote gets one card for a link inside it (one yes
+  remembers it for the chat).
+- **Why the `>` prefix**: no structured marker is on every quote (the thread token is not on file quotes or private
+  previews).
+- **Names stay inside the quote.** `withQuote` writes the header (name, time, file name) as one line (`oneLineName`:
+  control and line/paragraph separators become a space; names saved before still load). `PersonName` now refuses
+  control, separator and invisible characters, the rule room names already had (`NAME_FORBIDDEN`, now in
+  `shared/src/name-chars.ts`), on every path that sets a name (`PATCH /api/me`, `PATCH /api/me/profile`, admin create
+  and edit, invite accept, setup, CLI create-owner). The refusal is a `validation` error in plain words in the person's
+  language (`FIELD_MESSAGES` in `shared/src/api/errors.ts`); room name refusals get the same message.
+
+Version impact: patch (security fix).
+
+## Connectors: the page is in the sidebar, Settings has no Connectors section (fix/connectors-simple-rebased, 2026-11-12, supersedes #399)
+
+- The person's own connections live under **Connectors** (main sidebar, `/connectors`); the old `/settings/connectors`,
+  `/settings/integrations` and `/settings/drive` redirect there. Admin › Connected apps (the team's) keeps its name.
+- Discover shows only what is not connected. An app the team has not set up yet stays in Discover, last: owners and
+  admins get "Set up" (→ Admin), members get "Not set up yet" / "Asked" and ask from its page (#446). Apps turned off
+  for members are not shown to them.
+- Every text that sends a person to their own connections (the AI's hints, notices, Slack) says "Connectors", never
+  "Settings › Connected apps".
+
+## Phones: the room header and the file viewer's bar (fix/phone-room-header-viewer, 2026-11-12, QA TC-257)
+
+- The room header on a phone is ‹, the name, ✦ and ⋯. The threads-with-new-replies button goes into ⋯ instead of a strip
+  under the header, and a dot on ⋯ shows there is something new.
+- The duplicate rename comes out of the header's ⋯ (the room info's name row has it); a row's ⋯ in the 대화 list keeps
+  이름 바꾸기.
+- On phones the bell's menu stays mounted without its button (`bare`), so ⋯ › 알림 설정 still opens it and focus goes
+  back to ⋯.
+- The file viewer's actions are in a bottom bar, Close (✕) included; Back and a swipe down also close.
+
+## Phones: search and 멘션·스레드 on the 대화 tab; each unread counted once (feat/phone-chats-search-activity, 2026-11-12, QA TC-256)
+
+- **Activity stays in 나** (the whole Inbox) and 대화 gets a scoped view of it: one page with two entries. 나's Activity
+  also holds the app's own notices (scheduled-task results, service requests, handover, dev-environment notices), which
+  have no other place on a phone, so moving the page would put them under a chats tab, and moving only the conversation
+  rows would leave 나 with a partial Inbox.
+- **The split comes from the server.** The client cannot tell which part of `unreadCount` is conversation rows; the
+  field is optional (an older answer still parses: nothing is taken off then). No migration. The view opened from 대화
+  asks `GET /api/notifications?only=rooms` (the caller's own conversation rows, paged as the Inbox is; #545). When a tab
+  or "안 읽음" shows nothing of what is loaded, Activity reads the next pages by itself up to 300 rows, then offers
+  "더 보기", so it never shows the empty text while older pages are left.
+- **A dot, not a count, on 멘션·스레드**, so the same mention is not numbered twice within 대화.
+- **No gaps.** A muted room (level off) makes no notice at all, so nothing 나 stops counting goes uncounted on 대화.
+  Hidden rooms are counted nowhere, as before. A room muted after a mention left its row is counted once, on 나, not
+  on 대화 (#545).
+- **The 대화 search type is phone-only**; the computer's type chips stay as they were.
+
+## Phone: leaving a team signs out of it (fix/phone-leave-signs-out, 2026-11-12, QA TC-369)
+
+Switching the phone app from team A to team B removed only A's push device; the web view kept A's session cookie, so
+switching back opened A signed in. Now leaving a team on the phone signs out of it (phone app build; nothing changes on
+the server).
+- **Server sign-out with the web view's own session.** The app injects a script into A's page (`mobile/src/leave.ts`
+  `leaveScript`): it clears the page's storage, the cookies scripts can read, Cache Storage, IndexedDB and service
+  workers, then posts the existing `/api/auth/logout` and answers with a one-time token. The app waits up to 4 s.
+- **Local clear, with or without the server**: the web view's cookies (`clearCookies`) and storage (`clearCache(true)`),
+  before B's page loads. The phone is in one team at a time.
+- **A sign-out the server did not confirm is owed** (SecureStore `team-ax.left-sessions`), recorded before the new team
+  is saved and taken back (only its own entry) if the save fails. The next time the phone opens that team, its first
+  page signs out first (`ReinstallSignOut` with storage clearing) and keeps the page the person was sent to (an invite's
+  or join link's address, and the join token's session key).
+- **One switch at a time.** A second switch while one runs answers "Still switching teams. Try again in a moment." and
+  keeps the link the person confirmed (#546). While the switch waits, [Cancel], [Back to …] and Android Back are off.
+- **Known limit (iOS):** the app cannot clear the WKWebView cookie store, so A's cookie is removed at the switch only
+  when A's server answers the sign-out with 204 within 4 s; otherwise the owed sign-out ends it when the phone next
+  opens A. A native WKHTTPCookieStore module is left out.
+
+## Phones: Home like the AI apps; a project's files in the 트리나 tab (fix/phone-home-projects, 2026-11-12, QA TC-253, TC-254)
+
+- **Phone Home is laid out like the ChatGPT and Claude apps**: the one thing at the top; the greeting, one row of
+  suggestion chips and the box at the bottom, the box docked. Home lists no chats; the AI's history is behind ☰ only.
+  This replaces the line in "Phone navigation: four tabs" that Home shows the three latest AI chats under "트리나 기록".
+- **A project's files on a phone open in the 트리나 tab**: `/projects/:id/files` (`?dir=` a folder inside the project's
+  folder), under the project's page. Changing files stays on the 파일 screen (the bar's folder button), so this screen
+  is a plain list.
+- **A detail page may name the phone's bar** with its own name (`PhoneBarTitle`), used by a project's page ("‹ 프로젝트 ·
+  Launch · ···"). Other detail pages keep their list's name.
+- A phone suggestion chip is named by the text it shows, not by a shorter aria-label (axe label-content-name-mismatch).
+
+## Linux update: free space first, never left stopped (fix/installer-space-and-diag, 2026-11-12, QA TC-339)
+
+An update with about 1 GB free stopped both units, ran out of space while copying, and exited with the server stopped.
+- **Space check first.** `install-linux.sh` adds up what it writes on each disk (the version copy, root's files, engines
+  from another disk or `--engine FILE`, the database copy the server makes before it migrates, and a 512 MB margin; a
+  half copy from an earlier run counts as free) and checks before the packages and downloads and again right before the
+  stop. Short: "it needs about X GB free, it has Y GB. Nothing was changed and the server keeps running.", exit 1.
+  `mycel-ctl update` checks before the download (or before unpacking `--bundle`): the archive plus two copies the size
+  of the running version (or 3× the archive if larger) plus 256 MB.
+- **Copy while the server runs** into `<base>/.install-stage` (root-only, 700); the stop only renames it into
+  `app/versions` (about 2 s down).
+- **Never left stopped.** An EXIT trap (also Ctrl-C and a closed SSH session) works in phases: a failure after the stop
+  and before `app/current` switches swaps `root/` back from a hard-link copy (built under another name and renamed when
+  complete), removes the version folder this run added and starts the units that were running or starting; after the
+  switch it keeps the new root files and starts the units again (the bootstrap goes back if the new version does not
+  start).
+- Diagnostics follow the `/etc/os-release` link (the system's own root-owned file; the target must be a regular file of
+  at most 64 KB); `root/` files and machine-id still use lstat.
+
+## Phones: a room's message box within about 35 % of the screen (fix/phone-composer-height, 2026-11-12, QA TC-252)
+
+With the keyboard up, the text field's cap is 35 % of the app height minus the box's other rows (about 6rem with the
+files' row, 5rem without, measured at 390 × 480; #550), at most 200 px, at least one line, so the whole box stays within
+about 35 % and the field keeps 2–3 lines beside files. Computers unchanged (`max-md:` only).
+
+## Phones: the app's swipe and Back follow the app's screens (feat/phone-nav-bridge, 2026-11-12, QA TC-246)
+
+- **Android Back at another tab's root is a tap on the start tab** (changes the Android part of "Phones: Back goes to
+  the screen's parent"), so that tab's stack comes back as it was left; if
+  the start tab had a chat open, Back then goes to its root and then leaves the app. Chosen over jumping to the root and
+  dropping that stack.
+- **A notification tapped in the app is a push onto the current stack** (`planFor`), without a reload, so Back returns
+  to where the person was.
+- **Native photo picker (#439's "사진 보관함"): left out** until #439's `AttachSheet` is merged. It needs a new native
+  dependency and a new app → page file transfer (the bridge carries files page → app only).
+
+Version impact: minor for the phone app (a new optional capability, store build); patch for the web.
+
+## Phones: Admin › System is a list of pages (fix/phone-admin-system, 2026-11-12, QA TC-269, TC-270)
+
+- System on a phone is a list of its parts, as Team settings is ("Admin and Settings on phones: a list you tap into"),
+  grouped in `pages/admin/systemGroups.ts`. An admin also gets the list (one or two rows), so ‹ and the row's state work
+  the same for everyone.
+- Opened from the Admin list's attention row, a part's ‹ goes back to the Admin list; a pasted address gets Admin ›
+  System under it.
+- **Server-computer setup is not offered on a phone** (a path on the server, the relay or claim code, a root command):
+  its status plus "컴퓨터에서 설정해요", as Admin's other pages do. Export stays on phones (the file lands in the owner's
+  exports folder, which Files opens).
+
+## Phones: Getting started full screen, one Back step per step (feat/phone-welcome-flow, 2026-11-12, QA TC-271)
+
+- **나중에 in the bar leaves the steps** (to the page under them, else Home) and records nothing; each step keeps its own
+  "나중에 하기" (put this step off, go on). A full-screen flow needs one way out, and ‹ is the step before. Its
+  accessible name is "나중에 이어서 하기".
+- The invite asked for by itself (the goal card's [팀원 초대]) has no steps under it: Back returns to where it came from.
+- **The invite goes to the share sheet on phones**: `TeamLinkPanel`'s primary action, so Admin › Members' invite card
+  gets it too; no change on computers.
+- The welcome steps' screen in `lib/screens.ts` has no tab (`tab: null`), so the stack keeps the tab it was opened from.
+
+## Team address for a server not on a relay (fix/apps-team-address-share, 2026-11-12, QA TC-089)
+
+Amends "Settings › 앱: 팀 주소" in "First run: one box" and the team menu's address ("The team menu"): "never the address
+a request came in at" now holds only for a server on a relay (`relay.url` set; relay address not known yet → no
+address).
+- A server with no relay and no public address gives the address it is reached at (`server/src/system/connection.ts`
+  `reachedAddress`): a configured public origin naming the request's host:port (a TLS proxy in front), else the
+  request's own origin as the server saw it (listener scheme and the allowed Host), else, from localhost, the first
+  configured origin that is not loopback. Port kept, http included; never loopback, never forwarded headers, only direct
+  requests (not relayed, not the office tunnel). Signed-in only (`/api/me`, the sign-in answer).
+- The web shows an http address with `http://` and says the apps need https (both apps refuse http other than loopback).
+- "Send the link to a computer" uses the app's share sheet (`share-text-v1`), else `navigator.share({url, title})`,
+  else copy, at any width (the row is shown by platform).
+- Tests: `a-team-address`, `team-link`, `web/test/unit/first-run`, `web/test/unit/mobile`, e2e `first-run`,
+  `phone-settings-rows`.
+
+## Phones: Connectors in the app — status and Disconnect only (fix/phone-connectors-scroll, 2026-11-12, QA TC-262)
+
+- **The app, not the width:** in the phone app (`mobileApp()`, as the ＋ sheet) connecting and reconnecting a Google
+  app or Drive says to do it on a computer ("{name} 다시 연결은 컴퓨터에서 해요.", `integrations.reconnectOnComputer`); a
+  phone browser can still open Google's page in a new tab.
+- **Status and Disconnect only:** in the app the page drops Try in chat from its header (the "Try asking" examples still
+  start a chat), and Disconnect is a button of its own instead of a ⋯ menu with one item.
+- The page scrolls as one page: on phones it draws its own header instead of `PageHeader`'s sticky bar, as Projects and
+  Scheduled do.
+- The Google OAuth bridge (`openExternal` 'google-oauth') stays in the code, only no longer offered from these pages in
+  the app.
+
+## Phones: ‹ keeps its label (fix/phone-admin-system-2, 2026-11-12, QA TC-381)
+
+Changes "‹ and its label" in "Admin and Settings on phones": the label is shown whole when it fits beside the centred
+title; when it does not, the title moves over (centred between the label and the right side) so the label still shows;
+‹ alone only when even that does not fit. It is in the shared `PhonePageBar`, so Settings' sections, Files and the top
+bar's pages follow the same rule; only bars where the label used to be hidden change.
+
+## Updates install mycel-ctl first (fix/update-ctl-first, 2026-11-12, QA TC-340)
+
+- **`mycel-ctl` is installed before the other root files**, by `install-linux.sh` and by `mycel-ctl update`, so a reset
+  halfway never leaves new root programs with an old `mycel-ctl` whose `status` has no "AN UPDATE DID NOT FINISH" check.
+  It works at once with this kit's installer; `mycel-ctl update` and the timer run the `mycel-ctl` already in `root/`,
+  so an update from 0.4.x still uses 0.4's order (finished by running `sudo mycel-ctl update` again).
+- "AN UPDATE DID NOT FINISH" names the same command again: `sudo ./install-linux.sh update --from .` after a kit
+  update, else `sudo mycel-ctl update`.
+- **`mycel-ctl update` over half-replaced root files** fails (exit 1, result `error`) with "an update did not finish: …"
+  when the feed's release would be skipped and does not replace them, instead of "ok: nothing changed". The update
+  timer still skips, with the reason in its detail.
+
+## Markdown in people's messages (fix/markdown-in-messages, 2026-11-12, the owner, QA TC-072)
+
+Reverses "Message text from another member is data, shown as plain text in the app (never Markdown or HTML)" in
+"대화방 v1" and takes "Markdown in people's messages" off the "Not in this change" list of "대화방 메시지의 링크".
+- People's messages in rooms, DMs and threads render Markdown with the AI answers' renderer. Raw HTML is always text.
+- Links follow the answers' safe-link rules; an outside link whose words are not its own address shows its real site or
+  address in brackets. Mentions and plain addresses work as before. No picture loads by itself.
+- Nesting is capped at 6 levels. A message Markdown would read only very slowly, or cannot draw, is shown as plain text:
+  more than 1,000 lines, 1,000 unpaired emphasis marks, code spans that never end, 1,000 words after a `[` that is never
+  closed, or tables of more than 20,000 cells. An AI answer whose tables have more than 20,000 cells shows (and copies)
+  as plain text.
+- No math, single-tilde strikethrough, Mermaid or footnotes: people's messages are read with GFM minus footnotes, and
+  footnote marks show as typed. An AI answer keeps its footnotes unless they nest (more than 2 definitions away from a
+  line's start, or more than 100 in all); then it is read without footnotes.
+- Quotes, sending previews, the edit box, notifications, search snippets, list previews and copy stay plain or source
+  text. My own questions in an AI chat stay plain.
+- The AI step still treats another member's text as untrusted input.
 
 ## Slack through the official Trina AX app: "Add to Slack", nothing copied by hand (feat/slack-official-app, 2026-11-12, the owner, QA TC-203)
 

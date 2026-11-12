@@ -29,6 +29,9 @@ const TABLE: [string, unknown, unknown?][] = [
   ['https://acme.trina.app/login?next=/rooms', acme()],
   ['team.example.com', other('team.example.com')],
   ['https://team.example.com:8443', other('team.example.com:8443')],
+  // the host Settings › 앱 shows for a server without a relay (QA TC-089): typed as shown, the port is kept
+  ['192.168.1.2:19300', other('192.168.1.2:19300')],
+  ['acme-mac.tail1234.ts.net:8489', other('acme-mac.tail1234.ts.net:8489')],
   // an invite link and a team link keep their page (the fragment of the team link too)
   [`https://acme.trina.app/invite/${INVITE}`, acme(`/invite/${INVITE}`)],
   [`acme.trina.app/invite/${INVITE}`, acme(`/invite/${INVITE}`)],

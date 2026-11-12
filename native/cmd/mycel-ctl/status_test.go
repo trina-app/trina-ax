@@ -31,8 +31,12 @@ func TestStatusSaysAnUpdateDidNotFinish(t *testing.T) {
 	}
 	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-launcher"), []byte("0.5.0 mycel-launcher"), 0o755))
 	code, out, _ := tb.ctl("", "status")
-	if code != 0 || !strings.Contains(out, "AN UPDATE DID NOT FINISH: some root files (mycel-launcher) are not those of 0.4.0, the version in root/VERSION. Run the update again: sudo mycel-ctl update") {
+	if code != 0 || !strings.Contains(out, "AN UPDATE DID NOT FINISH: some root files (mycel-launcher) are not those of 0.4.0, the version in root/VERSION. Run the same command again: if the update came from a kit (sudo ./install-linux.sh update --from . in the kit's folder), run that again in the same folder; otherwise sudo mycel-ctl update") {
 		t.Fatalf("%d\n%s", code, out)
+	}
+	// the kit's command comes first: `mycel-ctl update` alone says "already at" when the kit was newer than the feed
+	if strings.Index(out, "install-linux.sh update --from .") > strings.Index(out, "sudo mycel-ctl update") {
+		t.Fatalf("order:\n%s", out)
 	}
 	code, out, _ = tb.ctl("", "status", "--detail", "--json")
 	var st Status

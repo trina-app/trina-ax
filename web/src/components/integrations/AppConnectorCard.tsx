@@ -66,7 +66,13 @@ export function CardMenu({ label, items, testId }: { label: string; items: CardM
           {items.map((it) => (
             <button key={it.testId} type="button" role="menuitem" disabled={it.disabled}
               className={`block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-hover focus:bg-hover focus:outline-none disabled:opacity-50 ${it.danger ? 'text-danger' : ''}`}
-              onClick={() => { setOpen(false); it.onSelect() }} data-testid={it.testId}>{it.label}</button>
+              onClick={() => {
+                // focus back on ⋯ first: the item goes with the menu, and a dialog it opens (Settings, a confirm)
+                // returns focus to what had it, which is then ⋯ and not the page's body
+                box.current?.querySelector<HTMLElement>('button')?.focus()
+                setOpen(false)
+                it.onSelect()
+              }} data-testid={it.testId}>{it.label}</button>
           ))}
         </div>
       )}

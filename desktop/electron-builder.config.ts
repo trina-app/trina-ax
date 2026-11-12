@@ -63,6 +63,9 @@ export default {
     createStartMenuShortcut: true,
     runAfterFinish: true,
     deleteAppDataOnUninstall: false,
+    // build-resources/installer.nsh: the uninstaller removes the trina-ax:// link handler the app wrote (QA TC-383).
+    // Named here so a missing file fails the build instead of shipping an uninstaller that leaves it behind.
+    include: 'installer.nsh',
     artifactName: `${A}-Setup-\${version}-win-\${arch}.\${ext}`,
   },
   publish: [{ provider: 'generic', url: 'https://localhost.invalid/downloads/', channel: 'latest' }],

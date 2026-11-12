@@ -16,6 +16,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
 import { audienceOf, authorizationUrl, canSignIn, flowReasonKey, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
+import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -24,12 +25,10 @@ import { Badge, Button, IconButton, Switch, confirmDialog } from '../ui'
 import { Tooltip } from '../Tooltip'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
- * The phone app has no sign-in return yet: no window there. */
+ * The phone app has no sign-in return yet: no window there. Nor in the desktop app, whose window handler refuses a blank
+ * window: there the sign-in page opens in the system browser once its address is known (lib/driveSignIn.ts). */
 export function reserveSignInWindow(): Window | null {
-  if (mobileApp()) return null
-  const w = window.open('about:blank', '_blank')
-  if (w) w.opener = null
-  return w
+  return reserveWindow(signInPlace())
 }
 
 export interface SignInState {
@@ -127,7 +126,7 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
         return
       }
       setS({ id, flowId: r.flowId, url, state: 'pending', reason: null })
-      if (popup.current && !popup.current.closed) popup.current.location.replace(url)
+      openSignInWindow(signInPlace(), popup.current, url)
     } catch (e) {
       if (g !== generation.current) return
       popup.current?.close()

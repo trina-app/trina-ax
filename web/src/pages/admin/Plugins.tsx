@@ -3,7 +3,8 @@
 // the official list as cards, and a plugin's page in place of both (what it is, what it will do, the details). Installing
 // always goes through the permission prompt: the server checks the package first (official pin or signature, files,
 // platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
-// Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
+// Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only. On a phone a plugin's page
+// is the plugin alone, under "‹ Plugins": the title row (search, Install from file) is the list's (QA TC-269 step 2).
 import { AlertTriangle, ArrowLeft, ArrowUpCircle, BadgeCheck, BookOpen, Cable, Check, Cpu, FileText, FileUp, Globe, Languages, Loader2, Minus, Plus, Puzzle, Search, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -14,7 +15,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, EmptyState, IconButton, Modal, StickyHeader, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, EmptyState, IconButton, Modal, StickyHeader, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { Tooltip } from '../../components/Tooltip'
 import { CardMenu } from '../../components/integrations/AppConnectorCard'
 import { Loadable, useLoad } from './common'
@@ -418,6 +419,8 @@ export default function Plugins() {
   const open = sub ? decodeURIComponent(sub) : null
   const navigate = useNavigate()
   const upTo = useUpTo()
+  // a phone: a plugin's page is the plugin only (its name in the bar); the search and Install from file stay on the list
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const setOpen = (id: string | null) => {
     if (id === null) { if (open !== null) upTo('/admin/plugins'); return }
     if (id !== open) navigate(`/admin/plugins/${encodeURIComponent(id)}`)
@@ -451,7 +454,7 @@ export default function Plugins() {
   }
   return (
     <>
-    <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="plugins-header">
+    {!(phone && open) && <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="plugins-header">
       {/* a phone: the bar above says the name, so only the search row stays here */}
       <h2 className="text-lg font-semibold tracking-tight max-md:sr-only">{t('admin.plugins')}</h2>
       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
@@ -472,7 +475,7 @@ export default function Plugins() {
           </>
         )}
       </div>
-    </StickyHeader>
+    </StickyHeader>}
     <Loadable state={state}>
       {(d: PluginList) => {
         const shownPage = open ? { p: d.installed.find((x) => x.id === open), c: d.catalog.find((x) => x.id === open) } : null

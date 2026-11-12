@@ -7,7 +7,17 @@
 // The restore result line and the wrong-password dialog (TC-208, TC-221) work the same in the backups page. A computer
 // keeps the one page. Each test runs in WebKit (the iPhone app's engine: phone-admin-system.webkit.spec.ts) and Chromium
 // (Android's: phone-admin-system.spec.ts).
+// Follow-ups found on a real server at 390×844 (systemFollowUps below):
+// - TC-269 step 1: a backup row is a tidy list row: the date and size on one line, the kind under it, Restore on the
+//   right (the badges and Restore left the date one word per line).
+// - TC-270 step 3 (ADM-15): Admin › AI apps with the connector off: the Off status and "Set this up on a computer", no
+//   installer flag, server.json line or environment variable to copy; the app rows stay.
+// - Every page pushed under Admin (/admin/<section>/<sub>: an item's page, a group of Team settings or System) names the
+//   page ‹ returns to, shown whole beside its title (an engine's page, and Team settings' "Members and AI" and "Company
+//   profile", QA TC-381, showed ‹ alone: the name did not fit beside a centred title).
+// - TC-269 step 2: a plugin's page is the plugin alone: no plugin search and no upload button above it.
 import { expect, test, type Page } from '@playwright/test'
+import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { reset, signIn } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
 
@@ -228,6 +238,182 @@ export function systemCases() {
       await expect(page.getByRole('button', { name: t['system.changeMode'] })).toBeVisible()
       await expect(page.getByTestId('connected-on-computer')).toHaveCount(0)
       await expect(page.getByTestId('connection-on-computer')).toHaveCount(0)
+    })
+  })
+}
+
+/** Backups with the longest names (the real server's 'Before schema change' · 'Database only' row) */
+const BACKUPS = {
+  items: [
+    { id: '20261112T093000Z-pre-migrate', kind: 'pre-migrate', createdAt: '2026-11-12T09:30:00.000Z', size: 2_400_000, scope: 'db' },
+    { id: '20261111T030000Z-daily', kind: 'daily', createdAt: '2026-11-11T03:00:00.000Z', size: 123_456_789, scope: 'full' },
+    { id: '20261110T030000Z-pre-update', kind: 'pre-update', createdAt: '2026-11-10T03:00:00.000Z', size: 45_678, scope: 'incremental' },
+  ],
+  lastRestore: null,
+}
+const remoteOff = { configured: false, resource: null, items: [] }
+/** Team settings' groups (teamSettingsGroups.ts; the dev environment's is off on the mock server) */
+const TEAM_SETTINGS_IDS = ['general', 'data', 'members', 'voice', 'ai', 'limits', 'file-list', 'company'] as const
+
+/** ‹'s label is shown whole (not hidden for want of room), left of the title, and the title is not cut */
+async function expectBackNamed(page: Page, name: string, where: string) {
+  const label = backLabel(page)
+  await expect(label, where).toHaveText(name)
+  await expect(label, where).toBeVisible()
+  await expect(page.getByTestId('admin-back')).toHaveAccessibleName(t['tabs.backTo'].replace('{page}', name))
+  const l = (await label.boundingBox())!
+  // the title's text (its box is the bar's middle column)
+  const title = await bar(page).evaluate((el) => {
+    const r = document.createRange()
+    r.selectNodeContents(el)
+    return { x: r.getBoundingClientRect().x }
+  })
+  expect(l.x + l.width, where).toBeLessThanOrEqual(title.x + 1)
+  expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), where).toBe(true)
+  expect(await bar(page).evaluate((el) => el.scrollWidth <= el.clientWidth + 1), where).toBe(true)
+}
+
+export function systemFollowUps() {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US', serviceWorkers: 'block' })
+
+  test.beforeEach(async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  })
+
+  test('TC-269 step 1: Backups: each row has its date and size on one line, its kind under it and Restore on the right', async ({ page }) => {
+    await page.route('**/api/admin/backups', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: BACKUPS }) : route.fallback()))
+    await signIn(page)
+    await openSystem(page)
+    await page.getByTestId('system-row-backups').click()
+    await expect(page).toHaveURL(/\/admin\/system\/backups$/)
+    const rows = page.getByTestId('backup-row')
+    await expect(rows).toHaveCount(3)
+    for (const row of await rows.all()) {
+      const when = row.getByTestId('backup-when')
+      const box = (await when.boundingBox())!
+      const lineHeight = await when.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight))
+      // one line (two at most), as wide as the row allows: not one word per line
+      expect(box.height).toBeLessThanOrEqual(2 * lineHeight + 1)
+      expect(box.width).toBeGreaterThan(200)
+      // the kind under the date
+      const badges = (await row.getByTestId('backup-badges').boundingBox())!
+      expect(badges.y).toBeGreaterThanOrEqual(box.y + box.height - 1)
+      // Restore on the right, a 44 px target
+      const restore = (await row.getByRole('button', { name: t['system.restore'] }).boundingBox())!
+      expect(restore.x).toBeGreaterThanOrEqual(box.x + box.width)
+      expect(Math.round(restore.height)).toBeGreaterThanOrEqual(44)
+      expect(Math.round(restore.x + restore.width)).toBeLessThanOrEqual(390)
+    }
+    // the 'Before schema change' · 'Database only' row in full
+    await expect(rows.first()).toContainText(t['system.backupKind.pre-migrate'])
+    await expect(rows.first()).toContainText(t['system.backupScope.db'])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    // Restore still asks for the password (TC-208, TC-221: the same dialog)
+    await rows.first().getByRole('button', { name: t['system.restore'] }).click()
+    await expect(page.getByRole('dialog', { name: t['system.restoreTitle'] })).toBeVisible()
+  })
+
+  test('TC-270 step 3: AI apps with the connector off: the Off status and "Set this up on a computer", no setup commands; the app rows stay', async ({ page }) => {
+    await page.route('**/api/connectors/remote', (route) => route.fulfill({ json: remoteOff }))
+    await signIn(page)
+    await page.getByTestId('tab-me').click()
+    await page.getByTestId('settings-admin').click()
+    await page.getByTestId('admin-row-ai-apps').click()
+    await expect(page).toHaveURL(/\/admin\/ai-apps$/)
+    const pageEl = page.getByTestId('admin-ai-apps')
+    await expect(pageEl).toHaveAttribute('data-on', 'false')
+    await expect(pageEl).toContainText(t['appConnectors.off'])
+    const onComputer = page.getByTestId('ai-apps-on-computer')
+    await expect(onComputer).toContainText(t['admin.onComputer'])
+    await expect(onComputer).toContainText(t['admin.onComputerAiApps'])
+    // no server setup to copy on a phone
+    await expect(page.getByTestId('ai-apps-setup')).toHaveCount(0)
+    for (const id of ['ai-apps-setup-installer', 'ai-apps-setup-json', 'ai-apps-setup-env']) await expect(page.getByTestId(id)).toHaveCount(0)
+    await expect(page.getByText(t['aiApps.offAdmin'])).toHaveCount(0)
+    for (const text of ['--app-connectors', 'appConnectors', 'REMOTE_MCP_ORIGIN', 'server.json']) await expect(pageEl).not.toContainText(text)
+    // the app rows: Claude, Claude Code and Codex ('Set this up on a computer'), other apps
+    const list = page.getByTestId('admin-ai-app-list')
+    for (const id of ['claude', 'claude-code', 'codex', 'other']) await expect(list.getByTestId(`ai-app-${id}`)).toBeVisible()
+    for (const id of ['claude-code', 'codex']) await expect(list.getByTestId(`ai-app-${id}`)).toContainText(t['admin.onComputer'])
+  })
+
+  test('every item\'s page and group names the page ‹ returns to, whole: an engine\'s page under "‹ Team AI accounts" (TC-381)', async ({ page }) => {
+    await signIn(page)
+    // the row's steps: Team AI accounts › Claude Code
+    await page.getByTestId('tab-me').click()
+    await page.getByTestId('settings-admin').click()
+    await page.getByTestId('admin-row-providers').click()
+    await page.locator('[data-testid="engine-row"][data-engine="claude-code"]').click()
+    await expect(page).toHaveURL(/\/admin\/providers\/claude-code$/)
+    await expect(bar(page)).toHaveText('Claude Code')
+    await expectBackNamed(page, t['admin.team.providers'], 'claude-code, tapped')
+    await page.getByTestId('admin-back').click()
+    await expect(page).toHaveURL(/\/admin\/providers$/)
+    // each kind of item's page, opened from outside (the pages above it put under it)
+    const pages: [string, string][] = [
+      ['/admin/providers/claude-code', t['admin.team.providers']],
+      ['/admin/providers/codex', t['admin.team.providers']],
+      ['/admin/connectors/google-drive', t['admin.team.integrations']],
+      ['/admin/connectors/calendar', t['admin.team.integrations']],
+      [`/admin/plugins/${HWP_PLUGIN_ID}`, t['admin.plugins']],
+      ['/admin/members/bob', t['admin.members']],
+      // every group of Team settings ("Members and AI" and "Company profile" showed ‹ alone: QA TC-381) and of System
+      ...TEAM_SETTINGS_IDS.map((id): [string, string] => [`/admin/settings/${id}`, t['admin.settings']]),
+      ...OWNER_GROUPS.map((id): [string, string] => [`/admin/system/${id}`, t['admin.system']]),
+    ]
+    for (const [url, name] of pages) {
+      await page.goto(url)
+      await expect(page).toHaveURL(new RegExp(`${url.replace(/[.]/g, '\\.')}$`))
+      await expect(bar(page)).not.toHaveText('')
+      await expectBackNamed(page, name, url)
+    }
+    // a group's page and an Activity log record's, from their lists
+    await page.goto('/admin/groups')
+    await page.getByTestId('group-row').first().getByTestId('row-open').click()
+    await expect(page).toHaveURL(/\/admin\/groups\/[^/]+$/)
+    await expect(bar(page)).not.toHaveText('')
+    await expectBackNamed(page, t['admin.groups'], 'a group')
+    await page.goto('/admin/audit')
+    await page.getByTestId('activity-row').first().getByRole('button').click()
+    await expect(page).toHaveURL(/\/admin\/audit\/[^/?]+/)
+    await expectBackNamed(page, t['admin.audit'], 'an Activity log record')
+  })
+
+  test('TC-269 step 2: a plugin\'s page is the plugin alone: no plugin search, no upload button; the list keeps them', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/admin/plugins')
+    await expect(page.getByTestId('plugin-search')).toBeVisible()
+    const card = page.getByTestId('plugin-catalog').first()
+    await card.getByTestId('plugin-open').click()
+    await expect(page).toHaveURL(/\/admin\/plugins\/[^/]+$/)
+    const detail = page.getByTestId('plugin-detail')
+    await expect(detail).toBeVisible()
+    await expect(page.getByTestId('plugin-search')).toHaveCount(0)
+    await expect(page.getByTestId('plugin-install-file')).toHaveCount(0)
+    await expect(page.getByTestId('plugins-header')).toHaveCount(0)
+    // the plugin's card is the first thing under the bar
+    const barBottom = (await page.getByTestId('phone-page-bar').boundingBox())!
+    expect((await detail.boundingBox())!.y).toBeLessThan(barBottom.y + barBottom.height + 40)
+    await page.getByTestId('admin-back').click()
+    await expect(page).toHaveURL(/\/admin\/plugins$/)
+    await expect(page.getByTestId('plugin-search')).toBeVisible()
+  })
+
+  test.describe('a computer', () => {
+    test.use({ viewport: { width: 1440, height: 900 }, hasTouch: false, isMobile: false })
+    test('backups as one line each, the AI apps setup lines, and a plugin\'s page with the search row, as before', async ({ page }) => {
+      await page.route('**/api/admin/backups', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: BACKUPS }) : route.fallback()))
+      await page.route('**/api/connectors/remote', (route) => route.fulfill({ json: remoteOff }))
+      await signIn(page)
+      await page.goto('/admin/system')
+      await expect(page.getByTestId('backup-list').locator('li')).toHaveCount(3)
+      await expect(page.getByTestId('backup-row')).toHaveCount(0)
+      await page.goto('/admin/ai-apps')
+      await expect(page.getByTestId('ai-apps-setup-installer')).toBeVisible()
+      await expect(page.getByTestId('ai-apps-on-computer')).toHaveCount(0)
+      await page.goto(`/admin/plugins/${HWP_PLUGIN_ID}`)
+      await expect(page.getByTestId('plugin-detail')).toBeVisible()
+      await expect(page.getByTestId('plugin-search')).toBeVisible()
     })
   })
 }

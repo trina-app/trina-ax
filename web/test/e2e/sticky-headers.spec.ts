@@ -39,7 +39,8 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
   test(`Connectors keeps its title row at the top in Admin and on its own page (${name})`, async ({ page }) => {
     await page.setViewportSize(size)
     await start(page)
-    for (const path of ['/admin/connectors', '/connectors']) {
+    // a phone's Connectors page scrolls its search away with the list (QA TC-262: the test below); Admin keeps its row
+    for (const path of name === 'phone' ? ['/admin/connectors'] : ['/admin/connectors', '/connectors']) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
       // Admin keeps its own name (Connected apps); the page is Connectors (a phone's top bar says it there); the cards are under it
@@ -59,6 +60,18 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
     }
   })
 }
+
+test("a phone's Connectors page scrolls its description, search and 'Add custom connector' away with the list (TC-262)", async ({ page }) => {
+  await page.setViewportSize(PHONE)
+  await start(page)
+  await page.goto('/connectors')
+  const header = page.getByTestId('connectors-header')
+  await expect(page.getByTestId('connector-card').first()).toBeVisible()
+  const box = scroller(page.getByTestId('connector-card').first())
+  await box.evaluate((el) => el.scrollTo(0, el.scrollHeight))
+  await expect.poll(() => box.evaluate((el) => el.scrollTop)).toBeGreaterThan(40)
+  await expect(header.getByTestId('connector-search')).not.toBeInViewport()
+})
 
 test('Team skills keeps its title, tabs and search at the top while the list scrolls', async ({ page }) => {
   await start(page)
@@ -94,7 +107,7 @@ test("Projects and a project's page keep their top bar while the page scrolls", 
   await expect(top.getByTestId('project-menu')).toBeInViewport()
   // a phone: the top bar holds "+" and the project's "···" (QA TC-254); the page scrolls under it
   await page.setViewportSize({ width: 390, height: 480 })
-  for (const [to, action, inPage] of [['/projects', 'project-new', 'project-card'], [`/projects/${id}`, 'project-menu', 'project-chats']] as const) {
+  for (const [to, action, inPage] of [['/projects', 'project-new', 'project-row'], [`/projects/${id}`, 'project-menu', 'project-chats']] as const) {
     await page.goto(to)
     const button = page.getByTestId('phone-page-bar').getByTestId(action)
     await expect(button).toBeVisible()

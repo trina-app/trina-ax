@@ -162,7 +162,10 @@ Do not use these in the container:
 - `mycel-ctl update` and `mycel-ctl auto-update on` (`mycel-ctl status` suggests them). The image tag is the version.
 - Admin › Home › "Install now". It puts a newer app into the volume. The next start keeps it ("this kit is older"), but the root files stay at the image's version until you build a newer image.
 
-Going back to an older image tag does not downgrade the volume: the installer keeps the newer version running and warns. To go back, use Admin › System › Update › Roll back, or restore a backup of the volume with the older tag.
+Going back to an older image tag does not downgrade the volume: the installer keeps the newer version running and warns. Whether you can go back depends on the database:
+
+- When the older version can still read it, Admin › System › Updates shows **Go back** next to the previous version.
+- When the newer version has changed the database so the older one cannot read it (0.5 after 0.4, for example), there is no Go back, and the older image tag cannot start on that volume either. The warning says so. The only way back in Docker is a copy of the whole volume made before the update: restore it and start it with the older tag. Changes made since the update are lost. The database-only steps for Linux servers ([Going back to the version before an update](BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux)) do not work in the container: `mycel-ctl update` is not used there, and the next start with the newer image changes the restored database again.
 
 ## Backups
 

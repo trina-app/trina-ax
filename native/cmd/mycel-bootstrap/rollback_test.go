@@ -472,3 +472,38 @@ func TestMigratingOtherVersionDoesNotExtend(t *testing.T) {
 		t.Fatalf("history %s %q", results(st), str(st.History[0].Detail))
 	}
 }
+
+// QA TC-336: Go back to an older version that cannot read the database the running one migrated. Its first exit 75
+// sends app/current back at once (no three tries), and the history says why in plain words.
+func TestPendingOlderVersionExit75GoesBackAtOnce(t *testing.T) {
+	f := newFakeInstall(t)
+	f.version("1.0.0", "exit 75")
+	f.version("1.1.0", f.healthyBody("1.1.0"))
+	if err := switchTo("1.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	f.updating("1.1.0", "1.0.0")
+	stop := f.start()
+	st := f.waitFor("back on 1.1.0", func(st appState) bool {
+		return len(st.History) == 1 && st.Pending == nil
+	})
+	f.waitFor("1.1.0 runs", func(st appState) bool {
+		b, _ := os.ReadFile(filepath.Join(f.work, "running"))
+		return strings.TrimSpace(string(b)) == "1.1.0"
+	})
+	if code := stop(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if got := results(st); got != "rolled_back:1.0.0->1.1.0" {
+		t.Fatalf("history %s", got)
+	}
+	if d := str(st.History[0].Detail); d != "1.0.0 cannot read the database: 1.1.0 has already updated it (exit 75)" {
+		t.Fatalf("detail %q", d)
+	}
+	if got := strings.Join(f.startList(), " "); !strings.HasPrefix(got, "1.0.0 1.1.0") || strings.Count(got, "1.0.0") != 1 {
+		t.Fatalf("starts %s", got)
+	}
+	if cur, _ := currentVersion(); cur != "1.1.0" || st.Blocked != nil {
+		t.Fatalf("app/current %s, state %+v", cur, st)
+	}
+}

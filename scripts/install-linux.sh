@@ -93,6 +93,14 @@ die() { echo "install: $*" >&2; exit 1; }
 say() { echo "install: $*"; }
 warn() { WARNINGS+=("$*"); echo "install: warning: $*" >&2; }
 val() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
+# reader_level <version folder>: the highest `-- min_compatible_reader: N` in the first lines of its migrations (1 when
+# none says more), the level that version reads (server/src/system/update.ts bundleReaderLevel)
+reader_level() {
+  local l
+  l=$(awk 'FNR <= 10 && /^--[ \t]*min_compatible_reader:[ \t]*[0-9]+[ \t]*$/ { gsub(/[^0-9]/, ""); if ($0 + 0 > m) m = $0 + 0 } END { print (m > 1 ? m : 1) }' "$1"/server/migrations/*.sql 2>/dev/null)
+  case "$l" in '' | *[!0-9]*) l=1 ;; esac
+  echo "$l"
+}
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) val "$@"; FROM=$2; shift 2 ;;
@@ -797,6 +805,14 @@ elif [ "$RESTRICT_USERNS" = 1 ]; then
   say "AppArmor: bwrap may already create user namespaces here (another profile allows it); no profile added"
 fi
 userns_ok || imgwarn "bwrap cannot create a user namespace as an unprivileged account (kernel.unprivileged_userns_clone=0, user.max_user_namespaces=0, a container without nesting, or an AppArmor profile in the way)"
+# every turn gets its own network namespace (QA TC-309): mycel-sandbox needs CAP_SYS_ADMIN + CAP_NET_ADMIN of the
+# turn's user namespace from bwrap. A distribution profile that strips them (e.g. a bwrap-userns-restrict AppArmor
+# profile) would make every turn fail; say so now, in plain words
+netns_ok() { runuser -u nobody -- bwrap --unshare-user --unshare-pid --disable-userns --die-with-parent --cap-drop ALL \
+  --cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN --ro-bind / / --proc /proc --dev /dev unshare -n true >/dev/null 2>&1; }
+if userns_ok && ! netns_ok; then
+  imgwarn "bwrap cannot give an AI turn its own network here (an AppArmor or SELinux policy removes namespace capabilities from bwrap's sandbox); every answer would fail. Allow /usr/bin/bwrap user namespaces without restriction (see /etc/apparmor.d/$ID-bwrap)"
+fi
 # nftables works here (a container needs CAP_NET_ADMIN in its own network namespace)
 { nft add table inet mycel_probe && nft delete table inet mycel_probe; } >/dev/null 2>&1 || imgwarn "nft cannot add a table (needs nf_tables and CAP_NET_ADMIN in this network namespace)"
 if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then
@@ -1060,7 +1076,10 @@ rootfile() {  # mode name
   nolink "$BASE/root/$2"
   install -o root -g root -m "$1" "$KROOT/$2" "$BASE/root/$2" || die "installing root/$2 failed"
 }
-for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account set-claude-token; do rootfile 755 "$f"; done
+# mycel-ctl first (as in mycel-ctl update, update.go ctlProgram): a reset after any root program changed then leaves the
+# new mycel-ctl, whose `status` says "AN UPDATE DID NOT FINISH" (0.4.0's has no such check; QA TC-340 retest). The new
+# mycel-ctl works with the old programs and units until the rest are in.
+for f in mycel-ctl mycel-bootstrap mycel-launcher mycel-sandbox mycel-account set-claude-token; do rootfile 755 "$f"; done
 # the dev environment's root helper. It runs only from here, never from a version folder (the server account owns those),
 # and only when scripts/dev-env/install-trial.sh added its service: this file alone changes nothing. A kit without it (a
 # repair from an older installed version) leaves the file in place.
@@ -1270,7 +1289,14 @@ case "$ACTION" in
   repair) RUNNING=$CUR ;;
   older)
     RUNNING=$CUR
-    warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running; $VERSION is staged in app/versions"
+    # an older image tag (Docker) or kit: say plainly whether that version could run at all. A version below the reader
+    # level of the running one's migrations cannot open the database it updated (exit 75), so neither Go back nor this
+    # kit brings it back; only the backup made before the update does (QA TC-336)
+    if [ "$(reader_level "$BASE/app/versions/$VERSION")" -lt "$(reader_level "$BASE/app/versions/$CUR")" ]; then
+      warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running. $VERSION cannot read the database $CUR has updated: to go back to it, restore the backup made before the update (docs/BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux; in Docker, a copy of the whole volume from before the update, started with the older tag); otherwise use the $CUR kit or image"
+    else
+      warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running; $VERSION is staged in app/versions"
+    fi
     ;;
   *) die "unexpected plan: $ACTION" ;;
 esac

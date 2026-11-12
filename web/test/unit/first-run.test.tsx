@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { DICTS, LOCALES, translate, useLocaleStore } from '../../src/i18n'
-import { teamAddressHost } from '../../src/lib/team-address'
+import { teamAddressHost, teamAddressShown } from '../../src/lib/team-address'
 import { TeamAddressRow } from '../../src/pages/Settings'
 import { AcceptInvite, TeamJoin } from '../../src/pages/Auth'
 import { installDom, mount, removeDom } from './dom-host'
@@ -79,6 +79,37 @@ describe('on screen', () => {
       const e = await mount(<TeamAddressRow address={none} />)
       try { expect(e.find('apps-team-address')).toBeNull() } finally { await e.unmount() }
     }
+  })
+
+  test('Settings › 앱: a server without a relay shows the address it is reached at with its port; http says the apps need https (QA TC-089)', async () => {
+    const copied: string[] = []
+    Object.defineProperty(g, 'navigator', { configurable: true, writable: true, value: { userAgent: 'test', clipboard: { writeText: async (s: string) => { copied.push(s) } } } })
+    const m = await mount(<TeamAddressRow address="https://192.168.1.2:19300" />)
+    try {
+      expect(m.get('apps-team-address-host').textContent).toBe('192.168.1.2:19300')
+      expect(m.html()).toContain(ko('apps.teamAddressHint'))
+      expect(m.html()).not.toContain(ko('apps.teamAddressHttpHint'))
+      await m.click(m.get('apps-team-address').querySelectorAll('button')[0]!)
+      await m.until(() => copied.length > 0, 'the copy')
+      expect(copied).toEqual(['https://192.168.1.2:19300'])
+    } finally { await m.unmount() }
+    copied.length = 0
+    const h = await mount(<TeamAddressRow address="http://192.168.1.2:19300" />)
+    try {
+      // http: shown with its scheme (a browser opens it, the apps refuse it), and the hint says so
+      expect(h.get('apps-team-address-host').textContent).toBe('http://192.168.1.2:19300')
+      expect(h.html()).toContain(ko('apps.teamAddressHttpHint'))
+      expect(h.html()).not.toContain(ko('apps.teamAddressHint'))
+      await h.click(h.get('apps-team-address').querySelectorAll('button')[0]!)
+      await h.until(() => copied.length > 0, 'the copy')
+      expect(copied).toEqual(['http://192.168.1.2:19300'])
+    } finally { await h.unmount() }
+    expect(teamAddressHost('https://acme-mac.tail1234.ts.net:8489')).toBe('acme-mac.tail1234.ts.net:8489')
+    // the team menu and the install pictures read it the same way
+    expect(teamAddressShown('https://192.168.1.2:19300')).toBe('192.168.1.2:19300')
+    expect(teamAddressShown('http://192.168.1.2:19300')).toBe('http://192.168.1.2:19300')
+    expect(teamAddressShown('HTTP://192.168.1.2:19300/x')).toBe('http://192.168.1.2:19300')
+    for (const bad of [undefined, '', 'acme', 'ftp://x.example']) expect(teamAddressShown(bad)).toBeNull()
   })
 
   const where = <Route path="/login" element={<p data-testid="where">login</p>} />

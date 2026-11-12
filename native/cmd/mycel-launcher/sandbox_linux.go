@@ -262,6 +262,9 @@ func elfInterpreter(p string) (string, error) {
 type bwrapParams struct {
 	EngineDir, EngineReal, Bridge, BridgeReal, Helper, ToolsSock, ToolsSockReal, Chat, EtcDir, CA, Landlock, Ldso string
 	Codex, AllowListen                                                                                            bool
+	// NetProxy > 0: the turn gets its own network namespace and the helper forwards 127.0.0.1:NetProxy to the host's
+	// model proxy (mycel-sandbox netns_linux.go, QA TC-309: host abstract unix sockets out of reach)
+	NetProxy int
 	Libs                                                                                                          []libMount
 	UsrLib64                                                                                                      bool
 	Args                                                                                                          []string
@@ -303,9 +306,16 @@ func buildBwrapArgs(p bwrapParams) ([]string, error) {
 		"--disable-userns",
 		"--die-with-parent",
 		"--cap-drop", "ALL",
+	}
+	if p.NetProxy > 0 {
+		// only inside the turn's user namespace, for the helper's unshare(CLONE_NEWNET) and loopback; it drops them
+		// (and checks) before Landlock, seccomp and the engine
+		a = append(a, "--cap-add", "CAP_SYS_ADMIN", "--cap-add", "CAP_NET_ADMIN")
+	}
+	a = append(a,
 		"--hostname", "mycel-turn",
 		"--ro-bind", "/usr/lib", "/usr/lib",
-	}
+	)
 	if p.UsrLib64 {
 		a = append(a, "--ro-bind-try", "/usr/lib64", "/usr/lib64")
 	}
@@ -362,6 +372,9 @@ func buildBwrapArgs(p bwrapParams) ([]string, error) {
 	}
 	if p.AllowListen {
 		a = append(a, "--allow-listen")
+	}
+	if p.NetProxy > 0 {
+		a = append(a, "--net-proxy", strconv.Itoa(p.NetProxy))
 	}
 	a = append(a, "--", p.EngineReal)
 	return append(a, p.Args...), nil
@@ -519,7 +532,7 @@ func (t *turnEnv) command(cmdPath string, args []string, chat, sessDir string) (
 		EngineDir: filepath.Dir(real), EngineReal: real, Bridge: filepath.Clean(*bridgePath), BridgeReal: t.bridgeReal(),
 		Helper: *sandboxHelper, ToolsSock: filepath.Clean(*toolsSock), ToolsSockReal: resolvePath(*toolsSock), Chat: filepath.Clean(chat), EtcDir: filepath.Clean(*sandboxEtc),
 		CA: filepath.Clean(*caBundle), Landlock: *landlockMode, Ldso: ldso, Codex: t.codex && !t.login, AllowListen: *allowListen,
-		Libs: lx.libs, UsrLib64: lx.usrLib64, Args: args,
+		NetProxy: *proxyPort, Libs: lx.libs, UsrLib64: lx.usrLib64, Args: args,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -759,6 +772,7 @@ func platformStatus(ev map[string]any) {
 		ev["scoped"] = lx.landlockAbi >= 6 && *landlockMode != "off"
 		ev["seccomp"] = lx.seccomp
 		ev["listen"] = map[bool]string{true: "allowed", false: "denied"}[*allowListen]
+		ev["net"] = "private" // every turn has its own network namespace, the proxy forwarded (QA TC-309)
 	}
 	ev["kernel"] = lx.kernel
 	ev["cgroup"] = lx.cgState
