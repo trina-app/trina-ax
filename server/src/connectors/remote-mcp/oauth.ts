@@ -88,13 +88,20 @@ export function isTeamAdmin(db: Database, userId: string): boolean {
  * it back; they connect again (a new grant of an owner or admin gets it). `actor`: the admin who made the change (Admin › Members), or null when the
  * server found it (a tool call). Returns how many grants changed.
  */
+/** The name an outside app registered (`client_name`, at most 80 characters), for the activity log: an admin reads
+ * which app it was, not the grant's id (QA TC-204). null when the grant or its app is gone. */
+export function grantApp(db: Database, grantId: string): string | null {
+  const r = db.query('SELECT c.name FROM remote_mcp_grants g JOIN remote_mcp_clients c ON c.id=g.client_id WHERE g.id=?').get(grantId) as { name: string } | null
+  return r?.name ?? null
+}
+
 export function dropAdminScope(db: Database, userId: string, reason: 'role' | 'status', actor: string | null = null): number {
   let n = 0
   for (const g of db.query('SELECT id,scopes FROM remote_mcp_grants WHERE user_id=?').all(userId) as { id: string; scopes: string }[]) {
     const scopes = JSON.parse(g.scopes) as string[]
     if (!scopes.includes(ADMIN_SCOPE)) continue
     db.query('UPDATE remote_mcp_grants SET scopes=? WHERE id=?').run(JSON.stringify(scopes.filter(s => s !== ADMIN_SCOPE)), g.id)
-    audit(db, { actor, action: 'remote_mcp.scope_dropped', target: g.id, detail: { scope: ADMIN_SCOPE, user: userId, reason } })
+    audit(db, { actor, action: 'remote_mcp.scope_dropped', target: g.id, detail: { scope: ADMIN_SCOPE, user: userId, reason, app: grantApp(db, g.id) } })
     n++
   }
   return n
@@ -288,7 +295,7 @@ export class RemoteOAuth {
       const selected = SCOPES.filter(s => chosen.has(s))
       this.db.query('INSERT INTO remote_mcp_grants(id,client_id,user_id,session_id,resource,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(grant, r.client_id, auth.user.id, auth.session.id, r.resource, JSON.stringify(selected), this.now(), end)
       this.db.query('INSERT INTO remote_mcp_codes VALUES(?,?,?,?,?,NULL)').run(hash(code), grant, r.redirect_uri, r.challenge, this.now() + CODE_MS)
-      audit(this.db, { actor: auth.user.id, action: 'remote_mcp.connected', target: grant, detail: { scopes: selected, asked } })
+      audit(this.db, { actor: auth.user.id, action: 'remote_mcp.connected', target: grant, detail: { scopes: selected, asked, app: grantApp(this.db, grant) } })
       url.searchParams.set('code', code)
       return { redirectUrl: url.href }
     }).immediate()
@@ -378,8 +385,10 @@ export class RemoteOAuth {
     this.browser(auth)
     const g = this.db.query('SELECT user_id FROM remote_mcp_grants WHERE id=?').get(id) as { user_id: string } | null
     if (!g || g.user_id !== auth.user.id) throw new OAuthError('invalid_request', 404)
+    // its name first: the grant may be gone once revoked
+    const app = grantApp(this.db, id)
     this.revokeGrant(id)
-    audit(this.db, { actor: auth.user.id, action: 'remote_mcp.disconnected', target: id })
+    audit(this.db, { actor: auth.user.id, action: 'remote_mcp.disconnected', target: id, detail: { app } })
   }
 }
 
