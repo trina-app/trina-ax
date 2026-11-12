@@ -388,6 +388,8 @@ export class MockServer {
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
+  /** a file whose content now is an AI save (/__test/ai-version current): the chat named, or null */
+  aiCurrent = new Map<string, string | null>()
   connection: ConnectionStatus = defaultConnection()
   /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
   teamAddress: string | null = null
@@ -630,6 +632,7 @@ export class MockServer {
     this.scheduleRunMs = 200
     this.budgets = []
     this.versions = []
+    this.aiCurrent = new Map()
     this.trash = []
     this.uploads.clear()
     this.attachments.clear()
@@ -2858,7 +2861,8 @@ export class MockServer {
     history: (c) => {
       const f = this.files.get(c.query.path!)
       const items = this.versions.filter((v) => v.path === c.query.path)
-      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: null, at: f.mtime } : null
+      const ai = this.aiCurrent.get(c.query.path!)
+      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: ai === undefined ? null : uuidv7(), at: f.mtime, ...(ai ? { chatId: ai } : {}) } : null
       const events = current ? [{ id: 1, at: f!.mtime, kind: 'edited' as const, by: current.author, turnId: null, path: c.query.path!, from: null, size: current.size }] : []
       return { path: c.query.path, items, currentSha256: current?.sha256 ?? null, canRestore: this.access(c.query.path!, c.user) === 'write', current, events }
     },
@@ -5150,6 +5154,22 @@ export class MockServer {
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
     else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
+    else if (p === '/__test/ai-version') {
+      // a stored version of a file that an AI answer saved (POST {path, by, chatId?}): `chatId` only where the server would
+      // name the chat (the viewer may open it now: server/src/chat/version-chats.ts); without it, "by AI" alone.
+      // `current: true`: the file as it is now is that AI save (its history's current entry)
+      const path = String(body.path)
+      if (body.current) {
+        this.aiCurrent.set(path, typeof body.chatId === 'string' ? body.chatId : null)
+        return Response.json({ ok: true })
+      }
+      const by = this.users.find((u) => u.id === String(body.by)) ?? this.users[0]!
+      this.versions.push({
+        id: uuidv7(), path, version: this.versions.filter((v) => v.path === path).length + 1, sha256: crypto.randomUUID().replace(/-/g, '').padEnd(64, '0'), size: 30,
+        author: { id: by.id, name: by.name }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now(), savedBy: { id: by.id, name: by.name }, savedTurnId: uuidv7(),
+        ...(typeof body.chatId === 'string' ? { savedChatId: body.chatId } : {}),
+      })
+    }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)

@@ -568,6 +568,10 @@ export const FileVersion = z.object({
   savedBy: UserRef.nullable().optional(),
   /** the AI turn of the save that produced this content (null: not during an AI answer, or not known) */
   savedTurnId: Uuid7.nullable().optional(),
+  /** the AI chat of `savedTurnId` (the version history's "Open the chat"), only when the caller may open that chat now
+   * (server/src/chat/version-chats.ts). Absent otherwise: someone else's chat, one in the trash or gone, a confidential
+   * chat that is not theirs, an answer hidden from them in a shared chat, a room's AI, and older servers. */
+  savedChatId: Uuid7.optional(),
 })
 export type FileVersion = z.infer<typeof FileVersion>
 
