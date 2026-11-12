@@ -204,7 +204,7 @@ function WelcomeSteps() {
     if (!step) return
     if (first.current) { first.current = false; return }
     // a phone's step is a screen of its own: it starts at the top
-    if (!computer) scroller.current?.scrollTo({ top: 0 })
+    if (!computer && scroller.current) scroller.current.scrollTop = 0
     region.current?.focus()
   }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
