@@ -792,6 +792,36 @@ describe('a service in the app\'s list (QA TC-135; editions: owner decision 2026
   })
 })
 
+describe('look-alike names, mixed alphabets and connections saved before the list\'s rule (fix/catalog-lookalikes)', () => {
+  test('Greek capitals and a mixed-alphabet name that imitates nothing listed: titled by the host', async () => {
+    const made = 'https://notion-mcp.example.com/mcp'
+    for (const name of ['\u039d\u039f\u03a4\u0399\u039f\u039d', 'Ac\u043ce Tools', 'N\u0585tion']) {
+      const t = await start('erin', { name, kind: 'mcp', url: made, auth: 'oauth' })
+      const card = await cardOf(t.turnId)
+      expect(card, name).toMatchObject({ name: 'notion-mcp.example.com', service: { url: made } })
+      await post('erin', t.turnId, { action: 'skip', requestId: card.requestId })
+      await doneOf(t.messageId)
+    }
+  })
+
+  test('a reconnect card for a connection saved as "Notion" at another address: titled by its host; the saved name stays', async () => {
+    const url = `${svc.base}/mcp-key?saved=notion`
+    const mine = await h.api('erin').call(API.createIntegration, { body: { kind: 'mcp', name: 'Notion', url, auth: 'bearer', secret: WRONG, writePolicy: 'ask' } })
+    try {
+      expect(mine.status).not.toBe('connected')
+      const t = await start('erin', { name: 'Notion', kind: 'mcp', url, auth: 'bearer' })
+      const card = await cardOf(t.turnId)
+      expect(card).toMatchObject({ reconnect: true, name: new URL(url).host, service: { url } })
+      const r = await post('erin', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
+      expect(r.body).toMatchObject({ state: 'connected', integrationId: mine.id })
+      await doneOf(t.messageId)
+      expect((h.ctx.db.query('SELECT name FROM integrations WHERE id = ?').get(mine.id) as { name: string }).name).toBe('Notion')
+    } finally {
+      await integrationsOf(h.ctx).remove(activeUser(h.ctx.db, 'erin')!, mine.id)
+    }
+  })
+})
+
 describe('a team connection limited to other people is never named to the caller (review of #582)', () => {
   test('a member\'s team request is refused before anything is looked up; a personal one does not see it; an admin outside it is told without its name', async () => {
     const url = `${svc.base}/mcp-open?finance=1`

@@ -23037,6 +23037,23 @@ Adds to "Connecting a service from a chat". Before, the card showed whatever nam
   `web/test/unit/connect-card.test.tsx`, `web/test/unit/connectors.test.ts`.
 - Version impact: **patch** (a security fix and words; one optional field on the card request, no data change).
 
+## Look-alike service names, hardened (fix/catalog-lookalikes, 2026-11-12, review of #582)
+
+Adds to "The chat's connect card trusts the app's list".
+- **Capitals first.** `nameSkeleton` maps look-alike letters before lower case and again after it, because a Greek
+  capital Ν lowers to ν, which reads as "v". The table gains the Greek capitals Ν Μ Η Ζ Υ Κ Τ Ρ Β Ε Α Ο Ι Χ, the
+  Cyrillic capitals, Armenian օ ո ս, the dotless ı, the small capitals (ᴀ … ᴢ, ɴ, ʀ) and Greek σ.
+- **Mixed alphabets are never trusted** (`mixedScript`). A name with a word that mixes Latin letters with Cyrillic,
+  Greek, Armenian or Cherokee ones is titled by its host whenever its address is not exactly a listed service's official
+  one, even if no listed name matches its skeleton. A name in one script ("Нотион", "노션") is not affected, and
+  neither are words in separate scripts ("Acme 노션").
+- **Reconnect cards follow the rule** (`posesAsListed`). A connection saved under a listed or look-alike name before
+  #582 (for example "Notion" at a made-up address) gets a reconnect card titled by its host, from the server and again
+  in the web card. The saved name is not changed. An admin's template keeps the admin's name.
+- Tests: `web/test/unit/connectors.test.ts`, `web/test/unit/connect-card.test.tsx`, `tests/unit/connect-service.test.ts`
+  (Greek capitals, a mixed name that imitates nothing listed, an old "Notion" connection's reconnect card).
+- Version impact: **patch**.
+
 ## No members' switch for connectors (feat/admin-connectors-member-ui, 2026-11-12, product owner)
 
 - **Decision.** There is no team switch "Members can connect their own <app>" any more, for Google Drive, Gmail, Google
