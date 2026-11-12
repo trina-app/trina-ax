@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:04
 - Branch: `feat/phone-welcome-flow`
-- Status: in progress
+- Status: done
 - Where: trina-ax (web app, plus the phone app's bridge). Why: the phone app shows the web app in one WebView, so the
   flow is the web app's; the share sheet also needs one optional bridge message (see docs/REPOSITORY-RULES.md)
 - Version impact: patch (phone layout and Back of an existing page; one optional, versioned bridge capability that
@@ -56,4 +56,11 @@ walk the steps on a computer.
 
 ## Result
 
-(at the end)
+Built as planned, PR #540. Decisions on the way:
+- 나중에 in the bar leaves the steps (to the page under them, else Home) and records nothing; each step keeps its own
+  "나중에 하기" (put this step off, go on). A full-screen flow needs one way out; ‹ is the step before.
+- The invite asked for by itself (the goal card's [팀원 초대]) gets no steps under it: Back returns to where it came from.
+- The share button replaces copy as the primary only on phones with a sheet; copy stays one quiet press under it, and
+  a sheet that cannot open copies and says so. Admin › Members' invite card (same panel) gets the same on phones.
+- `share-text-v1` is new in the app: Android gets the share sheet only after an app release (it copies until then);
+  the iPhone app uses `navigator.share` today.
