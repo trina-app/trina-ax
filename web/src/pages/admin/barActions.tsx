@@ -55,6 +55,7 @@ export function BarMore({ label, items, testId }: { label: string; items: BarMor
   const ready = items.filter((it) => !it.disabled)
   if (!ready.length)
     return (
+      // no-tooltip: a phone (no hover), and the button is off until one of its items is possible
       <button type="button" disabled aria-label={label} className={barButton} data-testid={testId}>
         <MoreHorizontal size={22} aria-hidden />
       </button>
