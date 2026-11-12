@@ -479,6 +479,8 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
     allSitesHere: () => LIVE_CLIENTS.has(exec.spec.clientKind ?? '') && !exec.restricted,
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
+    // after a room read the room card asks for such a call already (chat/turn.ts confirmRoomChange): no second card
+    outsideSeen: () => exec.tainted && !readRooms(exec),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }
@@ -578,6 +580,8 @@ function skillTools(exec: TurnExec): Tool[] {
           }
         }
         exec.noteTaint('read', { file_path: skill.path })
+        // the person's own personal skill: what an AI turn that wrote it had seen comes with it (chat/turn.ts noteOwnSkill)
+        exec.noteOwnSkill(skill.path)
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
         addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(skill.path))])
         // reporting is auxiliary (admin/skill-usage.ts: team and group skills, never a personal one); a loaded skill is a
@@ -853,6 +857,30 @@ function bTools(exec: TurnExec): Tool[] {
       async call(args) {
         const a = ForgetInput.safeParse(args)
         if (!a.success) return text(zodText(a.error), true)
+        // after outside content the person confirms first, seeing the memory, so words in a file, a page or a skill
+        // someone else wrote cannot quietly delete what the AI keeps about them (QA TC-326). After a room read the room
+        // card asked for this call already (chat/turn.ts confirmRoomChange): no second card
+        if (exec.tainted && !readRooms(exec)) {
+          const row = rt.db.query('SELECT text FROM memories WHERE id = ? AND user_id = ?').get(a.data.id, spec.userId) as { text: string } | null
+          if (!row) return text(`No memory with id ${a.data.id}.`, true)
+          let stepId: string | null = null, final: Partial<StoredStep> | null = null
+          exec.patchToolStep('forget', (st) => { stepId = st.id; return final ?? { label: tr('forgetAsking', L, { text: row.text }).slice(0, 500) } })
+          const settle = (p: Partial<StoredStep>) => { final = p; if (stepId) exec.updateStep(stepId, p) }
+          const notForgotten = (answered: boolean) => settle({ label: tr('notForgotten', L, { text: row.text }).slice(0, 500), ...(answered ? {} : { detail: tr('notAnswered', L) }) })
+          let answer: unknown
+          try {
+            answer = await exec.waitForPerson({
+              kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('forgetConfirm', L, { text: row.text }),
+              options: [{ label: tr('forgetYes', L), value: 'yes' }, { label: tr('forgetNo', L), value: 'no' }], multiple: false, allowText: false,
+            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+          } catch (e) { notForgotten(false); throw e }
+          if (answer !== 'yes' && !(Array.isArray(answer) && answer[0] === 'yes')) {
+            notForgotten(answer !== null && answer !== undefined)
+            if (spec.clientKind === 'schedule') return { ...text('This chat has read content the user did not write, so forgetting a memory needs the user\'s yes on a card, and nobody is watching this run. Nothing was forgotten.'), summary: 'forget -> not asked (scheduled run)' }
+            return { ...text('The user did not confirm, so nothing was forgotten. Do not try again unless the user asks.'), summary: 'forget -> not confirmed' }
+          }
+          settle({ label: tr('forgot', L) })
+        }
         const r = rt.db.query('DELETE FROM memories WHERE id = ? AND user_id = ?').run(a.data.id, spec.userId)
         if (!r.changes) return text(`No memory with id ${a.data.id}.`, true)
         rt.hub.publish(spec.userId, { type: 'memory.changed', data: { change: 'deleted', memory: null } })

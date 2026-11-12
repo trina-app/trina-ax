@@ -38,7 +38,7 @@ import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, ownPersonalSkill, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
@@ -776,9 +776,12 @@ export class TurnExec {
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
     // a chat started from a skill is called by the skill's name people read, not "/card-news" (title.ts)
     if (invoked && skillPlaceholderTitle(rt.db, spec.chatId, invoked.skill, skillAlias(invoked.skill.path))) rt.publishChat(spec.userId, spec.chatId, 'updated')
-    // a project's skill: anyone who writes the project's folder may have written it (outside content, as project
-    // instructions are: chat/runtime.ts projectTaints)
-    if (invoked?.skill.project) this.taint()
+    // a skill someone else may have written is outside content (remember protection), as project instructions are
+    // (chat/runtime.ts projectTaints) and as the skill tool's load is (chat/tools.ts): a team, group or project skill
+    // (anyone who may write its folder may have written it). Only the person's own personal skill is their own words
+    // (QA TC-326: "/weekly-report" of a group skill kept a memory with no card)
+    if (invoked && !ownPersonalSkill(invoked.skill.path, spec.userId)) this.taint()
+    else if (invoked) this.noteOwnSkill(invoked.skill.path)
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
     if (spec.clientKind === 'schedule') {
@@ -1724,9 +1727,10 @@ export class TurnExec {
   private outsideMark = 0
 
   /**
-   * Files of the person's own folder whose content went to the model (TurnFiles.readPaths, noteReads): reading the own
-   * folder is no outside content in itself, but a file whose newest content an AI turn wrote carries what that turn's
-   * chat had seen (fileOutsideLevel): 1 taints this chat (remember asks), 2 also marks it as having used something from
+   * Files of the person's own folder whose content went to the model (TurnFiles.readPaths, noteReads): a file a person
+   * put there (an upload, an edit or copy on the Files screen, one changed outside the app) is outside content (1: its
+   * bytes are not the person's own message, QA TC-326), and a file whose content an AI turn wrote carries what that
+   * turn's chat had seen (fileOutsideLevel): 1 taints this chat (remember asks), 2 also marks it as having used something from
    * outside (markOutside: no room card is skipped). Web text, a room's words or a connection's answer saved into the
    * person's folder do not come back in as the person's own (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기").
    */
@@ -1737,10 +1741,20 @@ export class TurnExec {
     const budget = { left: OWN_HASH_BUDGET }
     for (const p of paths) {
       if (!p.startsWith(mine)) continue
-      level = Math.max(level, this.fileOutsideLevel(p, 0, budget))
+      // a file's bytes are not the person's typed words: one a person put there (an upload, an edit or copy on the Files
+      // screen, a file changed outside the app) counts as outside content (1) too (QA TC-326)
+      level = Math.max(level, this.fileOutsideLevel(p, 0, budget, true))
       if (level >= 2) break
     }
     this.applyOutside(level)
+  }
+
+  /** A personal skill of the person's own that goes to the model ("/name", the skill tool): their own words, but one an
+   * AI turn wrote carries what that turn's chat had seen (fileOutsideLevel without `people`: a skill the person wrote or
+   * imported stays theirs), so planted text cannot come back through a skill the AI saved (QA TC-326). */
+  noteOwnSkill(rel: string) {
+    if (!ownPersonalSkill(rel, this.spec.userId)) return
+    this.applyOutside(this.fileOutsideLevel(rel))
   }
 
   /** What an own-folder read or name carried (noteOwnReads, noteOwnNames): 1 taints the chat, 2 also marks it outside. */
@@ -1931,21 +1945,27 @@ export class TurnExec {
    * its source's (`depth` copies back, then 2); a history cut short (longer than FILE_TIMELINE_MAX or the walk's reads) counts as 2; and the marks of every
    * AI turn that produced exactly these bytes anywhere (bytesOutsideLevel: a copy on the Files screen or of a folder, a
    * restore from the trash or a version, a copy whose source changed since). A file only people wrote, or with no known
-   * history, carries none. */
+   * history, carries none, but with `people` (content given to the model to read: noteOwnReads) 1. */
   /** fileOutsideLevel for a scheduled run's check of "my folder" (chat/schedule-cover.ts) */
   ownFileOutside(rel: string): number { return this.fileOutsideLevel(rel) }
-  private fileOutsideLevel(rel: string, depth = 0, budget = { left: OWN_HASH_BUDGET }): number {
+  private fileOutsideLevel(rel: string, depth = 0, budget = { left: OWN_HASH_BUDGET }, people = false): number {
     if (depth > 4) return 2
     try {
       const { entries: all, cut } = fileTimelineWalk(this.rt.db, rel, { limit: FILE_TIMELINE_MAX })
       if (cut) return 2
-      let level = 0
+      let level = 0, known = false
       for (const e of all) {
         if (!CONTENT_KINDS.has(e.kind)) continue
+        known = true
         if (e.turnId) level = Math.max(level, this.turnOutsideLevel(e.turnId))
-        if (level < 2 && e.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1, budget))
+        // `people` (what the AI is given to read, noteOwnReads): content a person put there, not written by an AI turn
+        // (an upload, an edit or a copy on the Files screen): its words are the file's, not the person's own message
+        else if (people) level = Math.max(level, 1)
+        if (level < 2 && e.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1, budget, people))
         if (level >= 2) return 2
       }
+      // ...and a file with no known content event (changed outside the app, a sync, events past their retention)
+      if (people && !known) level = Math.max(level, 1)
       if (depth === 0) level = Math.max(level, this.bytesOutsideLevel(rel, budget))
       return level
     } catch { return 2 }

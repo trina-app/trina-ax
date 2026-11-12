@@ -305,13 +305,17 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     } finally { readable() }
   })
 
-  test('"/name" of a project skill taints the session; a team skill does not', async () => {
+  test('"/name" of a project skill taints the session; so does a team skill (someone else wrote it, QA TC-326)', async () => {
     const a = await projectChat('bob')
     await turn('bob', a, '/launch for the release\n' + fake({ say: 'ok' }))
     expect(h.ctx.db.query('SELECT session_tainted AS t FROM chats WHERE id = ?').get(a)).toEqual({ t: 1 })
     const b = await projectChat('bob')
     await turn('bob', b, '/quote for ACME\n' + fake({ say: 'ok' }))
-    expect(h.ctx.db.query('SELECT session_tainted AS t FROM chats WHERE id = ?').get(b)).toEqual({ t: 0 })
+    expect(h.ctx.db.query('SELECT session_tainted AS t FROM chats WHERE id = ?').get(b)).toEqual({ t: 1 })
+    // a plain message runs no skill: the chat stays clean
+    const c = await projectChat('bob')
+    await turn('bob', c, 'hello\n' + fake({ say: 'ok' }))
+    expect(h.ctx.db.query('SELECT session_tainted AS t FROM chats WHERE id = ?').get(c)).toEqual({ t: 0 })
   })
 
   test('the save card names the project; saved, it is audited with the project and its creator is told', async () => {

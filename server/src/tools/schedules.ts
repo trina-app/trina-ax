@@ -20,7 +20,7 @@ import { namesTemplate } from '../integrations/connections/schedule-needs'
 import { usable, type Row } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
-import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
+import { askConfirm, extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
 import { cardSources, cleanPins, MAX_PINS, MAX_SOURCES, resolveSaveFolder, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, withRules, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
 import type { Database } from 'bun:sqlite'
 
@@ -148,6 +148,16 @@ export const TEXT = {
     ko: '지시문의 주소(지금은 실행 때 열 수 없음)', en: 'Addresses in the instruction (runs cannot open them yet)', id: 'Alamat dalam instruksi (belum bisa dibuka saat berjalan)',
     ja: '指示内のアドレス（実行時はまだ開けません）', es: 'Direcciones de la instrucción (las ejecuciones aún no pueden abrirlas)',
   } satisfies L5,
+  /** schedule_delete in a chat that has seen outside content (TurnPerson.outsideSeen) */
+  deleteQuestion: {
+    ko: 'AI가 이 예약 작업을 지우려고 해요. 지울까요?\n\n제목: {title}\n일정: {when}',
+    en: 'The AI wants to delete this scheduled task. OK?\n\nTitle: {title}\nSchedule: {when}',
+    id: 'AI ingin menghapus tugas terjadwal ini. Boleh?\n\nJudul: {title}\nJadwal: {when}',
+    ja: 'AIがこの定期タスクを削除しようとしています。よろしいですか？\n\nタイトル：{title}\n予定：{when}',
+    es: 'La IA quiere eliminar esta tarea programada. ¿Está de acuerdo?\n\nTítulo: {title}\nHorario: {when}',
+  } satisfies L5,
+  deleteYes: { ko: '지우기', en: 'Delete', id: 'Hapus', ja: '削除する', es: 'Eliminar' } satisfies L5,
+  deleteNo: { ko: '그대로 두기', en: 'Keep it', id: 'Biarkan', ja: '残す', es: 'Conservar' } satisfies L5,
   create: { ko: '만들기', en: 'Create', id: 'Buat', ja: '作成する', es: 'Crear' } satisfies L5,
   createWrite: { ko: '만들기(연결 서비스에 보내기 허용)', en: 'Create, may send to those services', id: 'Buat, boleh mengirim ke layanan itu', ja: '作成する（そのサービスへの送信を許可）', es: 'Crear y permitir enviar a esos servicios' } satisfies L5,
   createNoWrite: { ko: '만들기(연결 서비스에는 보내지 않음)', en: 'Create, never send to connected services', id: 'Buat, jangan kirim ke layanan terhubung', ja: '作成する（接続サービスには送信しない）', es: 'Crear sin enviar a servicios conectados' } satisfies L5,
@@ -497,7 +507,18 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
     description: 'Delete one of the user\'s scheduled tasks by id (from schedule_list). Ask first unless the user clearly asked to delete it.',
     input: z.object({ id: z.string().min(1).max(64) }),
     describe: (a) => `schedule_delete ${a.id}`,
-    run(a, t) {
+    async run(a, t) {
+      // a chat that has seen content the person did not write (a file, a page, a skill someone else wrote): the person
+      // confirms first, seeing the task, so planted words cannot quietly delete it (QA TC-326)
+      if (t.person?.outsideSeen?.()) {
+        const s = rt.schedules.get(t.user.id, a.id)
+        if (!s) throw new ToolError(`no scheduled task ${a.id} of this user`)
+        const L = t.person.locale
+        const end = await askConfirm(t.person, fill(TEXT.deleteQuestion[L], { title: s.title.replace(/\s+/g, ' ').trim(), when: scheduleWhen({ repeat: s.repeat, time: s.time, weekday: s.weekday ?? undefined, day: s.day ?? undefined, date: s.date ?? undefined }, L) }), TEXT.deleteYes[L], TEXT.deleteNo[L])
+        if (end !== 'yes') throw new ToolError(end === 'unattended'
+          ? 'this chat has read content the user did not write, so deleting a scheduled task needs the user\'s yes on a card, and nobody is watching this run. Nothing was deleted.'
+          : 'the user did not confirm, so the scheduled task was not deleted. Do not try again unless the user asks.')
+      }
       if (!rt.schedules.delete(t.user.id, a.id)) throw new ToolError(`no scheduled task ${a.id} of this user`)
       return { text: `Deleted scheduled task ${a.id}.`, summary: `schedule_delete ${a.id}` }
     },
