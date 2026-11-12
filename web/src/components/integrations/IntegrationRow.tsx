@@ -182,6 +182,19 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
       switching.current.delete(key)
     }
   }
+  /** end the person's own Always allow, so the connection's changes ask again: their own connection's write rule back
+   * to "ask"; on a team connection only their own choice (never the team's rule) */
+  const askAgain = async (i: Integration) => {
+    try {
+      replace(i.scope === 'team'
+        ? await api.call(API.stopAlwaysAllow, { params: { id: i.id } })
+        : await api.call(API.updateIntegration, { params: { id: i.id }, body: { writePolicy: 'ask' } }))
+      toast({ level: 'success', text: t('integrations.alwaysAllow.stopped', { name: i.name }) })
+    } catch (e) {
+      if (gone(e)) return
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
   const refresh = async (i: Integration) => {
     setChecking(i.id)
     try {
@@ -223,7 +236,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     else if (i.status === 'needs_auth') toast({ level: 'info', text: t('integrations.savedNeedsSignIn') })
     else toast({ level: 'success', text: created ? t('integrations.connected') : t('common.saved') })
   }
-  return { checking, refresh, remove, signIn, saved, setTool }
+  return { checking, refresh, remove, signIn, saved, setTool, askAgain }
 }
 
 export type IntegrationActions = ReturnType<typeof useIntegrationActions>
@@ -310,7 +323,7 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="max-w-full truncate text-sm font-medium" title={i.name}>{i.name}</span>
               {audience}
-              {i.writePolicy === 'allow' && <Badge tone="warn">{t('integrations.write.allow')}</Badge>}
+              {(i.writePolicy === 'allow' || i.alwaysAllowedByMe) && <Badge tone="warn">{t(i.scope === 'team' && i.writePolicy === 'allow' ? 'integrations.write.allow' : 'integrations.alwaysAllow.badge')}</Badge>}
               {alert}
             </span>
             <span className={clsx('mt-0.5 block truncate text-xs', failing ? 'text-danger' : note ? 'text-warn' : 'text-muted')} title={i.lastError ?? undefined}>
@@ -350,6 +363,17 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
             {meta.join(' · ')}
           </p>
           {i.writePolicy === 'deny' && <p className="mt-1"><Badge>{t('integrations.write.deny')}</Badge></p>}
+          {/* the person's own Always allow (a write card's choice): what it means, and the way back (QA TC-130) */}
+          {(i.alwaysAllowedByMe || (i.scope === 'personal' && i.writePolicy === 'allow')) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5" data-testid="integration-always-allow">
+              <p className="min-w-0 flex-[1_1_16rem] text-xs text-muted">{t('integrations.alwaysAllow.line')}</p>
+              {(i.alwaysAllowedByMe || manage) && (
+                <Button size="sm" className={phone ? 'touch-hit' : undefined} onClick={() => void actions.askAgain(i)} data-testid="integration-always-allow-stop">
+                  {t('integrations.alwaysAllow.stop')}
+                </Button>
+              )}
+            </div>
+          )}
           {manage && canSignIn(i) && phone && <p className="mt-1 text-xs text-muted">{t('integrations.signIn.phone')}</p>}
           {extra}
           {manage && (

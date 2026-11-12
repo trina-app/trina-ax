@@ -171,6 +171,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
       aria-labelledby={`${id}-title`}
       data-testid="connect-card"
       data-case={kase}
+      data-reconnect={r.reconnect ? 'yes' : undefined}
       onSubmit={(e) => {
         e.preventDefault()
         if (kase === 'key') void connectKey()

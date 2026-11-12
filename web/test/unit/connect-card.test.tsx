@@ -317,6 +317,23 @@ describe('what the card shows', () => {
     expect(html(card())).not.toContain('connect-template-note')
   })
 
+  test('QA TC-127: the person\'s own connection that stopped working: "Sign in again to" (or "a new key for") the name, and a line that nothing new is added', () => {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      const signIn = html(card({ name: 'Notion', reconnect: true, service: { kind: 'mcp', url: 'https://mcp.notion.com/mcp', host: 'mcp.notion.com', auth: 'oauth', authHeader: null } }))
+      expect(part(signIn, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectTitle', { name: 'Notion' })))
+      expect(signIn).toContain('data-reconnect="yes"')
+      expect(signIn).toContain(esc(translate(locale, 'connect.reconnectNote', { name: 'Notion' })))
+      expect(signIn).toContain('data-testid="connect-sign-in"')
+      expect(signIn).not.toContain('connect-template-note')
+      const key = html(card({ name: 'Tasks', reconnect: true }))
+      expect(part(key, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectKeyTitle', { name: 'Tasks' })))
+      expect(key).toContain('data-testid="connect-key"')
+    }
+    setLocale('en')
+    expect(html(card())).not.toContain('data-reconnect')
+  })
+
   test('what kind of connection it is, and the header a key goes in', () => {
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
       setLocale(locale)

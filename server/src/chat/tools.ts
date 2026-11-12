@@ -454,6 +454,8 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options,
       multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
       ...(extra?.details?.length ? { details: extra.details } : {}),
+      ...(extra?.buttons && options.length === 3 ? { buttons: true as const } : {}),
+      ...(extra?.note ? { note: extra.note } : {}),
     } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     return { value: typeof v === 'string' && options.some((o) => o.value === v) ? v : null, missing }
