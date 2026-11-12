@@ -58,6 +58,7 @@ export function renderMetrics(s: MetricsSource): string {
     ['relay_http_requests_total', { outcome: 'suspended' }, c('httpSuspended')],
     ['relay_http_requests_total', { outcome: 'unknown' }, c('httpUnknown')],
     ['relay_http_requests_total', { outcome: 'maintenance' }, c('httpMaintenance')],
+    ['relay_http_requests_total', { outcome: 'oversized' }, c('headTooBig')],
     ['relay_http_requests_total', { outcome: 'redirect' }, c('httpRedirect')],
     ['relay_http_requests_total', { outcome: 'capped' }, c('httpVisitorLimit')],
   ])

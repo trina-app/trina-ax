@@ -5,6 +5,7 @@
 // language does not decide, as on the team server (docs/DECISIONS.md "언어"); the relay cannot ask an offline team
 // server for its default language.
 
+import { createHash } from 'node:crypto'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 
 export type PageKind =
@@ -142,3 +143,91 @@ export const PAGE_STATUS: Record<PageKind, number> = {
 }
 /** Retry-After of the 503 pages: an update takes a minute or two */
 export const PAGE_RETRY_AFTER: Partial<Record<PageKind, number>> = { team_offline: 5, team_busy: 5, team_offline_cloud: 5, team_maintenance: 30 }
+
+// ---------------------------------------------------------------- request head too big
+
+/**
+ * The browser sent more cookies than the relay reads (MAX_REQUEST_HEAD): usually cookies some page under the shared
+ * parent domain left there (QA TC-346). The relay could not read the head, so it knows neither the address nor the
+ * language; the page picks the language from the mycel_locale cookie in the browser and offers a button that removes
+ * the cookies of the parent domain(s) only. The team's own sign-in (__Host-sid: host-only, HttpOnly) stays. No
+ * Clear-Site-Data: "cookies" clears the whole registrable domain, so it would sign the person out of every team and
+ * the account console, and whoever planted the cookies decides when this page shows.
+ */
+const HEAD_TOO_BIG: Record<Lang, { title: string; body: string; button: string; after: string }> = {
+  en: {
+    title: 'This page cannot open: your browser is sending too many cookies',
+    body: 'A website under the same main address left a large number of cookies in this browser. Press the button below to remove them. You stay signed in.',
+    button: 'Remove the extra cookies and reload',
+    after: 'If this page comes back, open your browser settings, delete the cookies (site data) for %SITE%, and sign in again. A private window also works.',
+  },
+  ko: {
+    title: '브라우저가 쿠키를 너무 많이 보내서 페이지를 열 수 없어요',
+    body: '같은 기본 주소를 쓰는 다른 사이트가 이 브라우저에 쿠키를 잔뜩 남겼어요. 아래 버튼을 누르면 지워져요. 로그인은 그대로 유지돼요.',
+    button: '불필요한 쿠키 지우고 다시 열기',
+    after: '이 페이지가 또 나오면 브라우저 설정에서 %SITE%의 쿠키(사이트 데이터)를 삭제한 뒤 다시 로그인해 주세요. 시크릿 창에서 열어도 돼요.',
+  },
+  id: {
+    title: 'Halaman ini tidak bisa dibuka: browser Anda mengirim terlalu banyak cookie',
+    body: 'Sebuah situs di bawah alamat utama yang sama meninggalkan banyak cookie di browser ini. Tekan tombol di bawah untuk menghapusnya. Anda tetap masuk.',
+    button: 'Hapus cookie berlebih dan muat ulang',
+    after: 'Jika halaman ini muncul lagi, buka pengaturan browser, hapus cookie (data situs) untuk %SITE%, lalu masuk lagi. Jendela pribadi juga bisa dipakai.',
+  },
+  ja: {
+    title: 'ブラウザーが送るCookieが多すぎるため、このページを開けません',
+    body: '同じメインアドレスの別のサイトが、このブラウザーに大量のCookieを残しました。下のボタンを押すと削除されます。ログインはそのままです。',
+    button: '余分なCookieを削除して再読み込み',
+    after: 'このページがまた表示される場合は、ブラウザーの設定で%SITE%のCookie（サイトデータ）を削除し、もう一度ログインしてください。プライベートウィンドウでも開けます。',
+  },
+  es: {
+    title: 'Esta página no se puede abrir: su navegador envía demasiadas cookies',
+    body: 'Un sitio bajo la misma dirección principal dejó muchas cookies en este navegador. Pulse el botón de abajo para borrarlas. Seguirá con la sesión iniciada.',
+    button: 'Borrar las cookies sobrantes y recargar',
+    after: 'Si esta página vuelve a aparecer, abra la configuración del navegador, borre las cookies (datos del sitio) de %SITE% e inicie sesión de nuevo. Una ventana privada también sirve.',
+  },
+}
+
+// Runs in the visitor's browser. Removes every cookie it can see from each parent domain of this address and each
+// path up to this page, with and without a trailing slash (the ones a page elsewhere can have set; host-only cookies
+// are left alone), then reloads. On https each one is also removed as a Partitioned cookie (a partitioned cookie on
+// the parent is a separate cookie). A nameless cookie shows as its value only and is removed by writing that value.
+const HEAD_TOO_BIG_SCRIPT = `(function(){var T=${JSON.stringify(HEAD_TOO_BIG).replace(/</g, '\\u003c')};
+var m=/(?:^|;\\s*)${LOCALE_COOKIE}=(ko|en|id|ja|es)(?:;|$)/.exec(document.cookie);var l=m?m[1]:'en',t=T[l];
+var h=location.hostname.split('.'),ds=[];for(var i=1;i<h.length-1;i++)ds.push(h.slice(i).join('.'));
+var site=ds.length?ds[ds.length-1]:location.hostname;
+document.documentElement.lang=l;document.title=t.title;
+document.getElementById('t').textContent=t.title;document.getElementById('b').textContent=t.body;
+document.getElementById('a').textContent=t.after.replace('%SITE%',site);
+var btn=document.getElementById('x');btn.textContent=t.button;btn.hidden=!ds.length;
+btn.onclick=function(){var ps=['/'],p='';location.pathname.split('/').slice(1).forEach(function(s){if(!s)return;p+='/'+s;ps.push(p,p+'/')});
+var https=location.protocol==='https:',ends=https?['; Secure','; Secure; Partitioned']:[''];
+document.cookie.split(';').forEach(function(c){c=c.trim();if(!c||c.indexOf('__Host-')===0)return;var i=c.indexOf('='),k=i<0?c:c.slice(0,i)+'=';
+ds.forEach(function(d){ps.forEach(function(q){ends.forEach(function(e){document.cookie=k+'; Domain='+d+'; Path='+q+'; Max-Age=0'+e})})})});
+location.reload()}})()`
+
+/** before the script runs (or without scripts): the first sentence only, there is no button yet */
+const NO_SCRIPT_WHY = 'A website under the same main address left a large number of cookies in this browser.'
+
+function headTooBigHtml(): string {
+  const t = HEAD_TOO_BIG.en
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(t.title)}</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;background:#f6f7f6;color:#1d2420;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}main{max-width:520px}h1{font-size:22px;margin:0 0 12px}p{line-height:1.6;color:#4a554f;margin:0 0 16px}button{font:inherit;font-weight:600;padding:10px 16px;border-radius:8px;border:0;background:#1d2420;color:#fff;cursor:pointer;margin:0 0 16px}@media (prefers-color-scheme:dark){body{background:#151816;color:#e8ece9}p{color:#a9b3ad}button{background:#e8ece9;color:#151816}}</style></head>
+<body><main><h1 id="t">${esc(t.title)}</h1><p id="b">${esc(NO_SCRIPT_WHY)}</p><button id="x" type="button" hidden></button><p id="a">${esc(t.after.replace('%SITE%', 'this website'))}</p></main>
+<script>${HEAD_TOO_BIG_SCRIPT}</script></body></html>`
+}
+
+/** The whole raw HTTP/1.1 answer (written on the socket: the request was never parsed). 431, closes the connection. */
+export function headTooBigResponse(hsts: string | null = null): string {
+  const body = headTooBigHtml()
+  const hash = createHash('sha256').update(HEAD_TOO_BIG_SCRIPT).digest('base64')
+  return 'HTTP/1.1 431 Request Header Fields Too Large\r\n'
+    + 'content-type: text/html; charset=utf-8\r\n'
+    + `content-length: ${Buffer.byteLength(body)}\r\n`
+    + 'cache-control: no-store\r\n'
+    + 'x-relay-error: request_too_big\r\n'
+    + 'x-content-type-options: nosniff\r\n'
+    + (hsts ? `strict-transport-security: ${hsts}\r\n` : '')
+    + `content-security-policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n`
+    + 'connection: close\r\n\r\n'
+    + body
+}
