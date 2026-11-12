@@ -144,13 +144,21 @@ export function hiddenAddress(words: string, url: string): string | null {
   const host = u.host.toLowerCase().replace(/^www\./, '').replace(/\.$/, '')
   const scheme = /^([a-z][a-z\d+.-]*):\/*/.exec(w)
   const shown = w.slice(scheme?.[0].length ?? 0).replace(/^www\./, '')
-  const head = shown.split(/[/?#]/, 1)[0]
-  const rest = shown.slice(head.length)
-  if (bidi || head.replace(/\.$/, '') !== host) return host
-  // the words name an address of their own: it must be this one (scheme, path, query)
-  if (scheme || trim(rest) !== '') {
-    const real = readAs(u.pathname + u.search + u.hash)
-    if ((scheme && scheme[1] !== u.protocol.slice(0, -1)) || trim(rest) !== trim(real)) return u.href
+  const head = shown.split(/[/?#]/, 1)[0].replace(/\.$/, '')
+  // (the words' host as the link would have it: "한국.kr" → punycode, ":443" on https → none)
+  let shownHost = head
+  try { shownHost = new URL(`${u.protocol}//${head}`).host.toLowerCase().replace(/^www\./, '') } catch { /* as written */ }
+  if (bidi || shownHost !== host) return host
+  // the words name an address of their own: it must be this one (scheme, path, query), compared as written and
+  // percent-encoded alike ("/wiki/서울" is "/wiki/%EC%84%9C%EC%9A%B8")
+  const rest = shown.slice(shown.split(/[/?#]/, 1)[0].length)
+  const same = (x: string) => trim(x.replace(/^\/(?=[?#]|$)/, ''))
+  if (scheme || same(rest) !== '') {
+    const real = u.pathname + u.search + u.hash
+    let decoded = real
+    try { decoded = decodeURI(real) } catch { /* as written */ }
+    const ok = [readAs(real), readAs(decoded)].some((r) => same(r) === same(rest) || same(r) === same(asHref(rest).toLowerCase()))
+    if ((scheme && scheme[1] !== u.protocol.slice(0, -1)) || !ok) return u.href
   }
   return null
 }

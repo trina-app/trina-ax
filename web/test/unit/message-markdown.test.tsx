@@ -281,6 +281,13 @@ test('a link whose words do not show where it goes shows its real host (or addre
   expect(hiddenAddress('paypal.com', 'https://evil.example/')).toBe('evil.example')
   expect(hiddenAddress('PAYPAL.COM/x', 'https://www.paypal.com/x/')).toBeNull()
   expect(hiddenAddress('PayPal.com.', 'https://paypal.com/')).toBeNull()
+  // Korean paths and hosts, a default port, a "#" on the root: the same address
+  expect(hiddenAddress('https://ko.wikipedia.org/wiki/서울', 'https://ko.wikipedia.org/wiki/%EC%84%9C%EC%9A%B8')).toBeNull()
+  expect(hiddenAddress('https://한국.kr', 'https://xn--3e0b707e.kr/')).toBeNull()
+  expect(hiddenAddress('https://example.com:443/x', 'https://example.com/x')).toBeNull()
+  expect(hiddenAddress('example.com#x', 'https://example.com/#x')).toBeNull()
+  expect(hiddenAddress('https://ko.wikipedia.org/wiki/부산', 'https://ko.wikipedia.org/wiki/%EC%84%9C%EC%9A%B8')).toBe('https://ko.wikipedia.org/wiki/%EC%84%9C%EC%9A%B8')
+  expect(md('<https://ko.wikipedia.org/wiki/서울> [https://ko.wikipedia.org/wiki/서울](https://ko.wikipedia.org/wiki/서울)')).not.toContain('data-real-address')
   // words that name an address of their own (a scheme, a path) must be this one: else the whole real address
   expect(hiddenAddress('PAYPAL.COM/x', 'https://www.paypal.com/y')).toBe('https://www.paypal.com/y')
   expect(hiddenAddress('https://accounts.google.com/', 'https://accounts.google.com/o/oauth2/auth?client_id=evil')).toBe('https://accounts.google.com/o/oauth2/auth?client_id=evil')
