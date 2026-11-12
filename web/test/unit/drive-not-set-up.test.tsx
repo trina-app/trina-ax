@@ -77,3 +77,12 @@ describe('관리자 › 연결한 서비스 › Google Drive without a public ad
     expect((await page({ ...admin, configured: true, blocked: null, canSetUp: true, source: 'app' })).html).not.toContain('data-testid="drive-public-host"')
   })
 })
+
+// QA TC-204: the tools read as the steps under an answer do, never as code names
+test('Admin › Google Drive lists its tools in words, not drive_search / drive_list / drive_read', async () => {
+  as('owner')
+  const { text, html } = await page()
+  for (const w of ['Google Drive 검색', 'Google Drive 폴더 보기', 'Google Drive 파일 읽기']) expect(text).toContain(w)
+  for (const code of ['drive_search', 'drive_list', 'drive_read']) expect(text).not.toContain(code)
+  expect(html).not.toContain('font-mono')
+})

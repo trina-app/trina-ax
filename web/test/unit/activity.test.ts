@@ -94,6 +94,13 @@ describe('grouped by day', () => {
 
 describe('what a row says', () => {
   const at = new Date(2026, 10, 4, 9)
+  test('an outside app\'s connection names the app, never the grant\'s id (QA TC-204)', () => {
+    const grant = (detail: Record<string, unknown> | null) => entry('g', at, { source: 'admin', action: 'remote_mcp.connected', target: 'tax_grant_0a1b2c3d4e5f', detail })
+    expect(rowItem(grant({ scopes: ['mcp:read'], app: 'Claude' }))).toEqual({ text: 'Claude', code: false })
+    // an entry written before the name was kept: the action alone
+    expect(rowItem(grant({ scopes: ['mcp:read'] }))).toBeNull()
+    expect(rowItem({ ...grant({ app: 'Claude' }), action: 'remote_mcp.disconnected' })).toEqual({ text: 'Claude', code: false })
+  })
   const tool = (action: string, summary: string) => entry('t', at, { source: 'tool', action, target: null, detail: { summary, ok: 1 } })
   test('an AI tool: its name in words and the path it worked on; a connection check and other summaries stay in the details', () => {
     expect(rowItem(tool('read', 'read shared/마케팅/plan.csv -> 4 lines'))).toEqual({ text: 'shared/마케팅/plan.csv', code: true })

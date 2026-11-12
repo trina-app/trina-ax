@@ -86,7 +86,8 @@ test('write is the person\'s choice and group management the owner\'s role, what
   expect(decided(f.request('mcp:read mcp:write mcp:admin'), {}).scope).toBe('mcp:read mcp:write mcp:admin')
   expect(decided(f.request('mcp:read'), {}).scope).toBe('mcp:read mcp:admin')
   const connected = f.h.ctx.db.query("SELECT detail FROM audit_log WHERE action='remote_mcp.connected' ORDER BY id").all() as { detail: string }[]
-  expect(JSON.parse(connected[0]!.detail)).toEqual({ scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'offline_access'] })
+  // the app's name, so the activity log names the app, not the grant's id (QA TC-204)
+  expect(JSON.parse(connected[0]!.detail)).toEqual({ scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'offline_access'], app: 'Test connector' })
 })
 
 test('authorization code replay revokes its issued family; user disconnect and logout stop access', async () => {
@@ -96,6 +97,9 @@ test('authorization code replay revokes its issued family; user disconnect and l
   const second = f.exchange(f.code()), grant = f.svc.authenticate(second.access_token)
   f.svc.disconnect(grant.id, f.auth)
   expect(() => f.svc.authenticate(second.access_token)).toThrow()
+  // the app's name is kept with the disconnection, read before the grant goes
+  const gone = f.h.ctx.db.query("SELECT target, detail FROM audit_log WHERE action='remote_mcp.disconnected'").all() as { target: string; detail: string }[]
+  expect(gone.map((r) => ({ target: r.target, ...JSON.parse(r.detail) }))).toEqual([{ target: grant.id, app: 'Test connector' }])
   const third = f.exchange(f.code())
   await f.owner.call('POST', '/api/auth/logout', {})
   expect(() => f.svc.authenticate(third.access_token)).toThrow()

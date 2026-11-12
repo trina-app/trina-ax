@@ -94,8 +94,8 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
   // what Advanced holds, in one line next to it
   const summary = [
     team && !existing && !template ? t(`integrations.who.${who}`) : null,
-    t(f.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http'),
-    fromTeam ? null : t(`integrations.auth.${f.method}`),
+    // collapsed, in plain words (QA TC-204): no "MCP server" / "API" kind and no "(OAuth)"; the open section says them
+    fromTeam || f.method === 'none' ? null : f.method === 'oauth' ? t('integrations.summary.signIn') : t(`integrations.auth.${f.method}`),
     !fromTeam && f.kind === 'mcp' && usesApp(f) ? t('integrations.app.use') : null,
     asTemplate ? null : t(`integrations.write.${f.writePolicy}`),
     team && f.access ? (f.access.everyone ? t('integrations.access.everyone') : t('integrations.access.pick')) : null,
