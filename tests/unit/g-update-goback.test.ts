@@ -6,7 +6,7 @@ import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { requiredReaderLevel } from '../../server/src/db'
+import { requiredReaderLevel, requiredReaderLevelOfFile } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
 import { M } from '../../server/src/system/messages'
 import { UpdateManager } from '../../server/src/system/update'
@@ -52,6 +52,20 @@ describe('Go back is offered only to a version that can read the database', () =
     await expect(u.rollBack()).rejects.toThrow(/0\.4\.0 cannot read the database 0\.5\.0 has updated; going back to it needs the backup made before the update/)
     // nothing switched
     expect(fs.readlinkSync(path.join(app, 'current'))).toBe('versions/0.5.0')
+  })
+
+  test('admin.js rollback reads the level from the database file, read-only (1 when it cannot be read)', async () => {
+    const file = path.join(W, 'level.db')
+    const d = new Database(file)
+    d.exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT, applied_at TEXT, min_compatible_reader INTEGER NOT NULL DEFAULT 1)')
+    d.query("INSERT INTO schema_migrations VALUES (251, '251_b_room_threads.sql', 'x', 6)").run()
+    d.close()
+    expect(requiredReaderLevelOfFile(file)).toBe(6)
+    expect(requiredReaderLevelOfFile(path.join(W, 'missing.db'))).toBe(1)
+    expect(fs.existsSync(path.join(W, 'missing.db'))).toBe(false)
+    const app = install('cli', { running: '0.5.0', previous: '0.4.0', levels: { '0.4.0': 4, '0.5.0': 6 } })
+    const u = new UpdateManager({ appDir: app, dataDir: path.join(W, 'cli', 'data'), version: '0.5.0', channel: 'stable', feedUrl: null, log: silentLogger, allowUnsigned: true, dbReaderLevel: () => requiredReaderLevelOfFile(file) })
+    await expect(u.rollBack()).rejects.toThrow(/cannot read the database/)
   })
 
   test('a previous version at the same level (an update without such a migration): offered', () => {
@@ -104,6 +118,8 @@ describe('an update job whose version did not stay is failed at the next start',
       ['stayed', (db) => job(db, { result: { fromVersion: '0.4.0', toVersion: '0.5.0', rolledBack: false } }), '0.5.0'],
       ['old', (db) => job(db, { result: { fromVersion: '0.5.0', toVersion: '0.4.0', rolledBack: true }, finishedAt: '2026-11-10T03:00:00.000Z' }), '0.5.0'],
       ['failed already', (db) => job(db, { status: 'failed', result: { fromVersion: '0.5.0', toVersion: '0.4.0', rolledBack: true } }), '0.5.0'],
+      // no roll-back by the bootstrap recorded for it (a restart, an administrator's switch back): not this job's failure
+      ['no roll-back recorded', (db) => job(db, { result: { fromVersion: '0.5.0', toVersion: '0.6.0', rolledBack: false } }), '0.5.0'],
       // a newer job (a backup is another kind; this is a second update) decides, not the older one
       ['not the newest', (db) => {
         job(db, { id: 'j0', result: { fromVersion: '0.5.0', toVersion: '0.4.0', rolledBack: true }, createdAt: '2026-11-12T01:00:00.000Z' })

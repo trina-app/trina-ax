@@ -1,7 +1,7 @@
 // Where each Admin address sits (docs/DECISIONS.md "Admin and Settings on phones: a list you tap into"): the Admin list
-// (/admin) under the 나 list (/settings); a page under the Admin list; a group of Team settings under Team settings; an
-// item's own page under its page (a connector, a plugin, an engine, a person, a group, an Activity log record); in
-// Folder permissions a folder under the tree, its rule editor under the folder, and a person under By person.
+// (/admin) under the 나 list (/settings); a page under the Admin list; a group of Team settings or System under its
+// page; an item's own page under its page (a connector, a plugin, an engine, a person, a group, an Activity log
+// record); in Folder permissions a folder under the tree, its rule editor under the folder, and a person under By person.
 //
 // One table for ‹ (AdminLayout.tsx: where it goes and its name), the lists put under a page opened from outside
 // (lib/backStack.ts useListUnderPage) and, later, the app's route table (lib/screens.ts calls adminParent for its

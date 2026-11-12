@@ -357,7 +357,7 @@ What it creates:
 Running the installer again with the **same** bundle repairs the install. With a **newer** bundle it switches
 `app/current` to it, like an in-app update: the running version stays in `app/versions` as the roll-back version
 (Admin → System → Update → Go back; not offered when the old version cannot read the database the new one updated, see
-[Going back to an older version](BACKUP-RESTORE.md#going-back-to-an-older-version)), and if the new version does not answer within 120 s or crashes 3 times the
+[Going back to the version before an update](BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux)), and if the new version does not answer within 120 s or crashes 3 times the
 bootstrap goes back to the old one by itself (a version that is still updating a large database answers "migrating"
 and gets up to 60 minutes, `--migrate-timeout`); the installer then exits 1 and says so. An **older** bundle is only
 staged (warning); the running version stays, and the staged one is kept for a day (switch to it within that day:

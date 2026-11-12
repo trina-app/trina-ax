@@ -38,7 +38,7 @@ In:
 6. Bootstrap: a pending version that exits 75 is rolled back at once with "cannot read the database" (not three tries
    and "exited 3 times"). Diagnostics says a bounced Go back in plain words.
 7. Docker / installer "older kit" warning and docs/INSTALL-DOCKER.md: no advice to roll back into a version that
-   cannot read the database; the restore steps go in docs/BACKUP-RESTORE.md.
+   cannot read the database; the restore steps are #554's in docs/BACKUP-RESTORE.md.
 
 Out: changing 0.4.0's mycel-ctl; restoring a backup automatically when going back.
 
@@ -66,5 +66,5 @@ stopped) in status, update and the timer, with one note line; the server ignores
 `previousNeedsRestore`; Admin › System shows no Go back then and says why, the route and `admin.js rollback` refuse it.
 `settleUpdateJob` marks an update job whose version did not stay as failed at the next start, and the web waits for
 `/api/health` before it says "finished". The bootstrap rolls a pending version that exits 75 back at once with a plain
-reason. The installer's older-kit warning and docs/INSTALL-DOCKER.md point to the new restore steps in
-docs/BACKUP-RESTORE.md. Not run here: the real Ubuntu VM and Docker passes of TC-334 / TC-336 (QA).
+reason. The installer's older-kit warning and docs/INSTALL-DOCKER.md point to #554's restore steps in
+docs/BACKUP-RESTORE.md ("Going back to the version before an update"; Docker: a copy of the whole volume). Not run here: the real Ubuntu VM and Docker passes of TC-334 / TC-336 (QA).

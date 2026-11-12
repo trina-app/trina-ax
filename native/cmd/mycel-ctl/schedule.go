@@ -473,6 +473,11 @@ func readHold(e *env, in *Install) (h *failedUpdate, note string) {
 	if f == nil || !reachedHold(e, in, f) {
 		return f, ""
 	}
+	// read again right before the removal (the health check took time, and this runs before the update lock): a hold
+	// another run wrote meanwhile (another version, or a new failure) stays
+	if g := readFailed(e); g == nil || g.Version != f.Version || !g.At.Equal(f.At) || g.Failures != f.Failures {
+		return g, ""
+	}
 	clearFailed(e)
 	note = fmt.Sprintf("release %s runs here and answers; an earlier update run reported it as %s at %s (it did not see the server go forward to %s again), so that hold is over",
 		f.Version, strings.ReplaceAll(f.Result, "_", " "), f.At.UTC().Format(time.RFC3339), f.Version)

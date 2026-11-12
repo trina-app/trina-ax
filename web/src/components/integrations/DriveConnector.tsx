@@ -216,7 +216,7 @@ export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status
         <div className="space-y-1 text-sm" data-testid="drive-public-host">
           <p>{t('driveAdmin.publicHost.why')}</p>
           <p>{t(owner ? 'driveAdmin.publicHost.owner' : 'driveAdmin.publicHost.admin')}</p>
-          {owner && <Link to="/admin/system" className="inline-block text-accent-text underline-offset-2 hover:underline" data-testid="drive-public-host-system">{t('driveAdmin.publicHost.openSystem')}</Link>}
+          {owner && <Link to="/admin/system/connection" className="inline-block text-accent-text underline-offset-2 hover:underline" data-testid="drive-public-host-system">{t('driveAdmin.publicHost.openSystem')}</Link>}
         </div>
       )}
       {status.configured && status.source === 'server' && <p className="text-xs text-faint" data-testid="drive-by-server">{t('appConnectors.byServer')}</p>}

@@ -1282,7 +1282,7 @@ case "$ACTION" in
     # level of the running one's migrations cannot open the database it updated (exit 75), so neither Go back nor this
     # kit brings it back; only the backup made before the update does (QA TC-336)
     if [ "$(reader_level "$BASE/app/versions/$VERSION")" -lt "$(reader_level "$BASE/app/versions/$CUR")" ]; then
-      warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running. $VERSION cannot read the database $CUR has updated: to go back to it, restore the backup made before the update (docs/BACKUP-RESTORE.md, \"Going back to an older version\"); otherwise use the $CUR kit or image"
+      warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running. $VERSION cannot read the database $CUR has updated: to go back to it, restore the backup made before the update (docs/BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux; in Docker, a copy of the whole volume from before the update, started with the older tag); otherwise use the $CUR kit or image"
     else
       warn "this kit ($VERSION) is older than the installed $CUR, so $CUR keeps running; $VERSION is staged in app/versions"
     fi

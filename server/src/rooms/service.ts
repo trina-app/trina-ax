@@ -269,6 +269,9 @@ export class Rooms {
       this.roomEvent(roomId, 'updated', new Set([userId]))
       // a push of this room that waits or is on its way is checked again (rooms/alerts.ts noticeWanted)
       cancelPushUser(this.ctx, userId)
+      // muted or not, a counted row of it moves between the Inbox's room part and the rest (notifications/service.ts
+      // roomUnreadCount): the count is read again
+      if ((level === 'off') !== !!me.muted && countedUnreadIn(this.db, userId, roomId)) this.notifySignal(userId)
     }
     return this.get(userId, roomId)
   }

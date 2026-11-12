@@ -208,6 +208,16 @@ export function requiredReaderLevel(db: Database): number {
   } catch { return 1 }
 }
 
+/** requiredReaderLevel of a database file, opened read-only (admin.js rollback beside the running server: no
+ * migration, no write). 1 when it cannot be read. */
+export function requiredReaderLevelOfFile(file: string): number {
+  let db: Database | null = null
+  try {
+    db = new Database(file, { readonly: true })
+    return requiredReaderLevel(db)
+  } catch { return 1 } finally { db?.close() }
+}
+
 export function schemaInfo(db: Database): { applied: number; maxVersion: number } {
   const r = db.query('SELECT COUNT(*) AS n, COALESCE(MAX(version), 0) AS v FROM schema_migrations').get() as { n: number; v: number }
   return { applied: r.n, maxVersion: r.v }

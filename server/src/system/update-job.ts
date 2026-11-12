@@ -147,7 +147,8 @@ const UPDATE_NOT_KEPT = {
  * An update job is "done" once it has switched app/current and asked for the restart: the bootstrap tries the version
  * after that, and may send app/current back (a version that does not come up, or one that cannot read the database:
  * exit 75). At the next start, the newest update job, finished within a day, that started from the version running
- * again and named another one did not stay: it becomes `failed` with what happened ("Could not go back to 0.4.0; still
+ * again and named another one, which the bootstrap recorded sending back (history rolled_back <it> -> <running>), did
+ * not stay: it becomes `failed` with what happened ("Could not go back to 0.4.0; still
  * on 0.5.0" and why), so a client that reads the job after the restart is told the truth. QA TC-336: a Go back to 0.4.0
  * bounced and the job said rolledBack to 0.4.0. Returns the job id it changed (null: none).
  */
@@ -168,10 +169,13 @@ export function settleUpdateJob(o: {
   if (typeof r.toVersion !== 'string' || typeof r.fromVersion !== 'string' || r.toVersion === o.running || r.fromVersion !== o.running) return null
   const to = r.toVersion, finished = row.finished_at
   const l = o.locale(row.user_id)
+  // only when the bootstrap recorded sending it back: rolled_back <to> -> <running>, after the job finished (a server
+  // that only restarted, or an administrator's switch back, is not a version that did not stay)
+  const h = [...o.history].reverse().find((x) => x.result === 'rolled_back' && x.from === to && x.to === o.running && Date.parse(x.at) >= Date.parse(finished) - 60_000)
+  if (!h) return null
   const head = (r.rolledBack === true ? UPDATE_NOT_KEPT.goBack : UPDATE_NOT_KEPT.update)(to, o.running)[l]
-  // why: the reader levels say it best; else the bootstrap's own line about that version (rolled_back <to> -> <running>)
-  const h = [...o.history].reverse().find((x) => x.result !== 'ok' && x.from === to && Date.parse(x.at) >= Date.parse(finished) - 60_000)
-  const reason = !o.canRead(to) ? UPDATE_NOT_KEPT.cannotRead(to, o.running)[l] : h?.detail ? UPDATE_NOT_KEPT.why(h.detail)[l] : ''
+  // why: the reader levels say it best; else the bootstrap's own line
+  const reason = !o.canRead(to) ? UPDATE_NOT_KEPT.cannotRead(to, o.running)[l] : h.detail ? UPDATE_NOT_KEPT.why(h.detail)[l] : ''
   const err = { code: 'conflict', message: reason ? `${head} ${reason}` : head }
   o.db.query("UPDATE jobs SET status = 'failed', error = ? WHERE id = ? AND status = 'done'").run(JSON.stringify(err), row.id)
   return row.id

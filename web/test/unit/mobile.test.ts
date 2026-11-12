@@ -1,10 +1,14 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
+import { initMobile, mobileApp, sendFileToApp, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText } from '../../src/lib/mobile'
+import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../src/lib/share'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, OFF_HERE_PREFIX, phonePushView, registerMobilePush, setMobilePushSession, turnOffPhonePush, usePhonePush } from '../../src/lib/mobile-push'
 import { clearLocalData } from '../../src/lib/localData'
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
+import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
+import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
+import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -287,6 +291,71 @@ test('appearance-v1: the page tells the app its look when the bridge is ready an
   } finally { Reflect.deleteProperty(doc, 'documentElement') }
 })
 
+test('nav-v1: the page tells the app where Back goes when it changes, once per bridge, and again after a reset', async () => {
+  const navs = () => messages.filter(m => m.type === 'nav').map(m => ({ canGoBack: (m as { canGoBack: boolean }).canGoBack, home: (m as { home?: boolean }).home }))
+  // an app without nav-v1 hears nothing (an older build would never answer)
+  setAppNav({ canGoBack: true, home: true }); await settle()
+  expect(navs()).toEqual([])
+  win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, NAV_CAPABILITY] }
+  // the bridge comes: the latest the page worked out
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => navs().length > 0)
+  expect(navs()).toEqual([{ canGoBack: true, home: true }])
+  expect(messages.at(-1)).toMatchObject({ v: 1, nonce: config.nonce, generation: config.generation })
+  // the same again is not sent; a change is
+  setAppNav({ canGoBack: true, home: true }); await settle()
+  setAppNav({ canGoBack: false, home: false }); await settle(() => navs().length > 1)
+  expect(navs()).toEqual([{ canGoBack: true, home: true }, { canGoBack: false, home: false }])
+  // a reset (a sign-in) fences the old generation: sent again after it, with the new one
+  messages = []
+  setMobileSession('user:nav-after-reset')
+  await settle(() => navs().length > 0)
+  expect(messages.map(m => m.type)).toEqual(['session-reset', 'nav'])
+  expect(messages[1]!.generation).toBe(messages[0]!.generation + 1)
+  // a new bridge (another nonce: the app installed it again) hears it again
+  messages = []
+  win.mycelMobile = { ...win.mycelMobile, nonce: 'd'.repeat(64) }
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => navs().length > 0)
+  expect(navs()).toEqual([{ canGoBack: false, home: false }])
+  // the app did not take it: the same is sent again next time (not skipped as heard)
+  handler = m => reply(m, m.type === 'nav' ? { ok: false, error: 'mobile_operation_failed' } : {})
+  setAppNav({ canGoBack: true, home: false }); await settle(() => navs().length > 1)
+  handler = m => reply(m)
+  await tick()
+  setAppNav({ canGoBack: true, home: false }); await settle(() => navs().length > 2)
+  expect(navs().slice(1)).toEqual([{ canGoBack: true, home: false }, { canGoBack: true, home: false }])
+})
+
+test('nav-v1: the page works out where Back goes from its history, and sends it after Back, an overlay or a step', async () => {
+  const state: { current: unknown } = { current: null }
+  const extra = { history: { get state() { return state.current } }, location: { pathname: '/rooms' }, matchMedia: (q: string) => ({ matches: q.includes('max-width'), addEventListener() {} }) }
+  Object.assign(win, extra)
+  try {
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, NAV_CAPABILITY] }
+    resetAppNavForTest(); initAppNav()
+    const last = () => messages.filter(m => m.type === 'nav').at(-1) as { canGoBack: boolean; home: boolean } | undefined
+    // the 대화 tab's root: nothing under it, not the start tab
+    state.current = { idx: 2, key: 'a', scr: { tab: 'chats', sid: 's', base: 2, root: { k: 'a', p: '/rooms' }, trail: [{ k: 'a', p: '/rooms' }] } }
+    win.dispatchEvent(new Event('popstate'))
+    await settle(() => !!last())
+    expect(last()).toMatchObject({ canGoBack: false, home: false })
+    // a sheet opened over it: Back closes it
+    state.current = { ...(state.current as object), mycelOverlay: 7, mycelOverlayDepth: 1 }
+    win.dispatchEvent(new Event(OVERLAY_ENTRY_EVENT))
+    await settle(() => last()?.canGoBack === true)
+    expect(last()).toMatchObject({ canGoBack: true, home: false })
+    // a room above the list (the end of a step of the history)
+    state.current = { idx: 3, key: 'b', scr: { tab: 'chats', sid: 's', base: 2, root: { k: 'a', p: '/rooms' }, trail: [{ k: 'a', p: '/rooms' }, { k: 'b', p: '/rooms/r1' }] } }
+    win.dispatchEvent(new CustomEvent(HISTORY_STEPS_EVENT, { detail: { stepping: false } }))
+    await settle(() => last()?.canGoBack === true && messages.filter(m => m.type === 'nav').length > 2)
+    expect(last()).toMatchObject({ canGoBack: true, home: false })
+  } finally {
+    for (const k of Object.keys(extra)) Reflect.deleteProperty(win, k)
+    resetAppNavForTest()
+  }
+})
+
 test("Settings' switch off for this phone is one person's: not registered again for them by itself, another person on the phone is, and signing out forgets it", async () => {
   const server = pushServer({ enabled: true, native: { available: true, deviceId: 'device-1', gateway: 'push.example.test' } })
   const pushFetch = globalThis.fetch
@@ -545,4 +614,56 @@ test('a registration answered after the session changed does not hand that devic
     await settle()
     expect(messages.find(m => m.type === 'push-registered' && m.deviceId === 'device-late')).toBeUndefined()
   } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
+})
+
+test('the invite to the phone\'s share sheet (QA TC-271): the app\'s own (share-text-v1), else navigator.share, else none (the page points at its copy button); never on a computer', async () => {
+  const w = win as unknown as { matchMedia?: (q: string) => { matches: boolean } }
+  const media = w.matchMedia
+  const nav = globalThis.navigator as unknown as { share?: unknown }
+  const had = Object.getOwnPropertyDescriptor(nav, 'share')
+  const setShare = (fn: ((d: unknown) => Promise<void>) | undefined) => Object.defineProperty(nav, 'share', { configurable: true, writable: true, value: fn })
+  w.matchMedia = (q: string) => ({ matches: q === SHARE_PHONE_QUERY })
+  try {
+    // today's Android app: no capability, no navigator.share: no sheet (the page copies)
+    setShare(undefined)
+    expect(appSharesText()).toBe(false)
+    expect(canShareText()).toBe(false)
+    expect(await shareText('초대해요')).toBe('failed')
+    // the iPhone app's WebView and phone browsers: navigator.share; closed is no failure, a refusal is
+    const shared: unknown[] = []
+    setShare(async (d) => { shared.push(d) })
+    expect(canShareText()).toBe(true)
+    expect(await shareText('초대해요')).toBe('shared')
+    expect(shared).toEqual([{ text: '초대해요' }])
+    setShare(async () => { throw Object.assign(new Error('closed'), { name: 'AbortError' }) })
+    expect(await shareText('초대해요')).toBe('cancelled')
+    setShare(async () => { throw Object.assign(new Error('no'), { name: 'NotAllowedError' }) })
+    expect(await shareText('초대해요')).toBe('failed')
+    // an app with share-text-v1: its own sheet first, through the bridge
+    setShare(undefined)
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, SHARE_TEXT_CAPABILITY] }
+    expect(appSharesText()).toBe(true)
+    expect(canShareText()).toBe(true)
+    expect(await shareText('초대해요\nhttps://team.example/join#t=x')).toBe('shared')
+    expect(messages.filter((m) => m.type === 'share-text')).toEqual([expect.objectContaining({ type: 'share-text', text: '초대해요\nhttps://team.example/join#t=x' })])
+    // the app could not: no second sheet after its answer (the press is spent, WebKit would refuse it): the page points
+    // at its copy button
+    handler = (m) => { if (m.type === 'share-text') reply(m, { ok: false, error: 'mobile_operation_failed' }); else reply(m) }
+    expect(await shareText('초대해요')).toBe('failed')
+    let browser = 0
+    setShare(async () => { browser++ })
+    expect(await shareText('초대해요')).toBe('failed')
+    expect(browser).toBe(0)
+    // too long for the bridge: never sent
+    const before = messages.length
+    setShare(undefined)
+    expect(await shareText('x'.repeat(MAX_SHARE_TEXT + 1))).toBe('failed')
+    expect(messages.length).toBe(before)
+    // a computer keeps its copy button
+    w.matchMedia = () => ({ matches: false })
+    expect(canShareText()).toBe(false)
+  } finally {
+    w.matchMedia = media
+    if (had) Object.defineProperty(nav, 'share', had); else Reflect.deleteProperty(nav, 'share')
+  }
 })

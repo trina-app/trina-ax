@@ -41,6 +41,9 @@ export const OVERLAY_DEPTH = 'mycelOverlayDepth'
 /** The history-state field of a page's entry that had an overlay over it, and of the overlays' entries over it: the
  * same token for all of them (a replace made while an overlay was open reaches the page's entry by it). */
 export const OVERLAY_PAGE = 'mycelPage'
+/** The window event sent when an overlay's entry goes on the history (it opened, or its owed entry was pushed): Back
+ * now closes it (the phone app hears it, lib/appNav.ts). Its going brings a popstate of its own. */
+export const OVERLAY_ENTRY_EVENT = 'mycel:overlay-entry'
 
 type State = Record<string, unknown> | null
 type Pos = readonly [idx: number, depth: number]
@@ -238,6 +241,11 @@ function pushEntry(h: Held) {
     h.entry = 'gone'
   }
   here = posOf(state())
+  if (h.entry === 'on') {
+    try {
+      window.dispatchEvent(new Event(OVERLAY_ENTRY_EVENT))
+    } catch { /* a test's window without events */ }
+  }
 }
 
 /** The overlays above where the history landed close, the top one first. */

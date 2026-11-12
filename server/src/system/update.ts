@@ -358,7 +358,7 @@ export class UpdateManager {
   async rollBack(): Promise<{ from: string; to: string }> {
     const prev = this.status().previous
     if (!prev) throw new UpdateError('there is no previous version to go back to')
-    if (!this.canRead(prev)) throw new UpdateError(`version ${prev} cannot read the database ${this.o.version} has updated; going back to it needs the backup made before the update (docs/BACKUP-RESTORE.md)`)
+    if (!this.canRead(prev)) throw new UpdateError(`version ${prev} cannot read the database ${this.o.version} has updated; going back to it needs the backup made before the update (docs/BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux)`)
     return this.switchTo(prev)
   }
 

@@ -5,12 +5,13 @@ import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
 import { getLocales } from 'expo-localization'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentRef, type ComponentType, type RefAttributes, type ReactNode } from 'react'
-import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
+import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
-import { FileTransfers, MobileReceiver, StuckLoad, stillStuck } from './src/bridge'
+import { FileTransfers, MobileReceiver, StuckLoad, stillStuck, type PageNav } from './src/bridge'
+import { backAction, backGestures, openScript, START_TAB_SCRIPT } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
-import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
+import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
 import { devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
@@ -407,6 +408,9 @@ type Failure = 'offline' | 'unreachable'
 function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
+  // where Back goes in the document on screen, as the page said (nav-v1, src/nav.ts); null until it has (an older
+  // server, a page loading): the WebView's own history then, as before
+  const [pageNav, setPageNav] = useState<PageNav | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
   // the team answered GET /api/me for a signed-in person (src/session-check.ts); until then the address stays under the page
   const [signedIn, setSignedIn] = useState(false), sessionCheck = useRef(0)
@@ -428,7 +432,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
       token: () => devicePushToken(t.channelName),
       async registered({ deviceId, removeKey }) {
@@ -448,6 +452,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       web.current?.injectJavaScript(insetScript(insetsRef.current))
       setPad(p => padding(p, 'appearance'))
       if (!padRef.current.selfPadded) void rememberSelfPadded(address.origin, true)
+    }, nav => setPageNav(p => p?.canGoBack === nav.canGoBack && p.home === nav.home ? p : nav), async text => {
+      // share-text-v1: the phone's own share sheet (the team invite message to KakaoTalk, Slack, a text message)
+      await Share.share({ message: text })
     })
     void receiver.current.disable()
   }
@@ -456,16 +463,24 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   useEffect(() => {
     // under the first-run box ("다른 팀에 연결"), the box answers Android back
     if (hidden) return
-    const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!canBack) return false; web.current?.goBack(); return true })
+    // back in the page; at the root of another tab, the start tab; else the system's (out of the app). src/nav.ts
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      const action = backAction(pageNav, canBack)
+      if (action === 'exit') return false
+      if (action === 'back') web.current?.goBack()
+      else web.current?.injectJavaScript(START_TAB_SCRIPT)
+      return true
+    })
     return () => back.remove()
-  }, [canBack, hidden])
+  }, [canBack, hidden, pageNav])
   useEffect(() => {
-    // A tapped notification: same-origin path only (checked in src/push.ts), opened in this team's page.
+    // A tapped notification: same-origin path only (checked in src/push.ts), opened in this team's page: by its router
+    // when it takes it (nav-v1: no reload, Back returns to where the person was), else a load of the path
     if (!opened) return
     const target = address.origin + opened.path
     if (!sameTeam(address.origin, target)) return
     setFailed(null)
-    if (ready.current) web.current?.injectJavaScript(`window.location.assign(${JSON.stringify(opened.path)});true;`)
+    if (ready.current) web.current?.injectJavaScript(openScript(opened.path))
     else setSource(target)
   }, [opened, address.origin])
   // A page that pads itself draws under the status bar and the home indicator / navigation bar (web/src/index.css) and
@@ -518,7 +533,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       void (googleOAuthUrl(url) ? Linking.openURL(url) : WebBrowser.openBrowserAsync(url)).catch(() => Alert.alert(product.name, t.browserFailed))
     } catch { /* opaque/local schemes never leave the WebView */ }
   }
-  const fail = (kind: Failure) => { ready.current = false; stuck.current.cancel(); void clear(); setFailed(kind) }
+  const fail = (kind: Failure) => { ready.current = false; stuck.current.cancel(); void clear(); setPageNav(null); setFailed(kind) }
   /** The page has arrived: install the bridge; a page that does not confirm it pads itself gets the app's padding. */
   function settle(url: string) {
     void loaded(url).then(installed => {
@@ -560,7 +575,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false}
       injectedJavaScriptForMainFrameOnly injectedJavaScriptBeforeContentLoadedForMainFrameOnly
       javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows
-      allowsBackForwardNavigationGestures pullToRefreshEnabled allowsInlineMediaPlayback
+      // iOS: the edge swipe only while Back has somewhere to go in the page (nav-v1, src/nav.ts). No pull-to-refresh: the
+      // page is live, and a pull at the top of a room (or of any list) reloaded the whole app
+      allowsBackForwardNavigationGestures={backGestures(pageNav)} allowsInlineMediaPlayback
       // iOS: no ^ v ✓ bar above the keyboard; the page's message box sits right on it (the page has no form to step through)
       hideKeyboardAccessoryView
       // Camera (photo attachment) and microphone (voice input) for the team's own page only; iOS asks once per app.
@@ -578,6 +595,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
         currentUrl.current = event.nativeEvent.url; stuck.current.cancel()
         if (Platform.OS === 'android' && !event.nativeEvent.loading) return
         loadFailed.current = false; ready.current = false; void clear()
+        // a new document: it says where Back goes once it has its bridge
+        setPageNav(null)
         // the old page stays on screen until the new one arrives: its frame stays too (no padding change here)
         setPad(p => padding(p, 'load-start'))
         // Android: a same-document navigation reported as loading gets no load end; the bridge must not stay off
