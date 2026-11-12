@@ -216,7 +216,7 @@ test('nothing is wider than the screen on any Admin page, in Spanish too', async
   for (const locale of ['en', 'es'] as const) {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
-    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'slack', 'usage', 'audit', 'settings', 'system']) {
+    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'connectors/slack', 'ai-apps', 'plugins', 'usage', 'audit', 'settings', 'system']) {
       await page.goto(id ? `/admin/${id}` : '/admin')
       await expect(page.getByTestId('admin-content')).toBeVisible()
       await page.waitForTimeout(300)
