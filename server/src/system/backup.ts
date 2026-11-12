@@ -119,7 +119,7 @@ d.close()`)
   const [err, exit] = await Promise.all([new Response(p.stderr).text(), p.exited])
   if (exit !== 0) {
     await clear()
-    throw new BackupError(`database copy failed: ${err.trim().split('\n').slice(-1)[0] ?? exit}`)
+    throw new BackupError(`database copy failed: ${err.trim().split('\n').slice(-1)[0] || `exited ${exit}`}`)
   }
   try {
     await fsp.chmod(tmp, 0o600)
