@@ -21,8 +21,9 @@ import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
 import { requestableName } from '../../lib/googleApps'
 
-/** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings) */
-const workKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+/** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
+ * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림") */
+const workKeys = ['chatAnswers', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A conversation notice from a server that does not say where and why (RoomNoticeRow does), or one whose message I may
  * no longer read: who wrote it when the server still names them, no text. */
@@ -244,7 +245,7 @@ export function Notifications() {
     {preferences && <PrefSection title={t('notifications.section.work')} desc={t('notifications.preferenceHint')} testId="notifications-work">
       {/* a server from before a preference existed leaves it out: no row for it */}
       {workKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <PrefRow key={key} id={`np-${key}`} title={t(`notifications.${key}`)} desc={t(`notifications.${key}Desc`)}
-        control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key]} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
+        control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key] === true} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
     </PrefSection>}
     {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
         the server's choices could not be read) and push to this device (the desktop app: its own computer notifications) */}

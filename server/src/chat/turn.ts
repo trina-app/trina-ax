@@ -49,6 +49,7 @@ import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf } from '../notifications/service'
+import { noteChatAnswer } from '../notifications/chat-answers'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
@@ -3339,6 +3340,8 @@ export class TurnExec {
       if (this.room) { this.rt.rooms?.waiting?.({ roomId: this.room.roomId, userId: this.spec.userId, opened }); return }
       if (this.finishing) return
       const notify = opened && this.tells ? { notify: 'card' as const } : {}
+      // a card every window shows: the person who asked may get a push (notifications/chat-answers.ts), once per turn
+      if (opened && this.tells && this.spec.clientKind && !window) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: 'waiting' })
       if (!window) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', notify)
       else if (opened && this.tells) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', { ...notify, window })
     } catch (e) { this.rt.log.warn('session marker event failed', { err: e, turn: this.id }) }
@@ -3673,6 +3676,11 @@ export class TurnExec {
     // a question asked from Slack got its answer there: the chat is not left unseen (no dot, nothing in the count for
     // every Slack thread); a card it raised still shows its "?" (Chat.waiting) until it is answered in the app
     if (this.spec.clientKind === 'slack') { try { this.rt.store.markSeen(this.spec.chatId) } catch (e) { this.rt.log.warn('marking a Slack chat seen failed', { err: e, turn: this.id }) } }
+    // a push for the person who asked (notifications/chat-answers.ts), before the chat's update: a window that has the
+    // chat on screen then marks the answer seen after the notice, and nothing is pushed. Not an answer they stopped or
+    // a server stop cut off, a scheduled run or a question from Slack (this.tells), or a turn the server started by
+    // itself (no clientKind: skill drafts, merges, file ranking)
+    if (!this.room && status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && this.spec.clientKind) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: status === 'error' ? 'failed' : 'done' })
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
   }
 }
