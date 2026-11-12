@@ -206,17 +206,22 @@ test('system: the relay connection asks for the team name; the official relay is
 test('system: without the relay the Connection card names the public address the server has, not "office network only"', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
+  // the office network only (QA TC-485): no red "꺼짐" (nothing is off for the team) and the team address people type,
+  // as Settings › 앱 shows it (GET /api/me team.address)
+  expect((await page.request.post('/__test/team-address', { data: { address: 'http://192.168.1.2:19300' } })).ok()).toBeTruthy()
   await signIn(page)
   expect((await page.request.post('/__test/connection', { data: { mode: 'direct-only', address: null, state: 'disabled', detail: null, teamName: null, publicAddress: null } })).ok()).toBeTruthy()
   await page.goto('/admin/system')
   const line = page.getByTestId('connection-mode-name').locator('..')
   await expect(page.getByTestId('connection-mode-name')).toHaveText('사무실 안 직접 연결만')
-  await expect(line).toContainText('꺼짐')
+  await expect(page.getByTestId('connection-address')).toHaveText('http://192.168.1.2:19300')
+  await expect(line).not.toContainText('꺼짐')
   // a public address set up (tunnel.host / --public-host, or the server's own domain): the team connects from outside
   expect((await page.request.post('/__test/connection', { data: { publicAddress: 'team.example.com' } })).ok()).toBeTruthy()
   await page.reload()
   await expect(page.getByTestId('connection-mode-name')).toHaveText('공개 주소로 직접 연결')
   await expect(page.getByText('https://team.example.com')).toBeVisible()
+  await expect(page.getByTestId('connection-address')).toHaveCount(0)
   await expect(line).not.toContainText('꺼짐')
   await page.getByRole('button', { name: '연결 방식 바꾸기' }).click()
   await expect(page.getByTestId('connection-mode').locator('option')).toHaveText(['직접 운영하는 중계 서버', '공개 주소로 직접 연결'])
