@@ -22,7 +22,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
+import { ExternalLink, Loader2, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -357,12 +357,38 @@ export function TeamIconRow() {
 
   // what the sidebar header shows (components/Sidebar.tsx): the logo, else the product's mark
   const logoSrc = version ? teamIconUrl(version) : '/favicon.svg'
+  const spinner = <Loader2 size={16} className="shrink-0 animate-spin text-muted" aria-hidden />
+  const fileInput = (
+    <input
+      ref={input}
+      type="file"
+      accept={TEAM_ICON_TYPES.join(',')}
+      hidden
+      data-testid="team-icon-input"
+      onChange={(e) => {
+        const file = e.target.files?.[0]
+        e.target.value = ''
+        if (file) void upload(file)
+      }}
+    />
+  )
   return (
     <div data-testid="team-icon" data-version={version ?? ''}>
       <SettingRow heading title={t('teamIcon.title')}
         desc={<>{t(phone ? 'teamIcon.descPhone' : 'teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
         more={t('teamIcon.hint')}
-        control={
+        control={phone ? (
+          // a phone (QA TC-382): list rows across the screen, as in Settings, not small buttons beside the logo: the
+          // upload icon, the words and the logo now on the right; "back to the default" a row under it
+          <>
+            <ul className="-mx-4 flex-1 border-y border-line" data-testid="team-icon-rows">
+              <PhoneListRow icon={<Upload size={16} />} title={version ? t('teamIcon.replace') : t('teamIcon.upload')} onClick={() => input.current?.click()} disabled={busy !== null} testId="team-icon-upload"
+                end={busy === 'upload' ? spinner : <img src={logoSrc} alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg border border-line object-cover" />} />
+              {version && <PhoneListRow icon={<RotateCcw size={16} />} title={t('teamIcon.remove')} onClick={() => void remove()} disabled={busy !== null} testId="team-icon-remove" end={busy === 'remove' ? spinner : undefined} />}
+            </ul>
+            {fileInput}
+          </>
+        ) : (
           <span className="inline-flex flex-wrap items-center gap-2">
             <img src={logoSrc} alt="" width={36} height={36} className="h-9 w-9 rounded-lg border border-line object-cover" />
             <Button size="sm" busy={busy === 'upload'} disabled={busy !== null} onClick={() => input.current?.click()} data-testid="team-icon-upload">
@@ -373,20 +399,9 @@ export function TeamIconRow() {
                 <RotateCcw size={14} aria-hidden /> {t('teamIcon.remove')}
               </Button>
             )}
-            <input
-              ref={input}
-              type="file"
-              accept={TEAM_ICON_TYPES.join(',')}
-              hidden
-              data-testid="team-icon-input"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                e.target.value = ''
-                if (file) void upload(file)
-              }}
-            />
+            {fileInput}
           </span>
-        }
+        )}
         below={
           <>
             {error && (
