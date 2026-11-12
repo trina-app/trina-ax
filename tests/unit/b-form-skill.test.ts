@@ -162,6 +162,11 @@ describe('the draft from a form (no server)', () => {
     // falling back: the person is told why and how the real form gets filled
     expect(xlsx).toContain('여기서는 양식 파일 자체를 채울 수 없어서 같은 항목으로 새 파일을 만들었다고')
     expect(xlsx).toContain('관리자에게 개발 환경을 켜 달라고')
+    expect(xlsx).not.toContain('플러그인')
+    // one save: make_file once, no template, straight into the folder; a save the person allowed is never repeated
+    expect(xlsx).toContain('make_file은 한 번만 불러요')
+    expect(xlsx).toContain('`template`은 주지 않고')
+    expect(xlsx).toContain('팀원이 허락한 저장(대화방에서는 저장마다 허락을 물어요)을 다시 하지 않고')
     expect(xlsx).not.toContain('edit_hwp')
     const docx = formSteps(material({ path: 'shared/양식/주간보고_양식.docx', type: 'docx', like: '주간보고 양식' }))
     expect(docx).toContain('python-docx')
@@ -173,6 +178,11 @@ describe('the draft from a form (no server)', () => {
     expect(hwp).not.toContain('box_shell에서')
     expect(hwp).toContain('`계약서_<입력값>_<오늘 날짜>.hwpx`')
     expect(hwp).toContain('새 파일(.hwpx, 한글 쓰기가 꺼져 있으면 .docx)')
+    // a Hangul form is filled once the HWP plugin is on, not the dev environment (QA 2026-11-13)
+    expect(hwp).toContain('관리자에게 관리 › 플러그인에서 한글 문서 미리보기(HWP) 플러그인을 켜 달라고 하면 진짜 양식이 채워진다고')
+    expect(hwp).not.toContain('개발 환경')
+    expect(formSteps(material({ path: 'shared/양식/a.hwpx', type: 'hwpx', like: 'a' }))).toContain('한글 문서 미리보기(HWP) 플러그인')
+    expect(docx).toContain('관리자에게 개발 환경을 켜 달라고')
     expect(formSteps(material({ path: 'shared/양식/a.hwp', type: 'hwp', like: 'a', locale: 'en' }))).toContain('(a .hwpx, or a .docx when Hangul writing is off)')
     expect(formSteps(material({ locale: 'en' }))).toContain('the form itself cannot be filled here, so you made a new file with the same fields')
     // every language has the same seven steps
@@ -180,6 +190,10 @@ describe('the draft from a form (no server)', () => {
       const s = formSteps(material({ locale }))
       expect(s.split('\n'), locale).toHaveLength(7)
       for (const x of ['`shared/양식/`', '견적서 양식', 'openpyxl', 'make_file', 'move_files', 'users/<id>/']) expect(s, `${locale} ${x}`).toContain(x)
+      const h = formSteps(material({ path: 'shared/양식/a.hwp', type: 'hwp', like: 'a', locale }))
+      expect(h, locale).toContain('(HWP)')
+      expect(s, locale).not.toContain('(HWP)')
+      for (const x of [s, h]) expect(x, locale).toContain('`template`')
     }
     expect(formSteps(material({ locale: 'en' }))).toContain("the newest file in `shared/양식/` whose name has '견적서 양식'")
   })

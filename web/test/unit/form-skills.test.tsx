@@ -22,7 +22,10 @@ const DRAFTS: Record<string, string> = { [QUOTE]: '01900000-0000-7000-8000-00000
 const cardOf = (p: string) => {
   const like = p.includes('견적') ? '견적서 양식' : '주간보고 양식'
   return { title: p.includes('견적') ? '견적서 만들기' : '주간보고 만들기', description: '팀 양식을 채워 새 문서를 만들어요', recurring: false,
-    inputs: [{ name: 'customer', label: '고객사', required: true }, { name: 'items', label: '품목' }], files: [{ path: 'shared/양식', latest: true, like }] }
+    inputs: p.includes('견적') ? [{ name: 'customer', label: '고객사', required: true }, { name: 'items', label: '품목' }]
+      // six blanks of a weekly report: the server folded all but three (QA 2026-11-13: the card listed all six)
+      : [['period', '기간'], ['done', '한 일'], ['next', '할 일'], ['issues', '이슈'], ['team', '부서'], ['writer', '작성자']].map(([name, label], i) => ({ name, label, ...(i >= 3 ? { advanced: true } : {}) })),
+    files: [{ path: 'shared/양식', latest: true, like }] }
 }
 
 let calls: { key: string; body: any }[] = []
@@ -96,6 +99,8 @@ describe('forms → team skills on the result screen', () => {
       expect(cards[0]!.textContent).toContain('견적서 만들기')
       expect(cards[0]!.textContent).toContain('팀원에게 물어볼 것:고객사 · 품목')
       expect(cards[0]!.textContent).toContain('쓰는 자료:양식 폴더의 가장 최근 견적서 양식')
+      // only the three on the form: the folded ones stay off the card
+      expect(cards[1]!.querySelector('[data-testid="skill-share-asks"]')!.textContent).toBe('팀원에게 물어볼 것:기간 · 한 일 · 할 일')
       // share the first: one line in its place
       await m.click(cards[0]!.querySelector('[data-testid="skill-share-share"]')!)
       await m.until(() => m.find('form-skills-shared'), 'the shared line')
