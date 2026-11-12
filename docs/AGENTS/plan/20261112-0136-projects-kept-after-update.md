@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:36
 - Branch: `fix/projects-kept-after-update`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/schedules.ts`, tests). Why: scheduled tasks and project access are core
   (see docs/REPOSITORY-RULES.md)
 - Version impact: patch (a scheduled task that could not work any more is paused and its owner told; no API, data or
@@ -75,4 +75,7 @@ the schedule suites (`tests/unit/*schedule*`), `tests/security/project-members-o
 
 ## Result
 
-(filled in at the end)
+Built as planned: `templateProjectGone()` in `chat/schedules.ts`, used by `runDue` and `runNow`; the upgrade test
+`tests/unit/b-projects-after-update.test.ts` (fails on dev without the change: the template task on the project ran);
+the DECISIONS entry "Projects made on 0.4.0: what the owner and admins keep after the update"; the changelog fragment.
+No migration and no new words. The two open questions are in the PR.
