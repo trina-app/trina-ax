@@ -18,7 +18,8 @@ const ADMIN: [MessageKey, MessageKey[]][] = [
 ]
 const SETTINGS: [string, MessageKey[]][] = [
   ['account', ['settings.profile', 'settings.security', 'settings.usage', 'settings.memory', 'settings.allowances']],
-  ['connections', ['settings.providers', 'integrations.title', 'aiApps.title']],
+  // Connectors is not here: it is its own item of the main sidebar
+  ['connections', ['settings.providers', 'aiApps.title']],
   ['app', ['notifications.title', 'settings.apps', 'settings.about']],
 ]
 
@@ -41,7 +42,7 @@ test('Admin: four groups, Providers first in Connections, no AI group and no AI 
   await expect(menu.getByRole('link', { name: 'AI providers' })).toHaveCount(0)
   await expect(menu.getByRole('group')).toHaveCount(ADMIN.length)
   // the shell says whose it is: the menu's title is the team's, and one line above every page says it applies to everyone
-  // in the team; the page titles are the same nouns as Settings' (Connected apps is "Connected apps" in both)
+  // in the team
   const team = 'Acme'
   await expect(page.getByTestId('admin-title')).toHaveText(t['admin.teamTitle'].replace('{team}', team))
   await expect(page.getByTestId('admin-team-logo')).toBeAttached()
@@ -107,7 +108,7 @@ test('Settings: named groups Account, Connections, App (Providers first in Conne
     await page.goto(path)
     await expect(page.getByTestId('settings-content').getByTestId('page-scope')).toHaveText(t['scope.you'])
   }
-  // Connectors is its own page in the sidebar: its section and the older addresses lead there
+  // Connectors is its own page in the sidebar: the older addresses lead there
   for (const path of ['/settings/integrations', '/settings/connectors']) {
     await page.goto(path)
     await expect(page).toHaveURL(/\/connectors$/)

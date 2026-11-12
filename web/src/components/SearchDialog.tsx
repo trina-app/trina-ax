@@ -19,6 +19,9 @@
 // finds "견적"; shared/src/search-text.ts nameMatch). Rooms and DMs first (a DM stands for its person), then people
 // with no DM: one of those opens the new-DM list with them ticked (components/rooms/PeoplePicker.tsx), so nothing is
 // made until they press its button. Both lists load in the background when no screen has read them yet.
+// A phone has one more type, 대화 (QA TC-256): my rooms, the team's people and the rooms' messages, nothing else. The 대화
+// tab's 🔍 opens search on it (store/ui.ts searchScope; components/PhoneTopBar.tsx); with no text it lists my rooms. A
+// computer's types stay as they were.
 // Files sent in rooms (전체 and 파일 tabs, after the team files' names, 4 file rows in all on 전체): searched on the server
 // by name (GET /api/room-files), only those of messages I see; a row is the name, then who sent it, where and when;
 // it opens its message in the room, as a message found does.
@@ -34,7 +37,7 @@ import { nameMatch, searchWords } from '@mycel/shared'
 import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type Room, type RoomFileSearchHit, type RoomSearchHit, type RoomSearchRoom, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { plainLine } from '../lib/rooms'
+import { pinnedFirst, plainLine, shownInLists } from '../lib/rooms'
 import { platform } from '../lib/pwa'
 import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
@@ -59,6 +62,7 @@ import { useRooms } from '../store/rooms'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
+  const scope = useUi((s) => s.searchScope)
   const setOpen = useUi((s) => s.setSearchOpen)
   // phones: Back closes search and stays on the page; a result opened takes its history entry (lib/backCloses.ts)
   useOverlayEntry(open, () => setOpen(false))
@@ -66,7 +70,7 @@ export default function SearchDialog() {
   const [dmWith, setDmWith] = useState<string | null>(null)
   return (
     <>
-      {open && <SearchBox onClose={() => setOpen(false)} onPerson={setDmWith} />}
+      {open && <SearchBox scope={scope} onClose={() => setOpen(false)} onPerson={setDmWith} />}
       <PeoplePicker open={!!dmWith} onClose={() => setDmWith(null)} mode={{ kind: 'new', preselect: dmWith ? [dmWith] : [] }} />
     </>
   )
@@ -77,10 +81,15 @@ const AskAi = () => <AiMark place="nav" />
 
 export const SEARCH_TABS = ['all', 'chats', 'projects', 'files', 'skills', 'scheduled', 'mcp'] as const
 export type SearchTab = (typeof SEARCH_TABS)[number]
-const TAB_LABEL: Record<SearchTab, MessageKey> = {
-  all: 'search.tab.all', chats: 'search.tab.chats', projects: 'search.tab.projects', files: 'search.tab.files',
+/** a phone's types: 대화 too (rooms, people, messages), right after 전체 */
+type SearchType = SearchTab | 'rooms'
+export const PHONE_SEARCH_TYPES: readonly SearchType[] = ['all', 'rooms', ...SEARCH_TABS.slice(1)]
+const TAB_LABEL: Record<SearchType, MessageKey> = {
+  all: 'search.tab.all', rooms: 'search.tab.rooms', chats: 'search.tab.chats', projects: 'search.tab.projects', files: 'search.tab.files',
   skills: 'search.tab.skills', scheduled: 'search.tab.scheduled', mcp: 'search.tab.mcp',
 }
+/** the rooms and people found on the 대화 type, and my rooms listed there before anything is typed */
+const ROOMS_FEW = 10
 
 type Kind = 'room' | 'person' | 'chat' | 'message' | 'project' | 'file' | 'skill' | 'schedule' | 'mcp' | 'action'
 interface Row {
@@ -219,7 +228,7 @@ const ok = <T,>(v: T | null | 'error'): T | null => (v === 'error' ? null : v)
  *  and never shown, so it is not searched. */
 const scheduleText = (s: Schedule) => (s.templateId ? '' : s.prompt)
 
-function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (userId: string) => void }) {
+function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClose: () => void; onPerson: (userId: string) => void }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
@@ -229,7 +238,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [q, setQ] = useState('')
-  const [tab, setTabState] = useState<SearchTab>('all')
+  const [tab, setTabState] = useState<SearchType>(scope ?? 'all')
   // the highlighted row: by its key once arrows or the mouse chose one (results arriving above it do not move it), else
   // the row at `index` (the first; after 메시지 더 보기, where that row was, so the keys go on to the first new message)
   const [sel, setSel] = useState<{ key: string | null; index: number }>({ key: null, index: 0 })
@@ -248,7 +257,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
   // files sent in rooms whose name holds the text, and whether that search failed
   const [roomFiles, setRoomFiles] = useState<{ q: string; items: RoomFileSearchHit[]; rooms: Map<string, RoomSearchRoom>; failed: boolean } | null>(null)
   // another text or type: back to the first row
-  const setTab = (x: SearchTab | ((x: SearchTab) => SearchTab)) => {
+  const setTab = (x: SearchType | ((x: SearchType) => SearchType)) => {
     setTabState(x)
     setSel({ key: null, index: 0 })
   }
@@ -345,8 +354,8 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, wantNames])
 
-  // room messages, on the server, only on the 전체 tab
-  const wantMessages = !!query && tab === 'all'
+  // room messages, on the server, only on the 전체 and 대화 tabs
+  const wantMessages = !!query && (tab === 'all' || tab === 'rooms')
   useEffect(() => {
     setHitsShown(MESSAGES_FEW)
     setHitsMore(false)
@@ -463,7 +472,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     const allMcp = ok(mcp)?.items ?? []
     const out: Section[] = []
     const push = (id: string, label: string, rows: Row[]) => rows.length && out.push({ id, label, rows })
-    const typeLabel = (x: SearchTab) => t(TAB_LABEL[x])
+    const typeLabel = (x: SearchType) => t(TAB_LABEL[x])
 
     if (!query) {
       if (tab === 'all') {
@@ -491,6 +500,13 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
       else if (tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.map((s) => scheduleRow(s)))
       else if (tab === 'mcp') push('mcp', typeLabel('mcp'), allMcp.map((i) => mcpRow(i)))
       else if (tab === 'files') push('files', typeLabel('files'), actions.filter((a) => a.key === 'act:files'))
+      // 대화: my rooms as the 대화 list has them (pinned first), to jump to one
+      else if (tab === 'rooms') push('rooms', typeLabel('rooms'), pinnedFirst(shownInLists(myRooms)).slice(0, ROOMS_FEW).map((r) => roomRow(r, roomTitle(r))))
+      return out
+    }
+    if (tab === 'rooms') {
+      push('people', t('search.roomsPeople'), roomsAndPeople(myRooms, people ?? [], meId, query, roomTitle, ROOMS_FEW).map((x) => ('room' in x ? roomRow(x.room, x.name) : personRow(x.person))))
+      if (hitsNow) push('messages', t('search.messages'), [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
       return out
     }
 
@@ -576,8 +592,9 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     if (!row || row.scrollWidth <= row.clientWidth) return
     row.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [tab])
-  const moveTab = (d: 1 | -1) => setTab((x) => SEARCH_TABS[(SEARCH_TABS.indexOf(x) + d + SEARCH_TABS.length) % SEARCH_TABS.length]!)
-  const loading = (tab === 'all' && !!query && ((foundNow === null && !errorNow) || (wantMessages && hitsNow === null))) || (tab === 'chats' && (query ? foundNow === null && !errorNow : recent === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && (namesNow === null || roomFilesNow === null))
+  const types: readonly SearchType[] = phone ? PHONE_SEARCH_TYPES : SEARCH_TABS
+  const moveTab = (d: 1 | -1) => setTab((x) => types[(Math.max(0, types.indexOf(x)) + d + types.length) % types.length]!)
+  const loading = (tab === 'all' && !!query && ((foundNow === null && !errorNow) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow : recent === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && (namesNow === null || roomFilesNow === null))
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')
 
   // the first match of every word, marked
@@ -618,7 +635,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
             aria-activedescendant={active ? optId(active) : undefined}
             aria-label={t('search.title')}
             className="h-10 min-w-0 flex-1 bg-transparent text-lg outline-none placeholder:text-faint"
-            placeholder={t('search.placeholder')}
+            placeholder={tab === 'rooms' ? t('search.placeholderRooms') : t('search.placeholder')}
             value={q}
             onChange={(e) => {
               setQ(e.target.value)
@@ -672,7 +689,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
                 buttonClassName="hidden!"
                 openRequest={typeAsk}
                 focusBack={() => typeButton.current?.focus()}
-                items={SEARCH_TABS.map((x) => ({ label: t(TAB_LABEL[x]), checked: tab === x, onSelect: () => setTab(x), testId: `search-type-${x}` }))}
+                items={types.map((x) => ({ label: t(TAB_LABEL[x]), checked: tab === x, onSelect: () => setTab(x), testId: `search-type-${x}` }))}
               />
             </div>
           ) : (

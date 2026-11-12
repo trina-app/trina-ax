@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { initPwa } from './lib/pwa'
 import { followVisualViewport } from './lib/viewport'
+import { holdPageZoom } from './lib/pageZoom'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
 import { applyTextSize, storedTextSize } from './lib/textSize'
 import { useLocaleStore, t } from './i18n'
@@ -28,6 +29,8 @@ useSession.subscribe(state => {
 })
 initPwa()
 followVisualViewport()
+// the phone app and the installed app: no zoom of the whole page (a picture viewer zooms on its own)
+holdPageZoom()
 // a file dropped where nothing takes it is not opened in place of the app
 guardFileDrops(window)
 

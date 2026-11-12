@@ -83,7 +83,7 @@ export const slackRoutes: RouteModule = {
       // (finishSignIn answers signin_needed only for a state and a code of the right shape)
       if (out.result === 'signin_needed' && SIGNIN_CODE.test(code)) return c.redirect(`/login?next=${encodeURIComponent(resumePath(state, code))}`, 303)
       const r = encodeURIComponent(out.result === 'signin_needed' ? 'signin_failed' : out.result)
-      return c.redirect(out.client === 'web' ? `/settings/connectors?slack=${r}` : `/slack/done?slack=${r}`, 303)
+      return c.redirect(out.client === 'web' ? `/connectors?slack=${r}` : `/slack/done?slack=${r}`, 303)
     })
     kit.handle(API.removeSlack, ({ c, auth }) => safe(c.get('locale'), () => slack().remove(auth.user.id)))
     kit.handle(API.mySlack, ({ auth }) => slack().mine(auth.user.id))

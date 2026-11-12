@@ -28,8 +28,11 @@
 //   from the right while it shows. Keys typed in the column are its own (← → stay in its box).
 // - On a phone that column is a sheet over the viewer (ViewerColumn.tsx ViewerSheet): the bar's 💬 (with the reply
 //   count) opens the file's thread in it, ✦ the side chat with the file quoted. Back, Esc, its ✕, a drag down or a tap
-//   on the file beside it close the sheet first, back to the file; the next Back closes the viewer. The bar there leaves
-//   out the sender's picture (the line under the name says who), so the name keeps some room beside ‹ › and the buttons.
+//   on the file beside it close the sheet first, back to the file; the next Back closes the viewer.
+// - A phone's bars (below 768 px, QA TC-257): on top only who sent it, the name (two lines where it is long, broken
+//   anywhere) and the line under it; the actions in a bar at the bottom with 44 px targets: "2 / 3", download, ✦, 💬 and
+//   ✕ (복사 and the new tab are a computer's). No zoom buttons and, on a touch screen, no arrows where a swipe steps: a
+//   picture, and a document unless it is a frame that keeps its touches (HTML, SVG), whose ‹ › stay beside "2 / 3".
 import clsx from 'clsx'
 import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, MessageSquare, Minimize2, Minus, PanelRightClose, PanelRightOpen, Plus, X } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
@@ -40,6 +43,7 @@ import { fileSeed } from '../lib/sideChatAsk'
 import { openFilePreview } from '../lib/sidePanel'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
 import { canCopyImage, copyImage, isCopyKey, type CopyFailure, type PickPicture } from '../lib/copyImage'
+import { previewKind } from '../lib/preview'
 import { clientKind } from '../lib/desktop'
 import { formatDateTime } from '../lib/format'
 import { aiName } from '../lib/tabs'
@@ -620,6 +624,81 @@ function Viewer({ open }: { open: ViewerOpen }) {
   } : null
   const stepLabel = (e: ViewerEntry | null, dir: 'prev' | 'next') => t(e?.item.kind === 'file' ? (dir === 'prev' ? 'viewer.prevFile' : 'viewer.nextFile') : dir === 'prev' ? 'viewer.prev' : 'viewer.next')
   const barsOn = docMode || bars
+  // a document drawn in a frame (HTML, SVG) never passes a finger's swipe up: its ‹ › stay in a phone's bar
+  const framedKind = previewKind(item.name)
+  const framed = docMode && !gone && !item.card && !!item.file && (framedKind === 'html' || framedKind === 'svg')
+
+  // the bar's steps and actions: on a computer in the bar on top, beside the name; on a phone in a bar of their own at
+  // the bottom
+  const actions = (
+    <>
+      {/* a document's ‹ › beside "2 / 3": a narrow window with a mouse, and a phone's frame (HTML, SVG), where a swipe
+          cannot step (a finger swipes elsewhere; the edge arrows would sit on the text) */}
+      {docMode && prev && (
+        <BarButton label={stepLabel(prev, 'prev')} onClick={() => go(prev)} testId="image-viewer-bar-prev" className={clsx('md:hidden', !framed && 'pointer-coarse:sr-only')}>
+          <ChevronLeft size={20} />
+        </BarButton>
+      )}
+      {count && <span className="mx-2 shrink-0 text-xs whitespace-nowrap text-white/70 tabular-nums max-md:mx-0.5 max-md:min-w-11 max-md:text-center" data-testid="image-viewer-count">{count}</span>}
+      {docMode && next && (
+        <BarButton label={stepLabel(next, 'next')} onClick={() => go(next)} testId="image-viewer-bar-next" className={clsx('md:hidden', !framed && 'pointer-coarse:sr-only')}>
+          <ChevronRight size={20} />
+        </BarButton>
+      )}
+      {!docMode && (
+        <div className="mr-1 flex shrink-0 items-center max-md:hidden">
+          <BarButton label={t('viewer.zoomOut')} onClick={() => step(-1)} disabled={!zoomed} testId="image-viewer-zoom-out">
+            <Minus size={16} />
+          </BarButton>
+          <span className="min-w-11 text-center text-xs text-white/75 tabular-nums" data-testid="image-viewer-zoom">{pct === null ? '' : t('viewer.zoomLevel', { n: pct })}</span>
+          <BarButton label={t('viewer.zoomIn')} onClick={() => step(1)} disabled={!v || v.scale >= 3.999} testId="image-viewer-zoom-in">
+            <Plus size={16} />
+          </BarButton>
+        </div>
+      )}
+      {copyOn && (
+        <BarButton label={t('common.copy')} onClick={copy} testId="image-viewer-copy" className="max-md:hidden">
+          <Copy size={18} />
+        </BarButton>
+      )}
+      {item.download && !gone && missing !== item.key && (
+        <BarButton label={t('common.download')} onClick={item.download} testId="image-viewer-download">
+          <Download size={18} />
+        </BarButton>
+      )}
+      {toPanel && (
+        <BarButton label={t('viewer.openInPanel')} onClick={toPanel} testId="image-viewer-panel" className="max-md:hidden">
+          <Minimize2 size={18} />
+        </BarButton>
+      )}
+      {!docMode && item.href && browser && p.state !== 'failed' && (
+        <Tooltip label={t('viewer.openOriginal')}>
+          <a href={item.href} target="_blank" rel="noopener noreferrer" aria-label={t('viewer.openOriginal')} className={clsx(BAR_BUTTON, 'max-md:hidden')} data-testid="image-viewer-open">
+            <ExternalLink size={18} aria-hidden />
+          </a>
+        </Tooltip>
+      )}
+      {askable && (
+        <BarButton label={t('sideChat.askAboutFile')} onClick={(e) => askTrina(e.currentTarget)} testId="image-viewer-ask-trina">
+          <AiMark />
+        </BarButton>
+      )}
+      {!wide && place && (
+        <BarButton label={replies ? t('viewer.threadWith', { n: replies }) : t('viewer.thread')} onClick={(e) => openThread(e.currentTarget)} testId="image-viewer-thread" className="min-w-10 gap-1 px-2 max-md:w-auto max-md:min-w-11">
+          <MessageSquare size={19} />
+          {replies > 0 && <span className="text-xs font-medium tabular-nums" data-testid="image-viewer-thread-count">{replies}</span>}
+        </BarButton>
+      )}
+      {wide && place && (
+        <BarButton label={column.state.open ? t('viewer.columnHide') : t('viewer.columnShow')} onClick={column.toggle} testId="image-viewer-column">
+          {column.state.open ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+        </BarButton>
+      )}
+      <BarButton label={t('common.close')} onClick={close} testId="image-viewer-close">
+        <X size={20} />
+      </BarButton>
+    </>
+  )
 
   return (
     <div
@@ -644,9 +723,11 @@ function Viewer({ open }: { open: ViewerOpen }) {
         className={clsx(
           // isolate: what a document lifts inside it (a PDF's sticky toolbar) stays under the bar and a phone's sheet
           'absolute inset-x-0 bottom-0 isolate outline-none md:right-[var(--viewer-col,0px)]',
-          // a document sits under the bar on a phone too (the bar does not hide there), and scrolls as a page does
-          docMode ? 'top-[calc(var(--safe-top)+3.75rem)] md:top-14' : 'top-0 touch-none overflow-hidden md:top-14',
+          // a document sits between a phone's bars too (they do not hide there), and scrolls as a page does
+          docMode ? 'top-[calc(var(--safe-top)+4.25rem)] max-md:bottom-[calc(var(--safe-bottom)+3.25rem)] md:top-14' : 'top-0 overflow-hidden md:top-14',
         )}
+        // a picture: its own pinch, double tap and pan (touch-action: none, index.css), never the page's zoom (QA TC-246)
+        data-own-zoom={docMode ? undefined : ''}
         {...(docMode ? {} : {
           onPointerDown,
           onPointerMove,
@@ -697,7 +778,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
               )}
             </div>
             {(note || (p.state === 'loading' && original)) && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-[calc(1rem+var(--safe-bottom))] flex justify-center px-4">
+              <div className="pointer-events-none absolute inset-x-0 bottom-[calc(1rem+var(--safe-bottom))] flex justify-center px-4 max-md:bottom-[calc(4.5rem+var(--safe-bottom))]">
                 {note ? (
                   <p className="rounded-full bg-black/70 px-3 py-1.5 text-center text-xs text-white/85" role="status" data-testid="image-viewer-note">{note}</p>
                 ) : (
@@ -713,92 +794,44 @@ function Viewer({ open }: { open: ViewerOpen }) {
         className={clsx(
           'absolute inset-x-0 top-0 flex items-center gap-1 px-3 transition-opacity md:h-14 md:border-b md:border-white/10 md:bg-[#161615] md:pr-2',
           docMode
-            ? 'max-md:h-[calc(var(--safe-top)+3.75rem)] max-md:border-b max-md:border-white/10 max-md:bg-[#161615] max-md:pt-[var(--safe-top)]'
+            ? 'max-md:h-[calc(var(--safe-top)+4.25rem)] max-md:border-b max-md:border-white/10 max-md:bg-[#161615] max-md:pt-[var(--safe-top)]'
             : 'max-md:bg-gradient-to-b max-md:from-black/80 max-md:to-transparent max-md:pt-[calc(var(--safe-top)+0.5rem)] max-md:pb-6',
           !barsOn && 'max-md:invisible max-md:opacity-0',
         )}
         data-testid="image-viewer-bar"
         inert={sheetOn || undefined}
       >
-        {/* a phone: the line under the name says who; the room's buttons (✦, 💬) need the width */}
-        <Who sender={item.sender} className={place ? 'max-md:hidden' : undefined} />
-        <div className={clsx('min-w-0 flex-1', place ? 'md:ml-1.5' : 'ml-1.5')}>
-          <p className="truncate text-sm font-medium" data-testid="image-viewer-name">{item.name}</p>
+        <Who sender={item.sender} />
+        <div className="ml-1.5 min-w-0 flex-1">
+          {/* a phone: the whole name, on two lines where it is long (its buttons are in the bar at the bottom) */}
+          <p className="text-sm font-medium md:truncate max-md:line-clamp-2 max-md:[overflow-wrap:anywhere]" data-testid="image-viewer-name">{item.name}</p>
           <SentLine sender={item.sender} at={item.at} where={item.where} />
         </div>
-        {/* a phone's document steps from the bar (the edge arrows would sit on its text), or by a swipe */}
-        {docMode && prev && (
-          <BarButton label={stepLabel(prev, 'prev')} onClick={() => go(prev)} testId="image-viewer-bar-prev" className="md:hidden">
-            <ChevronLeft size={20} />
-          </BarButton>
-        )}
-        {count && <span className="mx-2 shrink-0 text-xs whitespace-nowrap text-white/70 tabular-nums max-md:mx-0.5" data-testid="image-viewer-count">{count}</span>}
-        {docMode && next && (
-          <BarButton label={stepLabel(next, 'next')} onClick={() => go(next)} testId="image-viewer-bar-next" className="md:hidden">
-            <ChevronRight size={20} />
-          </BarButton>
-        )}
-        {!docMode && (
-          <div className="mr-1 flex shrink-0 items-center max-md:hidden">
-            <BarButton label={t('viewer.zoomOut')} onClick={() => step(-1)} disabled={!zoomed} testId="image-viewer-zoom-out">
-              <Minus size={16} />
-            </BarButton>
-            <span className="min-w-11 text-center text-xs text-white/75 tabular-nums" data-testid="image-viewer-zoom">{pct === null ? '' : t('viewer.zoomLevel', { n: pct })}</span>
-            <BarButton label={t('viewer.zoomIn')} onClick={() => step(1)} disabled={!v || v.scale >= 3.999} testId="image-viewer-zoom-in">
-              <Plus size={16} />
-            </BarButton>
-          </div>
-        )}
-        {copyOn && (
-          <BarButton label={t('common.copy')} onClick={copy} testId="image-viewer-copy">
-            <Copy size={18} />
-          </BarButton>
-        )}
-        {item.download && !gone && missing !== item.key && (
-          <BarButton label={t('common.download')} onClick={item.download} testId="image-viewer-download">
-            <Download size={18} />
-          </BarButton>
-        )}
-        {toPanel && (
-          <BarButton label={t('viewer.openInPanel')} onClick={toPanel} testId="image-viewer-panel" className="max-md:hidden">
-            <Minimize2 size={18} />
-          </BarButton>
-        )}
-        {!docMode && item.href && browser && p.state !== 'failed' && (
-          <Tooltip label={t('viewer.openOriginal')}>
-            <a href={item.href} target="_blank" rel="noopener noreferrer" aria-label={t('viewer.openOriginal')} className={BAR_BUTTON} data-testid="image-viewer-open">
-              <ExternalLink size={18} aria-hidden />
-            </a>
-          </Tooltip>
-        )}
-        {askable && (
-          <BarButton label={t('sideChat.askAboutFile')} onClick={(e) => askTrina(e.currentTarget)} testId="image-viewer-ask-trina">
-            <AiMark />
-          </BarButton>
-        )}
-        {!wide && place && (
-          <BarButton label={replies ? t('viewer.threadWith', { n: replies }) : t('viewer.thread')} onClick={(e) => openThread(e.currentTarget)} testId="image-viewer-thread" className="min-w-10 gap-1 px-2 max-md:w-auto">
-            <MessageSquare size={19} />
-            {replies > 0 && <span className="text-xs font-medium tabular-nums" data-testid="image-viewer-thread-count">{replies}</span>}
-          </BarButton>
-        )}
-        {wide && place && (
-          <BarButton label={column.state.open ? t('viewer.columnHide') : t('viewer.columnShow')} onClick={column.toggle} testId="image-viewer-column">
-            {column.state.open ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
-          </BarButton>
-        )}
-        <BarButton label={t('common.close')} onClick={close} testId="image-viewer-close">
-          <X size={20} />
-        </BarButton>
+        {wide && actions}
       </div>
+      {!wide && (
+        <div
+          className={clsx(
+            'absolute inset-x-0 bottom-0 flex items-center justify-around gap-1 px-2 transition-opacity',
+            docMode
+              ? 'h-[calc(var(--safe-bottom)+3.25rem)] border-t border-white/10 bg-[#161615] pb-[var(--safe-bottom)]'
+              : 'bg-gradient-to-t from-black/80 to-transparent pt-6 pb-[calc(var(--safe-bottom)+0.25rem)]',
+            !barsOn && 'invisible opacity-0',
+          )}
+          data-testid="image-viewer-actions"
+          inert={sheetOn || undefined}
+        >
+          {actions}
+        </div>
+      )}
 
       {prev && !sheetOn && (
-        <EdgeButton side="left" label={stepLabel(prev, 'prev')} onClick={() => go(prev)} hidden={!barsOn} phone={!docMode}>
+        <EdgeButton side="left" label={stepLabel(prev, 'prev')} onClick={() => go(prev)} hidden={!barsOn} narrow={!docMode}>
           <ChevronLeft size={24} />
         </EdgeButton>
       )}
       {next && !sheetOn && (
-        <EdgeButton side="right" label={stepLabel(next, 'next')} onClick={() => go(next)} hidden={!barsOn} phone={!docMode}>
+        <EdgeButton side="right" label={stepLabel(next, 'next')} onClick={() => go(next)} hidden={!barsOn} narrow={!docMode}>
           <ChevronRight size={24} />
         </EdgeButton>
       )}
@@ -814,8 +847,8 @@ function Viewer({ open }: { open: ViewerOpen }) {
   )
 }
 
-// a phone: 44 px high, 40 wide (touch-hit keeps a 44 px target), so the name keeps some room beside ‹ › and the buttons
-const BAR_BUTTON = 'touch-hit inline-flex size-10 shrink-0 items-center justify-center rounded-md text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent max-md:h-11'
+// a phone: 44 px, in the bar at the bottom
+const BAR_BUTTON = 'touch-hit inline-flex size-10 shrink-0 items-center justify-center rounded-md text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent max-md:size-11'
 
 function BarButton({ label, onClick, disabled, testId, className, children }: { label: string; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; disabled?: boolean; testId: string; className?: string; children: ReactNode }) {
   return (
@@ -827,9 +860,9 @@ function BarButton({ label, onClick, disabled, testId, className, children }: { 
   )
 }
 
-/** a round arrow at the stage's edge (shown and hidden with the bar on a phone; `phone` false: a computer's only, as a
- * document's text would sit under it on a phone) */
-function EdgeButton({ side, label, onClick, hidden, phone = true, children }: { side: 'left' | 'right'; label: string; onClick: () => void; hidden: boolean; phone?: boolean; children: ReactNode }) {
+/** a round arrow at the stage's edge (shown and hidden with the bar below 768 px). `narrow`: also below 768 px, with a
+ * mouse only (a finger swipes there: QA TC-257); false: a computer's only, as a document's text would sit under it */
+function EdgeButton({ side, label, onClick, hidden, narrow = true, children }: { side: 'left' | 'right'; label: string; onClick: () => void; hidden: boolean; narrow?: boolean; children: ReactNode }) {
   return (
     <Tooltip label={label}>
       <button
@@ -841,7 +874,7 @@ function EdgeButton({ side, label, onClick, hidden, phone = true, children }: { 
           // the right one keeps clear of the column beside the stage
           side === 'left' ? 'left-3' : 'right-3 md:right-[calc(var(--viewer-col,0px)+0.75rem)]',
           hidden && 'max-md:invisible max-md:opacity-0',
-          !phone && 'max-md:hidden',
+          narrow ? 'max-md:pointer-coarse:hidden' : 'max-md:hidden',
         )}
         data-testid={`image-viewer-${side === 'left' ? 'prev' : 'next'}`}
       >

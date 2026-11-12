@@ -389,18 +389,20 @@ test('the result waits for the choices to settle, and an older answer never repl
   await expect(panel(page).getByTestId('edit-basic-named').getByRole('radio')).toBeChecked()
 })
 
-test('a phone: the panel is the whole screen with a way back, the focus stays in it, and nothing runs off the side', async ({ page }) => {
+test('a phone: the editor is a page of its own under the bar (‹ to the folder), Save in sight, nothing runs off the side', async ({ page }) => {
+  // since TC-267 (pages/admin/adminScreens.ts): its own history entry under Admin's phone bar, not a full-screen panel
+  // with its own ←; phone-admin-pages.spec.ts follows Back through it
   await page.setViewportSize({ width: 375, height: 812 })
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
   const sales = await team(page)
   await openPanel(page, 'partners/apollo')
-  await expect(panel(page)).toHaveAttribute('role', 'dialog')
-  await expect(panel(page)).toHaveAttribute('aria-modal', 'true')
-  const box = (await panel(page).boundingBox())!
-  expect([box.x, box.y, box.width, box.height]).toEqual([0, 0, 375, 812])
-  await expect(panel(page).getByRole('heading', { name: t['accessEdit.title'] })).toBeFocused()
+  await expect(page).toHaveURL(/rules=partners%2Fapollo/)
+  await expect(panel(page)).not.toHaveAttribute('role', 'dialog')
+  await expect(page.getByTestId('edit-back')).toHaveCount(0)
+  await expect(page.getByTestId('admin-bar-title')).toHaveText(t['accessEdit.title'])
+  await expect(page.getByTestId('admin-back-label')).toHaveText('partners/apollo')
   // the Save button is on the screen without scrolling
   const s = (await save(page).boundingBox())!
   expect(s.y + s.height).toBeLessThanOrEqual(812)
@@ -410,23 +412,21 @@ test('a phone: the panel is the whole screen with a way back, the focus stays in
   })
   expect(fits).toBe(true)
   await expect(named(page, `group:${sales.id}`)).toBeVisible()
-  // Tab stays inside the panel
-  for (let i = 0; i < 25; i++) await page.keyboard.press('Tab')
-  expect(await page.evaluate(() => !!document.activeElement?.closest('[data-testid="edit-panel"]'))).toBe(true)
-  // the way back asks when something changed
+  // ‹ asks when something changed
   await panel(page).getByTestId('edit-basic-read').click()
-  await page.getByTestId('edit-back').click()
+  await page.getByTestId('admin-back').click()
   await expect(page.getByRole('dialog').filter({ hasText: t['accessEdit.discardTitle'] })).toBeVisible()
   await page.getByTestId('dialog-confirm').click()
   await expect(panel(page)).toHaveCount(0)
   await expect(detail(page)).toBeVisible()
-  await expect(page.getByTestId('folder-detail-edit')).toBeFocused()
-  // a save on the phone
+  await expect(page).not.toHaveURL(/rules=/)
+  // a save on the phone: back on the folder, its entry gone
   await page.getByTestId('folder-detail-edit').click()
   await panel(page).getByTestId('edit-basic-read').click()
   await settled(page)
   await save(page).click()
   await expect(panel(page)).toHaveCount(0)
+  await expect(page).not.toHaveURL(/rules=/)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
   expect(realErrors(errors)).toEqual([])
 })

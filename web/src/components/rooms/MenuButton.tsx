@@ -13,7 +13,7 @@
 // for a screen reader); `sheetTitle`: what the menu is about, on a phone's sheet only (a row's long press: the room's
 // name, as the row is under the scrim); `focusBack`: where the keyboard goes when a menu without a button of its own
 // closes (a row's level menu: the row's "⋯"); `footer`: words under the rows, such as why some items are off (an item's
-// `describedBy` points at them).
+// `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header).
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
@@ -98,7 +98,7 @@ const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLEle
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const own = useRef<HTMLButtonElement>(null)
@@ -218,6 +218,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
           {icon ?? <MoreHorizontal size={16} aria-hidden />}
         </button>
       </Tooltip>
+      {dot && <span aria-hidden className="pointer-events-none absolute top-2 right-2 size-1.5 rounded-full bg-accent" data-testid={testId ? `${testId}-dot` : undefined} />}
       {/* phones: a sheet from the bottom with 48px rows over a scrim (a tap on it closes), not a small menu by the finger */}
       {/* (a finger held on it must not reach the message's own long press, which would open the sheet again) */}
       {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && setOpen(false)} />}
