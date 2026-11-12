@@ -5114,6 +5114,17 @@ export class MockServer {
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
     else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
+    else if (p === '/__test/ai-version') {
+      // a stored version of a file that an AI answer saved (POST {path, by, chatId?}): `chatId` only where the server would
+      // name the chat (the viewer may open it now: server/src/chat/version-chats.ts); without it, "by AI" alone
+      const path = String(body.path)
+      const by = this.users.find((u) => u.id === String(body.by)) ?? this.users[0]!
+      this.versions.push({
+        id: uuidv7(), path, version: this.versions.filter((v) => v.path === path).length + 1, sha256: crypto.randomUUID().replace(/-/g, '').padEnd(64, '0'), size: 30,
+        author: { id: by.id, name: by.name }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now(), savedBy: { id: by.id, name: by.name }, savedTurnId: uuidv7(),
+        ...(typeof body.chatId === 'string' ? { savedChatId: body.chatId } : {}),
+      })
+    }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)

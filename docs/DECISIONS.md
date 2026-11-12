@@ -23798,3 +23798,54 @@ Version impact: **minor** (new route, migration 288).
   same everywhere); filling .xlsx/.docx with make_file (the look of the team's form is the point); a "try it in chat
   first" step (the owner: ask right away).
 - Tests: `tests/unit/b-form-skill.test.ts`, `web/test/unit/form-skills.test.tsx`, `web/test/e2e/welcome-form-skills.spec.ts`.
+
+## Getting back to earlier work, part A — 지난 작업으로 돌아가기 (feat/history-way-back-a, 2026-11-12, QA TC-419 to TC-423)
+
+넣을 곳: Team AX core (`web/src/components/SearchDialog.tsx`, `web/src/lib/sessionMarkers.ts`,
+`web/src/components/chat/ChatTitleMenu.tsx`, `web/src/pages/Chat.tsx`, `web/src/pages/Files.tsx`,
+`server/src/chat/version-chats.ts`, `server/src/routes/files.ts`, `shared/src/api`), 이유: chats, search and file history
+are core. Plan: `docs/AGENTS/plan/20261112-1621-history-way-back-a.md`. The owner (2026-11-12): getting back to earlier
+work is hard, the AI history is the only way back. Option A of the research is part of every option and is built first;
+the owner has not chosen between B and C. Nothing changes in the sidebar (rooms first, five latest plus pins, "Show
+all"; the list is never re-sorted by state: 2026-11-06/07).
+
+- **⌘K "Needs attention" = the sidebar's markers** (TC-419, a bug). It used its own rule ("is it running") and words
+  ("Answering now", "Waiting to answer"): a chat waiting for my answer said "Answering now" while the sidebar showed "?",
+  and a finished answer I had not seen was not there. Now its AI chats come from the sidebar's own list (the chat store;
+  ⌘K's own first page only until that list has loaded) with `markedChats` (`lib/sessionMarkers.ts`: `markerOf` with the
+  same view, so the chat on screen shows no dot and a card open in this window is "?"), each row with the sidebar's
+  `SessionMarker` at its right end and its words (`marker.*`, the AI's question itself while this window has its card,
+  never for a confidential chat; the hover peek's colours). Order: "?" first, then a new answer, then the ring, the latest
+  first in each; then scheduled tasks to confirm and broken connections, 5 rows in all as before. ⌘K's two labels are
+  gone from all five languages.
+- **History rows say when and where** (TC-420): on the History tab's list and in the History results of a search (on All
+  and on History), grey on the right, "2시간 전 · Launch plan": the chat's last activity (`updatedAt`, `formatRelative`, as
+  the project page's list and the sidebar's peek) and its project's name when it has one (the project is no longer
+  repeated after the title there). Recents rows are unchanged.
+- **History from a project** (TC-421): opened on a project's page (its files too) or in a chat of a project, the History
+  tab lists that project's chats first (the project page's own list: `GET /api/chats?projectId=`, so my pins there and
+  its shared chats I see), then the rest of my list, each once. Anywhere else nothing changes and no project is read. A
+  chat in none of this window's lists is read once to learn its project; the list waits for that instead of moving under
+  the pointer. Search results keep their order. No new control.
+- **Pin from the chat's own title menu** (TC-422; "Pinned chats" said it was not built): "상단에 고정" / "고정 해제" is the
+  title menu's first item, the row menu's own words, icon and call (`useChatActions().togglePin`), for anyone who sees
+  the chat.
+- **"Open the chat" in a file's version history** (TC-423, security). A version (and the file as it is now) already knew
+  the AI turn of the save (`file_versions.saved_turn_id`, `file_events.turn_id`) and a turn knows its chat
+  (`turns.chat_id`): **no migration**. `GET /api/files/history` adds `savedChatId` to such a version and `chatId` to
+  `current`, each **only when the viewer may open that chat now** (`chat/version-chats.ts` `openableTurnChats`, one read
+  of the turns and one check per chat): `chatFor` 'view' (their own chat, or a shared project chat of a project they see
+  now), and not in the trash, not the server's own draft, not a room's AI, not confidential unless it is theirs (all chats
+  while safe operations are on), not an answer of a shared chat hidden from them (`AnswerSight`; no record or no answer
+  id: hidden from all but its runner), and **not in a project they do not see now, their own chat too** (stricter than
+  opening it: the link stays away from a project they lost; the chat still opens from History). Any failed check gives
+  nothing. Otherwise the answer is as before: no id, no title, nothing that says a chat exists beyond the "by AI" line
+  that was already there. The owner and admins get no more than anyone. The screen shows "Open the chat" (기록 열기, a
+  link to `/c/:id`, underlined) after "saved during an AI answer" only when the id is there; it closes the dialog.
+- **Left out** (option A only): Home's "Continue" line, summaries, AI search of chats, any sidebar change, the ⌘K row
+  menu and Recents rows.
+- Tests: `tests/security/version-chat-link.test.ts` (every case above for all five people, the stored version and the
+  file as it is now, the id nowhere else in the answer, and a link only where `GET /api/chats/:id` opens),
+  `web/test/unit/search-way-back.test.tsx`, `session-markers.test.tsx` (`markedChats`), `chat-title-pin.test.tsx`; e2e
+  `session-markers.spec.ts`, `search-palette.spec.ts`, `chat-pins.spec.ts`, `files.spec.ts`.
+- Version impact: **minor** (two additive, optional fields on the file history answer).

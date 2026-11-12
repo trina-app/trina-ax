@@ -23,7 +23,7 @@
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
@@ -1487,6 +1487,7 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
                 <span className="block text-xs text-faint">
                   {now.at ? `${formatDateTime(now.at, locale)} · ` : ''}{formatSize(now.size, locale)}
                   {now.turnId && ` · ${t('files.byAiTurn')}`}
+                  {now.chatId && <OpenSavingChat chatId={now.chatId} onOpen={onClose} />}
                 </span>
               </span>
               <Badge tone="neutral">{t('files.currentVersion')}</Badge>
@@ -1502,6 +1503,7 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
                 <span className="block text-xs text-faint">
                   {formatDateTime(v.createdAt, locale)} · {formatSize(v.size, locale)}
                   {v.savedBy ? v.savedTurnId && ` · ${t('files.byAiTurn')}` : v.turnId && ` · ${t('files.replacedDuringAi')}`}
+                  {v.savedBy && v.savedTurnId && v.savedChatId && <OpenSavingChat chatId={v.savedChatId} onOpen={onClose} />}
                 </span>
                 {v.kind === 'conflict_copy' && v.conflictPath && (
                   <button type="button" className="block text-xs text-warn underline" onClick={() => openTeamFile(v.conflictPath!)}>
@@ -1543,6 +1545,20 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
         </section>
       )}
     </Modal>
+  )
+}
+
+/** "Open the chat" after "saved during an AI answer": the AI chat that saved this version. The server names it only when
+ * the person may open that chat now (server/src/chat/version-chats.ts); otherwise the line says no more than before. */
+function OpenSavingChat({ chatId, onOpen }: { chatId: string; onOpen: () => void }) {
+  const t = useT()
+  return (
+    <>
+      {' · '}
+      <Link to={`/c/${chatId}`} onClick={onOpen} className="text-accent-text underline underline-offset-2" data-testid="history-open-chat">
+        {t('files.openChat')}
+      </Link>
+    </>
   )
 }
 

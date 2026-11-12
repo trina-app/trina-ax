@@ -92,6 +92,33 @@ test.describe('a phone (390 px)', () => {
   })
 })
 
+test('the chat\'s own title menu pins and unpins it, the row menu\'s item (QA TC-422)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await someChats(page, 6)
+  const id = ((await (await post(page, '/api/chats', { title: '제목 메뉴로 고정' })).json()) as { id: string }).id
+  await someChats(page, 6)
+  await page.goto(`/c/${id}`)
+  const s = side(page)
+  await expect(s.getByTestId('ai-chats-pinned')).toHaveCount(0)
+  await page.getByTestId('chat-menu').click()
+  const first = page.getByRole('menuitem').first()
+  await expect(first).toHaveText(t['chat.pin'])
+  await expect(first.locator('svg.lucide-pin')).toHaveCount(1)
+  await first.click()
+  await expect(titles(s.getByTestId('ai-chats-pinned'))).toHaveText(['제목 메뉴로 고정'])
+  await expect(s.getByTestId('ai-chats-pinned').getByTestId('chat-pin-icon')).toBeVisible()
+  // the same in the row's "···", and after a reload
+  await page.reload()
+  await page.getByTestId('chat-menu').click()
+  await expect(page.getByTestId('chat-unpin')).toHaveText(t['chat.unpin'])
+  await expect(page.getByTestId('chat-unpin').locator('svg.lucide-pin-off')).toHaveCount(1)
+  await page.getByTestId('chat-unpin').click()
+  await expect(s.getByTestId('ai-chats-pinned')).toHaveCount(0)
+  await page.getByTestId('chat-menu').click()
+  await expect(page.getByTestId('chat-pin')).toBeVisible()
+})
+
 test("a project's page lists my pins there first, with the pin", async ({ page }) => {
   await reset(page)
   await signIn(page)

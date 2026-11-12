@@ -30,6 +30,9 @@ import { registerPluginRoutes } from './plugins'
 import { pluginsOf } from '../plugins/manager'
 import { registerFileListRoutes } from './file-list'
 import { fileListOf } from '../file-list/service'
+import { getChatRuntime, type ChatRuntime } from '../chat/runtime'
+import { openableTurnChats } from '../chat/version-chats'
+import type { HistoryResponse } from '@mycel/shared/api'
 
 export const filesRoutes: RouteModule = {
   name: 'files',
@@ -58,6 +61,20 @@ export const filesRoutes: RouteModule = {
     // Admin › Team settings › File list (file-list/service.ts)
     registerFileListRoutes(kit, ctx)
     const C = componentC(ctx)
+    /** The history with the chat of each AI save the caller may open now (FileVersion.savedChatId, current.chatId).
+     * No chat runtime (a server without chats): no links. */
+    const withChatLinks = (userId: string, h: HistoryResponse): HistoryResponse => {
+      let rt: ChatRuntime
+      try { rt = getChatRuntime(ctx) } catch { return h }
+      const chats = openableTurnChats(rt, userId, [...h.items.map((v) => (v.savedBy ? v.savedTurnId : null)), h.current?.turnId])
+      if (!chats.size) return h
+      const chatOf = (turnId: string | null | undefined) => (turnId ? chats.get(turnId) : undefined)
+      return {
+        ...h,
+        items: h.items.map((v) => { const id = v.savedBy ? chatOf(v.savedTurnId) : undefined; return id ? { ...v, savedChatId: id } : v }),
+        current: h.current && chatOf(h.current.turnId) ? { ...h.current, chatId: chatOf(h.current.turnId)! } : h.current,
+      }
+    }
     const svc = C.files
     const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')
     /** a small upload (multipart, ≤ 50 MB, already in memory) -> server temp file + sha256 */
@@ -169,7 +186,8 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.move, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.move(auth.user.id, body.from, body.to, body.onExists, { confirm: body.confirm, skillsOk: body.skillsOk, askWiden: body.askWiden }), 'to'))
     kit.handle(API.copy, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.copy(auth.user.id, body.from, body.to, { baseSha256: body.baseSha256, dryRun: body.dryRun, onExists: body.onExists }), 'to'))
     kit.handle(API.remove, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.remove(auth.user.id, query.path)))
-    kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.history(auth.user.id, query.path)))
+    // an AI-saved version names its chat only when the caller may open that chat now (chat/version-chats.ts)
+    kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => withChatLinks(auth.user.id, await svc.history(auth.user.id, query.path))))
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const v = svc.versionFile(auth.user.id, params.versionId)
       ctx.files.quarantine.assertDownload(v.abs, c.req.raw.headers)
