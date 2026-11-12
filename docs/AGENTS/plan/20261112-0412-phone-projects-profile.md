@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-12 04:12
 - Branch: `fix/phone-projects-profile-2` (first `fix/phone-projects-profile`, #562, which had #560 merged in; replaced
   so this branch leaves the bar to #560)
-- Status: in progress
+- Status: done
 - Where: `web/` (pages/Projects.tsx, pages/Settings.tsx, pages/Auth.tsx). Why: the phone app shows the web app; these
   screens' phone layouts are web code.
 - Version impact: patch, phone layout only; computers unchanged
@@ -63,4 +63,13 @@ phone e2e (Chromium and WebKit) and the phone specs that cover these screens.
 
 ## Result
 
-(filled in at the end)
+PR #566 (replaces #562, which had #560 merged in). Built as planned:
+- Projects on a phone: PhoneList rows (name, who sees it, "Last chat …" from the chats the app holds, ›); the menu by a
+  long press; `PhoneListRow` got one optional `menu` prop. A project's Files: no path line.
+- Profile on a phone: centred photo (picker, or a sheet with change/remove when there is one), name/title/email as rows
+  of one group, username/role as list rows, Save in the bar submitting the same form (`form` attribute; Enter still
+  saves). Change password: full-width button.
+- TC-381: both pages pass "Security & devices"; the English bar layout is #560's (not touched here). The e2e checks
+  the name on both pages, shown whole in Korean, and in English once #560's bar is in.
+- Computers: 1440 screenshots identical (Projects, a project); Profile/Security differ only by a caret and times.
+- Differs from the plan: no PhonePageBar change taken from #560 (the coordinator asked to leave it there).
