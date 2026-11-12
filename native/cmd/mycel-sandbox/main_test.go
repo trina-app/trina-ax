@@ -355,18 +355,22 @@ func TestExecNetProxy(t *testing.T) {
 	if m := r["forwarderMem"]; m == "ok" || m == "no forwarder" {
 		t.Errorf("the program could open the forwarder's memory (or found none): %v", m)
 	}
-	// without a Landlock domain the forwarder is not dumpable instead: still out of reach
-	off := func() map[string]any {
-		args := append(append([]string{}, bwrap...), "exec", "--landlock", "off", "--net-proxy", strconv.Itoa(pp), "--", filepath.Join(l.a, "helper"), "net", strconv.Itoa(pp), strconv.Itoa(op), name)
-		code, out, se := run(t, bw, args...)
-		var m map[string]any
-		if code != 0 || json.Unmarshal([]byte(out), &m) != nil {
+	// without a Landlock domain: refused unless Yama's ptrace_scope >= 1 (bwrap's pid 1 is in the host namespace too);
+	// with it the forwarder is not dumpable instead, still out of reach
+	args := append(append([]string{}, bwrap...), "exec", "--landlock", "off", "--net-proxy", strconv.Itoa(pp), "--", filepath.Join(l.a, "helper"), "net", strconv.Itoa(pp), strconv.Itoa(op), name)
+	code, out, se := run(t, bw, args...)
+	if yamaScope() < 1 {
+		if code != ExitFailed || !strings.Contains(se, "ptrace_scope") {
+			t.Errorf("landlock off, ptrace_scope %d: exit %d %q, want 70 and the Yama reason", yamaScope(), code, se)
+		}
+	} else {
+		var off map[string]any
+		if code != 0 || json.Unmarshal([]byte(out), &off) != nil {
 			t.Fatalf("landlock off: exit %d %s %s", code, out, se)
 		}
-		return m
-	}()
-	if m := off["forwarderMem"]; m == "ok" || m == "no forwarder" || off["abstract"] != "ECONNREFUSED" {
-		t.Errorf("landlock off: %v", off)
+		if m := off["forwarderMem"]; m == "ok" || m == "no forwarder" || off["abstract"] != "ECONNREFUSED" {
+			t.Errorf("landlock off: %v", off)
+		}
 	}
 	// a port that is not one, and no capabilities to make the namespace with: refused before the program runs
 	for _, c := range [][]string{
@@ -378,7 +382,7 @@ func TestExecNetProxy(t *testing.T) {
 		}
 	}
 	noCaps := append(append([]string{}, bwrap[:6]...), bwrap[10:]...) // without the two --cap-add
-	code, _, se := run(t, bw, append(noCaps, "exec", "--landlock", "off", "--net-proxy", strconv.Itoa(pp), "--", filepath.Join(l.a, "helper"), "exit")...)
+	code, _, se = run(t, bw, append(noCaps, "exec", "--landlock", "off", "--net-proxy", strconv.Itoa(pp), "--", filepath.Join(l.a, "helper"), "exit")...)
 	if os.Getuid() != 0 && (code != ExitFailed || !strings.Contains(se, "mycel-sandbox: net: unshare")) {
 		t.Errorf("no capabilities: exit %d %q, want 70 and the unshare reason", code, se)
 	}

@@ -108,7 +108,7 @@ if (SANDBOX) {
   })
   check('P-unix-abstract: the host abstract socket is live outside the sandbox', hostAbstract === 'host', hostAbstract)
   check('P-unix-abstract: a turn cannot connect to a host abstract unix socket', pr['P-unix-abstract'] !== undefined && pr['P-unix-abstract'] !== 'ok', String(pr['P-unix-abstract']))
-  check('P-unix-all: no abstract socket listed in the turn accepts', Array.isArray(pr['P-unix-all']?.accepted) && pr['P-unix-all'].accepted.length === 0, JSON.stringify(pr['P-unix-all']))
+  check('P-unix-all: no abstract socket of the host (listed through /proc/1/net/unix) accepts a turn', pr['P-unix-all']?.hasHost === true && Array.isArray(pr['P-unix-all']?.accepted) && pr['P-unix-all'].accepted.length === 0, JSON.stringify(pr['P-unix-all']))
   for (const id of ['P-team', 'P-db', 'P-codex-auth', 'P-tmp', 'P-sys'])
     check(`${id}: not present in the sandbox`, /ENOENT|EACCES|EPERM/.test(String(pr[id])), String(pr[id]))
   check('P-agent-root: only this chat is visible', pr['P-agent-root']?.entries === 1, JSON.stringify(pr['P-agent-root']))

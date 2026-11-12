@@ -85,8 +85,8 @@ type Table struct {
 // Options selects a variant of the policy.
 type Options struct {
 	AllowListen bool // do not refuse listen() (spike S4 fallback)
-	// Forwarder: the turn's proxy forwarder (mycel-sandbox forward), the one process of a turn that stays in the host
-	// network namespace. On top of the engine policy it gets no unix sockets at all (socket(AF_UNIX) and socketpair:
+	// Forwarder: the turn's proxy forwarder (mycel-sandbox forward), which stays in the host network namespace (as
+	// does bwrap's own pid 1, which runs no code of ours and no engine code). On top of the engine policy it gets no unix sockets at all (socket(AF_UNIX) and socketpair:
 	// the host's abstract @sockets live in that namespace) and no execve/execveat (it never starts a program, and a
 	// Landlock domain would cover only one of its threads).
 	Forwarder bool

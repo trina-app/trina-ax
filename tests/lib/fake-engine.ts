@@ -78,14 +78,15 @@ if (Array.isArray(spec.probe)) {
       else if (p.kind === 'ls') result = { entries: await fsp.readdir(p.path) }
       else if (p.kind === 'write') { await fsp.writeFile(p.path, 'x'); result = 'wrote' }
       else if (p.kind === 'connect') result = await connect(p.host, p.port, p.proto ?? 'tcp')
-      // a unix socket by name ("@name" = abstract, Linux), or "unix-all": every @name this turn's /proc/net/unix lists
-      // (QA TC-309: host services' abstract sockets); the result lists the names that accepted
+      // a unix socket by name ("@name" = abstract, Linux), or "unix-all": every @name of the HOST's network namespace
+      // (QA TC-309). /proc/net/unix shows the turn's own namespace; /proc/1/net/unix is bwrap's pid 1, which stays in
+      // the host's, so it lists the host services' names. The result lists the names that accepted.
       else if (p.kind === 'unix') result = await unixConnect(p.path)
       else if (p.kind === 'unix-all') {
-        const names = [...new Set((await fsp.readFile('/proc/net/unix', 'utf8')).split('\n').slice(1).map((l) => l.trim().split(/\s+/)[7]).filter((n) => n?.startsWith('@')))]
+        const names = [...new Set((await fsp.readFile(p.path ?? '/proc/1/net/unix', 'utf8')).split('\n').slice(1).map((l) => l.trim().split(/\s+/)[7]).filter((n) => n?.startsWith('@')))]
         const accepted: string[] = []
         for (const n of names) if ((await unixConnect(n!)) === 'ok') accepted.push(n!)
-        result = { listed: names.length, accepted }
+        result = { listed: names.length, hasHost: names.includes('@mycel-t1-host'), accepted }
       }
       else if (p.kind === 'usetoken') {
         // assert a (handed-in, "stolen") turn token is refused on tools.sock from this session (the gate binds the

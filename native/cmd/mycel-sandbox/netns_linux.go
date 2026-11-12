@@ -3,7 +3,7 @@
 // A turn's own network namespace (QA TC-309). Abstract unix sockets (@name) belong to a network namespace, not to the
 // file system: bwrap's mounts do not hide them, the engine firewall (nftables, IP only) does not see them, and
 // Landlock scopes them only from ABI 6 (Linux 6.12). In the host namespace a turn could connect to every host
-// service listening on one (multipathd, iscsid, systemd and D-Bus helpers ...). seccomp cannot tell an abstract
+// service listening on one (storage daemons, systemd and D-Bus helpers ...). seccomp cannot tell an abstract
 // address from a path (connect() passes a pointer), and the bridge needs a unix socket (tools.sock, a path).
 //
 // So `exec --net-proxy PORT` moves the engine into a new network namespace with only loopback, and keeps the model
@@ -13,14 +13,20 @@
 //  2. unshare(CLONE_NEWNET) on this (locked, later execve'ing) thread, bring lo up, listen on 127.0.0.1:PORT there;
 //  3. after this thread's Landlock domain: hand the listener to the forwarder, wait for its "ready" (its own
 //     restrictions are in place);
-//  4. drop every capability (bwrap gave CAP_SYS_ADMIN + CAP_NET_ADMIN of the turn's user namespace for steps 2-3)
-//     and check /proc/self/status; then Landlock, seccomp and execve as before.
+//  4. drop every capability on every thread (bwrap gave CAP_SYS_ADMIN + CAP_NET_ADMIN of the turn's user namespace
+//     for steps 2-3) and check /proc/self/task/*/status; then seccomp and execve as before.
 //
 // The forwarder accepts in the turn's namespace and connects to 127.0.0.1:PORT in the host namespace: the connection
 // the model proxy sees belongs to a process of the turn's session (the proxy's tcp-peer check), as the engine account
 // (the nftables rule), in the turn cgroup. It has no capabilities, the engine (its parent, same uid) cannot reach its
 // memory (privateNetFinish: Landlock, or not dumpable), and its seccomp filter refuses unix sockets and execve on top
 // of the engine policy. It dies with the turn (bwrap's pid namespace).
+//
+// Two processes of a turn stay in the host namespace: the forwarder and bwrap's own pid 1 (the namespace's init,
+// started before this helper; bwrap runs without --as-pid-1). Neither is the engine's to touch: with a Landlock
+// domain on the engine, Landlock refuses ptrace access (/proc/<pid>/mem included) to both, which are outside it.
+// Without one, the turn is refused unless Yama's ptrace_scope is 1 or more (pid 1 is not the engine's descendant), and
+// the forwarder, which is, makes itself not dumpable (privateNetFinish).
 package main
 
 import (
@@ -28,14 +34,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 	"mycel/native/internal/seccomp"
@@ -94,13 +103,17 @@ func privateNetStart(port int) netSetup {
 //   - the engine is in a Landlock domain and the forwarder in none: Landlock refuses every ptrace access from inside a
 //     domain to a process outside it (/proc/<pid>/mem included), so the forwarder stays dumpable and the launcher's
 //     tcp-peer lookup can read its /proc/<pid>/fd (the model proxy's peer check);
-//   - no domain (--landlock off, or best-effort without Landlock): the forwarder makes itself not dumpable. Then only
-//     root can read its descriptors, the proxy cannot tell which turn a connection belongs to and refuses it: the
-//     turn cannot reach the model, but it never gets the host namespace either (installs run --landlock required).
+//   - no domain (--landlock off, or best-effort without Landlock): bwrap's pid 1 (also in the host namespace, not the
+//     engine's ancestor or descendant) is protected only by Yama, so ptrace_scope must be 1 or more, else the turn is
+//     refused; the forwarder (the engine's descendant) makes itself not dumpable. Then only root can read its
+//     descriptors, the proxy cannot tell which turn a connection belongs to and refuses it: the turn cannot reach the
+//     model, but it never gets the host namespace either (installs run --landlock required).
 func privateNetFinish(st netSetup, engineInDomain bool) {
 	mode := []byte{'N'}
 	if engineInDomain {
 		mode[0] = 'D'
+	} else if v := yamaScope(); v < 1 {
+		fail("net: no Landlock domain and Yama ptrace_scope %d: the engine could reach bwrap's pid 1 in the host network namespace (use --landlock required)", v)
 	}
 	if err := unix.Sendmsg(st.ctl, mode, unix.UnixRights(st.ln), nil, 0); err != nil {
 		fail("net: hand over the listener: %v", err)
@@ -134,28 +147,55 @@ func loopbackUp() error {
 	return unix.IoctlIfreq(fd, unix.SIOCSIFFLAGS, ifr)
 }
 
-// dropCaps clears every capability set of the calling thread (bounding stays, but nothing can raise a capability
-// again: no_new_privs is set and every bind in the sandbox is nosuid) and checks the result. In the helper that is the
-// thread that execve()s the engine; the forwarder has none to begin with and only checks.
+// dropCaps clears every capability set on every thread of this process (capset and the ambient set are per thread;
+// AllThreadsSyscall runs them on each one) and checks every /proc/self/task/*/status. The bounding set stays, but
+// nothing can raise a capability again: no_new_privs is set and every bind in the sandbox is nosuid. The forwarder
+// has none to begin with and only checks.
 func dropCaps() error {
-	_ = unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0)
+	if _, _, e := syscall.AllThreadsSyscall(unix.SYS_PRCTL, unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0); e != 0 {
+		return fmt.Errorf("clear ambient capabilities: %v", e)
+	}
 	hdr := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
 	var data [2]unix.CapUserData
-	if err := unix.Capset(&hdr, &data[0]); err != nil {
-		return fmt.Errorf("drop capabilities: %v", err)
+	if _, _, e := syscall.AllThreadsSyscall(unix.SYS_CAPSET, uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Pointer(&data[0])), 0); e != 0 {
+		return fmt.Errorf("drop capabilities: %v", e)
 	}
-	b, err := os.ReadFile("/proc/thread-self/status")
-	if err != nil {
+	runtime.KeepAlive(&hdr)
+	runtime.KeepAlive(&data)
+	tasks, err := os.ReadDir("/proc/self/task")
+	if err != nil || len(tasks) == 0 {
 		return fmt.Errorf("capabilities: %v", err)
 	}
-	for _, l := range strings.Split(string(b), "\n") {
-		for _, k := range []string{"CapInh:", "CapPrm:", "CapEff:", "CapAmb:"} {
-			if strings.HasPrefix(l, k) && strings.Trim(strings.TrimPrefix(l, k), " \t0") != "" {
-				return fmt.Errorf("capabilities still set: %s", l)
+	for _, t := range tasks {
+		b, err := os.ReadFile("/proc/self/task/" + t.Name() + "/status")
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) { // a thread that ended meanwhile
+				continue
+			}
+			return fmt.Errorf("capabilities: %v", err)
+		}
+		for _, l := range strings.Split(string(b), "\n") {
+			for _, k := range []string{"CapInh:", "CapPrm:", "CapEff:", "CapAmb:"} {
+				if strings.HasPrefix(l, k) && strings.Trim(strings.TrimPrefix(l, k), " \t0") != "" {
+					return fmt.Errorf("capabilities still set on thread %s: %s", t.Name(), l)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// yamaScope is kernel.yama.ptrace_scope (-1 when Yama is not there).
+func yamaScope() int {
+	b, err := os.ReadFile("/proc/sys/kernel/yama/ptrace_scope")
+	if err != nil {
+		return -1
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return -1
+	}
+	return v
 }
 
 // cmdForward is the forwarder (started only by privateNet; fd 3 is its end of the socketpair).
