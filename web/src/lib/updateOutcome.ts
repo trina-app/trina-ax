@@ -9,6 +9,10 @@ import type { Health, Job, UpdateStatus } from '@mycel/shared/api'
  * exits 75 and the server comes back (QA TC-336). The hosted cloud has no Go back. */
 export const goBackOffered = (u: Pick<UpdateStatus, 'previous' | 'managed' | 'previousNeedsRestore'>): boolean => !!u.previous && !u.managed && !u.previousNeedsRestore
 
+/** The publisher paused this release (server/src/system/rollout.ts hold): the server refuses to install it (409), so
+ * Admin › Home and Admin › System both say it is paused and offer no install button (QA TC-361). */
+export const releasePaused = (u: Pick<UpdateStatus, 'hold'> | null | undefined): boolean => u?.hold === 'paused'
+
 export type UpdateOutcome =
   | { kind: 'ok' }
   /** the version did not stay; message: the server's words (null: none, say it in the client's) */

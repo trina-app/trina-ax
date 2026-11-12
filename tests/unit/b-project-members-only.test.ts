@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { atLeast, inProjectZone, RuleSet, SYSTEM_PRINCIPAL, type Principal } from '../../server/src/policy/access'
+import { atLeast, inProjectZone, projectsCaseInsensitive, RuleSet, setProjectsCaseInsensitive, SYSTEM_PRINCIPAL, type Principal } from '../../server/src/policy/access'
 import { cutInsideProject, insideProject, inZone } from '../../server/src/policy/zone'
 import { listAudit } from '../../server/src/admin/audit'
 import { auditSight } from '../../server/src/admin/audit-sight'
@@ -69,10 +69,15 @@ describe('the members-only zone of the permission function', () => {
     expect(r.access(dana, segs('groups/finance/budget.md'))).toBe('write')
     expect(r.access(carol, segs('projects'))).toBe('write')
   })
-  test('letter case and Unicode form of projects/ change nothing', () => {
-    expect(inProjectZone(segs('Projects/plan'))).toBe(true)
-    expect(inProjectZone(segs('PROJECTS/x/y'))).toBe(true)
-    expect(r.access(carol, segs('Projects/plan/a.md'))).toBe('none')
+  test('letter case of projects/ changes nothing on a disk that ignores case (a case-sensitive one: b-projects-lowercase-only)', () => {
+    const was = projectsCaseInsensitive()
+    setProjectsCaseInsensitive(true)
+    try {
+      expect(inProjectZone(segs('Projects/plan'))).toBe(true)
+      expect(inProjectZone(segs('PROJECTS/x/y'))).toBe(true)
+      expect(r.access(carol, segs('Projects/plan/a.md'))).toBe('none')
+    } finally { setProjectsCaseInsensitive(was) }
+    expect(inProjectZone(segs('projects'.normalize('NFD') + '/plan'))).toBe(true)
   })
   test('the system principal writes everywhere outside users/ and .system/; nobody becomes it by role', () => {
     expect(r.access(SYSTEM_PRINCIPAL, segs('projects/plan/a.md'))).toBe('write')

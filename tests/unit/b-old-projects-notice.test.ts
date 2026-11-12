@@ -3,7 +3,8 @@
 // (server/src/chat/old-projects.ts; docs/DECISIONS.md "Projects from before the update: one card, Add me to these").
 // A 0.4.0-shaped team: the owner (dana), admins carol (made most projects), frank (an old admin, member of Finance),
 // grace (an admin made after the update), henry (a member made an admin after the update), members alice and bob.
-// Projects from 0.4.0: Sales (projects/sales: carol, alice), Ops (Projects/ops, capital P: carol, bob), Finance
+// Projects from 0.4.0: Sales (projects/sales: carol, alice), Ops (Projects/ops, capital P where the disk ignores case,
+// else projects/ops: carol, bob), Finance
 // (projects/finance: frank), Left (projects/left: carol; frank joined after the update and was taken out again); after
 // the update: New (projects/new: carol); a personal one of alice's. The owner's template task on Sales, and one on Ops
 // she changed after it paused.
@@ -65,7 +66,9 @@ beforeAll(async () => {
       .run(id, name, dir, '', creator, at, creator, '')
   }
   project(ids.sales, 'Sales', 'projects/sales', 'carol', ['carol', 'alice'])
-  project(ids.ops, 'Ops', 'Projects/ops', 'carol', ['carol', 'bob'])
+  // (Projects/ is projects/ only where the disk ignores case: docs/DECISIONS.md "Only the lowercase projects/")
+  const ops = h.ctx.files.fx.caseInsensitive ? 'Projects/ops' : 'projects/ops'
+  project(ids.ops, 'Ops', ops, 'carol', ['carol', 'bob'])
   project(ids.finance, 'Finance', 'projects/finance', 'frank', ['frank'])
   project(ids.left, 'Left', 'projects/left', 'carol', ['carol'])
   project(ids.personal, 'Alice notes', 'users/alice/projects/notes', 'alice', [])
@@ -78,7 +81,7 @@ beforeAll(async () => {
     return s.id
   }
   taskOnSales = template('projects/sales')
-  taskOnOps = template('Projects/ops')
+  taskOnOps = template(ops)
   // the first start of the new build (T)
   await membersOnlyOnce(h.ctx)
   // after the update: a new project, a role change, a new admin, and frank in Left and out again
@@ -96,7 +99,7 @@ afterAll(async () => { await h.close() })
 
 describe('the card for projects from before the update', () => {
   test('the owner and an old admin see the projects they read by role on 0.4.0 and not now; nobody else gets one', async () => {
-    // (Ops is in Projects/ with a capital P: the members-only zone in any letter case, as before)
+    // (Ops is in Projects/ with a capital P where the disk ignores case: the members-only zone in any letter case there)
     expect(await card('dana')).toEqual(['Finance', 'Left', 'Ops', 'Sales'])
     // frank is in Finance, and left Left after the update (someone chose that)
     expect(await card('frank')).toEqual(['Ops', 'Sales'])
@@ -135,6 +138,9 @@ describe('the card for projects from before the update', () => {
     }, { timeoutMs: 10_000 })
     expect(told!.every((n) => n.membersOnly === true)).toBe(true)
     expect(JSON.stringify(told)).not.toContain('projects/')
+    // the Scheduled page says so too: a project only its members use now, not one that is gone (QA TC-360)
+    const rows = (await raw('dana', 'GET', '/api/schedules')).json.items as { id: string; lastOutcome: string | null; lastMembersOnly?: boolean }[]
+    for (const id of [taskOnSales, taskOnOps]) expect(rows.find((x) => x.id === id), id).toMatchObject({ lastOutcome: 'project_gone', lastMembersOnly: true })
     // she changed the Ops task after it paused: hers to turn on, not the server's
     db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('dana', 'schedule.edited', ?, '{}', ?)").run(taskOnOps, new Date().toISOString())
   })
@@ -177,6 +183,13 @@ describe('the card for projects from before the update', () => {
     const resumed = db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'schedule.resumed' AND target = ?").get(taskOnSales) as { actor_id: string | null; detail: string }
     expect(resumed.actor_id).toBeNull()
     expect(JSON.parse(resumed.detail)).toMatchObject({ via: 'project_member', project: ids.sales })
+    // the Scheduled page no longer says the project is gone (QA TC-360: "Project gone" stayed after the resume): the
+    // skip is history once she sees the project; neither task ran before it, so no last result at all
+    const rows = (await raw('dana', 'GET', '/api/schedules')).json.items as { id: string; lastOutcome: string | null; lastMembersOnly?: boolean }[]
+    for (const id of [taskOnSales, taskOnOps]) {
+      expect(rows.find((x) => x.id === id)?.lastOutcome ?? null, id).toBeNull()
+      expect(rows.find((x) => x.id === id)?.lastMembersOnly, id).toBeUndefined()
+    }
     // other admins: unchanged (frank is still not in Sales)
     expect(await reads('frank', 'projects/sales')).toBe(false)
   })
