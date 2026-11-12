@@ -1,11 +1,12 @@
 // The phone tab bar (below 768 px; Layout.tsx, and the Settings dialog, which is the 나 tab): 트리나 (the AI: Home with a
 // new chat and the latest chats, its history behind ☰), 대화 (rooms, DMs and group chats), 파일, 나 (Settings, opened on
 // its list: the Inbox and, for admins, Admin on top). lib/tabs.ts says which tab an address belongs to and which one the
-// app opens on. A hairline above, no frame; the tab on screen in ink and medium weight. One count per kind of thing: my
-// unread room messages on 대화, my unread Inbox notices on 나. While @트리나 waits on me in a room (Room.aiWaits), 대화's
-// pill is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers"); the count is the same
-// and comes back when the wait ends (a screen reader hears both). Not shown inside a conversation (a room, an AI chat):
-// their message box needs the bottom.
+// app opens on. A hairline above, no frame; the tab on screen in ink and medium weight. Each unread thing counted once
+// (QA TC-256): my unread room messages on 대화 (a mention and a followed thread's replies among them), on 나 the unread
+// Inbox notices that are not about a conversation (store/inbox.ts useNoticeUnread). While @트리나 waits on me in a room
+// (Room.aiWaits), 대화's pill is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers");
+// the count is the same and comes back when the wait ends (a screen reader hears both). Not shown inside a conversation
+// (a room, an AI chat): their message box needs the bottom.
 // A tap never adds a history entry (lib/screenHistory.ts switchTab): another tab puts its own stack back where it was
 // left, the tab on show goes back to its root, so the phone's Back never walks from one tab into another. The tab
 // marked is the stack's: a page opened from 나 (연결한 서비스, a notice's page) keeps 나 marked.
@@ -18,7 +19,7 @@ import { useRealPath } from '../lib/realPath'
 import { badgeText, totalUnread } from '../lib/rooms'
 import { settleOpened, stackNow, switchTab } from '../lib/screenHistory'
 import { aiName, hidesTabs, tabOf, TAB_ROOT, type Tab } from '../lib/tabs'
-import { useInboxUnread } from '../store/inbox'
+import { useNoticeUnread } from '../store/inbox'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
@@ -30,7 +31,7 @@ export function BottomTabs() {
   const unread = useRooms((s) => totalUnread(s.rooms))
   // a room I hid counts nowhere (docs/DECISIONS.md "대화 숨기기": what is for me brings it back first)
   const aiWaits = useRooms((s) => s.rooms.some((r) => r.aiWaits && !r.hidden))
-  const inbox = useInboxUnread()
+  const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
   // the signed-in app shows its first entry: one opened from outside gets its parents put under it
   useEffect(() => settleOpened(), [])

@@ -679,7 +679,7 @@ export class Notifications {
   list(userId: string, o: { cursor?: string; limit?: number }) {
     const cur = decodeCursor(o.cursor, ['t', 'id'])
     if (o.cursor && (!cur || !Number.isFinite(Date.parse(cur.t!)))) throw new HttpError('validation')
-    if (!this.active(userId)) return { items: [], nextCursor: null, unreadCount: 0 }
+    if (!this.active(userId)) return { items: [], nextCursor: null, unreadCount: 0, roomUnreadCount: 0 }
     const limit = Math.min(100, Math.max(1, o.limit ?? 30)), db = this.ctx.db, cutoff = this.cutoff()
     // newest first by sort_at: a notice's own time, a room row's its newest message's
     const rows = db.query(`SELECT * FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND created_at>=?
@@ -690,7 +690,9 @@ export class Notifications {
     const merged = [...rows, ...rooms.filter(after)].sort((a, b) => (a.sort_at === b.sort_at ? (a.id < b.id ? 1 : -1) : a.sort_at < b.sort_at ? 1 : -1)).slice(0, limit + 1)
     const selected = merged.slice(0, limit), last = selected.at(-1)
     const { n } = db.query(`SELECT COUNT(*) n FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
-    return { items: selected.map(r => this.out(r)), nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + rooms.filter((r) => r.counted).length }
+    // the conversation rows' part on its own: the rooms list counts those too, so a phone's 나 tab leaves them to 대화
+    const roomUnreadCount = rooms.filter((r) => r.counted).length
+    return { items: selected.map(r => this.out(r)), nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + roomUnreadCount, roomUnreadCount }
   }
   get(userId: string, id: string): InboxNotification {
     if (!this.active(userId)) throw new HttpError('not_found')

@@ -37,6 +37,11 @@ const q = (search: string) => new URLSearchParams(search)
 const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const folder = (p: string) => (p ? `/files?path=${encodeURIComponent(p)}` : '/files')
 
+/** Activity's conversations (mentions and thread replies, `?in=chats`): a page of the 대화 tab, opened from its
+ * 멘션·스레드 row (pages/Rooms.tsx), so it is under /rooms here. The whole Activity (/activity) stays 나's. */
+export const CHATS_ACTIVITY = '/activity?in=chats'
+export const activityInChats = (search: string) => q(search).get('in') === 'chats'
+
 /** The pieces of an address ("/files?path=a#x" → pathname, search, hash). */
 function split(to: string) {
   const p = parsePath(to)
@@ -102,6 +107,8 @@ export function screenOf(to: string): Screen {
       if (c) return s('me', `/${seg.slice(0, -1).join('/')}`)
       return b ? s('me', '/settings') : s('me', null)
     case 'activity':
+      // its conversations (?in=chats, 대화's 멘션·스레드 row) are a page of the 대화 tab, whichever of its tabs is chosen
+      if (activityInChats(search)) return s('chats', '/rooms', CHATS_ACTIVITY)
       return s('me', '/settings')
     case 'admin':
       // Admin's own table (pages/admin/adminScreens.ts): a page → /admin, a group of Team settings → /admin/settings,
@@ -176,6 +183,7 @@ export function useScreenName(): (to: string) => string | null {
       if (q(search).get('view') === 'trash') return t('files.trash')
       return path ? folderName(path) : t('tabs.files')
     }
+    if (pathname === '/activity' && activityInChats(search)) return t('feed.chats')
     const settings = settingsPageName(pathname, t)
     if (settings) return settings
     const key = TITLES.find(([re]) => re.test(pathname))?.[1]
