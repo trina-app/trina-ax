@@ -14,6 +14,7 @@ import { MEMBER_OWN_KEY } from '../../server/src/credentials/resolve'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { setSetting } from '../../server/src/admin/settings'
 import type { SocketLauncher } from '../../server/src/native'
+import { engineStatusCache } from '../../server/src/admin/engines'
 import { waitFor } from '../lib/wait'
 
 setDefaultTimeout(60_000)
@@ -58,6 +59,10 @@ const final = async (s: TestSocket, loginId: string) => (await s.next('credentia
 describe('ChatGPT sign-in for the team', () => {
   let id = ''
   test('the address and code reach the person who started it (only), the login is stored encrypted, nothing stays behind', async () => {
+    // Admin › AI providers checked Codex before (no connection then): that check is kept for 10 minutes
+    const engines = engineStatusCache(h.ctx)
+    await engines.get('codex', true, 'en')
+    expect(engines.peek('codex')).not.toBeNull()
     const start = await logins().start({ userId: 'dana', locale: 'en', personal: false, label: 'Team ChatGPT', assignments: [], priority: 100 })
     expect(start.state).toBe('starting')
     const code = await dana.next('credential.login', (f) => f.data.loginId === start.loginId && f.data.state === 'code', 20_000)
@@ -66,6 +71,9 @@ describe('ChatGPT sign-in for the team', () => {
     expect(done.state).toBe('done')
     expect(done.credential).toMatchObject({ kind: 'chatgpt', label: 'Team ChatGPT', scope: 'team', planType: 'plus', state: 'ok' })
     id = done.credential!.id
+    // the connection is made: Codex's old check is dropped and open screens ask again (Admin › AI providers follows)
+    expect(engines.peek('codex')).toBeNull()
+    await alice.next('notice', (f) => (f.data as { code?: string }).code === 'engine_choice_changed')
     const row = getRow(h.ctx.db, id)!
     expect(metaOf(row)).toMatchObject({ planType: 'plus', emailMasked: 'o***@e***.com' })
     expect(JSON.stringify(row)).not.toContain('at-login-acc-login')
