@@ -1,6 +1,8 @@
 // Route module "slack" — owner: component C (docs/WORKPLAN.md). The Slack connector's screens (contract:
 // shared/src/api/slack.ts; logic: server/src/integrations/slack/service.ts): the owner's Admin › Slack, each person's
-// own link (Settings) and the one-time link page (/slack/link?t=…, its token only ever in a POST body).
+// own link (Settings) and the one-time link page (/slack/link?t=…, its token only ever in a POST body). With the
+// hosting service's official app: "Add to Slack" (official/install) and the browser's return from it
+// (official/callback), bound to the owner who pressed it like "Sign in with Slack" is to its person.
 // init() makes the connector and opens the connection when the owner turned it on.
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
@@ -13,6 +15,7 @@ import type { AppContext } from '../context'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
 import { SIGNIN_CODE, SLACK_CALLBACK_PATH, SlackError, slackOf } from '../integrations/slack/service'
+import { SLACK_BROKER_TEAM_INSTALL_RETURN_PATH } from '@mycel/shared/cloud-protocol'
 import type { AppContextC } from '../http/env'
 import { refusal } from '../integrations/slack/text'
 import type { Locale } from '@mycel/shared/api'
@@ -48,7 +51,9 @@ function teamOrigin(c: Context<AppEnv>, ctx: AppContext, claimed: string | undef
  * app with only the state and the code (both checked), which sends the browser to the callback again. Never an address
  * from the request. */
 export const SIGNIN_RETURN_PATH = '/slack/signin-return'
-const resumePath = (state: string, code: string) => `${SIGNIN_RETURN_PATH}?${new URLSearchParams({ state, code })}`
+/** Slack's code (own app), or the hosting service's one-time handoff (official app; `to: install` for "Add to Slack") */
+const resumePath = (state: string, back: { code: string } | { handoff: string; to?: 'install' }) => `${SIGNIN_RETURN_PATH}?${new URLSearchParams({ state, ...back })}`
+const HANDOFF = /^[A-Za-z0-9_-]{43}$/
 
 export const slackRoutes: RouteModule = {
   name: 'slack',
@@ -59,7 +64,7 @@ export const slackRoutes: RouteModule = {
   },
   register(kit, ctx) {
     const slack = () => slackOf(ctx)
-    kit.handle(API.slackAdmin, ({ c, query }) => slack().adminView(teamOrigin(c, ctx, query.origin)))
+    kit.handle(API.slackAdmin, ({ c, query }) => slack().freshAdminView(teamOrigin(c, ctx, query.origin)))
     kit.handle(API.saveSlackTokens, ({ c, body, auth }) => safe(c.get('locale'), async () => {
       const cc = credentialsOf(ctx), L = c.get('locale')
       const bot = await unsealOrFail(cc, body.botToken, 'slack.token', L)
@@ -75,17 +80,35 @@ export const slackRoutes: RouteModule = {
     // started on the web, else a page saying it is done and the app can be used again.
     kit.raw('GET', SLACK_CALLBACK_PATH, async (c) => {
       const auth = (c as unknown as AppContextC).get('auth')
-      const state = c.req.query('state') ?? '', code = c.req.query('code') ?? ''
+      // the official app: the hosting service's handoff in place of Slack's code
+      const state = c.req.query('state') ?? '', code = c.req.query('code') ?? '', handoff = c.req.query('handoff') ?? ''
       let out = { result: 'signin_failed', client: 'web' }
-      try { out = await slack().finishSignIn({ state, code, error: c.req.query('error') }, auth ? { userId: auth.user.id } : null) }
+      try { out = await slack().finishSignIn({ state, code, handoff, error: c.req.query('error') }, auth ? { userId: auth.user.id } : null) }
       catch (e) { ctx.log.error('slack sign-in failed', { err: String(e) }) }
       c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
-      // (finishSignIn answers signin_needed only for a state and a code of the right shape)
-      if (out.result === 'signin_needed' && SIGNIN_CODE.test(code)) return c.redirect(`/login?next=${encodeURIComponent(resumePath(state, code))}`, 303)
+      // (finishSignIn answers signin_needed only for a state and a code, or a handoff, of the right shape)
+      if (out.result === 'signin_needed' && (SIGNIN_CODE.test(code) || HANDOFF.test(handoff))) return c.redirect(`/login?next=${encodeURIComponent(resumePath(state, SIGNIN_CODE.test(code) ? { code } : { handoff }))}`, 303)
       const r = encodeURIComponent(out.result === 'signin_needed' ? 'signin_failed' : out.result)
       return c.redirect(out.client === 'web' ? `/connectors?slack=${r}` : `/slack/done?slack=${r}`, 303)
     })
     kit.handle(API.removeSlack, ({ c, auth }) => safe(c.get('locale'), () => slack().remove(auth.user.id)))
+    // "Add to Slack" (the hosting service's official app): Slack's install page; the browser comes back below
+    kit.handle(API.startSlackInstall, ({ c, body, auth }) => safe(c.get('locale'), () => slack().startInstall(auth.user.id, auth.session.id, auth.session.client, teamOrigin(c, ctx, body.origin))))
+    // The hosting service sends the browser back here after Slack's "Add to Slack" (only to this team's address it
+    // recorded). Signed in as the owner who pressed it: added. No session in this browser: sign in first, then the
+    // fixed return page brings it back here. Another person's session: refused. Then Admin › Slack says how it went (a
+    // flow started in the desktop or phone app: a page saying it is done).
+    kit.raw('GET', SLACK_BROKER_TEAM_INSTALL_RETURN_PATH, async (c) => {
+      const auth = (c as unknown as AppContextC).get('auth')
+      const state = c.req.query('state') ?? '', handoff = c.req.query('handoff') ?? ''
+      let out = { result: 'install_failed', client: 'web' }
+      try { out = await slack().finishInstall({ state, handoff, error: c.req.query('error') }, auth ? { userId: auth.user.id } : null) }
+      catch (e) { ctx.log.error('slack install failed', { err: e instanceof Error ? e.name : 'unknown' }) }
+      c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
+      if (out.result === 'signin_needed' && HANDOFF.test(handoff)) return c.redirect(`/login?next=${encodeURIComponent(resumePath(state, { handoff, to: 'install' }))}`, 303)
+      const r = encodeURIComponent(out.result === 'signin_needed' ? 'install_failed' : out.result)
+      return c.redirect(out.client === 'web' ? `/admin/slack?slack=${r}` : `/slack/done?slack=${r}`, 303)
+    })
     kit.handle(API.mySlack, ({ auth }) => slack().mine(auth.user.id))
     kit.handle(API.unlinkSlack, ({ auth }) => slack().unlink(auth.user.id))
     kit.handle(API.previewSlackLink, ({ c, body, auth }) => safe(c.get('locale'), () => slack().preview(auth.user.id, body.token)))

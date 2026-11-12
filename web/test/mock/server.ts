@@ -2068,7 +2068,7 @@ export class MockServer {
     // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
     mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
     slackAdmin: () => ({
-      enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
+      mode: 'own', official: false, enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
       signIn: false, redirectUrl: null,
     }),

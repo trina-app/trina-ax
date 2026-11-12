@@ -5,12 +5,18 @@
 // place to fix it. Replacing the tokens, and removing it, are behind "Replace tokens". A phone (below 768 px): the
 // cards without frames and 44 px targets (docs/DECISIONS.md "Admin and Settings on phones"); the setup (Slack's pages,
 // keys to copy and paste) is a computer's job there: a status row and "Set this up on a computer" in its place.
-import { useState, type ReactNode } from 'react'
+// Where the hosting service serves this server (SlackAdmin.official) and no own app is saved: one "Add to Slack" button
+// instead (the official app: nothing to copy, also on a phone); the four steps stay one link away. Added: the same
+// status line, with Remove (it takes the app off the workspace) in place of "Replace tokens". How "Add to Slack" went
+// comes back in the address (?slack=…) and is said once.
+import { useEffect, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { ApiError, SLACK, type SlackAdmin, type SlackErrorCode } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { useLocale, useT, type MessageKey } from '../../i18n'
+import { outcomeText } from '../../lib/slackSignIn'
 import { Badge, Button, Field, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Card, Loadable, useAction, useLoad } from './common'
 
@@ -36,6 +42,8 @@ const FIX: Record<SlackErrorCode, { key: MessageKey; page?: Page | 'replace' }> 
   socket_mode_off: { key: 'slack.err.socket_mode_off', page: 'socket' }, app_mismatch: { key: 'slack.err.app_mismatch', page: 'general' },
   workspace_changed: { key: 'slack.err.unknown', page: 'replace' }, unknown: { key: 'slack.err.unknown', page: 'replace' },
   unreachable: { key: 'slack.err.unreachable' }, ratelimited: { key: 'slack.err.unreachable' }, key_unsafe: { key: 'slack.err.key_unsafe' },
+  // the official app (the hosting service): nothing to fix in Slack's settings
+  broker_unreachable: { key: 'slack.err.broker_unreachable' }, not_served: { key: 'slack.err.not_served' }, removed: { key: 'slack.err.removed' },
 }
 /** A token Slack refused while saving: shown under that token's field (the server names the field) */
 type FieldName = 'bot' | 'app' | 'clientId' | 'clientSecret'
@@ -78,8 +86,19 @@ export default function AdminSlack() {
   const state = useLoad(() => api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }))
   const act = useAction()
   const [replacing, setReplacing] = useState(false)
+  // the own app's four steps although the official app can be added here
+  const [ownApp, setOwnApp] = useState(false)
   const set = (v: SlackAdmin | undefined) => { if (v) state.setData(v) }
   const phone = useMediaQuery('(max-width: 767.98px)')
+  // how "Add to Slack" went, said once: taken out of the address so a reload does not say it again
+  const [params, setParams] = useSearchParams()
+  const [outcome] = useState(() => params.get('slack'))
+  useEffect(() => { if (params.has('slack')) setParams((p) => { p.delete('slack'); return p }, { replace: true }) }, [params, setParams])
+  const remove = async (official: boolean) => {
+    if (!(await confirmDialog({ title: t('slack.admin.removeTitle'), body: t(official ? 'slack.admin.removeOfficialBody' : 'slack.admin.removeBody'), confirm: t('slack.admin.remove'), danger: true }))) return
+    const v = await act(() => api.call(SLACK.removeSlack))
+    if (v) { state.setData(v); setReplacing(false) }
+  }
   return (
     <>
       <AdminPageHeader title={t('slack.admin.title')} desc={t('slack.admin.desc')} testId="slack-admin" />
@@ -87,8 +106,14 @@ export default function AdminSlack() {
         {(s) => {
           const fix = s.enabled && s.lastError ? FIX[s.lastError] : null
           const origin = s.linkOrigin && s.linkOrigin !== window.location.origin ? s.linkOrigin : null
+          const official = s.mode === 'official'
+          // "Add to Slack" instead of the four steps: the hosting service serves this server, nothing of our own saved
+          const addable = !s.tokens && s.official && !ownApp
           return (
             <>
+              {outcome && (
+                <p role="status" className={`mb-3 text-sm ${outcome === 'installed' ? 'text-ok' : 'text-warn'}`} data-testid="slack-outcome">{t(outcomeText(outcome))}</p>
+              )}
               {s.tokens && (
                 <Card flat>
                   <div className="flex items-center gap-3" data-testid="slack-status">
@@ -108,15 +133,19 @@ export default function AdminSlack() {
                   ) : s.enabled && s.botName ? (
                     <p className="mt-2 text-sm text-muted" data-testid="slack-invite"><CodeText text={t('slack.admin.invite', { bot: s.botName })} /></p>
                   ) : null}
-                  {!s.redirectUrl && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
+                  {!s.redirectUrl && !official && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
                   <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted max-md:items-center">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
-                    <button type="button" className="underline underline-offset-2 max-md:min-h-11" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>
+                    {official
+                      ? <button type="button" className="text-danger underline underline-offset-2 max-md:min-h-11" onClick={() => void remove(true)} data-testid="slack-remove">{t('slack.admin.remove')}</button>
+                      : <button type="button" className="underline underline-offset-2 max-md:min-h-11" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>}
                   </p>
                 </Card>
               )}
-              {(!s.tokens || replacing) && phone ? (
+              {addable ? (
+                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={() => setOwnApp(true)} />
+              ) : (!s.tokens || replacing) && phone ? (
                 <Card flat testId="slack-on-computer">
                   {!s.tokens && (
                     <p className="mb-2 flex items-center gap-2 text-sm" data-testid="slack-status">
@@ -139,11 +168,11 @@ export default function AdminSlack() {
                   </ol>
                   {s.tokens && (
                     <button type="button" className="mt-5 text-xs text-danger underline underline-offset-2 max-md:min-h-11" data-testid="slack-remove"
-                      onClick={async () => {
-                        if (!(await confirmDialog({ title: t('slack.admin.removeTitle'), body: t('slack.admin.removeBody'), confirm: t('slack.admin.remove'), danger: true }))) return
-                        const v = await act(() => api.call(SLACK.removeSlack))
-                        if (v) { state.setData(v); setReplacing(false) }
-                      }}>{t('slack.admin.remove')}</button>
+                      onClick={() => void remove(false)}>{t('slack.admin.remove')}</button>
+                  )}
+                  {!s.tokens && s.official && (
+                    <button type="button" className="mt-5 text-xs text-accent underline underline-offset-2 max-md:min-h-11" data-testid="slack-use-official"
+                      onClick={() => setOwnApp(false)}>{t('slack.official.useOfficial')}</button>
                   )}
                 </Card>
               )}
@@ -152,6 +181,31 @@ export default function AdminSlack() {
         }}
       </Loadable>
     </>
+  )
+}
+
+/** "Add to Slack": the hosting service's official app. One button: Slack's own page (choose the workspace, allow),
+ * then back here, added and on. Nothing to copy, so also on a phone. */
+function OfficialAdd({ removed, onOwnApp }: { removed: boolean; onOwnApp: () => void }) {
+  const t = useT(), locale = useLocale()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const add = async () => {
+    setBusy(true); setError(null)
+    // this browser goes to Slack and comes back to this page
+    try { window.location.assign((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
+    catch (e) { setError(errorText(e, locale, t('error.network'))); setBusy(false) }
+  }
+  return (
+    <Card flat title={t('slack.official.title')} testId="slack-official">
+      {removed && <p className="mb-2 text-sm text-warn" data-testid="slack-removed">{t('slack.err.removed')}</p>}
+      <p className="text-sm text-muted">{t('slack.official.hint')}</p>
+      {error && <p role="alert" className="mt-2 text-sm text-danger" data-testid="slack-add-error">{error}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Button variant="primary" className="max-md:h-11" busy={busy} disabled={busy} onClick={() => void add()} data-testid="slack-add">{t('slack.official.add')}</Button>
+        <button type="button" className="text-xs text-muted underline underline-offset-2 max-md:min-h-11" onClick={onOwnApp} data-testid="slack-own-app">{t('slack.official.ownApp')}</button>
+      </div>
+    </Card>
   )
 }
 
