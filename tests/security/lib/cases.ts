@@ -21,7 +21,7 @@ import { INTRO_DECK_SPECS } from './intro-deck-cases'
 import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 import { FILE_LIST_SPECS } from './file-list-cases'
-import { MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
+import { inviterOnlyByName, MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -154,7 +154,15 @@ export const SPECS: Record<string, Spec> = {
     } },
   cancelAccountDeletion: { build: (c) => c.del('/api/me/deletion-request?userId=alice'), scope: 'self',
     check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none')) throw new Error(`${who}'s cancel left a request open: ${r.text}`) } },
-  inviteInfo: { build: (c, w) => c.get(`/api/invites/${w.ids.inviteToken}`), scope: 'byLevel' },
+  // what the invite is for, for anyone with the token: the team, the role it gives, whether it works and, while it
+  // works, its maker's display name only (misc-cases.ts inviterOnlyByName)
+  inviteInfo: { build: (c, w) => c.get(`/api/invites/${w.ids.inviteToken}`), scope: 'byLevel',
+    check: (r, w, who) => {
+      if (r.status !== 200 || r.json?.teamName !== 'Sec Team' || r.json?.valid !== true) throw new Error(`${who}: the invite's info answered ${r.status} ${r.text.slice(0, 160)}`)
+      const extra = Object.keys(r.json).filter((k) => !['teamName', 'role', 'expiresAt', 'valid', 'inviterName'].includes(k))
+      if (extra.length) throw new Error(`${who}: the invite's info carries ${extra.join(', ')}`)
+      inviterOnlyByName(r, w, who, "the invite's info")
+    } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },
   completePasswordReset: { skipPositive: true, build: (c, w) => c.post(`/api/password-resets/${w.ids.resetToken}`, { password: 'Changed-pass-Fox-9087-qq' }), scope: 'byLevel',
