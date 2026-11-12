@@ -163,7 +163,7 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
 /** An admin replaced this link's groups (Admin › Members, an audited `team_link.update` with `from`): the welcome steps
  * then no longer add the team's group back to it (web TeamLinkPanel linkDiffers). */
 function groupsChosen(db: Database, id: string): boolean {
-  return !!db.query("SELECT 1 FROM audit_log WHERE action = 'team_link.update' AND target = ? AND json_valid(detail) AND json_extract(detail, '$.from') IS NOT NULL LIMIT 1").get(id)
+  return !!db.query("SELECT 1 FROM audit_log WHERE action = 'team_link.update' AND target = ? AND json_valid(detail) AND json_type(detail, '$.from') = 'array' LIMIT 1").get(id)
 }
 
 /** What AI someone joining with these groups has (the invite message's "본인 AI 계정이 필요해요"); a read that fails
@@ -315,7 +315,7 @@ export function repointDeckLinks(ctx: AppContext): number {
     if (getSetting(ctx.db, DECK_LINKS_CLEARED_KEY)) return
     const rows = ctx.db.query(`SELECT ${COLS} FROM team_links WHERE revoked_at IS NULL AND skill_path IN (${deck.map(() => '?').join(',')})`).all(...deck) as Row[]
     for (const r of rows) {
-      const groups = existingGroups(ctx.db, parseIds(fresh.group_ids))
+      const groups = existingGroups(ctx.db, parseIds(r.group_ids))
       const s = landing ? teamSkill(ctx, newMember(groups), landing) : null
       const to = s?.path ?? null
       ctx.db.query('UPDATE team_links SET skill_path = ? WHERE id = ? AND revoked_at IS NULL').run(to, r.id)
