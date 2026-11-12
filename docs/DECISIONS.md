@@ -11606,8 +11606,8 @@ under it) and W5 (the setup row is at the top of every list panel).
   gives 268 px at 1280 too; its own numbers (240 at 1280, the 1052 px rule) need the narrower one.
 - **Below 1052 px** (72 + 240 + a room with its thread, 740) the panel folds away by itself while a thread, the room's ✦
   side chat or a side panel is open, and comes back when it closes; its "목록 숨기기" hides it (remembered in this browser)
-  and the rail's "목록 보기" brings it back. Not done here: the plan's overlay sheet for a thread below 812 px (768–811 px
-  keeps today's room + thread columns).
+  and the rail's "목록 보기" brings it back. The plan's overlay sheet for a thread below 812 px moves to phase P3 (until then
+  768–811 px keeps today's room + thread columns).
 - **Marks**: 트리나 a "?" (an AI chat waits on me) or a dot (an unseen answer); 대화 the number of conversations with
   something unread (muted and hidden left out), "?" while a room's AI waits on me, a dot when only mention/thread rows are
   unread; 활동 the unread notices that are not conversation rows (the phone 나 tab's number). Nothing counted twice:
