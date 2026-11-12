@@ -18,64 +18,65 @@ import { ChevronDown, FolderKanban, Plus } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
 import { capGroups, groupByProject, hasProjects, strongestMark, type Caps, type ShownGroup } from '../../lib/historyGroups'
 import type { MarkerView } from '../../lib/sessionMarkers'
 import { useT } from '../../i18n'
 import { useChats } from '../../store/chats'
-import { useProjects } from '../../store/projects'
+import { readForUnknown, readProjectList, useProjects } from '../../store/projects'
 import { useMeStrict } from '../../store/session'
 import { cardChats, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
 import { SessionMarker } from '../chat/ChatState'
 import { Tooltip } from '../Tooltip'
 
+/** how long a window coming back to the front waits before the project list is read again */
+const REFOCUS_READ_MS = 60_000
+/** a first read that is slow (or never answers: api.call has no timeout): the plain list shows meanwhile */
+const FIRST_READ_WAIT_MS = 1_500
+
+/** Is a project one the person sees now: the latest list read named it and the chat header did not find it gone since. */
+export function useSeesProject() {
+  const byId = useProjects((s) => s.byId)
+  const listed = useProjects((s) => s.listed)
+  return useCallback((id: string) => !!listed?.has(id) && !!byId[id], [listed, byId])
+}
+
 /**
- * The projects the person sees now, for the headers: one read of the project list when some chat is in a project,
- * again when the window comes back to the front (access may have changed on another device) and once more for a
- * project no read had (a project made or a chat moved in elsewhere). A project is seen while the latest read listed it
- * and the store still has it; its name is the store's, so a rename saved in this window shows at once.
+ * The projects the person sees now, for the headers (store/projects.ts: one read for every sidebar in this window): read
+ * when some chat is in a project and no read was made yet, again when the window comes back to the front (access may
+ * have changed on another device; at most once a minute) and once more for a project no read had (a project made or a
+ * chat moved in elsewhere). The name is the store's, so a rename saved in this window shows at once. `ready` is false
+ * only while a first read is on its way, at most a moment: then the list shows without project headers until it ends.
  */
 export function useSeenProjects(chats: readonly Chat[]) {
   const byId = useProjects((s) => s.byId)
-  const [listed, setListed] = useState<ReadonlySet<string> | null>(null)
-  const reads = useRef(0)
-  const askedFor = useRef(new Set<string>())
+  const listed = useProjects((s) => s.listed)
+  const sees = useSeesProject()
   const ids = useMemo(() => [...new Set(chats.flatMap((c) => (c.projectId ? [c.projectId] : [])))].sort().join(' '), [chats])
   const needed = ids !== ''
-  const read = useCallback(() => {
-    const mine = ++reads.current
-    api.call(API.listProjects).then(
-      (r) => {
-        useProjects.getState().put(...r.items)
-        if (mine === reads.current) setListed(new Set(r.items.map((p) => p.id)))
-      },
-      // nothing known: every chat is with the other chats (no name is ever guessed)
-      () => mine === reads.current && setListed((s) => s ?? new Set()),
-    )
-  }, [])
+  const [waited, setWaited] = useState(false)
   useEffect(() => {
-    if (needed && reads.current === 0) read()
-  }, [needed, read])
+    if (!needed || listed) return
+    // the first read answers for the projects the chats name now (a later one is readForUnknown's)
+    void readProjectList({ covers: ids.split(' ') })
+    const t = setTimeout(() => setWaited(true), FIRST_READ_WAIT_MS)
+    return () => clearTimeout(t)
+  }, [needed, listed]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!listed || !ids) return
-    const unknown = ids.split(' ').filter((id) => !listed.has(id) && !askedFor.current.has(id))
-    if (!unknown.length) return
-    for (const id of unknown) askedFor.current.add(id)
-    read()
-  }, [ids, listed, read])
+    if (ids) readForUnknown(ids.split(' '))
+  }, [ids, listed])
   useEffect(() => {
     if (!needed || typeof window === 'undefined' || !window.addEventListener) return
-    const again = () => document.visibilityState !== 'hidden' && read()
+    const again = () => document.visibilityState !== 'hidden' && void readProjectList({ minAgeMs: REFOCUS_READ_MS, covers: ids.split(' ') })
     window.addEventListener('focus', again)
     return () => window.removeEventListener('focus', again)
-  }, [needed, read])
-  const sees = useCallback((id: string) => !!listed?.has(id) && !!byId[id], [listed, byId])
-  /** a project the person was just shown (the move dialog read the list a moment ago): seen at once */
-  const add = useCallback((p: Project) => {
-    useProjects.getState().put(p)
-    setListed((s) => new Set([...(s ?? []), p.id]))
-  }, [])
-  return { ready: !needed || listed !== null, sees, project: (id: string): Project | undefined => (sees(id) ? byId[id] : undefined), add }
+  }, [needed, ids])
+  return {
+    ready: !needed || listed !== null || waited,
+    sees,
+    project: (id: string): Project | undefined => (sees(id) ? byId[id] : undefined),
+    /** a project the person was just shown in a fresh list (the move dialog read it a moment ago): seen at once */
+    add: (p: Project) => useProjects.getState().see(p),
+  }
 }
 
 const FOLDED = (userId: string) => `mycel.sidebar.historyFolded.${userId}`
@@ -93,20 +94,23 @@ const readFolded = (key: string): Set<string> => {
 /** The groups this person folded, in this browser (a private window may refuse: it just forgets). */
 export function useFoldedGroups() {
   const key = FOLDED(useMeStrict().user.id)
-  const [folded, setFolded] = useState(() => readFolded(key))
+  const [state, setState] = useState(() => ({ key, folded: readFolded(key) }))
+  // another person signed in without the sidebar going away: their own folds
+  const folded = state.key === key ? state.folded : readFolded(key)
+  const current = useRef(folded)
+  current.current = folded
   const toggle = useCallback(
-    (group: string) =>
-      setFolded((s) => {
-        const next = new Set(s)
-        if (next.has(group)) next.delete(group)
-        else next.add(group)
-        try {
-          localStorage.setItem(key, JSON.stringify([...next].slice(-FOLDED_MAX)))
-        } catch {
-          /* not kept */
-        }
-        return next
-      }),
+    (group: string) => {
+      const next = new Set(current.current)
+      if (next.has(group)) next.delete(group)
+      else next.add(group)
+      try {
+        localStorage.setItem(key, JSON.stringify([...next].slice(-FOLDED_MAX)))
+      } catch {
+        /* not kept */
+      }
+      setState({ key, folded: next })
+    },
     [key],
   )
   return { folded: folded as ReadonlySet<string>, toggle }
@@ -174,12 +178,13 @@ function Group({ group, state, row, onNavigate }: { group: ShownGroup; state: Hi
     <div className="mt-2 first:mt-0" data-testid="history-group" data-group={group.projectId ? 'project' : 'other'} data-folded={folded ? '' : undefined}>
       {/* the heading is the group's name only (the link, or the other chats' fold), so a screen reader's list of
           headings reads the projects; the icon and ▾ follow it */}
-      <div className="group/head relative flex h-7 items-center gap-1 pr-9 pl-3 text-xs font-medium text-faint max-md:h-10 max-md:pr-11" data-testid="history-group-head">
+      <div className={clsx('group/head relative flex h-7 items-center gap-1 pr-9 pl-3 text-xs font-medium text-faint max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
         {group.projectId ? (
           <>
-            <h3 className="min-w-0 truncate">
-              <Link to={`/projects/${group.projectId}`} onClick={onNavigate} className="rounded hover:text-ink" data-testid="history-group-name">
-                {name}
+            {/* the name's link is as tall as the header: 28 px, 44 px on a phone */}
+            <h3 className="flex h-full min-w-0">
+              <Link to={`/projects/${group.projectId}`} onClick={onNavigate} className="flex h-full min-w-0 items-center rounded hover:text-ink" data-testid="history-group-name">
+                <span className="truncate">{name}</span>
               </Link>
             </h3>
             <FolderKanban size={12} className="shrink-0" aria-hidden />
@@ -189,8 +194,8 @@ function Group({ group, state, row, onNavigate }: { group: ShownGroup; state: Hi
             </button>
           </>
         ) : (
-          <h3 className="min-w-0">
-            <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={fold} className="touch-hit flex max-w-full items-center gap-1 rounded hover:text-ink" data-testid="history-group-fold">
+          <h3 className="flex h-full min-w-0">
+            <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={fold} className="flex h-full max-w-full items-center gap-1 rounded hover:text-ink" data-testid="history-group-fold">
               <span className="truncate">{t('history.other')}</span>
               <ChevronDown size={12} className={clsx('shrink-0 transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
             </button>
@@ -198,8 +203,9 @@ function Group({ group, state, row, onNavigate }: { group: ShownGroup; state: Hi
         )}
         {headMark && (
           // in the rows' marker spot; on a computer it gives way to + on hover and keyboard focus (not the focus a click on
-          // ▾ leaves, or folding would hide the mark it just showed), on a phone it sits left of it
-          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center max-md:right-11', canStart && 'md:group-hover/head:opacity-0 md:group-has-[:focus-visible]/head:opacity-0')} data-testid="history-group-mark">
+          // ▾ leaves, or folding would hide the mark it just showed); where + always shows (a phone, a touch screen) it
+          // sits left of it
+          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center max-md:right-11', canStart && 'md:group-hover/head:opacity-0 md:group-has-[:focus-visible]/head:opacity-0 md:pointer-coarse:right-9')} data-testid="history-group-mark">
             <SessionMarker marker={headMark.marker} label={reasonText(headMark.marker.reason, t)} />
           </span>
         )}

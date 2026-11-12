@@ -51,7 +51,7 @@ import { MyStatusRow, openStatusDialog, StatusEmoji, useMyStatusWords } from './
 import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
-import { HistoryGroups, useHistoryGroups } from './history/HistoryGroups'
+import { HistoryGroups, useHistoryGroups, useSeesProject } from './history/HistoryGroups'
 import { useProjects } from '../store/projects'
 import { AiMark } from './rooms/AiFace'
 import { MenuButton } from './rooms/MenuButton'
@@ -90,9 +90,11 @@ const VIEW_KEY = 'mycel.sidebar.historyView'
  * default "by date" for everyone who ever touched the menu: its other choices are kept, a grouping by date is not */
 const OLD_VIEW_KEY = 'mycel.sidebar.recentsView'
 const DAY = 86_400_000
-const passes = (v: RecentsView, c: Chat, seen: MarkerView, now: number) => {
+/** `inProject`: the chat is in a project the person sees (one they no longer see counts as none, as its header and the
+ * chat page say: docs/DECISIONS.md "Trina history by project") */
+const passes = (v: RecentsView, c: Chat, seen: MarkerView, now: number, inProject: (c: Chat) => boolean) => {
   const s = v.status
-  const ok = s === 'waiting' ? waitingOrRunning(c, seen) : s === 'project' ? !!c.projectId : s === 'noProject' ? !c.projectId : s === 'confidential' ? !!c.confidential : true
+  const ok = s === 'waiting' ? waitingOrRunning(c, seen) : s === 'project' ? inProject(c) : s === 'noProject' ? !inProject(c) : s === 'confidential' ? !!c.confidential : true
   const age = now - new Date(c.updatedAt).getTime()
   const fresh = v.activity === 'today' ? dateBucket(c.updatedAt) === 'today' : v.activity === 'week' ? age <= 7 * DAY : v.activity === 'month' ? age <= 30 * DAY : true
   return ok && fresh
@@ -151,6 +153,7 @@ export default function Sidebar() {
   // goes to another group (a date, a project) and is made again, as the share right after the move needs
   // (components/chat/ChatProject.tsx, the switch "프로젝트 멤버와 공유")
   const [moving, setMoving] = useState<Chat | null>(null)
+  const navRef = useRef<HTMLElement>(null)
   const loaded = useChats((s) => s.chatsLoaded)
   const cursor = useChats((s) => s.chatsCursor)
   const loadChats = useChats((s) => s.loadChats)
@@ -181,16 +184,20 @@ export default function Sidebar() {
   // the whole history as the filter and sort choose it (the drawer, "모두 보기"): a chat made only to hold attachments (a
   // file attached, nothing sent yet) is not a conversation yet; pinned chats come first, without a header
   // (`pinnedRows`), the rest follow by project, by date or in one list
+  // before the first read of the project list, a chat with a project counts as in one (the read then sorts it out)
+  const listed = useProjects((s) => s.listed)
+  const seesProject = useSeesProject()
+  const inProject = useCallback((c: Chat) => !!c.projectId && (!listed || seesProject(c.projectId)), [listed, seesProject])
   const filtered = useMemo(() => {
     const now = Date.now()
-    const shown = chats.filter((c) => !isUnused(c) && !c.pinnedAt && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now))
+    const shown = chats.filter((c) => !isUnused(c) && !c.pinnedAt && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now, inProject))
     const when = (c: Chat) => (view.sort === 'created' ? c.createdAt : c.updatedAt)
     return shown.sort((a, b) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : when(b).localeCompare(when(a))))
-  }, [chats, view, cards, here])
+  }, [chats, view, cards, here, inProject])
   const pinnedRows = useMemo(() => {
     const now = Date.now()
-    return pinnedFirst(chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now)))
-  }, [chats, view, cards, here])
+    return pinnedFirst(chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now, inProject)))
+  }, [chats, view, cards, here, inProject])
   const listId = useId()
   const peek = useChatPeek()
   // a computer: my pinned chats (at most ten), then the five latest of the others and the chat on screen, unless the
@@ -236,7 +243,7 @@ export default function Sidebar() {
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
 
   return (
-    <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
+    <nav ref={navRef} aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
       {wide ? (
         // the team on top (TeamMenu.tsx): its logo and name, and for owners and admins the team menu
         <TeamMenu />
@@ -380,7 +387,16 @@ export default function Sidebar() {
       {moving && (
         <MoveToProjectDialog
           chat={moving}
-          onClose={() => setMoving(null)}
+          onClose={() => {
+            const id = moving.id
+            setMoving(null)
+            // the moved row is a new row in its project's group (docs/DECISIONS.md "Trina history by project"): the
+            // dialog's way back to the old "···" is gone, so the keyboard goes to the row's "···" where it is now
+            requestAnimationFrame(() => {
+              if (document.activeElement && document.activeElement !== document.body) return
+              navRef.current?.querySelector(`a[href="/c/${id}"]`)?.closest('li')?.querySelector<HTMLElement>('[data-testid="chat-row-menu"]')?.focus()
+            })
+          }}
           onMoved={(c) => {
             useChats.getState().upsertChat(c)
             // the dialog read the project list a moment ago: the row goes to its project's group at once

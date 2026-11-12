@@ -23890,7 +23890,10 @@ and **supersedes** two earlier decisions:
 - **The header**, small and grey (12 px, `text-faint`): the project's name (a link to its page), a folder icon, ▾ (folds
   the group). **+** at its right end on hover and keyboard focus, always on a touch screen (44 px on a phone): it opens
   the project's page with its "이 프로젝트에서 채팅" box focused (with a mouse; a phone's keyboard does not jump up), the
-  same as starting there. No + on the other chats (that is 트리나에게 묻기) nor on a project whose folder is in the
+  same as starting there; the word leaves that history entry once the box has it, so Back or a reload do not focus it
+  again. The name's link is as tall as the header (28 px, 44 px on a phone); ▾ is a 24 px button (44 px to a finger).
+  On a computer + shows on hover and on keyboard focus only, not on the focus a click on ▾ leaves (folding would hide
+  the mark it just showed); where + always shows, the mark sits left of it. No + on the other chats (that is 트리나에게 묻기) nor on a project whose folder is in the
   trash or that the person only manages (no box there).
 - **Folding** is remembered per person in this browser (`mycel.sidebar.historyFolded.<user id>`, at most 200 keys). A
   folded group keeps one mark on its header in the rows' marker spot: the strongest of its chats, **"?" first, then the
@@ -23909,8 +23912,14 @@ and **supersedes** two earlier decisions:
 - **Access.** A header shows only for a project the project list (`GET /api/projects`) says the person sees now and
   that the chat header did not find gone (store/projects.ts `drop` on a 404). The chats of any other project (no read
   access any more, its folder gone) are in "Other chats", as the chat page shows no project for them; its name is never
-  shown or guessed (no "…" placeholder). The list is read once when some chat is in a project, again when the window
-  comes back to the front, and once more for a project no read had; a failed read puts every chat in "Other chats".
+  shown or guessed (no "…" placeholder). The "In a project" / "Not in a project" filters follow the same rule. The
+  list is kept for the whole window (`store/projects.ts` `listed`, cleared on sign-out), so the computer's column and
+  the phone's drawer (mounted again each time ☰ opens) share one read: read when some chat is in a project and none was
+  made yet, again when the window comes back to the front (at most once a minute), and once more for a project no read
+  had (a project made, or a chat moved in, elsewhere; one the person cannot see is asked about once). While a first
+  read is on its way the spinner shows for at most 1.5 s, then the list without project headers until it ends (a read
+  that never answers no longer blanks the history); a failed read puts every chat in "Other chats". Access lost on
+  another device shows at the next read (a reload, or the window back to the front after a minute).
 - **Rows** are the same rows: marks, the hover peek, the "···" menu, pins. "프로젝트로 옮기기…" moves the row to its new
   group at once (the dialog's fresh project list is used, no wait for a second read).
 - **"모두 보기"**: "그룹: 프로젝트" is the default; 날짜 is one choice away. The menu's choices are now kept as what

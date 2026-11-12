@@ -289,9 +289,9 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
   await side.getByTestId('recents-filter-clear').click()
   await expect(side.getByTestId('recents-filter-label')).toHaveCount(0)
   await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
-  // PROTOTYPE (desktop sidebar): back to the five latest, without date groups; "모두 보기" shows them by date
-  await expect(side.getByTestId('ai-chats-latest')).toBeVisible()
-  await expect(list.getByRole('heading', { level: 3 })).toHaveCount(0)
+  // back to the short list beside the rooms, by project (docs/DECISIONS.md "Trina history by project"): no date groups
+  await expect(side.getByTestId('history-groups')).toBeVisible()
+  await expect(list.getByRole('heading', { level: 3 })).toHaveText(['Launch', t['history.other']])
 })
 
 test('the Recents menu with the keyboard: Enter, arrows, → into a choice, ← and Esc back', async ({ page }) => {

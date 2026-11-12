@@ -554,7 +554,8 @@ function ProjectPage() {
   const phone = useMediaQuery(PHONE)
   // opened from + on the project's header in Trina history (components/history/HistoryGroups.tsx): the box is ready to
   // type in (with a mouse; a phone's keyboard does not jump up)
-  const newChat = !!(useLocation().state as { newChat?: boolean } | null)?.newChat
+  const location = useLocation()
+  const newChat = !!(location.state as { newChat?: boolean } | null)?.newChat
   // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
   // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
   const personal = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`) && (isAdmin(me) || me.team.projectCreators === 'members')
@@ -629,6 +630,13 @@ function ProjectPage() {
     const next = keepFaces(old, chat)
     return [next, ...rest].sort(chatOrder)
   })
+
+  // + in Trina history said "a new chat here": once the box has it (it mounts with the project, its own effect runs
+  // first), the word goes from this history entry, so Back or a reload do not focus the box again and a second + does
+  useEffect(() => {
+    if (newChat && p) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newChat, p?.id])
 
   // ?members=1 opens the members dialog once the project is here, for whoever may change them; otherwise it goes
   useEffect(() => {

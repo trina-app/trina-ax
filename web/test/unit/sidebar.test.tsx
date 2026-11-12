@@ -91,6 +91,8 @@ beforeEach(() => {
   calls.length = 0
   routes = {}
   localStorage.clear()
+  // the projects this window saw (one list for every sidebar): none from the test before
+  useProjects.getState().reset()
   useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
   useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), chatsLoaded: true, chatsCursor: null, requests: {} })
   useRooms.setState({ rooms: [room({ name: 'acme-design', unreadCount: 2 }), room({ kind: 'dm', name: null, unreadCount: 0 })], loaded: true, failed: null })
@@ -1236,6 +1238,48 @@ describe('Trina history by project (docs/DECISIONS.md "Trina history by project"
       expect(m.html()).not.toContain('Acme 6')
       expect(m.get('ai-chats-all').textContent).toBe(ko('rooms.showAll'))
       expect(m.find('ai-chats-latest')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('one read of the project list for every sidebar: a second sidebar or the drawer opening again reads nothing new, a window back to the front within a minute neither', async () => {
+    const reads = () => calls.filter((c) => c.startsWith('GET /api/projects')).length
+    let m = await render()
+    try {
+      await ready(m)
+      expect(reads()).toBe(1)
+      const again = await render()
+      await ready(again)
+      await again.unmount()
+      window.dispatchEvent(new FakeEvent('focus') as never)
+      await m.settle(30)
+      expect(reads()).toBe(1)
+    } finally {
+      await m.unmount()
+    }
+    m = await render()
+    try {
+      await ready(m)
+      expect(reads()).toBe(1)
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a project list that does not come: the plain list after a moment, the groups once it is in', async () => {
+    let answer: (r: Response) => void = () => {}
+    routes = { 'GET /api/projects': () => new Promise<Response>((r) => { answer = r }) as never }
+    const m = await render()
+    try {
+      // a moment: the spinner, then the five latest without headers (no name guessed)
+      expect(m.find('ai-chats-latest')).toBeNull()
+      await m.until(() => m.find('ai-chats-latest'), 'the plain list', 3000)
+      expect(m.find('history-groups')).toBeNull()
+      expect(m.html()).not.toContain('Acme 1')
+      await act(async () => answer(json({ items: listed() })))
+      await ready(m)
+      expect(heads(m)[0]).toBe('Acme 1')
     } finally {
       await m.unmount()
     }
