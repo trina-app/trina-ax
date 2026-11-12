@@ -91,7 +91,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/memories` | Signed in | Own memories, newest first. |
+| `GET` | `/api/memories` | Signed in | Own memories, newest first, with how many the AI gets now. |
 | `POST` | `/api/memories` | Signed in | Add a memory of one's own (same limits as the AI's remember). |
 | `PATCH` | `/api/memories/:id` | Signed in | Correct the text of one of the own memories. |
 | `DELETE` | `/api/memories/:id` | Signed in | Forget one memory. |
