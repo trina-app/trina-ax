@@ -4,6 +4,7 @@
 // people see "Connect", the app's name and what the AI can do, never how it is wired.
 import type { DriveConnection, GoogleAppId, GoogleAppView } from '@mycel/shared/api'
 import { DICTS, type MessageKey } from '../i18n'
+import { SERVICE_CATALOG } from '@mycel/shared'
 import { APP_CONNECTORS, appConnectorLogo } from './connectors'
 
 export const GOOGLE_APP_ORDER: GoogleAppId[] = ['gmail', 'calendar', 'docs', 'sheets']
@@ -15,6 +16,8 @@ export const isGoogleApp = (id: string): id is GoogleAppId => (GOOGLE_APP_ORDER 
 export const isBuiltIn = (id: string): id is BuiltInId => (BUILT_IN_ORDER as readonly string[]).includes(id)
 
 export const builtInName = (id: BuiltInId) => APP_CONNECTORS.find((a) => a.id === id)!.name
+/** The name of anything a member may ask an admin to add: a built-in, or a service of the app's list (QA TC-133). */
+export const requestableName = (id: string) => (isBuiltIn(id) ? builtInName(id) : SERVICE_CATALOG.find((c) => c.id === id)?.name ?? id)
 export const builtInLogo = (id: BuiltInId) => appConnectorLogo(APP_CONNECTORS.find((a) => a.id === id)!)
 
 /** The one line under a built-in card's name (what the AI does with it). */

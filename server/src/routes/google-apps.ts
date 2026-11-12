@@ -11,7 +11,7 @@ import type { AppContextC } from '../http/env'
 import { isAppId } from '../integrations/google-apps/catalog'
 import { CALLBACK_PATH } from '../integrations/google-apps/config'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
-import { afterServiceSetup, askService, myServiceRequests } from '../integrations/service-requests'
+import { afterServiceSetup, askService, dismissServiceRequests, myServiceRequests, teamServiceRequests, withdrawService } from '../integrations/service-requests'
 
 /** the app in the path, or not found */
 function appOf(raw: string | undefined): GoogleAppId {
@@ -55,6 +55,9 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   // a member asks the owner and the admins to add an app the team has not set up; the person comes from the session
   kit.handle(API.myServiceRequests, ({ auth }) => myServiceRequests(ctx, auth.user.id))
   kit.handle(API.askService, ({ auth, body }) => askService(ctx, auth.user, body.service))
+  kit.handle(API.withdrawService, ({ auth, params }) => { withdrawService(ctx, auth.user.id, params.service) })
+  kit.handle(API.teamServiceRequests, () => teamServiceRequests(ctx))
+  kit.handle(API.dismissServiceRequests, ({ auth, params }) => { dismissServiceRequests(ctx, auth.user.id, params.service) })
   // Google (or the hosting service) sends the browser back here; which app is in the flow its state names
   kit.raw('GET', CALLBACK_PATH, async (c) => {
     let ok = false

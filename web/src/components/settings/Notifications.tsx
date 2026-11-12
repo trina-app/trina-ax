@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import type { InboxNotification, Locale, NotificationPreferences } from '@mycel/shared/api'
+import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
@@ -18,7 +18,7 @@ import { RoomNotifySettings } from './RoomNotifySettings'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
-import { builtInName } from '../../lib/googleApps'
+import { requestableName } from '../../lib/googleApps'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings) */
 const workKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
@@ -70,15 +70,16 @@ type T = ReturnType<typeof useT>
 /** A member's ask to add an app (shared/src/api/service-requests.ts): to an owner or admin, who asks ("Alice and 2
  * others asked to add Gmail"); to the member who asked, that it is ready. Never an admin's name. */
 const serviceRequestText = (item: InboxNotification, sr: NonNullable<InboxNotification['serviceRequest']>, t: T) => {
-  const service = builtInName(sr.service)
+  const service = requestableName(sr.service)
   if (item.code === 'service.ready') return t('notifications.event.service.readyNamed', { service })
   if (!sr.name) return t('notifications.event.service.requestSomeone', { service })
   return sr.others ? t('notifications.event.service.requestMore', { name: sr.name, n: sr.others, service }) : t('notifications.event.service.requestNamed', { name: sr.name, service })
 }
 
-/** Where an app's setup is in Admin › Connected apps: Google Drive's page, or a Google app's. */
+/** Where an app's setup is in Admin › Connected apps: Google Drive's page, a Google app's, or a listed service's page
+ * (its "Connect for the team"). */
 export const serviceSetupLink = (service: NonNullable<InboxNotification['serviceRequest']>['service']) =>
-  service === 'google-drive' ? '/admin/connectors?drive=1' : `/admin/connectors?app=${encodeURIComponent(service)}`
+  service === 'google-drive' ? '/admin/connectors?drive=1' : isGoogleRequestable(service) ? `/admin/connectors?app=${encodeURIComponent(service)}` : `/admin/connectors/${encodeURIComponent(service)}`
 
 /** Someone started to see a project I am in (docs/DECISIONS.md "Project contents only for members": an owner or admin
  * who added themselves, or anyone through a group): who, while their account is there, and the project, while I still

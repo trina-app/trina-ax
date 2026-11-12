@@ -29,7 +29,7 @@ import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '.
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
-import { builtInName } from '../lib/googleApps'
+import { requestableName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
 
 type T = ReturnType<typeof useT>
@@ -388,7 +388,7 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   // (the row opens the app's setup), and "Added" once members can connect it
   const sr = item.code === 'service.request' ? item.serviceRequest : undefined
   const ask = sr?.open
-    ? <span className="mt-1 inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink" data-testid="notification-service-setup">{t('gapps.setUpLink', { name: builtInName(sr.service) })}</span>
+    ? <span className="mt-1 inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink" data-testid="notification-service-setup">{t('gapps.setUpLink', { name: requestableName(sr.service) })}</span>
     : sr?.added ? <span className="flex items-center gap-1 text-ok" data-testid="notification-service-added"><Check size={13} aria-hidden />{t('notifications.serviceRequest.added')}</span> : null
   const below = item.handover || d?.job?.tail ? <>
     {item.handover && <HandoverNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}

@@ -9,6 +9,7 @@ import { linkBase } from '../auth/accounts'
 import { integrationsOf, type CallbackResult, type FlowFailure } from '../integrations/connections/service'
 import { requestsOf } from '../integrations/connections/requests'
 import { templatesOf } from '../integrations/connections/templates'
+import { afterTeamConnection } from '../integrations/service-requests'
 import { templatesSeen } from '../onboarding/member-welcome'
 import type { AuthInfo } from '../services'
 import { say, type TextKey } from '../integrations/connections/text'
@@ -28,7 +29,8 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   const svc = () => integrationsOf(ctx)
   kit.handle(API.listIntegrations, ({ c, auth }) => svc().list(viewer(auth), c.get('locale')))
   kit.handle(API.createIntegration, ({ c, auth, body }) => svc().create(viewer(auth), body, 'personal', c.get('locale')))
-  kit.handle(API.updateIntegration, ({ c, auth, params, body }) => svc().update(viewer(auth), params.id, body, c.get('locale')))
+  // a team connection made or changed: members who asked for that listed service and may use it now are told (QA TC-133)
+  kit.handle(API.updateIntegration, async ({ c, auth, params, body }) => { const i = await svc().update(viewer(auth), params.id, body, c.get('locale')); if (i.scope === 'team') afterTeamConnection(ctx, i.url); return i })
   kit.handle(API.deleteIntegration, async ({ auth, params }) => { await svc().remove(viewer(auth), params.id) })
   kit.handle(API.setIntegrationTool, ({ c, auth, params, body }) => svc().setTool(viewer(auth), params.id, body.name, body.enabled, c.get('locale')))
   kit.handle(API.stopAlwaysAllow, ({ c, auth, params }) => svc().stopAlwaysAllow(viewer(auth), params.id, c.get('locale')))
@@ -36,7 +38,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.authorizeIntegration, ({ c, auth, params }) => svc().authorize(viewer(auth), auth.session.id, params.id, linkBase(c, ctx), c.get('locale')))
   kit.handle(API.integrationFlow, ({ auth, params }) => svc().flow(auth.user.id, auth.session.id, params.id))
   kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')) }))
-  kit.handle(API.createTeamIntegration, ({ c, auth, body }) => svc().create(viewer(auth), body, 'team', c.get('locale')))
+  kit.handle(API.createTeamIntegration, async ({ c, auth, body }) => { const i = await svc().create(viewer(auth), body, 'team', c.get('locale')); afterTeamConnection(ctx, i.url); return i })
   // an admin asks a member to connect a service as their own connection (integrations/connections/requests.ts)
   const reqs = () => requestsOf(ctx)
   kit.handle(API.listIntegrationRequests, ({ c, auth }) => ({ items: reqs().listMine(auth.user.id, linkBase(c, ctx)) }))

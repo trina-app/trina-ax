@@ -130,7 +130,7 @@ export function SignInSteps({ d, testId, failed }: { d: GoogleAppFlowState; test
 }
 
 /** What a member's page offers for an app the team has not set up: ask an admin to add it (AskAdmin.tsx). */
-export interface AskProps { state: AskState; busy: boolean; onAsk: () => void; error?: string | null }
+export interface AskProps { state: AskState; busy: boolean; onAsk: () => void; onWithdraw?: () => void; error?: string | null }
 
 /** A Google app's page. `ask`: a member, and the team has not set it up: "Ask admin to add it" takes the place of the
  * Connect button and of the line that says it is not set up. */
@@ -157,7 +157,7 @@ export function GoogleAppDetail({ v, g, ask }: { v: GoogleAppView; g: GoogleApps
   const onComputer = inApp && !flow && v.available && v.status !== 'connected'
     ? t(v.status === 'needs_reconnect' ? 'integrations.reconnectOnComputer' : 'integrations.onComputer', { name }) : null
   const actions = flow ? null
-    : ask ? <AskAdminAction state={ask.state} busy={ask.busy} onAsk={ask.onAsk} />
+    : ask ? <AskAdminAction state={ask.state} busy={ask.busy} onAsk={ask.onAsk} onWithdraw={ask.onWithdraw} />
     : inApp ? (linked ? (
       <>
         {v.status === 'connected' && <Button onClick={() => setSettings(true)} data-testid="gapp-settings"><Settings2 size={15} aria-hidden /> {t('gapps.settings')}</Button>}

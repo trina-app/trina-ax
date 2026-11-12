@@ -26,7 +26,7 @@ import clsx from 'clsx'
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import type { Integration, IntegrationList } from '@mycel/shared/api'
+import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
@@ -44,7 +44,7 @@ import { SlackAccount } from '../components/settings/SlackAccount'
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
-import { AskAdminAction, useServiceAsks } from '../components/integrations/AskAdmin'
+import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { useLoad } from './admin/common'
 import { mobileApp } from '../lib/mobile'
@@ -301,7 +301,7 @@ export function ConnectorPage() {
     if (!v) return <Navigate to="/connectors" replace />
     // a member, the team has not set it up, never connected: ask an admin to add it (once the server says what was asked)
     const ask = !admin && asks.ready && v.reason === 'not_set_up' && v.status === 'disconnected'
-      ? { state: asks.stateOf(v.id), busy: asks.busy === v.id, onAsk: () => void asks.ask(v.id, builtInName(v.id), () => void google.load()), error: asks.error?.service === v.id ? asks.error.text : null }
+      ? { state: asks.stateOf(v.id), busy: asks.busy === v.id, onAsk: () => void asks.ask(v.id, builtInName(v.id), () => void google.load()), onWithdraw: () => void asks.withdraw(v.id), error: asks.error?.service === v.id ? asks.error.text : null }
       : undefined
     return <GoogleAppDetail v={v} g={google} ask={ask} />
   }
@@ -341,7 +341,7 @@ function DrivePage() {
   ) : null
   return (
     <AppDetail testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
-      actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} />
+      actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} onWithdraw={() => void asks.withdraw(id)} />
         : inApp ? appActions
         : p.action}
       status={(line || onComputer || askError || p.busy || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
@@ -361,15 +361,22 @@ function DrivePage() {
 function ListedPage({ c }: { c: Connector }) {
   const t = useT()
   const navigate = useNavigate()
-  const { list, setDialog } = useConnectors()
+  const { list, setDialog, asks, admin } = useConnectors()
   const mine = list.data ? splitByScope(list.data.items).mine : []
   const have = mine.filter((i) => servesAt(c, i.url))
+  // a member whose team has no connection to it they may use (at any of its official addresses): ask an admin to add
+  // it for the team (QA TC-133); one who may connect their own keeps Connect, with the ask under it
+  const teamHas = !!list.data && splitByScope(list.data.items).team.some((i) => servesAt(c, i.url))
+  const askFor = !admin && asks.ready && !!list.data && !teamHas && !have.length && isRequestableService(c.id) ? c.id : null
+  const own = !!list.data?.personalAllowed
   return (
     <McpShell>
       <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={() => navigate('/connectors')}
         action={have.length ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
-          : list.data?.personalAllowed ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button> : null}
+          : own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
+          : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
         description={t('connectors.mcp.about', { name: c.name })} address={have.length ? undefined : c.url} docs={have.length ? undefined : CONNECTOR_DOCS[c.id]} noTools={have.length > 0}>
+        {askFor && <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />}
         {have.length > 0 && <MineRows items={have} />}
       </ConnectorDetail>
     </McpShell>
