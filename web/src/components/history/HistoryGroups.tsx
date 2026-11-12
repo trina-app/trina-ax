@@ -172,29 +172,34 @@ function Group({ group, state, row, onNavigate }: { group: ShownGroup; state: Hi
   const fold = () => state.fold(group.key)
   return (
     <div className="mt-2 first:mt-0" data-testid="history-group" data-group={group.projectId ? 'project' : 'other'} data-folded={folded ? '' : undefined}>
-      <div className="group/head relative flex h-7 items-center pr-9 pl-3 max-md:h-10 max-md:pr-11" data-testid="history-group-head">
-        <h3 className="flex min-w-0 items-center gap-1 text-xs font-medium text-faint">
-          {group.projectId ? (
-            <>
-              <Link to={`/projects/${group.projectId}`} onClick={onNavigate} className="truncate rounded hover:text-ink" data-testid="history-group-name">
+      {/* the heading is the group's name only (the link, or the other chats' fold), so a screen reader's list of
+          headings reads the projects; the icon and ▾ follow it */}
+      <div className="group/head relative flex h-7 items-center gap-1 pr-9 pl-3 text-xs font-medium text-faint max-md:h-10 max-md:pr-11" data-testid="history-group-head">
+        {group.projectId ? (
+          <>
+            <h3 className="min-w-0 truncate">
+              <Link to={`/projects/${group.projectId}`} onClick={onNavigate} className="rounded hover:text-ink" data-testid="history-group-name">
                 {name}
               </Link>
-              <FolderKanban size={12} className="shrink-0" aria-hidden />
-              {/* no-tooltip: a disclosure's ▾ (aria-expanded), as on the section titles above */}
-              <button type="button" aria-expanded={!folded} aria-controls={listId} aria-label={t('history.group.chats', { name })} onClick={fold} className="touch-hit shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="history-group-fold">
-                <ChevronDown size={12} className={clsx('transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
-              </button>
-            </>
-          ) : (
-            <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={fold} className="flex min-w-0 items-center gap-1 rounded hover:text-ink" data-testid="history-group-fold">
+            </h3>
+            <FolderKanban size={12} className="shrink-0" aria-hidden />
+            {/* no-tooltip: a disclosure's ▾ (aria-expanded), as on the section titles above */}
+            <button type="button" aria-expanded={!folded} aria-controls={listId} aria-label={t('history.group.chats', { name })} onClick={fold} className="touch-hit -ml-1 flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="history-group-fold">
+              <ChevronDown size={12} className={clsx('transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
+            </button>
+          </>
+        ) : (
+          <h3 className="min-w-0">
+            <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={fold} className="touch-hit flex max-w-full items-center gap-1 rounded hover:text-ink" data-testid="history-group-fold">
               <span className="truncate">{t('history.other')}</span>
               <ChevronDown size={12} className={clsx('shrink-0 transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
             </button>
-          )}
-        </h3>
+          </h3>
+        )}
         {headMark && (
-          // in the rows' marker spot; on a computer it gives way to + on hover and focus, on a phone it sits left of it
-          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center max-md:right-11', canStart && 'md:group-focus-within/head:opacity-0 md:group-hover/head:opacity-0')} data-testid="history-group-mark">
+          // in the rows' marker spot; on a computer it gives way to + on hover and keyboard focus (not the focus a click on
+          // ▾ leaves, or folding would hide the mark it just showed), on a phone it sits left of it
+          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center max-md:right-11', canStart && 'md:group-hover/head:opacity-0 md:group-has-[:focus-visible]/head:opacity-0')} data-testid="history-group-mark">
             <SessionMarker marker={headMark.marker} label={reasonText(headMark.marker.reason, t)} />
           </span>
         )}
@@ -207,7 +212,7 @@ function Group({ group, state, row, onNavigate }: { group: ShownGroup; state: Hi
                 onNavigate()
                 navigate(`/projects/${group.projectId}`, { state: { newChat: true } })
               }}
-              className="absolute top-1/2 right-1 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-faint opacity-0 group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100 max-md:right-0 max-md:size-11 max-md:opacity-100"
+              className="absolute top-1/2 right-1 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-faint opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100 max-md:right-0 max-md:size-11 max-md:opacity-100"
               data-testid="history-group-new"
             >
               <Plus size={14} aria-hidden />

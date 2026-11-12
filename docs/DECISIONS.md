@@ -23866,3 +23866,62 @@ Version impact: **patch** (no route, no migration).
   suggestion at all.
 - Tests: `tests/unit/b-form-skill.test.ts`, `tests/unit/c-move-suggest.test.ts`, `web/test/unit/form-skills.test.tsx`,
   `web/test/unit/folder-picker-suggestions.test.tsx`.
+
+## Trina history by project — 트리나 기록을 프로젝트별로 (feat/history-by-project, 2026-11-12, the owner, QA TC-424)
+
+넣을 곳: Team AX core (`web/src/lib/historyGroups.ts`, `web/src/components/history/HistoryGroups.tsx`,
+`web/src/components/Sidebar.tsx`, the project page's box), 이유: the AI history is core chat UI. Plan:
+`docs/AGENTS/plan/20261112-1621-history-by-project.md`.
+
+The owner showed the Claude Code desktop app's sidebar (sessions grouped by folder, a small grey header per folder with
+its name, an icon and ▾) and said that is what Trina should have: **"세션들이 유지되어야"** ("the sessions should stay").
+Each piece of work keeps its chats together, and the person goes back to it there. This is the owner's final direction
+and **supersedes** two earlier decisions:
+- "Desktop sidebar: rooms first" (2026-11-06): 트리나 기록 was **exactly the five latest AI chats**, with the date groups
+  and the filter only behind "모두 보기". Now it is grouped by project, and "모두 보기" groups by project by default.
+- "Session markers" (2026-11-07): "the list is not re-sorted by state". The list is no longer one flat list by latest
+  activity: it is grouped by project. A row's state still never moves it (the groups follow the newest activity, not
+  the marks).
+
+- **Groups.** One group per project the person has chats in, the newest activity first. The chats in no project form
+  the last group, **"기타 기록" / "Other chats"** (the same group in "모두 보기" said "프로젝트 없음" before). A person
+  with no chat in a project sees no header at all: the five latest as before, and in "모두 보기" and the phone's
+  drawer the date groups as before ("Group by: Project" with nothing to group shows dates).
+- **The header**, small and grey (12 px, `text-faint`): the project's name (a link to its page), a folder icon, ▾ (folds
+  the group). **+** at its right end on hover and keyboard focus, always on a touch screen (44 px on a phone): it opens
+  the project's page with its "이 프로젝트에서 채팅" box focused (with a mouse; a phone's keyboard does not jump up), the
+  same as starting there. No + on the other chats (that is 트리나에게 묻기) nor on a project whose folder is in the
+  trash or that the person only manages (no box there).
+- **Folding** is remembered per person in this browser (`mycel.sidebar.historyFolded.<user id>`, at most 200 keys). A
+  folded group keeps one mark on its header in the rows' marker spot: the strongest of its chats, **"?" first, then the
+  dot, then the ring** (what needs the person before what only runs; a single row keeps ? > ring > dot), so a folded
+  group never hides a chat that waits.
+- **Caps are the place's, not the list's.** One list component (`HistoryGroups`, `useHistoryGroups(chats, caps)`):
+  - beside the rooms (a computer's sidebar): my pins as before (at most ten), then the **five projects** with the latest
+    activity and the other chats, **three rows each** newest first, then "**N개 더 보기**" that opens the group in place
+    (for this visit; folding closes it again). "N more" carries the mark of the rows it holds back. The project of the
+    chat on screen and its row stay in sight past the caps, as the flat list's sixth row did. "모두 보기" stays, and its
+    "답 필요 K" counts the chats of the projects past the five (and the pins past ten);
+  - as a whole panel (the phone's drawer, "모두 보기"): every project, every row.
+  The owner said the rooms part is already too long ("이미 대화방만해도 너무 길어"); how the sidebar is split between
+  rooms and the AI history is still open, so the caps are parameters and this change does not touch the rooms section,
+  the menu rows or the sidebar's layout.
+- **Access.** A header shows only for a project the project list (`GET /api/projects`) says the person sees now and
+  that the chat header did not find gone (store/projects.ts `drop` on a 404). The chats of any other project (no read
+  access any more, its folder gone) are in "Other chats", as the chat page shows no project for them; its name is never
+  shown or guessed (no "…" placeholder). The list is read once when some chat is in a project, again when the window
+  comes back to the front, and once more for a project no read had; a failed read puts every chat in "Other chats".
+- **Rows** are the same rows: marks, the hover peek, the "···" menu, pins. "프로젝트로 옮기기…" moves the row to its new
+  group at once (the dialog's fresh project list is used, no wait for a second read).
+- **"모두 보기"**: "그룹: 프로젝트" is the default; 날짜 is one choice away. The menu's choices are now kept as what
+  differs from the default (`mycel.sidebar.historyView`); a view kept before (`mycel.sidebar.recentsView`, the whole view,
+  which held the old default "date" for everyone who ever used the menu) keeps its other choices but not its grouping
+  by date.
+- **Removed:** the flat five as the default for a person with project chats, the date groups as "모두 보기"'s default,
+  the "프로젝트 없음" heading. **Added:** only the header (name, icon, ▾, +) and "N개 더 보기". No sort button (the groups
+  follow the newest activity), no new section.
+- Rejected: re-sorting rows by state (marks stay marks); a separate "projects" section beside 트리나 기록; "N more" opening
+  "모두 보기" filtered to the project (opening in place keeps the person where they are).
+- Tests: `web/test/unit/history-groups.test.ts`, `web/test/unit/sidebar.test.tsx` ("Trina history by project"),
+  `web/test/e2e/history-by-project.spec.ts`; `account-settings.spec.ts` updated (project grouping by default).
+- Version impact: patch (web only; no API, no migration).
