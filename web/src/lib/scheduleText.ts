@@ -50,7 +50,10 @@ export const stateLabel = (s: Schedule, t: T) => {
 
 /** The last run's result in words ("Last run failed"); empty before the first run. A list card shows it beside its
  *  dot, because the dot's colour alone says nothing on a phone (no hover) and every failure is the same red. */
-export const outcomeLabel = (s: Schedule, t: T) => (s.lastOutcome ? t(`scheduleTemplates.outcome.${s.lastOutcome}` as MessageKey) : '')
+export const outcomeLabel = (s: Schedule, t: T) => (!s.lastOutcome ? ''
+  // a project that is still there, only for its members now: not "Project gone" (QA TC-360)
+  : s.lastOutcome === 'project_gone' && s.lastMembersOnly ? t('scheduleTemplates.outcome.members_only')
+  : t(`scheduleTemplates.outcome.${s.lastOutcome}` as MessageKey))
 
 const RUN_STATE: Partial<Record<NonNullable<Schedule['lastOutcome']>, MessageKey>> = {
   done: 'scheduled.run.done', problems: 'scheduled.run.problems', error: 'scheduled.run.error', stopped: 'scheduled.run.stopped', interrupted: 'scheduled.run.interrupted',
@@ -70,6 +73,7 @@ export const runStateLabel = (s: Schedule, t: T) => {
 export const outcomeReason = (s: Schedule, t: T) =>
   // a run that needed the owner's own key for an admin's template names it ("…your own key for Demo Wiki…")
   s.lastOutcome === 'needs_key' ? t('scheduled.reason.needs_keyNamed', { name: s.lastNeed?.name ?? '' })
+    : s.lastOutcome === 'project_gone' && s.lastMembersOnly ? t('scheduled.reason.members_only')
     : s.lastOutcome && s.lastOutcome !== 'done' ? t(`scheduled.reason.${s.lastOutcome}` as MessageKey) : ''
 
 /** The card's dim line, like Claude's: "Paused · Weekdays (Mon–Fri) at 09:00". The last result has its own line under

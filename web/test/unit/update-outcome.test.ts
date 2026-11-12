@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Health, Job } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { goBackOffered, updateOutcome } from '../../src/lib/updateOutcome'
+import { goBackOffered, releasePaused, updateOutcome } from '../../src/lib/updateOutcome'
 
 const job = (o: Partial<Job> = {}): Job => ({
   id: '01900000-0000-7000-8000-0000000000aa', kind: 'update', status: 'done', progress: 1, message: null,
@@ -75,5 +75,12 @@ describe('what an update job really did', () => {
   test('a job without a result (an older server): finished as before', async () => {
     const r = await updateOutcome(job({ result: null }), { health: async () => { throw new Error('not asked') }, fetchJob: async () => job() })
     expect(r).toEqual({ kind: 'ok' })
+  })
+})
+
+describe('a paused release (QA TC-361)', () => {
+  test('only the publisher\'s pause counts: Home and System offer no install then', () => {
+    expect(releasePaused({ hold: 'paused' })).toBe(true)
+    for (const hold of [undefined, null, 'rollout', 'failed', 'root_failed'] as const) expect(releasePaused({ hold }), String(hold)).toBe(false)
   })
 })
