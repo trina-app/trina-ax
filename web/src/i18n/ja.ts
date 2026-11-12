@@ -5151,4 +5151,5 @@ export const ja: Record<MessageKey, string> = {
   "rail.showList": "リストを表示",
   "rail.searchChats": "会話を検索",
   "rail.unreadRooms": "{n, plural, one {未読の会話#件} other {未読の会話#件}}",
+  "rail.pickConversation": "リストから会話を選ぶか、+ で新しい会話を始めてください。",
 }

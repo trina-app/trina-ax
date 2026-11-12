@@ -33,7 +33,7 @@ import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
 import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
-import { RailColumns, useRailPanelShown } from './rail/RailColumns'
+import { RailColumns } from './rail/RailColumns'
 import { PANEL_ID } from './panels/PanelFrame'
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
 const FilePanel = lazy(() => import('./FilePanel'))
@@ -123,8 +123,8 @@ export default function Layout() {
   const phone = !useMediaQuery('(min-width: 768px)')
   // the new navigation (a computer only in this phase: the phone's tabs come later)
   const rail = useNavRail() && !phone
-  const railPanel = useRailPanelShown()
-  const listShown = rail && railPanel.has && railPanel.state === 'shown'
+  // whether the rail's list panel shows (RailColumns sets it while the rail is on): the skip link "목록으로" goes there
+  const [listShown, setListShown] = useState(false)
   // a phone's panel makes the page inert, which takes the focus from what opened it: it goes back there when the panel
   // closes (when nothing else took it meanwhile). The last focus inside the page is kept as it moves.
   const covered = phone && !!panel
@@ -155,7 +155,7 @@ export default function Layout() {
       <a href={big ? '#side-panel' : '#main'} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
       </a>
-      {listShown && (
+      {rail && listShown && (
         <a href={`#${PANEL_ID}`} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow" data-testid="skip-list">
           {t('rail.skipList')}
         </a>
@@ -169,7 +169,7 @@ export default function Layout() {
         {/* sidebar: fixed column on wide screens, drawer below md. 280px at the default text size; it grows with a larger
             one (Settings > Profile > 글자 크기) so its rows keep their words, up to 40% of a narrow window */}
         {rail ? (
-          <RailColumns />
+          <RailColumns onList={setListShown} />
         ) : (
           <div className="hidden w-[min(17.5rem,40vw)] shrink-0 border-r border-line md:block">
             <Sidebar />

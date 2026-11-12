@@ -64,6 +64,9 @@ test('the rail replaces the sidebar; four places in order; 트리나 and 대화 
   await expect(page.getByTestId('chats-panel')).toBeVisible()
   await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity')).toContainText(t['feed.chats'])
   await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+  // the panel is the list: the page beside it does not repeat it (no rooms, no AI row, no second 새 대화)
+  await expect(page.getByTestId('rooms-pick')).toHaveText(t['rail.pickConversation'])
+  for (const x of ['rooms-ai', 'rooms-page-new-dm', 'rooms-row']) await expect(page.getByTestId('rooms-page').getByTestId(x)).toHaveCount(0)
 
   await openRail(page, 'files')
   await expect(page).toHaveURL(/\/files$/)
@@ -103,7 +106,7 @@ test('each place opens what was open in it; the lit place again goes to its star
   await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
 })
 
-test('marks: 대화 counts conversations, 활동 the notices that are not conversations, 멘션·스레드 its own; 트리나 a "?" for an AI that waits', async ({ page }) => {
+test('marks: 대화 counts conversations, 활동 the notices that are not conversations, 멘션·스레드 its own; "?" on 대화 while a room\'s AI waits', async ({ page }) => {
   await routeNotices(page, 5, 2)
   await start(page, 1280)
   const now = new Date().toISOString()
@@ -141,6 +144,12 @@ for (const w of [1024, 1100] as const)
       // the room and its thread keep their minimums (420 + 320)
       expect(await width(page, 'room')).toBeGreaterThanOrEqual(420)
       await page.goto(`/rooms/${ROOM_ID}`)
+      await expect(page.getByTestId('chats-panel')).toBeVisible()
+      // the room's ✦ side chat folds it too
+      await page.getByTestId('room-side-chat-button').click()
+      await expect(page.getByTestId('room-side-chat')).toBeVisible()
+      await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+      await page.getByTestId('room-side-chat-button').click()
       await expect(page.getByTestId('chats-panel')).toBeVisible()
     } else {
       await expect(page.getByTestId('chats-panel')).toBeVisible()
@@ -209,8 +218,9 @@ test('keyboard: skip links to the page and to the list; Tab goes logo → places
   await expect(page.getByText(t['a11y.skip'])).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(page.getByTestId('skip-list')).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(page.getByTestId('team-menu')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('trina-panel')).toBeFocused()
+  await page.getByTestId('team-menu').focus()
   await page.keyboard.press('Tab')
   await expect(page.getByTestId('rail-ai')).toBeFocused()
   await page.keyboard.press('ArrowDown')
@@ -285,4 +295,16 @@ test('Screenshots of the rail: each place at 1440 light and dark, 1280 light, 10
     await page.screenshot({ path: `${dir}/${role}-thread-1024-light.png` })
     await ctx.close()
   }
+})
+
+test('a phone keeps today\'s layout with the switch on (its tabs are a later phase)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await navRail(page)
+  await signIn(page)
+  await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+  await expect(page.getByTestId('rail')).toHaveCount(0)
+  await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+  await page.goto('/rooms')
+  await expect(page.getByTestId('rooms-pick')).toHaveCount(0)
 })

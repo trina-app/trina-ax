@@ -83,7 +83,7 @@ export function TeamMenu({ rail = false }: { rail?: boolean } = {}) {
   // the logo's middle is in line with the rows' icons below (8 + 6 + 14 = 8 + 12 + 8 px from the edge)
   const head = 'flex h-11 w-full items-center gap-2.5 rounded-lg pr-2 pl-1.5 text-left text-ink'
   if (rail) {
-    const railName = <span className="block w-full truncate px-0.5 text-center text-nano leading-tight text-muted" data-testid="sidebar-team">{me.team.name}</span>
+    const railName = <span className="block w-full truncate px-0.5 text-center text-micro leading-tight text-muted" data-testid="sidebar-team">{me.team.name}</span>
     const railHead = 'flex w-full flex-col items-center gap-1 rounded-lg px-1 py-1.5 text-ink'
     if (!admin)
       return (
@@ -119,7 +119,7 @@ export function TeamMenu({ rail = false }: { rail?: boolean } = {}) {
         data-rail-stop={rail ? '' : undefined}
       >
         <TeamLogo className={rail ? 'size-9 rounded-xl' : 'size-7 rounded-lg'} testId="sidebar-logo" />
-        {rail ? <span className="block w-full truncate px-0.5 text-center text-nano leading-tight text-muted" aria-hidden data-testid="sidebar-team">{me.team.name}</span> : name}
+        {rail ? <span className="block w-full truncate px-0.5 text-center text-micro leading-tight text-muted" aria-hidden data-testid="sidebar-team">{me.team.name}</span> : name}
         {!rail && <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />}
       </button>
       {open && (

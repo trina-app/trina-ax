@@ -15,8 +15,8 @@ import { useMediaQuery } from '../ui'
 import { Rail } from './Rail'
 import { PANEL_ALWAYS_PX, panelState, useRailPanel } from './railPanel'
 
-/** whether the list panel shows now; Layout.tsx asks it for the skip link "목록으로" */
-export function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelState> } {
+/** whether this place has a list panel and how it shows now */
+function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelState> } {
   const { pathname, search } = useLocation()
   const item = railOf(pathname, search)
   const has = item === 'ai' || item === 'chats'
@@ -29,15 +29,21 @@ export function useRailPanelShown(): { has: boolean; state: ReturnType<typeof pa
   return { has, state: panelState({ wide, crowded: thread || side || panel, hidden }) }
 }
 
-export function RailColumns() {
+/** `onList`: told whether the list panel shows (Layout.tsx's skip link "목록으로") */
+export function RailColumns({ onList }: { onList: (shown: boolean) => void }) {
   const { pathname, search } = useLocation()
   const item = railOf(pathname, search)
   const { has, state } = useRailPanelShown()
+  const shown = has && state === 'shown'
   useEffect(() => rememberRail(pathname, search), [pathname, search])
+  useEffect(() => {
+    onList(shown)
+    return () => onList(false)
+  }, [shown, onList])
   return (
     <>
       <Rail showList={has && state === 'hidden'} />
-      {has && state === 'shown' && (item === 'ai' ? <TrinaPanel /> : <ChatsPanel />)}
+      {shown && (item === 'ai' ? <TrinaPanel /> : <ChatsPanel />)}
     </>
   )
 }

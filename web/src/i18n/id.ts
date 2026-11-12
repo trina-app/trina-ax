@@ -5195,4 +5195,5 @@ export const id: Record<MessageKey, string> = {
   "rail.showList": "Tampilkan daftar",
   "rail.searchChats": "Cari percakapan",
   "rail.unreadRooms": "{n} percakapan belum dibaca",
+  "rail.pickConversation": "Pilih percakapan dari daftar, atau mulai yang baru dengan +.",
 }

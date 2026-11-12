@@ -5195,4 +5195,5 @@ export const en: Record<MessageKey, string> = {
   "rail.showList": "Show list",
   "rail.searchChats": "Search conversations",
   "rail.unreadRooms": "{n, plural, one {# conversation with unread messages} other {# conversations with unread messages}}",
+  "rail.pickConversation": "Pick a conversation from the list, or start a new one with +.",
 }
