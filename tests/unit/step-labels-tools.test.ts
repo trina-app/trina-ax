@@ -169,6 +169,20 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
 })
 
 describe('connect_service steps', () => {
+  test('QA TC-135 retest: the step names what the card names: the host unless the address is the official one', () => {
+    const made = 'https://notion-mcp.example.com/mcp'
+    for (const name of ['Notion', 'Notion workspace', 'N\u043etion', '노션', '\u039d\u039f\u03a4\u0399\u039f\u039d'])
+      expect(stepLabel('connect_service', { name, kind: 'mcp', url: made, auth: 'oauth' }, 'en', NONE), name).toBe('Connect service · notion-mcp.example.com')
+    expect(stepLabel('connect_service', { name: 'GitLab', url: 'https://gitlab.acme.com/api/v4/mcp' }, 'ko', NONE)).toBe('서비스 연결 · gitlab.acme.com')
+    // the official address under any name, a listed name at its official host or with no address: the list's name
+    expect(stepLabel('connect_service', { name: 'Team wiki', url: 'https://mcp.notion.com/mcp' }, 'en', NONE)).toBe('Connect service · Notion')
+    expect(stepLabel('connect_service', { name: 'notion', url: 'https://mcp.notion.com/other' }, 'en', NONE)).toBe('Connect service · Notion')
+    expect(stepLabel('connect_service', { name: '노션' }, 'en', NONE)).toBe('Connect service · Notion')
+    // an unknown service keeps its own name; a mixed-alphabet name that imitates nothing listed gets the host
+    expect(stepLabel('connect_service', { name: 'Acme Tools', url: 'https://x.example.com/mcp' }, 'en', NONE)).toBe('Connect service · Acme Tools')
+    expect(stepLabel('connect_service', { name: 'Ac\u043ce Tools', url: 'https://x.example.com/mcp' }, 'en', NONE)).toBe('Connect service · x.example.com')
+  })
+
   test('the service by name (Google Drive for the Drive card, nothing that looks like a key), and the outcome in every language', () => {
     expect(stepLabel('connect_service', INPUT.connect_service, 'en', NONE)).toBe('Connect service · Higgsfield')
     expect(stepLabel('connect_service', { target: 'google_drive', name: 'my drive' }, 'ko', NONE)).toBe('서비스 연결 · Google Drive')

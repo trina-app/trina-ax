@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 09:28
 - Branch: `fix/connect-step-line`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`shared/src/service-catalog.ts`, `shared/src/step-labels.ts`, `server/src/chat/connect-service.ts`,
   `web/src/components/chat/ConnectCard.tsx`). Why: the chat's connect card is core (docs/REPOSITORY-RULES.md).
 - Version impact: patch. Words on the step and the card, plus one optional field on the card request. No data change.
@@ -53,4 +53,8 @@ Out: the Connectors pages; the template dialog (its address and name are the adm
 
 ## Result
 
-Filled in at the end.
+Built as planned, with one difference: a step takes one patch per call (`TurnExec.patchToolStep`). So the server does
+not relabel the step when it opens the card. `stepLabel` already gives the trusted name from the AI's input while the
+card is open, and the card's own name (for a template or reconnect card) goes with the outcome patch when the card
+closes. The new tests fail on the dev before this change: the step label test, the step and `notOfficial`
+checks in the editions test, and the old-connection reconnect test.

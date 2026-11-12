@@ -590,6 +590,7 @@ export const ja: Record<MessageKey, string> = {
   'connect.hostCaution': "このアドレスは{name}のサイトのものではありません。接続する前に確認してください。",
   'connect.official': "{name}の公式アドレス",
   'connect.unlisted': "このアプリが知らないアドレスのため、確認できません。知っていて信頼できる場合にだけ接続してください。",
+  'connect.notOfficial': "これは{name}の公式アドレスではありません。{name}の公式アドレスは{official}です。このアドレスを知っていて信頼できる場合にだけ接続してください。",
   'connect.reconnectTitle': "{name}にもう一度ログイン",
   'connect.reconnectKeyTitle': "{name}の新しいキー",
   'connect.reconnectNote': "{name}はすでに接続されていますが、もう一度ログインが必要です。この接続を直すもので、2つ目は作りません。",

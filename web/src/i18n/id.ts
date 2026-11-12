@@ -609,6 +609,7 @@ export const id: Record<MessageKey, string> = {
   'connect.hostCaution': "Alamat ini tidak ada di situs {name} sendiri. Periksa dulu sebelum menghubungkan.",
   'connect.official': "Alamat resmi {name}",
   'connect.unlisted': "Aplikasi ini tidak mengenal alamat ini, jadi tidak bisa memeriksanya. Hubungkan hanya jika Anda mengenal dan memercayainya.",
+  'connect.notOfficial': "Ini bukan alamat resmi {name}. Alamat resmi {name} adalah {official}. Hubungkan hanya jika Anda mengenal dan memercayai alamat ini.",
   'connect.reconnectTitle': "Masuk lagi ke {name}",
   'connect.reconnectKeyTitle': "Kunci baru untuk {name}",
   'connect.reconnectNote': "{name} sudah terhubung, tetapi Anda perlu masuk lagi. Ini memperbaiki koneksi itu. Tidak menambah koneksi kedua.",

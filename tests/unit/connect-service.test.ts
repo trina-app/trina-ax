@@ -820,9 +820,19 @@ describe('a service in the app\'s list (QA TC-135; editions: owner decision 2026
       const card = await cardOf(t.turnId)
       const host = new URL(c.url).host
       expect(card, c.name).toMatchObject({ name: host, service: { kind: 'mcp', url: c.url, host, auth: 'oauth' } })
-      expect(JSON.stringify(card)).not.toMatch(/"name":"(Notion|GitLab)/)
+      // the card says whose official address this is not, and which one is (QA TC-135 retest)
+      const claimed = c.url === made ? { name: 'Notion', url: 'https://mcp.notion.com/mcp' } : { name: 'GitLab', url: 'https://gitlab.com/api/v4/mcp' }
+      expect(card.notOfficial, c.name).toEqual(claimed)
+      const { notOfficial: _, ...rest } = card
+      expect(JSON.stringify(rest)).not.toMatch(/"name":"(Notion|GitLab)/)
+      // the step line above the card names the host too, while the card is open and after
+      const live = published.filter((p) => p.ev.type === 'message.step' && p.ev.data.messageId === t.messageId && p.ev.data.step.tool === 'connect_service').map((p) => p.ev.data.step.label as string)
+      expect(live.at(-1), c.name).toEndWith(` · ${host}`)
       await post('erin', t.turnId, { action: 'skip', requestId: card.requestId })
-      const r = resultOf(await doneOf(t.messageId))
+      const m = await doneOf(t.messageId)
+      expect(stepOf(m).label, c.name).toEndWith(` · ${host}`)
+      expect(stepOf(m).label).not.toMatch(/Notion|GitLab|노션|N\u043etion/)
+      const r = resultOf(m)
       expect(r).toMatchObject({ skipped: true })
       expect(r.note).toBeUndefined()
     }
@@ -874,6 +884,7 @@ describe('look-alike names, mixed alphabets and connections saved before the lis
       const t = await start('erin', { name: 'Notion', kind: 'mcp', url, auth: 'bearer' })
       const card = await cardOf(t.turnId)
       expect(card).toMatchObject({ reconnect: true, name: new URL(url).host, service: { url } })
+      expect(card.notOfficial).toEqual({ name: 'Notion', url: 'https://mcp.notion.com/mcp' })
       const r = await post('erin', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
       expect(r.body).toMatchObject({ state: 'connected', integrationId: mine.id })
       await doneOf(t.messageId)

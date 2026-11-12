@@ -608,6 +608,7 @@ export const ko = {
   'connect.hostCaution': "이 주소는 {name}의 사이트 주소가 아니에요. 연결하기 전에 확인해 주세요.",
   'connect.official': "{name} 공식 주소",
   'connect.unlisted': "앱이 모르는 주소라서 맞는지 확인해 줄 수 없어요. 알고 믿을 수 있는 주소일 때만 연결해 주세요.",
+  'connect.notOfficial': "{name}의 공식 주소가 아니에요. {name}의 공식 주소는 {official}이에요. 이 주소를 알고 믿을 수 있을 때만 연결해 주세요.",
   'connect.reconnectTitle': "{name} 다시 로그인",
   'connect.reconnectKeyTitle': "{name} 새 키 넣기",
   'connect.reconnectNote': "{name} 연결이 이미 있지만 다시 로그인해야 해요. 그 연결을 고치는 것이고, 하나 더 만들지 않아요.",
