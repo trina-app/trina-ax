@@ -3060,6 +3060,7 @@ export const en: Record<MessageKey, string> = {
   'integrations.deleteBody': 'The AI will no longer use this service. The saved key and sign-in are deleted too.',
   'integrations.deleteBodyTeam': 'Nobody who used this connection can use it any more. The saved key and sign-in are deleted too.',
   'integrations.signIn.waiting': 'Finish signing in in the new window. This page updates when you are done.',
+  'integrations.signIn.notFinished': "Signing in has not finished yet. If you closed the window, try again or cancel.",
   'integrations.signIn.open': 'Open sign-in window',
   'integrations.signIn.done': 'Signed in.',
   'integrations.signIn.failed': 'Could not sign in. Please try again.',

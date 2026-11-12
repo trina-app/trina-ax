@@ -3060,6 +3060,7 @@ export const id: Record<MessageKey, string> = {
   'integrations.deleteBody': 'AI tidak akan memakai layanan ini lagi. Kunci dan info masuk yang tersimpan juga dihapus.',
   'integrations.deleteBodyTeam': 'Semua orang yang memakai koneksi ini tidak bisa memakainya lagi. Kunci dan info masuk yang tersimpan juga dihapus.',
   'integrations.signIn.waiting': 'Selesaikan proses masuk di jendela baru. Halaman ini diperbarui setelah selesai.',
+  'integrations.signIn.notFinished': "Proses masuk belum selesai. Jika jendelanya sudah Anda tutup, coba lagi atau batalkan.",
   'integrations.signIn.open': 'Buka jendela masuk',
   'integrations.signIn.done': 'Berhasil masuk.',
   'integrations.signIn.failed': 'Tidak bisa masuk. Silakan coba lagi.',

@@ -3016,6 +3016,7 @@ export const ja: Record<MessageKey, string> = {
   'integrations.deleteBody': "AIはこのサービスを使わなくなります。保存済みのキーとログイン情報も削除されます。",
   'integrations.deleteBodyTeam': "この接続を使っていた全員が利用できなくなります。保存済みのキーとログイン情報も削除されます。",
   'integrations.signIn.waiting': "新しいウィンドウでログインを完了してください。完了するとこのページが更新されます。",
+  'integrations.signIn.notFinished': "ログインはまだ終わっていません。ウィンドウを閉じた場合は、もう一度試すかキャンセルしてください。",
   'integrations.signIn.open': "ログインウィンドウを開く",
   'integrations.signIn.done': "ログインしました。",
   'integrations.signIn.failed': "ログインできませんでした。再試行してください。",

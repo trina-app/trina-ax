@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 00:57
 - Branch: `fix/never-signed-in-connection`
-- Status: in progress
+- Status: done
 - Where: `web/src/pages/Connectors.tsx`, `web/src/components/integrations/IntegrationRow.tsx`,
   `web/src/lib/integrations.ts`, `web/src/i18n/*`. Why: connectors are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, two display fixes
@@ -48,3 +48,16 @@ None beyond display. Five languages.
 
 ## Result
 
+Built as planned. `awaitingFirstSignIn` (auth oauth, no stored sign-in) keeps a connection out of "연결됨". The
+Connectors page adds a "로그인 필요" section, a few lines next to the existing list; its tiles keep the
+`connected-app` test id so the e2e helpers still find them. In `useSignIn`, coming back to the window
+(`focus`) while still waiting sets `away`. `SignInPanel` (now exported for its test) then shows
+`integrations.signIn.notFinished` with 다시 시도 and 취소.
+
+Tests:
+- New `web/test/unit/integration-sign-in-state.test.tsx`: the helper; focus while pending gives the "not finished"
+  line with retry and cancel, and a sign-in finished late still completes. It failed with the old hook.
+- New in `web/test/e2e/integrations.spec.ts`: Notion added without signing in is under "로그인 필요", not in
+  "연결됨"; a no-auth connection stays in "연결됨".
+- `integrations.spec` + `connectors-hub.spec`: 20 pass. `bun run test:web`: 2636 pass. Typecheck, check:i18n and
+  check:docs pass.
