@@ -7622,9 +7622,6 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
   announced.)
 - **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
   `tests/unit/a-team-links.test.ts` (team link join: the line).
-||||||| 2be3f4b09
-||||||| 1565b39f1
-||||||| 626c5fbfd
 
 ## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
 
@@ -23516,8 +23513,6 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
   `web/test/unit/folder-picker-suggestions.test.tsx`, `web/test/e2e/move-suggestions.spec.ts` (1360 and 390, light and
   dark, keyboard).
 - Version impact: **minor** (two endpoints, a new part of the Move picker).
-||||||| parent of a2a6547aa (Dev environment: the installer turns srt on (Debian 13 self-install))
-||||||| parent of e046059e5 (Dev environment: the installer turns srt on (Debian 13 self-install))
 
 ## Dev environment: the installer turns srt on (feat/install-srt-auto, 2026-11-12)
 
