@@ -70,8 +70,8 @@ import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientVie
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
-
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
+import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -4936,6 +4936,10 @@ export class MockServer {
   // ---------------- HTTP ----------------
   routes = listEndpoints().map(({ name, ep }) => ({ name, ep, re: new RegExp('^' + ep.path.replace(/:([A-Za-z_]+)/g, '(?<$1>[^/]+)') + '$') }))
 
+  routeOf(method: string, p: string) {
+    return this.routes.filter((r) => r.ep.method === method && r.re.test(p)).sort((a, b) => a.ep.path.split(':').length - b.ep.path.split(':').length)[0]
+  }
+
   async handle(req: Request, dist: string): Promise<Response> {
     const url = new URL(req.url)
     const p = url.pathname
@@ -4947,7 +4951,7 @@ export class MockServer {
     this.log.push(`${req.method} ${p}`)
     // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
     // ("/api/intro-decks/:id")
-    const route = this.routes.filter((r) => r.ep.method === req.method && r.re.test(p)).sort((a, b) => a.ep.path.split(':').length - b.ep.path.split(':').length)[0]
+    const route = this.routeOf(req.method, p)
     try {
       if (!route) return fail('not_found', 404)
       const h = this.handlers[route.name]
@@ -5003,8 +5007,14 @@ export class MockServer {
   }
 
   async testControl(p: string, req: Request): Promise<Response> {
-    if (p === '/__test/coverage') return Response.json(Object.fromEntries(this.coverage))
     const body = (await req.json().catch(() => ({}))) as Json
+    if (p === '/__test/coverage') {
+      // {method, path}: a request the page's own route answered in the browser (an e2e spec's page.route, rooms-mock.ts),
+      // reported by test/e2e/coverage-report.ts so its endpoint counts too; without them: the counts so far
+      const route = typeof body.method === 'string' && typeof body.path === 'string' ? this.routeOf(body.method, body.path) : undefined
+      if (route) this.coverage.set(route.name, (this.coverage.get(route.name) ?? 0) + 1)
+      return body.path === undefined ? Response.json(Object.fromEntries(this.coverage)) : new Response(null, { status: route ? 204 : 404 })
+    }
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/file-list') this.fileList = { ...this.fileList, ...(body as Partial<FileListStatus>) }
@@ -5795,7 +5805,12 @@ export class MockServer {
           const ok = server.upgrade(req, { data, headers: { 'sec-websocket-protocol': 'mycel.v1' } })
           return ok ? undefined : new Response('upgrade failed', { status: 400 })
         }
-        return self.handle(req, dist)
+        const res = await self.handle(req, dist)
+        if (!url.pathname.startsWith('/api/')) return res
+        // marks an answer of this server: an /api answer without it was given in the browser (test/e2e/coverage-report.ts)
+        const marked = new Response(res.body, res)
+        marked.headers.set(MOCK_ANSWER_HEADER, '1')
+        return marked
       },
       websocket: {
         open(ws) {
