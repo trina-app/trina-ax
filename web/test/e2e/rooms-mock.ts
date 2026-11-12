@@ -2,6 +2,7 @@
 // through page.route, contract-shaped, and the messages sent to it kept for the spec to read. The signed-in owner (olga)
 // is a member; the others are people of this room only (not in the directory).
 import type { Page } from '@playwright/test'
+import { reportBrowserAnswers } from './coverage-report'
 
 export const ROOM_ID = '019a5f00-0000-7000-8000-00000000a001'
 const T0 = Date.parse('2026-11-05T09:00:00.000Z')
@@ -30,6 +31,8 @@ export interface MockRoomAi { answering: number; mine: unknown[]; requests: unkn
  * (none by default); `room`: fields of the room as they are (its name, threads with new replies, …). A PATCH of the
  * room (my notification level) answers with the room changed. */
 export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; ai?: MockRoomAi; room?: Record<string, unknown> }): Promise<MockRoom> {
+  // its answers count for the feature map (docs/FEATURES.md) like the mock server's
+  reportBrowserAnswers(page)
   const state: MockRoom = { sent: [], reacted: [], add: () => { throw new Error('not yet') } }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
@@ -138,6 +141,7 @@ export interface MockRooms {
  * contract-shaped.
  * The signed-in owner (olga) is in all of them. */
 export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<MockRooms> {
+  reportBrowserAnswers(page)
   const state: MockRooms = { hidden: [], left: [], updated: [], pinned: [] }
   const NOW = Date.parse('2026-11-07T09:00:00.000Z')
   const when = (ago: number) => new Date(NOW - ago * 60_000).toISOString()
