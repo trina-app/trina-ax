@@ -57,7 +57,7 @@ Before any replacement, make a current backup, pause team use and preserve the c
 
 ## Going back to the version before an update (Linux)
 
-Use this when an update (for example 0.4.0 → 0.5.0) went wrong and the team must run the old version again. The old version cannot read a database the new version has already changed, so you put back the copy of the database from just before the update and start the old version in one go. Do not use Admin › System › Update › Roll back or a plain server restart for this: a restart starts the new version, which changes the restored copy again.
+Use this when an update (for example 0.4.0 → 0.5.0) went wrong and the team must run the old version again. The old version cannot read a database the new version has already changed, so you put back the copy of the database from just before the update and start the old version in one go. Do not use Admin › System › Update › **Go back** or a plain server restart for this: a restart starts the new version, which changes the restored copy again.
 
 What you lose: everything written in Trina after the update (messages and chats, new accounts, settings, scheduled-task runs). Everyone signs in again. Team files are not touched: files saved after the update stay; files sent in chat rooms after the update are moved to `.system/rooms-orphans/` and deleted after 30 days.
 
@@ -77,7 +77,7 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
 
    Take the newest entry with `"kind": "pre-migrate"` whose `createdAt` is the time of the update (the new version made it at its first start, before it changed anything). If there is none, take the newest `"kind": "pre-update"` entry from before the update. Note its `id`.
 
-3. Stage that copy. Nothing changes yet:
+3. Stage that copy. Nothing changes yet, but from now until step 4 ends, do not restart the server or the machine: any start of the new version would put the copy back and change it again, and what was written since the update would be lost:
 
    ```sh
    trina_admin stage-restore --backup <id>
@@ -89,6 +89,17 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
    sudo mycel-ctl update --version 0.4.0
    ```
 
+   The last line must start with `ok: 0.5.0 -> 0.4.0`. If it does not:
+
+   - It ends with `rolled_back`: the old version did not start and the server went back to the new one. Do steps 2–4 again.
+   - Any other result (`error`, `verify_failed`, `busy`): the switch did not happen. Restart nothing. Cancel the staged copy first, then read the message, fix the cause and start again at step 2:
+
+     ```sh
+     sudo -u axserver rm -f /var/lib/mycel/data/restore-pending.json
+     ```
+
+     Without that file the server starts with the database it has, as if step 3 had not been done.
+
 5. Check:
 
    ```sh
@@ -98,7 +109,7 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
 
    Both show the old version (`version 0.4.0`). `root files` still shows the newer version: that is expected, the root programs only move forward and work with the old version. Sign in, and open a chat and a file from before the update. Admin › System › Backups and the activity log say which backup was put back.
 
-6. While automatic updates are off, Admin › Home shows the newer version with an **Install now** button. Do not press it until the problem is fixed. When you are ready to update again, make a backup and run `sudo mycel-ctl auto-update on` (or `sudo mycel-ctl update`).
+6. While automatic updates are off, Admin › Home shows the newer version with an **Install now** button. Do not press it until the problem is fixed. When the problem is fixed, make a backup first. Then either install the new version once, now, with `sudo mycel-ctl update` (automatic updates stay off), or turn automatic updates back on with `sudo mycel-ctl auto-update on` (the new version is installed in the next update window).
 
 ## Office replacement and a new machine
 
@@ -133,7 +144,7 @@ When the old server is lost, set up a new one from your off-host archive (made w
    ```sh
    sudo mkdir -m 700 /var/lib/mycel/data/fresh-install
    sudo sh -c 'mv /var/lib/mycel/data/app.db /var/lib/mycel/data/app.db-wal /var/lib/mycel/data/app.db-shm /var/lib/mycel/data/fresh-install/ 2>/dev/null; ls /var/lib/mycel/data/fresh-install'
-   sudo mv /var/lib/mycel/team /var/lib/mycel/team.fresh-install
+   sudo mv -T /var/lib/mycel/team /var/lib/mycel/team.fresh-install
    ```
 
    The `ls` must show `app.db`, and `/var/lib/mycel/data/` must no longer have `app.db-wal` or `app.db-shm`.
@@ -142,7 +153,7 @@ When the old server is lost, set up a new one from your off-host archive (made w
 
    ```sh
    sudo mv /var/lib/mycel/data/recovered/db/app.sqlite /var/lib/mycel/data/app.db
-   sudo mv /var/lib/mycel/data/recovered/team /var/lib/mycel/team
+   sudo mv -T /var/lib/mycel/data/recovered/team /var/lib/mycel/team
    ```
 
 7. Give them to the service account, readable by it only (folders 700, files 600, as a new install has them):
@@ -168,7 +179,7 @@ When the old server is lost, set up a new one from your off-host archive (made w
 10. Connect the AI accounts again in **Admin › AI accounts**, and reconnect integrations (Google, Slack and others). Their keys were sealed with the old server's keys, which are not in the archive; never copy key files from the old server or from a support attachment.
 11. Do the checks in [Verify before reopening access](#verify-before-reopening-access), make a new backup, then delete `/var/lib/mycel/data/off-host.tar.zst.age` and `/var/lib/mycel/data/recovered`. Keep `fresh-install` and `team.fresh-install` for a week, then delete them.
 
-If the team folder is not in `/var/lib/mycel/team` (a network share or another disk: `teamRoot` in `/var/lib/mycel/config/server.json`), use that path in steps 5–7 instead. The new server's settings, certificates and keys stay those of the new install; the archive does not carry them.
+The team folder is always `/var/lib/mycel/team` on Linux (the installer sets it at every install, repair and update). If it is a network share or another disk mounted there, these steps do not work as written: `mv` of a mount point fails ("Device or resource busy"), and `chown`/`chmod` may not work on NFS or SMB. Leave the share mounted, skip the team-folder `mv` in steps 5 and 6, move what the new install put on the share aside, and copy the contents of the recovered `team/` onto it; check with the share's administrator that only the service account can read it. The new server's settings, certificates and keys stay those of the new install; the archive does not carry them.
 
 Role-account Mac has no such helper either: use the same steps with its paths (`/Library/Application Support/mycel/`, account `_axserver`); they have not been tried on a Mac yet.
 
@@ -176,4 +187,4 @@ Role-account Mac has no such helper either: use the same steps with its paths (`
 
 Check SQLite integrity, log in again, verify a known file's content and history, compare two users' folder access, check skills, and review diagnostics. Reauthorize AI/integrations privately. Verify backup scheduling/timezone and create a fresh backup. Confirm old sessions no longer work. A rollback of app binaries does not roll back data.
 
-Tested: a disposable local demo archive was encrypted, extracted and compared; DB-only and file-recovery unit coverage was run. On Ubuntu 24.04 VMs (2026-11-12) the steps for going back after a 0.4.0 → 0.5.0 update (QA TC-337) and for a new Linux server from the archive (QA TC-362) were run on real installs: the team came back with its data, sign-ins and folder access, and the database passed its integrity check. Role-account Mac and physical replacement-Mac recovery still need operator drills.
+Tested: a disposable local demo archive was encrypted, extracted and compared; DB-only and file-recovery unit coverage was run. On Ubuntu 24.04 VMs (2026-11-12) the steps for going back after a 0.4.0 → 0.5.0 update (QA TC-337) and for a new Linux server from the archive (QA TC-362) were tried in the order these steps give: the team came back with its data, sign-ins and folder access, and the database passed its integrity check. Not yet tried: turning automatic updates off first (step 1) and the Admin › Home part (step 6) when going back, and reconnecting AI accounts (step 10) on a new server. Role-account Mac and physical replacement-Mac recovery still need operator drills.

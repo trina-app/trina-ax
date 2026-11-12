@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"mycel/native/internal/bundle"
@@ -44,7 +48,7 @@ type Status struct {
 	Updates *UpdateSettings `json:"updates"`
 	// SystemPackages: the one list's sync (sync.go); nil on a server from before the list
 	SystemPackages *SystemPackagesStatus `json:"systemPackages,omitempty"`
-	// RootUnfinished: root programs that are not the ones of root/VERSION's release (an update stopped while it
+	// RootUnfinished: root files that are not the ones of root/VERSION's release (an update stopped while it
 	// replaced them one by one and wrote root/VERSION last: a reset or power cut, QA TC-340); empty when they all match
 	// or that release's version folder is gone
 	RootUnfinished []string `json:"rootUnfinished,omitempty"`
@@ -100,9 +104,9 @@ func cmdStatus(e *env, args []string) (int, error) {
 	}
 	if len(s.RootUnfinished) > 0 {
 		if updateRunning(e.root(".update.lock")) {
-			fmt.Fprintf(e.stdout, "  an update is running now: it is replacing the root programs (%s so far)\n", strings.Join(s.RootUnfinished, ", "))
+			fmt.Fprintf(e.stdout, "  an update is running now: it is replacing the root files (%s so far)\n", strings.Join(s.RootUnfinished, ", "))
 		} else {
-			fmt.Fprintf(e.stdout, "  AN UPDATE DID NOT FINISH: some root programs (%s) are not those of root files %s. Run the update again: sudo mycel-ctl update (with the same --version if you gave one)\n", strings.Join(s.RootUnfinished, ", "), orNone(s.RootVersion))
+			fmt.Fprintf(e.stdout, "  AN UPDATE DID NOT FINISH: some root files (%s) are not those of %s, the version in root/VERSION. Run the update again: sudo mycel-ctl update (with the same --version if you gave one), or on a server without internet sudo ./install-linux.sh update --from . in the kit's folder\n", strings.Join(s.RootUnfinished, ", "), orNone(s.RootVersion))
 		}
 	}
 	printUpdateSettings(e.stdout, s.Updates, in, in.Systemd && fileExists(systemdRunDir))
@@ -137,34 +141,55 @@ func rootVersion(e *env) string {
 	return strings.TrimSpace(string(b))
 }
 
-// rootPrograms are the programs an update replaces in root/ one by one (update.go updateRoot).
-var rootPrograms = []string{"mycel-bootstrap", "mycel-launcher", "mycel-sandbox", "mycel-ctl", "mycel-account"}
-
-// rootUnfinished lists the root programs whose content differs from the copy in app/versions/<root/VERSION>/root/.
-// A program missing on either side is not counted (an older kit without it); no version folder means no check.
+// rootUnfinished lists the root files (programs, scripts, unit templates) whose content differs from the copy in
+// app/versions/<root/VERSION>/root/ (the files an update replaces one by one, update.go updateRoot). A file missing in
+// root/ is not counted (the installer leaves some of the kit's root files out), and no version folder means no check.
+// The version folders belong to the server account: no link is followed and only regular files are read (a planted
+// link to a FIFO or /dev/zero must not hang a status run as root).
 func rootUnfinished(e *env, rv string) []string {
 	if rv == "" || !bundle.ValidVersion(rv) {
 		return nil
 	}
-	kit := filepath.Join(e.base, "app", "versions", rv, "root")
-	if st, err := os.Stat(kit); err != nil || !st.IsDir() {
-		return nil
+	kit := e.base
+	for _, c := range []string{"app", "versions", rv, "root"} {
+		kit = filepath.Join(kit, c)
+		if st, err := os.Lstat(kit); err != nil || !st.IsDir() {
+			return nil
+		}
 	}
 	var out []string
-	for _, n := range rootPrograms {
-		want, _, err := bundle.HashFile(filepath.Join(kit, n))
-		if err != nil {
-			continue
+	_ = filepath.WalkDir(kit, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return nil
 		}
-		have, _, err := bundle.HashFile(e.root(n))
-		if err != nil {
-			continue
+		rel, _ := filepath.Rel(kit, p)
+		want, ok := hashRegular(p)
+		if !ok {
+			return nil
 		}
-		if have != want {
-			out = append(out, n)
+		if have, ok := hashRegular(e.root(rel)); ok && have != want {
+			out = append(out, rel)
 		}
-	}
+		return nil
+	})
 	return out
+}
+
+// hashRegular is the sha256 of a regular file opened without following a link and without blocking (a FIFO).
+func hashRegular(p string) (string, bool) {
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", false
+	}
+	return hex.EncodeToString(h.Sum(nil)), true
 }
 
 func unitNames(id string) []string {

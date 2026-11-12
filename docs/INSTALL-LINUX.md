@@ -400,10 +400,12 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 
 1. 자동 업데이트를 끕니다. 서버를 다시 시작하므로 맨 먼저 합니다: `sudo mycel-ctl auto-update off`
 2. 업데이트 직전 사본 찾기: `trina_admin list-backups`. `"kind": "pre-migrate"`이고 `createdAt`이 업데이트한 때인 가장 새 항목의 `id`를 적습니다(새 버전이 처음 켜질 때, 무엇이든 바꾸기 전에 만든 사본). 없으면 업데이트 전의 가장 새 `"kind": "pre-update"` 항목을 씁니다.
-3. 그 사본을 올려 둡니다(아직 아무것도 바뀌지 않음): `trina_admin stage-restore --backup <id>`
-4. 곧바로 예전 버전을 설치합니다. 서버를 멈추고 예전 버전으로 바꿔 켜며, 켜질 때 올려 둔 사본이 들어갑니다: `sudo mycel-ctl update --version 0.4.0`
+3. 그 사본을 올려 둡니다(아직 아무것도 바뀌지 않음): `trina_admin stage-restore --backup <id>`. 이때부터 4단계가 끝날 때까지 서버나 컴퓨터를 다시 시작하지 않습니다. 새 버전이 켜지면 사본을 넣고 다시 바꿔서, 업데이트 뒤에 쓴 것을 잃습니다.
+4. 곧바로 예전 버전을 설치합니다. 서버를 멈추고 예전 버전으로 바꿔 켜며, 켜질 때 올려 둔 사본이 들어갑니다: `sudo mycel-ctl update --version 0.4.0`. 마지막 줄이 `ok: 0.5.0 -> 0.4.0`으로 시작해야 합니다. 아니면:
+   - `rolled_back`으로 끝남: 예전 버전이 뜨지 않아 새 버전으로 돌아갔습니다. 2~4단계를 다시 합니다.
+   - 그 밖의 결과(`error`, `verify_failed`, `busy`): 바뀌지 않았습니다. 아무것도 다시 시작하지 말고 먼저 올려 둔 사본을 취소합니다: `sudo -u axserver rm -f /var/lib/mycel/data/restore-pending.json`(이 파일이 없으면 서버는 지금 DB로 켜짐). 그다음 메시지의 원인을 고치고 2단계부터 다시 합니다.
 5. 확인: `sudo mycel-ctl status`와 `curl -s http://127.0.0.1:47820/api/health`가 예전 버전(`version 0.4.0`)을 보여 줍니다. `root files`는 더 새 버전으로 남는 것이 정상입니다(root 프로그램은 앞으로만 가고 예전 버전과도 동작). 로그인해서 업데이트 전의 대화와 파일을 엽니다.
-6. 자동 업데이트가 꺼져 있는 동안 관리자 › 홈에 새 버전과 **지금 설치** 버튼이 보입니다. 문제가 풀릴 때까지 누르지 않습니다. 다시 업데이트할 때는 백업 후 `sudo mycel-ctl auto-update on`(또는 `sudo mycel-ctl update`).
+6. 자동 업데이트가 꺼져 있는 동안 관리자 › 홈에 새 버전과 **지금 설치** 버튼이 보입니다. 문제가 풀릴 때까지 누르지 않습니다. 문제가 풀리면 먼저 백업합니다. 그다음 새 버전을 지금 한 번만 설치하려면 `sudo mycel-ctl update`(자동 업데이트는 계속 꺼짐), 자동 업데이트를 다시 켜려면 `sudo mycel-ctl auto-update on`(다음 업데이트 시간에 새 버전이 설치됨).
 
 ### 서버를 잃었을 때: 새 서버에 보관본으로 되살리기
 
@@ -420,14 +422,14 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
    ```sh
    sudo mkdir -m 700 /var/lib/mycel/data/fresh-install
    sudo sh -c 'mv /var/lib/mycel/data/app.db /var/lib/mycel/data/app.db-wal /var/lib/mycel/data/app.db-shm /var/lib/mycel/data/fresh-install/ 2>/dev/null; ls /var/lib/mycel/data/fresh-install'
-   sudo mv /var/lib/mycel/team /var/lib/mycel/team.fresh-install
+   sudo mv -T /var/lib/mycel/team /var/lib/mycel/team.fresh-install
    ```
 
 6. 되살린 것을 제자리에 둡니다(`db/app.sqlite` → `data/app.db`, `team/` → 팀 폴더):
 
    ```sh
    sudo mv /var/lib/mycel/data/recovered/db/app.sqlite /var/lib/mycel/data/app.db
-   sudo mv /var/lib/mycel/data/recovered/team /var/lib/mycel/team
+   sudo mv -T /var/lib/mycel/data/recovered/team /var/lib/mycel/team
    ```
 
 7. 서버 계정만 읽게 합니다(폴더 700, 파일 600, 새 설치와 같게):
@@ -446,7 +448,7 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 10. **관리자 › AI 계정**에서 AI 계정을 다시 연결하고 연동(Google, Slack 등)도 다시 연결합니다. 열쇠가 예전 서버의 키로 봉인되어 있고 그 키는 보관본에 없습니다. 예전 서버나 지원 첨부의 키 파일을 복사하지 않습니다.
 11. 아래 확인을 하고 새 백업을 만든 뒤 `/var/lib/mycel/data/off-host.tar.zst.age`와 `/var/lib/mycel/data/recovered`를 지웁니다. `fresh-install`과 `team.fresh-install`은 일주일 뒤 지웁니다.
 
-팀 폴더가 `/var/lib/mycel/team`이 아니면(네트워크 공유·다른 디스크: `/var/lib/mycel/config/server.json`의 `teamRoot`) 5~7단계에서 그 경로를 씁니다. 설정·인증서·키는 새 설치의 것을 그대로 씁니다(보관본에 없음). 자세한 설명: [BACKUP-RESTORE.md](BACKUP-RESTORE.md#linux-a-new-server-from-the-archive).
+리눅스에서 팀 폴더는 늘 `/var/lib/mycel/team`입니다(설치기가 설치·repair·업데이트마다 정함). 그 자리에 네트워크 공유나 다른 디스크를 마운트했다면 이 순서대로는 안 됩니다. 마운트 지점은 `mv`가 실패하고("Device or resource busy"), NFS·SMB에서는 `chown`/`chmod`가 안 될 수 있습니다. 공유는 마운트한 채로 두고 5·6단계의 팀 폴더 `mv`는 건너뜁니다. 새 설치가 공유에 만든 것을 옆으로 옮긴 뒤 되살린 `team/`의 내용을 공유에 복사하고, 서버 계정만 읽을 수 있는지 공유 관리자와 확인합니다. 설정·인증서·키는 새 설치의 것을 그대로 씁니다(보관본에 없음). 자세한 설명: [BACKUP-RESTORE.md](BACKUP-RESTORE.md#linux-a-new-server-from-the-archive).
 
 앱 롤백은 DB·팀 파일을 되돌리지 않습니다. 업데이트 전 백업과 호환 버전을 사용하세요. 복구 뒤 SQLite 무결성, 알려진 파일, 두 계정의 권한, 스킬, 진단·백업 일정을 확인하고 새 백업을 만듭니다. 실행 중인 DB를 단순 `cp`로 백업하지 마세요.
 
