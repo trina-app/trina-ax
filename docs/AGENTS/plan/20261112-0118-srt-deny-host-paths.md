@@ -51,3 +51,9 @@ Built as planned. `ETC_SECRETS` also names /etc/wireguard, /etc/NetworkManager/s
 decides, a tie gives it back). Docker suite (colima, Debian 13 image of Dockerfile.srt): A30, A31, A31b fail on dev
 and pass with the fix; A0c passes. A28d, A28e, A28h and A29 fail on that local host with and without this change (they
 pass in CI). install-srt.sh itself was not run (it needs systemd and polkit).
+
+After review: `ETC_SECRETS` names whole folders and files that are often world-readable (`/etc/default`,
+`/etc/environment`, `/etc/fstab`, netplan, cron, VPN, mail, rclone, apt auth, `/etc/ax`, `/etc/cloud`, ...); a cleaned
+`/etc` like the engine sandbox's is not possible through srt's settings. A connected source is named in `denyRead`
+only when nothing hides it already, so a hung NAS mount cannot stall run starts; the check still refuses a readable
+source. New Docker case A31c (0644 canaries in /etc) passes.

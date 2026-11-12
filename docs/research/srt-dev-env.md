@@ -265,7 +265,7 @@ filesystem lists; the example is before the scope change, for the network part):
 {
   "filesystem": {
     "denyRead": ["/var/lib/<ID>", "/etc/default/<ID>", "/", "/tmp", "/var/log", "/var/lib", "/run", "/home", "/root",
-      "/mnt", "/media", "/srv", "/opt", "/etc/systemd", "/etc/cloudflared", "...", "<connected folder sources>"],
+      "/mnt", "/media", "/srv", "/opt", "/etc/systemd", "/etc/default", "/etc/fstab", "..."],
     "allowRead": ["<project folder>", "/var/lib/<ID>/devenv/home/p1", "/var/lib/<ID>/devenv/logs/p1",
       "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt/trina"],
     "allowWrite": ["<project folder>", "/var/lib/<ID>/devenv/home/p1"],
@@ -382,9 +382,9 @@ person allows".
 | The rest of `<base>` (DB, secrets, config, other people's homes and logs, other chats' work folders, engine files) | no | no |
 | `/etc/default/<ID>`, `/tmp`, `/run`, `/var/log`, `/home`, `/root` | no | no |
 | `/usr`, `/opt/trina` (node, srt, chromium, ...), the rest of `/etc` | yes | no |
-| `/etc` secrets and units (`config.ts` `ETC_SECRETS`: `/etc/systemd`, `/etc/cloudflared`, `/etc/ssh`, ...) | no | no |
+| `/etc` secrets and units (`config.ts` `ETC_SECRETS`: `/etc/systemd`, `/etc/default`, `/etc/environment`, `/etc/fstab`, `/etc/cloudflared`, `/etc/ssh`, ...) | no | no |
 | Everything else on the host (`/mnt`, `/media`, `/srv`, `/opt` but `/opt/trina`, `/var/lib`, a new top folder): `denyRead` `/` (QA TC-306) | no | no |
-| The source of a connected folder, wherever it is mounted (read from `connected_folders`); the run reads the mirror `connected/<name>` with its rules | no | no |
+| The source of a connected folder, wherever it is mounted (read from `connected_folders`; named in `denyRead` only when nothing else hides it); the run reads the mirror `connected/<name>` with its rules | no | no |
 
 node_modules and `.venv` are now in the project folder and use team disk. `snapshot.ts` already skips them.
 

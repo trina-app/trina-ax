@@ -83,6 +83,12 @@ fs.mkdirSync('/etc/systemd/system', { recursive: true }); fs.writeFileSync('/etc
 fs.mkdirSync('/etc/cloudflared', { recursive: true }); fs.writeFileSync('/etc/cloudflared/config.yml', `token: ${CANARY}-cfd\n`)
 fs.mkdirSync('/var/lib/other-app', { recursive: true }); fs.writeFileSync('/var/lib/other-app/db', `${CANARY}-varlib`)
 fs.mkdirSync('/home/someone', { recursive: true }); fs.writeFileSync('/home/someone/notes', `${CANARY}-home`)
+// world-readable host secrets in /etc (independent review of QA TC-306): 0644 files a run must not read
+const ETC_CANARIES: [string, string][] = [['/etc/environment', 'API_KEY'], ['/etc/fstab', '//nas/share /mnt/nas cifs password'], ['/etc/default/other-app', 'TOKEN'],
+  ['/etc/netplan/50-cloud.yaml', 'wifi password'], ['/etc/cron.d/backup', 'curl -u user'], ['/etc/openvpn/client.conf', 'auth'], ['/etc/ax/link.json', 'tenant token'],
+  ['/etc/samba/smb.conf', 'password'], ['/etc/msmtprc', 'password'], ['/etc/rclone/rclone.conf', 'token'], ['/etc/apt/auth.conf.d/private.conf', 'password'],
+  ['/etc/pki/tls/key.pem', 'key'], ['/etc/cloud/cloud.cfg.d/99-link.cfg', 'token'], ['/etc/crontab', 'curl -u user'], ['/etc/postfix/sasl_passwd', 'password']]
+for (const [f, what] of ETC_CANARIES) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, `\n${what} ${CANARY}-etc\n`); fs.chmodSync(f, 0o644) }
 sh(`chmod -R a+rX ${NAS} ${NAS2} /srv/other-app /opt/other /etc/systemd/system /etc/cloudflared /var/lib/other-app /home/someone && chmod a+r /etc/systemd/system/cloudflared.service`)
 for (const u of [ME, 'bob', 'carol']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
 fs.writeFileSync(path.join(personHome(BASE, 'bob'), 'secret'), `${CANARY}-other-home`)
@@ -178,9 +184,10 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
       const bad = [['OPT', ['trina']], ['VARLIB', [ID]], ['SRV', []], ['MNT', []], ['MEDIA', []], ['HOME', []]].flatMap(([k, okNames]) => line(k as string).filter((x) => !(okNames as string[]).includes(x)).map((x) => `${k} lists ${x}`))
       return bad.length ? `${bad.join(', ')}: ${r.out.slice(0, 400)}` : null
     } },
+  { id: 'A31c', what: 'world-readable host secrets in /etc: fstab, environment, /etc/default, netplan, cron, VPN, link token, mail, rclone, apt auth', cmd: `${ETC_CANARIES.map(([f]) => `cat ${f}`).join('; ')}; grep -rs ${CANARY} /etc; true`, check: () => null },
   // what a normal dev run needs still works: node, python, git, bun, an npm install into the run's own folders
-  { id: 'A0c', what: 'node, python, git, bun, curl to an allowed site and an npm install in the work folder', cmd: 'node -e "console.log(\'node-ok\', process.version)" && python3 -c "import ssl,json,sqlite3;print(\'py-ok\')" && git init -q g && cd g && git -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m x && echo git-ok && cd .. && bun --version && npm init -y >/dev/null && npm install --no-audit --no-fund is-number >/dev/null && node -e "require(\'is-number\');console.log(\'npm-ok\')" && ls /opt/trina/srt >/dev/null && echo opt-ok',
-    check: both(ok, has('node-ok'), has('py-ok'), has('git-ok'), has('npm-ok'), has('opt-ok')), o: { work: true, timeoutMs: 180_000 } },
+  { id: 'A0c', what: 'node, python, git, bun, curl to an allowed site and an npm install in the work folder', cmd: 'node -e "console.log(\'node-ok\', process.version)" && python3 -c "import ssl,json,sqlite3;print(\'py-ok\')" && git init -q g && cd g && git -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m x && echo git-ok && cd .. && bun --version && npm init -y >/dev/null && npm install --no-audit --no-fund is-number >/dev/null && node -e "require(\'is-number\');console.log(\'npm-ok\')" && ls /opt/trina/srt >/dev/null && echo opt-ok && test -r /etc/ssl/certs/ca-certificates.crt && getent passwd root >/dev/null && echo etc-ok',
+    check: both(ok, has('node-ok'), has('py-ok'), has('git-ok'), has('npm-ok'), has('opt-ok'), has('etc-ok')), o: { work: true, timeoutMs: 180_000 } },
   { id: 'A1', what: 'the DB, secrets, config, engine logins', cmd: `cat ${BASE}/data/app.db || cat ${BASE}/secrets/master.key || cat ${BASE}/config/server.json || cat ${BASE}/agent/codex-auth/auth.json || grep -r ${CANARY} ${BASE}`, check: failsQuietly },
   // srt shows the folders on the way to an allowed folder, with only those paths in them
   { id: 'A2', what: 'folders the person may not open: another project, another group, a hidden folder inside her group, another person\'s folder, .system', cmd: `cat ${TEAM}/projects/two/private.md; cat ${TEAM}/groups/finance/budget.md; cat ${TEAM}/groups/marketing/salaries/2026.md; cat ${TEAM}/users/bob/notes.md; cat ${TEAM}/.system/history/old.bin; ls -a ${TEAM} ${TEAM}/projects ${TEAM}/groups ${TEAM}/users ${TEAM}/groups/marketing`, check: (r) => (/\btwo\b|\bfinance\b|\bbob\b|\.system|\bdata\b/.test(r.out.replace(/No such file or directory/g, '').replace(/cat: [^\n]*\n/g, '')) ? `a hidden folder is listed: ${r.out.slice(0, 300)}` : null) },

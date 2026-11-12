@@ -432,7 +432,9 @@ describe('the srt settings file', () => {
     // the whole root: srt expands it into the root's children, less the ones allowRead gives back
     expect(deny).toContain('/')
     for (const p of ['/mnt', '/media', '/srv', '/opt', '/var/lib', '/home', '/root', '/tmp', '/run', '/var/log']) expect(deny, p).toContain(p)
-    for (const p of ['/etc/systemd', '/etc/cloudflared', '/etc/ssh', '/etc/polkit-1', '/etc/sudoers.d', '/etc/ssl/private']) expect(deny, p).toContain(p)
+    for (const p of ['/etc/systemd', '/etc/cloudflared', '/etc/ssh', '/etc/polkit-1', '/etc/sudoers.d', '/etc/ssl/private', '/etc/default',
+      '/etc/environment', '/etc/fstab', '/etc/netplan', '/etc/cron.d', '/etc/openvpn', '/etc/ax', '/etc/samba', '/etc/msmtprc', '/etc/rclone',
+      '/etc/apt/auth.conf.d', '/etc/pki', '/etc/cloud']) expect(deny, p).toContain(p)
     // what a run needs: programs, libraries, /etc, node / python / srt in /opt/trina
     for (const p of ['/usr', '/bin', '/lib', '/etc', '/opt/trina']) expect(allow, p).toContain(p)
     expect(SRT_PATHS.node.startsWith('/opt/trina/')).toBe(true)
@@ -444,14 +446,20 @@ describe('the srt settings file', () => {
     }
     expect(settingsProblems(s, input)).toEqual([])
   })
-  test('the source folders of connected folders are hidden by name, wherever they are mounted (QA TC-306)', () => {
-    const src = ['/mnt/nas/share', '/data/nas2']
+  test('the source folders of connected folders are hidden, wherever they are mounted (QA TC-306)', () => {
+    // under /mnt or outside every allowed path: hidden already, so not named (srt would look at a hung NAS mount)
+    const src = ['/mnt/nas/share', '/data/nas2', '/etc/odd-share']
     const c = { ...input, connectedSources: src }
     const s = srtSettings(c)
-    for (const p of src) expect(s.filesystem.denyRead).toContain(p)
+    expect(s.filesystem.denyRead).not.toContain('/mnt/nas/share')
+    expect(s.filesystem.denyRead).not.toContain('/data/nas2')
+    // inside a path given back (/etc): named
+    expect(s.filesystem.denyRead).toContain('/etc/odd-share')
     expect(settingsProblems(s, c)).toEqual([])
     // the check refuses settings that lost a source, or give a path in one back, or give /opt or an /etc secret back
-    expect(settingsProblems(srtSettings(input), c).join()).toContain("a connected folder's source is not hidden: /data/nas2")
+    expect(settingsProblems(srtSettings(input), c).join()).toContain("a connected folder's source is not hidden: /etc/odd-share")
+    const fsx0 = (f: Partial<typeof s.filesystem>) => ({ ...s, filesystem: { ...s.filesystem, ...f } })
+    expect(settingsProblems(fsx0({ denyRead: s.filesystem.denyRead.filter((d) => d !== '/mnt') }), c).join()).toContain('a host path is not hidden: /mnt')
     const fsx = (f: Partial<typeof s.filesystem>) => ({ ...s, filesystem: { ...s.filesystem, ...f } })
     expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/mnt/nas'] }), c).join()).toContain('/mnt/nas')
     expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/mnt/nas/share/closed'] }), c).join()).toContain('/mnt/nas/share/closed')
@@ -846,7 +854,9 @@ describe('a command follows the person, not the project', () => {
       const r = await alice().call({ command: 'echo hello' })
       expect(out(r)).toContain('Exit code 0.')
       const s = lastSettings()
-      expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/', '/mnt/nas-test/share', '/mnt', '/srv', '/opt', '/etc/systemd']))
+      expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/', '/mnt', '/srv', '/opt', '/etc/systemd']))
+      // under /mnt: hidden already, not named (srt would look at the mount when the run starts)
+      expect(s.filesystem.denyRead).not.toContain('/mnt/nas-test/share')
       expect(s.filesystem.allowRead).toEqual(expect.arrayContaining(['/usr', '/etc', '/opt/trina']))
     } finally { h.ctx.db.query("DELETE FROM connected_folders WHERE id = 'cf-nas'").run() }
   })

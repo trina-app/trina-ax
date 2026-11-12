@@ -58,12 +58,19 @@ export const serverFilesOutsideBase = (id: string) => [`/etc/default/${id}`]
  * skipped by srt. */
 export const SYSTEM_READ_PATHS = ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc', '/opt/trina']
 
-/** Places in /etc that hold host secrets or service units (a tunnel token in a unit file, for example). */
+/** Places in /etc that hold host secrets or service settings, often world-readable (a tunnel token in a unit file, a
+ * share password in fstab, a hosted image's link token). Whole folders and files, not paths inside them: srt hides a
+ * path it cannot look at by the nearest parent it can, and a path that is not there costs nothing. */
 export const ETC_SECRETS = ['/etc/systemd', '/etc/cloudflared', '/etc/ssh', '/etc/polkit-1', '/etc/sudoers.d',
-  '/etc/letsencrypt', '/etc/ssl/private', '/etc/wireguard', '/etc/NetworkManager/system-connections', '/etc/docker']
+  '/etc/letsencrypt', '/etc/ssl/private', '/etc/wireguard', '/etc/NetworkManager', '/etc/docker',
+  '/etc/default', '/etc/environment', '/etc/fstab', '/etc/crypttab', '/etc/netplan', '/etc/cron.d', '/etc/crontab',
+  '/etc/openvpn', '/etc/ipsec.d', '/etc/ipsec.secrets', '/etc/pki', '/etc/samba', '/etc/rclone', '/etc/davfs2',
+  '/etc/apt/auth.conf', '/etc/apt/auth.conf.d', '/etc/msmtprc', '/etc/postfix', '/etc/mysql', '/etc/ax', '/etc/cloud',
+  '/etc/machine-id']
 
 /** Hidden in every run. `/` hides the whole host: srt expands it into the root's children (not /proc, /dev, /sys) and
- * skips the ones SYSTEM_READ_PATHS gives back, so a folder made later at the top (a new mount) is hidden too. The rest
+ * skips the ones SYSTEM_READ_PATHS gives back. srt lists the root when a run starts: a folder made at the top during a
+ * run (a new mount) is visible to that run and hidden from the next one. The rest
  * name what must stay hidden even if `/` were dropped: /tmp is the server's private /tmp (PrivateTmp); /mnt, /media and
  * /srv hold the sources of connected folders (team-files/connected.ts LINUX_ROOTS), which a run sees only through
  * connected/<name> and its folder rules; /opt and /var/lib hold other apps' files. */
@@ -111,7 +118,9 @@ export interface SettingsInput {
    * engine folders, config file, secrets, TLS key). A path inside the base folder is hidden already. */
   serverPaths?: readonly string[]
   /** the source folders of the team's connected folders (a NAS mount, for example): a run reads only the mirror in
-   * connected/<name>, with its folder rules, never the source */
+   * connected/<name>, with its folder rules, never the source. A source goes into denyRead only when nothing there
+   * hides it already (on Linux they are under /mnt, /media or /srv): srt looks at every denyRead path when a run starts,
+   * and a hung network mount would stall every run */
   connectedSources?: readonly string[]
 }
 
@@ -132,13 +141,15 @@ export function srtSettings(i: SettingsInput) {
   // read-only. A denyRead landing on the writable folder itself makes srt bind it back again, writable, after the
   // read-only folder above it (srt 0.0.81 linux-sandbox-utils pushReadDenyDirMounts; Docker attack A28c).
   const writeInRead = i.view.write.filter((w) => i.view.read.some((r) => r !== w && (r === '' || w.startsWith(r + '/'))))
+  // the whole base folder, not a list of its folders: a file made later in a hidden folder stays hidden
+  const deny = uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...serverFilesOutsideBase(i.id), ...DENIED_SYSTEM_PATHS,
+    ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r)),
+    ...writeInRead.map((w) => abs(i.teamRoot, w))])
+  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [], SYSTEM_READ_PATHS))
   return {
     filesystem: {
-      // the whole base folder, not a list of its folders: a file made later in a hidden folder stays hidden
-      denyRead: uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...serverFilesOutsideBase(i.id), ...DENIED_SYSTEM_PATHS,
-        ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...(i.connectedSources ?? []), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r)),
-        ...writeInRead.map((w) => abs(i.teamRoot, w))]),
-      allowRead: uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [], SYSTEM_READ_PATHS)),
+      denyRead: uniq(deny.concat((i.connectedSources ?? []).filter((src) => !hiddenBy(deny, allowRead, src)))),
+      allowRead,
       allowWrite: uniq(i.view.write.map((r) => abs(i.teamRoot, r)).concat([home], i.work ? [i.work] : [])),
       denyWrite: uniq(i.view.denyWrite.map((r) => abs(i.teamRoot, r))),
     },
@@ -160,10 +171,11 @@ const inside = (child: string, parent: string) => child === parent || child.star
 
 /** Is `p` hidden in a run with these settings? srt gives an allowRead path back inside a denied folder (allowRead wins
  * over denyRead, a tie too), so the deepest entry at or above `p` decides. */
-function hidden(s: ReturnType<typeof srtSettings>, p: string): boolean {
+function hiddenBy(denyRead: readonly string[], allowRead: readonly string[], p: string): boolean {
   const depth = (list: readonly string[]) => Math.max(-1, ...list.filter((e) => inside(p, e)).map((e) => (e === '/' ? 0 : e.split('/').length - 1)))
-  return depth(s.filesystem.denyRead) > depth(s.filesystem.allowRead)
+  return depth(denyRead) > depth(allowRead)
 }
+const hidden = (s: ReturnType<typeof srtSettings>, p: string) => hiddenBy(s.filesystem.denyRead, s.filesystem.allowRead, p)
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
@@ -178,11 +190,11 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   if (!deny.includes(system)) out.push('the system folder is not hidden')
   // a base folder from the environment that is not the real one must not show the server's data (fail closed)
   for (const sp of i.serverPaths ?? []) if (!hidden(s, sp)) out.push(`a server path is not hidden: ${sp}`)
-  // the host: everything outside the allowed paths is hidden, and the connected sources by name (QA TC-306)
+  // the host: everything outside the allowed paths is hidden, the connected sources too (QA TC-306)
   for (const d of DENIED_SYSTEM_PATHS) if (!deny.includes(d)) out.push(`a host path is not hidden: ${d}`)
   for (const d of DENIED_SYSTEM_PATHS) if (d !== '/' && !hidden(s, d)) out.push(`a host path is given back: ${d}`)
   for (const src of i.connectedSources ?? []) {
-    if (!deny.includes(src) || !hidden(s, src)) out.push(`a connected folder's source is not hidden: ${src}`)
+    if (!hidden(s, src)) out.push(`a connected folder's source is not hidden: ${src}`)
     for (const r of s.filesystem.allowRead) if (inside(r, src)) out.push(`a path in a connected folder's source is readable: ${r}`)
   }
   if (i.work !== null && !inside(i.work, devenvPaths(i.base).work)) out.push(`the work folder is not in the base folder's devenv/work: ${i.work}`)
