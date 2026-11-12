@@ -6,7 +6,7 @@
 //
 //   FEATURES_SHEET_ID=<id> GOOGLE_SHEETS_SA_JSON='<service account key JSON>' bun scripts/features/sync-sheet.ts
 //   FEATURES_SHEET_ID=<id> bun scripts/features/sync-sheet.ts --gws          (a Mac with the gws CLI signed in)
-//   … --coverage <file>   another coverage file;  --dry-run   print the rows, write nothing
+//   … --coverage <file>   a coverage file (repeat for shards);  --dry-run   print the rows, write nothing
 //   … --backfill <tsv>    also fill empty Feature ID cells: lines "TC-ID<TAB>feature ids", by exact cell
 import { execFileSync } from 'node:child_process'
 import { createSign } from 'node:crypto'
@@ -132,10 +132,15 @@ async function main() {
   const id = process.env.FEATURES_SHEET_ID
   const map = buildMap(FEATURES, readEndpoints(), readScreens())
   if (map.problems.length) throw new Error(`the feature map has problems; run bun run features:check`)
-  const coverageFile = opt('--coverage') ?? path.join(ROOT, 'web', 'test-results', 'feature-coverage.json')
-  const coverage = existsSync(coverageFile) ? (JSON.parse(readFileSync(coverageFile, 'utf8')) as { finishedAt?: string; commit?: string | null; endpoints: Record<string, number> }) : null
-  const hits = coverage?.endpoints ?? {}
-  const coverageNote = coverage ? `e2e coverage from the run of ${coverage.finishedAt ?? '?'}${coverage.commit ? ` (${coverage.commit.slice(0, 9)})` : ''}; made by scripts/features/sync-sheet.ts, do not edit this tab` : 'no e2e coverage file: every e2e column is 0'
+  // one file per e2e run or shard (--coverage may repeat): the counts add up
+  const files = args.flatMap((a, i) => (a === '--coverage' && args[i + 1] ? [args[i + 1]!] : []))
+  if (!files.length) files.push(path.join(ROOT, 'web', 'test-results', 'feature-coverage.json'))
+  const runs = files.filter((f) => existsSync(f)).map((f) => JSON.parse(readFileSync(f, 'utf8')) as { finishedAt?: string; commit?: string | null; endpoints: Record<string, number> })
+  const hits: Record<string, number> = {}
+  for (const r of runs) for (const [e, n] of Object.entries(r.endpoints)) hits[e] = (hits[e] ?? 0) + n
+  const last = runs.map((r) => r.finishedAt ?? '').sort().at(-1)
+  const commit = runs.find((r) => r.commit)?.commit
+  const coverageNote = runs.length ? `e2e coverage from ${runs.length} run file(s), last finished ${last || '?'}${commit ? ` (${commit.slice(0, 9)})` : ''}; made by scripts/features/sync-sheet.ts, do not edit this tab` : 'no e2e coverage file: every e2e column is 0'
 
   if (!id && !dry) throw new Error('FEATURES_SHEET_ID is not set')
   const sheets = dry && !id ? null : args.includes('--gws') ? gws(id!) : await serviceAccount(id!, process.env.GOOGLE_SHEETS_SA_JSON ?? (() => { throw new Error('GOOGLE_SHEETS_SA_JSON is not set (or pass --gws)') })())

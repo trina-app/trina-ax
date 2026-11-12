@@ -55,18 +55,21 @@ Run it:
 # on a computer with the gws CLI signed in to the sheet's account
 cd web && bun run build && bunx playwright test -c playwright.config.ts; cd ..
 FEATURES_SHEET_ID=<sheet id> bun scripts/features/sync-sheet.ts --gws
+# shards side by side: MOCK_PORT=1925N FEATURE_COVERAGE_FILE=cov-N.json bunx playwright test --shard=N/4 --output=test-results-sN,
+# then pass each file:  … --coverage cov-1.json --coverage cov-2.json …
 # print the status without writing:  … --dry-run
 ```
 
 ### Sheet sync in CI
 
-The `Feature map` workflow (`.github/workflows/feature-map.yml`) runs the e2e suite on every push to dev, keeps
-`feature-coverage.json` as an artifact and rewrites the tab when two secrets are set. One-time setup by the sheet's owner:
+The `Feature map` workflow (`.github/workflows/feature-map.yml`) runs the e2e suite in four shards on every push to dev,
+keeps each shard's coverage file as an artifact and, when all four finished, rewrites the tab. One-time setup by the
+sheet's owner:
 
 1. Google Cloud console → a project → **IAM & Admin › Service accounts** → create one (no roles needed) → **Keys › Add
    key › JSON**. Enable the **Google Sheets API** for the project.
 2. Share the QA sheet with the service account's e-mail (`…@….iam.gserviceaccount.com`) as **Editor**.
-3. GitHub → the repository's **Settings › Secrets and variables › Actions** → add `GOOGLE_SHEETS_SA_JSON` (the whole key
-   file) and `FEATURES_SHEET_ID` (the id in the sheet's address).
+3. GitHub → the repository's **Settings › Secrets and variables › Actions** → the secret `GOOGLE_SHEETS_SA_JSON` (the
+   whole key file) and the variable `FEATURES_SHEET_ID` (the id in the sheet's address).
 
 Without them the workflow still runs the suite and uploads the coverage; the sheet step says it was skipped.
