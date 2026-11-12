@@ -3774,6 +3774,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.back": "Volver a los chats",
   "rooms.members": "{n, plural, one {# miembro} other {# miembros}}",
   "rooms.membersTitle": "Miembros",
+  "rooms.nameOpensInfo": "Abrir la información de la sala",
   "rooms.ai.hint": "Pregunte a la IA",
   "rooms.lastFiles": "{n, plural, one {# archivo} other {# archivos}}",
   "rooms.deleted": "Este mensaje se eliminó",

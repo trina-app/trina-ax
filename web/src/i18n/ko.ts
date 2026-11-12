@@ -3817,6 +3817,7 @@ export const ko = {
   "rooms.back": "대화 목록으로",
   "rooms.members": "멤버 {n}명",
   "rooms.membersTitle": "멤버",
+  "rooms.nameOpensInfo": "대화방 정보 열기",
   "rooms.ai.hint": "AI에게 물어보기",
   "rooms.lastFiles": "파일 {n}개",
   "rooms.deleted": "삭제된 메시지예요",
