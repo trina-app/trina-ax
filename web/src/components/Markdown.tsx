@@ -7,7 +7,7 @@ import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
 import { Check, ChevronRight, Copy, Download, FileText, ImageOff, ExternalLink, Lock } from 'lucide-react'
-import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
 import rehypeKatex from 'rehype-katex'
@@ -16,8 +16,8 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
-import { personWords, protectMentions, type MessageMention } from '../lib/messageMarkdown'
-import { RoomLink } from './rooms/MessageText'
+import { personWords, protectMentions, remarkCapDepth, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
+import { LinkedText, RoomLink } from './rooms/MessageText'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
 import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
@@ -417,8 +417,26 @@ const COMPONENTS_ANSWER: Components = {
 }
 
 // cjk-friendly: "**마일스톤(◆)**으로" is bold (CommonMark ends emphasis only before punctuation or a space, and Korean
-// particles follow the closing ** directly)
-export const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never]
+// particles follow the closing ** directly); remarkCapDepth: nothing nested deeper than lib/messageMarkdown.ts MAX_NEST
+export const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never, remarkCapDepth as never]
+
+/** Markdown that fails to draw (whatever the reason) is its plain words, and costs that one text, not the page around
+ * it (a message in a room is drawn for everyone who opens the room). `resetKey`: the text; a new one is tried again. */
+export class MarkdownBoundary extends Component<{ fallback: ReactNode; resetKey: string; children?: ReactNode }, { failed: boolean; key: string }> {
+  state = { failed: false, key: this.props.resetKey }
+  static getDerivedStateFromProps(props: { resetKey: string }, state: { key: string }) {
+    return props.resetKey === state.key ? null : { failed: false, key: props.resetKey }
+  }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  componentDidCatch(error: unknown) {
+    console.warn('Markdown could not be drawn; showing its words', error)
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
+}
 
 /** Remove only parsed comments from raw HTML; keep all other HTML escaped by ReactMarkdown as before. */
 export function hideHtmlComments() {
@@ -518,18 +536,22 @@ export const Markdown = memo(function Markdown({ text, streaming, className, siz
         </AttachedCopies.Provider>
       </OpenableFiles.Provider>
     )
+  const plain = <div className={clsx('whitespace-pre-wrap break-words', SIZES[size], className)}>{text}</div>
+  if (tooHeavyForMarkdown(text)) return plain
   return (
-    <div
-      className={clsx(
-        'answer prose max-w-none break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
-        SIZES[size],
-        className,
-      )}
-    >
-      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={copyQuotes ? REHYPE_ANSWER : REHYPE} components={copyQuotes ? COMPONENTS_ANSWER : COMPONENTS} urlTransform={urlTransform}>
-        {prepareMarkdown(text, streaming)}
-      </ReactMarkdown>
-    </div>
+    <MarkdownBoundary resetKey={text} fallback={plain}>
+      <div
+        className={clsx(
+          'answer prose max-w-none break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+          SIZES[size],
+          className,
+        )}
+      >
+        <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={copyQuotes ? REHYPE_ANSWER : REHYPE} components={copyQuotes ? COMPONENTS_ANSWER : COMPONENTS} urlTransform={urlTransform}>
+          {prepareMarkdown(text, streaming)}
+        </ReactMarkdown>
+      </div>
+    </MarkdownBoundary>
   )
 })
 
@@ -565,23 +587,34 @@ const REMARK_PERSON = [[remarkGfm, { singleTilde: false }] as never, remarkCjkFr
 export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, className, after }: { text: string; mentions: MessageMention[]; className?: string; after?: ReactNode }) {
   const { source, plugins } = useMemo(() => {
     const p = protectMentions(text, mentions)
-    return { source: p.source, plugins: [...REMARK_PERSON, [personWords, { found: p.found }] as never] }
+    return { source: p.source, plugins: [...REMARK_PERSON, [personWords, { found: p.found, origin: origin() }] as never] }
   }, [text, mentions])
+  // (if it cannot be drawn: its words, as a message being sent shows them)
+  const plain = (
+    <div className={clsx('whitespace-pre-wrap break-words text-reading leading-reading text-ink', className)} data-testid="message-markdown" data-plain="">
+      <LinkedText text={text} />
+      {after}
+    </div>
+  )
+  // (text Markdown would read for seconds: its words straight away)
+  if (tooHeavyForMarkdown(text)) return plain
   return (
-    <TeamImagesAsLinks.Provider value>
-      <div
-        className={clsx(
-          'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-1 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
-          after != null && '[&>p:nth-last-child(2)]:inline',
-          className,
-        )}
-        data-testid="message-markdown"
-      >
-        <ReactMarkdown remarkPlugins={plugins} components={COMPONENTS_PERSON} urlTransform={urlTransform}>
-          {source}
-        </ReactMarkdown>
-        {after}
-      </div>
-    </TeamImagesAsLinks.Provider>
+    <MarkdownBoundary resetKey={text} fallback={plain}>
+      <TeamImagesAsLinks.Provider value>
+        <div
+          className={clsx(
+            'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-1 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 max-md:[&_li_:is(ul,ol)]:pl-4 max-md:[&_li_li]:pl-0.5',
+            after != null && '[&>p:nth-last-child(2)]:inline',
+            className,
+          )}
+          data-testid="message-markdown"
+        >
+          <ReactMarkdown remarkPlugins={plugins} components={COMPONENTS_PERSON} urlTransform={urlTransform}>
+            {source}
+          </ReactMarkdown>
+          {after}
+        </div>
+      </TeamImagesAsLinks.Provider>
+    </MarkdownBoundary>
   )
 })

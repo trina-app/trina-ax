@@ -10,6 +10,7 @@
 // - a line break stays a line break (Markdown would join the lines).
 // No DOM, no network: test/unit/message-markdown.test.ts.
 import { mentionCanStart } from './rooms'
+import { classifyLink } from './markdown'
 import { linkParts } from './textLinks'
 
 /** A mention to mark: the person (or "all", or the AI) and the name as the message writes it; `strong`: it is me (or
@@ -59,6 +60,7 @@ interface Node {
   label?: string | null
   identifier?: string
   title?: string | null
+  spread?: boolean | null
   children?: Node[]
   position?: { start: { offset?: number }; end: { offset?: number } }
   data?: { hName?: string; hProperties?: Record<string, unknown>; hChildren?: unknown[] }
@@ -111,6 +113,104 @@ function hostOf(url: string): string | null {
   }
 }
 
+/** Words as a person reads them: no zero-width or other invisible format characters ("https:/\u200b/bank.com"), wide
+ * forms as their narrow ones ("bank．com", "ｂａｎｋ"), the ideographic full stops as "." (lowercase, trimmed). */
+export const readAs = (s: string) => s.normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/[\u3002\uff61]/g, '.').trim().toLowerCase()
+
+/** What an outside link's words should show when they do not show where it goes (null: they do): the host of a web
+ * address ("evil.example"), the address of a mailto: link, the number of a tel: link. The words show it when they are
+ * that host, or start with it and a "/", "?" or "#" ("bank.com/login" for https://bank.com/x), with or without
+ * "https://" and "www."; for mailto: and tel: when they are the address or number. */
+export function hiddenAddress(words: string, url: string): string | null {
+  let u: URL
+  try { u = new URL(url) } catch { return null }
+  const w = readAs(words)
+  if (u.protocol === 'mailto:' || u.protocol === 'tel:') {
+    let to = u.pathname
+    try { to = decodeURIComponent(to) } catch { /* as written */ }
+    const shown = w.replace(/^(mailto|tel):/, '')
+    if (u.protocol === 'tel:') return shown.replace(/\D/g, '') !== '' && shown.replace(/\D/g, '') === to.replace(/\D/g, '') ? null : to
+    return shown === to.toLowerCase() ? null : to
+  }
+  const host = u.host.toLowerCase().replace(/^www\./, '')
+  const shown = w.replace(/^[a-z][a-z\d+.-]*:\/*/, '').replace(/^www\./, '')
+  return shown === host || (shown.startsWith(host) && /^[/?#]/.test(shown.slice(host.length))) ? null : host
+}
+
+/** How deep quotes and lists, and emphasis, may nest: deeper ones are their contents at the last allowed depth. A
+ * message of "- - - - …" or ">>>>…" (2,000 deep in a 10,000-character message) would otherwise be thousands of nested
+ * elements: the browser's stack runs out drawing it ("Maximum call stack size exceeded"), the whole page with it, for
+ * everyone who opens the room. 6 also keeps a nested message readable on a phone (with PersonMarkdown's narrower
+ * nested lists there). */
+export const MAX_NEST = 6
+const BLOCK_NEST = new Set(['blockquote', 'list'])
+const INLINE_NEST = new Set(['emphasis', 'strong', 'delete'])
+
+/** The tree with nothing nested deeper than MAX_NEST (see there). No recursion: the tree may be thousands deep. */
+export function capDepth(tree: Node) {
+  const work: { node: Node; block: number; inline: number }[] = [{ node: tree, block: 0, inline: 0 }]
+  while (work.length) {
+    const { node, block, inline } = work.pop()!
+    if (!node.children) continue
+    const out: Node[] = []
+    const todo = [...node.children].reverse()
+    while (todo.length) {
+      const c = todo.pop()!
+      const b = block + (BLOCK_NEST.has(c.type) ? 1 : 0)
+      const i = inline + (INLINE_NEST.has(c.type) ? 1 : 0)
+      if (b > MAX_NEST || i > MAX_NEST) {
+        // its contents in its place (a list's: what each item holds)
+        const inner = c.type === 'list' ? (c.children ?? []).flatMap((li) => li.children ?? []) : (c.children ?? [])
+        for (let k = inner.length - 1; k >= 0; k--) todo.push(inner[k])
+        // (each item's words a paragraph of their own: a "tight" list item would run them into one line)
+        if (c.type === 'list') node.spread = true
+        continue
+      }
+      out.push(c)
+      work.push({ node: c, block: b, inline: i })
+    }
+    node.children = out
+  }
+}
+
+/** How many quote and list signs a line may start with ("> - 1. …") before the text is not read as Markdown at all. */
+export const MAX_LINE_MARKS = 32
+/** How long a run of "*" or "_" may be before the same. */
+const LONG_RUN = /[*_]{65}/
+
+/** Text Markdown could only read slowly (seconds) is shown as its plain words instead: a line that starts with
+ * thousands of quote or list signs ("* * * … x", "1. 1. …", ">>>…": capDepth keeps them from drawing deep, but reading
+ * them is slow in itself), or a run of thousands of "*" or "_" (emphasis). Nothing a person writes on purpose. */
+export function tooHeavyForMarkdown(text: string): boolean {
+  if (LONG_RUN.test(text)) return true
+  let i = 0
+  const n = text.length
+  while (i < n) {
+    // one line: its signs, with the spaces between them
+    let marks = 0
+    for (;;) {
+      while (text[i] === ' ' || text[i] === '\t') i++
+      const ch = text[i]
+      if (ch === '>') i++
+      else if ((ch === '-' || ch === '*' || ch === '+') && (i + 1 >= n || text[i + 1] === ' ' || text[i + 1] === '\t' || text[i + 1] === '\n')) i++
+      else {
+        let j = i
+        while (j < n && j - i < 9 && text[j] >= '0' && text[j] <= '9') j++
+        if (j === i || (text[j] !== '.' && text[j] !== ')') || !(j + 1 >= n || text[j + 1] === ' ' || text[j + 1] === '\t' || text[j + 1] === '\n')) break
+        i = j + 1
+      }
+      if (++marks > MAX_LINE_MARKS) return true
+    }
+    const end = text.indexOf('\n', i)
+    if (end < 0) break
+    i = end + 1
+  }
+  return false
+}
+
+/** The remark step that caps nesting (capDepth), for the AI's answers too. */
+export const remarkCapDepth = () => (tree: Node) => capDepth(tree)
+
 /** What one child becomes before its words are read:
  * - raw HTML is words: a block of it a paragraph of text, inline HTML text (its mentions, addresses and line breaks are
  *   kept as in the rest of the message; nothing of it is ever HTML);
@@ -119,8 +219,11 @@ function hostOf(url: string): string | null {
  * - a footnote ("x[^1]", "[^1]: note") is its text: its links and ids would jump out of the room ("/#user-content-fn-1")
  *   and repeat in every message; a link to "#…" the same;
  * - a link whose words are another site's address ("[https://bank.com](https://evil.example)"), or look like one,
- *   shows where it really goes: its words, then the real address as a link in brackets. */
-function expand(c0: Node, flow: boolean, src: string, found: Found[], defs: Map<string, Node>): Node[] {
+ *   shows where it really goes: its words, then the real address as a link in brackets; any other link to another
+ *   site whose words are not its address, its words (still the link) and then its host in brackets ("(evil.example)",
+ *   the address of a mailto: link), so a phone, which has no status bar to show it, shows it too.
+ * `origin`: this server (its links are the app's, not another site's). */
+function expand(c0: Node, flow: boolean, src: string, found: Found[], defs: Map<string, Node>, origin: string): Node[] {
   const text = (value: string): Node => ({ type: 'text', value })
   // a reference link ("[words][r]" … "[r]: https://…") is the link its definition makes, so the same checks see it
   const def = c0.type === 'linkReference' ? defs.get(c0.identifier ?? '') : undefined
@@ -132,23 +235,52 @@ function expand(c0: Node, flow: boolean, src: string, found: Found[], defs: Map<
     const mark = text(`[^${c.label ?? c.identifier ?? ''}]: `)
     if (kids[0]?.type === 'paragraph') kids[0] = { ...kids[0], children: [mark, ...(kids[0].children ?? [])] }
     else kids.unshift({ type: 'paragraph', children: [mark] })
-    return kids.flatMap((k) => expand(k, true, src, found, defs))
+    return kids.flatMap((k) => expand(k, true, src, found, defs, origin))
   }
   if (c.type !== 'link') return [c]
   const at = c.position?.start.offset
   if ((at !== undefined && src[at] !== '[' && src[at] !== '<') || (c.url ?? '').startsWith('#')) return c.children ?? []
-  // (words that only look like an address, "https://bank.com@x.y" or "https://bank．com", show it too)
-  const words = textOf(c, found)
-  const shown = linkParts(words).find((p) => p.href)
+  // a picture in a link is its words (no link in a link: the picture's card is a link of its own)
+  const kids = (c.children ?? []).map(pictureWords)
+  const link: Node = { ...c, children: kids }
+  // (words that only look like an address, "https://bank.com@x.y", "https://bank．com" or "https:/\u200b/bank.com", show it too)
+  const words = textOf(link, found)
+  const seen = readAs(words)
+  const shown = linkParts(seen).find((p) => p.href)
   const real = restore(c.url ?? '', found)
-  if ((shown && hostOf(shown.href!) !== hostOf(real)) || (!shown && /:\/\/|www\./i.test(words)))
-    return [...(c.children ?? []), text(' ('), { type: 'link', url: real, title: null, children: [text(real)], data: { hProperties: { dataPlain: '' } } }, text(')')]
-  return [c]
+  if ((shown && hostOf(shown.href!) !== hostOf(real)) || (!shown && /:\/\/|www\./i.test(seen)))
+    return [...kids, text(' ('), { type: 'link', url: real, title: null, children: [text(real)], data: { hProperties: { dataPlain: '' } } }, text(')')]
+  // any other link to another site whose words are not its address ("[paypal.com](https://evil.example)", "[here](…)",
+  // "[ceo@company.com](mailto:x@evil.example)"): its words, then where it goes in brackets, as text
+  const l = classifyLink(asHref(real), origin)
+  const hidden = l.kind === 'external' ? hiddenAddress(words, l.href) : null
+  if (hidden)
+    return [link, text(' '), { type: 'realAddress', data: { hName: 'span', hProperties: { className: ['text-muted'], dataRealAddress: '' }, hChildren: [{ type: 'text', value: `(${hidden})` }] } }]
+  return [link]
 }
 
-/** The remark step for a person's words (after remark-gfm); `found`: what protectMentions took out. */
-export function personWords({ found }: { found: Found[] }) {
+/** A link's address as its href will be (mdast-util-to-hast's normalizeUri: what may not stand in a URL percent-encoded,
+ * "/\\evil.example" → "/%5Cevil.example"), so it is checked as the link that opens. */
+const asHref = (url: string) =>
+  url.replace(/%(?![A-Za-z\d]{2})|[^A-Za-z\d!#$%&'()*+,\-./:;=?@_~]/gu, (ch) => {
+    try {
+      return encodeURIComponent(ch)
+    } catch {
+      return encodeURIComponent('\ufffd')
+    }
+  })
+
+/** A picture (and what it holds) as its words: [alt]. */
+function pictureWords(n: Node): Node {
+  if (n.type === 'image' || n.type === 'imageReference') return { type: 'text', value: n.alt ?? '' }
+  return n.children ? { ...n, children: n.children.map(pictureWords) } : n
+}
+
+/** The remark step for a person's words (after remark-gfm); `found`: what protectMentions took out; `origin`: this
+ * server's. */
+export function personWords({ found, origin }: { found: Found[]; origin: string }) {
   return (tree: Node, file: { value?: unknown }) => {
+    capDepth(tree)
     const src = typeof file.value === 'string' ? file.value : ''
     // the definitions of reference links, by their identifier
     const defs = new Map<string, Node>()
@@ -163,7 +295,7 @@ export function personWords({ found }: { found: Found[] }) {
         const flow = FLOW.has(node.type)
         const kids: Node[] = []
         for (const c0 of node.children) {
-          for (const k of expand(c0, flow, src, found, defs)) {
+          for (const k of expand(c0, flow, src, found, defs, origin)) {
             const prev = kids.at(-1)
             if (k.type === 'text' && prev?.type === 'text' && !prev.data) prev.value = (prev.value ?? '') + (k.value ?? '')
             else kids.push(k.type === 'text' ? { type: 'text', value: k.value ?? '' } : k)

@@ -96,3 +96,47 @@ test('a DM in Markdown, the same rules', async ({ page }) => {
   await expect(rich.locator('strong')).toHaveText('굵게')
   await expect(page.getByTestId('room-message').nth(1).locator('img, script, b')).toHaveCount(0)
 })
+
+// PR #514 review: a message nested thousands deep blanked the whole app ("Maximum call stack size exceeded") for
+// everyone who opened the room; one nested 40-60 deep pushed its words off a phone's screen. Links whose words show
+// another address than they open show the real one next to them.
+const DEEP = ['- '.repeat(1000) + 'x', '>'.repeat(2000) + ' x', '* '.repeat(4000) + 'x', '- '.repeat(2500) + 'x', '>'.repeat(5000) + ' x', '- '.repeat(40) + 'deep list', '> '.repeat(60) + 'deep quote', Array.from({ length: 40 }, (_, i) => `${'  '.repeat(i)}- level ${i}`).join('\n')]
+const SPOOF = ['[paypal.com](https://evil.example/a)', '[paypal.com/login](https://evil.example/x)', '[https:/​/paypal.com](https://evil.example/b)', '[ceo@company.com](mailto:x@evil.example)']
+
+test('messages nested thousands deep do not take the room down; links show where they really go', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  const bodies = ['hello before', ...DEEP, ...SPOOF, 'hello after']
+  await routeRoom(page, { members: [SORA], messages: bodies.map((body, i) => ({ id: id(20 + i), author: SORA, body })) })
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.context().route('https://evil.example/**', (r) => r.fulfill({ contentType: 'text/html', body: 'evil' }))
+  await signIn(page)
+  await page.goto(`/rooms/${ROOM_ID}`)
+  await expect(page.getByTestId('room-message')).toHaveCount(bodies.length)
+  await expect(page.getByText('hello before')).toBeVisible()
+  await expect(page.getByText('hello after')).toBeVisible()
+  expect(errors).toEqual([])
+  // nothing nests deeper than 6 (lib/messageMarkdown.ts MAX_NEST), and the phone's page keeps its width; each message's words stay inside it
+  const deepest = await page.evaluate(() => {
+    let max = 0
+    for (const el of document.querySelectorAll('[data-testid="message-markdown"] blockquote, [data-testid="message-markdown"] ul, [data-testid="message-markdown"] ol')) {
+      let d = 0
+      for (let e: Element | null = el; e && e.getAttribute('data-testid') !== 'message-markdown'; e = e.parentElement) if (/^(BLOCKQUOTE|UL|OL)$/.test(e.tagName)) d++
+      max = Math.max(max, d)
+    }
+    return max
+  })
+  expect(deepest).toBeLessThanOrEqual(6)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  const msgs = page.getByTestId('room-message')
+  for (const [i, words] of [[6, 'deep list'], [7, 'deep quote'], [8, 'level 39']] as const) {
+    await expect(msgs.nth(i)).toContainText(words)
+    const over = await msgs.nth(i).getByTestId('message-markdown').evaluate((e) => e.scrollWidth - e.clientWidth)
+    expect(over).toBeLessThanOrEqual(1)
+  }
+  // the links: the real host (or address) is on the screen next to the words
+  for (const [i, real] of [[9, '(evil.example)'], [10, '(evil.example)'], [12, '(x@evil.example)']] as const) await expect(msgs.nth(i).locator('[data-real-address]')).toHaveText(real)
+  await expect(msgs.nth(11).getByRole('link', { name: 'https://evil.example/b' })).toBeVisible()
+  if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/room-markdown-deep-390.png`, fullPage: true })
+})

@@ -7,8 +7,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { uuidv7 } from '@mycel/shared/api'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
-import { PersonMarkdown } from '../../src/components/Markdown'
-import { protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
+import { Markdown, PersonMarkdown } from '../../src/components/Markdown'
+import { capDepth, hiddenAddress, MAX_LINE_MARKS, MAX_NEST, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
 import type { PendingSend } from '../../src/store/rooms'
 import { BEN, CY, ME, message } from './rooms-fixtures'
 
@@ -161,4 +161,127 @@ test('footnotes and "#…" links are text (no jump out of the room, no repeated 
   expect(words('[docs][r]\n\n[r]: https://example.com/d')).toMatch(/<a href="https:\/\/example\.com\/d"[^>]*>docs<\/a>/)
   // raw HTML in a footnote's text is a paragraph's words too
   expect(words('[^1]: note\n\n    more\n\nx')).not.toContain('<a ')
+})
+
+// ---- review of PR #514 (revmd): nesting that blanked the app, links whose words hide where they go ----
+
+/** how deep `tag` nests in `html` */
+const depthOf = (html: string, tag: string) => {
+  let d = 0
+  let max = 0
+  for (const m of html.matchAll(new RegExp(`<(/?)${tag}[ >]`, 'g'))) {
+    d += m[1] ? -1 : 1
+    max = Math.max(max, d)
+  }
+  return max
+}
+const answer = (text: string) => renderToStaticMarkup(<MemoryRouter><Markdown text={text} /></MemoryRouter>)
+
+test('quotes, lists and emphasis nested thousands deep render (at most MAX_NEST deep), in messages and in answers', () => {
+  const deep = ['- '.repeat(1000) + 'x', '- '.repeat(2500) + 'x', '>'.repeat(2000) + ' x', '>'.repeat(5000) + ' x', '* '.repeat(4000) + 'x', '1. '.repeat(3000) + 'x', '> - '.repeat(2000) + 'x']
+  for (const body of deep)
+    for (const html of [md(body), answer(body)]) {
+      expect(html).toContain('x')
+      for (const tag of ['blockquote', 'ul', 'ol', 'li']) expect(depthOf(html, tag)).toBeLessThanOrEqual(MAX_NEST + 1)
+      expect(depthOf(html, 'blockquote') + depthOf(html, 'ul') + depthOf(html, 'ol')).toBeLessThanOrEqual(MAX_NEST + 2)
+    }
+  // a line of thousands of signs is too slow to read as Markdown: its plain words (fast), as a message being sent
+  const t = performance.now()
+  for (const body of deep) expect(md(body)).toContain('data-plain=""')
+  expect(performance.now() - t).toBeLessThan(2000)
+  expect(answer('* '.repeat(4000) + 'x')).not.toContain('<ul')
+  // so is a run of thousands of "*" or "_"
+  for (const body of ['*'.repeat(4999) + 'a' + '*'.repeat(5000), '_'.repeat(4999) + 'a' + '_'.repeat(5000)]) expect(md(body)).toContain('data-plain=""')
+  // ordinary Markdown is not
+  for (const body of ['- a\n  - b\n    > c', '1. one\n2. two', '***bold italic***', '---', '* * *', '- '.repeat(MAX_LINE_MARKS) + 'x', '_'.repeat(64)]) expect(tooHeavyForMarkdown(body)).toBe(false)
+  for (const body of ['- '.repeat(MAX_LINE_MARKS + 1) + 'x', 'ok\n' + '> '.repeat(40) + 'x', '1) '.repeat(40), '_'.repeat(65)]) expect(tooHeavyForMarkdown(body)).toBe(true)
+  // what is past the cap is still there, at the deepest level allowed
+  const q = md('>'.repeat(20) + ' deep words')
+  expect(depthOf(q, 'blockquote')).toBe(MAX_NEST)
+  expect(q).toContain('deep words')
+  const l = md(Array.from({ length: 30 }, (_, i) => `${'  '.repeat(i)}- item ${i}`).join('\n'))
+  expect(depthOf(l, 'ul')).toBe(MAX_NEST)
+  for (const i of [0, 7, 8, 29]) expect(l).toContain(`item ${i}`)
+  const q2 = md(('> '.repeat(30) + 'x\n').repeat(100))
+  expect(depthOf(q2, 'blockquote')).toBe(MAX_NEST)
+  // a list or quote up to the cap is as written
+  expect(depthOf(md('- a\n  - b\n    - c'), 'ul')).toBe(3)
+  // emphasis inside emphasis, as deep as a message allows
+  const em = md('*'.repeat(3000) + 'a' + '*'.repeat(3000))
+  expect(depthOf(em, 'em') + depthOf(em, 'strong')).toBeLessThanOrEqual(MAX_NEST)
+  expect(em).toContain('a')
+  // a tree no recursion could walk
+  const tree = { type: 'root', children: [] as unknown[] }
+  let at = tree
+  for (let i = 0; i < 200_000; i++) {
+    const q2 = { type: 'blockquote', children: [] as unknown[] }
+    at.children.push(q2)
+    at = q2
+  }
+  at.children.push({ type: 'paragraph', children: [{ type: 'text', value: 'bottom' }] })
+  capDepth(tree as never)
+  expect(JSON.stringify(tree)).toContain('bottom')
+})
+
+test('pathological messages of the longest size render quickly', () => {
+  const N = 10_000
+  const cases = {
+    stars: '*a'.repeat(N / 2),
+    emph: '**a*'.repeat(N / 4),
+    under: '_a'.repeat(N / 2),
+    brackets: '['.repeat(N),
+    bracketsParen: '[a]('.repeat(N / 4),
+    backticks: '`a'.repeat(N / 2),
+    tildes: '~~a'.repeat(N / 3),
+    table: '|a'.repeat(1000) + '|\n' + '|-'.repeat(1000) + '|\n' + ('|x'.repeat(1000) + '|\n').repeat(2),
+    tableRows: '|a|b|\n|-|-|\n' + '|x|y|\n'.repeat(N / 6),
+    longLine: 'a'.repeat(N),
+    longWord: 'https://example.com/' + 'a'.repeat(N - 20),
+    links: '[x](https://a.b) '.repeat(N / 17),
+    lt: '<a'.repeat(N / 2),
+  }
+  for (const [name, body] of Object.entries(cases)) {
+    const t = performance.now()
+    md(body.slice(0, N))
+    const ms = performance.now() - t
+    // (the slowest is about 0.4 s here; a slow shared machine gets room)
+    if (ms > 4000) throw new Error(`${name}: ${Math.round(ms)} ms`)
+  }
+}, 60_000)
+
+test('a link whose words do not show where it goes shows its real host (or address) next to it', () => {
+  const real = (h: string) => /<span class="text-muted" data-real-address="">\(([^)]*)\)<\/span>/.exec(h)?.[1] ?? null
+  // words that look like a site, a path on it, an e-mail address; words that say nothing about where it goes
+  expect(real(md('[paypal.com](https://evil.example)'))).toBe('evil.example')
+  expect(real(md('[paypal.com/login](https://evil.example/x)'))).toBe('evil.example')
+  expect(real(md('[PayPal](https://evil.example/x)'))).toBe('evil.example')
+  expect(real(md('[paypal.com](https://paypal.com.evil.example)'))).toBe('paypal.com.evil.example')
+  expect(real(md('[paypal.com](https://evil.example/paypal.com)'))).toBe('evil.example')
+  expect(real(md('[ceo@company.com](mailto:x@evil.example)'))).toBe('x@evil.example')
+  expect(real(md('[mail me](mailto:ceo@company.com)'))).toBe('ceo@company.com')
+  expect(real(md('[x](//evil.example)'))).toBe('evil.example')
+  // zero-width and wide characters: the words as read show another address, so the real one is shown as a link
+  for (const body of ['[https:/​/paypal.com](https://evil.example)', '[https://paypal．com](https://evil.example)', '[https://paypal。com](https://evil.example)', '[ｈｔｔｐｓ://paypal.com](https://evil.example)'])
+    expect(md(body)).toMatch(/ \(<a href="https:\/\/evil\.example\/"[^>]*>https:\/\/<wbr\/>evil\.example<\/a>\)/)
+  // and for words with zero-width characters in a bare host
+  expect(real(md('[pay​pal.com](https://evil.example)'))).toBe('evil.example')
+  // words that are its address: nothing added
+  for (const body of ['[paypal.com](https://paypal.com)', '[paypal.com/login](https://www.paypal.com/login?x=1)', '[www.paypal.com](https://paypal.com/)', '[ceo@company.com](mailto:ceo@company.com)', '[<ceo@company.com>](mailto:ceo@company.com)', '<https://paypal.com>', '<ceo@company.com>', '[x](/rooms/abc)', 'https://paypal.com', '[+82 10-1234-5678](tel:+821012345678)'])
+    expect(real(md(body))).toBeNull()
+  // the room's own links (this server) are the app's, not another site's
+  expect(real(md('[my files](http://localhost/files)'))).toBeNull()
+  // a link that does not open adds nothing
+  expect(md('[paypal.com](javascript:alert(1))')).not.toContain('data-real-address')
+  // the check, alone
+  expect(hiddenAddress('paypal.com', 'https://evil.example/')).toBe('evil.example')
+  expect(hiddenAddress('PAYPAL.COM/x', 'https://www.paypal.com/y')).toBeNull()
+  expect(hiddenAddress('paypal.comx', 'https://paypal.com/')).toBe('paypal.com')
+  expect(hiddenAddress('a@b.c', 'mailto:A@B.C')).toBeNull()
+  expect(hiddenAddress('call', 'tel:123')).toBe('123')
+})
+
+test('a picture inside a link is its words (no link inside a link)', () => {
+  const h = md('[![paypal.com](https://evil.example/p.gif)](https://evil.example/x)')
+  expect(h.match(/<a /g)?.length).toBe(1)
+  expect(h).toMatch(/<a href="https:\/\/evil\.example\/x"[^>]*>paypal\.com<\/a> <span class="text-muted" data-real-address="">\(evil\.example\)<\/span>/)
 })
