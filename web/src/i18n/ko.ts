@@ -7,7 +7,7 @@ export const ko = {
   'a11y.skip': '본문으로 건너뛰기',
   'devEnv.title': "개발 환경",
   'devEnv.experiment': "실험 기능",
-  'devEnv.unavailable': "이 서버는 개발 환경을 실행할 수 없습니다.",
+  'devEnv.unavailable': "이 서버는 개발 환경을 실행할 수 없어요.",
   'devEnv.who': "누가 쓸 수 있나요",
   'devEnv.network': "네트워크",
   'devEnv.netOffline': "네트워크 없음",

@@ -28,12 +28,23 @@ export interface Change { path: string; action: 'create' | 'update' | 'delete'; 
 const sha = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex')
 
 /**
+ * The kernel's path of an open file, or null. Linux: /proc/self/fd. macOS: Bun's realpath of /dev/fd/N asks the kernel
+ * for the path of that open file (F_GETPATH), with the real case of each name. The real path of the file's name now
+ * would not do: between that check and the open (or a stat after it) the box can swap a folder for a link and back.
+ * A runtime that does not resolve /dev/fd that way (Node returns /dev/fd/N) gets null, so nothing is read.
+ */
+export function openFilePath(fd: number): string | null {
+  const real = process.platform === 'linux' ? fs.readlinkSync(`/proc/self/fd/${fd}`) : fs.realpathSync(`/dev/fd/${fd}`)
+  return real.startsWith('/') && !real.startsWith('/dev/') && !real.startsWith('/proc/') ? real : null
+}
+
+/**
  * Read a file that the box can change at any time, without following a link the box swapped in after the listing:
- * O_NOFOLLOW for the last part, and the opened file's real path must be inside `within` for the folders above it
- * (Linux: /proc/self/fd; elsewhere, such as macOS, there is no path of an open file: the real path of `abs` must be
- * inside the real `within` and name the same file as the one opened, so a link swapped in before or after the open
- * fails one of the two). null: not a regular file inside the folder (now). Without this a link to a server file (the
- * database, a secret) could become a "version" that every reader of the folder sees.
+ * O_NOFOLLOW for the last part, and the opened file's real path must be inside `within` for the folders above it.
+ * The real path is the kernel's path of the open file, not of `abs` now (see openFilePath), so a link swapped in or
+ * out between the open and the check changes nothing. null: not a regular file inside the folder (now). Without this
+ * a link to a server file (the database, a secret) could become a "version" that every reader of the folder sees.
+ * `within` must be a real path (fs.realpathSync), as the callers pass it.
  */
 export function readInside(abs: string, within: string, maxBytes = HASH_MAX_BYTES): { bytes: Buffer; st: fs.Stats } | null {
   let fd: number
@@ -41,15 +52,8 @@ export function readInside(abs: string, within: string, maxBytes = HASH_MAX_BYTE
   try {
     const st = fs.fstatSync(fd)
     if (!st.isFile() || st.size > maxBytes) return null
-    if (process.platform === 'linux') {
-      const real = fs.readlinkSync(`/proc/self/fd/${fd}`)
-      if (!real.startsWith(within.replace(/\/+$/, '') + '/')) return null
-    } else {
-      const real = fs.realpathSync(abs)
-      if (!real.startsWith(fs.realpathSync(within).replace(/\/+$/, '') + '/')) return null
-      const now = fs.statSync(real)
-      if (now.dev !== st.dev || now.ino !== st.ino) return null
-    }
+    const real = openFilePath(fd)
+    if (!real || !real.startsWith(within.replace(/\/+$/, '') + '/')) return null
     const bytes = Buffer.alloc(st.size)
     let off = 0
     while (off < st.size) { const n = fs.readSync(fd, bytes, off, st.size - off, off); if (n <= 0) break; off += n }
