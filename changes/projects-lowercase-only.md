@@ -1,1 +1,0 @@
-- On Linux servers, a team folder named `Projects` (capital P) is an ordinary folder again: only the lowercase `projects` folder is for project members only, so the owner and admins can open folders in `Projects` as before.

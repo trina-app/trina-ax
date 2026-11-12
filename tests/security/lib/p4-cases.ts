@@ -51,6 +51,10 @@ export const P4_SPECS: Record<string, Spec> = {
   // a member's ask to add an app (routes/google-apps.ts): one's own only; owners and admins set it up themselves (403)
   myServiceRequests: { build: c => c.get('/api/integrations/service-requests?userId=alice'), scope: 'self' },
   askService: { build: c => c.post('/api/integrations/service-requests?userId=alice', { service: 'google-drive' }), scope: 'members' },
+  // QA TC-133: taking one's own request back (anyone signed in; one's own only), the admins' list and dismiss
+  withdrawService: { build: c => c.del('/api/integrations/service-requests/notion?userId=alice'), scope: 'self' },
+  teamServiceRequests: { build: c => c.get('/api/admin/service-requests'), scope: 'byLevel' },
+  dismissServiceRequests: { build: c => c.post('/api/admin/service-requests/notion/dismiss', {}), scope: 'byLevel' },
   listDriveShares: { build: c => c.get('/api/admin/google-drive/shares'), scope: 'byLevel' },
   authorizeDriveShare: { build: c => c.post('/api/admin/google-drive/shares/authorize', {}), scope: 'byLevel' },
   completeDriveShareFlow: { build: c => c.post('/api/admin/google-drive/shares/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'byLevel' },

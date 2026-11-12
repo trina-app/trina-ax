@@ -18,7 +18,7 @@
 import { Plus, Send } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, GoogleAppView, Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
+import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, GoogleAppView, Group, Integration, IntegrationRequest, IntegrationTemplate, RequestableService, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../../lib/connectors'
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
@@ -38,6 +38,7 @@ import { TemplateRow } from '../../components/integrations/TemplatesView'
 import { toast } from '../../store/ui'
 import { Loadable, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
+import { MemberAsks, useMemberAsks } from '../../components/integrations/MemberAsks'
 
 type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'listed'; c: Connector } | { kind: 'team'; id: string }
 
@@ -84,6 +85,14 @@ export default function AdminIntegrations() {
   const teamOpen = open?.kind === 'team' ? state.data?.find((i) => i.id === open.id) : undefined
   useAdminBar(open ? (open.kind === 'drive' || open.kind === 'gapp' ? builtInName(open.kind === 'drive' ? 'google-drive' : open.id) : open.kind === 'listed' ? open.c.name : teamOpen?.name ?? '') : null)
   const requests = useTeamRequests()
+  // what members asked to have added (QA TC-133), read again when the team's list changes
+  const memberAsks = useMemberAsks(state.data?.length)
+  const addAsked = (s: RequestableService) => {
+    if (s === 'google-drive') return setOpen({ kind: 'drive' })
+    if (isGoogleApp(s)) return setOpen({ kind: 'gapp', id: s })
+    const c = CONNECTORS.find((x) => x.id === s)
+    if (c) setDialog({ connector: c, toList: true })
+  }
   const [ask, setAsk] = useState<{ initial?: RequestForm } | null>(null)
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
@@ -217,6 +226,7 @@ export default function AdminIntegrations() {
           if (q && !connected && !cards.length) return <EmptyState title={t('integrations.noMatch', { q })} />
           return (
             <div className="space-y-8 pb-10">
+              {!q && <MemberAsks asks={memberAsks} onAdd={addAsked} />}
               {/* nothing connected yet: no heading and no empty box, Discover leads under the title */}
               {connected > 0 && (
                 <section aria-labelledby={ids.connected} data-testid="team-connected">
@@ -294,6 +304,7 @@ export default function AdminIntegrations() {
           onSaved={(i, next) => {
             setDialog(null)
             actions.saved(i, next, !dialog.existing)
+            void memberAsks.reload()
             added(dialog.toList)
           }}
         />
