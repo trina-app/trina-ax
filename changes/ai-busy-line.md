@@ -1,1 +1,0 @@
-- Chat: when the AI service is busy (a rate limit) and the AI tries again, the answer now shows "The AI service is busy. Still trying…" until it continues. It showed only the thinking dots, sometimes for minutes.

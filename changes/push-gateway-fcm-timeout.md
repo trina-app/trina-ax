@@ -1,1 +1,0 @@
-- Phone push (Android): a phone could miss a notification when Google's push service (FCM) stalled for more than about 40 seconds. The push gateway now stops waiting for FCM after 8 seconds, so the team server's retry sends the notification.

@@ -2,7 +2,7 @@
 # Build the Trina AX image, start it with docker-compose.yml and check it (docs/INSTALL-DOCKER.md "Test").
 # Then stop it and remove the container, the test volume and the test network.
 #
-#   TRINA_AX_VERSION=0.4.0 bash docker/test.sh             published release kit (signed)
+#   TRINA_AX_VERSION=0.5.2 bash docker/test.sh             published release kit (signed)
 #   TRINA_AX_KIT=local bash docker/test.sh                 docker/kit-local/ (an unpacked kit; unsigned is accepted)
 #   KEEP=1 ...                                             leave the test project running
 #
