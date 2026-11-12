@@ -390,8 +390,13 @@ export class UpdateManager {
       }
       // kept until a newer version's changed head: an older version's head served in between does not reset it
       if (got.rollout?.changedAt && (!seenHere || compareVersions(got.version, seenHere.version) > 0 || (got.version === seenHere.version && changedMs(got.rollout) > changedMs(seenHere.rollout)))) {
-        fs.mkdirSync(this.o.dataDir, { recursive: true, mode: 0o700 })
-        fs.writeFileSync(this.seenFile(), JSON.stringify({ url: this.o.feedUrl, version: got.version, changedAt: got.rollout.changedAt }), { mode: 0o600 })
+        // a record that cannot be written loses the protection only, never the check
+        const tmp = `${this.seenFile()}.tmp-${process.pid}`
+        try {
+          fs.mkdirSync(this.o.dataDir, { recursive: true, mode: 0o700 })
+          fs.writeFileSync(tmp, JSON.stringify({ url: this.o.feedUrl, version: got.version, changedAt: got.rollout.changedAt }), { mode: 0o600 })
+          fs.renameSync(tmp, this.seenFile())
+        } catch (e) { fs.rmSync(tmp, { force: true }); this.o.log.warn('update check: the seen head could not be kept', { error: String(e).slice(0, 200) }) }
       }
       rec.feed = got
     } catch (e) {

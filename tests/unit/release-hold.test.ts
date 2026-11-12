@@ -328,7 +328,11 @@ describe('hosting.ts hold / resume (scripts/release/hold.ts) on a local feed', (
     const next = JSON.stringify({ ...rel, version: '1.1.1', rollout: undefined }, null, 1) + '\n'
     fs.writeFileSync(path.join(root, 'server/stable.json'), next)
     fs.writeFileSync(path.join(root, 'server/stable.json.sig'), signDetached(new Uint8Array(Buffer.from(next)), PEM))
-    const r = await run(root, { action: 'resume', now: () => hours(40) })
+    // not without being asked: a resume meant for the server head never frees another release
+    const plain = await run(root, { action: 'resume', now: () => hours(40) })
+    expect(plain).toMatchObject({ status: 'unchanged', uploaded: [] })
+    expect(plain.lines.join('\n')).toContain('--office-version 1.1.0')
+    const r = await run(root, { action: 'resume', officeVersion: '1.1.0', now: () => hours(40) })
     expect(r).toMatchObject({ status: 'resumed', version: '1.1.1', uploaded: ['office/stable.json'], office: { version: '1.1.0', held: false } })
   })
 
@@ -362,5 +366,6 @@ describe('hosting.ts hold / resume (scripts/release/hold.ts) on a local feed', (
     await expect(main(['hold', 'stable', '--trust', PUB])).rejects.toThrow(/only for --out/)
     await expect(main(['resume', 'stable', '--reason', 'x'])).rejects.toThrow(/--reason is for hold/)
     await expect(main(['hold', 'stable', '--force'])).rejects.toThrow(/unknown option/)
+    await expect(main(['hold', 'stable', '--office-version', '1.0.0'])).rejects.toThrow(/--office-version is for resume/)
   })
 })

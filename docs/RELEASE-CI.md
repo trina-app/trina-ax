@@ -261,7 +261,8 @@ bun scripts/release/hosting.ts resume stable                                    
 - 멈춘 머리 위에 **새 버전**을 내면 보통처럼 그 버전이 머리가 된다(새 ramp, 멈춘 릴리스의 salt·시작을 이어받지 않는다). 고친 릴리스는
   `Rollout: all`로 낸다. 멈추거나 이어 간 버전을 **다시 돌리면**(Re-run failed jobs) 버전 파일은 올라가도 머리는 그대로다(`publish-server.ts`,
   `publish.ts`가 "holds … left as it is" / "was resumed … left as it is"를 남긴다). 풀려면 `resume`. 서버 머리가 새 버전으로 갔는데 사무실
-  목록만 멈춘 채 남았으면(사무실 배포 실패) `resume`이 그 목록도 돌려준다.
+  목록만 멈춘 채 남았으면(사무실 배포 실패) `resume <channel> --office-version <그 버전>`으로 그 목록을 돌려준다(이름을 댈 때만:
+  서버 머리를 위한 `resume`이 다른 나쁜 릴리스를 풀지 않게).
 - beta 채널은 따로다: stable 릴리스는 beta 머리도 되므로 beta 서버까지 멈추려면 `hold beta`도 한다.
 - `hold`가 머리와 `.sig` 사이에서 끊기면 다음 `hold`·`resume`이 "does not verify"로 멈춘다(설치는 마지막으로 확인한 머리를 쓰니 안전하다).
   로그의 `↑` 줄로 어디까지 올라갔는지 보고, 같은 명령을 다시 돌리기 전에 버킷의 `server/<channel>.json`을 `server/<version>/release.json`과

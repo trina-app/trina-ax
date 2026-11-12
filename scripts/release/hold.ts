@@ -2,7 +2,7 @@
 // command stops it reaching more self-installed servers and offices, without a new version.
 //
 //   bun scripts/release/hosting.ts hold   <stable|beta> [--reason "…"] [--version X] [--dry-run]
-//   bun scripts/release/hosting.ts resume <stable|beta> [--version X] [--dry-run]
+//   bun scripts/release/hosting.ts resume <stable|beta> [--version X] [--office-version Y] [--dry-run]
 //   bun scripts/release/hosting.ts held   <stable|beta>                      what the heads say now (reads only)
 //       (tests and a local feed: [--out FEED_DIR --feed https://127.0.0.1:PORT --trust <public key>,…])
 //
@@ -48,6 +48,8 @@ export interface HoldOptions {
   reason?: string
   /** the version the head must be at (a guard against holding the wrong release); absent: whatever it is at */
   version?: string
+  /** resume only: also resume the office list held at this other version */
+  officeVersion?: string
   dryRun?: boolean
   /** https origin of the feed (RELEASE_CHANNEL.feed; a local address for --out) */
   feed: string
@@ -110,10 +112,10 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
     const release = verifyRelease(utf8(officeText), { keys: o.keys, channel: o.channel, feed })
     const opened = openSignedManifest(utf8(officeText), o.keys)
     if (!opened.ok) throw new Error(`${officeKey}: ${opened.reason}`) // verifyRelease passed: never expected
-    // resume also gives back a held office list at another version (a newer server release went out over it, its office
-    // publish did not): it would stay held for good otherwise
-    if (release.version === version || (o.action === 'resume' && release.rollout?.hold)) office = { text: utf8(officeText), payload: JSON.parse(opened.payload) as Raw, release }
-    else log(`${officeKey} is at ${release.version}, not ${version}: left as it is`)
+    // resume --office-version V gives back a held office list at another version (a newer server release went out over
+    // it, its office publish did not); only when named, so a resume meant for the server head never frees another release
+    if (release.version === version || (o.action === 'resume' && release.rollout?.hold && o.officeVersion === release.version)) office = { text: utf8(officeText), payload: JSON.parse(opened.payload) as Raw, release }
+    else log(`${officeKey} is at ${release.version}, not ${version}: left as it is${release.rollout?.hold ? ` (held; \`resume ${o.channel} --office-version ${release.version}\` gives it back)` : ''}`)
   } else log(`${officeKey} is not on the feed: only the server head`)
 
   const serverNow = (f: { rollout?: Rollout; publishedAt?: string; urgent?: boolean }) => ({ held: !!f.rollout?.hold, percentNow: rolloutPercent(f, { now, channel: o.channel }) })
@@ -227,10 +229,11 @@ export async function main(argv: string[]): Promise<HoldResult> {
     if (v === undefined || v.startsWith('--')) throw new Error(`${name} needs a value`)
     return v
   }
-  const known = new Set(['--reason', '--version', '--dry-run', '--out', '--feed', '--trust'])
+  const known = new Set(['--reason', '--version', '--office-version', '--dry-run', '--out', '--feed', '--trust'])
   for (const a of argv.slice(2)) if (a.startsWith('--') && !known.has(a)) throw new Error(`unknown option ${a}`)
   const reason = val('--reason')
   if (reason !== undefined && action !== 'hold') throw new Error('--reason is for hold')
+  if (val('--office-version') !== undefined && action !== 'resume') throw new Error('--office-version is for resume')
   const out = val('--out')
   const feed = val('--feed') ?? RELEASE_CHANNEL.feed
   if (feed !== RELEASE_CHANNEL.feed && (!out || !/^https?:\/\/(127\.0\.0\.1|localhost):\d{2,5}$/.test(feed))) throw new Error('--feed is only for --out with a feed on this computer (https://127.0.0.1:<port>)')
@@ -239,7 +242,7 @@ export async function main(argv: string[]): Promise<HoldResult> {
   const keys = trust ? trust.split(',').map((s) => s.trim()) : RELEASE_CHANNEL.keys
   const pem = action === 'held' ? undefined : (await import('./keygen')).readReleaseKey()
   return holdRelease({
-    action, channel, reason, version: val('--version'), dryRun: argv.includes('--dry-run'), feed, keys, pem,
+    action, channel, reason, version: val('--version'), officeVersion: val('--office-version'), dryRun: argv.includes('--dry-run'), feed, keys, pem,
     store: out ? dirStore(path.resolve(out), feed) : await cloudflareStore(feed),
   })
 }
