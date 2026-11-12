@@ -496,7 +496,8 @@ export const RoomAiRun = z.object({
   createdAt: IsoTime,
 })
 export type RoomAiRun = z.infer<typeof RoomAiRun>
-/** answering: questions the AI is answering in the room now (anyone's; nobody is named); mine: my own of them */
+/** answering: questions the AI is answering in the room now (anyone's; nobody is named); mine: my own of them, and my
+ * own that ended in an error in the last 24 hours (a restart cut it while nobody was connected: QA TC-241) */
 export const RoomAiState = z.object({ answering: z.number().int().nonnegative(), mine: z.array(RoomAiRun) })
 export type RoomAiState = z.infer<typeof RoomAiState>
 

@@ -263,6 +263,29 @@ describe('the AI in a room', () => {
     expect(ws.alice!.frames.some((f) => (f.type === 'message.delta' || f.type === 'message.step' || f.type === 'message.created' || f.type === 'chat.updated') && 'chatId' in f.data && f.data.chatId === sessionId)).toBe(false)
   })
 
+  test('an answer that ended in an error stays listed for its asker for a day (a restart cut it while nobody was connected, QA TC-241); stopped or older ones do not, nor for anyone else', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const { run } = await ask('alice', roomId, `@트리나 hello\n${fake({ say: 'hi' })}`)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    const db = h.ctx.db
+    const error = JSON.stringify({ code: 'unavailable', message: '서버가 다시 시작되어 답변이 중단됐어요.' })
+    // as the start-up's reconcile leaves a run whose turn ended while the server was down
+    db.query("UPDATE room_ai_turns SET status = 'error', error = ?, ended_at = ? WHERE turn_id = ?").run(error, new Date().toISOString(), run.turnId)
+    const listed = (await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine
+    expect(listed.map((x) => [x.turnId, x.state, x.error?.message])).toEqual([[run.turnId, 'error', '서버가 다시 시작되어 답변이 중단됐어요.']])
+    expect((await h.api('erin').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    // a day later, or stopped by the asker: not listed
+    db.query('UPDATE room_ai_turns SET ended_at = ? WHERE turn_id = ?').run(new Date(Date.now() - 25 * 3_600_000).toISOString(), run.turnId)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    db.query("UPDATE room_ai_turns SET status = 'stopped', error = NULL, ended_at = ? WHERE turn_id = ?").run(new Date().toISOString(), run.turnId)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    // a run whose turn is gone at start-up (reconcile) is listed as failed
+    const gone = uuidv7()
+    db.query("UPDATE room_ai_turns SET turn_id = ?, status = 'active', error = NULL, ended_at = NULL WHERE turn_id = ?").run(gone, run.turnId)
+    roomAiOf(h.ctx).reconcile()
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine.map((x) => [x.turnId, x.state])).toEqual([[gone, 'error']])
+  })
+
   test('each person has one session per room: the next question continues it, and it is never one of their chats', async () => {
     const roomId = await room(['alice', 'erin'])
     h.ctx.db.query("INSERT INTO memories (id, user_id, text, source, created_at) VALUES ('mem-rooms-ai', 'alice', 'ALICE-ROOM-MEMORY likes tea', 'user', ?)").run(new Date().toISOString())

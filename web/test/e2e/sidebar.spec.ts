@@ -405,7 +405,7 @@ function textStyles(root: Element, picks: [string, number][]) {
 }
 const id = (testId: string, nth = 0): [string, number] => [`[data-testid="${testId}"]`, nth]
 
-test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07): semibold in the main text colour, AA in both looks, a step under the rows, above "더 보기", with room before 트리나 기록', async ({ page }) => {
+test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07; QA TC-149): as large as the rows and bold, in the main text colour, AA in both looks, above "더 보기", with room before 트리나 기록', async ({ page }) => {
   await reset(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(7) } }) : r.fallback()))
   await signIn(page)
@@ -419,14 +419,16 @@ test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07)
     // two rows next to each other (whatever their weight) for the gap; a row at rest (not unread) for the colour
     const [roomsTitle, ai, more, first, second, row] = await s.evaluate(textStyles, [id('rooms-toggle'), id('recents-toggle'), id('rooms-more'), id('sidebar-room', 0), id('sidebar-room', 1), id('sidebar-room', -1)])
     for (const title of [roomsTitle!, ai!]) {
-      expect(title.weight, scheme).toBe(600)
+      expect(title.weight, scheme).toBe(700)
       expect(title.contrast, scheme).toBeGreaterThanOrEqual(4.5)
       // more than a row's text and than "더 보기" under the list, which share neither its weight nor its colour
       expect(title.contrast, scheme).toBeGreaterThan(row!.contrast)
       expect(title.contrast, scheme).toBeGreaterThan(more!.contrast)
       expect(title.weight, scheme).toBeGreaterThan(more!.weight)
-      // not one more row: a step smaller, on one line
-      expect(title.size, scheme).toBeLessThan(row!.size)
+      // as large as the rows under it (bold sets it apart, no line or box), larger than "더 보기"; on one line
+      expect(title.size, scheme).toBe(row!.size)
+      expect(title.weight, scheme).toBeGreaterThan(row!.weight)
+      expect(title.size, scheme).toBeGreaterThan(more!.size)
       expect(title.height, scheme).toBeLessThan(2 * title.size)
     }
     // the break before 트리나 기록 is at least 1.5 times the gap between two rows' text
@@ -457,7 +459,7 @@ test('a long history filter beside 트리나 기록 is cut; the title stays on o
 test.describe('a phone (390 px)', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
-  test('in the drawer 트리나 기록 stands above the date heading under it ("오늘"): heavier and higher contrast, in both looks', async ({ page }) => {
+  test('in the drawer 트리나 기록 stands above the date heading under it ("오늘"): as large as the rows and bold, heavier, larger and higher contrast than "오늘", in both looks', async ({ page }) => {
     await reset(page)
     await signIn(page)
     await someChats(page, 3)
@@ -468,7 +470,10 @@ test.describe('a phone (390 px)', () => {
     for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme })
       await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
-      const [title, day] = await drawer.evaluate(textStyles, [id('recents-toggle'), ['[data-testid="recents-list"] h3', 0] as [string, number]])
+      const [title, day, row] = await drawer.evaluate(textStyles, [id('recents-toggle'), ['[data-testid="recents-list"] h3', 0] as [string, number], ['[data-testid="recents-list"] a[href^="/c/"]', 0] as [string, number]])
+      expect(title!.weight, scheme).toBe(700)
+      expect(title!.size, scheme).toBe(row!.size)
+      expect(title!.size, scheme).toBeGreaterThan(day!.size)
       expect(title!.weight, scheme).toBeGreaterThan(day!.weight)
       expect(title!.contrast, scheme).toBeGreaterThan(day!.contrast)
       expect(title!.contrast, scheme).toBeGreaterThanOrEqual(4.5)
@@ -476,6 +481,31 @@ test.describe('a phone (390 px)', () => {
       expect(title!.size, scheme).toBeGreaterThanOrEqual(13)
     }
   })
+})
+
+// With SHOTS_DIR set (QA TC-149): the section titles at 1440 and in the 390 px drawer, light and dark
+test.describe('screenshots: the section titles', () => {
+  test.use({ deviceScaleFactor: 2 })
+  for (const phone of [false, true])
+    test(`screenshot ${phone ? '390 drawer' : '1440'}: 대화 and 트리나 기록, light and dark`, async ({ page }) => {
+      test.skip(!process.env.SHOTS_DIR, 'SHOTS_DIR not set')
+      fs.mkdirSync(process.env.SHOTS_DIR!, { recursive: true })
+      await page.setViewportSize(phone ? { width: 390, height: 844 } : { width: 1440, height: 900 })
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await reset(page)
+      await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(7) } }) : r.fallback()))
+      await signIn(page)
+      await someChats(page, 4)
+      await page.reload()
+      if (phone) await page.getByTestId('menu-open').click()
+      await expect(page.getByTestId('recents-toggle').last()).toBeVisible()
+      await page.mouse.move(phone ? 380 : 1430, phone ? 830 : 890)
+      for (const scheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: scheme })
+        await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
+        await page.screenshot({ path: path.join(process.env.SHOTS_DIR!, `tc149-${phone ? '390-drawer' : '1440'}-${scheme}.png`) })
+      }
+    })
 })
 
 for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {

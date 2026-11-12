@@ -7,7 +7,8 @@ import { API, ApiError, uuidv7 } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { resetEngineSessions } from '../../server/src/chat/runtime'
-import { historyBlock, historyTrimmed, historyWindow, memoryBlock, HISTORY_MAX_CHARS } from '../../server/src/chat/prompt'
+import { historyBlock, historyTrimmed, historyWindow, memoryBlock, memoryLines, HISTORY_MAX_CHARS } from '../../server/src/chat/prompt'
+import { getChatRuntime } from '../../server/src/chat/runtime'
 import { searchSources, composeMessage } from '../../server/src/chat/turn'
 
 setDefaultTimeout(30_000)
@@ -220,6 +221,38 @@ describe('memories paging and engine session reset', () => {
     const p2 = await h.api('carol').call(API.listMemories, { query: { limit: 2, cursor: p1.nextCursor! } })
     expect(p2.items.map((m) => m.text)).toEqual(['m0'])
     expect(await code(h.api('carol').call(API.deleteMemory, { params: { id: uuidv7() } }))).toBe('404 not_found')
+  })
+
+  test('the list says which memories the AI does not get now, from the same cut as its memory block (QA TC-213)', async () => {
+    const add = (user: string, n: number, text: (i: number) => string) => {
+      const t0 = Date.now() - 3_600_000
+      for (let i = 1; i <= n; i++) h.ctx.db.query("INSERT INTO memories (id, user_id, text, created_at) VALUES (?, ?, ?, ?)").run(uuidv7(), user, text(i), new Date(t0 + i * 1000).toISOString())
+    }
+    // 110 short ones (QA's case): the newest that fit the block are in use, the older ones are marked, on every page
+    add('dana', 110, (i) => `사실 ${String(i).padStart(3, '0')}`)
+    const fit = memoryLines(getChatRuntime(h.ctx).memoriesForPrompt('dana')).length
+    expect(fit).toBeGreaterThan(50)
+    expect(fit).toBeLessThan(110)
+    const p1 = await h.api('dana').call(API.listMemories, { query: { limit: 100 } })
+    expect([p1.inUse, p1.total]).toEqual([fit, 110])
+    expect(p1.items.map((m) => !m.unused)).toEqual(p1.items.map((_, i) => i < fit))
+    expect(p1.items[fit]!.text).toBe(`사실 ${String(110 - fit).padStart(3, '0')}`)
+    const p2 = await h.api('dana').call(API.listMemories, { query: { limit: 100, cursor: p1.nextCursor! } })
+    expect(p2.items.map((m) => [m.text, m.unused])).toEqual(Array.from({ length: 10 }, (_, i) => [`사실 ${String(10 - i).padStart(3, '0')}`, true]))
+    // long ones: the block's 4,096 characters end first; the list and the block agree to the memory
+    add('erin', 30, (i) => `${i} ` + '가'.repeat(290))
+    const page = await h.api('erin').call(API.listMemories, { query: { limit: 100 } })
+    const rows = getChatRuntime(h.ctx).memoriesForPrompt('erin')
+    const lines = memoryLines(rows)
+    expect(page.inUse).toBe(lines.length)
+    expect(page.inUse).toBeLessThan(30)
+    expect(page.items.map((m) => !m.unused)).toEqual(page.items.map((_, i) => i < lines.length))
+    const block = memoryBlock(rows)
+    for (const m of page.items) expect(block.includes(m.id)).toBe(!m.unused)
+    // nothing marked while everything fits
+    add('bob', 3, (i) => `m${i}`)
+    const few = await h.api('bob').call(API.listMemories, {})
+    expect([few.inUse, few.total, few.items.some((m) => m.unused)]).toEqual([3, 3, false])
   })
 
   test('the person adds and corrects memories with the AI\'s limits; own only; audited without the text; the AI sees the new text', async () => {
