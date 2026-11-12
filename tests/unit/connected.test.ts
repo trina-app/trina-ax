@@ -100,3 +100,89 @@ describe('mirror', () => {
     expect(h.ctx.db.query("SELECT 1 FROM folders WHERE path = 'connected/other'").get()).toBeNull()
   })
 })
+
+// The source is checked again at every sync, and a sync never follows a link out of it: someone who can write to a
+// share could otherwise point the source, or a file or folder in it, at the server's own data or a closed folder.
+describe('links planted after connecting', () => {
+  const secret = 'server-secret-do-not-copy'
+  const plant = () => {
+    fs.mkdirSync(path.join(h.dataDir, 'secrets'), { recursive: true })
+    fs.writeFileSync(path.join(h.dataDir, 'secrets', 'credentials.key'), secret)
+    fs.mkdirSync(path.join(h.team, 'groups', 'finance'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'groups', 'finance', 'pay.csv'), secret)
+  }
+  const mirrored = (name: string) => {
+    const out: string[] = []
+    const walk = (d: string) => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); if (fs.lstatSync(p).isDirectory()) walk(p); else out.push(fs.readFileSync(p, 'utf8')) } }
+    walk(path.join(h.team, 'connected', name))
+    return out
+  }
+
+  test('the source replaced by a link to the server data or the team folder: the sync refuses and copies nothing', async () => {
+    plant()
+    const s = path.join(home, 'Share-A')
+    fs.mkdirSync(s, { recursive: true }); fs.writeFileSync(path.join(s, 'ok.txt'), 'normal')
+    const c = cf.add({ name: 'share-a', source: s, actor: 'dion' })
+    expect(await cf.sync(c.id)).toMatchObject({ copied: 1 })
+    for (const target of [h.dataDir, path.join(h.team, 'groups', 'finance'), path.join(home, 'Other-allowed')]) {
+      fs.mkdirSync(target, { recursive: true })
+      fs.rmSync(s, { recursive: true, force: true })
+      fs.symlinkSync(target, s)
+      await expect(cf.sync(c.id)).rejects.toThrow('moved')
+      expect(cf.get(c.id)).toMatchObject({ last_status: 'error', last_error: 'moved' })
+      expect(mirrored('share-a')).toEqual(['normal'])
+      fs.rmSync(s)
+    }
+    // a folder above the source swapped for a link: the source no longer resolves to the checked path
+    const deep = path.join(home, 'Outer', 'Share-B')
+    fs.mkdirSync(deep, { recursive: true }); fs.writeFileSync(path.join(deep, 'ok.txt'), 'normal')
+    const d = cf.add({ name: 'share-b', source: deep, actor: 'dion' })
+    await cf.sync(d.id)
+    fs.renameSync(path.join(home, 'Outer'), path.join(home, 'Outer-real'))
+    fs.mkdirSync(path.join(h.dataDir, 'Share-B'), { recursive: true }); fs.writeFileSync(path.join(h.dataDir, 'Share-B', 'x'), secret)
+    fs.symlinkSync(h.dataDir, path.join(home, 'Outer'))
+    await expect(cf.sync(d.id)).rejects.toThrow('moved')
+    expect(mirrored('share-b')).toEqual(['normal'])
+    // the real folder back: it syncs again
+    fs.rmSync(path.join(home, 'Outer')); fs.renameSync(path.join(home, 'Outer-real'), path.join(home, 'Outer'))
+    expect(await cf.sync(d.id)).toMatchObject({ copied: 0 })
+    expect(cf.get(d.id)!.last_status).toBe('ok')
+  })
+
+  test('a file or a folder swapped for a link between listing and copying is never copied; the rest still syncs', async () => {
+    plant()
+    const s = path.join(home, 'Share-C')
+    fs.mkdirSync(path.join(s, 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(s, 'keep.txt'), 'normal')
+    fs.writeFileSync(path.join(s, 'swap.txt'), 'normal file')
+    fs.writeFileSync(path.join(s, 'sub', 'pay.csv'), 'normal sub file')
+    fs.writeFileSync(path.join(s, 'sub', 'other.txt'), 'normal')
+    const c = cf.add({ name: 'share-c', source: s, actor: 'dion' })
+    // the race, made certain: the listing runs as usual, then the links are put in before any file is copied
+    const real = (cf as unknown as { listSource: (src: string) => unknown }).listSource.bind(cf)
+    ;(cf as unknown as { listSource: (src: string) => unknown }).listSource = (src: string) => {
+      const listed = real(src)
+      fs.rmSync(path.join(s, 'swap.txt')); fs.symlinkSync(path.join(h.dataDir, 'secrets', 'credentials.key'), path.join(s, 'swap.txt'))
+      fs.renameSync(path.join(s, 'sub'), path.join(home, 'sub-moved'))
+      fs.symlinkSync(path.join(h.team, 'groups', 'finance'), path.join(s, 'sub'))
+      return listed
+    }
+    try {
+      const r = await cf.sync(c.id)
+      expect(r.copied).toBe(1)
+      expect(r.skipped).toBeGreaterThanOrEqual(3)
+    } finally { delete (cf as unknown as { listSource?: unknown }).listSource }
+    expect(mirrored('share-c')).toEqual(['normal'])
+    expect(fs.existsSync(path.join(h.team, 'connected', 'share-c', 'swap.txt'))).toBe(false)
+    expect(fs.existsSync(path.join(h.team, 'connected', 'share-c', 'sub', 'pay.csv'))).toBe(false)
+    // links already there when listing: skipped, never entered
+    const r2 = await cf.sync(c.id)
+    expect(r2.copied).toBe(0)
+    expect(mirrored('share-c')).toEqual(['normal'])
+    // back to real files: they sync
+    fs.rmSync(path.join(s, 'sub')); fs.renameSync(path.join(home, 'sub-moved'), path.join(s, 'sub'))
+    fs.rmSync(path.join(s, 'swap.txt')); fs.writeFileSync(path.join(s, 'swap.txt'), 'normal file')
+    expect(await cf.sync(c.id)).toMatchObject({ copied: 3 })
+    expect(mirrored('share-c').sort()).toEqual(['normal', 'normal', 'normal file', 'normal sub file'])
+  })
+})

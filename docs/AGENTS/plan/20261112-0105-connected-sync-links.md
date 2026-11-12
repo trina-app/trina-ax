@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:05
 - Branch: `fix/connected-sync-links`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`server/src/team-files/connected.ts`, `server/src/auth/messages.ts`, `tests/unit/connected.test.ts`).
   Why: connected folders are a core team-files feature.
 - Version impact: patch; no schema change, no new endpoint, one new error message.
@@ -46,3 +46,8 @@ after NFC.
 team-files unit tests.
 
 ## Result
+
+Built as planned. A read error during the re-check (macOS privacy, for example) is still reported as before
+("permission" / "not_found"), only a failed rule becomes "moved". Unit tests simulate the race by putting the links in
+right after the listing; they fail on the old code (a link-replaced source synced, three files copied through links).
+Linux's `/proc/self/fd` path is exercised by CI on Linux; macOS was run here.
