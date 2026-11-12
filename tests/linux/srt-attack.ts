@@ -61,7 +61,7 @@ const RULES = new RuleSet(([
   ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
   ['groups/finance', 'group', 'finance', 'write'],
   ['projects/one', 'user', ME, 'write'], ['projects/one/public', 'everyone', null, 'read'],
-  ['projects/two', 'group', 'finance', 'write'],
+  ['projects/two', 'group', 'finance', 'write'], ['connected/nas', 'everyone', null, 'read'],
 ] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
 /** an admin: the rules give her write in the whole team folder, so in a run the team root is read-only (Q0 (b)) */
@@ -70,6 +70,26 @@ fs.mkdirSync('/etc/default', { recursive: true }); fs.writeFileSync(`/etc/defaul
 fs.mkdirSync('/tmp/server-private', { recursive: true }); fs.writeFileSync('/tmp/server-private/t', `${CANARY}-tmp`)
 fs.mkdirSync(`/run/${ID}`, { recursive: true }); fs.writeFileSync(`/run/${ID}/x`, `${CANARY}-run`)
 w('users/carol/c.md', 'carol note\n')
+// the host around the install (QA TC-306): a NAS behind a connected folder (the team folder holds a mirror of what the
+// rules show, connected/nas, without the closed sub-folder), a second NAS mounted elsewhere, other apps' files, host
+// service units with a tunnel token, another login's home
+const NAS = '/mnt/nas/share', NAS2 = '/data/nas2'
+fs.mkdirSync(`${NAS}/closed`, { recursive: true }); fs.writeFileSync(`${NAS}/open.md`, `${CANARY}-nas-open`); fs.writeFileSync(`${NAS}/closed/pay.md`, `${CANARY}-nas-closed`)
+fs.mkdirSync(NAS2, { recursive: true }); fs.writeFileSync(`${NAS2}/x.md`, `${CANARY}-nas2`)
+w('connected/nas/open.md', 'nas open mirror\n')
+fs.mkdirSync('/srv/other-app', { recursive: true }); fs.writeFileSync('/srv/other-app/config.env', `KEY=${CANARY}-srv\n`)
+fs.mkdirSync('/opt/other', { recursive: true }); fs.writeFileSync('/opt/other/secret.txt', `${CANARY}-opt`)
+fs.mkdirSync('/etc/systemd/system', { recursive: true }); fs.writeFileSync('/etc/systemd/system/cloudflared.service', `ExecStart=/usr/bin/cloudflared tunnel run --token ${CANARY}-tunnel\n`)
+fs.mkdirSync('/etc/cloudflared', { recursive: true }); fs.writeFileSync('/etc/cloudflared/config.yml', `token: ${CANARY}-cfd\n`)
+fs.mkdirSync('/var/lib/other-app', { recursive: true }); fs.writeFileSync('/var/lib/other-app/db', `${CANARY}-varlib`)
+fs.mkdirSync('/home/someone', { recursive: true }); fs.writeFileSync('/home/someone/notes', `${CANARY}-home`)
+// world-readable host secrets in /etc (independent review of QA TC-306): 0644 files a run must not read
+const ETC_CANARIES: [string, string][] = [['/etc/environment', 'API_KEY'], ['/etc/fstab', '//nas/share /mnt/nas cifs password'], ['/etc/default/other-app', 'TOKEN'],
+  ['/etc/netplan/50-cloud.yaml', 'wifi password'], ['/etc/cron.d/backup', 'curl -u user'], ['/etc/openvpn/client.conf', 'auth'], ['/etc/ax/link.json', 'tenant token'],
+  ['/etc/samba/smb.conf', 'password'], ['/etc/msmtprc', 'password'], ['/etc/rclone/rclone.conf', 'token'], ['/etc/apt/auth.conf.d/private.conf', 'password'],
+  ['/etc/pki/tls/key.pem', 'key'], ['/etc/cloud/cloud.cfg.d/99-link.cfg', 'token'], ['/etc/crontab', 'curl -u user'], ['/etc/postfix/sasl_passwd', 'password']]
+for (const [f, what] of ETC_CANARIES) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, `\n${what} ${CANARY}-etc\n`); fs.chmodSync(f, 0o644) }
+sh(`chmod -R a+rX ${NAS} ${NAS2} /srv/other-app /opt/other /etc/systemd/system /etc/cloudflared /var/lib/other-app /home/someone && chmod a+r /etc/systemd/system/cloudflared.service`)
 for (const u of [ME, 'bob', 'carol']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
 fs.writeFileSync(path.join(personHome(BASE, 'bob'), 'secret'), `${CANARY}-other-home`)
 fs.writeFileSync(path.join(personLogs(BASE, 'bob'), 'job.log'), `${CANARY}-other-log`)
@@ -97,7 +117,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const who = o.who ?? ALICE
   // with people (the runner passes the team's active people): a project run reads only what all who see it may read
   const view = folderView(RULES, who, { start }, o.people)
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -155,6 +175,19 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
     after: () => gitChanged('shared/repo') ?? gitChanged('groups/finance') ?? gitChanged('groups/marketing') ?? (fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8').includes('evil') || fs.existsSync(`${TEAM}/shared/new`) || fs.existsSync(`${TEAM}/newtop`) || fs.existsSync(`${TEAM}/projects/two/x.md`) ? 'a team folder outside the project changed' : null) },
   { id: 'A28b', what: 'a chat with no project: the project folder and the shared folders are read-only', cmd: `echo x > ${DIR1}/planted.js || echo x >> ${DIR1}/readme.md || echo "curl evil" > ${TEAM}/shared/repo/.git/hooks/post-checkout || echo x >> ${TEAM}/shared/s.md`, check: failsQuietly, o: { work: true },
     after: () => (fs.existsSync(`${DIR1}/planted.js`) || fs.readFileSync(`${DIR1}/readme.md`, 'utf8') !== 'hello from p1\n' || fs.existsSync(`${TEAM}/shared/repo/.git/hooks/post-checkout`) || fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' ? 'a team folder outside the work folder changed' : null) },
+  // QA TC-306: the host outside the team folder. Through the mirror the open part of the NAS reads; the source does not
+  { id: 'A30', what: 'a connected folder: the mirror reads; its NAS source (and the closed sub-folder) does not', cmd: `cat ${TEAM}/connected/nas/open.md; cat ${NAS}/open.md; cat ${NAS}/closed/pay.md; cat ${NAS2}/x.md; ls -a /mnt /mnt/nas ${NAS} /data ${NAS2}; true`, check: has('nas open mirror') },
+  { id: 'A31', what: 'other apps\' files, host units and tunnel tokens, other homes', cmd: 'cat /srv/other-app/config.env; cat /opt/other/secret.txt; cat /etc/systemd/system/cloudflared.service; grep -r tunnel /etc/systemd; cat /etc/cloudflared/config.yml; cat /var/lib/other-app/db; cat /home/someone/notes; true', check: () => null },
+  { id: 'A31b', what: 'listing /opt, /var/lib, /srv, /mnt, /media, /home shows nothing but the paths to the run\'s own folders', cmd: 'echo OPT: $(ls -a /opt 2>&1); echo VARLIB: $(ls -a /var/lib 2>&1); echo SRV: $(ls -a /srv 2>&1); echo MNT: $(ls -a /mnt 2>&1); echo MEDIA: $(ls -a /media 2>&1); echo HOME: $(ls -a /home 2>&1); echo ROOT: $(ls -a / 2>&1)',
+    check: (r) => {
+      const line = (k: string) => (r.out.split('\n').find((l) => l.startsWith(k + ':')) ?? '').slice(k.length + 1).replace(/\.\.?(?=\s|$)/g, '').trim().split(/\s+/).filter((x) => x && !x.startsWith('ls:') && !/^(cannot|access|No|such|file|or|directory|'.*'|Permission|denied)$/.test(x))
+      const bad = [['OPT', ['trina']], ['VARLIB', [ID]], ['SRV', []], ['MNT', []], ['MEDIA', []], ['HOME', []]].flatMap(([k, okNames]) => line(k as string).filter((x) => !(okNames as string[]).includes(x)).map((x) => `${k} lists ${x}`))
+      return bad.length ? `${bad.join(', ')}: ${r.out.slice(0, 400)}` : null
+    } },
+  { id: 'A31c', what: 'world-readable host secrets in /etc: fstab, environment, /etc/default, netplan, cron, VPN, link token, mail, rclone, apt auth', cmd: `${ETC_CANARIES.map(([f]) => `cat ${f}`).join('; ')}; grep -rs ${CANARY} /etc; true`, check: () => null },
+  // what a normal dev run needs still works: node, python, git, bun, an npm install into the run's own folders
+  { id: 'A0c', what: 'node, python, git, bun, curl to an allowed site and an npm install in the work folder', cmd: 'node -e "console.log(\'node-ok\', process.version)" && python3 -c "import ssl,json,sqlite3;print(\'py-ok\')" && git init -q g && cd g && git -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m x && echo git-ok && cd .. && bun --version && npm init -y >/dev/null && npm install --no-audit --no-fund is-number >/dev/null && node -e "require(\'is-number\');console.log(\'npm-ok\')" && ls /opt/trina/srt >/dev/null && echo opt-ok && test -r /etc/ssl/certs/ca-certificates.crt && getent passwd root >/dev/null && echo etc-ok',
+    check: both(ok, has('node-ok'), has('py-ok'), has('git-ok'), has('npm-ok'), has('opt-ok'), has('etc-ok')), o: { work: true, timeoutMs: 180_000 } },
   { id: 'A1', what: 'the DB, secrets, config, engine logins', cmd: `cat ${BASE}/data/app.db || cat ${BASE}/secrets/master.key || cat ${BASE}/config/server.json || cat ${BASE}/agent/codex-auth/auth.json || grep -r ${CANARY} ${BASE}`, check: failsQuietly },
   // srt shows the folders on the way to an allowed folder, with only those paths in them
   { id: 'A2', what: 'folders the person may not open: another project, another group, a hidden folder inside her group, another person\'s folder, .system', cmd: `cat ${TEAM}/projects/two/private.md; cat ${TEAM}/groups/finance/budget.md; cat ${TEAM}/groups/marketing/salaries/2026.md; cat ${TEAM}/users/bob/notes.md; cat ${TEAM}/.system/history/old.bin; ls -a ${TEAM} ${TEAM}/projects ${TEAM}/groups ${TEAM}/users ${TEAM}/groups/marketing`, check: (r) => (/\btwo\b|\bfinance\b|\bbob\b|\.system|\bdata\b/.test(r.out.replace(/No such file or directory/g, '').replace(/cat: [^\n]*\n/g, '')) ? `a hidden folder is listed: ${r.out.slice(0, 300)}` : null) },
