@@ -77,8 +77,13 @@ func (s *UpdateSettings) autoUpdatesOn(systemd bool) bool {
 
 func collectUpdateSettings(e *env, in *Install) *UpdateSettings {
 	s := &UpdateSettings{AutoUpdate: in.AutoUpdate, AllowUnsigned: in.AllowUnsigned, Deferred: readDeferred(e)}
-	if h := readFailed(e); h != nil && h.active(e.now()) {
+	// a hold of the release that runs here and answers is not shown: that update went through (QA TC-334)
+	h, note := readHold(e, in)
+	if h != nil && h.active(e.now()) {
 		s.Held = h
+	}
+	if note != "" {
+		s.Notes = append(s.Notes, note)
 	}
 	systemd := in.Systemd && fileExists(systemdRunDir)
 	if systemd {

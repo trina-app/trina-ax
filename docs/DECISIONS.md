@@ -22458,3 +22458,51 @@ change).
   "참고한 파일 · 올리는 답의 출처 목록에서 빠져요", no attach switch: sources are left out, never copied), with lines of its own
   under the provenance line: "올리면 대화방 모두가 이 내용을 봐요." when nothing is at stake, "웹이나 연결된 서비스의 내용",
   and the earlier-hidden-answer line. The app's own confirm with a row per reason is gone, and with it its strings.
+
+## Go back only where it can work; no false hold after going forward (fix/goback-and-false-hold, 2026-11-12, QA TC-334, TC-336)
+
+- **Why (TC-334).** 0.4.0's `mycel-ctl update` reports `rolled_back` as soon as `state.json` records the roll-back and
+  writes `root/update-failed.json` (20 hours), not knowing that the new bootstrap goes forward to 0.5.0 again. 0.5.0
+  then ran fine while `mycel-ctl status` said "HELD: release 0.5.0 was rolled back". 0.4.0's code cannot change.
+- **A hold of the version that runs is over.** `mycel-ctl` (status, update, the timer) drops a hold when all of these
+  are true: `app/current` is that version or newer, `root/VERSION` is that version or newer (a root update that failed
+  before its root files went in keeps its back-off), `state.json` has nothing pending and is not stopped (`blocked`),
+  and `/api/health` answers ok with the running version. The file is removed (as root; a reader without root only
+  ignores it) and one plain note line says so. The file is read again right before the removal: a hold another run
+  wrote meanwhile (this runs before the update lock) stays. `state.json` is not written from root: it is the server account's
+  file, and the bootstrap rewrites it; the bootstrap's own history line ("started again after 0.4.0 could not read
+  the database…") already tells the story. The server (`rootUpdateFailure`) ignores such a hold by the same version
+  rule.
+- **Why (TC-336).** Admin › System offered Go back to `state.previous` with no reader check. 0.4.0 (reader level 4)
+  then exited 75 on the database 0.5.0 had migrated (level 6), the bootstrap went back to 0.5.0, and the job said
+  `rolledBack` to 0.4.0.
+- **Reader level of a kept version** = the highest `min_compatible_reader` among its bundle's migrations
+  (`bundleReaderLevel`, the rule `publish-server.ts` already uses); the database needs the highest among its applied
+  migrations (`requiredReaderLevel`). Every raise of `SCHEMA_READER_LEVEL` comes with a migration that declares it, so
+  the two agree (0.4.0: 4 and 4). Lower: `UpdateStatus.previousNeedsRestore` (optional), no Go back button, a plain
+  line pointing to the QA-checked steps of #554, [BACKUP-RESTORE.md "Going back to the version before an update
+  (Linux)"](BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux) (automatic updates off, the
+  `pre-migrate` copy staged, `mycel-ctl update --version <older>` with its first-line check, cancel by removing
+  `restore-pending.json`). `POST /api/admin/update {rollback}` and `admin.js rollback` (it reads the level from
+  `app.db`, read-only) refuse it; `admin.js switch` stays an administrator's explicit choice. Docker: only a copy of the
+  whole volume from before the update, started with the older tag (`mycel-ctl update` is not used in the container,
+  and the newer image migrates again at its next start).
+- **Honest outcome.** The job is "done" before the restart, so it cannot know. At start, `settleUpdateJob` marks the
+  newest update job (finished within a day) failed when it started from the version that runs again, named another
+  one, and the bootstrap's history records sending that one back (`rolled_back <it> -> <running>` after the job
+  finished; a plain restart or an administrator's switch is not such a failure): "Could not go back to 0.4.0; still on 0.5.0" plus the reader reason or the bootstrap's line, in the starter's
+  language. The web says "Update finished" only after `/api/health` answers with the job's version; back on the
+  version it started from (uptime shorter than the wait, or a gap without uptime), it reads the job again and shows
+  its words; no answer in 4 minutes: "still restarting".
+- **Bootstrap**: a pending version older than `previous` (a Go back) that exits 75 is rolled back at once ("0.4.0 cannot read the database: 0.5.0 has
+  already updated it (exit 75)"), not after three starts with "exited 3 times". Diagnostics says a bounced Go back in
+  plain words (ok, not a failed update). A newer pending version that exits 75 keeps the usual tries
+  (`TestForwardedExit75StopsAtOnce`). The version order moved to `native/internal/version` so the bootstrap and
+  mycel-ctl share it.
+- **Docker / older kit**: the installer's "older kit" warning names the reader problem and the restore steps when the
+  kit's version is below the running one's level; docs/INSTALL-DOCKER.md no longer advises Roll back for that case.
+- Tests: ctl `TestStatusDropsHoldOfTheRunningVersion`, `TestScheduledUpdateDropsHoldOfTheRunningVersion`
+  (`TestScheduledUpdateShortHoldBeforeRootFiles` keeps the newer-hold rule with root files not yet in), bootstrap
+  `TestPendingOlderVersionExit75GoesBackAtOnce`, `tests/unit/g-update-goback.test.ts`, `g-prune.test.ts`,
+  `web/test/unit/update-outcome.test.ts`.
+- Version impact: **patch** (root update: bootstrap and mycel-ctl; one optional API field; no migration).

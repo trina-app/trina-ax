@@ -523,6 +523,17 @@ describe('the server runs it, and says what it keeps', () => {
       Object.defineProperty(o.updates, 'feedUsable', { get: () => true })
       o.updates.checkFeed = async () => ({ version: '999.0.0', minFrom: null, urgent: false, needsRoot: false, notes: '', publishedAt: at.toISOString(), bundles: [] })
       expect(await o.autoUpdateTick()).toBe('held')
+      // QA TC-334: a hold of the version this server runs, its root files that version too, is not one (0.4.0's
+      // updater reported a roll-back while the bootstrap went forward again); with older root files it still is
+      fs.writeFileSync(failed, JSON.stringify({ version: ctx.version, result: 'rolled_back', at: at.toISOString(), failures: 1, until: new Date(at.getTime() + 20 * 3600_000).toISOString(), rootIn: true }))
+      const rootFile = path.join(base, 'root', 'VERSION')
+      const hadRoot = fs.existsSync(rootFile) ? fs.readFileSync(rootFile, 'utf8') : null
+      fs.writeFileSync(rootFile, ctx.version + '\n')
+      expect(o.rootUpdateFailure()).toBeNull()
+      expect(o.rootUpdateHold()).toBeNull()
+      fs.writeFileSync(rootFile, '0.0.1\n')
+      expect(o.rootUpdateFailure()?.version).toBe(ctx.version)
+      if (hadRoot === null) fs.rmSync(rootFile); else fs.writeFileSync(rootFile, hadRoot)
       fs.rmSync(failed)
     } finally {
       ctx.config.update.auto = was

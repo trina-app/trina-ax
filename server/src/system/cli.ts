@@ -71,7 +71,7 @@ import path from 'node:path'
 import { loadAppConfig, type AppConfig } from '../app-config'
 import { SERVER_VERSION, createContext } from '../context'
 import { Database } from 'bun:sqlite'
-import { openDb } from '../db'
+import { openDb, requiredReaderLevelOfFile } from '../db'
 import { createLogger, silentLogger } from '../log'
 import { BackupManager, endSessions, inspectDbCopy, vacuumInto, withoutHostingKey } from './backup'
 import { planInstallState } from './install-plan'
@@ -149,7 +149,9 @@ export async function main(argv: string[]): Promise<number> {
   const layout = resolveLayout(cfg)
   const out = (v: unknown) => console.log(JSON.stringify(v, null, 1))
   const dbFile = path.join(cfg.dataDir, 'app.db')
-  const updates = () => new UpdateManager({ appDir: layout.appDir, dataDir: cfg.dataDir, version: SERVER_VERSION, channel: cfg.update.channel, feedUrl: cfg.update.feedUrl, log })
+  const updates = () => new UpdateManager({ appDir: layout.appDir, dataDir: cfg.dataDir, version: SERVER_VERSION, channel: cfg.update.channel, feedUrl: cfg.update.feedUrl, log,
+    // `rollback` refuses a version that cannot read the database (QA TC-336); `switch` stays the administrator's choice
+    dbReaderLevel: () => requiredReaderLevelOfFile(dbFile) })
   const backups = () => {
     const db = openDb(dbFile)
     return { db, mgr: new BackupManager({ db, dbFile, layout, log, version: SERVER_VERSION }) }

@@ -24,6 +24,7 @@ import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { compareVersions, UpdateManager } from './update'
+import { requiredReaderLevel } from '../db'
 import { rolloutTurn } from './rollout'
 import { lastPrune, PRUNE_FIRST_MS, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
 import { SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic } from './system-packages'
@@ -34,7 +35,7 @@ import { pruneOld } from './retention'
 import { absoluteFloor, cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
-import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, updateWindowAnswer } from './update-job'
+import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, settleUpdateJob, updateWindowAnswer } from './update-job'
 import { zonedParts } from './time-zone'
 import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
@@ -102,6 +103,7 @@ export class OpsService {
     this.updates = new UpdateManager({
       appDir: this.layout.appDir, dataDir: ctx.config.dataDir, version: ctx.version, channel: ctx.config.update.channel,
       feedUrl: ctx.config.update.feedUrl, log: ctx.log.child({ c: 'update' }), allowUnsigned: o.allowUnsignedUpdates, rootDir: this.layout.rootDir,
+      dbReaderLevel: () => requiredReaderLevel(ctx.db),
     })
     // the team disk (system/storage.ts): writes are refused near full where the resource limits apply; the grace state
     // of a team over its plan's limit is kept in the settings table
@@ -123,6 +125,12 @@ export class OpsService {
   }
 
   private now() { return this.o.now?.() ?? new Date() }
+
+  /** the language of the person who started a job (job-runner.ts) */
+  private jobLocale(userId: string | null): Locale {
+    const u = userId ? (this.ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale | null } | null) : null
+    return u?.locale ?? teamDefaultLocale(this.ctx.db)
+  }
 
   /** Take the maintenance lock (false: another operation runs). */
   tryLock(name: string): boolean { if (this.busy) return false; this.busy = name; return true }
@@ -285,6 +293,11 @@ export class OpsService {
     const o = j as Record<string, unknown>
     const until = typeof o.until === 'string' ? new Date(o.until) : null
     if (typeof o.version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version) || !until || Number.isNaN(until.getTime())) return null
+    // this server runs that version (or a newer one) with root files of it or newer: that update went through, whatever
+    // the file says (QA TC-334: 0.4.0's updater reported a roll-back while the bootstrap went forward to 0.5.0 again).
+    // mycel-ctl removes such a file at its next run (schedule.go readHold).
+    const root = this.updates.rootVersion()
+    if (compareVersions(this.ctx.version, o.version) >= 0 && root && compareVersions(root, o.version) >= 0) return null
     return { version: o.version, rolledBack: o.result === 'rolled_back', until }
   }
 
@@ -588,6 +601,9 @@ export class OpsService {
       // the bootstrap records its stop as a roll-back "stopped: …" (native/cmd/mycel-bootstrap block()); this server
       // runs, so it was started again since: say what happened in plain words, not the bootstrap's instructions
       if (h && recent && h.result === 'rolled_back' && h.detail?.startsWith('stopped: ')) add('update', 'update', t(M.update), 'ok', t(M.updateStopped(h.to, this.ctx.version)))
+      // a Go back to an older version that came back to this one (rolled_back <older> -> <this>, QA TC-336): it runs
+      // fine, only the way back did not happen
+      else if (h && recent && h.result === 'rolled_back' && h.from && h.to === this.ctx.version && compareVersions(h.from, h.to) < 0) add('update', 'update', t(M.update), 'ok', t(M.goBackBounced(h.from, h.to, !this.updates.canRead(h.from), h.detail ?? '')))
       else if (h && recent && h.result !== 'ok') add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
       // went forward again after a failed start (detail "started again after …"): the version plus that it recovered
       else if (h && recent && h.result === 'ok' && h.detail?.startsWith('started again')) add('update', 'update', t(M.update), 'ok', `${t(M.updateOk(this.ctx.version))}. ${t(h.detail === 'started again after it was stopped' ? M.updateRestarted : M.updateRecovered)}`)
@@ -832,6 +848,14 @@ export class OpsService {
     this.timers.push(setInterval(status, 30_000))
     // what a backup the last stop (or a power loss) interrupted left behind; the next backup's prune does the same
     try { this.backups.removeUnfinished() } catch (e) { log.warn('unfinished backups not removed', { err: e }) }
+    // an update job whose version did not stay (a Go back that bounced, a version the bootstrap sent back): failed, with
+    // what happened (update-job.ts settleUpdateJob, QA TC-336)
+    if (this.updates.installed) {
+      try {
+        const id = settleUpdateJob({ db: this.ctx.db, running: this.ctx.version, history: this.updates.history(), now: this.now(), canRead: (v) => this.updates.canRead(v), locale: (u) => this.jobLocale(u) })
+        if (id) log.warn('the last update job did not stay: marked failed', { job: id, running: this.ctx.version })
+      } catch (e) { log.warn('update job not checked', { err: e }) }
+    }
     this.timers.push(setInterval(() => {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))
