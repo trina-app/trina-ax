@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 09:30
 - Branch: `feat/request-any-connector`
-- Status: in progress
+- Status: done
 - Where: server `integrations/service-requests.ts` and its routes, shared contract, web Connectors pages (member and
   Admin). Why: connector permissions and team setup are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor — new requestable services, new routes (withdraw, the admins' list, dismiss) and new screens
@@ -58,4 +58,5 @@ unit tests for the touched components, e2e for the request flow.
 
 ## Result
 
-Filled in at the end.
+Built as planned, with no migration. Tests: `tests/unit/c-service-requests-catalog.test.ts` (5), the permission matrix
+for the three new routes, web `service-requests.test.tsx` (new cases), e2e `request-connector.spec.ts` (2).

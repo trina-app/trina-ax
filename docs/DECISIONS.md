@@ -23187,3 +23187,22 @@ Adds to "The chat's connect card trusts the app's list".
 - **Admin page.** A Google connector's page in Admin › Connectors has Team settings in the layout of Admin › Team
   settings: who can use it (everyone, each with their own account, and how many connected), Drive's shares, and the
   Google APIs a card with its own Google app needs.
+
+## A member asks for any listed connector, and can take it back (feat/request-any-connector, 2026-11-12, QA TC-133)
+
+Plan: `docs/AGENTS/plan/20261112-0930-request-any-connector.md`. Extends "A member asks an admin to add an app".
+
+- **What can be asked for:** the five Google ids and the ids of the app's list (`shared/src/service-catalog.ts`). The
+  server checks the id against that list; a member never sends an address or free text to an admin.
+- **When a listed service counts as added:** for each member, once a team connection to its official address
+  (`canonicalService`) exists that they may use. Not the moment any team connection exists: an admin who limits it to
+  some people leaves the others' requests open, and they are told only when they can use it. Checked when a team
+  connection is made or changed (`afterTeamConnection`) and on the 30-second check (rules and groups change too).
+- **Members who may add their own connections still see Connect.** The request is for the team's connection, so it
+  sits under Connect as one line; their own connection to the service does not stop it.
+- **Taking back and dismissing close the request with no reason** (`closed_reason` NULL, which the column's CHECK
+  allows): no migration and no table rebuild. Both still count toward the 10 a day, so asking and taking back cannot
+  flood the admins. Dismissing tells nobody (like declining an app request in Slack without a message); the member may
+  ask again. Both are audited.
+- **Add opens the usual setup** ("Connect for the team" for a listed service, its page for a Google one); the admin
+  picks who may use it there, as for any team connection.

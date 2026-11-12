@@ -504,8 +504,8 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   await expect(asked).toHaveAttribute('data-state', 'already')
   await expect(asked).toHaveText('이미 요청했어요')
   expect((await (await ask('gmail')).json()).state).toBe('already')
-  // only the apps in the list: anything else is refused by the server
-  for (const s of ['notion', 'https://mcp.notion.com/mcp', 'slack']) expect((await ask(s)).status()).toBe(400)
+  // only the ids of the apps and listed services (request-connector.spec.ts): anything else is refused by the server
+  for (const s of ['https://mcp.notion.com/mcp', 'Notion', 'slack']) expect((await ask(s)).status()).toBe(400)
   await page.goto('/connectors')
   await page.getByTestId('connector-show-all').click()
   await expect(gmail.getByTestId('connector-off')).toHaveText('요청 보냄')

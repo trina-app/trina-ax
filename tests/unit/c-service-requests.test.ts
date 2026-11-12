@@ -40,9 +40,10 @@ const openRows = (service?: string) => (A.ctx.db.query(`SELECT user_id, service 
 const setUpGmail = async (app = 'gmail') => expect((await send('carol', 'PUT', `/api/admin/google-apps/${app}/client`, { clientId: APP_CLIENT.clientId, clientSecret: APP_CLIENT.clientSecret })).status).toBe(200)
 const noAdminNames = (text: string) => { for (const n of ADMIN_NAMES) expect(text).not.toContain(n) }
 
-test('only the catalog\'s apps, only members, never an app the member can connect', async () => {
+test('only the requestable ids, only members, never an app the member can connect', async () => {
   // anything but Google Drive and the Google apps: refused before anything is written
-  for (const s of ['notion', 'slack', 'https://mcp.notion.com/mcp', '../gmail', 'Gmail', 'gmail ', '<b>gmail</b>', 'x'.repeat(64)]) {
+  // (a service of the app's list, "notion", may be asked for since QA TC-133: c-service-requests-catalog.test.ts)
+  for (const s of ['slack', 'https://mcp.notion.com/mcp', 'Notion', '../gmail', 'Gmail', 'gmail ', '<b>gmail</b>', 'x'.repeat(64)]) {
     const r = await ask('alice', s)
     expect({ s, status: r.status, reason: r.body.error?.params?.reason }).toEqual({ s, status: 400, reason: 'unknown_service' })
   }
@@ -201,9 +202,9 @@ test('someone who is no longer an owner or admin sees the app only, without the 
   const n = (await notices('carol', 'service.request'))[0]
   expect(n.serviceRequest).toEqual({ service: 'gmail' })
   expect(JSON.stringify(n)).not.toContain('Alice')
-  // an unknown app id in an old row is shown as nothing
-  A.ctx.db.query("INSERT INTO service_request_notices (id, user_id, event_type, source_id, created_at) VALUES (?, 'dana', 'service.request', 'notion', ?)").run(newId(), new Date().toISOString())
-  const odd = (await notices('dana', 'service.request')).find((x) => x.sourceId === 'notion')
+  // an unknown app id in an old row is shown as nothing (a listed id like "notion" is known since QA TC-133)
+  A.ctx.db.query("INSERT INTO service_request_notices (id, user_id, event_type, source_id, created_at) VALUES (?, 'dana', 'service.request', 'slack', ?)").run(newId(), new Date().toISOString())
+  const odd = (await notices('dana', 'service.request')).find((x) => x.sourceId === 'slack')
   expect(odd.serviceRequest).toBeUndefined()
 })
 

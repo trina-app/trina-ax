@@ -186,7 +186,7 @@ their own".
 ## A member asks for an app
 
 The other direction: a member who opens an app the team has not set up (Google Drive, Gmail, Google Calendar, Google
-Docs, Google Sheets: the apps an admin sets up once for everyone) taps **Ask admin to add it** on its page, like an app
+Docs, Google Sheets: the apps an admin sets up once for everyone; since QA TC-133 also every listed service) taps **Ask admin to add it** on its page, like an app
 request in Slack. It takes the place of the Connect button that could not work and of the "not set up" line; afterwards
 the page says "Request sent", opened again "Already asked", and the app's card says "Asked".
 
@@ -194,8 +194,7 @@ the page says "Request sent", opened again "Already asked", and the app's card s
   server refuses any other name (400 `unknown_service`: no free text from a member reaches an admin), an app the member
   can connect already (409 `can_connect`), one an admin turned off for members or this computer cannot run (409
   `not_requestable`; also a setup that is not the admins' to make: a hosted team's, an operator's file), and owners
-  and admins (403: they set it up themselves). Listed MCP services are not asked for: a member adds those with their
-  own account.
+  and admins (403: they set it up themselves). (Listed MCP services: see below.)
 - One open request per member and app; asking again while it is open answers `already` and sends nothing. At most 10
   new requests per member a day (429). Audited `service_request.ask`.
 - The owner and the admins get one notice per app in Activity (`service.request`, table `service_request_notices`),
@@ -209,6 +208,20 @@ the page says "Request sent", opened again "Already asked", and the app's card s
   member who asked gets one notice that it is ready (`service.ready`), which opens its page. Inbox only, never an OS
   push. Requests also close after 30 days, or when their member leaves or becomes an owner or admin; then they may ask
   again.
+- **Every listed service too** (QA TC-133): Notion, Linear and the rest of `shared/src/service-catalog.ts`, by their
+  ids (never an address or a name a member types). Such a service is added for a member once a team connection to its
+  official address exists that they may use: their request closes as 'added' with the 'service.ready' notice (checked
+  when a team connection is made or changed, and on the 30-second check), and asking again is `can_connect`. A member
+  who may add their own connections keeps Connect on the page; the ask for the team's is a line under it. A member's
+  own connection to the service does not stop the ask.
+- **Taking it back:** "Cancel request" under "Request sent" (`DELETE /api/integrations/service-requests/:service`, one's
+  own only; audited `service_request.withdraw`). It still counts toward the 10 a day.
+- **Admin › Connectors, "Asked by members":** one line per app or service with open requests (who asked), **Add** (a
+  Google one: its page; a listed service: "Connect for the team") and **Dismiss** (`POST
+  /api/admin/service-requests/:service/dismiss`: closes them, nobody is told, they may ask again; audited
+  `service_request.dismiss`). `GET /api/admin/service-requests` lists them. A request taken back or dismissed is closed
+  with no reason (`closed_reason` NULL), so no migration. The notice of a listed service opens its page in Admin ›
+  Connectors.
 - Nothing a member gets names an admin. Code: `server/src/integrations/service-requests.ts`,
   `service-request-notices.ts`, migration `343_c_service_requests.sql`; web `components/integrations/AskAdmin.tsx`.
   Decisions: [DECISIONS.md](DECISIONS.md) "A member asks an admin to add an app".

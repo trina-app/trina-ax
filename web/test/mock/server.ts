@@ -107,7 +107,8 @@ import path from 'node:path'
 import { MockPlugins } from './plugins'
 import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
 import type { GoogleAppId } from '@mycel/shared/api'
-import { isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
+import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
+import { canonicalService as canonicalOf, SERVICE_CATALOG as CATALOG } from '@mycel/shared'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
@@ -1194,7 +1195,12 @@ export class MockServer {
     this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
   }
   /** like server/src/integrations/service-requests.ts serviceState */
-  serviceState(service: RequestableService): 'not_set_up' | 'available' | 'other' {
+  serviceState(service: RequestableService, userId?: string): 'not_set_up' | 'available' | 'other' {
+    // a listed service (QA TC-133): added for this member once a team connection to its address is one they may use
+    if (!isGoogleRequestable(service)) {
+      const c = CATALOG.find((x) => x.id === service), u = this.users.find((x) => x.id === userId)
+      return c && u && this.integrations.some((x) => x.scope === 'team' && canonicalOf(x.url) === canonicalOf(c.url) && this.integrationAllows(x, u)) ? 'available' : 'not_set_up'
+    }
     if (service === 'google-drive') return this.driveClient === 'none' ? 'not_set_up' : this.driveMembers ? 'available' : 'other'
     const r = this.googleApps.reasonOf(this.googleApps.app(service)!)
     return r === 'not_set_up' ? 'not_set_up' : r === null ? 'available' : 'other'
@@ -1205,7 +1211,7 @@ export class MockServer {
     const at = now(), touched = new Set<RequestableService>()
     for (const r of this.serviceRequests.filter((x) => !x.closedAt)) {
       const u = this.users.find((x) => x.id === r.userId)
-      const reason = !u || u.status !== 'active' || u.role !== 'member' ? 'left' as const : this.serviceState(r.service) === 'available' ? 'added' as const : null
+      const reason = !u || u.status !== 'active' || u.role !== 'member' ? 'left' as const : this.serviceState(r.service, r.userId) === 'available' ? 'added' as const : null
       if (!reason) continue
       r.closedAt = at; r.reason = reason; touched.add(r.service)
       if (reason === 'added') this.note(r.userId, { kind: 'service_ready', service: r.service, requestId: r.id })
@@ -3952,7 +3958,7 @@ export class MockServer {
       this.settleServiceRequests()
       const open = this.serviceRequests.find((r) => r.userId === c.user.id && r.service === service && !r.closedAt)
       if (open) return { service, state: 'already' as const, askedAt: open.createdAt }
-      const st = this.serviceState(service)
+      const st = this.serviceState(service, c.user.id)
       if (st === 'available') fail('conflict', 409, undefined, undefined, { reason: 'can_connect' })
       if (st === 'other') fail('conflict', 409, undefined, undefined, { reason: 'not_requestable' })
       const day = new Date(Date.now() - 86_400_000).toISOString()
@@ -3971,6 +3977,26 @@ export class MockServer {
       return { service, state: 'sent' as const, askedAt: at }
     },
 
+    withdrawService: (c) => {
+      for (const r of this.serviceRequests.filter((x) => x.userId === c.user.id && x.service === c.params.service && !x.closedAt)) { r.closedAt = now(); r.reason = null }
+      return undefined
+    },
+    teamServiceRequests: () => {
+      const by = new Map<string, { service: RequestableService; askers: { id: string; name: string }[]; askedAt: string }>()
+      for (const r of [...this.serviceRequests].filter((x) => !x.closedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+        const u = this.users.find((x) => x.id === r.userId)
+        if (!u || u.status !== 'active') continue
+        const x = by.get(r.service) ?? { service: r.service, askers: [], askedAt: r.createdAt }
+        x.askers.push({ id: u.id, name: u.name }); by.set(r.service, x)
+      }
+      return { items: [...by.values()] }
+    },
+    dismissServiceRequests: (c) => {
+      for (const r of this.serviceRequests.filter((x) => x.service === c.params.service && !x.closedAt)) { r.closedAt = now(); r.reason = null }
+      for (const n of this.inbox) if (n.kind === 'service_request' && n.service === c.params.service) n.readAt ??= now()
+      return undefined
+    },
+
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
     listIntegrations: (c) => ({
       items: this.integrations.filter((x) => this.integrationAllows(x, c.user)).map((x) => this.integrationView(x, c.user)),
@@ -3981,7 +4007,7 @@ export class MockServer {
       if (c.body.access) fail('validation', 400, '사용할 사람은 팀 연결에만 정해요.', { 'body.access': 'team connections only' })
       return { status: 201, body: this.addIntegration(c.user, c.body, 'personal') }
     },
-    updateIntegration: (c) => this.patchIntegration(c.user, c.params.id, c.body),
+    updateIntegration: (c) => { const r = this.patchIntegration(c.user, c.params.id, c.body); this.settleServiceRequests(); return r },
     deleteIntegration: (c) => {
       const x = this.manageableIntegration(c.user, c.params.id)
       this.integrations = this.integrations.filter((y) => y.id !== x.id)
@@ -4157,7 +4183,7 @@ export class MockServer {
     disablePlugin: (c) => this.plugins.set(c.params.id, false) ?? fail('not_found', 404),
     rollbackPlugin: () => { throw new Fail('conflict', 409, undefined, undefined, { reason: 'no_rollback' }) },
     uninstallPlugin: (c) => { if (!this.plugins.remove(c.params.id)) fail('not_found', 404); return undefined },
-    createTeamIntegration: (c) => ({ status: 201, body: this.addIntegration(c.user, c.body, 'team') }),
+    createTeamIntegration: (c) => { const body = this.addIntegration(c.user, c.body, 'team'); this.settleServiceRequests(); return { status: 201, body } },
 
     // nothing connected, no scheduled tasks yet
     listConnected: () => ({ items: [] }),
