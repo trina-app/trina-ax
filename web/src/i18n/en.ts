@@ -457,6 +457,7 @@ export const en: Record<MessageKey, string> = {
   'composer.stop': 'Stop answering',
   'composer.engine': "Choose an AI",
   'composer.defaultEngine': "Default AI",
+  'composer.engineNow': "Choose an AI, now: {engine}",
   'composer.defaultModel': 'Default model',
   'composer.fromComputer': 'Upload from computer',
   'composer.fromTeam': 'Add from team files',

@@ -511,7 +511,12 @@ export default function Composer({
 
   // the text's padding (the "#" layer behind it has the same): a phone's card has the text alone on its line, the
   // tools under it; elsewhere the buttons share the line
-  const fieldPad = clsx(stacked ? 'px-4 pb-1' : ['pb-2', phone ? 'pl-1' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
+  // (the card's text starts where its + does: 12 px in)
+  const fieldPad = clsx(stacked ? 'px-3 pb-1' : ['pb-2', phone ? 'pl-1' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
+  // the text's height on a phone: at most 30 % of what is in sight (the keyboard up: --app-h); in the card the whole
+  // card stays within 35 % (QA TC-252), so the text gets 35 % less the card's other parts (the tools' row, the text's
+  // own padding and the edge: 3.25rem), at least one line
+  const fieldMax = stacked ? 'max-md:max-h-[min(240px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-3.25rem)))]' : 'max-md:max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))]'
 
   // the mic, then send (or stop, or the answer's and the waiting message's buttons): at the end of the box's row
   const actions = (
@@ -593,11 +598,11 @@ export default function Composer({
             // a phone's card keeps its height: the text as it was on top (it cannot be typed in while recording), the
             // bar in the tools' row, ✕ and ✓ where + and send were
             <>
-              <p aria-hidden className={clsx('max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))] overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', fieldPad, text ? 'text-ink' : 'text-faint')} data-testid="composer-text-held">
+              <p aria-hidden className={clsx('overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', fieldMax, fieldPad, text ? 'text-ink' : 'text-faint')} data-testid="composer-text-held">
                 {text || hint}
               </p>
               {/* as tall as the tools' row, with ✓ 40 px below 640 px (VoiceBar): 4 px less padding there */}
-              <VoiceBar voice={voice} className="box-content min-h-9 px-2.5 pt-1 pb-2.5 max-sm:pt-0.5 max-sm:pb-2" />
+              <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5 max-sm:pt-0.5 max-sm:pb-2" />
             </>
           ) : (
             // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were
@@ -670,16 +675,17 @@ export default function Composer({
                   // not disabled: the focus stays in the box while the words are on their way
                   readOnly={voice.busy}
                   aria-busy={transcribing || undefined}
-                  className={clsx('relative block max-h-[240px] w-full max-md:max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))] min-w-0 resize-none bg-transparent text-reading leading-reading outline-none placeholder:text-faint', fieldPad, tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent text-reading leading-reading outline-none placeholder:text-faint', fieldMax, fieldPad, tokens && 'room-ref-field [scrollbar-gutter:stable]')}
                   data-testid="composer-input"
                 />
               </div>
               {stacked ? (
                 // the card's row: + and the engine picker on the left, the mic and send on the right, each taking taps
                 // from 44 px (touch-hit)
-                <div className="flex items-center gap-1.5 px-2.5 pt-1 pb-2.5" data-testid="composer-tools">
+                <div className="flex items-center gap-1.5 px-3 pt-1 pb-2.5" data-testid="composer-tools">
                   {attachControls}
-                  {pick && <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} title={t('composer.engine')} testId="engine-picker" look="pill" />}
+                  {/* named for what it does and what is chosen ("AI 고르기, 지금: 기본 AI"): the pill alone says only the choice */}
+                  {pick && <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" />}
                   <div className="ml-auto flex shrink-0 items-center gap-1.5">{actions}</div>
                 </div>
               ) : (

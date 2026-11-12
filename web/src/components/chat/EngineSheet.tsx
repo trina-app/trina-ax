@@ -37,12 +37,14 @@ const LOOK = {
  * and which never covers the message box while it is closed. The choices are EngineOptions' (engineMenuItems). `label`:
  * the button's words and name, as on a computer (the current choice, or what it does); `title`: the sheet's name and
  * the button's tooltip. Computers keep the small list by the button. */
-export function EngineSheet({ engines, models, current, onPick, label, title, testId, look = 'picker' }: {
+export function EngineSheet({ engines, models, current, onPick, label, name, title, testId, look = 'picker' }: {
   engines: readonly EngineId[]
   models?: Partial<Record<EngineId, { id: string; label: string }[]>>
   current?: { engine: EngineId | undefined; model: string | null | undefined }
   onPick: (p: EnginePick) => void
   label: string
+  /** the button's name when its words alone do not say what it does (the card's pill: "AI 고르기, 지금: 기본 AI") */
+  name?: string
   title: string
   testId?: string
   look?: keyof typeof LOOK
@@ -50,7 +52,7 @@ export function EngineSheet({ engines, models, current, onPick, label, title, te
   const t = useT()
   return (
     <MenuButton
-      label={label}
+      label={name ?? label}
       tip={title}
       heading={title}
       items={engineMenuItems(engines, models, current, onPick, t('composer.defaultModel'))}

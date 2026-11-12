@@ -17,8 +17,9 @@
 // mark and the greeting in the middle of the space left; the one row of suggestions (the block under the box on a
 // computer, as chips that scroll sideways) and the box at the bottom, the box docked there so it stays in sight while
 // the rest scrolls. The box is one card (components/chat/Composer.tsx `card`): the text on top, + · the engine picker
-// · mic · send in a row inside it, nothing under it. It is never focused by itself on a phone (not on opening, not
-// coming back from another tab): the keyboard comes up only when the person taps the box, so the tab bar stays until
+// · mic · send in a row inside it, nothing under it. A touch screen never focuses it by itself (Composer focuses only
+// with a fine pointer: not on opening, not coming back from another tab or a chat): the keyboard comes up only when
+// the person taps the box, so the tab bar stays until
 // then (the owner, 11-12: "채팅이 보고싶은 걸 수도 있는데"); with the keyboard up the card sits on it. No list of the AI's
 // chats here: the whole history is behind ☰ in the top bar. A project's new chat ("/?project=") shows no goal and no
 // setup row: they are about the team.
@@ -127,9 +128,9 @@ export default function Home() {
         project={project}
         initialText={preset?.text}
         resetKey={preset?.n ?? 0}
-        // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first. Never
-        // on a phone: its keyboard would cover the tab bar and the page before the person asked for it (QA TC-391)
-        autoFocus={!phone && (navigationType === 'PUSH' || (preset?.n ?? 0) > 0)}
+        // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first. A
+        // touch screen never takes it (Composer: a fine pointer only), so a phone's keyboard does not come up by itself
+        autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
         card
         aiLine={!noAi}
         waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}

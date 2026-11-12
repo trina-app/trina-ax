@@ -10,7 +10,8 @@
 // 3.   Tap the box: it has the focus; the keyboard up (the iPhone app's WebView and Android shrink the window, iOS
 //      Safari only visualViewport: lib/viewport.ts), the card sits right on it and the tab bar goes; the keyboard put
 //      away, the tab bar is back.
-// 4.   Switch tabs and come back: nothing focused.
+// 4.   Switch tabs and come back: nothing focused (nor after signing in, nor Back from a chat).
+// TC-252 with the card: the keyboard up and a long draft, the whole card stays within 35 % of what is in sight.
 // Every Home state (the owner's first time, the goal card, a member's first time, an invited member's welcome, a member
 // who chatted, an empty team) fits without overlap; SHOTS_DIR=<folder> saves each one.
 // Each test runs in Chromium (Android's engine: phone-home-centered.spec.ts) and WebKit (the iPhone app's:
@@ -123,7 +124,14 @@ async function oneCard(page: Page, engines: boolean) {
     await takes44(c, what)
   }
   await expect(tools.getByTestId('engine-picker')).toHaveCount(engines ? 1 : 0)
-  if (engines) await expect(tools.getByTestId('engine-picker')).toContainText(t['composer.defaultEngine'])
+  if (engines) {
+    await expect(tools.getByTestId('engine-picker')).toContainText(t['composer.defaultEngine'])
+    // its name says what it does and what is chosen
+    await expect(tools.getByTestId('engine-picker')).toHaveAccessibleName(t['composer.engineNow'].replace('{engine}', t['composer.defaultEngine']))
+  }
+  // the text starts where the + does
+  const textLeft = await input.evaluate((el) => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft))
+  expect(Math.abs(textLeft - (await box(tools.getByTestId('attach-button'))).x)).toBeLessThanOrEqual(1)
   // nothing under the card: the old row is gone, and the only "기본 AI" on the page is the card's
   await expect(page.getByTestId('composer-controls')).toHaveCount(0)
   await expect(page.getByTestId('home-scroll').getByText(t['composer.defaultEngine'], { exact: true })).toHaveCount(engines ? 1 : 0)
@@ -335,9 +343,10 @@ export function homeCenteredCases() {
           await notFocused(page)
         }
 
-        // 4. Switch tabs and come back (twice: after a focus too): the box is not focused by itself
-        for (const tab of ['tab-files', 'tab-chats']) {
-          await page.getByTestId(tab).click()
+        // 4. Switch tabs and come back (대화: a tab whatever the other tabs are; after a focus too, twice): the box is not
+        // focused by itself
+        for (let round = 0; round < 2; round++) {
+          await page.getByTestId('tab-chats').click()
           await expect(page.getByTestId('composer-input')).toHaveCount(0)
           await page.getByTestId('tab-ai').click()
           await expect(page).toHaveURL(/\/$/)
@@ -346,6 +355,44 @@ export function homeCenteredCases() {
           await cardOnTabs(page)
         }
         await greetingCentred(page)
+      })
+
+      test('TC-252 with the card: the keyboard up and a long draft, the whole card at most 35 % of what is in sight', async ({ page }) => {
+        await reset(page)
+        await signIn(page)
+        const input = page.getByTestId('composer-input')
+        await input.tap()
+        await input.fill(Array.from({ length: 20 }, (_, i) => `${i + 1}. 오늘 정한 일을 한 줄씩 적어요`).join('\n'))
+        for (const [kind, top] of [['app', 480], ['app', Math.round(size.height / 2)], ['safari', Math.round(size.height / 2)]] as const) {
+          await openKeyboard(page, kind, size.width, top)
+          const card = await box(page.getByTestId('composer'))
+          expect(card.height, `${kind} ${top}: the card ${card.height} px`).toBeLessThanOrEqual(top * 0.35 + 2)
+          // the text and send in sight, the card on the keyboard
+          const field = await box(input), send = await box(page.getByTestId('send'))
+          expect(field.y).toBeGreaterThanOrEqual(0)
+          expect(send.y + send.height).toBeLessThanOrEqual(top)
+          await cardOnKeyboard(page)
+          if (kind === 'app' && top === 480) await shot(page, `keyboard-long-draft-${size.width}x480.png`)
+          await closeKeyboard(page, kind, size)
+        }
+        // the keyboard down: the text may grow again (to 240 px at most)
+        expect((await box(input)).height).toBeLessThanOrEqual(241)
+      })
+
+      test('sign-in and Back from a chat: the box is not focused by itself', async ({ page }) => {
+        await reset(page)
+        await signIn(page)
+        await expect(page).toHaveURL(/\/$/)
+        await notFocused(page)
+        await page.getByTestId('composer-input').fill('안녕하세요')
+        await page.getByTestId('send').click()
+        await expect(page).toHaveURL(/\/c\//)
+        await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+        await page.getByTestId('chat-back').click()
+        await expect(page).toHaveURL(/\/$/)
+        await expect(page.getByTestId('composer-input')).toBeVisible()
+        await notFocused(page)
+        await cardOnTabs(page)
       })
 
       test('TC-182 with the card: one engine on, no picker in it; + · mic · send stay', async ({ page }) => {

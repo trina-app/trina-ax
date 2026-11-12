@@ -63,8 +63,12 @@ phone spec and the adjusted ones on MOCK_PORT 4579.
   header), the sparkle in builds not named after their AI. It is left out under the welcome and lead cards (they fill
   the top and the mark sat alone over the box) and while the keyboard is up (the suggestions keep their room).
 - While recording, the card keeps its height: the text stays on top (not editable), the bar takes the tools' row.
+- Review fixes: Home keeps the base autofocus rule (a touch screen never takes it: Composer focuses with a fine pointer
+  only); the card's text is capped at 35 % of the visible height less the card's other parts (3.25rem), so the whole
+  card stays within 35 % with the keyboard up (TC-252); the tab-switch test uses 대화 (the tabs are changing in #596);
+  the pill is named "AI 고르기, 지금: …" (5 locales) and the text starts where the + does.
 - The chat page's box (`/c/:id`) and the project page's new-chat box keep their one-row box and the picker under it.
-- Tests: `phone-home-centered` (Chromium and WebKit, 390×844 and 360×780) 13 passed; `composer-align` now measures
+- Tests: `phone-home-centered` (Chromium and WebKit, 390×844 and 360×780) 15 passed per engine; `composer-align` now measures
   the chat's box on the chat page and Home's card on its own; desktop 1440 screenshots before/after are identical.
 - `phone-targets` "the message box's ＋ menu" fails the same way on the base (it counts the sheet's rows below the tab
   bar's line).
