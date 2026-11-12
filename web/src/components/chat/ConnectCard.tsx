@@ -164,6 +164,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
       aria-labelledby={`${id}-title`}
       data-testid="connect-card"
       data-case={kase}
+      data-reconnect={r.reconnect ? 'yes' : undefined}
       onSubmit={(e) => {
         e.preventDefault()
         if (kase === 'key') void connectKey()
@@ -173,7 +174,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         <Plug size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
         {/* the whole name, on more lines when it is long: it is what the person checks against the address */}
         <span id={`${id}-title`} className="min-w-0 flex-1 [overflow-wrap:anywhere]" data-testid="connect-title">
-          {r.template ? t('connect.templateTitle', { name: r.name }) : t('connect.title', { name: r.name })}
+          {r.reconnect ? t(kase === 'key' ? 'connect.reconnectKeyTitle' : 'connect.reconnectTitle', { name: r.name }) : r.template ? t('connect.templateTitle', { name: r.name }) : t('connect.title', { name: r.name })}
         </span>
         {team && <Badge tone="accent">{t('connect.team')}</Badge>}
         {r.template && <Badge tone="accent">{t('connect.fromTeam')}</Badge>}
@@ -206,6 +207,8 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         )}
         {/* an admin's template: the address and sign-in are the team's; the key is the person's own, used only in their chats */}
         {r.template && <p className="text-xs text-muted [overflow-wrap:anywhere]" data-testid="connect-template-note">{t('connect.templateNote')}</p>}
+        {/* the person's own connection that stopped working: this signs in to it again (or takes a new key), nothing new is added */}
+        {r.reconnect && <p className="text-xs text-muted [overflow-wrap:anywhere]" data-testid="connect-reconnect-note">{t('connect.reconnectNote', { name: r.name })}</p>}
         {r.why && <p className="whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">{r.why}</p>}
         {r.notes && (
           <div data-testid="connect-notes">

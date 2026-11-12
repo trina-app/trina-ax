@@ -22937,3 +22937,39 @@ Reverses "Message text from another member is data, shown as plain text in the a
 - Quotes, sending previews, the edit box, notifications, search snippets, list previews and copy stay plain or source
   text. My own questions in an AI chat stay plain.
 - The AI step still treats another member's text as untrusted input.
+
+## Connector write cards: outside content asks, Always allow for every connector (fix/connector-approval-gate, 2026-11-12, QA TC-328, TC-130, TC-127)
+
+Plan: `docs/AGENTS/plan/20261112-0623-connector-approval-gate.md`.
+
+- **Outside content asks, whatever the rule (TC-328, security).** A change at any connection (an MCP tool that is not
+  read-only, `api_request`'s POST, PUT, PATCH or DELETE) goes without a card only when the chat holds nothing someone
+  else wrote. "Someone else wrote" is the chat's existing mark (`chats.session_tainted`: a web page or search, the
+  browser, another person's file, an attachment, project instructions, any connection's answer, including the same
+  service's; `room_outside`; `rooms_seen`); a chat row that is gone counts as outside. It overrides a team connection's
+  "Run without asking", a person's own Always allow and a Google app's Always allow (`gate`, `outsideSeen`). Before,
+  only a room read made those ask, so a page from a service anyone can edit could have the AI send a team file to it
+  with no card. The card leads with a plain line on why it asks and offers Send / Don't send (Always allow is on
+  already). Reads never ask. A write's own answer is outside content too, so a second change in the same chat asks
+  again; a new chat does not.
+- **Not changed here: scheduled runs.** Nobody answers a card there, so the rule would refuse every send after a web
+  read. A team "allow" connection still sends only when the schedule's card allowed it, a person's own only to the
+  recipients that card pinned. Whether a scheduled run should also refuse after outside content is the owner's call.
+- **Always allow on every connector's card (TC-130).** The card offers Send once, Always allow and Don't send (values
+  `allow`, `always`, `deny`, so a client that answers the yes / no card's values still works), with a line under the
+  buttons on what Always allow covers. Not offered in a room's session or after a room read (as for Google apps), nor
+  when the connection already sends without asking. Always allow is always the caller's own:
+  - their own connection (their own, one made from a team template, a Google app): its `write_policy` becomes `allow`,
+    as Google apps did (audited `integration.update` / `google_app.write_policy`, `via: card`). This widens "Run
+    without asking is for team connections only" (migration 322) to the owner's own choice made on a card; choosing it
+    in the Settings form stays team-only, a form that keeps it saves, and "Ask every time" on the row turns it back.
+  - a team connection: a row of their own in `integration_user_allow` (migration 346), never the team's rule; it
+    counts only while the connection is at the address it was chosen for, never in a scheduled run, and is listed on
+    the row (`alwaysAllowedByMe`) with "Ask every time" (`DELETE /api/integrations/:id/always-allow`, audited
+    `integration.always_allow`).
+- **Signing in again from the chat (TC-127).** connect_service takes `connection`, the id of the person's own
+  connection that needs a new sign-in or key (the AI's list of connections names it), and a call that fills in the
+  address of such a connection gets the same card instead of "already exists". It is the template card with "Sign in
+  again to …" (`reconnect`): the sign-in or key goes to that connection, never a second one, the limit does not
+  count it, and "Not now" leaves it. Google apps keep Reconnect on their own page; a member's team connection still
+  says an admin fixes it.

@@ -749,3 +749,65 @@ describe('another key on the same card follows the rules of now', () => {
     expect(leaksIn([t.turnId])).toEqual([])
   })
 })
+
+// QA TC-127: the person's own connection whose sign-in or key stopped working gets the same card in the chat as a team
+// template, for that connection (never a second one), named by its id or found by its address
+describe('signing in again to one\'s own connection', () => {
+  test('named by its id: the card signs in to that connection, done connects it, and no second connection is made', async () => {
+    const url = `${svc.base}/mcp-oauth?card=again`
+    const mine = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Board again', url, auth: 'oauth', writePolicy: 'ask' } })
+    expect(mine.status).toBe('needs_auth')
+    // the AI's list of connections tells it how
+    const { integrationToolProvider } = await import('../../server/src/integrations/connections/tools')
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const prompt = integrationToolProvider(h.ctx).build({ userId: 'alice', chatId: chat.id, turnId: 'none', browser: false, scheduled: false }).prompt ?? ''
+    expect(prompt).toContain(`call connect_service with connection "${mine.id}" and name "Board again"`)
+    const t = await start('alice', { name: 'Board again', connection: mine.id })
+    const card = await cardOf(t.turnId)
+    expect(card).toMatchObject({ kind: 'connect_service', target: 'service', name: 'Board again', scope: 'personal', reconnect: true, service: { url, auth: 'oauth' } })
+    const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })
+    expect(r.body).toMatchObject({ state: 'sign_in', integrationId: mine.id })
+    session('alice', 'cs-again')
+    const ints = integrationsOf(h.ctx)
+    const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-again', mine.id, 'https://team.example.test', 'en')
+    expect(await ints.callback(svc.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'cs-again' })).toEqual({ ok: true })
+    expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).body).toMatchObject({ state: 'connected', integrationId: mine.id })
+    expect(resultOf(await doneOf(t.messageId))).toMatchObject({ connected: true, name: 'Board again', status: 'connected' })
+    expect(rowsAt(url)).toEqual([{ id: mine.id, scope: 'personal', owner_user_id: 'alice', status: 'connected' }])
+  })
+
+  test('found by its address (the AI filled it in): a card for that connection, not "already exists"; Not now leaves it', async () => {
+    const url = `${svc.base}/mcp-oauth?card=again-by-address`
+    const mine = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Linear', url, auth: 'oauth', writePolicy: 'ask' } })
+    const t = await start('alice', { name: 'Linear', kind: 'mcp', url, auth: 'oauth', why: 'find my issues' })
+    const card = await cardOf(t.turnId)
+    expect(card).toMatchObject({ reconnect: true, name: 'Linear', why: 'find my issues', service: { url } })
+    expect((await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
+    expect(resultOf(await doneOf(t.messageId)).skipped).toBe(true)
+    expect(rowsAt(url)).toEqual([{ id: mine.id, scope: 'personal', owner_user_id: 'alice', status: 'needs_auth' }])
+  })
+
+  test('a key that stopped working: the card takes a new key for the same connection; nothing holds the key', async () => {
+    const url = `${svc.base}/mcp-key?card=again-key`
+    const mine = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Keyed tasks', url, auth: 'bearer', secret: WRONG, writePolicy: 'ask' } })
+    expect(mine.status).not.toBe('connected')
+    const t = await start('alice', { name: 'Keyed tasks', connection: mine.id })
+    const card = await cardOf(t.turnId)
+    expect(card).toMatchObject({ reconnect: true, service: { url, auth: 'bearer' } })
+    const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
+    expect(r.body).toMatchObject({ state: 'connected', integrationId: mine.id })
+    expect(resultOf(await doneOf(t.messageId))).toMatchObject({ connected: true, name: 'Keyed tasks' })
+    expect(rowsAt(url).map((x) => x.id)).toEqual([mine.id])
+    expect(leaksIn([t.turnId])).toEqual([])
+  })
+
+  test('someone else\'s connection, one that works and an unknown id: no card, said why', async () => {
+    const bobs = await h.api('bob').call(API.createIntegration, { body: { kind: 'mcp', name: 'Bob board', url: `${svc.base}/mcp-oauth?card=bob`, auth: 'oauth', writePolicy: 'ask' } })
+    const works = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Works', url: `${svc.base}/mcp-open?card=works`, auth: 'none', writePolicy: 'ask' } })
+    const t = await start('alice', { name: 'Bob board', connection: bobs.id }, { name: 'Works', connection: works.id }, { name: 'None', connection: 'nope' })
+    const m = await doneOf(t.messageId)
+    expect(cards(t.turnId)).toEqual([])
+    expect(m.content.split('there is no such connection of this person').length - 1).toBe(2)
+    expect(m.content).toContain('"Works" does not need a new sign-in or key now')
+  })
+})

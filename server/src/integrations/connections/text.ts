@@ -36,8 +36,23 @@ export const TEXT = {
   readsLabel: t('읽어 올 내용', 'What it reads', 'Yang dibaca', "読み取る内容", "Lo que lee"),
   yes: t('보내기', 'Send', 'Kirim', "送信", "Enviar"),
   no: t('보내지 않기', 'Don’t send', 'Jangan kirim', "送信しない", "No enviar"),
-  // a Google app's card (google-apps/): the person's own choice to stop asking for this app
+  // the card's three answers (TC-130): this once, from now on (the person's own choice for this connection), no
+  once: t('이번만 보내기', 'Send once', 'Kirim sekali ini', "今回だけ送信", "Enviar esta vez"),
   alwaysAllow: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre"),
+  // the line under the three buttons: what Always allow covers, and where it is turned off
+  alwaysNote: t(
+    '항상 허용: 앞으로 AI가 묻지 않고 {name}에 보내요. 바깥 내용(웹 페이지, 다른 사람의 파일 등)을 읽은 대화에서는 계속 물어요. 커넥터에서 끌 수 있어요.',
+    'Always allow: from now on the AI sends to {name} without asking. In a chat that read something from outside (a web page, someone else\'s file), it still asks. You can turn it off in Connectors.',
+    'Selalu izinkan: mulai sekarang AI mengirim ke {name} tanpa bertanya. Dalam obrolan yang membaca sesuatu dari luar (halaman web, file orang lain), AI tetap bertanya. Anda bisa mematikannya di Konektor.',
+    "常に許可：今後AIは確認せずに{name}へ送信します。外部の内容（ウェブページ、他の人のファイルなど）を読んだチャットでは、引き続き確認します。コネクターでオフにできます。",
+    "Permitir siempre: a partir de ahora la IA envía a {name} sin preguntar. En un chat que leyó algo de fuera (una página web, un archivo de otra persona), sigue preguntando. Puede desactivarlo en Conectores."),
+  // the card's first line when it asks only because the chat read something from outside (TC-328)
+  outsideAsks: t(
+    '이 대화는 바깥 내용(웹 페이지, 다른 사람의 파일, 서비스의 답 등)을 읽었어요. 그래서 묻지 않고 보내기가 켜져 있어도 보내기 전에 물어요.',
+    'This chat has read something from outside (a web page, someone else\'s file, a service\'s answer), so the AI asks before sending, even though sending without asking is on.',
+    'Obrolan ini sudah membaca sesuatu dari luar (halaman web, file orang lain, jawaban layanan), jadi AI bertanya sebelum mengirim, walaupun kirim tanpa bertanya sedang aktif.',
+    "このチャットは外部の内容（ウェブページ、他の人のファイル、サービスの応答など）を読みました。そのため、確認なしの送信がオンでも、送信前に確認します。",
+    "Este chat leyó algo de fuera (una página web, un archivo de otra persona, la respuesta de un servicio), así que la IA pregunta antes de enviar, aunque enviar sin preguntar esté activado."),
   // API refusals
   personalOff: t('팀 설정에서 개인 연결 추가가 꺼져 있어요.', 'Your team turned off adding personal connections.', 'Tim Anda mematikan penambahan koneksi pribadi.', "チームが個人接続の追加を無効にしました。", "Su equipo desactivó la posibilidad de añadir conexiones personales."),
   tooMany: t('연결은 {n}개까지 만들 수 있어요.', 'You can have at most {n} connections.', 'Paling banyak {n} koneksi.', "接続は最大{n}件です。", "Puede tener como máximo {n} conexiones."),

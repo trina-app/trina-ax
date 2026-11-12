@@ -269,6 +269,8 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     templateId: row.template_id ?? null,
     // the app's ID and addresses are for whoever manages the connection (a template's app is the admin's)
     oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc, row.url) : null,
+    // the viewer's own Always allow on a team connection, while its address is the one they chose it for (tools.ts gate)
+    ...(row.scope === 'team' ? { alwaysAllowedByMe: (db.query('SELECT url FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').get(row.id, viewer.id) as { url: string } | null)?.url === row.url } : {}),
   }
 }
 

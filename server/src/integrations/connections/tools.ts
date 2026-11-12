@@ -318,12 +318,56 @@ function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string)
 }
 
 /**
- * Anything that changes something at the service: refused ('deny'), asked on the server's card ('ask'), or sent
- * ('allow', team connections and a person's own Google app: any other personal one asks). The card shows everything that is sent, in full, with the
+ * The chat holds something someone else wrote (docs/DECISIONS.md "Connector write cards: outside content asks"): a web
+ * page or search, another person's file, an attachment, project instructions, a connection's answer
+ * (chats.session_tainted), something from outside the team's own words (room_outside) or a room's messages
+ * (rooms_seen). Any of it can carry instructions, so after it no change goes without the person's yes. A chat that is
+ * gone counts as outside.
+ */
+export function outsideSeen(db: AppContext['db'], chatId: string): boolean {
+  const c = db.query('SELECT session_tainted AS t, room_outside AS o, rooms_seen AS r FROM chats WHERE id = ?').get(chatId) as { t: number; o: number; r: number } | null
+  return !c || !!(c.t || c.o || c.r)
+}
+
+/** A member's own Always allow on a team connection (integration_user_allow, migration 346): only while the
+ * connection is at the address it had when they chose it. */
+export function memberAllows(db: AppContext['db'], row: Pick<Row, 'id' | 'scope' | 'url'>, userId: string): boolean {
+  if (row.scope !== 'team') return false
+  const r = db.query('SELECT url FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').get(row.id, userId) as { url: string } | null
+  return !!r && r.url === row.url
+}
+
+/** Always allow on the card: from now on this person's changes at `row` go without the card in their own chats that
+ * hold nothing from outside. Their own connection (their own, one made from a template, a Google app): its write rule,
+ * as Google apps do; a team connection: their own row, never the team's rule (an admin's). Audited. */
+function keepAlwaysAllow(ctx: AppContext, row: Row, userId: string) {
+  const now = new Date().toISOString()
+  if (row.scope === 'personal') {
+    if (row.owner_user_id !== userId) return
+    ctx.db.query("UPDATE integrations SET write_policy='allow', version=version+1, updated_at=? WHERE id=? AND version=?").run(now, row.id, row.version)
+    if (row.google_app) audit(ctx.db, { actor: userId, action: 'google_app.write_policy', target: row.id, detail: { app: row.google_app, writePolicy: 'allow', via: 'card' } })
+    else audit(ctx.db, { actor: userId, action: 'integration.update', target: row.id, detail: { changed: ['writePolicy'], writePolicy: 'allow', via: 'card' } })
+    return
+  }
+  ctx.db.query('INSERT INTO integration_user_allow (integration_id, user_id, url, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(integration_id, user_id) DO UPDATE SET url = excluded.url, created_at = excluded.created_at').run(row.id, userId, row.url, now)
+  audit(ctx.db, { actor: userId, action: 'integration.always_allow', target: row.id, detail: { allow: true, via: 'card' } })
+}
+
+/**
+ * Anything that changes something at the service: refused ('deny'), asked on the server's card, or sent without it
+ * when the connection sends without asking for this person: a team connection set to 'allow' (an admin's rule), the
+ * person's own connection set to 'allow' (their Always allow on a card, or a Google app's setting), or their own
+ * Always allow on a team connection (memberAllows). The card shows everything that is sent, in full, with the
  * recipient-like fields first; a write too large for that is refused. In a scheduled run nobody is asked: an "allow"
- * connection sends only when the schedule's card allowed it (tools/schedules.ts), everything else is refused. In the
- * person's own chat after it read their team chat rooms (TurnPerson.roomsSeen) this card is the call's only one:
- * 'allow' asks too, and the person's card leads with the room line (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
+ * team connection sends only when the schedule's card allowed it (tools/schedules.ts), the person's own only to the
+ * recipients that card pinned, everything else is refused.
+ * Always asked, whatever the rules say (docs/DECISIONS.md "Connector write cards: outside content asks"):
+ * - after the chat read something someone else wrote (outsideSeen: a web page, another person's file, a connection's
+ *   answer …), which can carry instructions; the card says why;
+ * - in the person's own chat after it read their team chat rooms (TurnPerson.roomsSeen) this card is the call's only
+ *   one, and it leads with the room line (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
+ * The card offers Send once, Always allow and Don't send (not in a room's session or after a room read, where other
+ * people's words could have asked for it, and not when this person's changes already go without asking).
  */
 async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent: Sent, b: BuildCtx, tc: TurnToolContext): Promise<boolean | 'always'> {
   if (row.write_policy === 'deny') {
@@ -333,15 +377,20 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: 'tell the user; once the setting allows it, ask again', names: [row.name],
     }), 'refused (write policy deny)')
   }
-  if (row.write_policy === 'allow' && row.scope === 'team' && !tc.files.person?.roomsSeen) {
-    if (!b.scheduled || scheduleMayWrite(ctx, b.turnId, row.id)) return false
+  const roomsSeen = !!tc.files.person?.roomsSeen
+  if (b.scheduled && row.write_policy === 'allow' && row.scope === 'team' && !roomsSeen) {
+    if (scheduleMayWrite(ctx, b.turnId, row.id)) return false
     throw new CallError(`this is a scheduled run and this scheduled task may not send to ${row.name} (its card offers sending only to the connections the task names, and only when the user allows it there), so nothing was sent. Say so in the summary; the user can do it in a chat, or edit the task in Scheduled tasks (or create it again) naming ${row.name} and allow sending to it.`, 'refused (scheduled run not allowed)')
   }
-  // a person's own Google app set to Always allow (docs/DECISIONS.md "Gmail, Google Calendar, Google Docs and Google
-  // Sheets as built-in connectors"):
-  // sent without a card in their own chat. Not in a scheduled run (the rules below, as for any own connection), not in
-  // a room's session and not after a room read (other people's words could have asked for it: the card asks)
-  if (row.google_app && row.write_policy === 'allow' && !b.scheduled && !b.room && !tc.files.person?.roomsSeen) return false
+  // this person's changes at this connection go without asking: the team's rule, or their own choice (never in a
+  // scheduled run, a room's session or after a room read)
+  const allowed = !roomsSeen && !b.scheduled && (
+    (row.scope === 'team' && row.write_policy === 'allow')
+    || (!b.room && row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow')
+    || (!b.room && memberAllows(ctx.db, row, b.userId)))
+  // ...unless the chat holds something someone else wrote: then the card asks (TC-328)
+  const outside = allowed && outsideSeen(ctx.db, b.chatId)
+  if (allowed && !outside) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -361,18 +410,20 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const L = person.locale
-  const question = `${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+  const question = `${outside ? `${say('outsideAsks', L)}\n\n` : ''}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
   const shown = sent.lines?.(L) ?? { fields: sent.fields, exact: false }
   const text = sent.text.trim() ? sent.text : say('nothing', L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}) }]
-  // a Google app: the card also offers Always allow (the person's own choice for this app; Settings on its page turns it
-  // back), but not in a room's session or after a room read, where every change asks
-  if (row.google_app && person.choose && !b.room && !person.roomsSeen) {
-    const v = await person.choose(question, [{ label: say('yes', L), value: 'yes' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'no' }], { details })
-    if (v === 'yes') return true
+  // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
+  // but not in a room's session or after a room read, where every change asks, and not when it is on already (the
+  // card asks only because of outside content)
+  if (person.choose && !b.room && !person.roomsSeen && !allowed) {
+    // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
+    const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
+    if (v === 'allow') return true
     if (v === 'always') return 'always'
     throw new CallError(refusal({
       done: `The user did not allow this, so nothing was sent to ${row.name}.`, why: cardReason('declined'), also: 'Do not try it another way',
@@ -533,10 +584,10 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           const asked = current.version
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== asked) throw new CallError('the connection changed while the user was asked; try again', 'changed')
-          // Always allow on the card: the person's own Google app sends without asking from now on (this call included)
-          if (answer === 'always' && current.google_app) {
-            ctx.db.query("UPDATE integrations SET write_policy='allow', version=version+1, updated_at=? WHERE id=? AND version=?").run(new Date().toISOString(), current.id, current.version)
-            audit(ctx.db, { actor: tc.userId, action: 'google_app.write_policy', target: current.id, detail: { app: current.google_app, writePolicy: 'allow', via: 'card' } })
+          // Always allow on the card: this person's changes here go without asking from now on (this call included), in
+          // chats that hold nothing from outside
+          if (answer === 'always') {
+            keepAlwaysAllow(ctx, current, tc.userId)
             current = h.use(svc.forCall(tc.userId, row.id))
           }
         }
@@ -751,9 +802,15 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
             const body = a.body !== undefined && a.body !== null && typeof a.body === 'object' ? argLines(a.body, L) : { fields: [], exact: false }
             return { fields: [{ name: say('fieldAddress', L), value: seen }, ...body.fields], exact: body.exact }
           }
-          confirmed = false !== await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: seen }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true }, b, tc)
+          const answer = await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: seen }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true }, b, tc)
+          confirmed = answer !== false
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
+          // Always allow on the card (as for an MCP tool above)
+          if (answer === 'always') {
+            keepAlwaysAllow(ctx, current, tc.userId)
+            current = h.use(svc.forCall(tc.userId, row.id))
+          }
         }
         const res = await svc.apiRequest(current, url, { method: a.method, body: req.body, contentType: req.contentType }, tc.signal)
         svc.forCall(tc.userId, row.id)
@@ -975,7 +1032,9 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) {
           // made from an admin's template: the person connects their own key again on a card in the chat
           if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
-          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in ${row.google_app ? `Connectors › ${row.name}, Reconnect` : 'Connectors in the sidebar'})`)
+          // the person's own connection: they sign in again (or give a new key) on a card in the chat (QA TC-127)
+          else if (row.scope === 'personal' && !row.google_app) lines.push(`- ${row.name} (personal connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}. When they ask for ${row.name}, call connect_service with connection "${row.id}" and name "${row.name}" so they can ${row.auth === 'oauth' ? 'sign in again' : 'give the key'} on a card in this chat (not in a scheduled run)`)
+          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app ? `the user can fix it in Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
           continue
         }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }

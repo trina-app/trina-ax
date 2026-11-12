@@ -116,6 +116,21 @@ function templateCard(t: NonNullable<ReturnType<typeof getTemplate>>, why: strin
     template: { id: t.id, version: t.version }, ...(why ? { why } : {}), expiresAt,
   }
 }
+/** The person's own connection (not from a template, not a Google app, which signs in on its own page) that needs a new
+ * sign-in or key (QA TC-127): the card offers it again for that connection. */
+export function ownNeedsSignIn(r: Row | null, userId: string): boolean {
+  return !!r && r.scope === 'personal' && r.owner_user_id === userId && !r.template_id && !r.google_app && r.auth !== 'none'
+    && (r.status === 'needs_auth' || !r.secret_enc || /^(refused|no_secret|sign_in)\b/.test(r.last_error ?? ''))
+}
+/** The card for signing in again to (or giving a new key for) the person's own connection: its saved name, address and
+ * sign-in. It never makes a second connection, and "Not now" leaves this one as it is (ConnectCard.created false). */
+function reconnectCard(r: Row, why: string | undefined, expiresAt: string): Extract<TurnRequest, { kind: 'connect_service' }> {
+  return {
+    kind: 'connect_service', requestId: uuidv7(), target: 'service', name: r.name, scope: 'personal',
+    service: { kind: r.kind, url: r.url, host: new URL(r.url).host, auth: r.auth, authHeader: r.auth_header },
+    reconnect: true, ...(why ? { why } : {}), expiresAt,
+  }
+}
 /** this person's own connection made from the template, if they connected it */
 const fromTemplate = (db: Database, templateId: string, userId: string) => db.query(`${selectRows(db)} WHERE template_id = ? AND owner_user_id = ?`).get(templateId, userId) as Row | null
 /** a template for this person, connected and working: nothing to connect */
@@ -149,8 +164,19 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const why = a.data.why?.trim() ? oneLine(a.data.why) : undefined
   const expiresAt = () => new Date(Date.now() + rt.askUserTimeoutMs()).toISOString()
   let card: Extract<TurnRequest, { kind: 'connect_service' }>
+  /** the person's own connection the card signs in to again (reconnectCard) */
+  let again: Row | null = null
 
-  if (a.data.template) {
+  if (a.data.connection) {
+    // the person's own connection that needs a new sign-in or key: anyone else's is the same as none
+    const r = getRow(db, a.data.connection)
+    if (!r || r.scope !== 'personal' || r.owner_user_id !== viewer.id) return early('No card: there is no such connection of this person. Use the id listed under "Connected services".', 'no connection')
+    if (r.google_app) return early(`${r.name} signs in again on its own page: the person can do it in ${SCREEN.connectors(L, r.name)} (Reconnect). No card was shown.`, 'google app')
+    if (r.template_id) return early(`"${r.name}" is made from a team template: call connect_service with template "${r.template_id}" instead.`, 'from template')
+    if (!ownNeedsSignIn(r, viewer.id)) return early(`"${r.name}" does not need a new sign-in or key now (${stateOf(r)}). Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'connection fine', false)
+    again = r
+    card = reconnectCard(r, why, expiresAt())
+  } else if (a.data.template) {
     // an admin's template: only one that is for this person (anyone else's is the same as none)
     const t = getTemplate(db, a.data.template)
     if (!t || !templateCovers(db, t.id, viewer.id)) return early('No card: there is no such template for this person. Use the id listed under "Connected services", or fill in the service (kind, url, auth).', 'no template')
@@ -201,20 +227,25 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
       }
       const { rows, count } = connectRows(db, viewer.id, scope)
       const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-      if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
       const dup = rows.find((r) => sameAddress(r.url, address))
-      if (dup) {
+      // the person's own connection to this address that needs a new sign-in or key: the card signs in to it again
+      // (QA TC-127), not text pointing to Connectors
+      if (ownNeedsSignIn(dup ?? null, viewer.id)) { again = dup!; card = reconnectCard(dup!, why, expiresAt()) }
+      else if (dup) {
         const fix = dup.status === 'connected'
           ? 'Its tools are yours in this chat; if you do not have them now, from the person\'s next message.'
           : `It needs attention: ${dup.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix its key or sign-in in ${SCREEN.connectors(L)}`}.`
         return early(`${dup.scope === 'team' ? 'A team connection' : 'A connection of this person'} to this address already exists: "${dup.name}", ${stateOf(dup)}. ${fix} No card was shown.`, 'already exists', dup.status !== 'connected')
-      }
-      // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
-      // connection is saved with exactly what it showed (cleaned as the store cleans them, so nothing changes on the way)
-      const notes = input.data.kind === 'http' ? cleanNotes(input.data.notes) : null
-      card = {
-        kind: 'connect_service', requestId: uuidv7(), target: 'service', name: oneLine(input.data.name), scope,
-        service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}), expiresAt: expiresAt(),
+      } else {
+        // a new one counts toward the limit (signing in again to one that is there does not)
+        if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
+        // connection is saved with exactly what it showed (cleaned as the store cleans them, so nothing changes on the way)
+        const notes = input.data.kind === 'http' ? cleanNotes(input.data.notes) : null
+        card = {
+          kind: 'connect_service', requestId: uuidv7(), target: 'service', name: oneLine(input.data.name), scope,
+          service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}), expiresAt: expiresAt(),
+        }
       }
     }
   }
@@ -226,7 +257,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   }
   // after a room read this card is the call's only one (chat/turn.ts ownCard): the room card's line goes on top
   if (exec.ownCard(CONNECT_TOOL)) card = { ...card, lead: tr('roomsSeenWhy', L) }
-  const kept: ConnectCard = { integrationId: null, running: null, changed: false, version: null, created: false }
+  // a card for the person's own connection works on that one from the start: a key or sign-in goes to it, and "Not now"
+  // never removes it (created stays false)
+  const kept: ConnectCard = { integrationId: again?.id ?? null, running: null, changed: false, version: again?.version ?? null, created: false }
   exec.connectCards.set(card.requestId, kept)
   let answer: unknown
   try { answer = await exec.waitForPerson(card, { timeoutMs: rt.askUserTimeoutMs() }) } finally { exec.connectCards.delete(card.requestId) }

@@ -177,6 +177,9 @@ export const ConnectServiceRequest = z.object({
    * connection from the template (its address, sign-in method and header fixed), only while the template is the
    * version shown here; older servers omit it */
   template: z.object({ id: z.string(), version: z.number().int().positive() }).optional(),
+  /** the person's own connection that needs a new sign-in or key (QA TC-127): the card signs in to it again or takes
+   * a new key, never making a second one; "Not now" leaves it as it is. Older servers omit it */
+  reconnect: z.literal(true).optional(),
   /** the AI's one line on what it is for */
   why: z.string().optional(),
   /** the server's line shown first: why it asks (this chat holds messages from the person's conversations, which the

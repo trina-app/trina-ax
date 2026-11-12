@@ -313,6 +313,7 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     // external-service connections: their own go with them (keys included), and they leave team connections' rules
     ctx.db.query("DELETE FROM integrations WHERE scope = 'personal' AND owner_user_id = ?").run(id)
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    ctx.db.query('DELETE FROM integration_user_allow WHERE user_id = ?').run(id)
     // and templates' rules (an id nobody can see any more would block every later change of that rule)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
