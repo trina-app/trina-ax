@@ -662,6 +662,51 @@ describe('the phone drawer keeps its own layout', () => {
   })
 })
 
+describe('the section titles stand out (QA TC-149)', () => {
+  // classes of an element, as a set
+  const cls = (el: { className: unknown } | null | undefined) => new Set(String(el?.className ?? '').split(/\s+/))
+  for (const phone of [false, true]) {
+    test(`${phone ? 'the phone drawer' : 'a computer'}: 대화 and 트리나 기록 as large as the rows and bold, in ink; the labels inside and 더 보기 stay small and grey; no line or box`, async () => {
+      wide = !phone
+      // enough rooms of each kind for "더 보기" and its labels by kind
+      if (!phone) useRooms.setState({ rooms: [...Array.from({ length: 6 }, (_, i) => room({ name: `팀 ${i + 1}` })), room({ kind: 'group', name: '주간회의', groupId: null }), room({ kind: 'dm', name: null, groupId: null, peers: [BEN] })], loaded: true, failed: null })
+      const m = await render()
+      try {
+        const titles = phone ? ['recents-toggle'] : ['rooms-toggle', 'recents-toggle']
+        const row = m.get('recents-list').querySelector('a[href^="/c/"]')
+        // the rows are text-sm (14px; 15px on phones), so the titles are too
+        expect(cls(row).has('text-sm')).toBe(true)
+        for (const id of titles) {
+          const h2 = m.get(id).closest('h2')!
+          const c = cls(h2)
+          for (const want of ['text-sm', 'font-bold', 'text-ink']) expect(c.has(want)).toBe(true)
+          for (const not of ['text-xs', 'text-micro', 'font-semibold', 'text-faint', 'text-muted']) expect(c.has(not)).toBe(false)
+          // type only: no border, fill or ring on the title, its button or its row
+          for (const el of [h2, m.get(id), h2.parentElement!]) for (const k of cls(el)) expect(k).not.toMatch(/^(border|bg-|ring|shadow|divide)/)
+          // the fold arrow is still there
+          expect(m.get(id).querySelector('svg')).not.toBeNull()
+        }
+        if (!phone) {
+          // "더 보기" under each list stays small and grey
+          for (const id of ['rooms-more', 'ai-chats-all']) for (const want of ['text-xs', 'text-muted']) expect(cls(m.get(id)).has(want)).toBe(true)
+          // opened, the labels by kind (팀 채팅방, 1:1 대화…) and by date (오늘…) show; "접기" stays small and grey too
+          await m.click('rooms-more')
+          await m.click('ai-chats-all')
+          expect(m.get('rooms-more').textContent).toBe(ko('common.less'))
+          for (const want of ['text-xs', 'text-muted']) expect(cls(m.get('rooms-more')).has(want)).toBe(true)
+          expect(m.get('sidebar-rooms-list').querySelectorAll('h3').length).toBeGreaterThan(0)
+        }
+        // the labels inside the lists (by kind; by date: 오늘, 어제…) stay small and faint, under the titles
+        const heads = [...m.get('sidebar-scroll').querySelectorAll('h3')]
+        expect(m.get('recents-list').querySelectorAll('h3').length).toBeGreaterThan(0)
+        for (const h of heads) for (const want of ['text-micro', 'font-medium', 'text-faint']) expect(cls(h).has(want)).toBe(true)
+      } finally {
+        await m.unmount()
+      }
+    })
+  }
+})
+
 describe('the team logo in the header (Admin › Team settings › 팀 로고)', () => {
   const withIcon = (iconVersion: string | null, role: 'owner' | 'member' = 'member') => {
     const m0 = me(role)
