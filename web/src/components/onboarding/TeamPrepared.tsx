@@ -198,10 +198,11 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
                 {readOnly ? (
                   <div className="flex min-w-0 flex-1 items-center px-3 py-2"><SkillText s={s} /></div>
                 ) : (
-                  <button type="button" onClick={() => tryIt(s)} aria-label={t('home.prepared.tryNamed', { title: s.title })} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl py-2 pl-3 text-left transition hover:bg-hover" data-testid="team-prepared-try">
+                  // named by what it shows (the title, its line, 써 보기), so what is read out is what is seen
+                  <button type="button" onClick={() => tryIt(s)} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl py-2 pl-3 text-left transition hover:bg-hover" data-testid="team-prepared-try">
                     <SkillText s={s} />
                     {/* what the tap does, as the files chip says 물어보기 */}
-                    <span className={clsx('shrink-0 self-start text-label leading-5 font-medium', filled ? 'text-accent-text' : 'text-muted')} aria-hidden data-testid="team-prepared-try-label">{t('home.prepared.try')}</span>
+                    <span className={clsx('shrink-0 self-start text-label leading-5 font-medium', filled ? 'text-accent-text' : 'text-muted')} data-testid="team-prepared-try-label">{t('home.prepared.try')}</span>
                   </button>
                 )}
                 {example(s)}
@@ -213,9 +214,9 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
               {readOnly ? (
                 <p className={clsx(chip, 'px-3 text-sm hover:bg-surface')}><span className="font-medium text-ink">{t('home.prepared.files')}</span><span className="text-muted"> · {count(v.files)}</span></p>
               ) : (
-                <button type="button" onClick={() => askFiles(v.files!)} aria-label={t('home.prepared.askNamed')} className={clsx(chip, 'gap-2 px-3 text-sm')} data-testid="team-prepared-ask">
+                <button type="button" onClick={() => askFiles(v.files!)} className={clsx(chip, 'gap-2 px-3 text-sm')} data-testid="team-prepared-ask">
                   <span className="whitespace-nowrap"><span className="font-medium text-ink">{t('home.prepared.files')}</span><span className="text-muted"> · {count(v.files)}</span></span>
-                  <span className={clsx('shrink-0 text-label font-medium', v.primary === 'files' ? 'text-accent-text' : 'text-muted')} aria-hidden>{t('home.prepared.ask')}</span>
+                  <span className={clsx('shrink-0 text-label font-medium', v.primary === 'files' ? 'text-accent-text' : 'text-muted')}>{t('home.prepared.ask')}</span>
                 </button>
               )}
             </li>
