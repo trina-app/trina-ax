@@ -84,14 +84,14 @@ describe('the team link on a phone: one primary action, no boxes', () => {
     expect(html).toContain(`${en('teamLink.expiresLabel')} <span class="text-ink" data-testid="team-link-expires">`)
   })
 
-  test('the groups line: the names; how many while the groups load; "no group" only on a team that has groups', () => {
+  test('the groups line: "Joins: <names>"; how many while the groups load; "Joins no groups" (QA TC-458)', () => {
     const G = { id: '01900000-0000-7000-8000-0000000000aa', name: '디자인팀' }
     const html = (l: TeamLinkResponse, groups: { id: string; name: string }[]) =>
       renderToStaticMarkup(<TeamLinkView data={l} inviter="김팀장" team="Acme" groups={groups as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
-    expect(html(link({ groupIds: [G.id] }), [G])).toContain('data-testid="team-link-groups">디자인팀<')
-    expect(html(link({ groupIds: [G.id] }), [])).toContain('data-testid="team-link-groups">1<')
-    expect(html(link(), [G])).toContain(en('members.noGroups'))
-    expect(html(link(), [])).not.toContain(en('members.noGroups'))
+    expect(html(link({ groupIds: [G.id] }), [G])).toContain(`data-testid="team-link-groups">${en('teamLink.joins', { groups: '디자인팀' })}<`)
+    expect(html(link({ groupIds: [G.id] }), [])).toContain(`data-testid="team-link-groups">${en('teamLink.joins', { groups: '1' })}<`)
+    expect(html(link(), [G])).toContain(en('teamLink.joinsNone'))
+    expect(html(link(), [])).toContain(en('teamLink.joinsNone'))
   })
 
   test('two skills that read the same are told apart in the picker', () => {

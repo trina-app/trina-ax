@@ -193,7 +193,7 @@ export const BUILT_IN = APP_CONNECTORS
 export const builtInLogo = (id: AppConnector['id']) => appConnectorLogo(APP_CONNECTORS.find((b) => b.id === id)!)
 
 /** Slack (docs/SLACK.md): not an app the AI uses for a person but the team's way to ask the AI in Slack, set up by the
- * owner. One row of Admin › Connected apps (the owner's only), its page at /admin/connectors/slack. */
+ * owner or an admin. One row of Admin › Connected apps, its page at /admin/connectors/slack. */
 export const SLACK_APP = { id: 'slack', name: 'Slack', logo: 'slack.svg' } as const
 export const slackLogo = `/icons/connectors/${SLACK_APP.logo}`
 export const SLACK_ADMIN_PATH = `/admin/connectors/${SLACK_APP.id}`

@@ -1,0 +1,1 @@
+- Dev environment: on a Mac team server, a file reached through a link to a folder outside the project is no longer read into the file history (the check that was Linux-only now runs on every system).

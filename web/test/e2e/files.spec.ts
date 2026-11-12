@@ -468,6 +468,38 @@ test('version history: every earlier version can be restored, the newest too; on
   await expect(ro.getByRole('button', { name: '되돌리기' })).toHaveCount(0)
 })
 
+test('version history: "기록 열기" on an AI-saved version opens the chat that saved it; a version whose chat the server does not name says "by AI" only (QA TC-423)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // a chat of mine
+  await page.getByTestId('composer-input').fill('quarterly budget notes')
+  await page.getByTestId('send').click()
+  await expect(page).toHaveURL(/\/c\//)
+  const chatId = new URL(page.url()).pathname.split('/')[2]!
+  const hook = (data: object) => page.request.post('/__test/ai-version', { headers: { [CSRF_HEADER]: '1' }, data })
+  // v4: saved in my chat (the server names it: I may open it); v5: saved in a chat the server keeps to itself
+  expect((await hook({ path: 'marketing/plan.md', chatId })).ok()).toBeTruthy()
+  expect((await hook({ path: 'marketing/plan.md' })).ok()).toBeTruthy()
+  // the file as it is now: an AI save in my chat too
+  expect((await hook({ path: 'marketing/plan.md', chatId, current: true })).ok()).toBeTruthy()
+  await page.goto('/files?path=marketing')
+  await rowMenu(page, 'plan.md', '버전 기록')
+  const list = page.getByTestId('history-list')
+  const named = list.locator('[data-version="4"]'), unnamed = list.locator('[data-version="5"]')
+  for (const v of [named, unnamed]) await expect(v).toContainText(DICTS.ko['files.byAiTurn'])
+  await expect(unnamed.getByTestId('history-open-chat')).toHaveCount(0)
+  await expect(unnamed.getByRole('link')).toHaveCount(0)
+  // a version saved by a person: nothing either
+  await expect(list.locator('[data-version="2"]').getByRole('link')).toHaveCount(0)
+  await expect(list.locator('[data-current]').getByRole('link', { name: DICTS.ko['files.openChat'] })).toHaveAttribute('href', `/c/${chatId}`)
+  const open = named.getByRole('link', { name: DICTS.ko['files.openChat'] })
+  await expect(open).toHaveAttribute('href', `/c/${chatId}`)
+  await open.click()
+  await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
+  await expect(page.getByTestId('history-list')).toHaveCount(0)
+  await expect(page.getByTestId('assistant-message').first()).toBeVisible()
+})
+
 test('files.changed from an answer refreshes the folder on screen', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
