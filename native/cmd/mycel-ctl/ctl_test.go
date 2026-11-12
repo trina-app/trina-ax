@@ -406,10 +406,14 @@ func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
 	rb := `{"at":"x","from":"0.2.0","to":"0.1.0","result":"rolled_back","detail":"not healthy within 2m0s"}`
 	updateHooks(t, tb, func(v string) {
 		os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`]}`), 0o644)
+		// update looks every 0.5 s (rollbackGrace/4). The forward at 1.2 s is seen at the 1.5 s look, so its own health
+		// wait ends at 4.5 s; v answers at 3.2 s: past the grace (2 s) and the first health wait (3 s), seen at the 3.5 s
+		// look, a second before the end. v used to answer at exactly 3 s, the end of the forward's wait less one look:
+		// a look a few ms early missed it and the next came too late (CI on Linux, 2026-11-11 and 11-12).
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(1200 * time.Millisecond)
 			os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`],"forward":"0.2.0"}`), 0o644)
-			time.Sleep(2500 * time.Millisecond) // longer than the grace: the forward keeps the wait going
+			time.Sleep(2000 * time.Millisecond)
 			tb.health.Store(v)
 		}()
 	})
