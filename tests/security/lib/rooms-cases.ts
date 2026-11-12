@@ -155,6 +155,20 @@ export const ROOM_SPECS: Record<string, Spec> = {
   },
   unpinRoom: { build: (c, w) => c.del(`/api/rooms/${w.ids.dmRoom}/pin`), scope: 'room-dm' },
   uploadRoomFile: { build: (c, w) => c.req('POST', `/api/rooms/${w.ids.dmRoom}/files`, undefined, { form: form(), headers: { [CSRF_HEADER]: '1' } }), scope: 'room-dm' },
+  // a team file copied into the DM ("팀 파일", a phone's attach sheet): the DM's two people, and each only with a file
+  // they may read now. shared/readme.md: both, and nobody is told they cannot open it; a file NAME in users/alice/:
+  // alice (erin cannot open it: unable 1), erin gets the plain 404 like a missing file
+  attachRoomTeamFile: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/team-file`, { path: 'shared/readme.md' }), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if (r.status !== 201) return
+      if (r.json?.unable !== 0) throw new Error(`shared/readme.md: unable ${JSON.stringify(r.json?.unable)}`)
+      const own = await w.as[who].post(`/api/rooms/${w.ids.dmRoom}/team-file`, { path: `users/alice/${C.aliceFileName}.md` })
+      if (who === 'memberIn' ? own.status !== 201 || own.json?.unable !== 1 : own.status !== 404) {
+        throw new Error(`${who}: alice's file into the DM answered ${own.status} ${own.text.slice(0, 200)}`)
+      }
+    },
+  },
   // the AI in rooms: the DM's count and my own runs (both people), alice's preview and her question's turn (alice only;
   // erin, in the DM, is refused like everyone else), the sources of a message (both)
   getRoomAi: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/ai`), scope: 'room-dm' },
