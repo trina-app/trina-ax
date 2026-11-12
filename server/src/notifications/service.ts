@@ -24,6 +24,7 @@ import { teamDefaultLocale } from '../admin/settings'
 import { AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 import { serviceRequestOut } from '../integrations/service-request-notices'
+import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
 const OFFER_BATCH = 500
@@ -58,7 +59,7 @@ export type ServiceRequestEvent = Extract<NotificationEventType, 'service.reques
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
 export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -70,13 +71,15 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
  * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'chat_answer_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
  * make rows of their own (rooms/inbox.ts roomRows: mentions and replies in threads I follow, one row per place; from
  * 2026-11-05 to then none were listed, docs/DECISIONS.md "알림함의 대화 알림"), merged into the same order by `sort_at`. */
-const LISTED = `(${NOTICE_TABLES.filter((t) => t !== 'room_notices').map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed,created_at AS sort_at FROM ${t}`).join(' UNION ALL ')})`
+/** An AI chat's answer (chat_answer_notices) is pushed only: the chat list's markers show those chats, so the Inbox
+ * neither lists nor counts it (docs/DECISIONS.md "AI 답변 알림"). */
+const LISTED = `(${NOTICE_TABLES.filter((t) => t !== 'room_notices' && t !== 'chat_answer_notices').map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed,created_at AS sort_at FROM ${t}`).join(' UNION ALL ')})`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -315,6 +318,27 @@ export class Notifications {
       .all(...(userId ? [now, userId, now] : [now, now])) as { user_id: string }[]
     for (const u of new Set(rows.map((r) => r.user_id))) this.signal(u)
   }
+  /** An answer in an AI chat needs the person who asked it (notifications/chat-answers.ts noteChatAnswer): it finished
+   * (`done`), failed, or the AI waits for them (`waiting`: a question or a yes/no card). One notice per answer: the
+   * source is the turn (a card: '<turn>.ask', one per turn however many cards it opens). A finished answer of a chat
+   * whose earlier finished answer was told within CHAT_ANSWER_COALESCE_MS, unread and not seen since, adds none (a
+   * burst is one push). Nothing when the person turned "AI answers" off. Never listed in the Inbox; push_at is when the
+   * push may go (a window that has the chat on screen marks it seen meanwhile). True: recorded now. */
+  chatAnswer(userId: string, o: { chatId: string; turnId: string; kind: ChatAnswerKind }, now = Date.now()): boolean {
+    if (!this.active(userId) || !eventEnabled(this.preferences(userId), 'chat.answer_done')) return false
+    const db = this.ctx.db, at = new Date(now).toISOString()
+    if (o.kind !== 'waiting') {
+      const c = db.query('SELECT user_id, seen_at FROM chats WHERE id=?').get(o.chatId) as { user_id: string; seen_at: string | null } | null
+      if (!c) return false
+      // the chat's seen mark is its creator's (a shared chat keeps one)
+      const since = [new Date(now - CHAT_ANSWER_COALESCE_MS).toISOString(), c.user_id === userId ? c.seen_at ?? '' : ''].sort().at(-1)!
+      if (db.query("SELECT 1 FROM chat_answer_notices WHERE user_id=? AND chat_id=? AND kind IN ('done','failed') AND read_at IS NULL AND created_at>? LIMIT 1").get(userId, o.chatId, since)) return false
+    }
+    const delay = o.kind === 'waiting' ? CHAT_CARD_PUSH_DELAY_MS : CHAT_ANSWER_PUSH_DELAY_MS
+    const r = db.query(`INSERT INTO chat_answer_notices(id,user_id,event_type,source_id,chat_id,kind,created_at,push_at,suppressed) VALUES(?,?,'chat.answer_done',?,?,?,?,?,0)
+      ON CONFLICT(user_id,event_type,source_id) DO NOTHING`).run(newId(), userId, o.kind === 'waiting' ? `${o.turnId}.ask` : o.turnId, o.chatId, o.kind, at, new Date(now + delay).toISOString())
+    return r.changes > 0
+  }
   afterTurn(turnId: string) {
     try {
       const row = this.ctx.db.query("SELECT id,user_id,status,ended_at,run_outcome FROM turns WHERE id=? AND schedule_id IS NOT NULL AND status IN ('done','error','stopped','interrupted') AND ended_at IS NOT NULL").get(turnId) as Terminal | null
@@ -488,6 +512,12 @@ export class Notifications {
         ...(contribution ? { contribution } : {}) }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
+    // an AI chat's answer (what a push opens): the chat while the person may still open it, nothing else
+    if (row.event_type === 'chat.answer_done') {
+      const n = this.ctx.db.query('SELECT chat_id FROM chat_answer_notices WHERE id=?').get(row.id) as { chat_id: string } | null
+      const open = !!n && chatOpenFor(this.ctx, row.user_id, n.chat_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: open ? n!.chat_id : null, link: open ? 'chat' : null, outcome: null }
+    }
     // the handover's: what each row offers is read now (admin/handover-notices.ts)
     if (isHandoverEvent(row.event_type)) return handoverNoticeOut(this.ctx, row)
     // a room notice links to the room (a reply: its thread) and says who wrote what where while the person is still in

@@ -16,7 +16,7 @@ function worker(database = new IDBFactory(), pages: Page[] = [{}], nav?: BadgeNa
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = [], asked: unknown[] = [], closed = { n: 0 }
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
-  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }
+  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, chatAnswers: true }
   // the signed-in notice names the task for the Inbox (schedule.title); the lock screen never shows it
   let item: any = { id: 'event-1', code: 'schedule.success', readAt: null, schedule: { title: 'PRIVATE TASK TITLE' } }
   let status = 200, gate: Promise<void> | null = null
@@ -152,6 +152,29 @@ test('malformed IDs cannot become fetch paths and a click always opens the fixed
   expect(w.shown).toHaveLength(0)
   await w.click()
   expect(w.navigated).toEqual(['https://team.example/settings/notifications'])
+})
+
+test('an AI chat\'s answer: generic words, a click opens the chat from the signed-in notice (never the payload); "AI answers" off shows nothing', async () => {
+  const chatId = '0190f5a0-0000-7000-8000-0000000000c1'
+  const w = worker()
+  w.item({ id: 'event-1', code: 'chat.answer_done', readAt: null, link: 'chat', chatId })
+  await w.push({ ...payload, code: 'chat.answer_done', chatId: 'evil' })
+  expect(w.shown).toHaveLength(1)
+  expect(w.shown[0]!.options).toMatchObject({ body: 'Trina replied in your chat.', data: { notificationId: 'event-1', chatId } })
+  await w.clickShown()
+  expect(w.navigated).toEqual([`https://team.example/c/${chatId}`])
+  // a chat the person may no longer open (no link): the inbox, as the other notices
+  const gone = worker()
+  gone.item({ id: 'event-1', code: 'chat.answer_done', readAt: null, link: null, chatId: null })
+  await gone.push({ ...payload, code: 'chat.answer_done' })
+  expect(gone.shown[0]!.options.data).toEqual({ notificationId: 'event-1' })
+  await gone.clickShown()
+  expect(gone.navigated).toEqual(['https://team.example/settings/notifications'])
+  const off = worker()
+  off.preferences({ chatAnswers: false })
+  off.item({ id: 'event-1', code: 'chat.answer_done', readAt: null, link: 'chat', chatId })
+  await off.push({ ...payload, code: 'chat.answer_done' })
+  expect(off.shown).toHaveLength(0)
 })
 
 test('a room notice opens its room; the room id comes from the signed-in notice, never from the payload', async () => {

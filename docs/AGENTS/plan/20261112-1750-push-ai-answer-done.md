@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 17:50
 - Branch: `feat/push-ai-answer-done`
-- Status: in progress
+- Status: done
 - Where: server/src/notifications, server/src/chat/turn.ts, shared/src/api, web (settings switch, service worker). Why:
   notifications and push are Team AX core (docs/REPOSITORY-RULES.md).
 - Version impact: minor, a new notification and setting (additive migration, reader 1).
@@ -57,4 +57,9 @@ while the person is looking at a card (no presence for cards): 30 s wait, once p
 test and a web unit test for the switch.
 
 ## Result
+
+Built as planned: `chat.answer_done` (done / failed / waiting) in `chat_answer_notices` (migration 347) with its own
+deliveries, the turn hooks, a delayed push that checks the seen mark or the open card, `/c/<chatId>`, the "AI chat
+answers" switch and the gateway line. Added on review: turns the server starts by itself (no client: skill drafts,
+merges, file ranking) are not told. Server-side only: no phone build; the gateway's own wording needs its next deploy.
 

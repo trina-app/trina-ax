@@ -23798,3 +23798,42 @@ Version impact: **minor** (new route, migration 288).
   same everywhere); filling .xlsx/.docx with make_file (the look of the team's form is the point); a "try it in chat
   first" step (the owner: ask right away).
 - Tests: `tests/unit/b-form-skill.test.ts`, `web/test/unit/form-skills.test.tsx`, `web/test/e2e/welcome-form-skills.spec.ts`.
+
+## AI 답변 알림 — a push when an answer in my AI chat needs me (feat/push-ai-answer-done, 2026-11-12, QA TC-442)
+
+넣을 곳: Team AX core (`server/src/notifications/`, `server/src/chat/turn.ts`, `shared/src/api/notifications.ts`,
+`web/pwa/sw.js`, Settings › Notifications, `push-gateway/src/text.ts`). Why: notifications and push are core.
+
+- **Problem.** Pushes reached the phone for DMs, mentions, room notices and scheduled tasks, but not when an answer in a
+  personal AI chat finished: someone who asks Trina something and puts the phone away never heard that it was there.
+- **One event, `chat.answer_done`.** The same states as the chat list's "needs you" (`shared/src/api/attention.ts`): the
+  answer finished (`done`), failed, or the AI waits for the person (a question or a yes/no card every window shows:
+  `waiting`). The notice keeps the kind (`chat_answer_notices`, migration 347, with `chat_answer_push_deliveries`); the
+  push and the lock screen say one generic line for all three ("Trina replied in your chat."), in the person's language.
+- **Who.** The person who asked that turn (`spec.userId`): in a shared project chat the asker, never its creator or the
+  other members. Never a scheduled run (schedule.* has its own), a question from Slack (answered there), a room's AI
+  (rooms have their own), an answer the person stopped or a server stop cut off, a turn the server started by itself (no client: skill drafts,
+  merges, file ranking). Not one of the server's own chats.
+- **Not while I look at it.** The server does not know which chat a window shows, but a visible window that has a chat
+  on screen marks its answer seen (POST /api/chats/:id/seen, "Session markers"). So the notice is made before the
+  chat's update goes out, and its push waits (`push_at`: 10 s; a card 30 s, since nothing marks a card seen) and goes
+  only while the answer is still unseen, or the card still open (asked again right before and after each send). A
+  shared chat keeps one seen mark, its creator's: for another asker the push goes regardless (coalesced as below).
+- **One push per answer, never per step.** The source is the turn (a card: `<turn>.ask`, one per turn however many
+  cards it opens). A finished answer of a chat whose earlier finished answer was told within 10 minutes, unread and not
+  seen since, makes none: a burst of answers is one push.
+- **Tap.** `/c/<chatId>` (the web's chat page; push-events.ts PATH rules, ids only) while the person may still open the
+  chat, else the start page; the service worker opens the chat from the signed-in fetch of the notice.
+- **Lock screen and label (TC-365).** The payload carries ids and the event code only. The iPhone's notification
+  extension acts on `room.*` only (the APNs payload is mutable for those alone), so these pushes show the gateway's
+  generic line and no chat title; no app build. The gateway gets the line in `EVENT_TEXT`; until it is deployed it shows
+  its generic `chat.*` text ("You have a new message"). The badge number is the same one count n as before.
+- **Setting.** Settings › Notifications › Tasks and connections: "AI chat answers" (`chatAnswers`, default on; column
+  `notification_preferences.chat_answers`). Off makes no notice and cancels deliveries that wait, as the other events.
+- **Not in the Inbox.** The chat list's markers already show these chats; the notices are neither listed nor counted
+  there (`LISTED` leaves the table out), only fetched by the push.
+- Left out: quiet hours (the person just asked), the chat's title on the lock screen (it would need the extension and
+  the gateway's mutable rule for `chat.*`).
+- Tests: `tests/unit/b-chat-answer-push.test.ts`, `web/test/unit/push-worker.test.ts`, `web/test/unit/room-notify.test.tsx`,
+  `tests/unit/push-gateway.test.ts`, `tests/unit/push-locale.test.ts`.
+- Version impact: **minor**.
