@@ -223,8 +223,9 @@ export function InitialTile({ name, className }: { name: string; className?: str
   return <span className={`flex shrink-0 items-center justify-center rounded-xl border border-line bg-subtle text-base font-semibold text-muted ${className ?? 'size-10'}`} aria-hidden>{name.trim().charAt(0).toUpperCase() || '?'}</span>
 }
 
-/** What one row of "Your connectors" says on its right: one status or one button, nothing else. */
-export type RowStatus = 'connected' | 'on' | 'signin' | 'reconnect' | 'attention' | 'connect'
+/** What one row of "Your connectors" says on its right: one status or one button, nothing else. `off`: set up and
+ * turned off (Admin › Connected apps › Slack). */
+export type RowStatus = 'connected' | 'on' | 'off' | 'signin' | 'reconnect' | 'attention' | 'connect'
 
 /** One row of Connectors' "Your connectors", like Claude's list: logo, name (a small "Team" label for what the team
  * provides) and one status on the right. The row opens the connector's page, where everything else is (switches,
@@ -255,6 +256,8 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
         <span className="flex shrink-0 items-center gap-1 text-xs text-muted" data-testid="connector-row-status">
           <Check size={14} className="text-ok" aria-hidden /> {t(status === 'on' ? 'appConnectors.on' : 'drive.status.connected')}
         </span>
+      ) : status === 'off' ? (
+        <span className="shrink-0 text-xs text-muted" data-testid="connector-row-status">{t('appConnectors.off')}</span>
       ) : status === 'signin' ? (
         <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
       ) : status === 'reconnect' ? (

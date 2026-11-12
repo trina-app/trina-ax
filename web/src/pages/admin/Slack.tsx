@@ -1,4 +1,7 @@
-// Admin › Slack (the owner's; docs/SLACK.md). Not set up: four steps, each linking to its Slack page (make the app from
+// Admin › Connected apps › Slack (/admin/connectors/slack, a page of Integrations.tsx like a Google connector's; the
+// owner's; docs/SLACK.md). Until 2026-11-12 it was an Admin menu item of its own; /admin/slack leads here
+// (AdminLayout.tsx). On top the header of a connector's page (AppDetail.tsx: Connected apps › Slack, the logo, the name
+// and one line), then the settings. Not set up: four steps, each linking to its Slack page (make the app from
 // our manifest, install it, make the app-level token and copy the app's credentials, paste them: the tokens and the
 // client secret sealed in this browser for 'slack.token', never shown again, then turned on). Without the team's https
 // address one line says "Sign in with Slack" needs it. Set up: one status line with one button (turn on / off); a problem says the one
@@ -7,9 +10,10 @@
 // keys to copy and paste) is a computer's job there: a status row and "Set this up on a computer" in its place.
 // Where the hosting service serves this server (SlackAdmin.official) and no own app is saved: one "Add to Slack" button
 // instead (the official app: nothing to copy, also on a phone); the four steps stay one link away. Added: the same
-// status line, with Remove (it takes the app off the workspace) in place of "Replace tokens". How "Add to Slack" went
+// status line, with Remove (it takes the app off the workspace) in place of "Replace tokens". Removed in Slack: "Add to
+// Slack" again, with Remove beside it (it clears Slack from Connected and everyone's links). How "Add to Slack" went
 // comes back in the address (?slack=…) and is said once.
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { ApiError, SLACK, type SlackAdmin, type SlackErrorCode } from '@mycel/shared/api'
@@ -17,8 +21,10 @@ import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { outcomeText } from '../../lib/slackSignIn'
+import { SLACK_APP, slackLogo } from '../../lib/connectors'
 import { Badge, Button, Field, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
-import { AdminPageHeader, Card, Loadable, useAction, useLoad } from './common'
+import { AppDetail } from '../../components/integrations/AppDetail'
+import { Card, Loadable, useAction, useLoad } from './common'
 
 const STATE: Record<SlackAdmin['state'], { key: MessageKey; tone: 'neutral' | 'ok' | 'warn' | 'danger' }> = {
   off: { key: 'slack.state.off', tone: 'neutral' },
@@ -80,10 +86,14 @@ function CodeText({ text }: { text: string }) {
     : part)}</>
 }
 
-export default function AdminSlack() {
+/** `onChange`: the state as this page last read or changed it (Connected apps' Slack row shows it on the way back). */
+export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) => void } = {}) {
   const t = useT()
   // the page's own address: the manifest's redirect URL and where links open both come from it (and are the same)
   const state = useLoad(() => api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }))
+  const changed = useRef(onChange)
+  changed.current = onChange
+  useEffect(() => { if (state.data) changed.current?.(state.data) }, [state.data])
   const act = useAction()
   const [replacing, setReplacing] = useState(false)
   // the own app's four steps although the official app can be added here
@@ -94,14 +104,18 @@ export default function AdminSlack() {
   const [params, setParams] = useSearchParams()
   const [outcome] = useState(() => params.get('slack'))
   useEffect(() => { if (params.has('slack')) setParams((p) => { p.delete('slack'); return p }, { replace: true }) }, [params, setParams])
-  const remove = async (official: boolean) => {
-    if (!(await confirmDialog({ title: t('slack.admin.removeTitle'), body: t(official ? 'slack.admin.removeOfficialBody' : 'slack.admin.removeBody'), confirm: t('slack.admin.remove'), danger: true }))) return
+  // what Remove deletes: the own app's tokens, the official app's install, or (removed in Slack already) only the row
+  const remove = async (kind: 'own' | 'official' | 'removed') => {
+    const body = kind === 'own' ? 'slack.admin.removeBody' : kind === 'official' ? 'slack.admin.removeOfficialBody' : 'slack.admin.removeRemovedBody'
+    if (!(await confirmDialog({ title: t('slack.admin.removeTitle'), body: t(body), confirm: t('slack.admin.remove'), danger: true }))) return
     const v = await act(() => api.call(SLACK.removeSlack))
     if (v) { state.setData(v); setReplacing(false) }
   }
   return (
-    <>
-      <AdminPageHeader title={t('slack.admin.title')} desc={t('slack.admin.desc')} testId="slack-admin" />
+    <AppDetail embedded list={{ to: '/admin/connectors', name: t('admin.integrations') }} testId="slack-admin" state={state.data?.state ?? 'loading'}
+      logo={slackLogo} name={SLACK_APP.name} byLine={t('slack.admin.desc')} tools={[]}>
+      {/* one block under the header: the cards keep their own spacing */}
+      <div data-testid="slack-settings">
       <Loadable state={state}>
         {(s) => {
           const fix = s.enabled && s.lastError ? FIX[s.lastError] : null
@@ -138,13 +152,13 @@ export default function AdminSlack() {
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
                     {official
-                      ? <button type="button" className="text-danger underline underline-offset-2 max-md:min-h-11" onClick={() => void remove(true)} data-testid="slack-remove">{t('slack.admin.remove')}</button>
+                      ? <button type="button" className="text-danger underline underline-offset-2 max-md:min-h-11" onClick={() => void remove('official')} data-testid="slack-remove">{t('slack.admin.remove')}</button>
                       : <button type="button" className="underline underline-offset-2 max-md:min-h-11" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>}
                   </p>
                 </Card>
               )}
               {addable ? (
-                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={() => setOwnApp(true)} />
+                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={() => setOwnApp(true)} onRemove={() => void remove('removed')} />
               ) : (!s.tokens || replacing) && phone ? (
                 <Card flat testId="slack-on-computer">
                   {!s.tokens && (
@@ -168,7 +182,7 @@ export default function AdminSlack() {
                   </ol>
                   {s.tokens && (
                     <button type="button" className="mt-5 text-xs text-danger underline underline-offset-2 max-md:min-h-11" data-testid="slack-remove"
-                      onClick={() => void remove(false)}>{t('slack.admin.remove')}</button>
+                      onClick={() => void remove('own')}>{t('slack.admin.remove')}</button>
                   )}
                   {!s.tokens && s.official && (
                     <button type="button" className="mt-5 text-xs text-accent underline underline-offset-2 max-md:min-h-11" data-testid="slack-use-official"
@@ -180,13 +194,15 @@ export default function AdminSlack() {
           )
         }}
       </Loadable>
-    </>
+      </div>
+    </AppDetail>
   )
 }
 
 /** "Add to Slack": the hosting service's official app. One button: Slack's own page (choose the workspace, allow),
- * then back here, added and on. Nothing to copy, so also on a phone. */
-function OfficialAdd({ removed, onOwnApp }: { removed: boolean; onOwnApp: () => void }) {
+ * then back here, added and on. Nothing to copy, so also on a phone. Removed in Slack: Remove too, so an owner who
+ * does not want it back can clear it (its row in Connected apps, everyone's links) instead of keeping "Reconnect". */
+function OfficialAdd({ removed, onOwnApp, onRemove }: { removed: boolean; onOwnApp: () => void; onRemove: () => void }) {
   const t = useT(), locale = useLocale()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -204,6 +220,7 @@ function OfficialAdd({ removed, onOwnApp }: { removed: boolean; onOwnApp: () => 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button variant="primary" className="max-md:h-11" busy={busy} disabled={busy} onClick={() => void add()} data-testid="slack-add">{t('slack.official.add')}</Button>
         <button type="button" className="text-xs text-muted underline underline-offset-2 max-md:min-h-11" onClick={onOwnApp} data-testid="slack-own-app">{t('slack.official.ownApp')}</button>
+        {removed && <button type="button" className="text-xs text-danger underline underline-offset-2 max-md:min-h-11" onClick={onRemove} data-testid="slack-remove">{t('slack.admin.remove')}</button>}
       </div>
     </Card>
   )

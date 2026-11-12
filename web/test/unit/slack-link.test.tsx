@@ -69,7 +69,7 @@ describe('the Slack link page', () => {
     preview = { ...preview, emailCheck: 'mismatch', signIn: false }
     const m = await page(`?t=${TOKEN}`)
     await m.until(() => m.find('slack-link-email'), 'the reason')
-    expect(m.get('slack-link-email').textContent).toBe('The e-mail of this Slack account is not the one of your Trina AX account, so it cannot be linked here. "Sign in with Slack" cannot be used now. Ask your team owner to check Admin › Slack.')
+    expect(m.get('slack-link-email').textContent).toBe('The e-mail of this Slack account is not the one of your Trina AX account, so it cannot be linked here. "Sign in with Slack" cannot be used now. Ask your team owner to check Admin › Connected apps › Slack.')
     expect(m.find('slack-link-confirm')).toBeNull()
     expect(m.find('slack-signin')).toBeNull()
     await m.unmount()
