@@ -88,6 +88,8 @@ type updater struct {
 	force     bool
 	busy      int
 	busyWith  string
+	// say: an administrator's wait, which tells on stderr how many answers it waits for
+	say       bool
 	deferred  bool
 	turnedOff bool
 	// gateVersion: the release the scheduled gate decided on (its window, hold and staged roll-out); run() installs only
@@ -108,6 +110,9 @@ type updater struct {
 	// runVersionAdmin runs app/versions/<v>'s admin.js as the server account (nil: not asked)
 	runVersionAdmin func(v string, args []string, env []string) (string, error)
 	restartSrv      func() error
+	// prepareLauncher tells the launcher that it restarts for an update: the turns that still run end now as stopped
+	// for the update (a confirmed end, never a broken connection: QA TC-338)
+	prepareLauncher func(reason string)
 	sleep           func(time.Duration)
 	// maintenance is the server's own operation running now (a backup, a restore), "" for none (status/status.json)
 	maintenance func() string
@@ -183,6 +188,7 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	u.runAsSrv = u.runAsServer
 	u.runVersionAdmin = u.runVersionAsServer
 	u.restartSrv = u.restartServer
+	u.prepareLauncher = u.launcherPrepareStop
 	u.sleep = time.Sleep
 	u.maintenance = u.serverMaintenance
 	if updateTestHook != nil {
@@ -995,6 +1001,16 @@ func (u *updater) updateRoot(dir, v string) error {
 		return fmt.Errorf("firewall: %v", err)
 	}
 	if systemd {
+		// the answers that still run after the wait end as stopped for the update, with their end confirmed, before the
+		// restart cuts the launcher's connections (the server then says so and gives their turn slots back)
+		if u.prepareLauncher != nil {
+			// "update-root": the app stays (the server is not restarted next), so its queue need not wait for the switch
+			reason := "update"
+			if v == u.res.From {
+				reason = "update-root"
+			}
+			u.prepareLauncher(reason)
+		}
 		if out, err := exec.Command(u.e.systemctl, "restart", u.in.ID+"-launcher.service").CombinedOutput(); err != nil {
 			return fmt.Errorf("restart launcher: %v %s", err, out)
 		}
@@ -1169,10 +1185,13 @@ func copyFile(src, dest string) error {
 }
 
 // waitForTurns waits until the launcher runs no turn before a restart. An administrator's update waits at most
-// maxWait; turns still running then become "interrupted" when the launcher restarts (the server is not told to stop
-// taking turns, spec 3.6.5). A scheduled run waits until quietBy and then gives up (false) instead, unless force.
+// maxWait and says so while answers run; turns still running then end as stopped for the update (prepareLauncher)
+// when the launcher restarts (the server is not told to stop taking turns, spec 3.6.5). A scheduled run waits until
+// quietBy and then gives up (false) instead, unless force.
 func (u *updater) waitForTurns() bool {
 	if !u.scheduled {
+		u.say = true
+		defer func() { u.say = false }()
 		u.waitQuiet(u.e.now().Add(u.maxWait))
 		return true
 	}
@@ -1194,6 +1213,15 @@ func (u *updater) waitQuiet(deadline time.Time) bool {
 		}
 		if err == nil && n == 0 && m == "" {
 			return true
+		}
+		if u.say && err == nil && (n != u.busy || m != u.busyWith || i == 0) {
+			// an administrator's update: what it waits for, on stderr (stdout stays the result, also with --json)
+			left := deadline.Sub(u.e.now()).Round(time.Second)
+			if m != "" {
+				fmt.Fprintf(u.e.stderr, "waiting for %d running answer(s) and the server's %s to end (at most %s more)\n", n, m, left)
+			} else {
+				fmt.Fprintf(u.e.stderr, "waiting for %d running answer(s) to end (at most %s more); answers still running then stop and can be sent again\n", n, left)
+			}
 		}
 		u.busy, u.busyWith = n, m
 		if !u.e.now().Before(deadline) {
@@ -1230,6 +1258,28 @@ func (u *updater) launcherLiveTurns() (int, error) {
 	return countProcs(agt.uid, "mycel-launcher")
 }
 
+// launcherPrepareStop asks the launcher, as the server account (like launcherLiveTurns), to end the turns that run
+// now for reason before its restart. An older launcher, or none running: nothing (the restart then cuts them as before).
+func (u *updater) launcherPrepareStop(reason string) {
+	srv, err := lookupAccount(u.in.ServerUser)
+	if err != nil {
+		return
+	}
+	self, _ := os.Executable()
+	cmd := exec.Command(self, "launcher-status-as-server", "--sock", filepath.Join(u.e.base, "run-launcher", "launcher.sock"), "--prepare-stop", reason)
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	cmd.Dir = "/"
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(srv.uid), Gid: uint32(srv.gid), Groups: []uint32{}}}
+	out, err := cmd.Output()
+	var ev struct {
+		Ev    string `json:"ev"`
+		Ended int    `json:"ended"`
+	}
+	if err == nil && json.Unmarshal(out, &ev) == nil && ev.Ev == "prepared" && ev.Ended > 0 {
+		u.res.Notes = append(u.res.Notes, fmt.Sprintf("%d answer(s) still running were stopped for the update; they can be sent again", ev.Ended))
+	}
+}
+
 // countProcs counts processes of uid whose name is not except.
 func countProcs(uid int, except string) (int, error) {
 	ents, err := os.ReadDir("/proc")
@@ -1258,16 +1308,23 @@ func countProcs(uid int, except string) (int, error) {
 func cmdLauncherStatusChild(e *env, args []string) (int, error) {
 	fs := flag.NewFlagSet("launcher-status-as-server", flag.ContinueOnError)
 	sock := fs.String("sock", "", "launcher.sock")
-	if err := fs.Parse(args); err != nil || *sock == "" {
-		return 2, usageError{"--sock"}
+	prepare := fs.String("prepare-stop", "", "instead of the status: tell the launcher it stops for this reason (update, update-root)")
+	if err := fs.Parse(args); err != nil || *sock == "" || (*prepare != "" && *prepare != "update" && *prepare != "update-root") {
+		return 2, usageError{"--sock [--prepare-stop update|update-root]"}
 	}
 	c, err := net.DialTimeout("unix", *sock, 3*time.Second)
 	if err != nil {
 		return 1, err
 	}
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := c.Write([]byte(`{"op":"status"}` + "\n")); err != nil {
+	req := `{"op":"status"}`
+	wait := 5 * time.Second
+	if *prepare != "" {
+		// the launcher ends the running turns first (a kill takes up to 5 s) and answers then
+		req, wait = `{"op":"prepare-stop","reason":"`+*prepare+`"}`, 15*time.Second
+	}
+	_ = c.SetDeadline(time.Now().Add(wait))
+	if _, err := c.Write([]byte(req + "\n")); err != nil {
 		return 1, err
 	}
 	line, err := bufio.NewReader(c).ReadString('\n')

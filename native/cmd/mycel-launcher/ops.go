@@ -1,6 +1,6 @@
 // Launcher requests besides turns (linux-runtime spec 3.3.2, 3.8.10; both platforms), only from the server uid:
 //
-//	{"op":"status"}                 -> {"ev":"status","os":…,"sandbox":…,"liveTurns":N,…}  (diagnostics)
+//	{"op":"status"}                 -> {"ev":"status","os":…,"sandbox":…,"liveTurns":N,"stopping"?,…}  (diagnostics)
 //	{"op":"forget","chatId":"<id>"} -> {"ev":"forgot","ok":true}  deletes <agent root>/<chatId>
 //
 // forget exists because the server cannot delete a chat's engine folder itself: it belongs to the engine account
@@ -19,6 +19,9 @@ import (
 
 func statusEvent() map[string]any {
 	ev := map[string]any{"ev": "status", "liveTurns": liveTurnCount(), "dedicated": *dedicated}
+	if r := turns.stopping(time.Now()); r != "" {
+		ev["stopping"] = r // ending.go: new turns are refused until the next launcher
+	}
 	platformStatus(ev)
 	return ev
 }

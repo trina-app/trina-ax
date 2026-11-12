@@ -202,6 +202,14 @@ export function continueAfterConnect(names: string[], added: string[]): string {
     'Do not ask the person to send the question again and do not repeat what you already wrote.]'
 }
 
+/** How the engine launcher's orderly stop (mycel-launcher ending.go) ended or refused a launch: an update after which
+ * this server switches versions ('update'), an update of the root files only ('update-root'), or another stop
+ * ('restart', the launcher's "shutdown"). */
+export type LauncherStop = 'update' | 'update-root' | 'restart'
+function launcherStopOf(signal: unknown): LauncherStop | null {
+  return signal === 'update' ? 'update' : signal === 'update-root' ? 'update-root' : signal === 'shutdown' ? 'restart' : null
+}
+
 export class TurnExec {
   content = ''
   /** a shared chat's steps keep a line that names paths aside (StoredStep.sv; ChatStore.viewSteps) */
@@ -312,6 +320,24 @@ export class TurnExec {
   private readonly wallEndsAt: number
   private activeCore: Running | null = null
   private terminationUnconfirmed = false
+  /** an engine of this turn started (the launcher's started event): it ran, so a restart never queues it again */
+  private engineStarted = false
+  /** waiting in launcherReady for a stopping launcher to come back */
+  private waitingLauncher = false
+  /** The turn never ran: it waits for the launcher and no engine of it started. A server stop puts it back in the queue
+   * (ChatRuntime.shutdown) instead of failing it. */
+  get neverRan(): boolean { return this.waitingLauncher && !this.engineStarted && !this.producedOutput }
+  /** set by the server's stop for a turn that never ran: its end puts it back in the queue instead of ending it */
+  private requeueOnEnd = false
+  /** The server stops (ChatRuntime.shutdown) while this turn never ran: stop it and end it back in the queue, with its
+   * place, for the next start (no error, no answer end announced, nothing delivered to a room, Slack or the inbox). */
+  interruptForRequeue(cause: 'update' | 'restart') {
+    if (!this.neverRan) return this.interrupt(cause)
+    this.requeueOnEnd = true
+    this.interrupt(cause)
+  }
+  /** why a stop for 'shutdown' happened: an update (the answer says so) or another restart */
+  private interruptedFor: 'update' | 'restart' | null = null
   private quarantined = false
   /** the process group of the latest engine launch (the launcher's started event); null: none reported */
   private enginePgid: number | null = null
@@ -451,6 +477,14 @@ export class TurnExec {
     if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
     this.halt(reason)
+  }
+
+  /** The server or the engine launcher stops (a restart, an update): the answer ends as interrupted, and says it was
+   * the update when it was one (QA TC-338: it read as an engine crash). */
+  interrupt(cause: 'update' | 'restart') {
+    if (this.stopReason || this.status === 'finished') return
+    this.interruptedFor = cause
+    this.stop('shutdown')
   }
 
   /** What every stop of the answer does (Stop, a time limit, shutdown: `reason`; a used-up budget: none, checkBudget),
@@ -1333,8 +1367,22 @@ export class TurnExec {
     return true
   }
 
-  /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn */
-  private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void) {
+  /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn. While the launcher
+   * stops or restarts (its orderly stop, QA TC-338) the launch waits for the next one; a launch it refused (nothing of
+   * it started) is made again then. */
+  private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[] }> {
+    for (let i = 0; ; i++) {
+      this.waitingLauncher = true
+      try { await this.rt.launcherReady(this.abort.signal) } finally { this.waitingLauncher = !!this.stopReason && !this.engineStarted }
+      const r = await this.launchOnce(core, lr, onLine)
+      if (!r.refused) return r
+      this.rt.launcherStopped(r.refused)
+      if (this.stopReason) return r
+      if (i >= 2) { this.interrupt(r.refused === 'restart' ? 'restart' : 'update'); return r }
+    }
+  }
+
+  private async launchOnce(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[]; refused?: LauncherStop }> {
     if (this.remainingWallMs() <= 0) this.expireWall()
     // a run that ended without its total (crash, kill): its calls' tokens stay counted; then the budget once more
     // (other answers of this person may have used it up since the last attempt)
@@ -1353,6 +1401,10 @@ export class TurnExec {
     const err = new Utf8Text(20000)
     const notes: string[] = []
     let exit: any = null
+    /** the launcher's orderly stop ended the engine (its exit says "update" / "shutdown": mycel-launcher ending.go) */
+    let launcherStop: LauncherStop | null = null
+    /** the launcher refused the launch while it stops (`launcher_stopping: <reason>`): nothing of it started */
+    let refused: LauncherStop | undefined
     try {
     const it = h.events[Symbol.asyncIterator]()
     const abandoned = new Promise<'abandoned'>((r) => {
@@ -1364,7 +1416,7 @@ export class TurnExec {
       if (next === 'abandoned') { try { h.close?.() } catch {} throw new Error('engine end not confirmed by the release time; turn abandoned') }
       if (next.done) break
       const e = next.value
-      if (e.ev === 'started') { this.enginePgid = e.pgid; core.turns.bind(this.id, e.pgid) }
+      if (e.ev === 'started') { this.enginePgid = e.pgid; this.engineStarted = true; core.turns.bind(this.id, e.pgid) }
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') {
@@ -1372,6 +1424,9 @@ export class TurnExec {
         // Native terminal replies are emitted after cleanup (including sandbox startup failures).
         // SocketLauncher synthesizes transport errors with this prefix; a broken socket proves nothing.
         if (e.ev === 'exit' || !e.message.startsWith('launcher: ')) this.terminationUnconfirmed = false
+        if (e.ev === 'exit') launcherStop = launcherStopOf(e.signal) ?? launcherStop
+        const stopping = e.ev === 'error' ? /^launcher_stopping: ([a-z-]+)$/.exec(e.message) : null
+        if (stopping) refused = launcherStopOf(stopping[1]) ?? undefined
       }
       else if (e.ev === 'note') notes.push(e.message)
     }
@@ -1380,6 +1435,7 @@ export class TurnExec {
       this.error = engineError('crash', this.spec.locale)
       throw new Error('launcher ended without a termination acknowledgement')
     }
+    if (refused) return { exit: null, stderr: '', notes, refused }
     return { exit, stderr: err.text, notes }
     } catch (error) {
       if (this.terminationUnconfirmed) {
@@ -1391,6 +1447,18 @@ export class TurnExec {
       throw error
     } finally {
       this.handle = null
+      // its end is confirmed (no quarantine): the answer ends as interrupted, never retried as a crash
+      if (launcherStop) {
+        // a launcher stopped by an installer while an update switches this server (office mode, macOS) said only
+        // "shutdown"
+        let cause: 'update' | 'restart' = launcherStop === 'restart' ? 'restart' : 'update'
+        if (cause === 'restart') { try { cause = this.rt.shutdownCause() } catch {} }
+        this.rt.log.info('engine launcher stopped the turn', { turn: this.id, stop: launcherStop, cause })
+        // first: the queue holds before this turn's end gives its slot back (a queued answer would start into the
+        // stopping launcher and be cut too)
+        this.rt.launcherStopped(launcherStop)
+        this.interrupt(cause)
+      }
     }
   }
 
@@ -3400,6 +3468,16 @@ export class TurnExec {
     if (this.clock) clearInterval(this.clock)
     if (this.wallClock) clearTimeout(this.wallClock)
     if (this.stopGrace) clearTimeout(this.stopGrace)
+    if (this.requeueOnEnd && !this.engineStarted && !this.producedOutput && !this.terminationUnconfirmed) {
+      let back = false
+      try { back = this.endBackInQueue() } catch (e) { this.rt.log.error('queueing the turn for the restart failed', { err: e, turn: this.id }) }
+      if (back) {
+        this.status = 'finished'
+        try { this.rt.turnFinished(this) } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
+        this.resolveDone()
+        return
+      }
+    }
     let status: MessageStatus = 'error'
     try { status = this.finishState() } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
@@ -3412,6 +3490,29 @@ export class TurnExec {
     } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
     try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
     finally { this.resolveDone() }
+  }
+
+  /** The end of a turn that never ran, at the server's stop (interruptForRequeue): queued again with its place
+   * (queue_seq, started_at), its answer waiting as before; recoverState runs it after the restart. True if it is. */
+  private endBackInQueue(): boolean {
+    this.finishStep('held answers', () => this.dropHeldAnswers())
+    for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
+    this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('proxy', () => this.proxyUnsubscribe?.())
+    try { revokeProxyTokens(this.rt.db, this.id) } catch {}
+    const db = this.rt.db
+    const ok = db.transaction(() => {
+      const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL WHERE id=? AND status='running'").run(this.id)
+      if (!r.changes) return false
+      db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(this.spec.assistantId)
+      return true
+    })()
+    if (!ok) return false
+    // then the registry entry only (revoke would write the row's end); not before: a failed requeue ends normally and
+    // its revoke must still find the entry and write the end
+    try { if (this.registered) this.activeCore?.turns.release(this.id) } catch {}
+    this.rt.log.info('turn queued again for the restart (it never ran)', { turn: this.id })
+    return true
   }
 
   /** An engine that stopped, or a turn that threw: on a full disk say so (the error is ENOSPC / SQLite full, the engine's
@@ -3465,7 +3566,7 @@ export class TurnExec {
       if (this.producedOutput) this.limitReason = 'time_limit'
       else this.error = this.timeoutSource === 'wall' ? engineError('wall_timeout', this.spec.locale) : engineError('timeout', this.spec.locale)
     }
-    if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
+    if (this.stopReason === 'shutdown') this.error = engineError(this.interruptedFor === 'update' ? 'updating' : 'interrupted', this.spec.locale)
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
     else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit

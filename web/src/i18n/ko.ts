@@ -337,6 +337,7 @@ export const ko = {
   'chat.error.refused': CHAT_ERROR_MESSAGES.refused.ko,
   'chat.error.crash': CHAT_ERROR_MESSAGES.crash.ko,
   'chat.error.interrupted': CHAT_ERROR_MESSAGES.interrupted.ko,
+  'chat.error.updating': CHAT_ERROR_MESSAGES.updating.ko,
   'chat.error.engine_missing': CHAT_ERROR_MESSAGES.engine_missing.ko,
   'chat.error.proxy_down': CHAT_ERROR_MESSAGES.proxy_down.ko,
   'chat.error.user_disabled': CHAT_ERROR_MESSAGES.user_disabled.ko,

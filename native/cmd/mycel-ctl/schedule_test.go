@@ -129,6 +129,7 @@ func scheduledHooks(t *testing.T, tb *testBase, r *schedRun) {
 	updateTestHook = func(u *updater) {
 		u.e.now = r.clock.now
 		u.sleep = r.clock.sleep
+		u.prepareLauncher = func(string) {} // never the real one (it runs this binary as the server account)
 		u.liveTurns = func() (int, error) {
 			r.calls++
 			if r.turns == nil {
