@@ -22,7 +22,9 @@ owners and admins are not told.
 
 - Activity log (audit, actor = none = the hosting service): `hosting.key_escrow` (key version), `hosting.export`
   (size, sha256), `hosting.offsite_backup` (the backup id and how many files went up; one line per upload run).
-- Inbox notice, always shown, to the owners: `hosting.key_copied` and `hosting.exported` (source: the audit row). No
+- Inbox notice, always shown, to the owners: `hosting.key_copied` (source: the key version, so a retried copy of the
+  same key is one notice and a new key after a rekey is told again) and `hosting.exported` (source: the audit row). The
+  audit line and notice never fail the command (the export's passphrase is printed only once, after them). No
   notice for the offsite backup: it runs every day and would bury the Inbox; the activity log line is enough.
 - Inbox notice, always shown, to the owners and admins: `relay.address_moved`, when the relay refuses this server's key
   (`key rotated` / `signature does not match the registered key`). Once per change: a relay event `key_moved` is
@@ -37,4 +39,4 @@ Out: relay ops-API rules (whether an operator may move a key without the team) a
 
 `tests/unit/g-hosting-copy-notices.test.ts` (the CLI commands: audit lines, owner notices, none for the backup),
 `tests/unit/f-relay-key-moved.test.ts` (in-process relay: rotation → one notice per owner/admin across retries, none for
-members). `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, the touched unit tests.
+members), `web/test/unit/hosting-notices.test.tsx` (the words, no link). `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, the touched unit tests.
