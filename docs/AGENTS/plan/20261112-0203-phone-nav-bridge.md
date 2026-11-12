@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:03
 - Branch: `feat/phone-nav-bridge`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `mobile/` (the Expo app) and `web/src/lib/`. Why: the phone app and its web bridge are core
   (docs/REPOSITORY-RULES.md: 휴대폰 goes to the core first); nothing here is Trina-only.
 - Version impact: minor for the phone app (a new optional bridge capability, needs a store build); patch for the web
@@ -78,4 +78,11 @@ side (the `nav` messages and `mycel:open`) through a fake bridge.
 
 ## Result
 
-(filled in at the end)
+Built as planned in PR #536: `nav-v1` in mobile/src/protocol.ts, bridge.ts and the new mobile/src/nav.ts; the app's
+swipe, Back and push open in mobile/App.tsx; pull-to-refresh off (it is iOS-only in react-native-webview 14 and
+reloaded the app from a room's top). Web: lib/appNav.ts, `setAppNav` in lib/mobile.ts, one hook call in App.tsx Gate,
+`mycel:overlay-entry` from lib/backCloses.ts. Decision: Android's Back at another tab's root is a tap on the start tab
+(its stack as it was left), so a start tab with a chat open goes back to its root first and then leaves the app. The
+native photo picker is left out (see Scope). Tests: mobile bridge/security unit tests, web unit tests (app-nav,
+mobile), phone e2e `phone-app-nav.spec.ts` in Chromium and WebKit. Gestures, hardware Back and push taps need a device
+check with the next app release.
