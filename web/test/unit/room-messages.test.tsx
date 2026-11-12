@@ -1,5 +1,5 @@
-// How a room's messages are shown (components/rooms/RoomMessages.tsx): another member's words as plain text (never
-// HTML), the @names they mention stand out, no read count anywhere, deleted and edited messages say so, one avatar and
+// How a room's messages are shown (components/rooms/RoomMessages.tsx): another member's words in Markdown (never
+// HTML; QA TC-072), the @names they mention stand out, no read count anywhere, deleted and edited messages say so, one avatar and
 // name per run of one author, a root's thread line, reactions, and a reply sent to the room too.
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -15,11 +15,11 @@ const R = uuidv7()
 const render = (ms: ReturnType<typeof message>[]) => renderToStaticMarkup(<RoomMessages roomId={R} messages={ms} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
 const count = (html: string, s: string) => html.split(s).length - 1
 
-test("another member's text stays text: HTML is escaped, line breaks kept, mentions marked", () => {
+test("another member's text: HTML is escaped, line breaks kept, mentions marked (Markdown: QA TC-072)", () => {
   const html = render([message({ roomId: R, seq: 1, body: '<img src=x onerror=alert(1)>\n@Cy Park look', mentions: [CY.id] })])
   expect(html).not.toContain('<img src=x')
-  expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
-  expect(html).toContain('whitespace-pre-wrap')
+  expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;<br/>')
+  expect(html).toContain('data-testid="message-markdown"')
   expect(html).toMatch(/<span class="font-medium text-accent-text">@Cy Park<\/span>/)
 })
 

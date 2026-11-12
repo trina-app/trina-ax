@@ -7,7 +7,7 @@ import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
 import { Check, ChevronRight, Copy, Download, FileText, ImageOff, ExternalLink, Lock } from 'lucide-react'
-import { createContext, memo, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
 import rehypeKatex from 'rehype-katex'
@@ -16,6 +16,8 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
+import { personWords, protectMentions, type MessageMention } from '../lib/messageMarkdown'
+import { RoomLink } from './rooms/MessageText'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
 import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
@@ -528,5 +530,58 @@ export const Markdown = memo(function Markdown({ text, streaming, className, siz
         {prepareMarkdown(text, streaming)}
       </ReactMarkdown>
     </div>
+  )
+})
+
+// ---------------- a person's words ----------------
+/** A person's message in a room, DM or thread (QA TC-072; docs/DECISIONS.md "Markdown in people's messages"): the
+ * answers' renderer and its safety, for words nobody checked. Raw HTML stays text (react-markdown turns it into text;
+ * no rehype-raw, and HTML comments are not hidden either: nothing in a message is invisible). Links go through
+ * RoomLink (classifyLink and urlTransform as in answers: javascript:, data: and the like are text; another site in a
+ * new tab with rel="noopener noreferrer nofollow" and no referrer). No picture loads by itself: another site's is the
+ * answers' card that opens it in a new tab, a team file a link (TeamImagesAsLinks), anything else its words. No math
+ * ("3~5$" and prices are a chat's words) and no single-tilde strike ("3~5분"); a Mermaid fence is code. */
+const COMPONENTS_PERSON: Components = {
+  table: COMPONENTS.table,
+  td: COMPONENTS.td,
+  // a plain address (lib/messageMarkdown.ts) breaks after its slashes as before; a Markdown link shows its label
+  a: ({ node, href, children }) =>
+    node?.properties?.dataPlain !== undefined && typeof children === 'string' ? <RoomLink href={href ?? ''} text={children} menu /> : <RoomLink href={href ?? ''} menu>{children}</RoomLink>,
+  pre: ({ node, children }) => {
+    const c = codeOf(node)
+    return c ? <CodeBlock lang={c.lang} code={c.code} /> : <pre className="overflow-x-auto">{children}</pre>
+  },
+  img: ({ src, alt }) => {
+    const k = classifyImage(typeof src === 'string' ? src : undefined, origin())
+    if (k.kind === 'external') return <ExternalImage href={k.href} host={k.host} alt={alt} />
+    if (k.kind === 'team-file') return <TeamImage path={k.path} alt={alt} />
+    return <span className="text-faint">[{alt}]</span>
+  },
+}
+const REMARK_PERSON = [[remarkGfm, { singleTilde: false }] as never, remarkCjkFriendly]
+
+/** `mentions`: the names the message mentions (lib/messageMarkdown.ts); `after`: a mark after the words ("edited"),
+ * on the last line when that is a paragraph. */
+export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, className, after }: { text: string; mentions: MessageMention[]; className?: string; after?: ReactNode }) {
+  const { source, plugins } = useMemo(() => {
+    const p = protectMentions(text, mentions)
+    return { source: p.source, plugins: [...REMARK_PERSON, [personWords, { found: p.found }] as never] }
+  }, [text, mentions])
+  return (
+    <TeamImagesAsLinks.Provider value>
+      <div
+        className={clsx(
+          'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-1 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+          after != null && '[&>p:nth-last-child(2)]:inline',
+          className,
+        )}
+        data-testid="message-markdown"
+      >
+        <ReactMarkdown remarkPlugins={plugins} components={COMPONENTS_PERSON} urlTransform={urlTransform}>
+          {source}
+        </ReactMarkdown>
+        {after}
+      </div>
+    </TeamImagesAsLinks.Provider>
   )
 })
