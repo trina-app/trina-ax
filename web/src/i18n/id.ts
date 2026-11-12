@@ -2134,6 +2134,8 @@ export const id: Record<MessageKey, string> = {
   'engines.defaultsDesc': 'Mesin dan model untuk chat baru, dan berapa jawaban yang boleh berjalan bersamaan di seluruh tim.',
   'engines.defaultEngine': 'Mesin bawaan',
   'engines.defaultModel': 'Model bawaan',
+  'engines.defaultEngineOffOption': '{engine} (mati)',
+  'engines.defaultEngineOff': 'AI ini dimatikan, jadi obrolan baru tidak dapat memakainya. Pilih yang lain.',
   'engines.concurrency': 'Jawaban bersamaan',
   'engines.concurrencyHint': 'Kelebihannya menunggu di antrean.',
   'engines.check': 'Cek lagi',

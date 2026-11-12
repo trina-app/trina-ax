@@ -83,6 +83,8 @@ test('the old Team provider settings address opens Team settings at #ai; a group
   await expect(page.getByTestId('admin-menu').getByRole('link', { name: t['admin.settings'], exact: true })).toHaveAttribute('aria-current', 'page')
 
   const defaults = page.getByTestId('engine-defaults')
+  // the default engine lists the engines that are on by the names the composer uses (QA TC-182)
+  await expect(defaults.locator('#ai-engine option')).toHaveText(['Claude', 'ChatGPT'])
   const choice = page.getByTestId('engine-choice')
   await expect(page.getByTestId('engine-budgets')).toBeVisible()
   await expect(page.getByTestId('member-accounts')).toBeVisible()

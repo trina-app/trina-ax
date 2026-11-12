@@ -2134,6 +2134,8 @@ export const en: Record<MessageKey, string> = {
   'engines.defaultsDesc': 'The engine and model new chats use, and how many answers can run at the same time across the team.',
   'engines.defaultEngine': 'Default engine',
   'engines.defaultModel': 'Default model',
+  'engines.defaultEngineOffOption': '{engine} (off)',
+  'engines.defaultEngineOff': 'This AI is turned off, so new chats cannot use it. Pick another one.',
   'engines.concurrency': 'Answers at the same time',
   'engines.concurrencyHint': 'Extra answers wait in the queue.',
   'engines.check': 'Check again',
