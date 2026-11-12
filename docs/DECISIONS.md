@@ -22397,7 +22397,8 @@ partway".
   to a listener of its own on 127.0.0.1 (never the model proxy's port), to 169.254.169.254:80 and to 192.0.2.1:443
   (TEST-NET-1, never routed).
   A connection that goes through or waits means the table is gone or changed: the turn is refused with
-  `firewall_off: …`. A pass is kept for 3 seconds (a burst of turns probes once), a failure never.
+  `firewall_off: …`. Nothing is kept, neither a pass nor a failure: every turn probes (well under 25 ms). A 3-second
+  pass let a turn started right after a good probe run with the table flushed (QA TC-310 retest).
 - **Repair: the timer every 30 seconds** (was 2 minutes; `supervise` too). A root watcher on nftables events would
   re-apply at once, but it is a new unit that existing installs would not get from `mycel-ctl update`; left for later.
 - **Plain words.** The server maps `firewall_off` and `firewall_not_loaded` to the chat error `network_protection_off`
@@ -22407,6 +22408,8 @@ partway".
   so every reader agrees. A good table writes nothing (status must not hide a stopped timer by refreshing the file).
 - **Diagnostics**: the launcher's status report has `firewall.live` and `firewall.liveProblem`; the firewall line
   fails with plain words when `live` is false. A launcher from before leaves them out, and the file decides as before.
+  nft's error is one plain line there and in `run/firewall.json` ("table inet <id> is not loaded", never the echoed
+  command and its `^^^^^` marker); `mycel-ctl` writes nft's whole answer to stderr (the firewall timer's journal).
 - **What the probe proves, and what it leaves to root.** It proves the table's TCP reset rule for the engine account
   and catches a full flush (or a removed table). Partial root edits (an accept for UDP, a LAN range or IPv6 inserted
   into the chain) are not caught per turn: `mycel-ctl status` reports them (`checkTable`) and the 30-second

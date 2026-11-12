@@ -187,6 +187,11 @@ describe('diagnostics of an installed Linux server', () => {
     expect((await check({}, 'pf_anchor'))!.detail).toContain('mycel-firewall.timer')
     fw({ loaded: false, error: 'nft: table busy' })
     expect((await check({}, 'pf_anchor'))!.detail).toContain('nft: table busy')
+    // nft's whole answer from an older mycel-ctl: one plain line, no echoed command or "^^^^^" (QA TC-310 retest)
+    fw({ loaded: false, error: 'the table is not in effect now: table inet mycel is not loaded (nft list: Error: No such file or directory\nlist table inet mycel\n                ^^^^^)' })
+    const raw = (await check({}, 'pf_anchor'))!.detail!
+    expect(raw).toContain('(the table is not in effect now: table inet mycel is not loaded)')
+    expect(raw).not.toMatch(/\^|\n|Error:|nft list/)
     fw({})
     expect(await check({}, 'pf_anchor')).toMatchObject({ status: 'ok', detail: '7 nftables rules (the engine account reaches 127.0.0.1:47821 only)' })
   })

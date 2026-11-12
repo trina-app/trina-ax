@@ -230,7 +230,7 @@ func verifyAndRecord(e *env, c *FirewallConf, text string) (*fwstatus.Status, er
 	out, err := runNft(e, nil, "-j", "list", "table", "inet", c.ID)
 	var s *fwstatus.Status
 	if err != nil {
-		s = failStatus(c, e.now(), "nft list: "+strings.TrimSpace(out))
+		s = failStatus(c, e.now(), "nft list: "+nftReason(e, out))
 	} else if v, err := checkTable([]byte(out), c); err != nil {
 		s = failStatus(c, e.now(), err.Error())
 	} else {
@@ -256,7 +256,10 @@ func firewallLiveCheck(e *env) (*FirewallConf, error) {
 	}
 	out, err := runNft(e, nil, "-j", "list", "table", "inet", c.ID)
 	if err != nil {
-		return c, fmt.Errorf("table inet %s is not loaded (nft list: %s)", c.ID, strings.TrimSpace(out))
+		if why := nftReason(e, out); why != "No such file or directory" {
+			return c, fmt.Errorf("table inet %s is not loaded (nft list: %s)", c.ID, why)
+		}
+		return c, fmt.Errorf("table inet %s is not loaded", c.ID)
 	}
 	if _, err := checkTable([]byte(out), c); err != nil {
 		return c, err
@@ -275,6 +278,22 @@ func firewallRemove(e *env) (int, error) {
 	_ = os.Remove(e.statusFile())
 	fmt.Fprintln(e.stdout, "removed table inet "+c.ID)
 	return 0, nil
+}
+
+// nftReason is nft's error as one plain line for the status file and Admin › Diagnostics ("Error: No such file or
+// directory", not the echoed command and its "^^^^^" marker below it, QA TC-310). The whole answer goes to stderr (the
+// firewall timer's journal) when there is more than that line.
+func nftReason(e *env, out string) string {
+	out = strings.TrimSpace(out)
+	line, _, more := strings.Cut(out, "\n")
+	if more && e.stderr != nil {
+		fmt.Fprintf(e.stderr, "nft: %s\n", out)
+	}
+	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "Error:"))
+	if line == "" {
+		return "no answer"
+	}
+	return line
 }
 
 func runNft(e *env, stdin []byte, args ...string) (string, error) {

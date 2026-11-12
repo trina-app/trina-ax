@@ -126,10 +126,11 @@ func TestListenInodesParsesProcNetTCP(t *testing.T) {
 	}
 }
 
-// The live firewall check (QA TC-310): a pass is kept for a few seconds; a failure is retried once, then never kept.
-func TestFirewallLiveKeepsOnlyAPass(t *testing.T) {
+// The live firewall check (QA TC-310): every call probes (nothing is kept, neither a pass nor a failure); a failure
+// is retried once before the turn is refused.
+func TestFirewallLiveProbesEveryTurn(t *testing.T) {
 	saved, savedRetry := fwLiveProbe, fwLiveRetry
-	defer func() { fwLiveProbe, fwLiveRetry = saved, savedRetry; fwLive.okAt = time.Time{} }()
+	defer func() { fwLiveProbe, fwLiveRetry = saved, savedRetry }()
 	fwLiveRetry = 0
 	calls := 0
 	fail := false
@@ -140,28 +141,26 @@ func TestFirewallLiveKeepsOnlyAPass(t *testing.T) {
 		}
 		return nil
 	}
-	fwLive.okAt = time.Time{}
 	if err := firewallLive(); err != nil || calls != 1 {
 		t.Fatalf("first: %v, %d calls", err, calls)
 	}
-	if err := firewallLive(); err != nil || calls != 1 {
-		t.Fatalf("kept pass: %v, %d calls", err, calls)
+	// a pass is never kept: the table can go between two turns a moment apart
+	if err := firewallLive(); err != nil || calls != 2 {
+		t.Fatalf("a pass is not kept: %v, %d calls", err, calls)
 	}
-	fwLive.okAt = time.Now().Add(-fwLiveFor - time.Millisecond)
 	fail = true
 	// a failure is tried once more before the turn is refused
-	if err := firewallLive(); err == nil || calls != 3 {
-		t.Fatalf("expired pass then failure: %v, %d calls", err, calls)
+	if err := firewallLive(); err == nil || calls != 4 {
+		t.Fatalf("pass then failure: %v, %d calls", err, calls)
 	}
-	if err := firewallLive(); err == nil || calls != 5 {
+	if err := firewallLive(); err == nil || calls != 6 {
 		t.Fatalf("a failure is not kept: %v, %d calls", err, calls)
 	}
 	fail = false
-	if err := firewallLive(); err != nil || calls != 6 {
+	if err := firewallLive(); err != nil || calls != 7 {
 		t.Fatalf("back: %v, %d calls", err, calls)
 	}
 	// one hiccup: the retry passes, the turn goes on
-	fwLive.okAt = time.Time{}
 	failOnce := true
 	fwLiveProbe = func(int, time.Duration) error {
 		calls++
@@ -171,7 +170,7 @@ func TestFirewallLiveKeepsOnlyAPass(t *testing.T) {
 		}
 		return nil
 	}
-	if err := firewallLive(); err != nil || calls != 8 {
+	if err := firewallLive(); err != nil || calls != 9 {
 		t.Fatalf("hiccup: %v, %d calls", err, calls)
 	}
 }

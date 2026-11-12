@@ -25,7 +25,8 @@ and the server only read the status file; nothing looked at what the kernel hold
   listener on 127.0.0.1 (another port than the model proxy), to the cloud metadata address and to a documentation
   (never routed) public address must each be refused at once (the table's `reject with tcp reset`). A connection that
   goes through, or any other answer, means the table is gone or changed: the turn is refused with
-  `firewall_off: …`. A good answer is kept for 3 seconds; a bad one is never kept.
+  `firewall_off: …`. No answer is kept (a 3-second pass was dropped after the QA retest, see
+  `20261112-0307-firewall-no-pass-cache.md`).
 - **The status file check stays** (fresh, loaded, same uid and port) and runs first.
 - **Faster repair.** The firewall timer re-applies every 30 seconds instead of 2 minutes (`supervise` too), so a
   flushed table is back within half a minute and the next try works. The launcher cannot re-apply itself (no root,

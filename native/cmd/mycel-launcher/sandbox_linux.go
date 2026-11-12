@@ -791,37 +791,25 @@ func platformStatus(ev map[string]any) {
 
 func isENOSYS(err error) bool { return errors.Is(err, syscall.ENOSYS) }
 
-// firewallLive checks that the engine firewall is in effect now (fwprobe, as the engine account). A pass is kept for
-// fwLiveFor so a burst of turns probes once; a failure is tried once more, then never kept (the next turn probes again, and the firewall
-// timer re-applies the table within 30 seconds). One probe at a time.
+// firewallLive checks that the engine firewall is in effect now (fwprobe, as the engine account), before every turn.
+// Nothing is kept: a pass kept for a few seconds let a turn started right after a good probe run with the table
+// flushed (QA TC-310 retest), and a probe takes well under 25 ms. A failure is tried once more before the turn is
+// refused (the next turn probes again, and the firewall timer re-applies the table within 30 seconds). One probe at
+// a time.
 func firewallLive() error {
-	fwLive.mu.Lock()
-	defer fwLive.mu.Unlock()
-	if !fwLive.okAt.IsZero() && time.Since(fwLive.okAt) < fwLiveFor {
-		return nil
-	}
-	err := fwLiveProbe(*proxyPort, time.Second)
-	if err != nil {
+	fwLive.Lock()
+	defer fwLive.Unlock()
+	if err := fwLiveProbe(*proxyPort, time.Second); err != nil {
 		// one quick retry before refusing: a momentary hiccup (the 30 s apply swapping the table in one transaction)
 		time.Sleep(fwLiveRetry)
-		err = fwLiveProbe(*proxyPort, time.Second)
+		return fwLiveProbe(*proxyPort, time.Second)
 	}
-	if err != nil {
-		fwLive.okAt = time.Time{}
-		return err
-	}
-	fwLive.okAt = time.Now()
 	return nil
 }
-
-const fwLiveFor = 3 * time.Second
 
 var fwLiveRetry = 200 * time.Millisecond
 
 var (
-	fwLive struct {
-		mu   sync.Mutex
-		okAt time.Time
-	}
+	fwLive      sync.Mutex
 	fwLiveProbe = fwprobe.Probe
 )
