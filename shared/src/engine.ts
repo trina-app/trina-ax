@@ -124,6 +124,8 @@ export const LauncherStatus = z.object({
   seccomp: z.boolean().optional(),
   /** "allowed" | "denied" */
   listen: z.string().optional(),
+  /** "private": every turn has its own network namespace (only the model proxy forwarded); older launchers leave it out */
+  net: z.string().optional(),
   kernel: z.string().optional(),
   /** "delegated" | "none" | "off" */
   cgroup: z.string().optional(),

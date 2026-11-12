@@ -77,7 +77,19 @@ type Table struct {
 	X32                                       bool
 	Clone, Clone3, Ioctl, Socket, Personality uint32
 	Listen                                    uint32
-	Deny                                      []uint32 // answered with EPERM
+	// the forwarder's extra denials (Options.Forwarder)
+	Socketpair, Execve, Execveat uint32
+	Deny                         []uint32 // answered with EPERM
+}
+
+// Options selects a variant of the policy.
+type Options struct {
+	AllowListen bool // do not refuse listen() (spike S4 fallback)
+	// Forwarder: the turn's proxy forwarder (mycel-sandbox forward), the one process of a turn that stays in the host
+	// network namespace. On top of the engine policy it gets no unix sockets at all (socket(AF_UNIX) and socketpair:
+	// the host's abstract @sockets live in that namespace) and no execve/execveat (it never starts a program, and a
+	// Landlock domain would cover only one of its threads).
+	Forwarder bool
 }
 
 // assembler with symbolic jump targets
@@ -136,8 +148,14 @@ func (a *asm) assemble() ([]Insn, error) {
 	return out, nil
 }
 
-// Build assembles the policy for one architecture table.
+// Build assembles the engine policy for one architecture table.
 func Build(t Table, allowListen bool) ([]Insn, error) {
+	return BuildOpts(t, Options{AllowListen: allowListen})
+}
+
+// BuildOpts assembles the policy variant o for one architecture table.
+func BuildOpts(t Table, o Options) ([]Insn, error) {
+	allowListen := o.AllowListen
 	a := &asm{labels: map[string]int{}}
 	a.ld(offArch)
 	a.jeq(t.AuditArch, "", "kill") // another ABI (32-bit compat) would see a different syscall table
@@ -152,6 +170,11 @@ func Build(t Table, allowListen bool) ([]Insn, error) {
 	a.jeq(t.Personality, "personality", "")
 	if !allowListen {
 		a.jeq(t.Listen, "eperm", "")
+	}
+	if o.Forwarder {
+		a.jeq(t.Socketpair, "eperm", "")
+		a.jeq(t.Execve, "eperm", "")
+		a.jeq(t.Execveat, "eperm", "")
 	}
 	for _, nr := range t.Deny {
 		a.jeq(nr, "eperm", "")
@@ -169,7 +192,11 @@ func Build(t Table, allowListen bool) ([]Insn, error) {
 
 	a.label("socket")
 	a.ld(argLo(0))
-	a.jeq(afUnix, "allow", "")
+	if o.Forwarder {
+		a.jeq(afUnix, "eafnosupport", "")
+	} else {
+		a.jeq(afUnix, "allow", "")
+	}
 	a.jeq(afInet, "allow", "")
 	a.jeq(afInet6, "allow", "")
 	a.jeq(afNetlink, "", "eafnosupport")

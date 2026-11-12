@@ -63,6 +63,12 @@ echo "firewall: $(cat $BASE/run/firewall.json | tr -d '\n ')"
 for port in 19174 19190; do
   bun -e 'Bun.listen({hostname:"127.0.0.1",port:'"$port"',socket:{open(s){s.write("ok");s.end()},data(){},error(){}}})' >/dev/null 2>&1 &
 done
+# + a root-owned UDP echo on 127.0.0.1:53 (where a local resolver such as systemd-resolved would be): an answer to the
+# turn's datagram would mean it reached the host
+bun -e 'const d=require("node:dgram").createSocket("udp4");d.on("message",(m,r)=>d.send(m,r.port,r.address));d.bind(53,"127.0.0.1")' >/dev/null 2>&1 &
+# + a root-owned abstract unix socket, like the ones host services keep (multipathd, iscsid; QA TC-309): a turn must
+# not reach it (abstract sockets are per network namespace, not files)
+bun -e 'require("node:net").createServer((c)=>c.end("host")).listen("\0mycel-t1-host")' >/dev/null 2>&1 &
 sleep 0.3
 
 # cgroups by hand (what systemd's Delegate= gives the two units): the container's processes move to init/, then

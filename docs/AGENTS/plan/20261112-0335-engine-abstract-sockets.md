@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 03:35
 - Branch: `fix/engine-abstract-sockets`
-- Status: in progress
+- Status: done
 - Where: `native/` (mycel-sandbox, mycel-launcher, internal/seccomp) and `tests/linux`. Why: the Linux engine sandbox is Team AX core (docs/REPOSITORY-RULES.md).
 - Version impact: patch, a security fix in the existing sandbox without a new setting
 
@@ -21,7 +21,8 @@ In:
 - A small forwarder (`mycel-sandbox forward`) stays in the host namespace, inside the turn (same session, engine
   account, turn cgroup). It accepts on 127.0.0.1:<proxy port> inside the turn's namespace and connects to the real
   model proxy, so the engines' configuration, the nftables rule and the proxy's tcp-peer check stay as they are.
-- The forwarder: no capabilities, not dumpable, seccomp with no unix sockets and no exec.
+- The forwarder: no capabilities, out of the engine's reach (Landlock's ptrace rule, or not dumpable without
+  Landlock), seccomp with no unix sockets and no exec.
 - Why not seccomp alone: it cannot read the address behind connect()'s pointer, and the bridge needs a unix socket
   (tools.sock is a path, which still works across network namespaces).
 - Linux attack suite: a host abstract listener the turn must not reach; Go tests for the bwrap argv, the seccomp
@@ -34,7 +35,7 @@ namespace).
 
 1. seccomp: an option that also refuses AF_UNIX sockets and execve (forwarder only).
 2. mycel-sandbox exec `--net-proxy PORT`: start the forwarder, unshare the network namespace, bring lo up, listen on
-   127.0.0.1:PORT, hand the listener over, drop every capability, then Landlock + seccomp + execve as before.
+   127.0.0.1:PORT, apply Landlock, hand the listener over, drop every capability, then seccomp + execve as before.
 3. Launcher: bwrap gets `--cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN` (inside the turn's user namespace only,
    dropped by the helper before the engine runs) and the helper gets `--net-proxy`.
 4. Tests (Go, Docker attack suite), DECISIONS.md entry, changes fragment.
@@ -49,4 +50,9 @@ namespace).
 
 ## Result
 
-(filled in at the end)
+Done as planned. One change on the way: a non-dumpable forwarder hid its `/proc/<pid>/fd` from the launcher, so the
+proxy's tcp-peer check failed and managed turns crashed; the forwarder now stays dumpable when the engine is in a
+Landlock domain (Landlock blocks ptrace access out of a domain) and is non-dumpable only without one. The UDP DNS
+check now asserts no answer from a host echo on 127.0.0.1:53 (a turn may send into its own loopback).
+Checks: Linux job 53/53 (new: host abstract socket, every listed @name, net status, DNS echo), mycel-sandbox Go test
+through bwrap as root and as an unprivileged account, seccomp and launcher Go tests, typecheck, check:docs.

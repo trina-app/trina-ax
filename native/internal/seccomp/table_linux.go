@@ -32,6 +32,7 @@ func table(arch uint32, x32 bool, extra ...uint32) Table {
 		AuditArch: arch, X32: x32,
 		Clone: unix.SYS_CLONE, Clone3: unix.SYS_CLONE3, Ioctl: unix.SYS_IOCTL, Socket: unix.SYS_SOCKET,
 		Personality: unix.SYS_PERSONALITY, Listen: unix.SYS_LISTEN,
+		Socketpair: unix.SYS_SOCKETPAIR, Execve: unix.SYS_EXECVE, Execveat: unix.SYS_EXECVEAT,
 		Deny: append(append([]uint32{}, commonDeny...), extra...),
 	}
 }
