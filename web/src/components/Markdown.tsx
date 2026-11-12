@@ -536,10 +536,8 @@ export const Markdown = memo(function Markdown({ text, streaming, className, siz
         </AttachedCopies.Provider>
       </OpenableFiles.Provider>
     )
-  const plain = <div className={clsx('whitespace-pre-wrap break-words', SIZES[size], className)}>{text}</div>
-  if (tooHeavyForMarkdown(text)) return plain
   return (
-    <MarkdownBoundary resetKey={text} fallback={plain}>
+    <MarkdownBoundary resetKey={text} fallback={<div className={clsx('whitespace-pre-wrap break-words', SIZES[size], className)}>{text}</div>}>
       <div
         className={clsx(
           'answer prose max-w-none break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
@@ -603,7 +601,7 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
       <TeamImagesAsLinks.Provider value>
         <div
           className={clsx(
-            'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-1 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 max-md:[&_li_:is(ul,ol)]:pl-4 max-md:[&_li_li]:pl-0.5',
+            'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-1 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 max-md:[&_li_:is(ul,ol)]:pl-4 max-md:[&_li_li]:pl-0.5 [&_a]:[unicode-bidi:isolate]',
             after != null && '[&>p:nth-last-child(2)]:inline',
             className,
           )}

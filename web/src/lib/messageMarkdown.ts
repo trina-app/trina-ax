@@ -117,24 +117,42 @@ function hostOf(url: string): string | null {
  * forms as their narrow ones ("bank．com", "ｂａｎｋ"), the ideographic full stops as "." (lowercase, trimmed). */
 export const readAs = (s: string) => s.normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/[\u3002\uff61]/g, '.').trim().toLowerCase()
 
+/** Characters that reorder what follows them on the screen (right-to-left overrides, embeddings, isolates, marks):
+ * words with one may look like another address than they are ("‮x.io/moc.lapyap" shows "paypal.com/oi.x"). */
+const BIDI = /[؜‎‏‪-‮⁦-⁩]/
+
 /** What an outside link's words should show when they do not show where it goes (null: they do): the host of a web
- * address ("evil.example"), the address of a mailto: link, the number of a tel: link. The words show it when they are
- * that host, or start with it and a "/", "?" or "#" ("bank.com/login" for https://bank.com/x), with or without
- * "https://" and "www."; for mailto: and tel: when they are the address or number. */
+ * address ("evil.example"), or the whole address when the words name an address of their own (a scheme, a path) and
+ * it is not this one ("[https://bank.com/login](https://bank.com/redirect?to=…)"); the address of a mailto: link
+ * (all of it when it has a "?": "?bcc=", "?to=" send it elsewhere too), the number of a tel: link. The words show it
+ * when they are that host, with or without "www." (and a trailing "."), or that address as written; never when they
+ * hold a character that reorders the screen (BIDI). */
 export function hiddenAddress(words: string, url: string): string | null {
   let u: URL
   try { u = new URL(url) } catch { return null }
   const w = readAs(words)
+  const bidi = BIDI.test(words)
+  const trim = (x: string) => x.replace(/\/+$/, '')
   if (u.protocol === 'mailto:' || u.protocol === 'tel:') {
-    let to = u.pathname
+    let to = u.href.slice(u.protocol.length)
     try { to = decodeURIComponent(to) } catch { /* as written */ }
+    if (!to) return u.href
     const shown = w.replace(/^(mailto|tel):/, '')
-    if (u.protocol === 'tel:') return shown.replace(/\D/g, '') !== '' && shown.replace(/\D/g, '') === to.replace(/\D/g, '') ? null : to
-    return shown === to.toLowerCase() ? null : to
+    if (u.protocol === 'tel:') return !bidi && shown.replace(/\D/g, '') !== '' && shown.replace(/\D/g, '') === to.replace(/\D/g, '') ? null : to
+    return !bidi && !to.includes('?') && shown === to.toLowerCase() ? null : to
   }
-  const host = u.host.toLowerCase().replace(/^www\./, '')
-  const shown = w.replace(/^[a-z][a-z\d+.-]*:\/*/, '').replace(/^www\./, '')
-  return shown === host || (shown.startsWith(host) && /^[/?#]/.test(shown.slice(host.length))) ? null : host
+  const host = u.host.toLowerCase().replace(/^www\./, '').replace(/\.$/, '')
+  const scheme = /^([a-z][a-z\d+.-]*):\/*/.exec(w)
+  const shown = w.slice(scheme?.[0].length ?? 0).replace(/^www\./, '')
+  const head = shown.split(/[/?#]/, 1)[0]
+  const rest = shown.slice(head.length)
+  if (bidi || head.replace(/\.$/, '') !== host) return host
+  // the words name an address of their own: it must be this one (scheme, path, query)
+  if (scheme || trim(rest) !== '') {
+    const real = readAs(u.pathname + u.search + u.hash)
+    if ((scheme && scheme[1] !== u.protocol.slice(0, -1)) || trim(rest) !== trim(real)) return u.href
+  }
+  return null
 }
 
 /** How deep quotes and lists, and emphasis, may nest: deeper ones are their contents at the last allowed depth. A
@@ -175,14 +193,41 @@ export function capDepth(tree: Node) {
 
 /** How many quote and list signs a line may start with ("> - 1. …") before the text is not read as Markdown at all. */
 export const MAX_LINE_MARKS = 32
-/** How long a run of "*" or "_" may be before the same. */
-const LONG_RUN = /[*_]{65}/
+/** How many "[" (links, pictures) or emphasis openers ("*", "_" or "~" before a word) may be open at once, not yet closed by a
+ * "]" or a closing "*"/"_", before the same: the parser matches those against each other, which takes seconds when
+ * there are thousands ("![![![… ](u)](u)", "*x *x *x … x* x*"). Closed ones ("**a** **b**", "[a](u) [b](u)") cost
+ * nothing. */
+export const MAX_OPEN = 400
+const LONG_RUN = /[*_]{65,}/g
+const SPACE = /\s/
+const WORD = /[\p{L}\p{N}]/u
 
 /** Text Markdown could only read slowly (seconds) is shown as its plain words instead: a line that starts with
  * thousands of quote or list signs ("* * * … x", "1. 1. …", ">>>…": capDepth keeps them from drawing deep, but reading
- * them is slow in itself), or a run of thousands of "*" or "_" (emphasis). Nothing a person writes on purpose. */
+ * them is slow in itself), hundreds of "[" or emphasis openers open at once (MAX_OPEN), or a long run mixing
+ * "*" and "_". Nothing a person writes on purpose. For people's messages only: an AI's answer or a file is Markdown
+ * whatever it holds (capDepth and MarkdownBoundary keep those from taking the page down). */
 export function tooHeavyForMarkdown(text: string): boolean {
-  if (LONG_RUN.test(text)) return true
+  for (const run of text.matchAll(LONG_RUN)) if (run[0].includes('*') && run[0].includes('_')) return true
+  let open = 0
+  for (let k = 0; k < text.length; k++) {
+    const ch = text[k]
+    if (ch === '[') open++
+    else if (ch === ']') open = Math.max(0, open - 1)
+    else if (ch === '*' || ch === '_' || ch === '~') {
+      let j = k
+      while (text[j + 1] === ch) j++
+      const before = text[k - 1] ?? ' '
+      const after = text[j + 1] ?? ' '
+      const opens = !SPACE.test(after)
+      const closes = !SPACE.test(before)
+      // (an "_" inside a word, snake_case, is neither)
+      if (opens && !closes && !(ch === '_' && WORD.test(before))) open++
+      else if (closes && !opens) open = Math.max(0, open - 1)
+      k = j
+    }
+    if (open > MAX_OPEN) return true
+  }
   let i = 0
   const n = text.length
   while (i < n) {
@@ -254,8 +299,8 @@ function expand(c0: Node, flow: boolean, src: string, found: Found[], defs: Map<
   // "[ceo@company.com](mailto:x@evil.example)"): its words, then where it goes in brackets, as text
   const l = classifyLink(asHref(real), origin)
   const hidden = l.kind === 'external' ? hiddenAddress(words, l.href) : null
-  if (hidden)
-    return [link, text(' '), { type: 'realAddress', data: { hName: 'span', hProperties: { className: ['text-muted'], dataRealAddress: '' }, hChildren: [{ type: 'text', value: `(${hidden})` }] } }]
+  if (hidden !== null)
+    return [link, text(' '), { type: 'realAddress', data: { hName: 'span', hProperties: { className: ['text-muted', '[unicode-bidi:isolate]'], dataRealAddress: '' }, hChildren: [{ type: 'text', value: `(${hidden})` }] } }]
   return [link]
 }
 

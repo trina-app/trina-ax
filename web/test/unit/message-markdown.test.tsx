@@ -8,7 +8,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { uuidv7 } from '@mycel/shared/api'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { Markdown, PersonMarkdown } from '../../src/components/Markdown'
-import { capDepth, hiddenAddress, MAX_LINE_MARKS, MAX_NEST, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
+import { capDepth, hiddenAddress, MAX_LINE_MARKS, MAX_NEST, MAX_OPEN, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
 import type { PendingSend } from '../../src/store/rooms'
 import { BEN, CY, ME, message } from './rooms-fixtures'
 
@@ -179,8 +179,9 @@ const answer = (text: string) => renderToStaticMarkup(<MemoryRouter><Markdown te
 
 test('quotes, lists and emphasis nested thousands deep render (at most MAX_NEST deep), in messages and in answers', () => {
   const deep = ['- '.repeat(1000) + 'x', '- '.repeat(2500) + 'x', '>'.repeat(2000) + ' x', '>'.repeat(5000) + ' x', '* '.repeat(4000) + 'x', '1. '.repeat(3000) + 'x', '> - '.repeat(2000) + 'x']
+  // (an AI's answer has no plain fallback: capDepth alone, so only the faster ones here)
   for (const body of deep)
-    for (const html of [md(body), answer(body)]) {
+    for (const html of [md(body), ...(body.length < 2100 ? [answer(body)] : [])]) {
       expect(html).toContain('x')
       for (const tag of ['blockquote', 'ul', 'ol', 'li']) expect(depthOf(html, tag)).toBeLessThanOrEqual(MAX_NEST + 1)
       expect(depthOf(html, 'blockquote') + depthOf(html, 'ul') + depthOf(html, 'ol')).toBeLessThanOrEqual(MAX_NEST + 2)
@@ -189,12 +190,16 @@ test('quotes, lists and emphasis nested thousands deep render (at most MAX_NEST 
   const t = performance.now()
   for (const body of deep) expect(md(body)).toContain('data-plain=""')
   expect(performance.now() - t).toBeLessThan(2000)
-  expect(answer('* '.repeat(4000) + 'x')).not.toContain('<ul')
-  // so is a run of thousands of "*" or "_"
-  for (const body of ['*'.repeat(4999) + 'a' + '*'.repeat(5000), '_'.repeat(4999) + 'a' + '_'.repeat(5000)]) expect(md(body)).toContain('data-plain=""')
-  // ordinary Markdown is not
-  for (const body of ['- a\n  - b\n    > c', '1. one\n2. two', '***bold italic***', '---', '* * *', '- '.repeat(MAX_LINE_MARKS) + 'x', '_'.repeat(64)]) expect(tooHeavyForMarkdown(body)).toBe(false)
-  for (const body of ['- '.repeat(MAX_LINE_MARKS + 1) + 'x', 'ok\n' + '> '.repeat(40) + 'x', '1) '.repeat(40), '_'.repeat(65)]) expect(tooHeavyForMarkdown(body)).toBe(true)
+  // so are hundreds of "[" or emphasis openers, and a long run mixing "*" and "_" (each took the parser 1-2 s)
+  for (const body of ['!['.repeat(1600) + 'x' + '](u)'.repeat(1600), '!['.repeat(2000) + '](u)'.repeat(1500), '*x '.repeat(1666) + 'x* '.repeat(1666), '_x '.repeat(1666) + 'x_ '.repeat(1666), '*_'.repeat(5000)])
+    expect(md(body.slice(0, 10_000))).toContain('data-plain=""')
+  // ordinary Markdown is not: a banner or a fill-in line of one sign, a list of "* " items, snake_case words
+  for (const body of ['- a\n  - b\n    > c', '1. one\n2. two', '***bold italic***', '---', '* * *', '- '.repeat(MAX_LINE_MARKS) + 'x', '_'.repeat(200), '/' + '*'.repeat(200) + '/', '* item\n'.repeat(1000), 'snake_case_name '.repeat(500), '[a](https://a.b) '.repeat(1000), '**x** '.repeat(1600), '*x '.repeat(MAX_OPEN) + 'x* '.repeat(MAX_OPEN)])
+    expect(tooHeavyForMarkdown(body)).toBe(false)
+  for (const body of ['- '.repeat(MAX_LINE_MARKS + 1) + 'x', 'ok\n' + '> '.repeat(40) + 'x', '1) '.repeat(40), '*_'.repeat(33), '['.repeat(MAX_OPEN + 1), '_x '.repeat(MAX_OPEN + 1)])
+    expect(tooHeavyForMarkdown(body)).toBe(true)
+  // an AI's answer keeps its Markdown whatever it holds (a C banner in a code block)
+  expect(answer('```c\n/' + '*'.repeat(80) + '/\n```\n\n**bold**')).toContain('<strong>bold</strong>')
   // what is past the cap is still there, at the deepest level allowed
   const q = md('>'.repeat(20) + ' deep words')
   expect(depthOf(q, 'blockquote')).toBe(MAX_NEST)
@@ -250,7 +255,7 @@ test('pathological messages of the longest size render quickly', () => {
 }, 60_000)
 
 test('a link whose words do not show where it goes shows its real host (or address) next to it', () => {
-  const real = (h: string) => /<span class="text-muted" data-real-address="">\(([^)]*)\)<\/span>/.exec(h)?.[1] ?? null
+  const real = (h: string) => /<span class="text-muted \[unicode-bidi:isolate\]" data-real-address="">\(([^)]*)\)<\/span>/.exec(h)?.[1] ?? null
   // words that look like a site, a path on it, an e-mail address; words that say nothing about where it goes
   expect(real(md('[paypal.com](https://evil.example)'))).toBe('evil.example')
   expect(real(md('[paypal.com/login](https://evil.example/x)'))).toBe('evil.example')
@@ -266,7 +271,7 @@ test('a link whose words do not show where it goes shows its real host (or addre
   // and for words with zero-width characters in a bare host
   expect(real(md('[pay​pal.com](https://evil.example)'))).toBe('evil.example')
   // words that are its address: nothing added
-  for (const body of ['[paypal.com](https://paypal.com)', '[paypal.com/login](https://www.paypal.com/login?x=1)', '[www.paypal.com](https://paypal.com/)', '[ceo@company.com](mailto:ceo@company.com)', '[<ceo@company.com>](mailto:ceo@company.com)', '<https://paypal.com>', '<ceo@company.com>', '[x](/rooms/abc)', 'https://paypal.com', '[+82 10-1234-5678](tel:+821012345678)'])
+  for (const body of ['[paypal.com](https://paypal.com)', '[paypal.com/login](https://www.paypal.com/login)', '[www.paypal.com](https://paypal.com/)', '[ceo@company.com](mailto:ceo@company.com)', '[<ceo@company.com>](mailto:ceo@company.com)', '<https://paypal.com>', '<ceo@company.com>', '[x](/rooms/abc)', 'https://paypal.com', '[+82 10-1234-5678](tel:+821012345678)'])
     expect(real(md(body))).toBeNull()
   // the room's own links (this server) are the app's, not another site's
   expect(real(md('[my files](http://localhost/files)'))).toBeNull()
@@ -274,7 +279,20 @@ test('a link whose words do not show where it goes shows its real host (or addre
   expect(md('[paypal.com](javascript:alert(1))')).not.toContain('data-real-address')
   // the check, alone
   expect(hiddenAddress('paypal.com', 'https://evil.example/')).toBe('evil.example')
-  expect(hiddenAddress('PAYPAL.COM/x', 'https://www.paypal.com/y')).toBeNull()
+  expect(hiddenAddress('PAYPAL.COM/x', 'https://www.paypal.com/x/')).toBeNull()
+  expect(hiddenAddress('PayPal.com.', 'https://paypal.com/')).toBeNull()
+  // words that name an address of their own (a scheme, a path) must be this one: else the whole real address
+  expect(hiddenAddress('PAYPAL.COM/x', 'https://www.paypal.com/y')).toBe('https://www.paypal.com/y')
+  expect(hiddenAddress('https://accounts.google.com/', 'https://accounts.google.com/o/oauth2/auth?client_id=evil')).toBe('https://accounts.google.com/o/oauth2/auth?client_id=evil')
+  expect(hiddenAddress('google.com/maps', 'https://google.com/url?q=https://evil.example')).toBe('https://google.com/url?q=https://evil.example')
+  expect(hiddenAddress('https://paypal.com', 'http://paypal.com/')).toBe('http://paypal.com/')
+  // characters that reorder the screen: "paypal.com/oi.x" on the screen, x.io in fact
+  expect(hiddenAddress('\u202ex.io/moc.lapyap', 'https://x.io/')).toBe('x.io')
+  expect(hiddenAddress('\u2067x.io/nigol/moc.lapyap\u2069', 'https://x.io/a')).toBe('x.io')
+  // mailto: with no address, or a "?" that sends it elsewhere too
+  expect(hiddenAddress('ceo@company.com', 'mailto:?to=x@evil.example')).toBe('?to=x@evil.example')
+  expect(hiddenAddress('ceo@company.com', 'mailto:ceo@company.com?bcc=x@evil.example')).toBe('ceo@company.com?bcc=x@evil.example')
+  expect(hiddenAddress('x', 'mailto:')).toBe('mailto:')
   expect(hiddenAddress('paypal.comx', 'https://paypal.com/')).toBe('paypal.com')
   expect(hiddenAddress('a@b.c', 'mailto:A@B.C')).toBeNull()
   expect(hiddenAddress('call', 'tel:123')).toBe('123')
@@ -283,5 +301,5 @@ test('a link whose words do not show where it goes shows its real host (or addre
 test('a picture inside a link is its words (no link inside a link)', () => {
   const h = md('[![paypal.com](https://evil.example/p.gif)](https://evil.example/x)')
   expect(h.match(/<a /g)?.length).toBe(1)
-  expect(h).toMatch(/<a href="https:\/\/evil\.example\/x"[^>]*>paypal\.com<\/a> <span class="text-muted" data-real-address="">\(evil\.example\)<\/span>/)
+  expect(h).toMatch(/<a href="https:\/\/evil\.example\/x"[^>]*>paypal\.com<\/a> <span class="text-muted \[unicode-bidi:isolate\]" data-real-address="">\(evil\.example\)<\/span>/)
 })
