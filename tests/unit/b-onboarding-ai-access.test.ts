@@ -23,7 +23,8 @@ beforeAll(async () => {
 })
 afterAll(async () => { await h?.close() })
 
-const access = (c: Client) => c.call('GET', '/api/me/ai-access')
+// notReadyTold (a member pressed "Told" on the not-ready button) has its own test: b-onboarding-ai-not-ready.test.ts
+const access = async (c: Client) => { const { notReadyTold: _told, ...rest } = await c.call('GET', '/api/me/ai-access'); return rest }
 const ownerNotices = async () => ((await owner.call('GET', '/api/notifications')).items as any[]).filter((i) => i.eventType === 'onboarding.ai_request')
 
 describe('which button', () => {
