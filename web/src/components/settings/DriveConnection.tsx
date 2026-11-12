@@ -12,7 +12,7 @@ import { Button, confirmDialog } from '../ui'
 export interface SignInOps<C> {
   authorize: () => Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }>
   poll: (id: string) => Promise<DriveFlow>
-  complete: (id: string, opts: { membersOn?: true }) => Promise<C>
+  complete: (id: string) => Promise<C>
   cancel: (id: string) => Promise<unknown>
   current: () => Promise<C>
 }
@@ -96,14 +96,12 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
     catch { if (g === generation.current) setError(true) }
     finally { if (g === generation.current) setBusy(false) }
   }
-  /** `membersOn`: the members' switch is off and the owner or admin confirming turns it on with the connection (the
-   * press named that; Google Drive only) */
-  const complete = async (opts: { membersOn?: true } = {}) => {
+  const complete = async () => {
     if (flow?.state !== 'ready') return
     const g = ++generation.current
     setBusy(true); setError(false); setReason(null)
     try {
-      const r = await calls.current.complete(flow.flowId, opts)
+      const r = await calls.current.complete(flow.flowId)
       if (g !== generation.current) return
       setFlow(null); setAuthorizationUrl(null); popup.current?.close(); connected.current(r)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null) } }
@@ -117,7 +115,7 @@ export type SignInFlowState = ReturnType<typeof useSignInFlow>
 const DRIVE_OPS: SignInOps<Connection> = {
   authorize: () => api.call(API.authorizeDrive, { body: {} }),
   poll: (id) => api.call(API.driveFlow, { params: { id } }),
-  complete: (id, opts) => api.call(API.completeDriveFlow, { params: { id }, body: opts.membersOn ? { membersOn: true } : {} }),
+  complete: (id) => api.call(API.completeDriveFlow, { params: { id }, body: {} }),
   cancel: (id) => api.call(API.cancelDriveFlow, { params: { id } }),
   current: () => api.call(API.myDriveConnection),
 }

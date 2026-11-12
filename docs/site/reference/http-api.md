@@ -325,6 +325,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `DELETE` | `/api/integrations/:id` | Signed in | Delete a connection (OAuth: revocation is tried, the local tokens go first). |
 | `POST` | `/api/integrations/:id/refresh` | Signed in | Check the connection now; MCP: save its current tool list. |
 | `POST` | `/api/integrations/:id/authorize` | Signed in | Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app. |
+| `DELETE` | `/api/integrations/:id/always-allow` | Signed in | Ask again before the AI changes something at a team connection: ends my own Always allow there (never the team's rule). |
 | `POST` | `/api/integrations/:id/tools` | Signed in | Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on. |
 | `GET` | `/api/integrations/flows/:id` | Signed in | Poll a sign-in started by this same session. |
 | `GET` | `/api/admin/integrations` | Admin | Every team connection, with who may use it. |

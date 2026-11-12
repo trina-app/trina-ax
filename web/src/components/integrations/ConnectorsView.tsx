@@ -1,12 +1,12 @@
-// What Admin › Connected apps and Connectors (the main sidebar's, pages/Connectors.tsx) share, like Claude's Connectors: the title row (the page's title,
-// the search and Add with its ⌄ menu), which stays at the top while the page scrolls; Discover, the section under the
-// connections on the same page ("Top connectors" with Trina's own Google Drive first, then the MCP services of
-// lib/connectors.ts, the rest behind Show all); and a connector's page (ConnectorDetail: a big logo, the main action,
-// what it does and its tools), which takes the place of both sections until its way back.
-import { ArrowLeft, ArrowRight, BadgeCheck, Check, Plus, Search } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+// What Admin › Connectors and Connectors (the main sidebar's, pages/Connectors.tsx) share, like Claude's Connectors: the
+// title row of Admin's page (the title, the search and Add with its ⌄ menu), which stays at the top while the page
+// scrolls; one line of the connected ones (ConnectorRow); one row of Discover (DiscoverCard); and a listed service's
+// or a connection's page (ConnectorDetail: a big logo, the main action, what it does and its tools).
+import { ArrowLeft, BadgeCheck, Check, Plus, Search } from 'lucide-react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
-import { connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
+import { connectorLogo, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Button, IconButton, StickyHeader, inputCls } from '../ui'
 import { Tooltip } from '../Tooltip'
@@ -77,153 +77,32 @@ export const matchesQuery = (i: Integration, query: string) => {
   return !q || `${i.name} ${i.url}`.toLowerCase().includes(q)
 }
 
-/** Trina's own connectors (Google Drive), listed first in Discover: they connect with a sign-in built into this server,
- * not an MCP server someone adds. `state`: added (✓), available (+) or off (the server is not set up for it). */
-export interface BuiltInCard { id: string; name: string; line: string; logo: string; state: 'added' | 'available' | 'off' }
+/** How many Discover rows show before "Show all": the five built-in ones and five well-known services. */
+export const DISCOVER_FIRST = 10
 
-/** How many cards "Top connectors" shows before "More connectors". */
-export const TOP_CONNECTORS = 8
+/** One card of Discover (Connectors' and Admin › Connectors'): what it is, its state, what opens it and what its +
+ * does. `off`: it cannot be connected now (the team has not set it up); `setUp`/`asked` say why on its right. */
+export interface DiscoverItem { id: string; name: string; line: string; logo: string; state: 'added' | 'reconnect' | 'available' | 'off'; setUp?: boolean; asked?: boolean; onOpen: () => void; onAdd: () => void }
 
-/** The Discover cards that fit the search (every card without one): Trina's own, then the listed MCP services. A page
- * hides Discover when nothing fits, and says "nothing matches" once when nothing on the page does. */
-export function discoverHits(t: ReturnType<typeof useT>, query: string, builtIns: BuiltInCard[] = []) {
-  const q = query.trim().toLowerCase()
-  const fits = (text: string) => !q || text.toLowerCase().includes(q)
-  const built = builtIns.filter((b) => fits(`${b.name} ${b.line}`))
-  const listed = CONNECTORS.filter((c) => fits(`${c.name} ${t(`integrations.catalog.${c.id}`)}`))
-  return { built, listed, count: built.length + listed.length }
-}
-
-/** Discover, the section under the connections, like Claude's Connectors: "Top connectors" (Trina's own first, then the
- * best-known MCP services) and the rest under "More connectors" behind Show all. A card opens its page (onOpen); its +
- * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. A phone (below
- * 768 px): one row per service with hairlines between, no framed tiles (docs/DECISIONS.md "Admin and Settings on
- * phones"). */
-export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, customNote, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
-  /** its heading's id (useSectionIds) */
-  titleId: string
-  connected: Pick<Integration, 'url'>[]
-  query: string
-  onAdd: (c: Connector) => void
-  /** add one that is not listed, by its address (owners and admins); without it the line says to ask an admin */
-  onCustom?: () => void
-  /** without onCustom: what the line says instead of asking an admin (an admin on a phone: do it on a computer) */
-  customNote?: string
-  builtIns?: BuiltInCard[]
-  onAddBuiltIn?: (id: string) => void
-  /** open a service's page */
-  onOpen?: (c: Connector) => void
-  onOpenBuiltIn?: (id: string) => void
-  className?: string
-}) {
+/** One Discover row: logo, name, one line, and one + on the right (for one the team has not set up yet: an owner or
+ * admin "Set up", a member "Not set up yet" or "Asked"). The row opens its page. */
+export function DiscoverCard({ c, admin }: { c: DiscoverItem; admin: boolean }) {
   const t = useT()
-  const moreId = useId()
-  const [all, setAll] = useState(false)
-  const urls = connected.map((i) => i.url)
-  const q = query.trim()
-  const hits = discoverHits(t, query, builtIns)
-  if (!hits.count) return null
-  const cards = [
-    ...hits.built.map((b) => (
-      <DiscoverCard key={b.id} id={b.id} logo={b.logo} name={b.name} line={b.line} by={t('connectors.builtIn')} official state={b.state}
-        onOpen={onOpenBuiltIn ? () => onOpenBuiltIn(b.id) : undefined} onAdd={() => onAddBuiltIn?.(b.id)} />
-    )),
-    ...hits.listed.map((c) => (
-      <DiscoverCard key={c.id} id={c.id} logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} by={t('connectors.by', { maker: c.name })} official
-        state={isConnected(c, urls) ? 'added' : 'available'} onOpen={onOpen ? () => onOpen(c) : undefined} onAdd={() => onAdd(c)} />
-    )),
-  ]
-  // a search shows every match in one list; otherwise the best-known first, the rest behind Show all
-  const top = q ? cards : cards.slice(0, TOP_CONNECTORS)
-  const more = q ? [] : cards.slice(TOP_CONNECTORS)
   return (
-    <section aria-labelledby={titleId} className={className} data-testid="connector-discover">
-      <h3 id={titleId} tabIndex={-1} className={`mb-3 ${sectionTitleCls}`} data-testid="connector-discover-title">{t('connectors.discover')}</h3>
-      <div className="mb-3 flex items-center gap-2">
-        <h4 className="flex items-center gap-2 text-sm font-medium text-muted">
-          {q ? t('connectors.results') : t('connectors.top')}
-          <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums" data-testid="connector-count">{hits.count}</span>
-        </h4>
-        {more.length > 0 && (
-          // a text link; on a phone 44 px tall (QA TC-262)
-          <button type="button" className="ml-auto flex items-center gap-1 text-sm text-muted hover:text-ink max-md:min-h-11" aria-expanded={all} aria-controls={moreId} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
-            {all ? t('connectors.showLess') : t('connectors.showAll')} <ArrowRight size={14} aria-hidden className={all ? '-rotate-90' : ''} />
-          </button>
-        )}
-      </div>
-      <ul className={listCls} data-testid="connector-list">{top}</ul>
-      {more.length > 0 && (
-        <div id={moreId} hidden={!all} className="mt-6">
-          <h4 className="mb-3 text-sm font-medium text-muted">{t('connectors.more')}</h4>
-          <ul className={listCls} data-testid="connector-list-more">{more}</ul>
-        </div>
-      )}
-      <p className="mt-5 text-sm text-muted" data-testid="connector-not-listed">
-        {t('integrations.discover.customHint')}{' '}
-        {onCustom ? (
-          <button type="button" className="font-medium text-accent-text underline underline-offset-2" onClick={onCustom} data-testid="connector-custom">
-            {t('integrations.discover.custom')}
-          </button>
-        ) : (
-          // members: the address form (kind, sign-in method, headers, scopes) is an admin's job, like a custom app in
-          // Slack or Notion; the admin adds it for the team or asks the member to connect it (Ask a member to connect…)
-          customNote ? <span data-testid="connector-custom-note">{customNote}</span> : <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
-        )}
-      </p>
-    </section>
-  )
-}
-
-/** The cards' list: two columns of tiles; a phone, one row each with a hairline between. */
-const listCls = 'grid gap-3 md:grid-cols-2 max-md:gap-0 max-md:divide-y max-md:divide-line max-md:border-y max-md:border-line'
-
-/** One Discover card: logo, name (a check for an official listing), one line, "by <maker>", and + or ✓ on the right.
- * The card opens the service's page; the + adds it without opening it. A phone: a row, the line cut to one, no "by"
- * (the service's page says it), and a + of 44 px. */
-function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd }: {
-  id: string
-  logo: string
-  name: string
-  line: string
-  by: string
-  official?: boolean
-  state: 'added' | 'available' | 'off'
-  onOpen?: () => void
-  onAdd: () => void
-}) {
-  const t = useT()
-  const body = (
-    <>
-      <LogoTile src={logo} className="size-11 max-md:size-9" />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1 text-sm font-medium">
-          <span className="truncate">{name}</span>
-          {official && <Tooltip label={t('connectors.officialTip')} description><BadgeCheck size={14} className="shrink-0 text-muted" role="img" aria-label={t('connectors.official')} /></Tooltip>}
+    <li className="flex items-center gap-3 border-b border-line py-3" data-testid="connector-card" data-id={c.id} data-state={c.state}>
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2 max-md:min-h-11" onClick={c.onOpen} data-testid="connector-open">
+        <LogoTile src={c.logo} className="size-10 rounded-xl p-2" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{c.name}</span>
+          <span className="mt-0.5 line-clamp-1 text-xs text-muted">{c.line}</span>
         </span>
-        <span className="mt-0.5 line-clamp-2 text-xs text-muted max-md:line-clamp-1">{line}</span>
-        <span className="mt-1 block text-xs text-faint max-md:hidden">{by}</span>
-      </span>
-    </>
-  )
-  return (
-    <li className="relative flex items-start gap-3 rounded-xl bg-subtle p-3 transition hover:bg-hover max-md:items-center max-md:rounded-none max-md:bg-transparent max-md:px-0 max-md:py-1.5 max-md:hover:bg-transparent" data-testid="connector-card" data-id={id}>
-      {onOpen ? (
-        <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2 max-md:items-center" onClick={onOpen} data-testid="connector-open">
-          {body}
-        </button>
+      </button>
+      {c.state === 'off' && !admin ? (
+        <span className="max-w-28 shrink-0 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
+      ) : c.state === 'off' ? (
+        <Link to="/admin/connectors" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
       ) : (
-        <span className="flex min-w-0 flex-1 items-start gap-3">{body}</span>
-      )}
-      {state === 'added' ? (
-        <Tooltip label={t('integrations.discover.added', { name })}>
-          <span className="flex size-8 shrink-0 items-center justify-center text-ok max-md:size-11" role="img" aria-label={t('integrations.discover.added', { name })} data-testid="connector-added">
-            <Check size={16} aria-hidden />
-          </span>
-        </Tooltip>
-      ) : state === 'off' ? (
-        <span className="shrink-0 pt-1.5 text-xs text-faint max-md:pt-0" data-testid="connector-off">{t('connectors.notOn')}</span>
-      ) : (
-        <IconButton label={t('integrations.discover.add', { name })} className="shrink-0 max-md:size-11" onClick={onAdd} data-testid="connector-add">
+        <IconButton label={t('integrations.discover.add', { name: c.name })} className="shrink-0 rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />
         </IconButton>
       )}
@@ -233,13 +112,15 @@ function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd
 
 /** A connector's page inside the same window, like Claude's: back to the list, a big logo, the name and one line with the
  * main action on the right, a short description, and the tools the AI gets from it. */
-export function ConnectorDetail({ logo, name, line, official, action, description, tools, toolsNote, noTools, onBack, children, testId }: {
+export function ConnectorDetail({ logo, name, line, official, action, description, address, tools, toolsNote, noTools, onBack, children, testId }: {
   logo: string
   name: string
   line: string
   official?: boolean
   action?: ReactNode
   description: string
+  /** before it is connected: the address it signs in at (QA TC-132) */
+  address?: string
   /** the tool names (once connected, the service's own list) */
   tools?: string[]
   /** instead of tools: why there are none to show yet */
@@ -285,6 +166,7 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
         ) : (
           <p className="text-sm text-muted" data-testid="connector-tools-note">{toolsNote ?? t('connectors.toolsAfter')}</p>
         )}
+        {address && <p className="mt-2 text-xs break-all text-faint" data-testid="connector-address">{t('connectors.addressLine', { address })}</p>}
       </div>}
     </section>
   )
@@ -301,16 +183,18 @@ export function InitialTile({ name, className }: { name: string; className?: str
 }
 
 /** What one row of "Your connectors" says on its right: one status or one button, nothing else. */
-export type RowStatus = 'connected' | 'signin' | 'reconnect' | 'attention' | 'connect'
+export type RowStatus = 'connected' | 'on' | 'signin' | 'reconnect' | 'attention' | 'connect'
 
 /** One row of Connectors' "Your connectors", like Claude's list: logo, name (a small "Team" label for what the team
  * provides) and one status on the right. The row opens the connector's page, where everything else is (switches,
  * errors, "Run without asking", disconnect). `onConnect`: the Connect button (a team template not connected yet). */
-export function ConnectorRow({ id, logo, name, team, status, onOpen, onConnect, testId = 'connected-app' }: {
+export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onConnect, testId = 'connected-app' }: {
   id: string
   logo?: string
   name: string
   team?: boolean
+  /** after the name: what needs attention (Admin: nobody may use it) */
+  note?: ReactNode
   status: RowStatus
   onOpen: () => void
   onConnect?: () => void
@@ -325,9 +209,10 @@ export function ConnectorRow({ id, logo, name, team, status, onOpen, onConnect, 
         <span className="min-w-0 truncate text-sm font-medium">{name}</span>
         {team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
       </button>
-      {status === 'connected' ? (
+      {note}
+      {status === 'connected' || status === 'on' ? (
         <span className="flex shrink-0 items-center gap-1 text-xs text-muted" data-testid="connector-row-status">
-          <Check size={14} className="text-ok" aria-hidden /> {t('drive.status.connected')}
+          <Check size={14} className="text-ok" aria-hidden /> {t(status === 'on' ? 'appConnectors.on' : 'drive.status.connected')}
         </span>
       ) : status === 'signin' ? (
         <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>

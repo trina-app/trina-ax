@@ -13,7 +13,7 @@ const control = (page: Page, path: string, body: object) => page.request.post(pa
 const googleApps = (page: Page, body: object) => control(page, '/__test/google-apps', body)
 const fakeGoogle = (page: Page) => page.context().route('https://accounts.google.com/**', (r) => r.fulfill({ contentType: 'text/html', body: '<p>Synthetic Google consent</p>' }))
 
-test('the sidebar opens Connectors: Discover lists what can be added first, the Google apps not set up last with Set up; the search filters', async ({ page }) => {
+test('the sidebar opens Connectors: Discover lists the Google ones first (QA TC-138, also not set up, with Set up); the search filters', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -21,14 +21,11 @@ test('the sidebar opens Connectors: Discover lists what can be added first, the 
   await expect(page).toHaveURL(/\/connectors$/)
   await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
   const ids = await page.getByTestId('connector-list').getByTestId('connector-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))
-  // nothing set up on this server: what can be added now comes first, the Google ones after Show all
-  expect(ids[0]).toBe('notion')
+  // the Google ones first, in their order, also when not set up yet; then the listed services
   expect(ids).toHaveLength(10)
-  expect(ids).not.toContain('gmail')
+  expect(ids.slice(0, 6)).toEqual(['google-drive', 'gmail', 'calendar', 'docs', 'sheets', 'notion'])
   await page.getByTestId('connector-show-all').click()
   await expect(page.getByTestId('connector-list').getByTestId('connector-card')).not.toHaveCount(10)
-  const all = await page.getByTestId('connector-list').getByTestId('connector-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))
-  expect(all.slice(-5)).toEqual(['google-drive', 'gmail', 'calendar', 'docs', 'sheets'])
   // the owner gets the way to set them up instead of a +
   await expect(card(page, 'gmail').getByTestId('connector-set-up')).toHaveAttribute('href', '/admin/connectors')
   await expect(card(page, 'gmail').getByTestId('connector-add')).toHaveCount(0)
@@ -130,10 +127,11 @@ test('Admin sets up Gmail with the same Google app as Drive, per card; members c
   expect((await put).postDataJSON()).toEqual({ sameAsDrive: true })
   await expect(detail.getByTestId('gapp-admin-state')).toHaveAttribute('data-state', 'on')
   await expect(detail.getByTestId('gapp-admin-same')).toBeVisible()
-  await expect(detail.getByTestId('gapp-admin-members-switch')).toBeChecked()
-  await expect(detail.getByTestId('gapp-admin-count')).toBeVisible()
+  // no members' switch: Team settings says who can use it
+  await expect(detail.getByTestId('gapp-admin-members-switch')).toHaveCount(0)
+  await expect(detail.getByTestId('team-who')).toBeVisible()
   // the other cards are their own: Calendar is still not set up
-  await page.getByTestId('connector-back').click()
+  await page.getByTestId('app-breadcrumb-connectors').click()
   await card(page, 'calendar').getByTestId('connector-open').click()
   await expect(page.getByTestId('gapp-admin-detail').getByTestId('gapp-admin-state')).toHaveAttribute('data-state', 'not_set_up')
   expect(realErrors(errors)).toEqual([])
@@ -162,9 +160,10 @@ test('not available: the reason in plain words, Connect off; an admin gets the w
   await expect(detail.getByTestId('gapp-unavailable')).toHaveCount(0)
   await expect(detail.getByTestId('gapp-admin-link')).toHaveCount(0)
   await expect(detail.getByTestId('gapp-connect')).toHaveCount(0)
+  // set up: Connect at once (no members' switch, an old "members: false" changes nothing)
   await googleApps(page, { app: 'gmail', client: 'app', members: false })
   await page.reload()
-  await expect(detail.getByTestId('gapp-unavailable')).toHaveAttribute('data-reason', 'members_off')
+  await expect(detail.getByTestId('gapp-connect')).toBeEnabled()
   await googleApps(page, { app: 'gmail', reason: 'unsupported' })
   await page.reload()
   await expect(detail.getByTestId('gapp-unavailable')).toHaveAttribute('data-reason', 'unsupported')

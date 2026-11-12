@@ -386,6 +386,11 @@ test('automatic updates on: the item says when it installs, with no button; a re
     await page.goto('/admin')
     await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.paused'].replace('{version}', '0.3.0').replace('{product}', PRODUCT.displayName))
     await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toHaveCount(0)
+    // Admin › System says the same and offers no install either (QA TC-361: it showed "New version" and Install update)
+    await page.goto('/admin/system/updates')
+    await expect(page.getByTestId('update-paused')).toHaveText(t['adminHome.update.paused'].replace('{version}', '0.3.0').replace('{product}', PRODUCT.displayName))
+    await expect(page.getByRole('button', { name: t['system.installUpdate'] })).toHaveCount(0)
+    await expect(page.getByTestId('update-needs-root')).toHaveCount(0)
   }
   // a release that needs root waits for this server's turn too: the update timer installs it then; never by itself: the command
   {

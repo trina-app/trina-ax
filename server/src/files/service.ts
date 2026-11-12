@@ -10,7 +10,7 @@ import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { audit } from '../admin/audit'
-import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { writeLimitText } from '../policy/refusal'
@@ -218,6 +218,8 @@ export class FileService {
     recoverPublications(db, cfg.teamRoot)
     relockWorkedChats(db)
     this.fx = { quarantine: this.quarantine, root: cfg.teamRoot, caseInsensitive: detectCaseInsensitive(cfg.teamRoot) }
+    // only the lowercase projects/ is the members-only root on a case-sensitive disk (policy/access.ts isProjectsName)
+    setProjectsCaseInsensitive(this.fx.caseInsensitive)
     this.office = new OfficeCache(path.join(cfg.dataDir, 'textcache'), this.fx, { pandoc: cfg.pandoc, pdftotext: cfg.pdftotext, ocr: cfg.ocr, quarantine: this.quarantine })
     this.speech = transcribeConfig(cfg.dataDir)
     this.transcripts = new media.TranscriptCache(path.join(cfg.dataDir, 'mediacache'))

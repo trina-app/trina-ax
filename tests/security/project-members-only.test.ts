@@ -144,7 +144,8 @@ describe('the owner and an admin who are not members read nothing of it', () => 
       expect(a.status).toBe(409); expect(b.status).toBe(409)
       expect(a.json.error.params.reason).toBe('project_members_only'); expect(b.json.error.params.reason).toBe('project_members_only')
       expect((await raw(who, 'POST', '/api/admin/folders', { path: DIR, create: false, rules: [{ subjectType: 'user', subjectId: who, access: 'write' }] })).status).toBe(409)
-      expect((await raw(who, 'POST', '/api/admin/folders', { path: 'Projects/Plan', create: false, rules: [] })).status).toBe(409)
+      // (Projects/ is projects/ only where the disk ignores case: docs/DECISIONS.md "Only the lowercase projects/")
+      if (h.ctx.files.fx.caseInsensitive) expect((await raw(who, 'POST', '/api/admin/folders', { path: 'Projects/Plan', create: false, rules: [] })).status).toBe(409)
       // (the row's id from the database: this fixture's ids are not the UUIDs GET /api/admin/folders answers with)
       const row = h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(DIR) as { id: string }
       expect((await raw(who, 'PUT', `/api/admin/folders/${row.id}/rules`, { rules: [{ subjectType: 'user', subjectId: who, access: 'write' }] })).status).toBe(409)

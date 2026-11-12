@@ -55,7 +55,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
   const team = r.scope === 'team' && r.target === 'service'
   const trust = cardTrust(r)
   /** the name the card uses: an unknown service that calls itself a listed one is named by its host */
-  const name = trust.kind === 'unlisted' ? trust.display : r.name
+  const name = trust.kind === 'unlisted' || trust.kind === 'template' ? trust.display : r.name
   const phone = !!mobileApp()
   const secure = canSeal()
   const flow = signIn.state
@@ -171,6 +171,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
       aria-labelledby={`${id}-title`}
       data-testid="connect-card"
       data-case={kase}
+      data-reconnect={r.reconnect ? 'yes' : undefined}
       onSubmit={(e) => {
         e.preventDefault()
         if (kase === 'key') void connectKey()

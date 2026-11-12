@@ -233,6 +233,14 @@ export const SPECS: Record<string, Spec> = {
     } },
   listProjects: { build: (c) => c.get('/api/projects'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceProjInstr)) throw new Error(`${who} sees alice's private-folder project`) } },
+  // the one card on Admin › Home about team projects from before 0.5.0 (members-only projects): each person's own card,
+  // empty for everyone who was not the owner or an admin at the update; joining adds the caller only to the projects on
+  // their own card (none for a member), dismissing hides it for the caller
+  getProjectsUpdateNotice: { build: (c) => c.get('/api/projects/update-notice'), scope: 'self',
+    check: (r, w, who) => { if (who !== 'owner' && who !== 'admin' && r.status < 300 && r.json?.items?.length) throw new Error(`${who} got a projects update card`) } },
+  joinProjectsUpdateNotice: { build: (c) => c.post('/api/projects/update-notice/join'), scope: 'self',
+    check: (r, w, who) => { if (who !== 'owner' && who !== 'admin' && r.status < 300 && r.json?.joined) throw new Error(`${who} joined projects from a card they never had`) } },
+  dismissProjectsUpdateNotice: { build: (c) => c.post('/api/projects/update-notice/dismiss'), scope: 'self' },
   // a team project: any member makes one (a new projects/<name>; the team setting may keep it to admins), never on an
   // existing folder such as shared/ (400 project_location for everyone)
   createProject: { build: (c) => c.post('/api/projects', { name: 'p', participants: [], instructions: '' }), scope: 'self',

@@ -116,7 +116,8 @@ export const memoriesRoutes: RouteModule = {
     function lastOf(s: ScheduleRow) {
       const last = rt.schedules.lastResult(s.user_id, s.id)
       const lastOutcome = last?.outcome ?? null
-      return { lastOutcome, lastOutcomeAt: last?.at ?? null, running: rt.schedules.isRunning(s), lastNeed: lastOutcome === 'needs_key' ? rt.schedules.lastNeed(s.user_id, s.id) : null }
+      return { lastOutcome, lastOutcomeAt: last?.at ?? null, running: rt.schedules.isRunning(s), lastNeed: lastOutcome === 'needs_key' ? rt.schedules.lastNeed(s.user_id, s.id) : null,
+        ...(last?.membersOnly ? { lastMembersOnly: true } : {}) }
     }
     kit.handle(API.listScheduleTemplates, () => ({ items: [...SCHEDULE_TEMPLATES], timeZone: rt.timeZone }))
     kit.handle(API.createScheduleFromTemplate, ({ auth, body }) => scheduleOut(createFromTemplate(ctx, rt, auth.user.id, body)))

@@ -7,7 +7,8 @@ import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { DriveAdminStatus, Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { DriveAdminDetail, DriveCard } from '../../src/components/integrations/DriveConnector'
+import { DriveCard } from '../../src/components/integrations/DriveConnector'
+import { DriveAdminPage } from '../../src/components/integrations/GoogleAdminPage'
 import type { DriveConnectionState } from '../../src/components/settings/DriveConnection'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
@@ -32,7 +33,7 @@ async function shown(ui: ReactNode) {
 }
 const card = () => shown(<DriveCard s={notSetUp} />)
 const admin: DriveAdminStatus = { configured: false, source: 'none', canSetUp: false, blocked: 'public_host', redirectUri: null, connectedMembers: 0 }
-const page = (s: DriveAdminStatus = admin) => shown(<DriveAdminDetail status={s} onSetUp={() => {}} onBack={() => {}} />)
+const page = (s: DriveAdminStatus = admin) => shown(<DriveAdminPage status={s} onSetUp={() => {}} onStatus={() => {}} />)
 
 describe('연결한 서비스: Google Drive not set up', () => {
   test('a member reads that an admin must turn it on, with Connect off', async () => {
@@ -82,7 +83,35 @@ describe('관리자 › 연결한 서비스 › Google Drive without a public ad
 test('Admin › Google Drive lists its tools in words, not drive_search / drive_list / drive_read', async () => {
   as('owner')
   const { text, html } = await page()
-  for (const w of ['Google Drive 검색', 'Google Drive 폴더 보기', 'Google Drive 파일 읽기']) expect(text).toContain(w)
+  for (const k of ['drive_search', 'drive_list', 'drive_read'] as const) expect(text).toContain(ko(`gapps.drive.tool.${k}`))
   for (const code of ['drive_search', 'drive_list', 'drive_read']) expect(text).not.toContain(code)
   expect(html).not.toContain('font-mono')
+})
+
+// The owner's decision (11-12): a server whose Google sign-in comes from the hosting service says so plainly, needs no
+// setup, and still has the team settings
+describe('관리자 › 연결한 서비스 › Google Drive from the hosting service', () => {
+  test('the hosting service line, no Set up and no ⋯; Team settings with who can use it once it is set up (no members\' switch)', async () => {
+    as('owner')
+    for (const [s, set] of [[{ ...admin, configured: true, source: 'service' as const, blocked: 'hosted' as const }, true], [{ ...admin, configured: false, source: 'none' as const, blocked: 'hosted' as const }, false]] as const) {
+      const { text, html } = await page(s)
+      expect(html).toContain('data-testid="drive-by-service"')
+      expect(text).toContain(ko('appConnectors.byService'))
+      expect(html).not.toContain('data-testid="drive-setup"')
+      expect(html).not.toContain('data-testid="drive-setup-menu"')
+      expect(html.includes('data-testid="team-settings"')).toBe(set)
+      expect(html.includes('data-testid="team-who"')).toBe(set)
+      expect(html).not.toContain('switch')
+    }
+  })
+  test('its own setup: Set up while not set up, Change setup in ⋯ once it is', async () => {
+    as('owner')
+    const fresh = await page({ ...admin, blocked: null, canSetUp: true, redirectUri: 'https://team.example.test/cb' })
+    expect(fresh.html).toContain('data-testid="drive-setup"')
+    expect(fresh.html).not.toContain('data-testid="team-settings"')
+    const done = await page({ ...admin, configured: true, source: 'app', blocked: null, canSetUp: true, redirectUri: 'https://team.example.test/cb' })
+    expect(done.html).toContain('data-testid="drive-setup-menu"')
+    expect(done.html).toContain('data-testid="team-settings"')
+    expect(done.html).not.toContain('data-testid="drive-by-service"')
+  })
 })

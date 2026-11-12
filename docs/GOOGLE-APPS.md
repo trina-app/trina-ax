@@ -76,9 +76,9 @@ The page cannot change a card when:
 - the server has no public address (`tunnel.host`): Google has nowhere to send people back;
 - this computer cannot run the library (the Mac app).
 
-**Members can connect their own Gmail** (and the same per app): on by default. Off: Connect is turned off, a sign-in
-is refused, and connections made before are kept but not used (`PUT /api/admin/google-apps/:app/members`, settings
-`integrations.googleApps.<app>.members`, audited `google_app.members_switch`). The switch is for everyone, admins too.
+**Everyone may connect their own Gmail** (and the same per app) once it is set up. There is no team switch any more
+(docs/DECISIONS.md "No members' switch for connectors", 2026-11-12): `PUT /api/admin/google-apps/:app/members` stays for
+older apps and changes nothing, and a stored `integrations.googleApps.<app>.members` "false" is ignored.
 
 ## What members see
 
@@ -91,7 +91,8 @@ is refused, and connections made before are kept but not used (`PUT /api/admin/g
 - Reading is free. Anything that changes or sends (a mail, an event, a document edit) shows the confirm card with
   everything it sends, and **Always allow** on it: the person's own choice for that app, which Settings turns back.
   After the person's chat read their team chat rooms, and in a room, every change asks again (other people's words could
-  have asked for it). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
+  have asked for it). So does every change in a chat that read something from outside, a mail included
+  ([DECISIONS.md](DECISIONS.md) "Connector write cards: outside content asks"). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
   pinned, otherwise nothing is sent.
 - In a team chat room, @트리나 may use the asker's own Google apps (only the asker's). What it found goes through the
   room's private answer: only the asker sees it until they share it.

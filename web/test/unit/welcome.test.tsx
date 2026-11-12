@@ -1316,7 +1316,7 @@ describe('the later steps and the end', () => {
     }
   })
 
-  test('도구 연결\'s Drive row: [연결] names both effects while members may not connect; Google\'s window, then "{account} 계정이 맞나요?"; 맞아요 confirms with membersOn and the primary appears; 다른 계정 goes back to [연결]', async () => {
+  test('도구 연결\'s Drive row: [연결], Google\'s window, then "{account} 계정이 맞나요?"; 맞아요 confirms (no members\' switch any more, even with an old personalAllowed: false) and the primary appears; 다른 계정 goes back to [연결]', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     let drive: Record<string, unknown> = { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: false, teamShares: [] }
@@ -1331,7 +1331,7 @@ describe('the later steps and the end', () => {
     const m = await app()
     try {
       await m.until(() => m.find('welcome-tools-drive-line'), 'the Drive row')
-      expect(m.get('welcome-tools-drive-line').textContent).toBe('트리나가 내 드라이브를 읽어요(읽기만) · 연결하면 팀원도 각자 자기 드라이브를 연결할 수 있게 돼요')
+      expect(m.get('welcome-tools-drive-line').textContent).toBe(translate('ko', 'welcome.tools.driveLine', { ai: '트리나' }))
       await m.click('welcome-tools-drive-connect')
       await m.until(() => m.find('welcome-tools-drive-confirm'), 'the account to confirm', 5000)
       expect(m.get('welcome-tools-drive-confirm').textContent).toContain('olga@acme.example 계정이 맞나요?')
@@ -1343,7 +1343,7 @@ describe('the later steps and the end', () => {
       await m.click('welcome-tools-drive-connect')
       await m.click(await m.until(() => m.find('welcome-tools-drive-yes'), 'the account to confirm again', 5000))
       await m.until(() => m.find('welcome-tools-drive-connected'), 'connected')
-      expect(called('POST /api/integrations/google-drive/flows/flow-1/complete').map((c) => c.body)).toEqual([{ membersOn: true }])
+      expect(called('POST /api/integrations/google-drive/flows/flow-1/complete').map((c) => c.body)).toEqual([{}])
       expect(m.get('welcome-tools-drive-connected').textContent).toBe('연결됨 · olga@acme.example')
       // the primary replaces 나중에 하기
       expect(m.get('welcome-tools-next').textContent).toBe('다음: 팀원 초대')

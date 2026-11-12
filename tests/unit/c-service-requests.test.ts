@@ -40,7 +40,7 @@ const openRows = (service?: string) => (A.ctx.db.query(`SELECT user_id, service 
 const setUpGmail = async (app = 'gmail') => expect((await send('carol', 'PUT', `/api/admin/google-apps/${app}/client`, { clientId: APP_CLIENT.clientId, clientSecret: APP_CLIENT.clientSecret })).status).toBe(200)
 const noAdminNames = (text: string) => { for (const n of ADMIN_NAMES) expect(text).not.toContain(n) }
 
-test('only the catalog\'s apps, only members, never an app the member can connect or one turned off for members', async () => {
+test('only the catalog\'s apps, only members, never an app the member can connect', async () => {
   // anything but Google Drive and the Google apps: refused before anything is written
   for (const s of ['notion', 'slack', 'https://mcp.notion.com/mcp', '../gmail', 'Gmail', 'gmail ', '<b>gmail</b>', 'x'.repeat(64)]) {
     const r = await ask('alice', s)
@@ -61,12 +61,10 @@ test('only the catalog\'s apps, only members, never an app the member can connec
   const r = await ask('alice', 'gmail')
   expect(r.status).toBe(409)
   expect(r.body.error.params.reason).toBe('can_connect')
-  // set up but turned off for members: the admin chose that, so there is no request to make
+  // no members' switch: the old call to turn it off changes nothing, so it is still one the member can connect
   await setUpGmail('docs')
   expect((await send('carol', 'PUT', '/api/admin/google-apps/docs/members', { on: false })).status).toBe(200)
-  const off = await ask('alice', 'docs')
-  expect(off.status).toBe(409)
-  expect(off.body.error.params.reason).toBe('not_requestable')
+  expect((await ask('alice', 'docs')).body.error.params.reason).toBe('can_connect')
   expect(openRows()).toEqual([])
   expect(await notices('carol', 'service.request')).toEqual([])
 })
@@ -162,20 +160,17 @@ test('a Google app set up: the requests close, each asker gets one quiet notice,
   expect(await notices('alice', 'service.ready')).toHaveLength(1)
 })
 
-test('Google Drive set up in Admin › Connected apps closes its requests; turned off for members it waits for the switch', async () => {
+test('Google Drive set up in Admin › Connectors closes its requests (the old members\' switch changes nothing)', async () => {
   const before = await send('alice', 'GET', '/api/integrations/google-drive')
   expect(before.body.configured).toBe(false)
   expect((await ask('alice', 'google-drive')).body.state).toBe('sent')
-  // the members' switch off first: set up, but members still cannot connect it, so the request waits
+  // the old members' switch, sent "off" first, changes nothing: once it is set up the request closes
   expect((await send('dana', 'PUT', '/api/admin/google-drive/members', { on: false })).status).toBe(200)
   const file = JSON.stringify({ web: { client_id: 'synthetic-drive.apps.googleusercontent.com', client_secret: 'CANARY-drive-secret-41', redirect_uris: [DRIVE_REDIRECT] } })
   expect((await send('dana', 'PUT', '/api/admin/google-drive/client', { file })).status).toBe(200)
-  expect(openRows('google-drive')).toHaveLength(1)
-  expect(await notices('alice', 'service.ready')).toEqual([])
-  // and nobody can ask for it now: it is not "not set up"
-  expect((await ask('bob', 'google-drive')).body.error.params.reason).toBe('not_requestable')
-  expect((await send('dana', 'PUT', '/api/admin/google-drive/members', { on: true })).status).toBe(200)
   expect(openRows('google-drive')).toEqual([])
+  // and nobody can ask for it now: they can connect it
+  expect((await ask('bob', 'google-drive')).body.error.params.reason).toBe('can_connect')
   expect((await notices('alice', 'service.ready'))[0]).toMatchObject({ serviceRequest: { service: 'google-drive' } })
   expect((await notices('dana', 'service.request'))[0]).toMatchObject({ serviceRequest: { service: 'google-drive', open: false, added: true } })
   noAdminNames(JSON.stringify(await inbox('alice')))

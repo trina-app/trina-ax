@@ -46,6 +46,8 @@ interface ChatsState {
   threads: Record<string, Thread>
   /** messageId -> estimated dispatch rank (1 = first queued, 0 = running), not turns ahead */
   queue: Record<string, number>
+  /** messageId -> true while the AI provider is busy and the engine tries again (turn.busy, QA TC-388) */
+  busy: Record<string, true>
   /** open ask_user / browser_site / dev_env_site / connect_service cards by requestId */
   requests: Record<string, OpenRequest>
   /** chatId -> key -> artifact being written or just saved */
@@ -180,6 +182,7 @@ const initial = () => ({
   chatsLoaded: false,
   threads: {} as Record<string, Thread>,
   queue: {} as Record<string, number>,
+  busy: {} as Record<string, true>,
   requests: {} as Record<string, OpenRequest>,
   liveArtifacts: {} as Record<string, Record<string, LiveArtifact>>,
   artifactsRev: {} as Record<string, number>,
@@ -295,6 +298,16 @@ export const useChats = create<ChatsState>((set, get) => {
     if (l.events.length < PENDING_EVENTS_MAX) l.events.push(ev)
     else l.again = true
     return true
+  }
+
+  /** the busy line goes when the answer shows text or a step, or ends */
+  const clearBusy = (messageId: string) => {
+    if (!get().busy[messageId]) return
+    set((s) => {
+      const b = { ...s.busy }
+      delete b[messageId]
+      return { busy: b }
+    })
   }
 
   const clearQueue = (messageId: string) => {
@@ -611,6 +624,7 @@ export const useChats = create<ChatsState>((set, get) => {
           const { chatId, messageId, offset, text, reset } = ev.data
           const d = { messageId, offset, text, ...(reset ? { reset } : {}) }
           clearQueue(messageId)
+          if (text) clearBusy(messageId)
           remember(outputMessages, messageId)
           if (held(chatId, ev) || !get().threads[chatId]) return
           const r = applyDelta(thread(chatId).messages, d)
@@ -628,6 +642,7 @@ export const useChats = create<ChatsState>((set, get) => {
         case 'message.step': {
           const { chatId, messageId, step } = ev.data
           clearQueue(messageId)
+          clearBusy(messageId)
           remember(outputMessages, messageId)
           if (held(chatId, ev) || !get().threads[chatId]) return
           const r = applyStep(thread(chatId).messages, messageId, step)
@@ -644,12 +659,21 @@ export const useChats = create<ChatsState>((set, get) => {
         case 'message.done': {
           const { chatId, message } = ev.data
           clearQueue(message.id)
+          clearBusy(message.id)
           remember(finishedMessages, message.id)
           set((s) => ({ artifactsRev: { ...s.artifactsRev, [chatId]: (s.artifactsRev[chatId] ?? 0) + 1 } }))
           if (!get().threads[chatId]) { pendingOf(message.id).done = message; return }
           const r = applyDone(thread(chatId).messages, message)
           if (r) setThread(chatId, (t) => ({ ...t, messages: r }))
           else pendingOf(message.id).done = message
+          return
+        }
+        case 'turn.busy': {
+          const { messageId, busy } = ev.data
+          // a late frame for an answer that already ended is ignored; an answer with text or steps can be busy again (the
+          // next request after a tool step), and the server says busy: false before that request's text
+          if (!busy || finishedMessages.has(messageId)) clearBusy(messageId)
+          else if (!get().busy[messageId]) set((s) => ({ busy: { ...s.busy, [messageId]: true } }))
           return
         }
         case 'queue.position':
@@ -708,5 +732,7 @@ export const useChats = create<ChatsState>((set, get) => {
   }
 })
 
+/** The AI provider is busy for this answer and the engine tries again (turn.busy, QA TC-388). */
+export const useProviderBusy = (messageId: string | undefined) => useChats((s) => (messageId ? !!s.busy[messageId] : false))
 /** Queue position of a message, or undefined when not queued. */
 export const useQueuePosition = (messageId: string | undefined) => useChats((s) => (messageId ? s.queue[messageId] : undefined))

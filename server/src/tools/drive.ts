@@ -5,7 +5,7 @@ import { addSources } from '../chat/read-scope'
 import { googleDriveOf, type DriveConn } from '../integrations/google-drive/oauth'
 import { listDrive, readDrive, scopeOf, type FolderScope } from '../integrations/google-drive/read'
 import { DriveError } from '../integrations/google-drive/store'
-import { foldersOf, membersCanConnect, shareRow, usableShare, usableShares, type ShareRow } from '../integrations/google-drive/shares'
+import { foldersOf, shareRow, usableShare, usableShares, type ShareRow } from '../integrations/google-drive/shares'
 import { ToolError } from '../policy/errors'
 import type { ToolRegistry } from './registry'
 
@@ -33,7 +33,7 @@ export function registerDriveTools(ctx: AppContext, reg: ToolRegistry): boolean 
   /** The sources this person may use now, by label. */
   function labels(user: string) {
     const svc = googleDriveOf(ctx), own = svc.store.connection(user)
-    const mine = membersCanConnect(ctx.db) && !!own && own.status === 'connected' && own.config_key === svc.key
+    const mine = !!own && own.status === 'connected' && own.config_key === svc.key
     return { mine, shares: usableShares(ctx.db, user, svc.key) }
   }
   function resolve(user: string, wanted: string | undefined): Source {
@@ -41,11 +41,10 @@ export function registerDriveTools(ctx: AppContext, reg: ToolRegistry): boolean 
     svc.checkShareOwners()
     const { mine, shares } = labels(user)
     const all = [...(mine ? ['mine'] : []), ...shares.map((r) => `team:${r.name}`)]
-    const on = membersCanConnect(ctx.db), own = svc.store.connection(user)
+    const own = svc.store.connection(user)
     let share: ShareRow | undefined
     // their own: asked for, or left out while it works (or there is nothing else: its own error says what to do)
-    if (wanted === 'mine' || (!wanted && on && own && (mine || !shares.length))) {
-      if (!on) throw new DriveError('members_off', 403)
+    if (wanted === 'mine' || (!wanted && own && (mine || !shares.length))) {
       if (!own) throw new DriveError('needs_reconnect', 409)
       return { label: 'mine', conn: svc.userConn(user), fence: () => svc.store.assertCurrent(own) }
     }
@@ -53,7 +52,7 @@ export function registerDriveTools(ctx: AppContext, reg: ToolRegistry): boolean 
       share = shares.find((r) => `team:${r.name}`.toLocaleLowerCase() === wanted.toLocaleLowerCase())
       if (!share) throw new ToolError(`drive_source_unknown: ${all.length ? `the sources here are ${all.map((x) => JSON.stringify(x)).join(', ')}` : 'no Google Drive is connected or shared with this person'}`)
     } else share = shares[0]
-    if (!share) throw new DriveError(on ? 'needs_reconnect' : 'members_off', on ? 409 : 403)
+    if (!share) throw new DriveError('needs_reconnect', 409)
     const row = share
     // the rule, the share (same version: folders unchanged) and its admin, again: before and after the call
     const fence = () => { const now = shareRow(ctx.db, row.id); if (!now || now.version !== row.version || !usableShare(ctx.db, now, user, svc.key)) throw new DriveError('not_found', 404) }

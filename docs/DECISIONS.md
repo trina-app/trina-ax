@@ -3186,6 +3186,28 @@ only themselves. The owner chose the safest defaults for the open questions:
   back to waiting and reloads the chat; any other failure shows on the sent message as "not sent [send again]".
 - Limit: per device. A message queued on the phone is not shown on the desktop, and goes when the phone app runs again.
 
+## "The AI service is busy" while the engine retries a 429 (fix/ai-busy-line, 2026-11-12, QA TC-388)
+
+- **Problem.** A short 429 (rate limit) or a 529 (overloaded) from the AI provider goes back to Claude Code unchanged,
+  and the engine retries by itself. In TC-388, 30 people asked while the provider answered 429 for 120 s. All 30
+  answers came at the end, but for about two minutes people saw only the thinking dots and no reason.
+- **Decision.** The model proxy (Anthropic path, `server/src/proxy/model-proxy.ts`) tells the turn
+  `{ type: 'busy', on: true }` on a short 429 or a 529, and `on: false` on the next 2xx of that turn, only after an
+  "on". The turn sends the realtime frame `turn.busy` { chatId, messageId, turnId, busy } to the person's windows when
+  the state changes. The web app shows "The AI service is busy. Still trying…" under that running answer, in all five
+  languages (`chat.providerBusy`). It clears the line on the first text, a step, the end of the answer, or a
+  `busy: false` frame. A late frame for an answer that ended is ignored. An answer with text or steps can be busy again
+  (the next request after a tool step hits the limit): the line shows again.
+- **Why a frame, not a step or a notice.** A step stays in the answer's record after the wait is over. A notice is a
+  toast for the whole app and does not belong to one chat. The frame is optional: an older web app ignores it.
+- **Not covered.** Room answers have their own run status and do not get the line. Claude Code also retries 500/502/503
+  and an `overloaded_error` event inside a 200 stream; these show no line. The Codex path waits out a short 429 (retry
+  after 10 s or less, one retry) inside the proxy; its 5xx retries show no line. In one turn with several requests at
+  once (sub-agents), one request's answer clears "busy" while another still retries: the line can go off early.
+- Tests: `tests/unit/proxy-subscription.test.ts` (busy once on a short 429 or a 529, off on the next answer, nothing
+  more), `web/test/unit/busy-store.test.ts`. TC-388 re-test (real Claude Code, Mac mini): see the plan's Result.
+- Version impact: **patch**.
+
 ## Continue after the per-answer limit (feat/chat-continuity, 2026-10-30)
 
 - The limits stay as they are: 50 tool rounds (Claude Code `--max-turns`; 150 and an admin setting since 2026-10-31,
@@ -12671,6 +12693,28 @@ nothing.
 - Rejected: "@전체" as a reserved id in `mentions` (the list is user ids, checked as such by older builds); expanding it
   into every member's id when sent (the sent message would mark each person's "@name" it does not contain, and the
   stored list would grow with the room); @here (who is online is not something the rooms know).
+
+## Push gateway: an 8 s limit on FCM (fix/push-gateway-fcm-timeout, 2026-11-12, QA TC-387)
+
+- **Problem.** The FCM send call and the OAuth token call had no time limit (an APNs call ends after 15 s with no data). When FCM hung for more
+  than about 40 s, a push was lost: the team server stopped waiting after 10 s and retried 30 s later, the gateway
+  answered the retry `200` (duplicate) because the first send was still in flight, and when the first send failed the
+  gateway released the dedupe entry. Nothing sent the push again. The TC-387 hang probe lost 5 of 5 held Android pushes.
+- **Decision.** One `AbortSignal.timeout(FCM_TIMEOUT_MS)` (8 s) per FCM send, shared by the OAuth call and the send call,
+  answer read included (`push-gateway/src/fcm.ts`). A team server tries a failed push again 30 s or more later
+  (`server/src/notifications/push-service.ts`), so the first send has ended before the retry comes: the retry finds the
+  dedupe entry released (it sends) or kept after a delivery (200, correct). 8 s is also less than the team server's
+  usual 10 s wait, so that server usually gets 502 `provider_error`.
+- **Trade.** FCM may accept a message and answer after 8 s. The gateway then says 502 and the retry sends it again: the
+  phone can get it twice. Android replaces the first with the second (`collapse_key` and the notification `tag` are the
+  notificationId), so the person sees one. A lost push was the worse outcome.
+- **Not changed.** A dedupe hit while the first send is still in flight still answers `200`. With the limit, the first
+  send has ended before any retry can come (the team server waits 30 s), so a different answer is not needed now.
+- Tests: `tests/unit/push-gateway.test.ts` (a hanging FCM call and a hanging OAuth call answer 502, and the retry sends;
+  an error body that stops after the headers answers 502). The TC-387 hang probe: before 145 of 150 delivered (5 of 5
+  held Android pushes lost), after 150 of 150.
+- Version impact: **patch**.
+
 ## Microsoft Edge push through WNS (feat/edge-push, 2026-11-07)
 
 The owner approved Edge ("Edge 브라우저 푸시 ㄱㄱ"). Edge (Chromium) subscribes through the Windows Push Notification
@@ -22404,12 +22448,37 @@ task stayed on.
   members only; find them in Projects") — default 4 of "Project contents only for members" says none; the QA row
   expected one. (2) An ordinary 0.4.0 team folder inside a `Projects/` folder (any letter case, possible on Linux next
   to `projects/`) is now in the members-only zone: the owner and admins lose it while members keep it, until an admin
-  opens Projects and it is adopted as a project.
+  opens Projects and it is adopted as a project. Decided: "Only the lowercase projects/ folder on case-sensitive disks".
 - Tests: `tests/unit/b-projects-after-update.test.ts` (a 0.4.0-shaped team, the start steps, then the owner, another
   admin, the creator, a member and someone not in it; the owner's chat; the template task on the project, a template
   task on Shared that still runs, a project task; Add me).
 - Version impact: **patch** (a task that could no longer work is paused and its owner told; no API, data or permission
   change).
+
+## Only the lowercase projects/ folder on case-sensitive disks — 대소문자 구분 디스크에서는 소문자 projects/만 (fix/projects-lowercase-only, 2026-11-12, QA TC-360, product owner)
+
+넣을 곳: trina-ax core (`server/src/policy/access.ts`, `policy/zone.ts`, `files/service.ts`, `admin/folders.ts`,
+`admin/audit.ts`, `chat/members-only-once.ts`), 이유: folder permissions and projects are core. Plan:
+`docs/AGENTS/plan/20261112-0708-projects-lowercase-only.md`. Amends "Project contents only for members" (`projects`
+compared after lower-casing) and closes open point (2) of "Projects made on 0.4.0".
+
+- **The rule.** The projects root is the top folder named `projects` after NFC. Any other letter case is the same folder
+  only on a disk that ignores case (macOS APFS by default), as before; on a case-sensitive disk `Projects/` is an
+  ordinary team folder with its normal folder rules, so a 0.4.0 folder like `Projects/ClientA` is the owner's and
+  admins' again. One check, `isProjectsName` (`policy/access.ts`), set from the team folder's disk when the files service
+  starts (`detectCaseInsensitive`; until then it folds, which fails closed); every "under the projects root" decision
+  uses it: the zone, `projects/` itself, `isProjectsFolder`, the folders on disk, the activity log's path check, and the
+  first-start steps (their SQL `LIKE` ignores ASCII case, so its rows are checked again; adopted folders compare by
+  `volumeKey`). `projectOnFolder` and `templateProjectGone` already compared by `volumeKey`.
+- **Not changed:** skill folders (`Projects/x/skills` stays protected), `groups/`, the activity log's text cut (errs on
+  hiding), the web app's own `isProjectsTop` (it does not know the disk: at the top of `Projects/` on a case-sensitive
+  disk the Files page still hides its add buttons; the server allows them).
+- Tests: `tests/unit/b-projects-lowercase-only.test.ts` (a case-sensitive disk: `Projects/ClientA` by the normal rules
+  for the owner, an admin and a member, `projects/ClientA` members-only, the helpers, the folders on disk, the first
+  start keeps admins' role rules on `Projects/`; a disk that ignores case: unchanged; the team folder on the test disk);
+  tests that sent `Projects/` or `PROJECTS/` as the zone now do so only where the disk ignores case.
+- Version impact: **patch** (on case-sensitive disks the owner and admins get back ordinary folders named `Projects/`;
+  nothing changes elsewhere).
 
 ## Self-installed servers sign in to Google through the hosting service (feat/google-one-library, 2026-11-11)
 
@@ -22987,6 +23056,53 @@ Reverses "Message text from another member is data, shown as plain text in the a
   text. My own questions in an AI chat stay plain.
 - The AI step still treats another member's text as untrusted input.
 
+## Connector write cards: outside content asks, Always allow for every connector (fix/connector-approval-gate, 2026-11-12, QA TC-328, TC-130, TC-127)
+
+Plan: `docs/AGENTS/plan/20261112-0623-connector-approval-gate.md`.
+
+- **Outside content asks, whatever the rule (TC-328, security).** A change at any connection (an MCP tool that is not
+  read-only, `api_request`'s POST, PUT, PATCH or DELETE) goes without a card only when the chat holds nothing someone
+  else wrote. "Someone else wrote" is the chat's existing mark (`chats.session_tainted`: a web page or search, the
+  browser, another person's file, an attachment, project instructions, any connection's answer, including the same
+  service's, marked once the answer came back; `rooms_seen`); a chat row that is gone counts as outside. Not
+  `room_outside`: in the person's own chat it is set before any connection tool runs (`noteRoomTool`), the call being
+  checked included, so it means "a tool was used", not "something was read" (independent review: with it, the first
+  change of a clean chat already asked). It overrides a team connection's
+  "Run without asking", a person's own Always allow and a Google app's Always allow (`gate`, `outsideSeen`). Before,
+  only a room read made those ask, so a page from a service anyone can edit could have the AI send a team file to it
+  with no card. The card leads with a plain line on why it asks (unless the room line already does) and offers only
+  Send / Don't send: no Always allow on a card raised in such a chat, whatever the connection's rule (the words asking
+  for the change could be someone else's). Reads never ask. The owner confirmed the strict rule: a connection's own
+  reply counts. A write's own answer is outside content too, so a second change in the same chat asks
+  again; a new chat does not.
+- **Not changed here: scheduled runs.** Nobody answers a card there, so the rule would refuse every send after a web
+  read. A team "allow" connection still sends only when the schedule's card allowed it, a person's own only to the
+  recipients that card pinned. Whether a scheduled run should also refuse after outside content is the owner's call.
+- **Always allow on every connector's card (TC-130).** The card offers Send once, Always allow and Don't send (values
+  `allow`, `always`, `deny`, so a client that answers the yes / no card's values still works), with a line under the
+  buttons on what Always allow covers. Not offered in a room's session or after a room read (as for Google apps), nor
+  when the connection already sends without asking. Always allow is always the caller's own:
+  - their own connection (their own, one made from a team template, a Google app): its `write_policy` becomes `allow`,
+    as Google apps did (audited `integration.update` / `google_app.write_policy`, `via: card`). This widens "Run
+    without asking is for team connections only" (migration 322) to the owner's own choice made on a card; choosing it
+    in the Settings form stays team-only, a form that keeps it saves, and "Ask every time" on the row turns it back.
+  - a team connection: a row of their own in `integration_user_allow` (migration 346), never the team's rule; it
+    counts only while the connection is at the address it was chosen for, never in a scheduled run, and is listed on
+    the row (`alwaysAllowedByMe`) with "Ask every time" (`DELETE /api/integrations/:id/always-allow`, audited
+    `integration.always_allow`). It applies where the team's rule is "ask" (the owner's standing rule: Always allow
+    means done, only the caller's own switch; no admin setting for it). **The team's "never" always wins**: a
+    connection set to refuse refuses, with no card, whatever a member chose. The row goes when no rule of the
+    connection includes the member any more (its rule changed, they left the group, the group went:
+    `pruneMemberAllows`), so it never comes back on its own when access is given again; the member can also clear
+    their own row without access (the route deletes it, then answers "not found"); the same goes for a group change on the person's own page in Admin, and disabling the account removes their rows (fix/prune-allows-user-edit).
+- **Signing in again from the chat (TC-127).** connect_service takes `connection`, the id of the person's own
+  connection that needs a new sign-in or key (the AI's list of connections names it); a call that fills in the
+  address of such a connection gets the same card through the address match of #582 (fix/connect-card-trust, one card
+  builder, `reconnectCard`). It is the template card with "Sign in
+  again to …" (`reconnect`): the sign-in or key goes to that connection, never a second one, the limit does not
+  count it, and "Not now" leaves it. Google apps keep Reconnect on their own page; a member's team connection still
+  says an admin fixes it.
+
 ## Slack through the official Trina AX app: "Add to Slack", nothing copied by hand (feat/slack-official-app, 2026-11-12, the owner, QA TC-203)
 
 - **Problem.** Each team made its own internal Slack app from our manifest and pasted four values (bot token,
@@ -23093,3 +23209,38 @@ Adds to "Connecting a service from a chat". Before, the card showed whatever nam
   team connection),
   `web/test/unit/connect-card.test.tsx`, `web/test/unit/connectors.test.ts`.
 - Version impact: **patch** (a security fix and words; one optional field on the card request, no data change).
+
+## Look-alike service names, hardened (fix/catalog-lookalikes, 2026-11-12, review of #582)
+
+Adds to "The chat's connect card trusts the app's list".
+- **Capitals first.** `nameSkeleton` maps look-alike letters before lower case and again after it, because a Greek
+  capital Ν lowers to ν, which reads as "v". The table gains the Greek capitals Ν Μ Η Ζ Υ Κ Τ Ρ Β Ε Α Ο Ι Χ, the
+  Cyrillic capitals, Armenian օ ո ս, the dotless ı, the small capitals (ᴀ … ᴢ, ɴ, ʀ) and Greek σ.
+- **Mixed alphabets are never trusted** (`mixedScript`). A name with a word that mixes Latin letters with Cyrillic,
+  Greek, Armenian or Cherokee ones is titled by its host whenever its address is not exactly a listed service's official
+  one, even if no listed name matches its skeleton. A name in one script ("Нотион", "노션") is not affected, and
+  neither are words in separate scripts ("Acme 노션").
+- **Reconnect cards follow the rule** (`posesAsListed`). A connection saved under a listed or look-alike name before
+  #582 (for example "Notion" at a made-up address) gets a reconnect card titled by its host, from the server and again
+  in the web card. The saved name is not changed. An admin's template keeps the admin's name.
+- Tests: `web/test/unit/connectors.test.ts`, `web/test/unit/connect-card.test.tsx`, `tests/unit/connect-service.test.ts`
+  (Greek capitals, a mixed name that imitates nothing listed, an old "Notion" connection's reconnect card).
+- Version impact: **patch**.
+
+## No members' switch for connectors (feat/admin-connectors-member-ui, 2026-11-12, product owner)
+
+- **Decision.** There is no team switch "Members can connect their own <app>" any more, for Google Drive, Gmail, Google
+  Calendar, Google Docs and Google Sheets. Once a connector is set up, everyone in the team may connect their own
+  account, and the AI uses only that person's own. This replaces the members' switch of "W6" (an owner or admin's
+  "turn on and connect" in the welcome steps and on Drive's card) and Admin › Connectors' switch per app.
+- **Old data.** No migration. The stored values (`integrations.driveMembers`, written "false" by migration 341 for
+  teams that existed then, and `integrations.googleApps.<app>.members`) stay in `settings` and nothing reads them. The
+  admin endpoints `PUT /api/admin/google-drive/members` and `PUT /api/admin/google-apps/:app/members` stay for older
+  apps, admin-only, and change nothing (no audit entry). `membersCanConnect` and `personalAllowed` are always true;
+  `members_off` is never sent. `completeDriveFlow`'s `membersOn` is ignored.
+- **Kept.** Each person's own ask-first or Always allow for their connection (their own choice, not an admin's
+  approval), Drive's team shares, and Team settings' "Members can add their own connections" for MCP connections (a
+  different setting on another page).
+- **Admin page.** A Google connector's page in Admin › Connectors has Team settings in the layout of Admin › Team
+  settings: who can use it (everyone, each with their own account, and how many connected), Drive's shares, and the
+  Google APIs a card with its own Google app needs.

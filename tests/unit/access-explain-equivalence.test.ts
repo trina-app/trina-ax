@@ -6,18 +6,22 @@
 // Since "Project contents only for members" (docs/DECISIONS.md) the old function is the reference with one rule added,
 // written out again here (ZonedOld): at or below projects/<name> the owner and admins are judged as a member with the
 // same groups, by the rules at or below projects/<name> only; the system principal keeps write.
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { makeEnv } from '../lib/env'
-import { RuleSet, SYSTEM_PRINCIPAL, type Access, type AccessReason, type Principal } from '../../server/src/policy/access'
+import { projectsCaseInsensitive, RuleSet, setProjectsCaseInsensitive, SYSTEM_PRINCIPAL, type Access, type AccessReason, type Principal } from '../../server/src/policy/access'
 import { OldRuleSet, type OldRule } from '../lib/access-before-explain'
 import { shownPath } from '../../server/src/admin/access-rows'
 
 // ---------------- the reference: the old function and the members-only zone ----------------
 /** at or below projects/<name>: `projects` compared after NFC and lower-casing; projects/ itself is outside */
-const inZone = (segs: readonly string[]) => segs.length >= 2 && segs[0]!.normalize('NFC').toLowerCase() === 'projects'
+// (projects in any letter case only where the disk ignores case; the worlds below are on such a disk, beforeEach)
+const inZone = (segs: readonly string[]) => { const n = segs[0]?.normalize('NFC'); return segs.length >= 2 && (n === 'projects' || (projectsCaseInsensitive() && n?.toLowerCase() === 'projects')) }
+const caseBefore = projectsCaseInsensitive()
+beforeEach(() => setProjectsCaseInsensitive(true))
+afterAll(() => setProjectsCaseInsensitive(caseBefore))
 /** the owner or an admin (never the system principal) inside the zone */
 const staffInZone = (p: Principal, segs: readonly string[]) => !p.system && (p.role === 'owner' || p.role === 'admin') && inZone(segs)
 const depth = (folder: string) => (folder === '' ? 0 : folder.split('/').length)

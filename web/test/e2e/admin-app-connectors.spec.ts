@@ -1,6 +1,6 @@
-// Admin › Connectors' Google Drive (pages/admin/Integrations.tsx, DriveConnector.tsx DriveAdminDetail): first in Discover;
-// its page says on or not and how many members are connected, with "Set up Google once": a small dialog takes the Google
-// OAuth client file (or its ID and secret), after which members can Connect. The dialog lists what to do in Google Cloud,
+// Admin › Connectors' Google Drive (pages/admin/Integrations.tsx, GoogleAdminPage.tsx DriveAdminPage): first in Discover;
+// its page says on or not and, in Team settings, who can use it, with Set up (then Change setup in ⋯): a small dialog
+// takes the Google OAuth client file (or its ID and secret), after which every member can Connect (no members' switch). The dialog lists what to do in Google Cloud,
 // in order, each step with its Google Cloud page (QA TC-197); no code blocks on the page. A client the
 // operator set, a hosted server or one without a public address: one line instead of Set up. The old
 // /admin/app-connectors opens this page. AI apps are their own page: ai-apps.spec.ts.
@@ -17,7 +17,7 @@ async function upload(page: Page, text: string) {
   await page.getByTestId('drive-setup-file').setInputFiles({ name: 'client_secret.json', mimeType: 'application/json', buffer: Buffer.from(text) })
 }
 
-test('Connectors is in the Admin menu; Drive not set up yet: Set up takes the client file, then members can Connect', async ({ page }) => {
+test('Connectors is in the Admin menu; Drive not set up yet: Set up takes the client file, then members can Connect at once', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin')
@@ -53,25 +53,16 @@ test('Connectors is in the Admin menu; Drive not set up yet: Set up takes the cl
   await upload(page, webClient())
   await dialog.getByTestId('drive-setup-save').click()
   await expect(dialog).toHaveCount(0)
-  // a Google client only makes Drive available: nothing is on yet
-  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('설정 대기')
-  await expect(card(page).getByTestId('drive-setup')).toHaveText('바꾸기')
-  await expect(card(page).getByTestId('drive-members-switch')).not.toBeChecked()
+  // set up: on for everyone (no members' switch), Change setup in ⋯, who can use it in Team settings
+  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('켜짐')
+  await expect(card(page).getByTestId('drive-members-switch')).toHaveCount(0)
+  await expect(card(page).getByTestId('team-who')).toBeVisible()
+  await card(page).getByTestId('drive-setup-menu').click()
+  await expect(page.getByTestId('drive-setup')).toHaveText('설정 바꾸기')
+  await page.keyboard.press('Escape')
   expect(realErrors(errors)).toEqual([])
 
-  // a member cannot connect their own yet
-  await page.context().clearCookies()
-  await signIn(page, { username: 'bob', password: 'bob password 1' })
-  await page.goto('/settings/drive')
-  await expect(page.getByTestId('drive-detail').getByTestId('drive-connect')).toBeDisabled()
-  await expect(page.getByTestId('drive-detail-line')).toHaveText('관리자가 먼저 켜야 해요')
-
-  // the admin's switch turns it on
-  await page.context().clearCookies()
-  await signIn(page)
-  await openDrive(page)
-  await card(page).getByTestId('drive-members-switch').check({ force: true })
-  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('켜짐')
+  // a member can connect their own at once
   await page.context().clearCookies()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/settings/drive')
@@ -89,7 +80,7 @@ test('the client ID and secret work too; Save waits until both are there', async
   await expect(dialog.getByTestId('drive-setup-save')).toBeDisabled()
   await dialog.getByTestId('drive-setup-secret').fill('synthetic-secret')
   await dialog.getByTestId('drive-setup-save').click()
-  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('설정 대기')
+  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('켜짐')
 })
 
 test('where this page may not set it up: one line instead of Set up', async ({ page }) => {
@@ -104,7 +95,7 @@ test('where this page may not set it up: one line instead of Set up', async ({ p
   await page.unroute('**/api/admin/google-drive')
   await page.route('**/api/admin/google-drive', (r) => r.fulfill({ json: { configured: false, source: 'none', canSetUp: false, blocked: 'public_host', redirectUri: null, connectedMembers: 0 } }))
   await openDrive(page)
-  await expect(card(page).getByTestId('drive-admin-detail-line')).toHaveText('먼저 이 서버의 공개 주소가 필요해요.')
+  await expect(card(page).getByTestId('drive-admin-line')).toHaveText('먼저 이 서버의 공개 주소가 필요해요.')
   await expect(card(page).getByTestId('drive-setup')).toHaveCount(0)
 })
 

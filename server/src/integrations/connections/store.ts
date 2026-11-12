@@ -11,7 +11,6 @@ import { audit } from '../../admin/audit'
 import { getTeamSettings } from '../../admin/settings'
 import type { RemoteTool } from './mcp'
 import { reasonText } from './text'
-import { membersOn } from '../google-apps/catalog'
 
 export interface Row {
   id: string; scope: 'personal' | 'team'; owner_user_id: string | null; created_by: string | null
@@ -168,6 +167,16 @@ export function setAccess(db: Database, id: string, a: IntegrationAccess): void 
   if (a.everyone) ins.run(id, 'everyone', '')
   for (const g of new Set(a.groups)) ins.run(id, 'group', g)
   for (const u of new Set(a.users)) ins.run(id, 'user', u)
+  pruneMemberAllows(db)
+}
+
+/** A member's own Always allow on a team connection (integration_user_allow, migration 346) goes when no rule of that
+ * connection includes them any more (its rule changed, they left the group, the group went), so it never comes back
+ * on its own when they are given access again. Called after every change of a rule or a group's members. */
+export function pruneMemberAllows(db: Database): void {
+  db.query(`DELETE FROM integration_user_allow WHERE NOT EXISTS (SELECT 1 FROM integration_access a WHERE a.integration_id = integration_user_allow.integration_id
+    AND (a.subject_type = 'everyone' OR (a.subject_type = 'user' AND a.subject_id = integration_user_allow.user_id)
+      OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = integration_user_allow.user_id))))`).run()
 }
 
 const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
@@ -177,7 +186,7 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
   // a Google app: its own team switch (Admin › Connectors), not the switch for members' own MCP connections
-  if (row.google_app) return row.scope === 'personal' && row.owner_user_id === userId && membersOn(db, row.google_app)
+  if (row.google_app) return row.scope === 'personal' && row.owner_user_id === userId
   if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))
   return !!db.query(`SELECT 1 FROM integration_access a WHERE a.integration_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
@@ -207,7 +216,7 @@ export function usable(db: Database, userId: string): Row[] {
   // a member's own connections while the team allows them; the ones made from an admin's template while it covers them
   const on = personalOn(db)
   const personal = (db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(userId) as Row[])
-    .filter((r) => (r.google_app ? membersOn(db, r.google_app) : r.template_id ? templateCovers(db, r.template_id, userId) : on))
+    .filter((r) => (r.google_app ? true : r.template_id ? templateCovers(db, r.template_id, userId) : on))
   const team = (db.query(`${selectRows(db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(db, r, userId))
   return [...personal, ...team]
 }
@@ -269,6 +278,8 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     templateId: row.template_id ?? null,
     // the app's ID and addresses are for whoever manages the connection (a template's app is the admin's)
     oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc, row.url) : null,
+    // the viewer's own Always allow on a team connection, while its address is the one they chose it for (tools.ts gate)
+    ...(row.scope === 'team' ? { alwaysAllowedByMe: (db.query('SELECT url FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').get(row.id, viewer.id) as { url: string } | null)?.url === row.url } : {}),
   }
 }
 

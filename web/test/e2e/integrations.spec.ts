@@ -21,6 +21,13 @@ const openMine = async (page: Page, name: string) => {
   await page.locator('[data-testid="connected-app"]').filter({ hasText: name }).click()
   await expect(page.getByTestId('connector-detail')).toBeVisible()
 }
+/** Admin › Connectors: a team connection is one line in the list, its row (who may use it, edit, tools) on its page */
+const teamLine = (page: Page, name: string) => page.getByTestId('team-connection').filter({ has: page.getByText(name, { exact: true }) })
+const openTeam = async (page: Page, name: string) => {
+  if (!/\/admin\/connectors$/.test(new URL(page.url()).pathname)) await page.goto('/admin/connectors')
+  await teamLine(page, name).getByTestId('connector-row-open').click()
+  await expect(page.getByTestId('connector-detail')).toBeVisible()
+}
 /** from a connection's page back to the list */
 const toList = (page: Page) => page.getByTestId('connector-back').click()
 
@@ -361,9 +368,12 @@ test('an admin gives a team connection to a group and a person; a member sees it
   const body = (await sent).postDataJSON()
   expect(body).toMatchObject({ kind: 'http', name: 'Company PM', auth: 'header', authHeader: 'X-API-Key', secret: KEY, writePolicy: 'deny', access: { everyone: false, users: ['bob'] } })
   expect(body.access.groups).toHaveLength(1)
-  const pm = row(page, 'Company PM')
-  // who may use it, in one chip after the name; the admin is in the finance group: nothing to warn about on the line
+  // one line in the list; the admin is in the finance group: nothing to warn about on it
   await expect(page.getByTestId('team-connected').getByRole('heading', { name: '연결됨', exact: true })).toBeVisible()
+  await expect(teamLine(page, 'Company PM').getByTestId('integration-access-warning')).toHaveCount(0)
+  // its page: who may use it, in one chip after the name
+  await openTeam(page, 'Company PM')
+  const pm = row(page, 'Company PM')
   await expect(pm.getByTestId('integration-audience')).toHaveText('재무팀 +1')
   await expect(pm.getByTestId('integration-audience')).toHaveAttribute('title', '사용할 사람: 재무팀, Bob')
   await expect((await adv(pm, 'integration-access-warning'))).toHaveCount(0)
@@ -395,20 +405,22 @@ test('an admin gives a team connection to a group and a person; a member sees it
   expect((await teamConnection('Design MCP', ['olga'])).status()).toBe(201)
   expect((await teamConnection('Sales MCP', [])).status()).toBe(201)
   expect((await teamConnection('Bob MCP', ['bob'])).status()).toBe(201)
-  await page.reload()
-  const warning = (name: string) => row(page, name).getByTestId('integration-access-warning')
+  await page.goto('/admin/connectors')
+  const warning = (name: string) => teamLine(page, name).getByTestId('integration-access-warning')
   await expect(warning('Sales MCP')).toHaveText('아직 아무도 못 씀')
   await expect(warning('Bob MCP')).toHaveText('내 대화에서는 못 씀')
   await expect(warning('Design MCP')).toHaveCount(0)
-  // one chip each: one person by name, none for nobody (the warning says it)
-  await expect(row(page, 'Bob MCP').getByTestId('integration-audience')).toHaveText('Bob')
-  await expect(row(page, 'Design MCP').getByTestId('integration-audience')).toHaveText('Olga')
-  await expect(row(page, 'Sales MCP').getByTestId('integration-audience')).toHaveCount(0)
-  for (const name of ['Sales MCP', 'Bob MCP']) {
+  // on each page one chip: one person by name, none for nobody (the warning says it)
+  for (const [name, chip] of [['Bob MCP', 'Bob'], ['Design MCP', 'Olga'], ['Sales MCP', null]] as const) {
+    await openTeam(page, name)
+    if (chip) await expect(row(page, name).getByTestId('integration-audience')).toHaveText(chip)
+    else await expect(row(page, name).getByTestId('integration-audience')).toHaveCount(0)
     await expect(row(page, name).getByTestId('integration-toggle')).toHaveAttribute('aria-expanded', 'false')
     await expect(row(page, name).getByTestId('integration-details')).toHaveCount(0)
+    await page.goto('/admin/connectors')
   }
   // opened, the details say who may use it, without the warning a second time
+  await openTeam(page, 'Bob MCP')
   await openRow(row(page, 'Bob MCP'))
   await expect(row(page, 'Bob MCP').getByTestId('integration-access-line')).toHaveText(/^사용할 사람: Bob/)
   await expect(row(page, 'Bob MCP').getByText('내 대화에서는 못 씀')).toHaveCount(1)
@@ -597,7 +609,7 @@ test('single tools on and off: a switch each for whoever manages the connection;
   // a team connection: the admin's switches in Admin › External services; Bob, who uses it, sees "Off" and no switch
   const made = await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Team wiki', url: 'https://mcp.wiki.example/mcp', auth: 'none', access: { everyone: true, groups: [], users: [] } } })
   expect(made.status()).toBe(201)
-  await page.goto('/admin/connectors')
+  await openTeam(page, 'Team wiki')
   const wiki = row(page, 'Team wiki')
   await openRow(wiki)
   await wiki.getByTestId('integration-tools-toggle').click()
@@ -631,7 +643,8 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await expect(cards.first()).toHaveAttribute('data-id', 'google-drive')
   await expect(cards.nth(1)).toHaveAttribute('data-id', 'gmail')
   await expect(cards.nth(5)).toContainText('Notion')
-  await expect(page.getByTestId('connector-count')).toHaveText(String(await cards.count()))
+  // the first ten, the rest behind Show all (its count)
+  await expect(cards).toHaveCount(10)
   await page.getByTestId('connector-show-all').click()
   // a logo comes from this server: anything else would be stopped by the content security policy
   const logo = cards.nth(5).getByTestId('connector-logo')
@@ -684,24 +697,22 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   // in the list above Discover, whose heading has the keyboard; the search box filters both sections
   const connected = page.getByRole('heading', { name: '연결됨', exact: true })
   await expect(connected).toBeFocused()
-  await expect(row(page, 'Notion')).toBeVisible()
-  await expect(row(page, 'Notion').getByTestId('connector-logo')).toBeVisible()
+  await expect(teamLine(page, 'Notion')).toBeVisible()
+  await expect(teamLine(page, 'Notion').getByTestId('connector-logo')).toBeVisible()
   await search.fill('linear')
   // the list has no match, so it hides; Discover still has one
-  await expect(page.getByTestId('integration-row')).toHaveCount(0)
+  await expect(page.getByTestId('team-connection')).toHaveCount(0)
   await expect(page.getByTestId('team-connected')).toHaveCount(0)
   await expect(cards).toHaveCount(1)
   await expect(cards).toContainText('Linear')
   await expect(page.getByText('"linear"에 맞는 항목이 없어요.')).toHaveCount(0)
-  // a match in both: both show
+  // a match in the list: it shows there
   await search.fill('notion')
-  await expect(row(page, 'Notion')).toBeVisible()
-  await expect(cards).toHaveCount(1)
+  await expect(teamLine(page, 'Notion')).toBeVisible()
+  // it cannot be added twice: once connected it is no longer in Discover
+  await expect(cards).toHaveCount(0)
   await search.fill('')
-
-  // it cannot be added twice
-  await expect(notion.getByTestId('connector-added')).toBeVisible()
-  await expect(notion.getByTestId('connector-add')).toHaveCount(0)
+  await expect(notion).toHaveCount(0)
 
   // found by what it does, which the list of connections does not search: the new row still shows, with its sign-in
   await search.fill('jira')
@@ -709,7 +720,7 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   const second = page.waitForEvent('popup')
   await page.getByTestId('integration-save').click()
   await second
-  await expect(row(page, 'Atlassian')).toBeVisible()
+  await expect(teamLine(page, 'Atlassian')).toBeVisible()
   await expect(search).toHaveValue('')
   await expect(connected).toBeFocused()
 

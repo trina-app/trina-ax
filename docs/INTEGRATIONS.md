@@ -203,7 +203,7 @@ the page says "Request sent", opened again "Already asked", and the app's card s
   row opens the app's setup in Admin › Connected apps. The names are read when the inbox is shown. The 30-second check
   keeps these notices with whoever is an owner or admin now: someone who no longer is loses them, someone who became one
   gets those of the apps asked for now.
-- Once members can connect the app (an admin set it up, or turned the members' switch on after that; also a setup made
+- Once members can connect the app (an admin set it up; also a setup made
   elsewhere, checked every 30 seconds; not while the hosting service's Google review lets only its test users in), the
   requests close, the admins' notice counts as read and says "Added", and each
   member who asked gets one notice that it is ready (`service.ready`), which opens its page. Inbox only, never an OS
@@ -277,6 +277,10 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   private, personal connections off, a team connection asked for by a member, a connection to the same address that
   the person (or the team) already has (its name and state), the team limit, Google Drive not set up on this server
   (an admin or the operator has to set it up), Google Drive already connected.
+- **Signing in again to one's own connection** (QA TC-127): when the person's own connection (not one from a template,
+  not a Google app) needs a new sign-in or key, the AI's list of connections names its id, and `connection` (or the
+  connection's own address filled in) opens the card for it ("Sign in again to …", `reconnect`): the sign-in or key
+  goes to that connection, the limit does not count it, and "Not now" leaves it as it is.
 - **Sign-in services** are added first; the card then runs the usual sign-in (`POST /api/integrations/:id/authorize`)
   and, once it finished, tells the server ("done"), which checks the connection before telling the AI. The card says
   that signing in opens a sign-in page in a new window, to check that it is the service the person expects, and that

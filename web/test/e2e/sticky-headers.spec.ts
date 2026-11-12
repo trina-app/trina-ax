@@ -46,6 +46,8 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       // Admin keeps its own name (Connected apps); the page is Connectors (a phone's top bar says it there); the cards are under it
       await expect(header.getByRole('heading', { name: path.startsWith('/admin') ? /^(연결한 서비스|Connected apps)$/ : /^(커넥터|Connectors)$/ })).toBeAttached()
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
+      // every Discover row, so the page is long enough to scroll
+      if (await page.getByTestId('connector-show-all').count()) await page.getByTestId('connector-show-all').click()
       // Admin's title row gets its hairline once scrolled; the page's own full-width bar has its line all along
       await staysPut(header, path.startsWith('/admin'))
       await expect(header.getByTestId('connector-search')).toBeInViewport()

@@ -1242,6 +1242,8 @@ export class TurnExec {
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",
    * "업스트림 오류"). Budget and subscription limit stop the engine at once; after a 401 the engine fails by itself. */
   private onProxyEvent(ev: ProxyTurnEvent) {
+    // the provider is busy and the engine tries again (QA TC-388): a line in the chat while it lasts
+    if (ev.type === 'busy') return this.setBusy(ev.on)
     // what a Codex search asked for: for its step only, never the answer's outcome
     if (ev.type === 'search') {
       this.searchAsks.push({ commands: ev.commands, refused: ev.refused?.length ? ev.refused : null })
@@ -1264,6 +1266,15 @@ export class TurnExec {
     }
     // stop the engine at once: it must not retry or refresh by itself on a refused / limited connection
     if (ev.type !== 'auth') this.handle?.kill()
+  }
+
+  /** The person's windows show "The AI service is busy. Still trying…" under this answer while `busy` (turn.busy). Sent
+   * only when it changes; a room answer has its own run status. The web app clears it on text, a step or the end. */
+  private busy = false
+  private setBusy(on: boolean) {
+    if (this.busy === on || this.room) return
+    this.busy = on
+    this.rt.hub.publish(this.spec.userId, { type: 'turn.busy', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, busy: on } })
   }
 
   /** A run's tokens that its total never replaced (it crashed or was killed) count as they are. */

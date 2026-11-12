@@ -30,7 +30,7 @@ import { googleDriveOf, ownsLiveDriveShare } from '../google-drive/oauth'
 import { DriveError } from '../google-drive/store'
 import { integrationsOf } from '../connections/service'
 import { connectionAad, getRow, savedTools, selectRows, type Row } from '../connections/store'
-import { APIS, APP_IDS, APP_NAMES, APP_SLUGS, catalog, membersOn, membersSettingKey, placeholderUrl } from './catalog'
+import { APIS, APP_IDS, APP_NAMES, APP_SLUGS, catalog, placeholderUrl } from './catalog'
 import { clientFromBody, clientSettingKey, driveAppAvailable, redirectUriOf, safeAppsDir, appsSecretsDir, readAppClient, setupOf, writeClientFile, type AppSetup } from './config'
 import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type GoogleAppSecret } from './tokens'
 import { workspaceLibraryOf } from './library'
@@ -140,7 +140,7 @@ export class GoogleApps {
    * every member (integrations/service-requests.ts reads it too). */
   reasonOf(app: GoogleAppId): GoogleAppView['reason'] {
     const setup = setupOf(this.ctx, app), lib = this.library().state()
-    return lib === 'unsupported' ? 'unsupported' : setup.mode === 'off' ? 'not_set_up' : !membersOn(this.db, app) ? 'members_off'
+    return lib === 'unsupported' ? 'unsupported' : setup.mode === 'off' ? 'not_set_up'
       : setup.mode === 'broker' && this.isLimited(app) ? 'service_limited' : null
   }
 
@@ -176,7 +176,6 @@ export class GoogleApps {
     if (this.library().state() === 'unsupported') throw new GoogleAppError('unsupported', 409)
     const setup = setupOf(this.ctx, app)
     if (setup.mode === 'off') throw new GoogleAppError('not_set_up', 409)
-    if (!membersOn(this.db, app)) throw new GoogleAppError('members_off', 403)
     return setup
   }
 
@@ -388,7 +387,7 @@ export class GoogleApps {
     return {
       id: app, configured: setup.mode !== 'off', source: setup.source, canSetUp: blocked === null, blocked,
       redirectUri: hosted ? null : redirectUri, driveAppAvailable: driveAppAvailable(this.ctx), apis: APIS[app],
-      membersCanConnect: membersOn(this.db, app), connectedMembers,
+      membersCanConnect: true, connectedMembers,
     }
   }
   adminList() { return { apps: APP_IDS.map((a) => this.adminStatus(a)) } }
@@ -423,11 +422,9 @@ export class GoogleApps {
     return this.adminStatus(app)
   }
 
-  setMembers(actor: string, app: GoogleAppId, on: boolean): GoogleAppAdminStatus {
-    if (membersOn(this.db, app) !== on) {
-      setSetting(this.db, membersSettingKey(app), on)
-      audit(this.db, { actor, action: 'google_app.members_switch', detail: { app, on } })
-    }
+  /** The old members' switch (an older app may still send it): changes nothing, members can always connect their own
+   * once the app is set up (docs/DECISIONS.md "No members' switch for connectors"). */
+  setMembers(_actor: string, app: GoogleAppId, _on: boolean): GoogleAppAdminStatus {
     return this.adminStatus(app)
   }
 }
