@@ -1646,6 +1646,7 @@ export const en: Record<MessageKey, string> = {
 
   'apps.teamAddress': "Team address",
   'apps.teamAddressHint': "Open the app on a new device and enter this address.",
+  'apps.teamAddressHttpHint': "The desktop and phone apps need a secure address (https). On a new computer, open this address in a web browser.",
   'apps.installTitle': 'Install as an app',
   'apps.installDesc': 'Install it on your phone or computer and open it like an app.',
   'apps.install': 'Install app',

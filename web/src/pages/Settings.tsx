@@ -37,7 +37,8 @@ import { browserTabShown } from './settingsTabs'
 import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
-import { teamAddressHost } from '../lib/team-address'
+import { teamAddressShown } from '../lib/team-address'
+import { canShareText, shareText } from '../lib/share'
 import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, Skeleton, confirmDialog, inputCls, noKeyRepeat, useCopy, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
@@ -889,9 +890,10 @@ function Apps() {
   )
 }
 
-/** A phone's row that sends the team's Apps page to a computer: the phone's share sheet where there is one, else the
- * link is copied (and a toast says so). Opened on the computer, the person signs in and gets the Mac or Windows app
- * there. The address is the team's (GET /api/me team.address), else this page's. */
+/** A phone's row that sends the team's Apps page to a computer: the phone's share sheet where there is one (the phone
+ * app's own, share-text-v1, then the browser's: lib/share.ts; Android's WebView has no navigator.share), else the link
+ * is copied (and a toast says so). Opened on the computer, the person signs in and gets the Mac or Windows app there.
+ * The address is the team's (GET /api/me team.address), else this page's. */
 function SendToComputer({ address }: { address: string | undefined }) {
   const t = useT()
   const { copy } = useCopy()
@@ -899,16 +901,9 @@ function SendToComputer({ address }: { address: string | undefined }) {
     try { return `${new URL(address ?? window.location.origin).origin}/settings/apps` } catch { return `${window.location.origin}/settings/apps` }
   })()
   const send = async () => {
-    const nav = navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> }
-    if (typeof nav.share === 'function') {
-      try {
-        await nav.share({ url: link, title: t('apps.desktopTitle') })
-        return
-      } catch (e) {
-        // closed without sending: nothing more; a share sheet that failed: the link is copied instead
-        if (e instanceof DOMException && e.name === 'AbortError') return
-      }
-    }
+    // closed without sending: nothing more; no sheet, or one that failed: the link is copied instead
+    // the row shows on phones and tablets only (by platform): any width, a phone held sideways too
+    if (canShareText({ anyWidth: true }) && (await shareText(link, { url: true, title: t('apps.desktopTitle') })) !== 'failed') return
     await copy(link)
     toast({ level: 'success', text: t('apps.linkCopied') })
   }
@@ -917,20 +912,23 @@ function SendToComputer({ address }: { address: string | undefined }) {
 
 /**
  * The team's address, for a new device (docs/AGENTS/plan/20261108-0930-first-run-one-box.md): the desktop and phone
- * apps take it in their one box. It comes from the server (GET /api/me team.address: the relay's or the public
- * address), never from the address this page is at, and shows as the URL API gives it (punycode). No address known
- * (the office network only): no row.
+ * apps take it in their one box. It comes from the server (GET /api/me team.address: the relay's, the public address,
+ * or for a server without a relay the address it is reached at, with its port), and shows as the URL API gives it
+ * (punycode). A plain http address (an office server without a certificate) shows with its http:// and says the apps
+ * need https: they refuse it, a browser opens it. No address known: no row.
  */
 export function TeamAddressRow({ address }: { address: string | undefined }) {
   const t = useT()
-  const host = teamAddressHost(address)
-  if (!address || !host) return null
+  const shown = teamAddressShown(address)
+  if (!address || !shown) return null
+  const origin = new URL(address).origin
+  const insecure = origin.startsWith('http:')
   return (
     <div className="mb-6" data-testid="apps-team-address">
-      <Row label={t('apps.teamAddress')} hint={t('apps.teamAddressHint')}>
+      <Row label={t('apps.teamAddress')} hint={t(insecure ? 'apps.teamAddressHttpHint' : 'apps.teamAddressHint')}>
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{host}</span>
-          <CopyButton text={new URL(address).origin} showLabel className="shrink-0" />
+          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{shown}</span>
+          <CopyButton text={origin} showLabel className="shrink-0" />
         </div>
       </Row>
     </div>

@@ -1617,6 +1617,7 @@ export const es: Record<MessageKey, string> = {
   'memory.unused': "Sin usar",
   'apps.teamAddress': "Dirección del equipo",
   'apps.teamAddressHint': "Abra la aplicación en un dispositivo nuevo e introduzca esta dirección.",
+  'apps.teamAddressHttpHint': "Las aplicaciones de escritorio y del móvil necesitan una dirección segura (https). En un ordenador nuevo, abra esta dirección en un navegador web.",
   'apps.installTitle': "Instalar como aplicación",
   'apps.installDesc': "Instálela en su teléfono o computadora y ábrala como una aplicación.",
   'apps.install': "Instalar aplicación",

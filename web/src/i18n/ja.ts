@@ -1617,6 +1617,7 @@ export const ja: Record<MessageKey, string> = {
   'memory.unused': "未使用",
   'apps.teamAddress': "チームアドレス",
   'apps.teamAddressHint': "新しい端末でアプリを開き、このアドレスを入力してください。",
+  'apps.teamAddressHttpHint': "デスクトップアプリとスマートフォンアプリには安全なアドレス（https）が必要です。新しいパソコンでは、このアドレスをウェブブラウザで開いてください。",
   'apps.installTitle': "アプリとしてインストール",
   'apps.installDesc': "スマートフォンやコンピューターにインストールして、アプリとして開けます。",
   'apps.install': "アプリをインストール",
