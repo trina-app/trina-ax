@@ -28,6 +28,7 @@ import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
+import { teamAddressShown } from '../../lib/team-address'
 import { goBackOffered, releasePaused } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
@@ -452,6 +453,10 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   // the Health relay line says the same, server/src/system/ops.ts)
   const pub = state.data?.publicAddress ?? null
   const modeName = (m: Mode) => t(m === 'direct-only' && pub ? 'system.mode.direct-public' : `system.mode.${m}`)
+  // the office network only: the address the team types, as Settings › 앱 shows it (GET /api/me team.address, the
+  // office address with its port; QA TC-485)
+  const me = useMeStrict()
+  const officeAddress = state.data?.mode === 'direct-only' && !pub ? teamAddressShown(me.team.address) : null
   // a phone: the mode is changed on a computer (a relay's address, the claim code from the account console; QA TC-270)
   const phone = useMediaQuery(PHONE)
   const changes = canChange && modes.length > 1
@@ -468,8 +473,9 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
             <Rows>
               <Row label={t('system.mode')} long>
                 <span className="inline-flex flex-wrap items-center gap-2">
-                  {/* no relay and a public address: nothing is off for the team, so no "Off" badge */}
-                  {!(c.mode === 'direct-only' && pub) && <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge>}
+                  {/* no relay (the office network, or a public address): nothing is off for the team, so no "Off" badge
+                      (QA TC-485) */}
+                  {c.mode !== 'direct-only' && <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge>}
                   <span data-testid="connection-mode-name">{modeName(c.mode)}</span>
                 </span>
                 {c.connectedSince && <span className="block text-xs text-faint">{t('system.since', { date: formatDateTime(c.connectedSince, locale) })}</span>}
@@ -480,9 +486,9 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
                   <code>{c.teamName}</code>
                 </Row>
               )}
-              {c.address && (
+              {(c.address ?? officeAddress) && (
                 <Row label={t('system.address')} long>
-                  <code className="break-all">{c.address}</code>
+                  <code className="break-all" data-testid="connection-address">{c.address ?? officeAddress}</code>
                 </Row>
               )}
               {pub && (
