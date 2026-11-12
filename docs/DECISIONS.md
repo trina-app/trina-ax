@@ -617,6 +617,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **연결 방식 화면**: `ConnectionStatus`에 `availableModes`·`teamName`(선택 필드). Team AX 중계는 설정 `relay.officialAvailable`(기본 false, 환경 변수 `MYCEL_RELAY_OFFICIAL=1`)일 때만 목록에 있고 서버도 409로 거부한다. Cloudflare·Tailscale은 목록에서 뺐다(원래 409). 중계 연결(자체·Team AX)은 팀 이름이 필요하다: `RelayTeamName`(소문자·숫자·가운데 하이픈 2–40자), 주지 않으면 server.json의 기존 값, 둘 다 없으면 400 `body.teamName`. `relay.teamName`을 server.json에 같이 쓴다.
 - **비밀번호 재설정 링크 버튼**(관리자 > 팀원): 이미 있던 `POST /api/admin/users/:id/reset-link`을 화면에 붙였다. 확인 → 링크(24시간·1회·새 링크가 이전 링크를 무효화) 복사, 메일 없음. owner 행에는 버튼이 없다(owner는 서버 맥의 CLI로만). 임시 비밀번호 버튼은 그대로 둔다.
 - **재설정 링크는 그 계정 주인에게 알린다**(2026-11-11, QA TC-202): 서버 CLI(`mycel-account`·`mycel-ctl reset-link`)나 owner·관리자가 링크를 만들면, 그 계정 주인의 활동에 알림 `account.reset_link`(표 `reset_link_notices`, 마이그레이션 119; 출처는 링크 행 id, 토큰은 없음)가 항상 생긴다. 누가 만들었는지(서버 / 이름)와, 링크가 아직 살아 있으면(안 쓰고·안 바뀌고·안 지남, 읽을 때 계산) "내가 부탁한 게 아니면 보안·기기에서 비밀번호를 바꾸면 바로 막혀요"를 보여 주고 그 화면으로 연다. 전에는 활동 기록 한 줄뿐이었다. 휴대폰 푸시는 아직 없다.
+- **호스팅이 팀의 것을 복사하면 활동 기록과 알림을 남긴다**(2026-11-12, QA TC-348): `admin.js credentials-escrow-out`(AI 연결의 키, 키가 없으면 아무것도 남기지 않음), `archive --upload`(전체 내보내기), `cloud-backup upload`(외부 백업)는 성공한 뒤 감사 기록 `hosting.key_escrow`(키 버전)·`hosting.export`(크기·sha256)·`hosting.offsite_backup`(백업 id·파일 수)을 남긴다(행위자 없음 = 호스팅). 키 복사와 내보내기는 owner에게 활동 알림 `hosting.key_copied`·`hosting.exported`(항상 보임, 표 `hosting_notices`, 마이그레이션 120, 출처는 내보내기는 감사 행, 키는 키 버전이라 같은 키를 다시 복사하면 알림 하나, 키를 바꾼 뒤에는 다시 알림)도 보낸다. 기록·알림이 실패해도 명령은 실패하지 않는다(내보내기 암호는 그 뒤 한 번만 출력). 외부 백업은 매일 돌아서 알림을 주지 않는다(실행마다 기록 한 줄). 전에는 아무 기록도 없었다. **팀 주소가 다른 키로 옮겨지면 알린다**(QA TC-350): 중계가 이 서버의 키를 거부하면(`key rotated` / `signature does not match the registered key`) 중계 기록 `key_moved`와 owner·관리자 알림 `relay.address_moved`를 한 번 남긴다. `key_moved`·`connected` 중 가장 새 것이 `key_moved`면 다시 남기지 않아서 재시도·재시작으로 반복되지 않고, 그 사이 연결되면 다음 변경에 다시 알린다. 재시도는 그대로 한다. 중계 운영 API가 팀 동의 없이 키를 옮길 수 있는지는 대표가 정할 일로 남겼다.
 - **버전 기록 되돌리기**: 저장된 버전은 모두 '바뀌기 전 내용'이라 가장 새 버전도 지금 파일과 다르다. 화면이 맨 위 버전을 '지금 파일'로 여겨 되돌리기를 숨기던 것을 고쳤다. `GET /api/files/history`가 `currentSha256`(지금 파일)과 `canRestore`(그 경로 쓰기 권한, 되돌리기 API와 같은 규칙)를 준다. 지금 파일과 같은 버전만 '지금 내용과 같음'으로 표시하고, 쓰기 권한이 없으면 내려받기만. 권한 규칙은 바꾸지 않았다.
 
 ## 사무실 모드 (feat/office-mode, 2026-10-21)
@@ -5817,6 +5818,33 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   ("sites a person allows": once, always, deny, refused hosts, No network, Full internet, a waiting job, removal stops
   a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c,
   A12e, A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
+
+### Dev environment on srt: reads on the host are an allow-list (fix/srt-deny-host-paths, 2026-11-12)
+
+QA TC-306 (a Debian 13 install with srt): a member's command read files outside the team folder: the NAS source behind
+a connected folder under `/mnt` (a sub-folder the rules close too), other apps' files under `/srv` and `/opt`, a tunnel
+token in a unit file under `/etc/systemd`, and listed `/var/lib`. The settings hid a short deny list only. Through the
+team folder the closed sub-folder stayed closed: the leak was the raw host path.
+
+- **Allow-list.** `denyRead` now holds `/`: srt expands it into the root's children (not `/proc`, `/dev`, `/sys`) and
+  skips the ones `allowRead` gives back. srt lists the root when a run starts: a top folder made during a run is
+  visible to that run and hidden from the next. `SYSTEM_READ_PATHS` gives back what
+  a run needs: `/usr` (and `/bin`, `/lib`, `/lib64`, `/sbin`, which point into it), `/etc` and `/opt/trina` (node,
+  python, srt, the headless browser). `ETC_SECRETS` stay hidden inside `/etc`: whole folders and files, many of them
+  world-readable (unit files, `/etc/default`, `/etc/environment`, `/etc/fstab` with share passwords, netplan, cron, VPN,
+  mail, rclone and apt credentials, a hosted image's `/etc/ax` and `/etc/cloud`). A cleaned `/etc` as the engine
+  sandbox gets (`root/sandbox-etc`) was not used: srt has no setting to put another folder at `/etc`. `/mnt`, `/media`, `/srv`, `/opt`,
+  `/var/lib` and the old list are named too, so they stay hidden if `/` were dropped.
+- **Connected sources.** The runner reads every source in `connected_folders`, and the check refuses a run that can
+  read one. A source is named in `denyRead` only when nothing there hides it already (Linux sources are under `/mnt`,
+  `/media` or `/srv`): srt looks at every `denyRead` path when a run starts, and a hung network mount would stall
+  every run. The run reads the mirror `connected/<name>` with its folder rules.
+- **The check.** `settingsProblems` refuses a run when `/`, a host path, a server path or a connected source is not
+  hidden, counting srt's rule that `allowRead` wins over `denyRead` (the deepest entry decides), and when an `allowRead`
+  lies in a source or an `/etc` secret.
+- **Not changed.** The network: with a person's Full internet switch on, public sites are reachable (owner's setting).
+- **Tests.** `tests/unit/dev-env-srt.test.ts`; attack cases A30, A31, A31b, A31c (host paths and `/etc` secrets) and A0c (node, python, git,
+  bun and an npm install still work) in `tests/linux/srt-attack.ts`.
 
 ### Dev environment: no line on the project page (chore/remove-project-devenv-row, 2026-11-08)
 
@@ -22280,3 +22308,42 @@ confidential chat, a room or a shared chat, and only comes with the web-or-phone
 
 Version impact: patch (tests, and the invite page on a full team no longer names the inviter; no API shape or data
 change).
+
+## Projects made on 0.4.0: what the owner and admins keep after the update — 0.4.0 프로젝트, 업데이트 뒤 (fix/projects-kept-after-update, 2026-11-12, QA TC-360)
+
+넣을 곳: trina-ax core (`server/src/chat/schedules.ts`), 이유: scheduled tasks and project access are core. Plan:
+`docs/AGENTS/plan/20261112-0136-projects-kept-after-update.md`.
+
+QA updated a real 0.4.0 team to 0.5.0: an admin's team projects, the owner's own chat in one and her Daily file index
+task on its folder. The owner and another admin no longer opened those projects (404), while her chat stayed and her
+task stayed on.
+
+- **The rule stays "Project contents only for members"** (owner option B). The owner and admins find every team
+  project in Projects (`?manage=1`, `member: false`, "Only members can see what's inside", #474) and get in with
+  **Add me**, which its members are told. `GET /api/projects` without `manage` is "projects I read" for pickers, so it
+  is empty for them, as decided. No migration gives the owner or admins membership: that would undo the decision for
+  every project made before it.
+- **The owner's own chat** in a project she is not in stays hers and readable (H7, "권한 회수": a person's own
+  conversation is never taken away). A turn there no longer gets the project's name, folder or instructions
+  (`projectForChat`), she cannot start a new chat in it, and nobody else sees the chat. Unchanged; now tested for an
+  upgraded team.
+- **A template task** (Daily file index, Weekly summary) whose folder its owner cannot read now (the access check of
+  `validateTemplateFolders`, on that folder itself) and which is in a team project (`projects/<name>/…`) is treated
+  like a task whose project is gone ("Project skills"): its next
+  due run does not start, it is paused, `schedule_project_skips` records that project's id and its owner gets the
+  "project gone" inbox notice once (no project name, no folder); **Run now** answers 409 `schedule_project_gone`.
+  Before, `members-only-once` step 3 only took save folders, and the run only checked `project_id`, so the task stayed
+  on and every day started a turn that `validateTemplateTurn` refused at dispatch (an empty failed chat, no reason).
+  A member who reads only a folder inside a project (a 0.4.0 grant) keeps a working task on it. The project is the
+  one on that folder as the volume compares names, a live one first, then the oldest. A folder in `projects/` that no
+  project uses keeps the old behaviour (the skip row names a project).
+- **Open, for the owner:** (1) a one-time notice at the upgrade to the owner and admins ("N team projects are now for
+  members only; find them in Projects") — default 4 of "Project contents only for members" says none; the QA row
+  expected one. (2) An ordinary 0.4.0 team folder inside a `Projects/` folder (any letter case, possible on Linux next
+  to `projects/`) is now in the members-only zone: the owner and admins lose it while members keep it, until an admin
+  opens Projects and it is adopted as a project.
+- Tests: `tests/unit/b-projects-after-update.test.ts` (a 0.4.0-shaped team, the start steps, then the owner, another
+  admin, the creator, a member and someone not in it; the owner's chat; the template task on the project, a template
+  task on Shared that still runs, a project task; Add me).
+- Version impact: **patch** (a task that could no longer work is paused and its owner told; no API, data or permission
+  change).
