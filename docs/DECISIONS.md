@@ -12671,6 +12671,28 @@ nothing.
 - Rejected: "@전체" as a reserved id in `mentions` (the list is user ids, checked as such by older builds); expanding it
   into every member's id when sent (the sent message would mark each person's "@name" it does not contain, and the
   stored list would grow with the room); @here (who is online is not something the rooms know).
+
+## Push gateway: an 8 s limit on FCM (fix/push-gateway-fcm-timeout, 2026-11-12, QA TC-387)
+
+- **Problem.** The FCM send call and the OAuth token call had no time limit (an APNs call ends after 15 s with no data). When FCM hung for more
+  than about 40 s, a push was lost: the team server stopped waiting after 10 s and retried 30 s later, the gateway
+  answered the retry `200` (duplicate) because the first send was still in flight, and when the first send failed the
+  gateway released the dedupe entry. Nothing sent the push again. The TC-387 hang probe lost 5 of 5 held Android pushes.
+- **Decision.** One `AbortSignal.timeout(FCM_TIMEOUT_MS)` (8 s) per FCM send, shared by the OAuth call and the send call,
+  answer read included (`push-gateway/src/fcm.ts`). A team server tries a failed push again 30 s or more later
+  (`server/src/notifications/push-service.ts`), so the first send has ended before the retry comes: the retry finds the
+  dedupe entry released (it sends) or kept after a delivery (200, correct). 8 s is also less than the team server's
+  usual 10 s wait, so that server usually gets 502 `provider_error`.
+- **Trade.** FCM may accept a message and answer after 8 s. The gateway then says 502 and the retry sends it again: the
+  phone can get it twice. Android replaces the first with the second (`collapse_key` and the notification `tag` are the
+  notificationId), so the person sees one. A lost push was the worse outcome.
+- **Not changed.** A dedupe hit while the first send is still in flight still answers `200`. With the limit, the first
+  send has ended before any retry can come (the team server waits 30 s), so a different answer is not needed now.
+- Tests: `tests/unit/push-gateway.test.ts` (a hanging FCM call and a hanging OAuth call answer 502, and the retry sends;
+  an error body that stops after the headers answers 502). The TC-387 hang probe: before 145 of 150 delivered (5 of 5
+  held Android pushes lost), after 150 of 150.
+- Version impact: **patch**.
+
 ## Microsoft Edge push through WNS (feat/edge-push, 2026-11-07)
 
 The owner approved Edge ("Edge 브라우저 푸시 ㄱㄱ"). Edge (Chromium) subscribes through the Windows Push Notification
@@ -22986,6 +23008,53 @@ Reverses "Message text from another member is data, shown as plain text in the a
 - Quotes, sending previews, the edit box, notifications, search snippets, list previews and copy stay plain or source
   text. My own questions in an AI chat stay plain.
 - The AI step still treats another member's text as untrusted input.
+
+## Connector write cards: outside content asks, Always allow for every connector (fix/connector-approval-gate, 2026-11-12, QA TC-328, TC-130, TC-127)
+
+Plan: `docs/AGENTS/plan/20261112-0623-connector-approval-gate.md`.
+
+- **Outside content asks, whatever the rule (TC-328, security).** A change at any connection (an MCP tool that is not
+  read-only, `api_request`'s POST, PUT, PATCH or DELETE) goes without a card only when the chat holds nothing someone
+  else wrote. "Someone else wrote" is the chat's existing mark (`chats.session_tainted`: a web page or search, the
+  browser, another person's file, an attachment, project instructions, any connection's answer, including the same
+  service's, marked once the answer came back; `rooms_seen`); a chat row that is gone counts as outside. Not
+  `room_outside`: in the person's own chat it is set before any connection tool runs (`noteRoomTool`), the call being
+  checked included, so it means "a tool was used", not "something was read" (independent review: with it, the first
+  change of a clean chat already asked). It overrides a team connection's
+  "Run without asking", a person's own Always allow and a Google app's Always allow (`gate`, `outsideSeen`). Before,
+  only a room read made those ask, so a page from a service anyone can edit could have the AI send a team file to it
+  with no card. The card leads with a plain line on why it asks (unless the room line already does) and offers only
+  Send / Don't send: no Always allow on a card raised in such a chat, whatever the connection's rule (the words asking
+  for the change could be someone else's). Reads never ask. The owner confirmed the strict rule: a connection's own
+  reply counts. A write's own answer is outside content too, so a second change in the same chat asks
+  again; a new chat does not.
+- **Not changed here: scheduled runs.** Nobody answers a card there, so the rule would refuse every send after a web
+  read. A team "allow" connection still sends only when the schedule's card allowed it, a person's own only to the
+  recipients that card pinned. Whether a scheduled run should also refuse after outside content is the owner's call.
+- **Always allow on every connector's card (TC-130).** The card offers Send once, Always allow and Don't send (values
+  `allow`, `always`, `deny`, so a client that answers the yes / no card's values still works), with a line under the
+  buttons on what Always allow covers. Not offered in a room's session or after a room read (as for Google apps), nor
+  when the connection already sends without asking. Always allow is always the caller's own:
+  - their own connection (their own, one made from a team template, a Google app): its `write_policy` becomes `allow`,
+    as Google apps did (audited `integration.update` / `google_app.write_policy`, `via: card`). This widens "Run
+    without asking is for team connections only" (migration 322) to the owner's own choice made on a card; choosing it
+    in the Settings form stays team-only, a form that keeps it saves, and "Ask every time" on the row turns it back.
+  - a team connection: a row of their own in `integration_user_allow` (migration 346), never the team's rule; it
+    counts only while the connection is at the address it was chosen for, never in a scheduled run, and is listed on
+    the row (`alwaysAllowedByMe`) with "Ask every time" (`DELETE /api/integrations/:id/always-allow`, audited
+    `integration.always_allow`). It applies where the team's rule is "ask" (the owner's standing rule: Always allow
+    means done, only the caller's own switch; no admin setting for it). **The team's "never" always wins**: a
+    connection set to refuse refuses, with no card, whatever a member chose. The row goes when no rule of the
+    connection includes the member any more (its rule changed, they left the group, the group went:
+    `pruneMemberAllows`), so it never comes back on its own when access is given again; the member can also clear
+    their own row without access (the route deletes it, then answers "not found").
+- **Signing in again from the chat (TC-127).** connect_service takes `connection`, the id of the person's own
+  connection that needs a new sign-in or key (the AI's list of connections names it); a call that fills in the
+  address of such a connection gets the same card through the address match of #582 (fix/connect-card-trust, one card
+  builder, `reconnectCard`). It is the template card with "Sign in
+  again to …" (`reconnect`): the sign-in or key goes to that connection, never a second one, the limit does not
+  count it, and "Not now" leaves it. Google apps keep Reconnect on their own page; a member's team connection still
+  says an admin fixes it.
 
 ## The chat's connect card trusts the app's list (fix/connect-card-trust, 2026-11-12, QA TC-135, bugs 2, 4, 5)
 

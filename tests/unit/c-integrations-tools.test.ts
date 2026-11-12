@@ -279,12 +279,17 @@ describe('calls', () => {
     expect(own.status).toBe(400)
     expect(JSON.stringify(own.body)).toContain('team connections only')
     expect((await post('alice', '/api/integrations', { kind: 'mcp', name: 'Mine', url: `${fake.base}/mcp-open`, auth: 'none', writePolicy: 'allow' })).status).toBe(400)
-    // one set before (migration 322 turns those into "ask"; the tool asks anyway)
+    // set by her own Always allow on a write card (QA TC-130, tools.ts keepAlwaysAllow): her own chat sends without a
+    // card; a form that keeps it saves, and "ask" turns it back
     A.ctx.db.query("UPDATE integrations SET write_policy = 'allow' WHERE id = ?").run(tasks.id)
-    const old = ask(false)
-    expect((await turn('alice', { person: old }).call('my_tasks__create_task', { title: 'x' })).summary).toBe('my_tasks__create_task -> not allowed by the user')
-    expect(old.questions).toHaveLength(1)
-    A.ctx.db.query("UPDATE integrations SET write_policy = 'ask' WHERE id = ?").run(tasks.id)
+    const mine = ask(false)
+    expect((await turn('alice', { person: mine }).call('my_tasks__create_task', { title: 'x' })).isError).toBe(false)
+    expect(mine.questions).toHaveLength(0)
+    expect((await patch('alice', tasks.id, { writePolicy: 'allow' })).status).toBe(200)
+    expect((await patch('alice', tasks.id, { writePolicy: 'ask' })).status).toBe(200)
+    const back = ask(false)
+    expect((await turn('alice', { person: back }).call('my_tasks__create_task', { title: 'x' })).summary).toBe('my_tasks__create_task -> not allowed by the user')
+    expect(back.questions).toHaveLength(1)
     // an admin's team connection that alice may use
     const t = (await post('carol', '/api/admin/integrations', { kind: 'mcp', name: 'Team tasks', url: `${fake.base}/mcp-open`, auth: 'none', writePolicy: 'allow', access: { everyone: false, groups: [], users: ['alice'] } })).body
     try {

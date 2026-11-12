@@ -125,6 +125,22 @@ function templateCard(t: NonNullable<ReturnType<typeof getTemplate>>, why: strin
     template: { id: t.id, version: t.version }, ...(why ? { why } : {}), expiresAt,
   }
 }
+/** The person's own connection (not from a template, not a Google app, which signs in on its own page) that needs a new
+ * sign-in or key (QA TC-127): the card offers it again for that connection. */
+export function ownNeedsSignIn(r: Row | null, userId: string): boolean {
+  return !!r && r.scope === 'personal' && r.owner_user_id === userId && !r.template_id && !r.google_app && r.auth !== 'none'
+    && (r.status === 'needs_auth' || !r.secret_enc || /^(refused|no_secret|sign_in)\b/.test(r.last_error ?? ''))
+}
+/** The card for signing in again to (or giving a new key for) the person's own connection: its saved name, address and
+ * sign-in. It never makes a second connection, and "Not now" leaves this one as it is (ConnectCard.created false). */
+function reconnectCard(r: Row, why: string | undefined, expiresAt: string): Extract<TurnRequest, { kind: 'connect_service' }> {
+  return {
+    // saved before the list's rule (#582) under a listed name at another address: titled by its host, like a new card
+    kind: 'connect_service', requestId: uuidv7(), target: 'service', name: posesAsListed(r.name, r.url) ? new URL(r.url).host.slice(0, 60) : r.name, scope: 'personal',
+    service: { kind: r.kind, url: r.url, host: new URL(r.url).host, auth: r.auth, authHeader: r.auth_header },
+    reconnect: true, ...(why ? { why } : {}), expiresAt,
+  }
+}
 /** this person's own connection made from the template, if they connected it */
 const fromTemplate = (db: Database, templateId: string, userId: string) => db.query(`${selectRows(db)} WHERE template_id = ? AND owner_user_id = ?`).get(templateId, userId) as Row | null
 /** a template for this person, connected and working: nothing to connect */
@@ -163,7 +179,17 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   /** the AI's address for a listed service, which the card did not use */
   let note: string | undefined
 
-  if (a.data.template) {
+  if (a.data.connection) {
+    // the person's own connection that needs a new sign-in or key: anyone else's is the same as none
+    const r = getRow(db, a.data.connection)
+    if (!r || r.scope !== 'personal' || r.owner_user_id !== viewer.id) return early('No card: there is no such connection of this person. Use the id listed under "Connected services".', 'no connection')
+    if (r.google_app) return early(`${r.name} signs in again on its own page: the person can do it in ${SCREEN.connectors(L, r.name)} (Reconnect). No card was shown.`, 'google app')
+    if (r.template_id) return early(`"${r.name}" is made from a team template: call connect_service with template "${r.template_id}" instead.`, 'from template')
+    if (!ownNeedsSignIn(r, viewer.id)) return early(`"${r.name}" does not need a new sign-in or key now (${stateOf(r)}). Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'connection fine', false)
+    if (!getTeamSettings(db).personalIntegrations) return early(`This person's own connection "${r.name}" needs a sign-in or a new key, but this team does not allow personal connections now (an admin turned them off), so no card was shown. Tell the person to ask an admin.`, 'personal connections off')
+    existing = r
+    card = reconnectCard(r, why, expiresAt())
+  } else if (a.data.template) {
     // an admin's template: only one that is for this person (anyone else's is the same as none)
     const t = getTemplate(db, a.data.template)
     if (!t || !templateCovers(db, t.id, viewer.id)) return early('No card: there is no such template for this person. Use the id listed under "Connected services", or fill in the service (kind, url, auth).', 'no template')
@@ -229,11 +255,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     if (own && !own.template_id) {
       if (!getTeamSettings(db).personalIntegrations) return early(`This person's own connection "${own.name}" needs a sign-in or a new key, but this team does not allow personal connections now (an admin turned them off), so no card was shown. Tell the person to ask an admin.`, 'personal connections off')
       existing = own
-      card = {
-        // saved before the list's rule (#582) under a listed name at another address: titled by its host, like a new card
-        kind: 'connect_service', requestId: uuidv7(), target: 'service', name: posesAsListed(own.name, own.url) ? new URL(own.url).host.slice(0, 60) : own.name, scope: 'personal',
-        service: { kind: own.kind, url: own.url, host: new URL(own.url).host, auth: own.auth, authHeader: own.auth_header }, reconnect: true, ...(why ? { why } : {}), expiresAt: expiresAt(),
-      }
+      card = reconnectCard(own, why, expiresAt())
     } else if (ownTemplate) {
       // their own connection from an admin's template: its card, for the same connection (templates.ts connect updates it)
       card = { ...templateCard(ownTemplate, why, expiresAt()), reconnect: true }

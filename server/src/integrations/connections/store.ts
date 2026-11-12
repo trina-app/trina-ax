@@ -167,6 +167,16 @@ export function setAccess(db: Database, id: string, a: IntegrationAccess): void 
   if (a.everyone) ins.run(id, 'everyone', '')
   for (const g of new Set(a.groups)) ins.run(id, 'group', g)
   for (const u of new Set(a.users)) ins.run(id, 'user', u)
+  pruneMemberAllows(db)
+}
+
+/** A member's own Always allow on a team connection (integration_user_allow, migration 346) goes when no rule of that
+ * connection includes them any more (its rule changed, they left the group, the group went), so it never comes back
+ * on its own when they are given access again. Called after every change of a rule or a group's members. */
+export function pruneMemberAllows(db: Database): void {
+  db.query(`DELETE FROM integration_user_allow WHERE NOT EXISTS (SELECT 1 FROM integration_access a WHERE a.integration_id = integration_user_allow.integration_id
+    AND (a.subject_type = 'everyone' OR (a.subject_type = 'user' AND a.subject_id = integration_user_allow.user_id)
+      OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = integration_user_allow.user_id))))`).run()
 }
 
 const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
@@ -268,6 +278,8 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     templateId: row.template_id ?? null,
     // the app's ID and addresses are for whoever manages the connection (a template's app is the admin's)
     oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc, row.url) : null,
+    // the viewer's own Always allow on a team connection, while its address is the one they chose it for (tools.ts gate)
+    ...(row.scope === 'team' ? { alwaysAllowedByMe: (db.query('SELECT url FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').get(row.id, viewer.id) as { url: string } | null)?.url === row.url } : {}),
   }
 }
 
