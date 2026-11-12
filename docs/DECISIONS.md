@@ -13084,6 +13084,17 @@ middle of a word on a phone.
   always opens, and a message still being sent (no menu) opens on any press.
 - **Not in this change:** link previews (an unfurl needs the server to fetch the page, with SSRF rules), links in the
   room list's last-message line (the row is one link already), Markdown in people's messages.
+## 대화방의 트리나: an answer cut by a restart tells the asker (fix/room-ai-restart-error, 2026-11-12, QA TC-241)
+
+- **Problem.** With room AI mentions on, a question answered while the server restarted ended `error` on the server
+  ("서버가 다시 시작되어 답변이 중단됐어요."), but its `room.ai.run` went out while nobody was connected, and
+  `GET /api/rooms/:id/ai` listed only working runs: the asker saw nothing, page open or reloaded.
+- **Decision (the simplest option that meets the row).** `GET /api/rooms/:id/ai` also lists the asker's runs that ended
+  in an error in the last 24 hours (not stopped ones), so the existing line under the question ("트리나가 답하지 못했어요.
+  …", `EndedRun`) shows after a reconnect or a reload. Closing it is remembered in that browser for the person
+  (`localStorage`, the last 200), so a reload does not bring it back; nothing new on the server.
+- **Not done.** An Activity notice, a retry for the person, failures older than a day.
+
 ## 대화방의 트리나가 스레드도 본다 — the room's AI sees threads (feat/room-ai-threads, 2026-11-07, product owner)
 
 넣을 곳: trina-ax `server/src/rooms` (ai.ts, ai-context.ts, ai-tools.ts), `server/src/chat` (room-tools.ts, prompt.ts,

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 00:04
 - Branch: `fix/room-ai-restart-error`
-- Status: in progress
+- Status: done
 - Where: `server/src/rooms/ai.ts` (`state`), `web/src/store/rooms.ts` (`loadAi`, `dismissAi`), a short
   `docs/DECISIONS.md` section. Why: rooms are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: a failed answer now says so after a restart or a reload
@@ -45,4 +45,8 @@ Who sees what: the list is the asker's own (unchanged rule); nothing for other m
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the `docs/DECISIONS.md` section "대화방의 트리나: an answer cut by a restart tells the asker".
+Checked on a local dev server with the row a restart leaves (a question of qa-a, its run `error` with the restart's
+message): opening the room as qa-a showed "트리나가 답하지 못했어요. 서버가 다시 시작되어 답변이 중단됐어요." under the
+question; closed with X and reloaded, it stayed closed; qa-b saw nothing of it. The restart itself was not driven with a
+real AI answer (the start-up's `reconcile` path is in the server test).
