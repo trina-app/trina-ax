@@ -1,4 +1,4 @@
-// What Admin › Connected apps and Settings › Connected apps share, like Claude's Connectors: the title row (the page's title,
+// What Admin › Connected apps and Connectors (the main sidebar's, pages/Connectors.tsx) share, like Claude's Connectors: the title row (the page's title,
 // the search and Add with its ⌄ menu), which stays at the top while the page scrolls; Discover, the section under the
 // connections on the same page ("Top connectors" with Trina's own Google Drive first, then the MCP services of
 // lib/connectors.ts, the rest behind Show all); and a connector's page (ConnectorDetail: a big logo, the main action,
@@ -48,8 +48,8 @@ export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
 }
 
 /** The ids of the headings of a page's two sections (the connections, Discover), for goToSection and aria-labelledby.
- * Each page makes its own: Settings opens over the page it came from, which stays mounted under it (App.tsx), so
- * Settings › Connected apps can be on screen over Admin › Connected apps. */
+ * Each page makes its own: a dialog (Settings) opens over the page it came from, which stays mounted under it (App.tsx), so
+ * two such pages can be mounted at once. */
 export function useSectionIds() {
   return { connected: useId(), discover: useId() }
 }
@@ -99,7 +99,7 @@ export function discoverHits(t: ReturnType<typeof useT>, query: string, builtIns
  * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. A phone (below
  * 768 px): one row per service with hairlines between, no framed tiles (docs/DECISIONS.md "Admin and Settings on
  * phones"). */
-export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
+export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, customNote, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
   /** its heading's id (useSectionIds) */
   titleId: string
   connected: Pick<Integration, 'url'>[]
@@ -107,6 +107,8 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
   onAdd: (c: Connector) => void
   /** add one that is not listed, by its address (owners and admins); without it the line says to ask an admin */
   onCustom?: () => void
+  /** without onCustom: what the line says instead of asking an admin (an admin on a phone: do it on a computer) */
+  customNote?: string
   builtIns?: BuiltInCard[]
   onAddBuiltIn?: (id: string) => void
   /** open a service's page */
@@ -164,7 +166,7 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
         ) : (
           // members: the address form (kind, sign-in method, headers, scopes) is an admin's job, like a custom app in
           // Slack or Notion; the admin adds it for the team or asks the member to connect it (Ask a member to connect…)
-          <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
+          customNote ? <span data-testid="connector-custom-note">{customNote}</span> : <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
         )}
       </p>
     </section>
@@ -255,7 +257,8 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
   return (
     <section aria-labelledby={titleId} className="space-y-6" data-testid={testId}>
       <div className="rounded-2xl bg-subtle p-5 sm:p-6">
-        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={onBack} data-testid="connector-back">
+        {/* a phone: the bar's ‹ above is the way back (the page has its own address), so not a second one here */}
+        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink max-md:hidden" onClick={onBack} data-testid="connector-back">
           <ArrowLeft size={15} aria-hidden /> {t('integrations.title')}
         </button>
         <div className="flex flex-wrap items-center gap-4">
@@ -289,6 +292,52 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
 /** A service's logo. On white in both themes, like the logo pages of most of them: they are drawn for a light background. */
 export function ConnectorLogo({ c, className }: { c: Connector; className?: string }) {
   return <LogoTile src={connectorLogo(c)} className={className} />
+}
+
+/** A connection without a listed logo: its first letter. */
+export function InitialTile({ name, className }: { name: string; className?: string }) {
+  return <span className={`flex shrink-0 items-center justify-center rounded-xl border border-line bg-subtle text-base font-semibold text-muted ${className ?? 'size-10'}`} aria-hidden>{name.trim().charAt(0).toUpperCase() || '?'}</span>
+}
+
+/** What one row of "Your connectors" says on its right: one status or one button, nothing else. */
+export type RowStatus = 'connected' | 'signin' | 'reconnect' | 'attention' | 'connect'
+
+/** One row of Connectors' "Your connectors", like Claude's list: logo, name (a small "Team" label for what the team
+ * provides) and one status on the right. The row opens the connector's page, where everything else is (switches,
+ * errors, "Run without asking", disconnect). `onConnect`: the Connect button (a team template not connected yet). */
+export function ConnectorRow({ id, logo, name, team, status, onOpen, onConnect, testId = 'connected-app' }: {
+  id: string
+  logo?: string
+  name: string
+  team?: boolean
+  status: RowStatus
+  onOpen: () => void
+  onConnect?: () => void
+  testId?: string
+}) {
+  const t = useT()
+  return (
+    <li className="flex items-center gap-3 border-b border-line py-2.5 last:border-b-0" data-testid={testId} data-id={id} data-state={status}>
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2" onClick={onOpen} data-testid="connector-row-open">
+        {logo ? <LogoTile src={logo} className="size-10 rounded-xl p-2" /> : <InitialTile name={name} />}
+        <span className="min-w-0 truncate text-sm font-medium">{name}</span>
+        {team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
+      </button>
+      {status === 'connected' ? (
+        <span className="flex shrink-0 items-center gap-1 text-xs text-muted" data-testid="connector-row-status">
+          <Check size={14} className="text-ok" aria-hidden /> {t('drive.status.connected')}
+        </span>
+      ) : status === 'signin' ? (
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
+      ) : status === 'reconnect' ? (
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('drive.reconnect')}: ${name}`} data-testid="connector-row-status">{t('drive.reconnect')}</button>
+      ) : status === 'attention' ? (
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('connectors.state.attention')}: ${name}`} data-testid="connector-row-status">{t('connectors.state.attention')}</button>
+      ) : (
+        <Button size="sm" variant="primary" className="shrink-0" onClick={onConnect ?? onOpen} aria-label={`${t('aiApps.connect')}: ${name}`} data-testid="template-connect">{t('aiApps.connect')}</Button>
+      )}
+    </li>
+  )
 }
 
 export function LogoTile({ src, className }: { src: string; className?: string }) {

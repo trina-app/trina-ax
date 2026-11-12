@@ -16,9 +16,10 @@
 // One filled button for a member: the first skill's 써 보기, else 물어보기, else the ready question. Owners and admins get
 // no filled button here (the goal card or the setup row is the one thing on Home: docs/DECISIONS.md "Y") and, with
 // nothing prepared, "스킬 넣기 · 팀 파일 넣기" instead of a question (스킬 넣기 opens 팀 스킬 with the ready-made skills
-// unfolded). `readOnly` (a member under the no-AI card): the rows and 예시 only. Phones (below 768px): a skill row's tap
-// is 써 보기 (it says so at its end, as the files row says 물어보기), with 예시 as its own target at the row's end; the
-// files row is one row. The block reads again when skills, files or access change (once per burst of changes); a failed
+// unfolded). `readOnly` (a member under the no-AI card): the rows and 예시 only. Phones (below 768px; QA TC-253): one row
+// of chips above Home's docked box that scrolls sideways (components/SuggestionRow.tsx): a skill chip's tap is 써 보기 (it
+// says so beside the title, as the files chip says 물어보기), with 예시 as its own target at the chip's end; then the
+// files chip and "팀 스킬 N개 더 ›"; 스킬 넣기 and 팀 파일 넣기 are two chips too (no text links). The block reads again when skills, files or access change (once per burst of changes); a failed
 // read is the calm notice (components/LoadError.tsx, docs/DECISIONS.md "How we show errors": the connection reads again
 // by itself), never red under the box and never the empty state. While the block shows anything, Home leaves "what my
 // group often asks" out: one block under the box at a time.
@@ -40,6 +41,7 @@ import { SkillExampleViewer } from '../skills/SkillExampleViewer'
 import { SkillFormDialog } from '../skills/SkillForm'
 import { Button, useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
+import { chip, SuggestionRow } from '../SuggestionRow'
 
 /** Skill rows on Home before "팀 스킬 N개 더 ›". */
 export const PREPARED_SKILL_ROWS = 3
@@ -164,7 +166,8 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
     <button
       ref={(el) => { if (el) exampleButtons.current.set(s.path, el); else exampleButtons.current.delete(s.path) }}
       type="button"
-      className={clsx(quietLink, 'shrink-0 text-label max-md:flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-center max-md:px-3', !phone && 'touch-hit')}
+      // phones: the chip's end, behind a hairline, plain words (no underline)
+      className={clsx(quietLink, 'shrink-0 text-label max-md:flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-center max-md:self-stretch max-md:border-l max-md:border-line max-md:px-3 max-md:text-muted max-md:no-underline', !phone && 'touch-hit')}
       aria-haspopup="dialog"
       aria-label={t('skillPack.exampleNamed', { title: s.title })}
       onClick={() => setViewing(s)}
@@ -178,31 +181,60 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
 
   return (
     <section
-      className="mt-6 md:rounded-2xl md:border md:border-line md:px-4 md:py-3"
+      className="mt-6 max-md:mt-2 max-md:mb-1 md:rounded-2xl md:border md:border-line md:px-4 md:py-3"
       aria-labelledby={`${ids}-title`}
       data-testid="team-prepared"
       data-state={v.ready ? 'ready' : v.add ? 'add' : 'prepared'}
       data-primary={v.primary ?? undefined}
     >
-      <h2 id={`${ids}-title`} className="mb-1 text-sm font-semibold max-md:px-3">{heading}</h2>
-      {(v.rows.length > 0 || v.files) && (
-        <ul className="md:divide-y md:divide-line" data-testid="team-prepared-rows">
+      {/* phones: a small heading over the one row */}
+      <h2 id={`${ids}-title`} className="mb-1 text-sm font-semibold max-md:mb-0 max-md:pb-1.5 max-md:text-xs max-md:font-normal max-md:text-muted">{heading}</h2>
+      {phone && (v.rows.length > 0 || v.files) && (
+        <SuggestionRow testId="team-prepared-rows">
           {v.rows.map((s, i) => {
             const filled = v.primary === 'skill' && i === 0
-            return phone ? (
-              <li key={s.path} className="flex items-center" data-testid="team-prepared-skill" data-path={s.path} data-primary={filled || undefined}>
+            return (
+              <li key={s.path} className={clsx(chip, 'w-72 items-stretch hover:bg-surface')} data-testid="team-prepared-skill" data-path={s.path} data-primary={filled || undefined}>
                 {readOnly ? (
-                  <div className="min-w-0 flex-1 px-3 py-1.5"><SkillText s={s} /></div>
+                  <div className="flex min-w-0 flex-1 items-center px-3 py-2"><SkillText s={s} /></div>
                 ) : (
-                  <button type="button" onClick={() => tryIt(s)} aria-label={t('home.prepared.tryNamed', { title: s.title })} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-1.5 text-left transition hover:bg-hover" data-testid="team-prepared-try">
+                  // named by what it shows (the title, its line, 써 보기), so what is read out is what is seen
+                  <button type="button" onClick={() => tryIt(s)} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl py-2 pl-3 text-left transition hover:bg-hover" data-testid="team-prepared-try">
                     <SkillText s={s} />
-                    {/* what the tap does, as the files row says 물어보기 */}
-                    <span className={clsx('shrink-0 text-label font-medium', filled ? 'text-accent-text' : 'text-muted')} aria-hidden data-testid="team-prepared-try-label">{t('home.prepared.try')}</span>
+                    {/* what the tap does, as the files chip says 물어보기 */}
+                    <span className={clsx('shrink-0 self-start text-label leading-5 font-medium', filled ? 'text-accent-text' : 'text-muted')} data-testid="team-prepared-try-label">{t('home.prepared.try')}</span>
                   </button>
                 )}
                 {example(s)}
               </li>
-            ) : (
+            )
+          })}
+          {v.files && (
+            <li className="flex shrink-0" data-testid="team-prepared-files" data-primary={v.primary === 'files' || undefined}>
+              {readOnly ? (
+                <p className={clsx(chip, 'px-3 text-sm hover:bg-surface')}><span className="font-medium text-ink">{t('home.prepared.files')}</span><span className="text-muted"> · {count(v.files)}</span></p>
+              ) : (
+                <button type="button" onClick={() => askFiles(v.files!)} className={clsx(chip, 'gap-2 px-3 text-sm')} data-testid="team-prepared-ask">
+                  <span className="whitespace-nowrap"><span className="font-medium text-ink">{t('home.prepared.files')}</span><span className="text-muted"> · {count(v.files)}</span></span>
+                  <span className={clsx('shrink-0 text-label font-medium', v.primary === 'files' ? 'text-accent-text' : 'text-muted')}>{t('home.prepared.ask')}</span>
+                </button>
+              )}
+            </li>
+          )}
+          {v.more > 0 && (
+            <li className="flex shrink-0">
+              <Link to="/skills" className={clsx(chip, 'gap-0.5 px-3 text-label whitespace-nowrap text-muted')} data-testid="team-prepared-more">
+                {t('home.prepared.more', { n: v.more })} <ChevronRight size={14} aria-hidden />
+              </Link>
+            </li>
+          )}
+        </SuggestionRow>
+      )}
+      {!phone && (v.rows.length > 0 || v.files) && (
+        <ul className="md:divide-y md:divide-line" data-testid="team-prepared-rows">
+          {v.rows.map((s, i) => {
+            const filled = v.primary === 'skill' && i === 0
+            return (
               <li key={s.path} className="flex min-h-11 items-center gap-3 py-1.5" data-testid="team-prepared-skill" data-path={s.path} data-primary={filled || undefined}>
                 <span className="w-32 shrink-0 truncate text-sm font-medium text-ink" title={s.title}>{s.title}</span>
                 <span className="min-w-0 flex-1 truncate text-label text-muted" title={s.summary}>{s.summary}</span>
@@ -217,23 +249,12 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
           })}
           {v.more > 0 && (
             <li className="md:py-1.5">
-              <Link to="/skills" className="inline-flex min-h-11 items-center gap-0.5 rounded-lg text-label text-muted transition hover:text-ink max-md:px-3 md:min-h-8" data-testid="team-prepared-more">
+              <Link to="/skills" className="inline-flex min-h-11 items-center gap-0.5 rounded-lg text-label text-muted transition hover:text-ink md:min-h-8" data-testid="team-prepared-more">
                 {t('home.prepared.more', { n: v.more })} <ChevronRight size={14} aria-hidden />
               </Link>
             </li>
           )}
-          {v.files && (phone ? (
-            <li data-testid="team-prepared-files" data-primary={v.primary === 'files' || undefined}>
-              {readOnly ? (
-                <p className="flex min-h-11 items-center px-3 text-sm"><span className="min-w-0 flex-1 truncate"><span className="font-medium text-ink">{t('home.prepared.files')}</span><span className="text-muted"> · {count(v.files)}</span></span></p>
-              ) : (
-                <button type="button" onClick={() => askFiles(v.files!)} aria-label={t('home.prepared.askNamed')} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm transition hover:bg-hover" data-testid="team-prepared-ask">
-                  <span className="min-w-0 flex-1 truncate"><span className="font-medium text-ink">{t('home.prepared.files')}</span><span className="text-muted"> · {count(v.files)}</span></span>
-                  <span className={clsx('shrink-0 text-label font-medium', v.primary === 'files' ? 'text-accent-text' : 'text-muted')} aria-hidden>{t('home.prepared.ask')}</span>
-                </button>
-              )}
-            </li>
-          ) : (
+          {v.files && (
             <li className="flex min-h-11 items-center gap-3 py-1.5" data-testid="team-prepared-files" data-primary={v.primary === 'files' || undefined}>
               <span className="w-32 shrink-0 text-sm font-medium text-ink">{t('home.prepared.files')}</span>
               <span className="min-w-0 flex-1 truncate text-label text-muted" title={v.files.path}>{folderLabel(v.files.path, locale)} · {count(v.files)}</span>
@@ -243,17 +264,24 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
                 </Button>
               )}
             </li>
-          ))}
+          )}
         </ul>
       )}
       {v.ready && <ReadyQuestion hasProfile={data.hasProfile} onCompose={onCompose} />}
-      {v.add && (
-        <p className="py-1.5 text-label text-muted max-md:px-3" data-testid="team-prepared-add">
+      {v.add && (phone ? (
+        // phones: two chips (not underlined words), the same two ways
+        <div className="flex gap-2 text-label text-muted" data-testid="team-prepared-add">
+          <Link to={SKILL_CATALOG} className={clsx(chip, 'px-3')} data-testid="team-prepared-add-skills">{t('home.prepared.addSkills')}</Link>
+          <span className="sr-only"> · </span>
+          <Link to="/files" className={clsx(chip, 'px-3')} data-testid="team-prepared-add-files">{t('home.prepared.addFiles')}</Link>
+        </div>
+      ) : (
+        <p className="py-1.5 text-label text-muted" data-testid="team-prepared-add">
           <Link to={SKILL_CATALOG} className={clsx(quietLink, 'touch-hit')} data-testid="team-prepared-add-skills">{t('home.prepared.addSkills')}</Link>
           <span aria-hidden> · </span>
           <Link to="/files" className={clsx(quietLink, 'touch-hit')} data-testid="team-prepared-add-files">{t('home.prepared.addFiles')}</Link>
         </p>
-      )}
+      ))}
       {running && <SkillFormDialog path={running.path} onClose={() => setRunning(null)} />}
       {viewing?.example && <SkillExampleViewer skill={asCatalog(viewing)} onClose={() => setViewing(null)} returnTo={exampleButtons.current.get(viewing.path) ?? null} />}
     </section>

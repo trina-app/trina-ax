@@ -46,7 +46,7 @@ async function longPress(page: Page, target: Locator) {
 /** The cases, for the engine the spec that calls this runs them in (phone-overlay-back.spec.ts: Chromium, Android's;
  * phone-overlay-back.webkit.spec.ts: WebKit, the iPhone app's). */
 export function overlayBackCases() {
-  test('a room: the message sheet, ⋯, 🔔, members and the @ list each close with Back, and the room stays', async ({ page }) => {
+  test('a room: the message sheet, ⋯, ⋯ › 알림 설정, members and the @ list each close with Back, and the room stays', async ({ page }) => {
     await openRoom(page)
     const roomUrl = page.url()
     const start = await historyLength(page)
@@ -65,14 +65,8 @@ export function overlayBackCases() {
     await expect(page.getByRole('menu')).toHaveCount(0)
     expect(page.url()).toBe(roomUrl)
 
-    // 🔔
-    await page.getByTestId('room-notify').click()
-    await expect(page.getByRole('menu')).toBeVisible()
-    await back(page)
-    await expect(page.getByRole('menu')).toHaveCount(0)
-    expect(page.url()).toBe(roomUrl)
-
-    // ⋯ › 알림 설정: one menu's item opens another (it takes the first one's entry): one Back closes it
+    // ⋯ › 알림 설정 (a phone's header has no 🔔: QA TC-257): one menu's item opens another (it takes the first one's
+    // entry): one Back closes it
     await page.getByTestId('room-menu').click()
     await page.getByTestId('room-menu-notify').click()
     await expect(page.getByRole('menuitemradio')).toHaveCount(4)

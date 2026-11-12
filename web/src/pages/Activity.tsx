@@ -4,6 +4,8 @@
 // is the writer's photo (a bell for a notice of the app's own), who and the time, the line, and underneath where it was
 // (a DM, #room › Thread) or what it is about. The unread count sits on the right. The whole row opens the place and reads
 // it; a notice with nowhere to open keeps its "Mark as read". The preferences stay in Settings › Notifications (the gear).
+// Opened from a phone's 대화 tab (its 멘션·스레드 row, `?in=chats`: lib/screens.ts CHATS_ACTIVITY) it is that tab's page of
+// the conversations only: All · Mentions · Threads, rows of rooms (no notice of the app's own), named "멘션·스레드".
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { AtSign, Bell, BellRing, Check, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
@@ -13,6 +15,7 @@ import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
 import { badgeText } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
+import { activityInChats } from '../lib/screens'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { useRooms } from '../store/rooms'
@@ -38,6 +41,8 @@ const FILTERS: { id: Filter; label: MessageKey; short?: MessageKey; icon?: typeo
  * A phone: the four share the width equally, 44px tall, words only (no icons), never scrolling sideways. */
 export const tabCls = 'inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition focus-visible:-outline-offset-2 max-md:h-11 max-md:min-w-0 max-md:justify-center max-md:px-1'
 const isFilter = (s: string | null): s is Filter => FILTERS.some((f) => f.id === s)
+/** the conversations' tabs (opened from 대화): DMs are that tab's own list */
+const CHATS_FILTERS = FILTERS.filter((f) => f.id !== 'dms')
 
 /** Which tabs a notice shows under besides All: a direct or group chat's under DMs, an @mention (or @everyone) under
  * Mentions, a reply in a thread under Threads. A notice of the app's own is under All only. */
@@ -68,7 +73,13 @@ const timeOf = (iso: string, locale: ReturnType<typeof useLocale>) => new Intl.D
 export default function Activity() {
   const t = useT(), locale = useLocale()
   const [params, setParams] = useSearchParams()
-  const filter: Filter = isFilter(params.get('tab')) ? (params.get('tab') as Filter) : 'all'
+  // the conversations only (opened from 대화): rows of rooms, without the DMs tab
+  const chats = activityInChats(params.toString())
+  const filters = chats ? CHATS_FILTERS : FILTERS
+  const asked = params.get('tab')
+  const filter: Filter = isFilter(asked) && filters.some((f) => f.id === asked) ? asked : 'all'
+  const shows = (item: InboxNotification, f: Filter) => inFilter(item, f) && (!chats || isRoomRow(item))
+  const title = chats ? t('feed.chats') : t('inbox.title')
   const setFilter = (f: Filter) => setParams((p) => { const n = new URLSearchParams(p); if (f === 'all') n.delete('tab'); else n.set('tab', f); return n }, { replace: true })
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [searching, setSearching] = useState(false)
@@ -135,13 +146,13 @@ export default function Activity() {
     return typeof text === 'string' ? text : ''
   }
 
-  const unreadIn = (f: Filter) => !!items?.some((x) => !x.readAt && inFilter(x, f))
+  const unreadIn = (f: Filter) => !!items?.some((x) => !x.readAt && shows(x, f))
   const q = query.trim().toLocaleLowerCase()
   const visible = useMemo(() => (items ?? [])
-    .filter((x) => inFilter(x, filter) && (!unreadOnly || !x.readAt) && (!q || wordsOf(x).toLocaleLowerCase().includes(q)))
+    .filter((x) => shows(x, filter) && (!unreadOnly || !x.readAt) && (!q || wordsOf(x).toLocaleLowerCase().includes(q)))
     .sort((a, b) => at(b).localeCompare(at(a))),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [items, filter, unreadOnly, q, rooms, locale])
+  [items, filter, unreadOnly, q, rooms, locale, chats])
   const groups = useMemo(() => {
     const out: { day: string; label: string; items: InboxNotification[] }[] = []
     for (const item of visible) {
@@ -166,15 +177,15 @@ export default function Activity() {
         <div className={clsx(pageColumn, 'px-4 pt-4 sm:px-6 sm:pt-5 max-md:pt-1')}>
           <div className="flex items-center justify-between gap-3 max-md:block">
             {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}
-            <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{t('inbox.title')}</h1>
+            <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{title}</h1>
             <Tooltip label={t('feed.settings')}>
               <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink max-md:hidden" aria-label={t('feed.settings')} data-testid="activity-settings">
                 <Settings size={18} aria-hidden />
               </Link>
             </Tooltip>
           </div>
-          <div role="tablist" aria-label={t('inbox.title')} className="scroll-thin -mb-px mt-2 flex gap-1 overflow-x-auto max-md:mt-0 max-md:grid max-md:auto-cols-[minmax(0,1fr)] max-md:grid-flow-col max-md:gap-0 max-md:overflow-visible" data-testid="activity-tabs">
-            {FILTERS.map(({ id, label, short, icon: Icon }) => {
+          <div role="tablist" aria-label={title} className="scroll-thin -mb-px mt-2 flex gap-1 overflow-x-auto max-md:mt-0 max-md:grid max-md:auto-cols-[minmax(0,1fr)] max-md:grid-flow-col max-md:gap-0 max-md:overflow-visible" data-testid="activity-tabs">
+            {filters.map(({ id, label, short, icon: Icon }) => {
               const on = filter === id
               const word = phone && short ? t(short) : t(label)
               return (
@@ -229,7 +240,7 @@ export default function Activity() {
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !visible.length && (
-          <EmptyState icon={<Inbox size={28} />} title={items.length && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : t('notifications.empty')} />
+          <EmptyState icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
         )}
         {groups.map((g, i) => (
           <section key={g.day} aria-labelledby={`activity-day-${g.day}`} data-testid="activity-day">

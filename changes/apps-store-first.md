@@ -1,1 +1,0 @@
-- Settings › Apps: the Mac row offers the **App Store** first, also when the team server has its own Mac installer. The App Store app opens without the macOS security warning and updates by itself. The Mac App Store build is unchanged and offers no installer.

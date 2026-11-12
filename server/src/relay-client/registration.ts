@@ -152,11 +152,14 @@ function saveRegistration(db: Database, r: Registration): void {
     .run(r.relayApi, r.teamId, r.teamName, r.publicKey, r.address, r.registeredAt, r.lastHeartbeatAt)
 }
 
-export function recordRelayEvent(db: Database, kind: string, detail: string | null = null): void {
+/** The new row's id, or null when it could not be written (diagnostics only, never throws). */
+export function recordRelayEvent(db: Database, kind: string, detail: string | null = null): string | null {
   try {
-    db.query('INSERT INTO relay_events (id, at, kind, detail) VALUES (?, ?, ?, ?)').run(uuidv7(), new Date().toISOString(), kind, detail)
+    const id = uuidv7()
+    db.query('INSERT INTO relay_events (id, at, kind, detail) VALUES (?, ?, ?, ?)').run(id, new Date().toISOString(), kind, detail)
     db.query(`DELETE FROM relay_events WHERE at < ?`).run(new Date(Date.now() - 30 * 24 * 3600_000).toISOString())
-  } catch { /* diagnostics only */ }
+    return id
+  } catch { return null }
 }
 
 export function recentRelayEvents(db: Database, limit = 20): { at: string; kind: string; detail: string | null }[] {

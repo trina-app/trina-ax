@@ -40,7 +40,7 @@ of the old one.
 
 ## Using it (everyone)
 
-- **Link with "Sign in with Slack"** (Settings › App connectors › Slack, or the link page): the button sends your
+- **Link with "Sign in with Slack"** (Connectors in the sidebar, its Slack line, or the link page): the button sends your
   browser to Slack; you sign in to Slack (or are signed in already) and come back, linked. From the desktop app Slack
   opens in your system browser and from the phone app in an in-app browser: if that browser is not signed in here, it
   asks you to sign in first and then finishes; at the end it says you can go back to the app, whose Settings line shows
@@ -70,7 +70,7 @@ of the old one.
 - **In a DM** the answer comes in the thread of your message (a new message, so Slack notifies you; "working…" goes).
 - **Follow-ups**: mention the app again in the same thread (or reply in the DM thread); they continue the same chat.
   A new thread is a new chat.
-- **Settings › App connectors** has a Slack line while the team uses Slack: the linked account with *Unlink*, or *Sign
+- **Connectors** (in the sidebar) has a Slack line while the team uses Slack: the linked account with *Unlink*, or *Sign
   in with Slack to link* (without it: how to get a link in Slack). After the sign-in, the line says how it went. A
   disabled or deleted account is unlinked at once.
 - **When an answer cannot start or fails**, Slack says why in plain words (the chat was deleted, a server problem, the

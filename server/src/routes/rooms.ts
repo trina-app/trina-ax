@@ -14,7 +14,7 @@ import { hashFile, writeTemp } from '../team-files/place'
 import { HwpError } from '../files/hwp-engine'
 import { componentC } from '../team-files/component'
 import { httpError } from '../team-files/errors'
-import { roomsOf } from '../rooms/service'
+import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { roomAiOf } from '../rooms/ai'
 import { redecideRoomSoon, startRedecide } from '../rooms/ai-redecide'
@@ -98,6 +98,19 @@ export const roomsRoutes: RouteModule = {
       rooms.get(auth.user.id, params.id)
       const p = await writeTemp(tmpDir, body.file)
       try { return await files.create(auth.user.id, params.id, body.fields.name ?? (body.file.name || 'file'), p, await hashFile(p)) } finally { fs.rmSync(p, { force: true }) }
+    })
+    // "팀 파일" in a room's box (a phone's attach sheet): the copy "대화방에 보내기" makes of a linked file (rooms/files.ts
+    // teamCopy over fromTeamFile: in the room, my read access now, a regular file of at most 50 MB, the storage check,
+    // photo metadata cut out; anything else 404 like a missing file), kept as my unsent upload and sent by id like one.
+    // The same unchanged file again: that copy again; my unsent copies are capped (409 team_copies_full). With it, how
+    // many other members cannot open the team file now (the rooms' own link check, fileOpener; a disabled account counts):
+    // the box tells me before I send, as the share step does. Audited when it is sent (rooms/service.ts send)
+    kit.handle(API.attachRoomTeamFile, async ({ c, auth, params, body }) => {
+      rooms.get(auth.user.id, params.id)
+      const file = await files.teamCopy(auth.user.id, params.id, body.path, c.get('locale'))
+      const others = ctx.db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(params.id, auth.user.id) as { user_id: string }[]
+      const unable = others.filter((m) => !fileOpener(ctx, m.user_id)(body.path)).length
+      return { file, unable }
     })
     const ai = roomAiOf(ctx)
     kit.handle(API.getRoomAi, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return ai.state(auth.user.id, params.id) })

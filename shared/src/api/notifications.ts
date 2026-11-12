@@ -58,8 +58,11 @@ export type PushEventType = z.infer<typeof PushEventType>
  * when a password re-check of theirs locked after too many wrong tries, and a member's ask to add an app the team has
  * not set up (service_request_notices; shared/src/api/service-requests.ts): service.request to the owners and the
  * admins (one per app), service.ready to the member once they can connect it, and account.reset_link to a person when a password reset link
- * was made for their account, on the server or by an admin (reset_link_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link'])
+ * was made for their account, on the server or by an admin (reset_link_notices), and things done to the team from
+ * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
+ * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
+ * taking this server's key because the team address was moved to another key. */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -210,9 +213,11 @@ export const InboxNotification = z.object({
   }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
+/** GET /api/notifications: `unreadCount` counts every unread row; `roomUnreadCount` is its part that is conversation rows
+ * (mentions, replies in threads I follow), which the rooms list counts too (a phone's 나 tab leaves them to 대화). */
 export const NOTIFICATIONS = {
   getNotification: endpoint({ method: 'GET', path: '/api/notifications/:id', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Read an own notification without marking read; current-access filtered and never cached.' }),
-  listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative() }), summary: 'Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it.' }),
+  listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative(), roomUnreadCount: z.number().int().nonnegative().optional() }), summary: 'Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it.' }),
   markNotificationRead: endpoint({ method: 'POST', path: '/api/notifications/:id/read', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Mark an own notification read.' }),
   getNotificationPreferences: endpoint({ method: 'GET', path: '/api/notification-preferences', auth: 'user', owner: 'B', response: NotificationPreferences, summary: 'Own inbox event preferences. OS push opt-in is separate.' }),
   updateNotificationPreferences: endpoint({ method: 'PATCH', path: '/api/notification-preferences', auth: 'user', owner: 'B', body: NotificationPreferences.partial().strict(), response: NotificationPreferences, summary: 'Change own inbox event preferences and room notification settings (room default, thread replies, quiet hours).' }),

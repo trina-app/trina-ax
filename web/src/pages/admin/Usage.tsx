@@ -7,6 +7,7 @@
 // ⌄ (components/PageActions.tsx); the range stays in sight and the filters (Group, Person, Engine, Model, AI connection)
 // go under one Filters button beside it (components/PhoneFilters.tsx); Group by is a view choice, not a filter, so it
 // sits in the breakdown's heading; the numbers, the chart and the breakdown stand without frames.
+import clsx from 'clsx'
 import { Download, Gauge } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -251,6 +252,35 @@ export default function Usage() {
                 {groupBy === 'skill' && phone && skillNote}
                 {!d.rows.length ? (
                   <p className="px-5 py-5 text-sm text-muted max-md:px-0" data-testid="usage-none">{t('usage.none')}</p>
+                ) : phone ? (
+                  // a phone: one row per name (the name and the cost; answers and the share under them), not three
+                  // squeezed columns
+                  <ul className="divide-y divide-line border-y border-line" data-testid="usage-rows">
+                    {d.rows.map((r, i) => {
+                      const share = shares[i] ?? 0
+                      const name = rowLabel(r.key, r.label)
+                      return (
+                        <li key={r.key} className="py-2.5 text-sm" data-testid="usage-row">
+                          <div className="flex items-baseline gap-3">
+                            <span className={clsx('min-w-0 flex-1 truncate font-medium', groupBy === 'credential' && r.key !== TRIAL_CREDENTIAL_ID && !r.label ? 'text-faint' : 'text-ink')}>{name}</span>
+                            <span className="shrink-0 text-ink tabular-nums">
+                              {formatUsd(r.costUsd, locale)}
+                              {!!r.unpricedTurns && <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')} data-testid="usage-unpriced">+?</span>}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-3 text-xs text-muted">
+                            <span className="shrink-0 tabular-nums">{t('usage.turns')} {formatNumber(r.turns, locale)}</span>
+                            <UsageBar pct={share} />
+                            <span className="w-12 shrink-0 text-right tabular-nums" data-testid="usage-share">{formatNumber(share / 100, locale, { style: 'percent', maximumFractionDigits: 1 })}</span>
+                          </div>
+                        </li>
+                      )
+                    })}
+                    <li className="flex items-baseline gap-3 py-2.5 text-sm font-medium" data-testid="usage-total">
+                      <span className="min-w-0 flex-1">{t('usage.total')} <span className="text-xs font-normal text-muted tabular-nums">· {t('usage.turns')} {formatNumber(d.totals.turns, locale)}</span></span>
+                      <span className="shrink-0 tabular-nums">{formatUsd(d.totals.costUsd, locale)}{!!d.totals.unpricedTurns && <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')}>+?</span>}</span>
+                    </li>
+                  </ul>
                 ) : (
                   <div className="overflow-x-auto px-5 pb-4 max-md:px-0">
                     <table className="w-full text-sm" data-testid="usage-table">

@@ -1,1 +1,0 @@
-- Messages and guides now send people to Admin › Connections › AI accounts (관리자 › 연결 › AI 계정), the page's real name, instead of "Providers".

@@ -31,6 +31,12 @@
 //                                                (credentials.key.<N>) and remove the older one; JSON {rekeyed}
 //   drive-rekey                                  rotate personal Drive secrets in their dedicated key directory;
 //                                                retain older keys for backups/in-flight readers; JSON {rekeyed}
+//   google-broker-key [--json]                   for a self-installed server that signs in to Google through the hosting
+//                                                service: the relay public key (SPKI base64) and this server's public
+//                                                address, to register there (integrations/google-drive/broker.ts).
+//                                                Never the private key, and never makes one: exit 1 "start the
+//                                                server first" (JSON { error: "no_key" }) before the server made it.
+//                                                Plain text, or JSON { publicKey, address }
 //
 // For the hosted service's root tool (mycel-ctl / mycel-enroll, control-plane 3.5.3, system/cloud-admin.ts):
 //   relay-key [--sign-register <slug> <ts>] [--sign-rotate <teamId>] [--sign-reattach <tenantId> <teamId> <ts>]
@@ -62,7 +68,7 @@
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { loadAppConfig } from '../app-config'
+import { loadAppConfig, type AppConfig } from '../app-config'
 import { SERVER_VERSION, createContext } from '../context'
 import { Database } from 'bun:sqlite'
 import { openDb } from '../db'
@@ -85,11 +91,14 @@ import { archiveUpload, cloudBackupPrepare, cloudBackupUpload, relayKeyCommand, 
 import { makeCredCtx } from '../credentials/store'
 import { DriveStore } from '../integrations/google-drive/store'
 import { rekeyDrive } from '../integrations/google-drive/rekey'
+import { googleBrokerKey } from '../integrations/google-drive/broker'
 import { rekeyCredentials } from '../credentials/rekey'
 import { cloudStatus, credentialsEscrowOut, resetLinkBase, setHostedChatKey, setHostedSpeechKey } from './cloud-tenant'
 import { createResetLink } from '../auth/accounts'
 import { clearRecoveryLock, resetLinkRefused } from '../admin/handover'
 import { installAuth } from '../auth/service'
+import { audit } from '../admin/audit'
+import { notifyHosting, type HostingNoticeEvent } from '../notifications/service'
 
 async function stdinJson(): Promise<unknown> {
   const text = await new Response(Bun.stdin.stream()).text()
@@ -160,7 +169,9 @@ export async function main(argv: string[]): Promise<number> {
     case 'archive': {
       if (args.includes('--upload')) {
         if (!args.includes('--passphrase-random')) throw new Error('archive --upload needs --passphrase-random (the passphrase is printed once)')
-        out(await archiveUpload({ dbFile, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir }, await stdinJson()))
+        const r = await archiveUpload({ dbFile, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir }, await stdinJson())
+        await hostingCopied(cfg, dbFile, 'hosting.export', { size: r.size, sha256: r.sha256 }, { event: 'hosting.exported' })
+        out(r)
         return 0
       }
       const dest = arg(args, '--out')
@@ -282,7 +293,14 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'cloud-backup': {
-      if (args[0] === 'upload') { out(await cloudBackupUpload(cfg.dataDir, await stdinJson())); return 0 }
+      if (args[0] === 'upload') {
+        const input = await stdinJson()
+        const r = await cloudBackupUpload(cfg.dataDir, input)
+        // the daily offsite backup: one activity-log line per upload run, no notice (it would bury the Inbox every day)
+        await hostingCopied(cfg, dbFile, 'hosting.offsite_backup', { backup: (input as { localId?: unknown }).localId ?? null, files: r.files.length }, null)
+        out(r)
+        return 0
+      }
       if (args[0] !== 'prepare') throw new Error('cloud-backup prepare --kind K [--local-id ID] | cloud-backup upload < plan.json')
       const kind = arg(args, '--kind')
       if (kind !== 'daily' && kind !== 'manual' && kind !== 'pre-update' && kind !== 'final') throw new Error('--kind daily|manual|pre-update|final')
@@ -346,7 +364,10 @@ export async function main(argv: string[]): Promise<number> {
     case 'credentials-escrow-out': {
       const r = arg(args, '--recipient')
       if (!r) throw new Error('credentials-escrow-out needs --recipient age1…')
-      out(await credentialsEscrowOut(layout.secretsDir, r))
+      const res = await credentialsEscrowOut(layout.secretsDir, r)
+      // no key yet: nothing was copied
+      if (!('absent' in res)) await hostingCopied(cfg, dbFile, 'hosting.key_escrow', { keyVersion: res.keyVersion }, { event: 'hosting.key_copied', source: `credentials-key-v${res.keyVersion}` })
+      out(res)
       return 0
     }
     case 'hosted-speech-key': {
@@ -380,6 +401,21 @@ export async function main(argv: string[]): Promise<number> {
       finally { db.close() }
       return 0
     }
+    // the key and address the hosting service's operator registers for a self-installed server's Google sign-in
+    case 'google-broker-key': {
+      const r = googleBrokerKey(cfg.dataDir, cfg.tunnel?.host)
+      // read only: the server makes the key as its own account; a root run must not leave one it cannot read
+      if (!r.publicKey) {
+        const message = 'no relay key yet: start the server first (with MYCEL_GOOGLE_DRIVE_BROKER_URL set it makes the key), then run this again'
+        if (args.includes('--json')) out({ error: 'no_key', message, address: r.address })
+        else console.error(`error: ${message}`)
+        return 1
+      }
+      if (args.includes('--json')) { out(r); return 0 }
+      console.log(`public key: ${r.publicKey}`)
+      console.log(`address:    ${r.address ?? 'not set (set tunnel.host first: the hosting service sends people back only to this address)'}`)
+      return 0
+    }
     // AI connections: a new key for their secrets (credentials/rekey.ts)
     case 'credentials-rekey': {
       const db = openDb(dbFile)
@@ -390,8 +426,28 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key|hosted-chat-key|update-window (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|google-broker-key|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key|hosted-chat-key|update-window (see server/src/system/cli.ts)')
       return 2
+  }
+}
+
+/**
+ * The hosting service took a copy of something that is the team's (QA TC-348): the AI connections' key, a full export
+ * or an offsite backup. One activity-log line (actor none = the hosting service, like reset-link) and, for the key and
+ * the export, a notice to the owners (Inbox, shown always). The notice's source is the audit row, or for the key its
+ * version: the same key copied again (a retried job) is one notice, a new key after a rekey is told again. Called after
+ * the copy was made, and never fails the command: the export's passphrase is printed only once, after this.
+ */
+async function hostingCopied(cfg: AppConfig, dbFile: string, action: 'hosting.key_escrow' | 'hosting.export' | 'hosting.offsite_backup', detail: Record<string, unknown>, notice: { event: HostingNoticeEvent; source?: string } | null): Promise<void> {
+  try {
+    const ctx = createContext({ config: cfg, db: openDb(dbFile), log: silentLogger })
+    ctx.onClose(() => ctx.db.close())
+    try {
+      const id = audit(ctx.db, { actor: null, action, detail })
+      if (notice) notifyHosting(ctx, notice.event, notice.source ?? String(id), { admins: false })
+    } finally { await ctx.close() }
+  } catch (e) {
+    console.error(`warning: the activity log line for ${action} could not be written: ${(e as Error).message}`)
   }
 }
 

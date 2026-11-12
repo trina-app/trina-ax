@@ -92,16 +92,26 @@ function stamp(d: Date): string {
  * kill) leaves a name that says so (BackupManager.removeUnfinished cleans it up), never a `<dst>` that looks finished. */
 export const PARTIAL_SUFFIX = '.partial'
 
+/** Code for `bun -e` that ends with exit code 1 and the error's message on stderr when it throws. Bun 1.3 (the
+ * runtime the server ships with, versions.json) exits 0 and prints nothing when code that uses require() throws, so a
+ * failed copy looked finished. */
+const childCode = (body: string) => `try {
+${body}
+} catch (e) {
+  process.stderr.write(String((e && e.message) || e))
+  process.exitCode = 1
+}`
+
 /** Copy a live SQLite DB with VACUUM INTO in a child bun process (never blocks the server's event loop). */
 export async function vacuumInto(src: string, dst: string): Promise<void> {
   const tmp = dst + PARTIAL_SUFFIX
   const clear = () => Promise.all([tmp, `${tmp}-journal`].map((f) => fsp.rm(f, { force: true })))
   await Promise.all([fsp.rm(dst, { force: true }), clear()])
-  const code = `const { Database } = require('bun:sqlite')
+  const code = childCode(`const { Database } = require('bun:sqlite')
 const d = new Database(process.env.MYCEL_VACUUM_SRC)
 d.exec('PRAGMA busy_timeout = 15000')
 d.query('VACUUM INTO ?').run(process.env.MYCEL_VACUUM_DST)
-d.close()`
+d.close()`)
   const p = Bun.spawn([process.execPath, '-e', code], {
     env: { MYCEL_VACUUM_SRC: src, MYCEL_VACUUM_DST: tmp, PATH: process.env.PATH ?? '/usr/bin:/bin' },
     stdout: 'ignore', stderr: 'pipe',
@@ -109,7 +119,7 @@ d.close()`
   const [err, exit] = await Promise.all([new Response(p.stderr).text(), p.exited])
   if (exit !== 0) {
     await clear()
-    throw new BackupError(`database copy failed: ${err.trim().split('\n').slice(-1)[0] ?? exit}`)
+    throw new BackupError(`database copy failed: ${err.trim().split('\n').slice(-1)[0] || `exited ${exit}`}`)
   }
   try {
     await fsp.chmod(tmp, 0o600)
@@ -126,11 +136,11 @@ d.close()`
 /** PRAGMA quick_check of a DB file in a child bun process: it reads the whole file, which takes seconds per GB (minutes
  * on a slow disk), and bun:sqlite is synchronous, so in the server's own process it would stop every request. */
 async function quickCheckInChild(file: string): Promise<string | null> {
-  const code = `const { Database } = require('bun:sqlite')
+  const code = childCode(`const { Database } = require('bun:sqlite')
 const d = new Database(process.env.MYCEL_CHECK_FILE, { readonly: true })
 const r = d.query('PRAGMA quick_check').get()
 d.close()
-process.stdout.write(JSON.stringify(r ? Object.values(r)[0] : null))`
+process.stdout.write(JSON.stringify(r ? Object.values(r)[0] : null))`)
   const p = Bun.spawn([process.execPath, '-e', code], {
     env: { MYCEL_CHECK_FILE: file, PATH: process.env.PATH ?? '/usr/bin:/bin' },
     stdout: 'pipe', stderr: 'pipe',

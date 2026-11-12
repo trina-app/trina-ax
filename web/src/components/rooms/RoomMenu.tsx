@@ -9,8 +9,11 @@
 // Hiding says where it went and how it comes back, with an undo (which pins it again when it was pinned).
 // First of all, 상단에 고정 / 고정 해제 (docs/DECISIONS.md "Pinned conversations"), as on the AI chats' rows: mine only. A
 // hidden room has none (hiding unpins it; showing it again comes first).
+// The room header's "⋯" on a phone (`phone`, QA TC-257): the header there has no bell, so 알림 설정 says the level now
+// after it and opens the level menu as a sheet; no 이름 바꾸기 (the name opens the room's info, where it is changed); and
+// `phone.first` before the rest (the threads with new replies, whose button the header has no room for).
 import { Bell, Eye, EyeOff, Link2, LogOut, Pencil, Pin, PinOff } from 'lucide-react'
-import { useRef, useState, type MouseEvent } from 'react'
+import { useRef, useState, type MouseEvent, type RefObject } from 'react'
 import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
@@ -19,7 +22,7 @@ import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog, useCopy } from '../ui'
 import { useNameFallback } from './RoomIcon'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
-import { RoomNotifyMenu } from './RoomNotifyMenu'
+import { RoomNotifyMenu, roomNotify } from './RoomNotifyMenu'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
@@ -34,8 +37,12 @@ export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'h
 /** The address of a room as people in it open it (the app's own route; anyone else gets "not found"). */
 export const roomLink = (roomId: string, origin = typeof location === 'undefined' ? '' : location.origin) => `${origin}/rooms/${roomId}`
 
-/** The menu's items for a room: `onNotify` opens the room's level menu (the header's bell; a row has its own, bare). */
-export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
+/** The room header's "⋯" on a phone: what goes before the rest (the threads with new replies). */
+export interface PhoneHeaderMenu { first?: MenuItem[] }
+
+/** The menu's items for a room: `onNotify` opens the room's level menu (the header's bell; a row has its own, bare).
+ * `phone`: the room header's "⋯" on a phone (no 이름 바꾸기, the level after 알림 설정, `first` before the rest). */
+export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: PhoneHeaderMenu): MenuItem[] {
   const t = useT()
   const locale = useLocale()
   const { copy } = useCopy()
@@ -83,11 +90,12 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
     await copy(roomLink(room.id))
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
-  return roomMenuActions(room).map((a): MenuItem => {
+  const level = phone ? t(`rooms.notify.${roomNotify(room).level}`) : null
+  const items = roomMenuActions(room).filter((a) => !(phone && a === 'rename')).map((a): MenuItem => {
     switch (a) {
       case 'pin': return { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => setPinned(true), testId: 'room-menu-pin' }
       case 'unpin': return { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => setPinned(false), testId: 'room-menu-unpin' }
-      case 'notify': return { label: t('rooms.menu.notify'), icon: <Bell size={14} aria-hidden />, onSelect: onNotify, testId: 'room-menu-notify' }
+      case 'notify': return { label: t('rooms.menu.notify'), ...(level ? { hint: `· ${level}` } : {}), icon: <Bell size={14} aria-hidden />, onSelect: onNotify, testId: 'room-menu-notify' }
       case 'rename': return { label: t('rooms.info.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'room-menu-rename' }
       case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }
       case 'leave': return { label: t('rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
@@ -95,19 +103,23 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
       case 'show': return { label: t('rooms.menu.show'), icon: <Eye size={14} aria-hidden />, onSelect: show, testId: 'room-menu-show' }
     }
   })
+  return phone?.first?.length ? [...phone.first, ...items] : items
 }
 
 /**
  * The "⋯" and its menu. `onNotify`: the header's bell opens for 알림 설정; without it (a row) the level menu is its own,
  * opened in the same place. `openSignal`: a long press opened it (a sheet on a phone); `openRequest`: a right-click.
  * `label`: the button's name for a screen reader (a row says which room); the tooltip says "더 보기". `title`: a row's
- * room name on top of a phone's sheet (the header's menu needs none: the name is right above it).
+ * room name on top of a phone's sheet (the header's menu needs none: the name is right above it). `phone`: the room
+ * header's on a phone (useRoomMenuItems); `dot`: a mark on the button (threads with new replies inside); `buttonRef`:
+ * the "⋯" itself (where the keyboard goes back from the header's level menu when the bell is not shown).
  */
-export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title, className, buttonClassName, compact, testId = 'room-menu' }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string }) {
+export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title, className, buttonClassName, compact, testId = 'room-menu', phone, dot, buttonRef }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; phone?: PhoneHeaderMenu; dot?: boolean; buttonRef?: RefObject<HTMLButtonElement | null> }) {
   const t = useT()
   const [notify, setNotify] = useState(0)
-  const more = useRef<HTMLButtonElement>(null)
-  const items = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)))
+  const own = useRef<HTMLButtonElement>(null)
+  const more = buttonRef ?? own
+  const items = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)), phone)
   return (
     <>
       <MenuButton
@@ -123,6 +135,7 @@ export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title
         testId={testId}
         sheetTitle={title}
         buttonRef={more}
+        dot={dot}
       />
       {/* a row's own level menu, where its "⋯" opens (the button is the row's "⋯": this one has none) */}
       {!onNotify && <RoomNotifyMenu room={room} bare openRequest={notify} className="absolute right-1.5 bottom-0" focusBack={() => more.current?.focus()} />}
