@@ -246,6 +246,31 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     }
     expect(readFileSync(join(import.meta.dir, '../../editions/trina/microsoft-store/build-resources/appxmanifest.xml'), 'utf8')).toContain('${extensions}')
   })
+  test('the Windows uninstaller removes the link handler the app wrote, only when it points into the install folder (QA TC-383)', async () => {
+    const base = (await import('../../desktop/electron-builder.config')).default as { directories: { buildResources: string }; nsis: { include?: string; perMachine?: boolean } }
+    // named, so a missing file fails the build; per-user install stays (the app writes the handler under HKCU)
+    expect(base.nsis.include).toBe('installer.nsh')
+    expect(base.nsis.perMachine).toBe(false)
+    const nsh = readFileSync(join(import.meta.dir, '../../desktop', base.directories.buildResources, base.nsis.include!), 'utf8')
+    const code = nsh.split('\n').filter((l) => !l.trimStart().startsWith(';')).join('\n')
+    // the one scheme the app registers (every setAsDefaultProtocolClient call in the main process uses LINK_SCHEME)
+    expect(LINK_SCHEME).toBe(PRODUCT.linkScheme)
+    expect(code).toContain(`!define MYCEL_LINK_SCHEME "${PRODUCT.linkScheme}"`)
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    const calls = main.match(/setAsDefaultProtocolClient\([^,)]+/g) ?? []
+    expect(calls.length).toBeGreaterThan(0)
+    for (const c of calls) expect(c).toBe('setAsDefaultProtocolClient(LINK_SCHEME')
+    // electron-builder inserts customUnInstall into the uninstall section; an update (old uninstaller, --updated) keeps the key
+    const macro = code.match(/!macro customUnInstall\n([\s\S]*?)!macroend/)?.[1] ?? ''
+    expect(macro).toMatch(/^\s*\$\{ifNot\} \$\{isUpdated\}\n/)
+    expect(macro).toContain('ReadRegStr $0 HKCU "Software\\Classes\\${MYCEL_LINK_SCHEME}\\shell\\open\\command" ""')
+    // the command must start with "<install dir>\ (Electron writes "<exe>" "%1"), or the key is someone else's and stays
+    expect(macro).toContain('StrCpy $1 "$\\"$INSTDIR\\"')
+    expect(macro).toMatch(/StrLen \$2 \$1\n\s*StrCpy \$3 \$0 \$2\n\s*\$\{if\} \$3 == \$1\n\s*DeleteRegKey HKCU "Software\\Classes\\\$\{MYCEL_LINK_SCHEME\}"\n\s*\$\{endIf\}/)
+    // exactly one delete, of that key only; registers the uninstaller still uses come back as they were
+    expect(code.match(/DeleteRegKey|DeleteRegValue/g)).toEqual(['DeleteRegKey'])
+    for (const r of ['$0', '$1', '$2', '$3']) expect(macro.indexOf(`Push ${r}`)).toBeLessThan(macro.indexOf(`Pop ${r}`))
+  })
   test('④ strings name the host and never the page', () => {
     expect(t('ko', 'link.title', { host: 'acme.trina.app' })).toBe('acme.trina.app에 연결할까요?')
     expect(t('ko', 'link.body')).toBe('직접 받은 링크가 맞을 때만 연결하세요.')
