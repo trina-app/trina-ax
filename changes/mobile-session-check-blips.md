@@ -1,0 +1,1 @@
+- Phone app: a dropped connection or a server hiccup no longer shows the team address and "다른 팀에 연결" under a page you are signed in to; the app also checks again when it comes back to the foreground.

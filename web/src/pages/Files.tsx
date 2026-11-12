@@ -341,6 +341,8 @@ export default function Files() {
   }, [order])
   const chosen = useMemo(() => tree?.entries.filter((e) => checked.has(e.path)) ?? [], [tree, checked])
   const movable = chosen.filter(canChange)
+  // the bulk Move picker's suggested and recent folders, for the selection
+  const movableSuggest = movable.map((e) => e.path)
   /** selected folders the person may write but not move or trash (a group's folder for a member, QA TC-224) */
   const fixedChosen = chosen.filter(isFixed).length
   const shareable = chosen.filter(canShare)
@@ -1109,12 +1111,13 @@ export default function Files() {
       )}
       </TabPanel>
       <FolderPicker open={!!sharing} title={t('files.shareTitle', { name: sharing?.name ?? '' })} confirmLabel={t('files.shareHere')} initial="shared" onPick={shareTo} onClose={() => setSharing(null)} />
-      <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={path} onPick={moveTo} onClose={() => setMoving(null)} />
+      <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={path} suggestFor={moving ? [moving.path] : undefined} onPick={moveTo} onClose={() => setMoving(null)} />
       <FolderPicker
         open={bulkPick !== null}
         title={bulkPick === 'share' ? t('files.bulk.shareTitle', { n: shareable.length }) : t('files.bulk.moveTitle', { n: movable.length })}
         confirmLabel={t(bulkPick === 'share' ? 'files.shareHere' : 'files.moveHere')}
         initial={bulkPick === 'share' ? 'shared' : path}
+        suggestFor={bulkPick === 'move' ? movableSuggest : undefined}
         onPick={(folder) => void (bulkPick === 'share' ? bulkShare(folder) : bulkMove(folder))}
         onClose={() => setBulkPick(null)}
       />
