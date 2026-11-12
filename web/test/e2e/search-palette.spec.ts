@@ -148,6 +148,7 @@ test('History rows say when and in which project; opened in a project, its chats
 
   // Home: my list as it is (the latest first), each row with its time and its project grey on the right
   await page.goto('/')
+  await expect(page.getByTestId('composer-input')).toBeVisible()
   await openHistory()
   await expect(names()).toHaveText(['다른 기록 셋', '다른 기록 둘', '다른 기록 하나', '프로젝트 기록 둘', '프로젝트 기록 하나'])
   const meta = history().nth(3).getByTestId('search-row-meta')
@@ -159,17 +160,20 @@ test('History rows say when and in which project; opened in a project, its chats
 
   // the project's page: its chats first, then the rest
   await page.goto(`/projects/${projectId}`)
+  await expect(page.getByTestId('project-chats')).toBeVisible()
   await openHistory()
   await expect(names()).toHaveText(['프로젝트 기록 둘', '프로젝트 기록 하나', '다른 기록 셋', '다른 기록 둘', '다른 기록 하나'])
   await page.keyboard.press('Escape')
 
   // a chat in the project: the same; a chat in no project: as on Home
   await page.goto(`/c/${inProject[0]}`)
+  await expect(page.getByTestId('chat-menu')).toBeVisible()
   await openHistory()
   await expect(names().first()).toHaveText('프로젝트 기록 둘')
   await expect(names().nth(1)).toHaveText('프로젝트 기록 하나')
   await page.keyboard.press('Escape')
   await page.goto('/files')
+  await expect(page.getByTestId('file-row').first()).toBeVisible()
   await openHistory()
   await expect(names().first()).toHaveText('다른 기록 셋')
 

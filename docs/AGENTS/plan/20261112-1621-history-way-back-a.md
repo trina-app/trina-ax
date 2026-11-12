@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 16:21
 - Branch: `feat/history-way-back-a`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`web/src/components/SearchDialog.tsx`, `web/src/lib/sessionMarkers.ts`,
   `web/src/components/chat/ChatTitleMenu.tsx`, `web/src/pages/Files.tsx`, `server/src/routes/files.ts`, a small
   helper in `server/src/chat/`, `shared/src/api`). Why: chats, search and file history are core.
@@ -56,4 +56,9 @@ the new version-chat test; `test:web`, `build:web`; e2e: search palette, chat pi
 
 ## Result
 
-(filled in at the end)
+Built as planned, PR #630. Differences from the plan:
+- History rows on a phone (below 768 px) put the time and project under the title: beside it at 390 px the titles were
+  cut to a few letters.
+- A chat of the viewer's own in a project they no longer see gets no link either (stricter than opening it).
+- After review: a failed check gives no link for that save and never fails the history (no 500).
+- No migration, no new endpoint: `savedChatId` on a version and `chatId` on `current`, from `turns.chat_id`.

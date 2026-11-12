@@ -23821,7 +23821,8 @@ all"; the list is never re-sorted by state: 2026-11-06/07).
 - **History rows say when and where** (TC-420): on the History tab's list and in the History results of a search (on All
   and on History), grey on the right, "2시간 전 · Launch plan": the chat's last activity (`updatedAt`, `formatRelative`, as
   the project page's list and the sidebar's peek) and its project's name when it has one (the project is no longer
-  repeated after the title there). Recents rows are unchanged.
+  repeated after the title there). On a phone (below 768 px) that grey line goes under the title, so the title keeps the
+  row's width (at 390 px beside it, titles were cut to a few letters). Recents rows are unchanged.
 - **History from a project** (TC-421): opened on a project's page (its files too) or in a chat of a project, the History
   tab lists that project's chats first (the project page's own list: `GET /api/chats?projectId=`, so my pins there and
   its shared chats I see), then the rest of my list, each once. Anywhere else nothing changes and no project is read. A
@@ -23840,12 +23841,14 @@ all"; the list is never re-sorted by state: 2026-11-06/07).
   id: hidden from all but its runner), and **not in a project they do not see now, their own chat too** (stricter than
   opening it: the link stays away from a project they lost; the chat still opens from History). Any failed check gives
   nothing. Otherwise the answer is as before: no id, no title, nothing that says a chat exists beyond the "by AI" line
-  that was already there. The owner and admins get no more than anyone. The screen shows "Open the chat" (기록 열기, a
+  that was already there. The owner and admins get no more than anyone. A check that fails (a read of the turns, an
+  answer that cannot be judged) gives no link for that save and never fails the history (review). The screen shows "Open the chat" (기록 열기, a
   link to `/c/:id`, underlined) after "saved during an AI answer" only when the id is there; it closes the dialog.
 - **Left out** (option A only): Home's "Continue" line, summaries, AI search of chats, any sidebar change, the ⌘K row
   menu and Recents rows.
 - Tests: `tests/security/version-chat-link.test.ts` (every case above for all five people, the stored version and the
-  file as it is now, the id nowhere else in the answer, and a link only where `GET /api/chats/:id` opens),
+  file as it is now, the id nowhere else in the answer, a link only where `GET /api/chats/:id` opens, and a failing
+  check),
   `web/test/unit/search-way-back.test.tsx`, `session-markers.test.tsx` (`markedChats`), `chat-title-pin.test.tsx`; e2e
   `session-markers.spec.ts`, `search-palette.spec.ts`, `chat-pins.spec.ts`, `files.spec.ts`.
 - Version impact: **minor** (two additive, optional fields on the file history answer).
