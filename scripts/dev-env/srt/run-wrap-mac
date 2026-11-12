@@ -19,9 +19,9 @@
 #   stop   SIGTERM to every process of the slot, SIGKILL after 3 s.
 #   check  prints "ok <user>" (the server's self test of the sudoers rule).
 #
-# "Every process of the slot" is kill -1 as the slot account: the kernel sends the signal to every process of this uid
-# except the sender. A run's process that leaves the process group or the session (setsid) is still in it. The srt
-# sandbox allows signals only within the same sandbox, so a run cannot kill this script or its watchdog.
+# "Every process of the slot" is every process whose real uid is the slot account's (ps -U): a run's process that leaves
+# the process group or the session (setsid) is still one of them. The srt sandbox allows signals only within the same
+# sandbox, so a run cannot kill this script or its watchdog.
 set -u
 # the run's own PATH (runEnv: node, Python, the Command Line Tools) goes back for the command; this script uses the
 # system's only
@@ -30,17 +30,24 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin
 die() { echo "run-wrap-mac: $*" >&2; exit 2; }
 ME=$(id -un)
 [ "$(id -u)" != 0 ] || die "never as root"
-# the slot accounts are role accounts with a number: _<name>dev<n>. Anything else is refused, because kill -1 would hit
+# the slot accounts are role accounts with a number: _<name>dev<n>. Anything else is refused, because the clean-up would end
 # every process of a person's own account
 [[ "$ME" =~ ^_[a-z][a-z0-9]{0,30}dev[0-9]{1,2}$ ]] || die "not a dev slot account: $ME"
 
 # The slot: every process of this uid; the pool: every process of the slots' group (the slot accounts' primary group).
-# tests/unit/dev-env-srt-mac.test.ts replaces these four lines to use a process group of the test's own account, so
+# tests/unit/dev-env-srt-mac.test.ts replaces these two lines to use a process group of the test's own account, so
 # keep each one a single line.
 slot_ps() { ps -x -U "$(id -u)" -o pid=,ppid=,stat=,rss=; }
 pool_ps() { ps -x -G "$(id -g)" -o uid=,rss=; }
-slot_kill() { kill -STOP -1 2>/dev/null; kill -KILL -1 2>/dev/null; }
-slot_term() { kill -TERM -1 2>/dev/null; }
+# Signals go to the pids that ps lists by real uid, never to -1: kill -1 as the slot account also hits the sudo that
+# started this file (it keeps the slot's uid as its saved uid), and sudo then stops or ends itself and the run with it
+# (Mac mini check, 2026-11-12).
+# SIGSTOP never goes to the run's top process (this file as "run", whose parent is sudo, not a process of the slot): sudo
+# sees its command stop and stops itself, and then never ends (Mac mini check, 2026-11-12). It gets SIGKILL only.
+slot_pids() { slot_ps | awk -v me="$$" '$1 != me && $3 !~ /^Z/ { print $1 }'; }
+stop_pids() { slot_ps | awk -v me="$$" '{ pp[$1] = $2; st[$1] = $3 } END { for (p in pp) if (p != me && st[p] !~ /^Z/ && (pp[p] in pp || pp[p] == 1)) print p }'; }
+slot_kill() { local s k; s=$(stop_pids); [ -n "$s" ] && kill -STOP $s 2>/dev/null; k=$(slot_pids); [ -n "$k" ] && kill -KILL $k 2>/dev/null; return 0; }
+slot_term() { local p; p=$(slot_pids); [ -n "$p" ] && kill -TERM $p 2>/dev/null; }
 
 # Is there a process of this slot other than this shell ($$; bash 3.2 has no BASHPID, so the watchdog is its own
 # invocation of this file) and the processes up to three levels below it? Those are the helpers of this check (a
@@ -103,16 +110,17 @@ rm -f "$EXIT_FILE.oom" "$EXIT_FILE.timeout"
 "$0" _watch "$EXIT_FILE" $((MEM * 1024)) "$MAXSEC" "$(date +%s)" $((POOL * 1024)) &
 # no "Killed: 9" line of bash in the run's output when the watchdog ends below
 disown $!
-# the kernel counts processes per real uid, and this slot's account runs nothing else: the run's own process limit
-ulimit -u "$PIDS" || { kill_slot; die "cannot set the process limit to $PIDS"; }
 ulimit -n 4096
 ulimit -f 4194304   # bash counts 1024-byte blocks: 4 GiB
 ulimit -c 0
 renice -n 10 -p $$ >/dev/null 2>&1
 
-PATH=$RUN_PATH "$@"
+# the process limit only for the command (the kernel counts processes per real uid, and this slot's account runs
+# nothing else: the run's own limit). This script keeps the account's limit, so at the run's limit (a fork bomb) it can
+# still run ps for the clean-up below
+( ulimit -u "$PIDS" || { echo "run-wrap-mac: cannot set the process limit to $PIDS" >&2; exit 126; }; PATH=$RUN_PATH exec "$@" )
 code=$?
-# the watchdog and everything the command left behind, first: a fork bomb at the limit would block the mv below
+# the watchdog and everything the command left behind, first
 kill_slot
 # the server reads this file; the sandbox can read that folder but not write it
 printf '%s\n' "$code" > "$EXIT_FILE.tmp" && mv -f "$EXIT_FILE.tmp" "$EXIT_FILE" || printf '%s\n' "$code" > "$EXIT_FILE"

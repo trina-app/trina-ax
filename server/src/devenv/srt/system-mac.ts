@@ -68,13 +68,14 @@ export function psSeconds(t: string): number {
   return d * 86400 + parts.reduce((a, n) => a * 60 + n, 0)
 }
 
-/** Lines of `ps -x -o uid=,pid=,rss=,time=,etime=,command=`, for these uids. */
+/** Lines of `ps -x -o uid=,pid=,stat=,rss=,time=,etime=,command=`, for these uids. A zombie (stat Z) is no process
+ * of the run any more: it waits for its parent (sudo) to collect it. */
 export function parsePs(text: string, uids: Set<number>): MacProc[] {
   const out: MacProc[] = []
   for (const line of text.split('\n')) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s?(.*)$/.exec(line)
-    if (!m || !uids.has(Number(m[1]))) continue
-    out.push({ uid: Number(m[1]), pid: Number(m[2]), rssKiB: Number(m[3]), cpuSec: psSeconds(m[4]!), ageSec: psSeconds(m[5]!), command: (m[6] ?? '').slice(0, 300) })
+    const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s?(.*)$/.exec(line)
+    if (!m || !uids.has(Number(m[1])) || m[3]!.startsWith('Z')) continue
+    out.push({ uid: Number(m[1]), pid: Number(m[2]), rssKiB: Number(m[4]), cpuSec: psSeconds(m[5]!), ageSec: psSeconds(m[6]!), command: (m[7] ?? '').slice(0, 300) })
   }
   return out
 }
@@ -84,7 +85,7 @@ export function realMacHost(): MacHost {
   return {
     procs(list) {
       if (!list.length) return []
-      const r = Bun.spawnSync(['/bin/ps', '-x', '-U', list.join(','), '-o', 'uid=,pid=,rss=,time=,etime=,command='], { stdout: 'pipe', stderr: 'ignore', env: { PATH: '/usr/bin:/bin', LANG: 'C' } })
+      const r = Bun.spawnSync(['/bin/ps', '-x', '-U', list.join(','), '-o', 'uid=,pid=,stat=,rss=,time=,etime=,command='], { stdout: 'pipe', stderr: 'ignore', env: { PATH: '/usr/bin:/bin', LANG: 'C' } })
       return parsePs(r.stdout.toString(), new Set(list))
     },
     uid(account) {

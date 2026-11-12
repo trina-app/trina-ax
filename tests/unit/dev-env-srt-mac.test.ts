@@ -154,15 +154,13 @@ describe('srt-mac.mjs', () => {
 // ---------------- run-wrap-mac: limits, watchdog, clean-up ----------------
 
 /** run-wrap-mac with the slot = a process group of this test's account (TEST_PGID) in place of a dev slot account's
- * uid. Only the four slot lines and the account check change; the rest is the file as shipped. */
+ * uid. Only the two slot lines and the account check change; the rest is the file as shipped. */
 function wrapCopy(): string {
   const src = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/run-wrap-mac'), 'utf8')
   const swap = (s: string, from: RegExp, to: string) => { if (!from.test(s)) throw new Error(`run-wrap-mac changed: ${from}`); return s.replace(from, () => to) }
   let s = swap(src, /^\[\[ "\$ME" =~ .*$/m, ': # the test runs as its own account')
   s = swap(s, /^slot_ps\(\) \{.*$/m, `slot_ps() { ps -A -o pid=,ppid=,stat=,rss=,pgid= | awk -v g="$TEST_PGID" '$5 == g'; }`)
   s = swap(s, /^pool_ps\(\) \{.*$/m, `pool_ps() { ps -A -o uid=,rss=,pgid= | awk -v g="$TEST_PGID" '$3 == g { print $1, $2 }'; }`)
-  s = swap(s, /^slot_kill\(\) \{.*$/m, `slot_kill() { kill -KILL $(slot_ps | awk -v me="$$" '$1 != me { print $1 }') 2>/dev/null; }`)
-  s = swap(s, /^slot_term\(\) \{.*$/m, `slot_term() { kill -TERM $(slot_ps | awk -v me="$$" '$1 != me { print $1 }') 2>/dev/null; }`)
   const f = path.join(tmp, `run-wrap-mac-${Math.random().toString(36).slice(2)}`)
   fs.writeFileSync(f, s, { mode: 0o755 })
   return f
@@ -367,7 +365,7 @@ describe('the macOS SrtSystem (fake Mac)', () => {
     expect(psSeconds('0:02.50')).toBe(2.5)
     expect(psSeconds('01:02:03')).toBe(3723)
     expect(psSeconds('2-00:00:01')).toBe(172801)
-    const t = '  451   10  2048   0:01.00    00:05 node /opt/trina/srt/x.js\n  501   11  1 0:00.00 00:01 other\n'
+    const t = '  451   10 S     2048   0:01.00    00:05 node /opt/trina/srt/x.js\n  501   11 S  1 0:00.00 00:01 other\n  451   12 Z  0 0:00.00 00:09 <defunct>\n'
     expect(parsePs(t, new Set([451]))).toEqual([{ uid: 451, pid: 10, rssKiB: 2048, cpuSec: 1, ageSec: 5, command: 'node /opt/trina/srt/x.js' }])
   })
 })

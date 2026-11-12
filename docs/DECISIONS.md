@@ -23564,3 +23564,59 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
   wins), `web/test/unit/mobile.test.ts` (badge-v1: changes, bridge, foreground, sign-out), `web-badge.test.ts` (the
   phone app gets n).
 - Version impact: **patch**.
+
+## Dev environment on a Mac team server (feat/devenv-srt-macos, 2026-11-12, owner)
+
+Owner (pras), 2026-11-12: the dev environment runs on srt only, also on a team's own Mac mini (self-host, one team;
+more teams on one machine stay on Linux). Option A: srt's own macOS sandbox (Seatbelt, `sandbox-exec`), not a Linux VM.
+A Linux VM (Apple Virtualization, the macOS 26 container) is the later option when a customer needs Linux-level
+isolation on a Mac. Office mode (no sudo) has no dev environment.
+
+- **A dev account per run, never the server's.** macOS lets a process read the argv and the environment of every
+  process of its own uid (KERN_PROCARGS2; a sandbox cannot block it, see "KERN_PROCARGS2" above). So a run is never the
+  server account and never the engine account `_axagent`. The installer makes a pool of hidden role accounts
+  `_axdev1..N` (default 8, group `_axdev`, made with dscl like `_axserver`: no password, no login, home `/var/empty`),
+  and a run takes a free one (one uid for one run at a time, `system-mac.ts`). One uid per run, not one for all runs:
+  KERN_PROCARGS2 would show one run's command and environment to another person's run, `ulimit -u` counts per uid, and
+  the clean-up (every process of the uid) is exact also for a process that left its session.
+- **Switching uid: sudoers, the polkit rule of the Mac.** `/etc/sudoers.d/<id>-devenv`: the server account may run
+  `/opt/trina/devenv/run-wrap-mac` as a dev account with its environment (`SETENV`), nothing else (checked with
+  `visudo -c`, and the installer checks that `/bin/sh` and root are refused). `!use_pty`. The run is started in a
+  session of its own, so launchd does not end it with the server's job: a server restart or update keeps runs.
+- **run-wrap-mac in place of the scope.** As the dev account: refuses a slot that has processes; `ulimit -u` (the run's
+  own process limit, the uid's), `-n 4096`, `-f 4 GiB`, no core files, nice 10; a watchdog (its own process, outside
+  the sandbox, which a run cannot signal) adds up the RSS of the uid each second and ends the run over its memory limit
+  (`.oom`) or over its time (`.timeout`), and ends the biggest slot when all slots together are over the pool (half of
+  the Mac's memory); at the end it ends every process of the uid. Signals go to the pids `ps -U` lists, never to `-1`:
+  as the dev account `kill -1` also hits the sudo that started it, and sudo then stops or ends itself. The top process
+  (whose parent is sudo) never gets SIGSTOP: sudo sees its command stop and stops itself for good (both seen on the Mac
+  mini). Limits: per run the team's limits cut to the pool; processes per run `(kern.maxproc - 1200) / slots` (the Mac's
+  process table, 4000, is shared with everything else).
+- **localhost is the whole Mac's.** srt's `allowLocalBinding: true` allows a connection to every localhost port (the
+  server's API, the model proxy, other runs). The runner writes `false`; `srt-mac.mjs` (srt's CLI, installed as
+  `mac.mjs`) adds to srt's profile only the run's own port (`$PORT`, slot i has 47900+i): bind and accept on it,
+  connect to it on localhost. It also denies `kern.proc.all` (the list of every process). It parses srt's command and
+  fails closed on any other shape (a new srt version). pf adds a second layer: the dev accounts never reach the
+  server's ports, on any address, and nothing outside the Mac reaches a run's port.
+- **Preview.** The server reaches a run's dev server on `127.0.0.1:<port>` directly (`previewTarget`). Linux needs the
+  port-forward of section 5 of the design; neither has a preview link yet.
+- **Files.** The server owns `team/` (mode 700). An inherited ACL on `team/` and `devenv/` gives the dev group and the
+  server account read and write there; srt's settings decide what one run may open. A file the server moves in from
+  elsewhere has no inherited entry, so the runner adds the ACL again to the run's writable folders before each run
+  (`chmod -R +a` adds nothing that is there).
+- **Host lists.** A run reads `/usr`, `/bin`, `/sbin`, `/System`, the dyld cache, the time zones, the Command Line
+  Tools, `/opt/homebrew`, `/opt/trina` and a few `/etc` files; `/`, `/Users`, `/Volumes`, `/Library` (the base folder,
+  the server's logs), `/private/var`, `/private/etc` and the rest are hidden (`MAC_*` in `config.ts`).
+- **Runtimes.** A run installs libraries into the project or its home (npm, pip), never system programs. So the
+  installer puts node 22.23.4 and Python 3.13.17 (python-build-standalone, pinned with sha256 in the one list) in
+  `/opt/trina`. git, make and cc are Apple's Command Line Tools (not pinned); without them a run has no git. No ffmpeg,
+  chromium, bun or socat from Trina on a Mac.
+- **Weaker than Linux (written down, owner agreed):** memory is RSS sampled once a second (no cgroup: a fast burst can
+  go over for up to a second, and memory macOS compressed or swapped out is not counted); no CPU quota (nice only); no
+  network namespace (Seatbelt rules and pf in place of it); a run can still ask for one pid at a time (`kern.proc.pid`:
+  name and uid, which any Mac user sees with `ps`), not its argv or environment; the dev accounts share one group, so a file a run makes world-readable is readable by the other dev accounts (outside
+  srt, which a run cannot leave, nothing reads it).
+- Tests: `tests/unit/dev-env-srt-mac.test.ts` (the macOS settings, the Seatbelt rules with a real `sandbox-exec`, the
+  watchdog and clean-up of run-wrap-mac, the macOS system against a fake Mac), the attack checks
+  `tests/macos/srt-attack-mac.sh` on a test install of the Mac mini (macOS 26.2, 2026-11-12).
+- Version impact: **minor** (a new platform for the dev environment; Linux does not change).
