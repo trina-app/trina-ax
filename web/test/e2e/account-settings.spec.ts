@@ -240,7 +240,7 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
   await expect(menu.getByRole('menuitem')).toHaveText([
     `${t['sidebar.view.status']}${t['sidebar.status.all']}`,
     `${t['sidebar.view.activity']}${t['sidebar.activity.all']}`,
-    `${t['sidebar.view.group']}${t['sidebar.group.date']}`,
+    `${t['sidebar.view.group']}${t['sidebar.group.project']}`,
     `${t['sidebar.view.sort']}${t['sidebar.sort.updated']}`,
   ])
   await expect(menu.getByRole('separator')).toHaveCount(1)
@@ -267,10 +267,11 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
     await choose('activity', id)
     await expect(list).toContainText('Weekly notes')
   }
-  // Group by
-  await choose('group', 'project')
-  // newest first: the chat without a project was made last
-  await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.noProject'], 'Launch'])
+  // Group by: by project by default (docs/DECISIONS.md "Trina history by project"), the chats in no project last even
+  // though the one without a project was made last; by date one choice away
+  await expect(list.getByRole('heading', { level: 3 })).toHaveText(['Launch', t['history.other']])
+  await choose('group', 'date')
+  await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.today']])
   await choose('group', 'none')
   await expect(list.getByRole('heading', { level: 3 })).toHaveCount(0)
   // Sort by
