@@ -23569,6 +23569,33 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
   dark, keyboard).
 - Version impact: **minor** (two endpoints, a new part of the Move picker).
 
+## Phone photo picker: the history waits while a pick is on (fix/mobile-photo-pick-background, 2026-11-12, QA TC-251)
+
+The phone app's own photo picker (photo-pick-v1) opened, the person picked, and nothing was attached, with no word, on
+the Android QA app and the iPhone TestFlight build. Plan and evidence:
+`docs/AGENTS/plan/20261112-1354-mobile-photo-pick-background.md`.
+- **The cause.** The attach sheet closes as its item runs, and its history entry is backed off (`history.go(-1)`)
+  right after the page asked for the pick. iOS: react-native-webview 14's history shim reports every pushState,
+  replaceState and popstate as a load end; the app installed its bridge again for it (`loaded()`: a new nonce and
+  `mycel:mobile-ready`), which cancelled the pick on the page and dropped the picker's answer in the app. Android: the
+  app hears every step of the page's history as a load start (`doUpdateVisitedHistory`); one that says loading fenced
+  the bridge, dropped the pick and put the bridge back 10 s later with a new nonce. The page took both as "moved on".
+- **Web: `holdHistory()`** (lib/backCloses.ts): no back-off of ours while the app's pick is on: while the picker is
+  up, then at most 15 s + 1 s per MiB for the bytes (2 min cap). Back and the router still go; an overlay opened
+  meanwhile pushes its entry after. Only the app's picker holds it. This should fix the apps already out (iPhone
+  build 9, Android 1.0.5): it changes the page, not the app.
+- **A lost pick says so.** An AbortError while the box is still there (the bridge came back, a session reset) shows
+  사진을 가져오지 못했어요. A cancel is an empty pick and stays quiet; a box that went away says nothing.
+- **One box.** Each message box keys its attach sheet by what it writes to (room and thread, chat draft, side chat), so
+  a pick lands only in the box that started it.
+- **Native, next build:** a load end while the bridge is on asks the page whether it still has this bridge's nonce
+  (`sameDocumentScript`); only a new document gets the bridge again, so no step within the page (the iOS shim's, an
+  Android one) cancels anything on its way. Android, a load start at the address on screen while a pick is on is no
+  fence (`loadStartFences`). A copy whose size reads as 0 takes the picker's size (`assetSize`).
+- **Left:** a tap on 사진 보관함 faster than the reinstall the sheet's opening brings on iPhone build 9 (tens of ms);
+  gone with the native fix.
+- Version impact: **patch**.
+
 ## 휴대폰 앱 아이콘의 숫자 — the phone app's icon shows the unread count (feat/phone-app-badge, 2026-11-12, QA TC-408)
 
 넣을 곳: Team AX core (`mobile/`, `push-gateway/`, `shared/src/cloud-protocol/push-gateway.ts`, `shared/src/api/attention.ts`,

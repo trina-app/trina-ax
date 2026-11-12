@@ -8,7 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
-import { FileTransfers, MobileReceiver, replyScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
+import { FileTransfers, loadStartFences, MobileReceiver, readNewDocument, replyScript, sameDocumentScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
 import { backAction, backGestures, openScript, START_TAB_SCRIPT } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { PhotoPicks } from './src/photos'
@@ -604,9 +604,12 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       // Android also reports a same-document navigation (history.pushState: the web app moving to its next page, as
       // after sign-in) as a load start, with no load end after it. The document and its bridge stay then, so nothing
       // is fenced: fencing it left the bridge off until the next full load (no session reset, push or file share).
+      // While a photo pick is on, a load start at the address on screen is such a step too (src/bridge.ts
+      // loadStartFences)
       onLoadStart={event => {
+        const sameUrl = event.nativeEvent.url === currentUrl.current
         currentUrl.current = event.nativeEvent.url; stuck.current.cancel()
-        if (Platform.OS === 'android' && !event.nativeEvent.loading) return
+        if (!loadStartFences({ android: Platform.OS === 'android', loading: !!event.nativeEvent.loading, sameUrl, picking: r.picking })) return
         loadFailed.current = false; ready.current = false; void clear()
         // a new document: it says where Back goes once it has its bridge
         setPageNav(null)
@@ -616,7 +619,15 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
         if (Platform.OS === 'android') stuck.current.arm(event.nativeEvent.url,
           saved => stillStuck({ saved, current: currentUrl.current, origin: address.origin, ready: ready.current, failed: loadFailed.current }), settle)
       }}
-      onLoadEnd={event => { stuck.current.cancel(); settle(event.nativeEvent.url) }}
+      // A load end while the bridge is on may be a step within the page (iOS: react-native-webview's history shim
+      // reports every pushState / replaceState / popstate as one; src/bridge.ts sameDocumentScript): the page is asked,
+      // and only a new document gets the bridge again. Installing it again for a step gave the page a new nonce, which
+      // cancelled what was on its way (QA TC-251: the photo picker's pick).
+      onLoadEnd={event => {
+        stuck.current.cancel()
+        if (ready.current && !loadFailed.current && sameTeam(address.origin, event.nativeEvent.url)) { web.current?.injectJavaScript(sameDocumentScript(r.config.nonce)); return }
+        settle(event.nativeEvent.url)
+      }}
       onNavigationStateChange={state => {
         currentUrl.current = state.url; setCanBack(state.canGoBack)
         if (!sameTeam(address.origin, state.url)) return
@@ -630,6 +641,10 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
         if (sameTeam(address.origin, event.nativeEvent.url) && leaveAsk.current.answer(event.nativeEvent.data)) return
         // the reinstall sign-out's answer (its one-time token), not a bridge message
         if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return
+        // a load end's question (sameDocumentScript): a new document without the bridge, which it gets now
+        if (ready.current && sameTeam(address.origin, event.nativeEvent.url) && readNewDocument(event.nativeEvent.data, r.config.nonce)) {
+          ready.current = false; void clear(); setPageNav(null); settle(event.nativeEvent.url); return
+        }
         // the answer to the app's own session check, not a bridge message
         const session = sameTeam(address.origin, event.nativeEvent.url) ? readSessionCheck(event.nativeEvent.data, sessionCheck.current) : null
         // a blip (offline, a relay 502) keeps what the last answer said; it still counts as the first answer

@@ -97,6 +97,33 @@ export class StuckLoad {
 export const stillStuck = (o: { saved: string; current: string; origin: string; ready: boolean; failed: boolean }) =>
   o.current === o.saved && sameTeam(o.origin, o.current) && !o.ready && !o.failed
 
+/** Whether a load start fences the bridge (a new document). Android reports every same-document navigation as a load
+ * start (react-native-webview's doUpdateVisitedHistory), some of them as loading: those fenced it before, and a step
+ * back to the same address while the photo picker was up or its bytes came over (the attach sheet's history entry
+ * closing) dropped the pick (QA TC-251). Now, on Android, a load start that is not loading, or one at the address
+ * already on screen while a pick is on, is the same document: no fence. Should it have been a new document after all,
+ * its load end finds no bridge there and installs it (sameDocumentScript). iOS starts (a navigation policy) come only
+ * for new documents; iOS load ENDS do not: see sameDocumentScript. */
+export const loadStartFences = (o: { android: boolean; loading: boolean; sameUrl: boolean; picking: boolean }) =>
+  !o.android || (o.loading && !(o.sameUrl && o.picking))
+
+/** A load end while the bridge is on: is the page still the document that has it? react-native-webview 14 on iOS
+ * injects a history shim that reports every pushState, replaceState and popstate of the page as a load end (with a
+ * navigationType), and Android may end a step within the page too. Installing the bridge again for those gave the page
+ * a new nonce and its mycel:mobile-ready, which cancelled whatever was on its way: on iOS the attach sheet's history
+ * step during the photo picker dropped every pick (QA TC-251). So the app asks the page: a document with this bridge's
+ * nonce says nothing (the same document, nothing to do); one without it (a new document) answers with
+ * `{ mycelNewDocument: nonce }` (readNewDocument), and the app fences and installs the bridge there. */
+export function sameDocumentScript(nonce: string): string {
+  const n = JSON.stringify(nonce)
+  return `if(window.top===window.self&&!(window.mycelMobile&&window.mycelMobile.nonce===${n})&&window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify({mycelNewDocument:${n}}))}true;`
+}
+/** The page's answer to sameDocumentScript for `nonce`: a new document. Anything else: false. */
+export function readNewDocument(data: string, nonce: string): boolean {
+  if (data.length > 200 || !data.includes('mycelNewDocument')) return false
+  try { const v = JSON.parse(data) as { mycelNewDocument?: unknown }; return !!v && typeof v === 'object' && v.mycelNewDocument === nonce } catch { return false }
+}
+
 /** The script that hands a reply to the page. Delivered only if the document on screen still has the bridge the reply
  * answers (its nonce): a document that came in the meantime has none yet or its own, and drops it, so no file bytes
  * (photo-pick-v1) or token reach the next page. `bootstrap`: the next config, installed first (a session reset's). */
@@ -132,6 +159,8 @@ export class MobileReceiver {
   private enabled = true
   constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>, private photos?: PhotoPicks) {}
   private async fence() { await this.files.clear(); await this.photos?.clear() }
+  /** The bridge is on and a photo pick is under way (the picker on screen, or its bytes not all fetched yet). */
+  get picking(): boolean { return this.enabled && !!this.photos?.busy }
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.fence() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {
