@@ -301,3 +301,43 @@ test('review fixes: a read that stops inside a run keeps it unread; the count is
   // an answer's Markdown is one plain line
   expect(plainMarkdown('## 제목\n- **굵게** `code` [링크](https://example.test)')).toBe('제목\n굵게 code 링크')
 })
+
+test('only=rooms: the conversation rows alone, past many newer notices of the app; a muted room\'s row counts on 나, not as a room row (TC-256 review)', async () => {
+  const { mia, nora, n, team, send } = await setup()
+  const hub = new RecordingHub()
+  h.ctx.services.realtime = hub
+  const changed = () => hub.events.filter((e) => e.target === nora.id && (e.data as any)?.data?.code === 'notifications.changed').length
+  const m = await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
+  // 35 notices of the app's own, all newer than the mention (an admin's busy week)
+  const t0 = Date.parse(m.createdAt)
+  for (let i = 1; i <= 35; i++) h.ctx.db.query("INSERT INTO notification_inbox(id,user_id,event_type,source_id,created_at) VALUES(?,?,'connection.reconnect',?,?)").run(`app-${String(i).padStart(2, '0')}`, nora.id, `src-${i}`, new Date(t0 + i * 1000).toISOString())
+  // the whole Inbox: its first page is the app's notices only
+  const all = n.list(nora.id, {})
+  expect(all.items).toHaveLength(30)
+  expect(all.items.every((x) => !x.room)).toBe(true)
+  expect(all.nextCursor).not.toBeNull()
+  expect([all.unreadCount, all.roomUnreadCount]).toEqual([36, 1])
+  // only=rooms: the mention at once, no more pages, the same counts
+  const rooms = n.list(nora.id, { only: 'rooms' })
+  expect(rooms.items.map((x) => [x.code, x.room?.message])).toEqual([['room.mention', m.id]])
+  expect(rooms.nextCursor).toBeNull()
+  expect([rooms.unreadCount, rooms.roomUnreadCount]).toEqual([36, 1])
+  // through the API too, for nora only
+  const api = await nora.client.call('GET', '/api/notifications?only=rooms')
+  expect(api.items.map((x: any) => x.room?.message)).toEqual([m.id])
+  expect((await mia.client.call('GET', '/api/notifications?only=rooms')).items).toEqual([])
+  // paged as the whole Inbox is: one row a page
+  const first = n.list(nora.id, { only: 'rooms', limit: 1 })
+  expect(first.items).toHaveLength(1)
+  // muting the room: the 대화 badge skips it, so its row is no room row in the count (it counts on 나); told to read again
+  const before = changed()
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { notifyLevel: 'off' })
+  expect(changed()).toBe(before + 1)
+  expect([n.list(nora.id, {}).unreadCount, n.list(nora.id, {}).roomUnreadCount]).toEqual([36, 0])
+  // the same level again tells nothing; unmuted, it is a room row again
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { notifyLevel: 'off' })
+  expect(changed()).toBe(before + 1)
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { notifyLevel: null })
+  expect(changed()).toBe(before + 2)
+  expect(n.list(nora.id, {}).roomUnreadCount).toBe(1)
+})

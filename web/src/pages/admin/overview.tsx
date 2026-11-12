@@ -205,10 +205,10 @@ export function useAdminOverview() {
       : t('adminHome.noAi', { count: noAi.length, names: names(noAi) }) }] : []),
     ...badCredentials.map((c) => ({ key: `credential-${c.id}`, text: item(c.label, t(`credentials.state.${c.state}`)), to: '/admin/providers?engine=claude-code' })),
     ...badServices.map((s) => ({ key: `service-${s.id}`, text: item(s.name, t(`integrations.status.${s.status}`)), to: '/admin/connectors' })),
-    ...(storageBad && storage.data ? [{ key: 'storage', text: t('adminHome.storage', { percent: Math.round(storage.data.percent) }), to: '/admin/system' }] : []),
-    ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system' })),
+    ...(storageBad && storage.data ? [{ key: 'storage', text: t('adminHome.storage', { percent: Math.round(storage.data.percent) }), to: '/admin/system/storage' }] : []),
+    ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system/health' })),
     ...(newVersion && upd ? [{
-      key: 'update', text: updateLine(t, locale, upd, newVersion), to: '/admin/system', job: install.jobId,
+      key: 'update', text: updateLine(t, locale, upd, newVersion), to: '/admin/system/updates', job: install.jobId,
       actions: canInstall ? <Button size="sm" variant="primary" disabled={!!install.jobId} onClick={() => install.ask('update')} data-testid="home-update-install">{t('adminHome.update.install')}</Button> : undefined,
     }] : []),
     ...(after.data ?? []).filter((a) => AFTER_UPDATE_IDS.includes(a.id)).map((a) => ({

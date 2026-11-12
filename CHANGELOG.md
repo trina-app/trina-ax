@@ -5,7 +5,9 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
-## 0.5.0 — 2026-11-12
+## 0.5.1 — 2026-11-12
+
+The tag v0.5.0 was not published: the release's Linux attack suite failed on a test fixture (its admin was not a member of the project her runs started in). 0.5.1 is the same code with that test fixed.
 
 - The Inbox is now **Activity**, a page of its own (`/activity`) instead of a list inside Settings: tabs for All, DMs, Mentions and Threads, an **Unreads** filter, a search, and the notices grouped by day. Settings › Notifications keeps the notification settings.
 - **Activity**: switching to Mentions no longer moves the page sideways, and a tab's focus ring shows whole.
