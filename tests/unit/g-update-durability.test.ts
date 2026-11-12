@@ -320,11 +320,12 @@ ${sw}`
   })
 
   test('a folder sync only warns (some file systems refuse fsync on a folder, as fsyncPath tolerates); only syncs before any switch stop', () => {
-    // every sync of a folder in the script; the only ones that may stop the install are the syncfs before the rename
-    // and the engine file's, both before anything switched
+    // every sync of a folder in the script; the only ones that may stop the install are the syncfs of the staged copy
+    // (before the stop, QA TC-339), the engine file's and the syncfs before the rename, all before anything switched
     const lines = s.split('\n').filter((l) => /^\s*sync /.test(l))
-    expect(lines.filter((l) => l.includes('|| die')).map((l) => l.trim().split(' ||')[0])).toEqual(['sync "$dir/$name"', 'sync -f "$DEST.partial"'])
-    for (const l of lines.filter((l) => !l.includes('|| die'))) expect(l).toContain('|| warn "')
+    const stops = (l: string) => /\|\| (\{ [^}]*)?die /.test(l)
+    expect(lines.filter(stops).map((l) => l.trim().split(' ||')[0])).toEqual(['sync -f "$STAGE/$VERSION"', 'sync "$dir/$name"', 'sync -f "$DEST.partial"'])
+    for (const l of lines.filter((l) => !stops(l))) expect(l).toContain('|| warn "')
   })
 
   test.skipIf(process.platform !== 'linux')('with a sync that refuses folders, the version step goes on to the switch and warns', () => {
