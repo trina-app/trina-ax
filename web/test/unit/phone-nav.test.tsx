@@ -156,23 +156,27 @@ describe('the tab bar', () => {
     for (const m of labels) expect(m[1]).toContain('truncate')
   })
 
-  test('트리나\'s icon: Trina\'s own star (the room header\'s ✦) in the tab\'s colours where the product is named after its AI, the sparkle elsewhere', async () => {
-    const named = renderToStaticMarkup(<AiTabIcon named />)
-    // the star's path, filled with the text colour (ink on the tab on show, faint on the others), no gradient
+  test('트리나\'s icon: Trina\'s own orange star (the room header\'s ✦) where the product is named after its AI, dimmed off its tab; the sparkle elsewhere', async () => {
+    const named = renderToStaticMarkup(<AiTabIcon named active />)
+    // the star's path in its own orange gradient (the owner: 'AI 아이콘은 색넣는게 좋지 않을까?'), whole on its tab
     expect(named).toContain(`d="${TRINA_STAR}"`)
-    expect(named).toContain('fill="currentColor"')
-    expect(named).toContain('data-trina-star="mono"')
-    expect(named).not.toContain('linearGradient')
+    expect(named).toContain('linearGradient')
+    expect(named).toContain('data-trina-star="true"')
+    expect(named).not.toContain('opacity-55')
+    // another tab on show: the same orange star, dimmed, so the bar still marks where you are
+    const off = renderToStaticMarkup(<AiTabIcon named />)
+    expect(off).toContain('linearGradient')
+    expect(off).toContain('opacity-55')
     // drawn 26 px (the star is thin) in the 22 px slot of the other icons
     expect(named).toContain('width="26" height="26"')
     expect(named).toContain('-m-0.5')
     const plain = renderToStaticMarkup(<AiTabIcon named={false} />)
     expect(plain).toContain('lucide-sparkles')
     expect(plain).toContain('width="22"')
-    expect(renderToStaticMarkup(<AiTabIcon />)).toBe(PRODUCT_NAMED_AFTER_AI ? named : plain)
+    expect(renderToStaticMarkup(<AiTabIcon active />).replace(/trina-star[^"]*/g, 'g')).toBe((PRODUCT_NAMED_AFTER_AI ? named : plain).replace(/trina-star[^"]*/g, 'g'))
     // in the bar: the tab's colour class is on its link, the icon follows it
     const html = await bar('/rooms')
-    expect(new RegExp(`data-testid="tab-ai"[^]*?${PRODUCT_NAMED_AFTER_AI ? 'data-trina-star="mono"' : 'lucide-sparkles'}`).test(html)).toBe(true)
+    expect(new RegExp(`data-testid="tab-ai"[^]*?${PRODUCT_NAMED_AFTER_AI ? 'opacity-55[^]*?data-trina-star="true"' : 'lucide-sparkles'}`).test(html)).toBe(true)
   })
 
   test('the tab on screen is marked', async () => {

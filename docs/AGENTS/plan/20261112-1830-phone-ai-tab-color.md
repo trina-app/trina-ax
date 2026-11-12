@@ -9,3 +9,6 @@ grey one reads as something else.
   others it is dimmed (opacity) so the tab on show still reads from the bar, the label keeps the tab colours. The core
   edition's sparkle is unchanged.
 - `phone-nav.test.tsx`: the icon has the gradient (not `mono`), dimmed when its tab is not on show.
+
+## Result
+`phone-nav.test.tsx` 28/28; `phone-projects-tab` e2e 11/11 (Chromium); typecheck passes.

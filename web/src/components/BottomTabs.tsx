@@ -9,8 +9,9 @@
 // (Room.aiWaits), 대화's pill is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers");
 // the count is the same and comes back when the wait ends (a screen reader hears both). Not shown inside a conversation
 // (a room, an AI chat): their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room
-// header's ✦, the AI's face in rooms and the sidebar's "트리나에게 묻기") where the product is named after its AI, in the
-// tab's colours like the other icons; the sparkle in the core edition (as rooms/AiFace.tsx). The star is thin (it fills
+// header's ✦, the AI's face in rooms and the sidebar's "트리나에게 묻기") where the product is named after its AI, in its
+// own orange (the owner, 2026-11-12: "AI 아이콘은 색넣는게 좋지 않을까?"), dimmed while another tab is on show so the bar
+// still marks where you are; the sparkle in the core edition, in the tab's colours (as rooms/AiFace.tsx). The star is thin (it fills
 // about 4/5 of its box), so it is drawn 26 px to read as big as the 22 px icons, overhanging its 22 px slot so the bar
 // keeps its height (the owner, 2026-11-12: "모바일에서는 트리나 아이콘이 달라서 좀 헷갈리는듯").
 // A tap never adds a history entry (lib/screenHistory.ts switchTab): another tab puts its own stack back where it was
@@ -32,9 +33,10 @@ import { useMe } from '../store/session'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { TrinaStar } from './TrinaStar'
 
-/** 트리나's tab icon (see the top of this file); `named`: this build's PRODUCT_NAMED_AFTER_AI, a prop for the tests */
-export function AiTabIcon({ named = PRODUCT_NAMED_AFTER_AI }: { named?: boolean }) {
-  return named ? <TrinaStar size={26} mono className="-m-0.5" /> : <Sparkles size={22} aria-hidden />
+/** 트리나's tab icon (see the top of this file); `active`: its tab is on show; `named`: this build's
+ * PRODUCT_NAMED_AFTER_AI, a prop for the tests */
+export function AiTabIcon({ active = false, named = PRODUCT_NAMED_AFTER_AI }: { active?: boolean; named?: boolean }) {
+  return named ? <TrinaStar size={26} className={clsx('-m-0.5', !active && 'opacity-55')} /> : <Sparkles size={22} aria-hidden />
 }
 
 export function BottomTabs() {
@@ -57,7 +59,7 @@ export function BottomTabs() {
   }
   return (
     <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden in-[.keyboard-open]:hidden" data-bottom-bar data-testid="bottom-tabs">
-      <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<AiTabIcon />} label={aiName(t)} testId="tab-ai" onClick={go('ai')} />
+      <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<AiTabIcon active={current === 'ai'} />} label={aiName(t)} testId="tab-ai" onClick={go('ai')} />
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
         {aiWaits ? (
           <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-chats-unread" data-ai-waits="">
