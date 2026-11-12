@@ -190,8 +190,9 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.goto('/admin/settings#ai')
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).toBeChecked()
   await page.goto('/settings')
-  // Settings › Connections: Providers (one's own accounts, by provider), first in the group
-  await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toHaveText('AI 계정')
+  // Settings › Connections: Connectors first (everyone has it), then Providers (one's own accounts, by provider)
+  await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toContainText('커넥터')
+  await expect(page.getByTestId('settings-group-connections').getByRole('link').nth(1)).toHaveText('AI 계정')
   await page.getByTestId('settings-group-connections').getByRole('link', { name: 'AI 계정', exact: true }).click()
   await page.getByTestId('my-credential-add-codex').click()
   await expect(page.getByTestId('kind-chatgpt')).toBeEnabled()

@@ -32,7 +32,8 @@ test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ p
   expect(await newChat.evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
   const projects = side.getByRole('link', { name: t['sidebar.projects'] })
   expect(Math.round((await projects.boundingBox())!.height)).toBe(36)
-  expect(await side.getByTestId('recents-toggle').evaluate((el) => getComputedStyle(el.closest('h2')!).fontSize)).toBe('12px')
+  // the section titles are as large as the rows, and bold (TC-149)
+  expect(await side.getByTestId('recents-toggle').evaluate((el) => getComputedStyle(el.closest('h2')!).fontSize)).toBe('14px')
 })
 
 test('the account menu opens above the profile line, moves with the keyboard, and the theme is not in it', async ({ page }) => {
@@ -207,7 +208,9 @@ test('on a wide window a page\'s column is centred beside the sidebar; on a phon
     expect(Math.abs(c.x - main.x - (main.x + main.width - (c.x + c.width)))).toBeLessThanOrEqual(24)
     expect(c.width).toBeLessThan(main.width - 200)
     await page.setViewportSize({ width: 390, height: 760 })
-    expect(Math.round((await column.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
+    // a phone's Projects is rows from edge to edge under the phone's bar, without the page header (TC-380)
+    const phoneColumn = path === '/skills' ? column : page.getByTestId('project-rows')
+    expect(Math.round((await phoneColumn.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
   }
 })
 
