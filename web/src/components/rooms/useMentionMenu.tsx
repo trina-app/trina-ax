@@ -16,6 +16,7 @@ import { ROOM_MENTION_ALL_WORDS, type UserRef } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { AI_MENTION_ID, ALL_MENTION_ID, allMatches, aiMatches, insertMention, lineBreaks, matchMembers, mentionAt, mentionsIn, mentionTokens, tokenMentions, tokenMentionsAll, type MentionToken, type PickedMention } from '../../lib/rooms'
 import { shiftRanges, type TextEdit } from '../../lib/textTokens'
+import { useOverlayEntry } from '../../lib/backCloses'
 import { scrollToShow } from '../chat/SkillMenu'
 import { usePeople } from '../../store/people'
 import { useRooms } from '../../store/rooms'
@@ -74,6 +75,8 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
     return [...(ai && aiMatches(at.query) ? [{ id: AI_MENTION_ID, name: aiName }] : []), ...(at.query ? [...people, ...all] : [...all, ...people])]
   }, [at, shown, meId, closedFor, text, ai, aiName, allowed, allName])
   const open = hits.length > 0
+  // phones: Back closes the list, as Esc does, and stays in the room (lib/backCloses.ts)
+  useOverlayEntry(open, () => setClosedFor(text))
   useEffect(() => setActive(0), [at])
   useEffect(() => {
     const list = listRef.current

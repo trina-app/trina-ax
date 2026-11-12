@@ -346,6 +346,8 @@ export function rowItem(e: AuditEntry): { text: string; code: boolean; confirmed
     return item.includes('/') && !/[{}"=]/.test(item) ? { text: item, code: true, ...confirmed } : null
   }
   if (!e.target) return null
+  // an outside app's connection: the app's name the server kept, never the grant's id (QA TC-204)
+  if (e.action.startsWith('remote_mcp.')) return typeof e.detail?.app === 'string' && e.detail.app.trim() ? { text: e.detail.app, code: false } : null
   if (!ID.test(e.target)) return { text: e.target, code: true }
   const name = e.detail?.name
   return typeof name === 'string' && name.trim() ? { text: name, code: false } : null

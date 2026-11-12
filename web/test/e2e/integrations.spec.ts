@@ -268,6 +268,23 @@ test('a sign-in address that is not https is never opened', async ({ page }) => 
   }
 })
 
+test('a connection added but never signed in is listed as "로그인 필요", not under "연결됨" (QA TC-205)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const post = (data: object) => page.request.post('/api/integrations', { headers: { [CSRF_HEADER]: '1' }, data })
+  expect((await post({ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth' })).status()).toBe(201)
+  expect((await post({ kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.example/mcp', auth: 'none' })).status()).toBe(201)
+  await page.goto('/connectors')
+  const signInFirst = page.getByTestId('sign-in-apps')
+  await expect(page.getByRole('heading', { name: '로그인 필요', exact: true })).toBeVisible()
+  await expect(signInFirst.getByTestId('connected-app').filter({ hasText: 'Notion' })).toHaveCount(1)
+  await expect(page.getByTestId('connected-apps').getByTestId('connected-app').filter({ hasText: 'Notion' })).toHaveCount(0)
+  await expect(page.getByTestId('connected-apps').getByTestId('connected-app').filter({ hasText: 'Linear' })).toHaveCount(1)
+  // its page says the same
+  await signInFirst.getByTestId('connected-app').filter({ hasText: 'Notion' }).click()
+  await expect(row(page, 'Notion')).toHaveAttribute('data-status', 'needs_auth')
+})
+
 test('the team turns personal connections off: no adding, and the ones there are marked unused', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)

@@ -24,6 +24,7 @@ import { AdminPageHeader, Loadable, OneLine, useAction, useLoad } from './common
 import { ENGINE_FAMILY, ProviderAccounts, accountsNeedLook, useTeamCredentials } from './Credentials'
 import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { useEngines } from '../../store/engines'
+import { enginesChanged } from '../../store/live'
 import { technicalEngineState } from './plain'
 import { useAdminBar } from './phoneBar'
 
@@ -34,6 +35,10 @@ export default function Engines() {
   const [params] = useSearchParams()
   const state = useLoad(() => api.call(API.engines))
   const tc = useTeamCredentials()
+  // a connection added, signed in (also in the browser), checked or removed, here or in another window: the engines'
+  // state again (the server dropped its last check), and the accounts list with it when another window changed it
+  const reloadEngines = state.reload, reloadAccounts = tc.state.reload
+  useEffect(() => enginesChanged.on(() => { void reloadEngines(); void reloadAccounts() }), [reloadEngines, reloadAccounts])
   const [checking, setChecking] = useState<EngineId | null>(null)
   const phone = useMediaQuery('(max-width: 767.98px)')
 

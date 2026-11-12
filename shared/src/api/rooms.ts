@@ -36,6 +36,7 @@ import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
 import { emojiForm } from '../emoji-form'
+import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
 import { isStatusEmoji } from '../status-message'
 import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
@@ -115,18 +116,14 @@ export type RoomKind = z.infer<typeof RoomKind>
 export const ROOM_GROUP_MAX = 100
 /** A room's own name: at most this many characters (after trimming). */
 export const ROOM_NAME_MAX = 80
-/** What a room's name may not hold: control characters, every format character (bidirectional marks, overrides and
- * isolates, zero-width spaces and non-joiners, the byte order mark, soft hyphens, invisible operators, tag characters,
- * …) but the zero-width joiner that emoji sequences need, line and paragraph separators, and the blank letters that
- * draw nothing (the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the blank Braille pattern U+2800). */
-const NAME_FORBIDDEN = /(?!\u200d)\p{Cf}|[\p{Cc}\u2028\u2029\u115f\u1160\u3164\uffa0\u2800]/u
+/** What a room's name may not hold: ../name-chars.ts NAME_FORBIDDEN (control, invisible and blank characters). */
 /** ...and it must show something: at least one letter, number, symbol or punctuation mark (not only spaces, combining
  * marks or joiners). */
 const NAME_VISIBLE = /[\p{L}\p{N}\p{S}\p{P}]/u
 /** A room's own name as typed: trimmed, at most ROOM_NAME_MAX characters, no control characters. '' (or null) takes it
  * back to the server's name (the group's name, the app's word for everyone, a group chat's members). Always shown as
  * plain text. */
-export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s === '' || (!NAME_FORBIDDEN.test(s) && NAME_VISIBLE.test(s)), { message: 'invisible or control characters' })
+export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s === '' || (!NAME_FORBIDDEN.test(s) && NAME_VISIBLE.test(s)), { message: NAME_FORBIDDEN_FIELD })
 
 /**
  * A room picked with "#" in the person's own AI chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기"): in the message as

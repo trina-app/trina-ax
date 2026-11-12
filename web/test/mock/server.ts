@@ -422,6 +422,8 @@ export class MockServer {
   memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
   limitFallback = false
   codexEnabled = true
+  /** a team ChatGPT sign-in finished: Codex says Connected (like the server, whose engine check follows the connections) */
+  codexSignedIn = false
   // the API engine: listed like on a real server, off here so chats and Admin Home do not count it
   apiEngineEnabled = false
   /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
@@ -603,6 +605,7 @@ export class MockServer {
     this.memberChoice = { mode: 'off', groupIds: [], userIds: [] }
     this.limitFallback = false
     this.codexEnabled = true
+    this.codexSignedIn = false
     this.apiEngineEnabled = false
     this.driveClient = 'none'
     this.driveMembers = false
@@ -1518,6 +1521,39 @@ export class MockServer {
       }
       prompt += ` answered:${JSON.stringify(answer)}`
     }
+    if (/connectcontinue/i.test(prompt)) {
+      // like server/src/chat/turn.ts after a connect (owner decision 2026-11-12): the AI shows the connect card for a
+      // service the request needs; the person connects it on the card (POST /api/turns/:id/connect, connectTurn below)
+      // and the SAME answer goes on with the new connection's tool, without the question being sent again. "Not now":
+      // the answer ends without it.
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const lead = 'Notion이 아직 연결되지 않았어요. 카드에서 연결해 주시면 이어서 찾아볼게요.\n\n'
+      assistant.content += lead
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: lead } })
+      const card = step({ id: 'cc1', kind: 'tool', tool: 'connect_service', label: '서비스 연결 · Notion' })
+      put(card)
+      const requestId = 'cc-notion'
+      const request: TurnRequest = {
+        kind: 'connect_service', requestId, target: 'service', name: 'Notion', scope: 'personal',
+        service: { kind: 'mcp', url: 'https://mcp.notion.example/mcp', host: 'mcp.notion.example', auth: 'none', authHeader: null },
+        why: '출시 페이지를 읽으려면 Notion 연결이 필요해요.', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      const outcome = await Promise.race([new Promise((r) => this.pendingAsk.set(turnId, r)), sleep(60_000).then(() => ({ outcome: 'skipped' }))]) as { outcome?: string }
+      this.openAsks.delete(turnId)
+      this.pendingAsk.delete(turnId)
+      pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      const connected = outcome?.outcome === 'connected'
+      put({ ...card, status: connected ? 'ok' : 'error', detail: connected ? '연결됨' : '연결 안 됨', endedAt: now() })
+      if (connected) {
+        const search = step({ id: 'cc2', kind: 'tool', tool: 'my_notion__search', label: 'Notion · 검색 "출시"' })
+        put(search)
+        await sleep(80)
+        put({ ...search, status: 'ok', endedAt: now() })
+        prompt += ' connectcontinued'
+      } else prompt += ' connectskipped'
+    }
     if (/connecttemplate/i.test(prompt)) {
       // like server/src/chat/connect-service.ts: the connect card for an admin's template this person has not connected
       // (the person's own key, the template's address); it stays until the turn's time for it runs out
@@ -1834,6 +1870,10 @@ export class MockServer {
         ? '채널별 매출이에요.\n\n| 채널 | 이번 달 매출 | 지난달 매출 | 주문 수 | 메모 |\n|---|---|---|---|---|\n| 온라인 스토어 | 1,234,567,890원 | ₩987,654,321 | 12,345건 | 주말 할인 행사 덕분에 늘었어요 |\n| 오프라인 매장 | 98,765,432원 | ₩87,654,321 | 3,210건 | 비슷해요 |\n'
       : /한 줄로/.test(prompt)
         ? '로고 시안은 수요일까지 2개 받기로 했어요. 피드백은 금요일 회의 전에 이 스레드에 모아요.'
+      : /connectcontinued/.test(prompt)
+        ? 'Notion의 「출시 계획」 페이지 요약이에요.\n\n- 출시일: 12월 3일\n- 담당: 영업팀'
+      : /connectskipped/.test(prompt)
+        ? 'Notion을 연결하지 않아서 페이지를 읽지 못했어요.'
       : prompt.includes('answered:')
         ? `You chose ${prompt.split('answered:')[1]}.`
         : /artifact|react/i.test(prompt)
@@ -2327,6 +2367,17 @@ export class MockServer {
     selectBranch: (c) => {
       this.activeLeaf.set(c.params.id!, this.newestLeafUnder(c.body.messageId))
       return { items: this.path(c.params.id!), nextCursor: null }
+    },
+    // like server/src/chat/connect-service.ts finishCard: the open connect card of this turn, "connect" (no key here) or
+    // "not now"; the waiting turn learns the outcome
+    connectTurn: (c) => {
+      const open = this.openAsks.get(c.params.id!)
+      const r = this.pendingAsk.get(c.params.id!)
+      if (!open || open.request.kind !== 'connect_service' || open.request.requestId !== c.body.requestId || !r) fail('conflict', 409, '이 카드는 이미 닫혔어요.')
+      this.pendingAsk.delete(c.params.id!)
+      if (c.body.action === 'skip') { r!({ outcome: 'skipped' }); return { state: 'skipped' as const } }
+      r!({ outcome: 'connected' })
+      return { state: 'connected' as const, integrationId: 'int-notion', status: 'connected' as const }
     },
     answerTurn: (c) => {
       const r = this.pendingAsk.get(c.params.id!)
@@ -4398,6 +4449,9 @@ export class MockServer {
       if (!(personal ? this.credMemberOwn : this.credSharedSubscriptions)) { l.state = 'failed'; l.reason = 'policy_changed'; pub(); return }
       if (reconnectId) { const x = this.credentials.find((y) => y.id === reconnectId); if (x) { x.state = 'ok'; x.detail = null; l.credential = x } }
       else { const c = this.newCredential(user, 'chatgpt', label, personal, 'ok'); this.credentials.push(c); l.credential = c }
+      // like the server (credentials/store.ts connectionsChanged): open screens ask GET /api/engines again, then "done"
+      if (!personal) this.codexSignedIn = true
+      this.publish({ type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } })
       l.state = 'done'; pub()
     }, 1200)
     return this.loginView(l)
@@ -4615,7 +4669,9 @@ export class MockServer {
     return {
       engines: [
         { id: 'claude-code' as const, label: 'Claude Code', enabled: true, authMode: 'local-login' as const, installed: true, version: '2.1.305', status: 'ok' as const, detail: null, models: [{ id: 'claude-sonnet', label: 'Sonnet' }, { id: 'claude-opus', label: 'Opus' }], checkedAt: now() },
-        { id: 'codex' as const, label: 'Codex', enabled: this.codexEnabled, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'not_logged_in' as const, detail: 'Run `codex login --device-auth` on the server Mac.', models: [], checkedAt: now() },
+        this.codexSignedIn
+          ? { id: 'codex' as const, label: 'Codex', enabled: this.codexEnabled, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'ok' as const, detail: null, models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }], checkedAt: now() }
+          : { id: 'codex' as const, label: 'Codex', enabled: this.codexEnabled, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'not_logged_in' as const, detail: 'Run `codex login --device-auth` on the server Mac.', models: [], checkedAt: now() },
         { id: 'api' as const, label: 'API', enabled: this.apiEngineEnabled, authMode: 'api-key' as const, installed: false, version: null, status: 'not_installed' as const, detail: 'Not set up yet. Enter the API address, model and key below.', models: [], checkedAt: now() },
       ],
       defaultEngine: this.settings.defaultEngine,

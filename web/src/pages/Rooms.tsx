@@ -2,7 +2,7 @@
 // 채팅"; called like "@트리나" in the Trina edition, with the face it has in rooms: rooms/AiFace.tsx), then my rooms by
 // latest activity, each with its last line, when, and my unread count. Rows are separated by hairlines on computers
 // and by their own spacing on phones, no cards.
-// "새 대화" opens the people list for a DM or a group chat (/rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
+// "새 대화" opens the people list for a DM or a group chat (also asked for with /rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
 // chat icon, components/Layout.tsx): no second title row here.
 // Each row has the room's "⋯" (components/rooms/RoomMenu.tsx) on hover or keyboard focus and with a right-click; on a
 // phone a long press opens it as a sheet. Rooms I hid (docs/DECISIONS.md "대화 숨기기") are not in the list: a quiet
@@ -11,7 +11,7 @@
 // recently pinned first, with the sidebar's pin after the name; then the others by latest activity.
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Room } from '@mycel/shared/api'
@@ -42,10 +42,20 @@ export default function Rooms() {
   const everyRoom = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
   const failed = useRooms((s) => s.failed)
-  // the people list is in the address, so the phone top bar's icon can open it too
+  // the people list: opened here, or asked for in the address (?new=1: the phone top bar's ⊕, a link), which then
+  // leaves the address. Open, it is a dialog with its own history entry on a phone (lib/backCloses.ts): Back closes it
+  // and stays on the list, and a chat opened from it takes that entry, so Back from the chat comes back to the list
   const [params, setParams] = useSearchParams()
-  const picking = params.has('new')
-  const setPicking = (on: boolean) => setParams(on ? { new: '1' } : {}, { replace: true })
+  const [picking, setPicking] = useState(false)
+  const asked = params.has('new')
+  useEffect(() => {
+    if (!asked) return
+    setPicking(true)
+    setParams((p) => {
+      p.delete('new')
+      return p
+    }, { replace: true })
+  }, [asked, setParams])
   const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
   if (resuming) return <div className="h-full" />
   const rooms = pinnedFirst(everyRoom.filter((r) => !r.hidden))

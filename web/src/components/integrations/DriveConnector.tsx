@@ -17,11 +17,12 @@
 import { Check, Copy, ExternalLink, FolderOpen, Upload } from 'lucide-react'
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { API, type DriveAdminStatus, type DriveConnection, type DriveTeamShare } from '@mycel/shared/api'
+import { FILE_STEP_VERB } from '@mycel/shared'
+import { API, type DriveAdminStatus, type DriveConnection, type DriveTeamShare, type Locale } from '@mycel/shared/api'
 import { APP_CONNECTORS, appConnectorLogo } from '../../lib/connectors'
 import { api, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { useT } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
 import { Badge, Button, Field, inputCls, Modal, useCopy } from '../ui'
 import type { DriveConnectionState } from '../settings/DriveConnection'
@@ -164,14 +165,17 @@ export function DriveCard({ s }: { s: DriveConnectionState }) {
 
 /** The tools the AI gets from Google Drive here (server/src/tools/drive.ts): read only. */
 export const DRIVE_TOOLS = ['drive_search', 'drive_list', 'drive_read']
+/** the tools as people read them (the step words under an answer), not their code names (QA TC-204) */
+export const driveToolWords = (locale: Locale) => DRIVE_TOOLS.map((n) => FILE_STEP_VERB[n]![locale])
 
 /** Google Drive's page in Connectors (a member's): Connect goes straight to Google. */
 export function DriveDetail({ s, onBack }: { s: DriveConnectionState; onBack: () => void }) {
   const t = useT()
+  const locale = useLocale()
   const p = useDriveParts(s)
   return (
     <ConnectorDetail testId="drive-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={p.line} official action={p.action}
-      description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
+      description={t('connectors.drive.about')} tools={driveToolWords(locale)} onBack={onBack}>
       {p.steps}
       {p.shares.length > 0 && <div className={p.steps ? 'mt-3' : undefined}><DriveTeamShares shares={p.shares} /></div>}
     </ConnectorDetail>
@@ -196,6 +200,7 @@ export function driveAdminLine(t: ReturnType<typeof useT>, status: DriveAdminSta
  * the one-time setup, and (children) the members' switch and the Drives shared with the team. */
 export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status: DriveAdminStatus; onSetUp: () => void; onBack: () => void; children?: ReactNode }) {
   const t = useT()
+  const locale = useLocale()
   const owner = isOwner(useMe())
   const on = driveAdminOn(status)
   return (
@@ -204,7 +209,7 @@ export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status
         <Badge tone={on ? 'ok' : 'neutral'} className="shrink-0"><span data-testid="drive-admin-state" data-state={on ? 'on' : status.configured ? 'ready' : 'not_set_up'}>{t(on ? 'appConnectors.on' : status.configured ? 'driveAdmin.ready' : 'appConnectors.notSetUp')}</span></Badge>
         {status.canSetUp && <Button variant={status.configured ? 'secondary' : 'primary'} onClick={onSetUp} data-testid="drive-setup">{t(status.configured ? 'appConnectors.replace' : 'connectors.setUpOnce')}</Button>}
       </>}
-      description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
+      description={t('connectors.drive.about')} tools={driveToolWords(locale)} onBack={onBack}>
       {/* no public address: what to do next and who does it (QA TC-196). It is set on the server computer by whoever
           installed it, not in the app; the owner sees it in System › 연결 방식, and only the owner sees that page */}
       {!status.configured && status.blocked === 'public_host' && (
