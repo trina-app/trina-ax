@@ -3,7 +3,8 @@
 // setup (installer --app-connectors, server.json appConnectors with a public host, or MYCEL_REMOTE_MCP_ORIGIN;
 // docs/site/agents/mcp-connector.md), so with it off this page shows those settings. It was part of Admin › App connectors.
 // A phone (below 768 px): each app is one row to tap (no outline Connect buttons), and the apps that are set up in a
-// terminal on a computer (Claude Code, Codex) say so instead of opening their steps.
+// terminal on a computer (Claude Code, Codex) say so instead of opening their steps. With the connector off, the server
+// setup lines to copy are a computer's: the phone says Off and "컴퓨터에서 설정해요" (QA TC-270, ADM-15).
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, ChevronRight, ExternalLink } from 'lucide-react'
@@ -35,7 +36,12 @@ export default function AdminAiApps() {
                   {t('appConnectors.guide')}<ExternalLink size={12} aria-hidden />
                 </a>
               </p>
-              {on && remote.resource ? <ConnectorAddress resource={remote.resource} /> : <ConnectorOff admin />}
+              {on && remote.resource ? <ConnectorAddress resource={remote.resource} /> : phone ? (
+                <div data-testid="ai-apps-on-computer">
+                  <p className="text-sm font-medium text-ink">{t('admin.onComputer')}</p>
+                  <p className="mt-1 text-sm text-muted">{t('admin.onComputerAiApps')}</p>
+                </div>
+              ) : <ConnectorOff admin />}
               {phone
                 ? <ul className="divide-y divide-line border-y border-line" data-testid="admin-ai-app-list"><PhoneAppRows on={on} onConnect={setOpenApp} connected={remote.items} /></ul>
                 : <ul className="-mx-2 divide-y divide-line" data-testid="admin-ai-app-list"><AiAppRows on={on} onConnect={setOpenApp} connected={remote.items} /></ul>}

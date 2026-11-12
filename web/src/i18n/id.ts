@@ -3193,6 +3193,7 @@ export const id: Record<MessageKey, string> = {
   'admin.onComputerConnection': "Mengubah cara tim terhubung dilakukan di Admin pada komputer.",
   'admin.onComputerUpdate': "Versi ini dipasang di komputer server. Anda juga bisa menunggu pembaruan otomatis.",
   'admin.onComputerNoFeed': "Pembaruan dipasang di komputer server dengan program penginstal.",
+  'admin.onComputerAiApps': "Menyalakan akses aplikasi AI dilakukan di pengaturan server pada komputer.",
   'integrations.users': 'Dipakai oleh: {who}',
   'integrations.users.nobody': 'Belum ada yang bisa memakai',
   'integrations.users.notMe': 'Tidak di obrolan Anda',
