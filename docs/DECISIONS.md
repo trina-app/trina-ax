@@ -22250,3 +22250,26 @@ a pinch's live `scale(k)` is on the page column, positions are measured from its
 stays until the fingers lift. The double tap and the toolbar buttons are unchanged.
 
 Version impact: patch (a phone viewer fix; no API or data change).
+
+## The invite pages name who invited you, before sign-in (fix/dev-tests-1112, 2026-11-12, the owner)
+
+Since #430 ("A welcome for invited people") the team link's and the single-use invite's info answers
+(`POST /api/team-link/info`, `GET /api/invites/:token`) carry `inviterName` for anyone who holds the link, signed out
+too. The permission matrix said a link's maker must never show there, so it failed on dev. The owner decided to show
+it, like Slack's "X invited you": the join page says "{inviter} invited you to {team}".
+- **The display name only** (`users.name`, the name people set for themselves). Never the maker's id, username, email,
+  role or photo, and no object about them. The route already sends only that: nothing was trimmed.
+- **Only while the link or invite works.** A revoked, expired or used link or invite, a team link while every seat is
+  taken, or a maker who is disabled, deleted or no longer an admin answers `inviterName: null`. A wrong token is a 404 with nothing about the team or
+  anyone in it, as before.
+- This replaces "never its … maker" in the matrix case's comment (`tests/security/lib/misc-cases.ts teamLinkInfo`); the
+  invite's case (`tests/security/lib/cases.ts inviteInfo`) gets the same check. `tests/unit/b-member-welcome.test.ts`
+  "the join pages name the inviter": exactly the allowed fields, a maker with an email and a photo, and every way a link
+  stops working.
+
+Also here: `tests/unit/b-chat.test.ts` expected no "## Browser" section in a person's own web chat. #460 (QA TC-242)
+added one on purpose: `NO_BROWSER_RULE`, which tells the AI that the desktop app has the browser. The test now expects
+that line and not the desktop app's browser rules. `tests/unit/b-browser.test.ts` checks the line is never in a
+confidential chat, a room, a shared chat or a turn that is not from the web or a phone.
+
+Version impact: none (tests and this note; no code, API or data change).

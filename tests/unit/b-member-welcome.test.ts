@@ -142,6 +142,80 @@ describe('every way of joining', () => {
   })
 })
 
+// The owner's decision (2026-11-12, docs/DECISIONS.md "The invite pages name who invited you"): anyone holding a team
+// link or an invite sees its maker's display name before signing in, like Slack's "X invited you". Nothing else about
+// them, and only while the link works.
+describe('the join pages name the inviter', () => {
+  const tokenOf = (url: string) => new URL(url).hash.replace(/^#t=/, '')
+  const linkInfo = (token: string) => guest().try('POST', '/api/team-link/info', { token })
+  const inviteInfo = (token: string) => guest().try('GET', `/api/invites/${token}`)
+  /** an admin with a display name, an email and a photo */
+  async function maker(username: string, name: string) {
+    const m = await addMember(h, owner, { username, role: 'admin' })
+    h.ctx.db.query('UPDATE users SET name = ?, email = ? WHERE id = ?').run(name, `${username}@acme.example`, m.id)
+    h.ctx.db.query('INSERT INTO user_profiles (user_id, avatar_version) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET avatar_version = 1').run(m.id)
+    return m
+  }
+
+  test('the display name only: never their id, username, email, role or photo', async () => {
+    const v = await maker('vera', 'Vera Lim')
+    const { link } = await v.client.call('POST', '/api/admin/team-link', {})
+    const inv = await v.client.call('POST', '/api/admin/invites', {})
+    const answers = [
+      [['expiresAt', 'inviterName', 'problem', 'skillName', 'skillTitle', 'teamName', 'valid'], (await linkInfo(tokenOf(link.url))).body],
+      [['expiresAt', 'inviterName', 'role', 'teamName', 'valid'], (await inviteInfo(inv.token)).body],
+    ] as const
+    for (const [keys, body] of answers) {
+      expect(Object.keys(body).sort()).toEqual([...keys])
+      const { inviterName, ...rest } = body
+      expect({ valid: rest.valid, inviterName }).toEqual({ valid: true, inviterName: 'Vera Lim' })
+      const others = JSON.stringify(rest).toLowerCase()
+      for (const s of [v.id, 'vera', 'acme.example', 'admin', 'avatar', 'photo']) expect({ s, in: others.includes(s) }).toEqual({ s, in: false })
+    }
+  })
+
+  test('a link or invite that does not work names nobody: revoked, expired, used up, its maker disabled, demoted or deleted, a wrong token', async () => {
+    const w = await maker('wes', 'Wes Park')
+    const none = { valid: false, inviterName: null }
+    // revoked
+    let link = (await w.client.call('POST', '/api/admin/team-link', {})).link
+    let inv = await w.client.call('POST', '/api/admin/invites', {})
+    await w.client.call('DELETE', '/api/admin/team-link')
+    await w.client.call('DELETE', `/api/admin/invites/${inv.invite.id}`)
+    expect((await linkInfo(tokenOf(link.url))).body).toMatchObject({ ...none, problem: 'revoked' })
+    expect((await inviteInfo(inv.token)).body).toMatchObject(none)
+    // expired (the link after 7 days, the invite after its 7 days)
+    link = (await w.client.call('POST', '/api/admin/team-link', { expiresInDays: 7 })).link
+    inv = await w.client.call('POST', '/api/admin/invites', {})
+    h.advance(8 * 86_400_000)
+    try {
+      expect((await linkInfo(tokenOf(link.url))).body).toMatchObject({ ...none, problem: 'expired' })
+      expect((await inviteInfo(inv.token)).body).toMatchObject(none)
+    } finally { h.advance(-8 * 86_400_000) }
+    // used up
+    link = (await w.client.call('POST', '/api/admin/team-link', { maxUses: 1 })).link
+    expect((await guest().try('POST', '/api/team-link/join', { token: tokenOf(link.url), username: 'uma', name: 'Uma', password: PW })).status).toBe(201)
+    expect((await linkInfo(tokenOf(link.url))).body).toMatchObject({ ...none, problem: 'used_up' })
+    // the maker disabled (their link and invites end with it), demoted or deleted by a change the admin screens never
+    // make (the check at every use)
+    for (const [username, change] of [['wren', null], ['wynn', "role = 'member'"], ['wade', "deleted_at = '2026-01-01T00:00:00.000Z'"]] as const) {
+      const m = await maker(username, `${username.toUpperCase()} Maker`)
+      const l = (await m.client.call('POST', '/api/admin/team-link', {})).link
+      const i = await m.client.call('POST', '/api/admin/invites', {})
+      expect((await linkInfo(tokenOf(l.url))).body.inviterName).toBe(`${username.toUpperCase()} Maker`)
+      if (change) h.ctx.db.query(`UPDATE users SET ${change} WHERE id = ?`).run(m.id)
+      else await owner.call('PATCH', `/api/admin/users/${m.id}`, { status: 'disabled' })
+      expect({ username, ...(await linkInfo(tokenOf(l.url))).body }).toMatchObject({ username, ...none })
+      expect({ username, ...(await inviteInfo(i.token)).body }).toMatchObject({ username, ...none })
+    }
+    // a wrong token: 404, nothing about anyone
+    for (const r of [await linkInfo('x'.repeat(43)), await inviteInfo('y'.repeat(43))]) {
+      expect(r.status).toBe(404)
+      expect(JSON.stringify(r.body)).not.toMatch(/Maker|Wes Park|Acme/)
+    }
+  })
+})
+
 describe('the card', () => {
   test('the team\'s creator gets none; neither does someone who joined before it existed', async () => {
     expect(await welcome(owner)).toBeNull()
