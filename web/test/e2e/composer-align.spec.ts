@@ -4,7 +4,9 @@
 // slot as tall as one text line's box (index.css --spacing-composer-line). Measured on a computer (1440 px), in a narrow
 // window (700 px: the phone's text sizes with a computer's buttons) and on a phone (390 px, touch: the phone app's box),
 // at the default and the largest text size, also while an answer runs (stop, "send when done"). The recording bar is as
-// tall as the row it stands in for, with ✕ and ✓ on the same centre.
+// tall as the row it stands in for, with ✕ and ✓ on the same centre. Home's box below 768px is one card (QA TC-391): the
+// text alone on its line and + · the engine · mic · send on one centre in a row under it, the card as tall while
+// recording, ✕ and ✓ on that row's centre.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -45,15 +47,67 @@ const THREAD: Box = {
   input: 'room-input',
   controls: () => ['room-attach', 'voice-button', 'room-send'],
 }
+/** an AI chat's page (a chat made for it): its box keeps the text and the buttons on one line on a phone too */
 const AI: Box = {
   name: 'AI chat',
   open: async (page) => {
-    await page.goto('/')
+    const r = await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: {} })
+    expect(r.ok()).toBeTruthy()
+    await page.goto(`/c/${(await r.json()).id}`)
     return page.getByTestId('composer')
   },
   input: 'composer-input',
   // computers: "+" is in the row under the box
   controls: (phone) => [...(phone ? ['attach-button'] : []), 'voice-button', 'send'],
+}
+/** Home's box: a computer's is the chat's; below 768px it is the card (expectCard) */
+const HOME: Box = {
+  name: 'Home',
+  open: async (page) => {
+    await page.goto('/')
+    return page.getByTestId('composer')
+  },
+  input: 'composer-input',
+  controls: () => ['voice-button', 'send'],
+}
+const CARD_ROW = ['attach-button', 'engine-picker', 'voice-button', 'send']
+
+/** Home's card below 768px: the text alone on its line(s), + · the engine · mic · send on one centre under it, empty, with
+ * one line and with four */
+async function expectCard(page: Page, where: string) {
+  const box = await HOME.open(page)
+  const input = box.getByTestId('composer-input')
+  await expect(input).toBeVisible()
+  for (const id of CARD_ROW) await expect(box.getByTestId(id), `${where} Home card: ${id}`).toBeVisible()
+  for (const text of ['', 'Hello', FOUR]) {
+    await input.fill(text)
+    if (text === FOUR) await expect.poll(async () => (await measure(box, 'composer-input', [])).lines).toBe(4)
+    const m = await measure(box, 'composer-input', CARD_ROW)
+    const centres = CARD_ROW.map((id) => m.controls[id]!)
+    expect(Math.max(...centres) - Math.min(...centres), `${where} Home card "${text.slice(0, 5)}": one centre ${centres.join(', ')}`).toBeLessThanOrEqual(1)
+    const field = (await input.boundingBox())!
+    for (const id of CARD_ROW) expect((await box.getByTestId(id).boundingBox())!.y, `${where} Home card: ${id} under the text`).toBeGreaterThanOrEqual(field.y + field.height - 1)
+  }
+  await input.fill('')
+}
+
+/** Recording in Home's card: the card as tall as before, ✕ and ✓ on the tools row's centre */
+async function expectCardBar(page: Page, where: string) {
+  const box = await HOME.open(page)
+  await box.getByTestId('composer-input').fill('')
+  const before = (await box.boundingBox())!
+  const row = (await measure(box, 'composer-input', ['send'])).controls.send!
+  await box.getByTestId('voice-button').click()
+  const bar = box.getByTestId('voice-bar')
+  await expect(bar).toBeVisible()
+  const during = (await box.boundingBox())!
+  expect(Math.abs(during.height - before.height), `${where} Home card: ${before.height} → ${during.height} px while recording`).toBeLessThanOrEqual(0.5)
+  for (const id of ['voice-cancel', 'voice-done']) {
+    const c = (await bar.getByTestId(id).boundingBox())!
+    expect(Math.abs(c.y + c.height / 2 - row), `${where} Home card recording: ${id}`).toBeLessThanOrEqual(1)
+  }
+  await bar.getByTestId('voice-cancel').click()
+  await expect(bar).toHaveCount(0)
 }
 
 /** The text's first and last line (their centres, from the text box's own padding and line height) and each control's
@@ -147,9 +201,12 @@ for (const v of [
       await routeRoom(page, { members: [{ id: 'sora', name: '소라님' }], messages: [ROOT] })
       await signIn(page)
       for (const b of [ROOM, THREAD, AI]) await expectLinedUp(page, b, v.phone, v.where)
+      if (v.phone) await expectCard(page, v.where)
+      else await expectLinedUp(page, HOME, v.phone, v.where)
       // the person's largest text size (lib/textSize.ts): the slots grow with the line
       await largestText(page)
       for (const b of [ROOM, AI]) await expectLinedUp(page, b, v.phone, `${v.where} (largest text)`, '22.4px')
+      if (v.phone) await expectCard(page, `${v.where} (largest text)`)
     })
 
     test('while an answer runs, stop and "send when done" sit on the line too', async ({ page }) => {
@@ -180,6 +237,8 @@ for (const v of [
       await routeRoom(page, { members: [{ id: 'sora', name: '소라님' }], messages: [ROOT] })
       await signIn(page)
       for (const b of [ROOM, AI]) await expectBarLikeRow(page, b, v.where)
+      if (v.phone) await expectCardBar(page, v.where)
+      else await expectBarLikeRow(page, HOME, v.where)
     })
   })
 }

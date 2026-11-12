@@ -441,6 +441,7 @@ export const ja: Record<MessageKey, string> = {
   'composer.stop': "回答を停止",
   'composer.engine': "AIを選ぶ",
   'composer.defaultEngine': "既定のAI",
+  'composer.engineNow': "AIを選ぶ、いま: {engine}",
   'composer.defaultModel': "既定のモデル",
   'composer.fromComputer': "コンピューターからアップロード",
   'composer.fromTeam': "チームのファイルから追加",

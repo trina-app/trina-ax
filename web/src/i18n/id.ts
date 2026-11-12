@@ -457,6 +457,7 @@ export const id: Record<MessageKey, string> = {
   'composer.stop': 'Hentikan jawaban',
   'composer.engine': "Pilih AI",
   'composer.defaultEngine': "AI bawaan",
+  'composer.engineNow': "Pilih AI, sekarang: {engine}",
   'composer.defaultModel': 'Model bawaan',
   'composer.fromComputer': 'Unggah dari komputer',
   'composer.fromTeam': 'Tambah dari berkas tim',

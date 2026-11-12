@@ -456,6 +456,7 @@ export const ko = {
   'composer.stop': '답변 멈추기',
   'composer.engine': "AI 고르기",
   'composer.defaultEngine': "기본 AI",
+  'composer.engineNow': "AI 고르기, 지금: {engine}",
   'composer.defaultModel': '기본 모델',
   'composer.fromComputer': '내 컴퓨터에서 올리기',
   'composer.fromTeam': '팀 파일에서 추가',
