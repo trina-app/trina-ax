@@ -164,7 +164,9 @@ test('members do not see the Plugins page', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/plugins')
-  await expect(page).not.toHaveURL(/\/admin\/plugins/)
+  // TC-272: the admin-only notice in place of the page
+  await expect(page.getByTestId('admin-only')).toBeVisible()
+  await expect(page.getByTestId('plugins-header')).toHaveCount(0)
 })
 
 test('HWP Preview installed but turned off: an admin is told to turn it on, not to add it', async ({ page }) => {
@@ -189,11 +191,13 @@ test('narrow screen', async ({ page }) => {
   await signIn(page)
   await page.goto('/admin/plugins')
   const hwp = catalogRow(page, 'app.trina.hwp-preview')
-  await expect(hwp.getByTestId('plugin-recommended')).toBeVisible()
+  // a phone's row is one line (TC-269): "Recommended" is on the plugin's page
+  await expect(hwp.getByTestId('plugin-recommended')).toBeHidden()
   // nothing is wider than the phone
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await shot(page, 'plugins-ko-mobile.png')
   await openPage(hwp)
+  await expect(page.getByTestId('plugin-detail').getByTestId('plugin-recommended')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await shot(page, 'plugins-ko-mobile-page.png')
 })

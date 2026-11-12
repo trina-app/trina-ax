@@ -106,7 +106,9 @@ test('members cannot open Admin › Connectors', async ({ page }) => {
   await reset(page)
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/connectors')
-  await expect(page).not.toHaveURL(/\/admin/)
+  // TC-272: the admin-only notice in place of the page
+  await expect(page.getByTestId('admin-only')).toBeVisible()
+  await expect(page.getByTestId('connectors-header')).toHaveCount(0)
 })
 
 test('phone width: the card and the dialog fit without sideways scrolling', async ({ page }) => {

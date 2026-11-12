@@ -18,7 +18,8 @@ async function open(page: Page) {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
   await page.goto('/admin/usage')
-  await expect(page.getByTestId('usage-table')).toContainText('Olga')
+  // a phone's breakdown is list rows (TC-269), a computer's the table
+  await expect(page.getByTestId('usage-table').or(page.getByTestId('usage-rows'))).toContainText('Olga')
 }
 
 test('the Console layout: one dim line, pills, stat cards, a chart and the breakdown, all from one report', async ({ page }) => {
