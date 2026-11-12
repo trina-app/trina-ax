@@ -79,6 +79,12 @@ for (const width of [1440, 390] as const) {
         await expect(rows.first().getByTestId('team-prepared-try-label')).toHaveText('써 보기')
         await expect(rows.first().getByTestId('team-prepared-try-label')).toBeVisible()
         await expect(rows.nth(1).getByTestId('team-prepared-try-label')).toBeVisible()
+        // "써 보기" keeps a margin before the chip's end (or 예시's hairline), as the title does on the left
+        for (const row of await rows.all()) {
+          const tap = (await row.getByTestId('team-prepared-try').boundingBox())!
+          const label = (await row.getByTestId('team-prepared-try-label').boundingBox())!
+          expect(tap.x + tap.width - (label.x + label.width)).toBeGreaterThanOrEqual(8)
+        }
         // 예시 is its own 44px target at the row's end
         const box = await rows.nth(1).getByTestId('team-prepared-example').boundingBox()
         expect(box!.height).toBeGreaterThanOrEqual(44)

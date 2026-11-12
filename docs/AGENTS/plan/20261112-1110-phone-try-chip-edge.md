@@ -9,3 +9,6 @@ its own and the chip's button (`TeamPrepared.tsx`, `team-prepared-try`) pads onl
   on the left; a chip with 예시 keeps its hairline and 44px 예시 target after it.
 - `team-prepared.spec.ts` (390): each row's "써 보기" ends at least 8px inside its button.
 - Computers: the 1440 rows are a different layout (`team-prepared-rows`); unchanged.
+
+## Result
+`team-prepared.spec.ts` 10/10 (1440 and 390); the new check fails with `pl-3` alone (0px margin) and passes with `px-3`.
