@@ -29,9 +29,8 @@ import { Link, Navigate, Outlet, useNavigate, useParams, useSearchParams } from 
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
-import { builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, exampleKeys, fits, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
+import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
 import { awaitingFirstSignIn, canonicalService, splitByScope } from '../lib/integrations'
-import { writeDraft } from '../lib/localData'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
@@ -39,7 +38,7 @@ import { Button, EmptyState, ErrorNote, IconButton, PageHeader, Skeleton, inputC
 import { ConnectorDetail, ConnectorRow, LogoTile } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
-import { GoogleAppDetail, Note, useGoogleApps, type StartChat } from '../components/integrations/GoogleAppConnector'
+import { GoogleAppDetail, Note, useGoogleApps } from '../components/integrations/GoogleAppConnector'
 import { useDriveConnection } from '../components/settings/DriveConnection'
 import { SlackAccount } from '../components/settings/SlackAccount'
 import { MyRequests } from '../components/integrations/AnswerDialog'
@@ -56,9 +55,7 @@ const PHONE = '(max-width: 767.98px)'
 export const POPULAR_FIRST = 10
 
 function useConnectorsState() {
-  const me = useMe()
-  const admin = isAdmin(me)
-  const navigate = useNavigate()
+  const admin = isAdmin(useMe())
   const list = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
   const drive = useDriveConnection()
   const google = useGoogleApps()
@@ -85,12 +82,7 @@ function useConnectorsState() {
     reload,
   })
   const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector } | null>(null)
-  const startChat: StartChat = useCallback((text) => {
-    if (!me) return
-    writeDraft(me.user.id, 'new', text)
-    navigate('/')
-  }, [me, navigate])
-  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, startChat, admin }
+  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, admin }
 }
 type ConnectorsState = ReturnType<typeof useConnectorsState>
 const Ctx = createContext<ConnectorsState | null>(null)
@@ -326,7 +318,7 @@ function DiscoverCard({ c, admin }: { c: Card; admin: boolean }) {
 /** /connectors/:id: a built-in card's page, or a listed service's. */
 export function ConnectorPage() {
   const { id = '' } = useParams()
-  const { google, asks, admin, startChat } = useConnectors()
+  const { google, asks, admin } = useConnectors()
   if (id === 'google-drive') return <DrivePage />
   if (isGoogleApp(id)) {
     if (!google.apps) return <PageSkeleton />
@@ -336,7 +328,7 @@ export function ConnectorPage() {
     const ask = !admin && asks.ready && v.reason === 'not_set_up' && v.status === 'disconnected'
       ? { state: asks.stateOf(v.id), busy: asks.busy === v.id, onAsk: () => void asks.ask(v.id, builtInName(v.id), () => void google.load()), error: asks.error?.service === v.id ? asks.error.text : null }
       : undefined
-    return <GoogleAppDetail v={v} g={google} onChat={startChat} ask={ask} />
+    return <GoogleAppDetail v={v} g={google} ask={ask} />
   }
   const c = CONNECTORS.find((x) => x.id === id)
   return c ? <ListedPage c={c} /> : <Navigate to="/connectors" replace />
@@ -349,11 +341,10 @@ function PageSkeleton() {
 /** Google Drive's page: Trina's own connector, the same layout as the Google apps'. */
 function DrivePage() {
   const t = useT()
-  const { drive, asks, admin, startChat } = useConnectors()
+  const { drive, asks, admin } = useConnectors()
   const p = useDriveParts(drive)
   const id: BuiltInId = 'google-drive'
   const name = builtInName(id)
-  const examples = exampleKeys(id).map((k) => t(k))
   const ready = p.linked && !p.reconnect && !p.off
   // a member, the team has not set Google Drive up: "Ask admin to add it" in place of the Connect button that cannot
   // work and of "Your admin needs to turn this on"; once asked, when they will hear
@@ -377,7 +368,7 @@ function DrivePage() {
     <AppDetail testId="drive-detail" state={p.state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLineDrive', { line: t(lineKey(id)) })}
       actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} />
         : inApp ? appActions
-        : <>{ready && <Button variant="primary" onClick={() => startChat(examples[0]!)} data-testid="drive-try">{t('gapps.tryInChat')}</Button>}{p.action}</>}
+        : p.action}
       status={(line || onComputer || askError || p.busy || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
         {line && <Note tone={p.reconnect || (p.off && p.linked) ? 'warn' : undefined} testId={ask ? 'service-asked-note' : 'drive-detail-line'}>{line}</Note>}
         {onComputer && <Note testId="drive-on-computer">{onComputer}</Note>}
@@ -385,9 +376,8 @@ function DrivePage() {
         <div className="empty:hidden">{p.steps}</div>
         <DriveTeamShares shares={p.shares} />
       </> : undefined}
-      examples={examples} onExample={startChat}
-      about={t('connectors.drive.about')} canChange={false}
-      developer={t('gapps.dev.trina')} category={t('gapps.drive.category')} links={{ privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
+      about={t(aboutKey(id))} canChange={false}
+      developer={t('gapps.dev.trina')} category={t('gapps.drive.category')} signIn={GOOGLE} links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
       tools={DRIVE_TOOL_LIST.map((x) => ({ name: x.name, title: t(`gapps.drive.tool.${x.name}`), changes: x.changes }))} />
   )
 }
