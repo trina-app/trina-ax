@@ -241,6 +241,8 @@ export function phoneCases() {
     await menu.getByRole('menuitemradio', { name: 'ChatGPT', exact: true }).click()
     expect((await saved).postDataJSON()).toMatchObject({ prefs: { engine: 'codex' } })
     await expect(page.getByTestId('my-engine-select-value')).toHaveText('ChatGPT')
+    // a screen reader or keyboard keeps its place: the pick gives the focus back to the row, not the page's top
+    await expect(page.getByTestId('my-engine-select')).toBeFocused()
     await expect(page.getByTestId('my-model-select-value')).toHaveText(t['composer.defaultModel'])
   })
 }
