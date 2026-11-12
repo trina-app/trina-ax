@@ -17,7 +17,17 @@ export const SRT_PATHS = {
   runWrap: '/opt/trina/devenv/run-wrap',
   systemdRun: '/usr/bin/systemd-run',
   systemctl: '/usr/bin/systemctl',
+  /** macOS (a Mac team server): srt's CLI with the localhost rules of the run's own port (srt-mac.mjs). It runs
+   * full.mjs, so it is also the Full internet CLI there */
+  cliMac: `/opt/trina/srt/${SRT_VERSION}/mac.mjs`,
+  /** macOS: the first program of a run, as a dev slot account (scripts/dev-env/srt/run-wrap-mac) */
+  runWrapMac: '/opt/trina/devenv/run-wrap-mac',
+  sudo: '/usr/bin/sudo',
 } as const
+
+/** The platform of the dev environment: Linux (bubblewrap, systemd scopes) or macOS (Seatbelt, dev slot accounts). */
+export type DevPlatform = 'linux' | 'darwin'
+export const devPlatform = (p: string = process.platform): DevPlatform => (p === 'darwin' ? 'darwin' : 'linux')
 
 /** The unit name of a run. The polkit rule allows only this pattern (scripts/dev-env/srt/devenv.rules.in). */
 export const UNIT_RE = /^trina-dev-[a-z0-9]{16}\.scope$/
@@ -77,6 +87,36 @@ export const ETC_SECRETS = ['/etc/systemd', '/etc/cloudflared', '/etc/ssh', '/et
 export const DENIED_SYSTEM_PATHS = ['/', '/tmp', '/var/log', '/var/lib', '/run', '/home', '/root', '/mnt', '/media', '/srv', '/opt',
   ...ETC_SECRETS]
 
+/** macOS (docs/DECISIONS.md "Dev environment on a Mac team server"): what a run reads on the host besides its own
+ * folders. Programs and libraries (/usr, /bin, /sbin, /System, the dyld cache), the time zones, xcrun's link to the
+ * developer tools (/private/var/select) and the Command Line Tools (git, python3, make: without them those are stubs
+ * that only ask to install them), Homebrew's programs when the Mac has them, and Trina's tools (/opt/trina: node,
+ * srt). The links /etc, /var and /tmp can be followed (srt-mac.mjs); in /private/etc only the files below. */
+export const MAC_SYSTEM_READ_PATHS = ['/usr', '/bin', '/sbin', '/System', '/Library/Apple', '/Library/Developer/CommandLineTools',
+  '/private/var/db/timezone', '/private/var/db/dyld', '/private/var/select', '/opt/homebrew', '/opt/trina',
+  ...['hosts', 'resolv.conf', 'services', 'protocols', 'passwd', 'group', 'shells', 'localtime', 'ssl', 'profile', 'bashrc',
+    'zshrc', 'zprofile', 'paths', 'paths.d', 'gitconfig'].map((f) => `/private/etc/${f}`)]
+
+/** macOS: places in /private/etc with host secrets or settings. None of them is in MAC_SYSTEM_READ_PATHS (a unit test
+ * checks it); the list is for settingsProblems, which refuses a run that would read one. */
+export const MAC_ETC_SECRETS = ['/private/etc/sudoers', '/private/etc/sudoers.d', '/private/etc/ssh', '/private/etc/master.passwd',
+  '/private/etc/kcpassword', '/private/etc/pf.conf', '/private/etc/pf.anchors', '/private/etc/newsyslog.d', '/private/etc/cups',
+  '/private/etc/racoon', '/private/etc/ppp', '/private/etc/apache2', '/private/etc/postfix', '/private/etc/openldap']
+
+/** macOS: hidden in every run. `/` hides the whole Mac; the rest name what must stay hidden even if `/` were dropped: the
+ * people's homes, other disks and network shares (/Volumes, /Network: connected folders), /Library (the install's base
+ * folder, the server's logs, other apps' data), the temp folders, /private/var (logs, the server's own temp folder
+ * under /private/var/folders), /private/etc (only the files above come back), /opt and /Applications. */
+export const MAC_DENIED_SYSTEM_PATHS = ['/', '/Users', '/Volumes', '/Network', '/Library', '/Applications', '/opt', '/tmp', '/private/tmp',
+  '/var', '/private/var', '/etc', '/private/etc', '/cores']
+
+/** The host lists of one platform. */
+export function hostLists(p: DevPlatform) {
+  return p === 'darwin'
+    ? { read: MAC_SYSTEM_READ_PATHS, denied: MAC_DENIED_SYSTEM_PATHS, etcSecrets: MAC_ETC_SECRETS }
+    : { read: SYSTEM_READ_PATHS, denied: DENIED_SYSTEM_PATHS, etcSecrets: ETC_SECRETS }
+}
+
 /** Private, shared, link-local and unique-local ranges. srt has a built-in set too; this list is explicit. */
 export const DENIED_RANGES = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16', '127.0.0.0/8', '0.0.0.0/8', 'fc00::/7', 'fe80::/10', '::1/128']
 
@@ -122,6 +162,9 @@ export interface SettingsInput {
    * hides it already (on Linux they are under /mnt, /media or /srv): srt looks at every denyRead path when a run starts,
    * and a hung network mount would stall every run */
   connectedSources?: readonly string[]
+  /** linux (default: this machine) or darwin: the host lists, and on macOS no open localhost (allowLocalBinding false;
+   * srt-mac.mjs adds the run's own port) */
+  platform?: DevPlatform
 }
 
 const abs = (teamRoot: string, rel: string) => (rel === '' ? teamRoot : path.join(teamRoot, rel))
@@ -131,6 +174,8 @@ const uniq = (a: string[]) => [...new Set(a)]
  * closed. */
 export function srtSettings(i: SettingsInput) {
   const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
+  const platform = i.platform ?? devPlatform()
+  const host = hostLists(platform)
   // the team's No network (and the plan's) wins over every site a person allowed and over Full internet
   const open = i.network === 'open'
   const domains = open ? mergeSites(DEV_ENV_DEFAULT_DOMAINS, i.extraDomains, i.userDomains ?? []) : []
@@ -142,10 +187,10 @@ export function srtSettings(i: SettingsInput) {
   // read-only folder above it (srt 0.0.81 linux-sandbox-utils pushReadDenyDirMounts; Docker attack A28c).
   const writeInRead = i.view.write.filter((w) => i.view.read.some((r) => r !== w && (r === '' || w.startsWith(r + '/'))))
   // the whole base folder, not a list of its folders: a file made later in a hidden folder stays hidden
-  const deny = uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...serverFilesOutsideBase(i.id), ...DENIED_SYSTEM_PATHS,
+  const deny = uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...(platform === 'linux' ? serverFilesOutsideBase(i.id) : []), ...host.denied,
     ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r)),
     ...writeInRead.map((w) => abs(i.teamRoot, w))])
-  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [], SYSTEM_READ_PATHS))
+  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [], host.read))
   return {
     filesystem: {
       denyRead: uniq(deny.concat((i.connectedSources ?? []).filter((src) => !hiddenBy(deny, allowRead, src)))),
@@ -157,7 +202,9 @@ export function srtSettings(i: SettingsInput) {
       allowedDomains: domains,
       deniedDomains: [...new Set([...i.denyHosts.map((h) => h.toLowerCase()), ...DENIED_NAMES])],
       deniedResolvedAddresses: [...new Set([...DENIED_RANGES, ...i.denyAddrs])],
-      allowLocalBinding: true,
+      // Linux: the run has a network namespace of its own, so its localhost is its own. macOS: one localhost for the
+      // whole Mac (the server's ports, other runs): srt allows only its proxy, srt-mac.mjs adds the run's own port
+      allowLocalBinding: platform === 'linux',
       // false only for Full internet: then srt asks its callback for a host that is not on the list, and the callback
       // of full.mjs says yes. The denied hosts and addresses are checked before it
       strictAllowlist: !full,
@@ -179,8 +226,10 @@ const hidden = (s: ReturnType<typeof srtSettings>, p: string) => hiddenBy(s.file
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform'>): string[] {
   const out: string[] = []
+  const platform = i.platform ?? devPlatform()
+  const host = hostLists(platform)
   const deny = s.filesystem.denyRead
   const users = path.join(i.teamRoot, 'users'), own = path.join(users, i.userId), system = path.join(i.teamRoot, PRODUCT.systemDir)
   const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
@@ -191,8 +240,8 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   // a base folder from the environment that is not the real one must not show the server's data (fail closed)
   for (const sp of i.serverPaths ?? []) if (!hidden(s, sp)) out.push(`a server path is not hidden: ${sp}`)
   // the host: everything outside the allowed paths is hidden, the connected sources too (QA TC-306)
-  for (const d of DENIED_SYSTEM_PATHS) if (!deny.includes(d)) out.push(`a host path is not hidden: ${d}`)
-  for (const d of DENIED_SYSTEM_PATHS) if (d !== '/' && !hidden(s, d)) out.push(`a host path is given back: ${d}`)
+  for (const d of host.denied) if (!deny.includes(d)) out.push(`a host path is not hidden: ${d}`)
+  for (const d of host.denied) if (d !== '/' && !hidden(s, d)) out.push(`a host path is given back: ${d}`)
   for (const src of i.connectedSources ?? []) {
     if (!hidden(s, src)) out.push(`a connected folder's source is not hidden: ${src}`)
     for (const r of s.filesystem.allowRead) if (inside(r, src)) out.push(`a path in a connected folder's source is readable: ${r}`)
@@ -213,12 +262,14 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   for (const w of s.filesystem.allowWrite) {
     if (inside(w, i.teamRoot) && !inside(w, own) && !(start !== null && inside(w, start))) out.push(`a team folder outside the starting folder is writable: ${w}`)
   }
-  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, ...SYSTEM_READ_PATHS])) out.push(`a path that a run may not read: ${r}`)
+  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, ...host.read])) out.push(`a path that a run may not read: ${r}`)
   // a host secret in /etc must not be given back
-  for (const r of s.filesystem.allowRead) if (ETC_SECRETS.some((e) => inside(r, e))) out.push(`a host secret is readable: ${r}`)
+  for (const r of s.filesystem.allowRead) if (host.etcSecrets.some((e) => inside(r, e))) out.push(`a host secret is readable: ${r}`)
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
   // the network: the private, link-local and metadata ranges are always denied, with every site list and Full internet
   const n = s.network
+  // macOS: localhost is the whole Mac's (the server's ports, other runs' dev servers)
+  if (platform === 'darwin' && n.allowLocalBinding !== false) out.push('localhost is open (allowLocalBinding must be false on macOS)')
   for (const r of DENIED_RANGES) if (!n.deniedResolvedAddresses.includes(r)) out.push(`a denied range is missing: ${r}`)
   for (const d of DENIED_NAMES) if (!n.deniedDomains.includes(d)) out.push(`a denied name is missing: ${d}`)
   for (const a of n.allowedDomains) {
@@ -241,14 +292,17 @@ export function resolveRunCwd(root: string, rel: string): string | null {
   } catch { return null }
 }
 
-export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string }
+export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform }
 
 /** The whole environment of a run. Nothing comes from the server's own environment (srt passes its caller's
  * environment to the command). srt adds its proxy variables. */
 export function runEnv(i: EnvInput): Record<string, string> {
   const home = personHome(i.base, i.userId)
+  const mac = (i.platform ?? devPlatform()) === 'darwin'
+  const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
   return {
-    PATH: `${path.dirname(i.nodeBin ?? SRT_PATHS.node)}:/usr/local/bin:/usr/bin:/bin`,
+    // macOS: Homebrew's programs when the Mac has them (MAC_SYSTEM_READ_PATHS); /usr/local is not readable there
+    PATH: mac ? `${node}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${node}:/usr/local/bin:/usr/bin:/bin`,
     HOME: home,
     // srt's own temp files (proxy sockets) land here too. A server-only TMPDIR for the srt process was tried (S7,
     // 2026-11-04, Docker suite): srt then binds that folder into the sandbox writable and the allowed-site proxy broke
@@ -258,7 +312,7 @@ export function runEnv(i: EnvInput): Record<string, string> {
     // node 22.21+ sends http, https and fetch through HTTPS_PROXY only with this: without it a node program (the
     // Remotion browser download, for example) has no network in srt (spike VM, 2026-11-04)
     NODE_USE_ENV_PROXY: '1',
-    LANG: 'C.UTF-8',
+    LANG: mac ? 'en_US.UTF-8' : 'C.UTF-8',
     TERM: 'dumb',
     CI: '1',
     SHELL: '/bin/bash',
@@ -293,3 +347,20 @@ export function scopeArgv(o: { runId: string; id: string; limits: ScopeLimits; e
 export function wrappedArgv(o: { exitFile: string; settingsFile: string; command: string; full?: boolean }): string[] {
   return [SRT_PATHS.runWrap, o.exitFile, '--', SRT_PATHS.node, o.full ? SRT_PATHS.cliFull : SRT_PATHS.cli, '--settings', o.settingsFile, '-c', o.command]
 }
+
+/** macOS: the argv of one run (docs/DECISIONS.md "Dev environment on a Mac team server"). sudo switches to the run's
+ * dev slot account (the sudoers rule names only run-wrap-mac and the slot accounts) and sets the run's environment
+ * (the SETENV tag; sudo would reset it). run-wrap-mac sets the limits, starts the RAM watchdog and writes the exit
+ * code; srt-mac.mjs runs srt with the run's own port. One argv, no shell. */
+export function macArgv(o: { account: string; env: Record<string, string>; limits: ScopeLimits; poolMiB: number; exitFile: string; settingsFile: string; command: string }): string[] {
+  if (!SLOT_ACCOUNT_RE.test(o.account)) throw new Error(`not a dev slot account: ${o.account.slice(0, 40)}`)
+  const env = Object.entries(o.env).map(([k, v]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) || v.includes('\0')) throw new Error(`bad environment variable ${k.slice(0, 40)}`)
+    return `${k}=${v}`
+  })
+  return [SRT_PATHS.sudo, '-n', '-u', o.account, ...env, SRT_PATHS.runWrapMac, 'run', o.exitFile, String(o.limits.memoryMiB), String(o.limits.pids),
+    String(o.limits.runtimeMaxSec), String(o.poolMiB), '--', SRT_PATHS.node, SRT_PATHS.cliMac, '--settings', o.settingsFile, '-c', o.command]
+}
+/** A dev slot account: a role account with a number (run-wrap-mac refuses any other: its kill -1 hits every process of
+ * the account it runs as). */
+export const SLOT_ACCOUNT_RE = /^_[a-z][a-z0-9]{0,30}dev[0-9]{1,2}$/

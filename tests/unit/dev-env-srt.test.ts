@@ -340,7 +340,7 @@ describe('a project run reads only what everyone in the project may read (QA TC-
 })
 
 const aliceView = folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'projects/falcon' })
-const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, start: 'projects/falcon' as string | null, work: null as string | null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'] }
+const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, start: 'projects/falcon' as string | null, work: null as string | null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'], platform: 'linux' as const }
 
 describe('the srt settings file', () => {
   test('hides the base folder, users/ and .system/; gives back the person\'s folders, home and logs', () => {
@@ -915,7 +915,7 @@ describe('a command follows the person, not the project', () => {
   test('the environment is the listed keys only: nothing from the server\'s environment', async () => {
     await alice().call({ command: 'echo x' })
     const env = [...runs.values()][0]!.spec.env
-    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null }))
+    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null, platform: 'linux' }))
     expect(JSON.stringify(env)).not.toContain('CANARY-ENV')
     expect(Object.keys(env).some((k) => k.startsWith('MYCEL'))).toBe(false)
   })
