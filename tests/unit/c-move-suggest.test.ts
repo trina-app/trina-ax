@@ -76,6 +76,20 @@ describe('words and scores', () => {
     rank(queries, folders)
     expect(performance.now() - t0).toBeLessThan(150)
   })
+  test('a ✕ never promotes a weak folder: the bar is still the best one\'s, and the ✕\'d folder\'s files still count (QA 2026-11-13)', () => {
+    const quotes = F('shared/견적서', ['견적서_LG', '견적서_현대', '견적서_SK'])
+    // a forms folder holding the quote form: over THRESHOLD when it is the only folder with 견적서 files, under it when
+    // the quotes folder's files make the word common (taking that folder out of the scoring promoted it)
+    const forms = F('shared/양식', ['견적서_양식'])
+    const both = rank([q('견적서_삼성.xlsx')], [quotes, forms])
+    expect(both.map((x) => x.path)).toEqual(['shared/견적서'])
+    expect(rank([q('견적서_삼성.xlsx')], [forms]).map((x) => x.path)).toEqual(['shared/양식'])
+    // ✕ on the quotes folder: nothing rather than the weak one
+    expect(rank([q('견적서_삼성.xlsx')], [quotes, forms], (p) => p === 'shared/견적서')).toEqual([])
+    // a folder as strong as the best stays
+    const quotes2 = F('shared/견적', ['견적서_A', '견적서_B', '견적서_C'])
+    expect(rank([q('견적서_삼성.xlsx')], [quotes, quotes2, forms], (p) => p === 'shared/견적서').map((x) => x.path)).toEqual(['shared/견적'])
+  })
   test('the ✕ pattern drops digits', () => { expect(namePattern('견적서_SK_2025.xlsx')).toBe('견적서_sk_#.xlsx') })
 })
 
@@ -152,6 +166,13 @@ describe('the endpoint', () => {
     // another name still gets it; another person too
     expect(folders((await suggest('alice', ['shared/견적서_두산_2025.xlsx'])).body)).toContain('shared/견적서')
     expect(folders((await suggest('erin', ['shared/견적서_삼성전자_2025.xlsx'])).body)).toContain('shared/견적서')
+    // nor is it under 최근 for those files, even when she just saved into it; for another name it is (QA 2026-11-13)
+    write('shared/note-q.txt')
+    expect((await A.json('/api/files/move', { as: 'alice', ...jsonBody({ from: 'shared/note-q.txt', to: 'shared/견적서/note-q.txt' }) })).status).toBe(200)
+    const after = (await suggest('alice', ['shared/견적서_삼성전자_2025.xlsx'])).body
+    expect([...folders(after), ...after.recent.map((x: { path: string }) => x.path)]).not.toContain('shared/견적서')
+    write('shared/memo-z.txt')
+    expect((await suggest('alice', ['shared/memo-z.txt'])).body.recent.map((x: { path: string }) => x.path)).toContain('shared/견적서')
     // a file the caller cannot read cannot be dismissed (nor named)
     expect((await A.json('/api/files/move-suggestions/dismiss', { as: 'alice', ...jsonBody({ paths: ['groups/finance/budget.md'], folder: 'shared' }) })).status).toBe(404)
   })

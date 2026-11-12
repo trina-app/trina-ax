@@ -145,7 +145,7 @@ test('Activity\'s tabs never move the page: the scroll bar\'s room is kept, a ta
     // the tab list scrolls sideways and cuts what is drawn outside it: the ring is inside the tab, keyboard focus only
     // (index.css draws it for :focus-visible, never on a mouse click)
     const tabs = [...body.querySelectorAll('[role="tab"]')]
-    expect(tabs).toHaveLength(4)
+    expect(tabs).toHaveLength(3)
     for (const tab of tabs) {
       expect(tab.className).toContain('focus-visible:-outline-offset-2')
       expect(tab.className).not.toMatch(/(^|\s)(focus:|outline-offset-2)/)
@@ -158,6 +158,6 @@ test('Activity\'s tabs never move the page: the scroll bar\'s room is kept, a ta
       expect(cell.children[0]!.textContent).toBe(cell.children[1]!.textContent)
     }
     // the copy is hidden from screen readers: each label is heard once
-    expect([...tabs[2]!.querySelectorAll('[aria-hidden="true"]')].map((x) => x.textContent)).toContain(ko('feed.tab.mentions'))
+    expect([...tabs[1]!.querySelectorAll('[aria-hidden="true"]')].map((x) => x.textContent)).toContain(ko('feed.tab.mentions'))
   } finally { await m.unmount() }
 })

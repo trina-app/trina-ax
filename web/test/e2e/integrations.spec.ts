@@ -324,6 +324,8 @@ test('the team turns personal connections off: no adding, and the ones there are
 
 test('an admin gives a team connection to a group and a person; a member sees it read-only', async ({ page }) => {
   await reset(page)
+  // Slack not added yet (the mock's default is a connected app, a row of Connected for the owner): a card in Discover
+  expect((await page.request.post('/__test/slack', { data: { admin: { tokens: false, enabled: false, state: 'off', workspace: null, botName: null } } })).ok()).toBeTruthy()
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/admin/connectors')

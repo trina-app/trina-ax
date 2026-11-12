@@ -26,6 +26,9 @@ import { pretendardDir } from '../../server/src/intro-deck/files'
 import { accentFromPictures, ACCENT_CHROMA, pictureStats, rasterizeSvg, renderAvailable, renderSlidePngs, samplePictures } from '../../server/src/intro-deck/render'
 import { busyUnder, contrastUnder, edgeDensity, findingsText, inkCoverage, REVIEW, reviewDeck, reviewSlide, textSpans } from '../../server/src/intro-deck/review'
 import { which } from '../../server/src/config'
+import type { DeckSlide2 } from '@mycel/shared/api'
+import { layoutSlide2, type DeckDoc2 } from '../../server/src/intro-deck/layout2'
+import { lookFor2 } from '../../server/src/intro-deck/look'
 
 setDefaultTimeout(60_000)
 
@@ -279,5 +282,27 @@ describe('slide pictures through typst', () => {
     expect(pictureStats(out[2]!).luminance).toBeCloseTo(luminance('#808080'), 3)
     const [r, g, b] = rgb(accentFromPictures([out[0]!, out[2]!])!)
     expect(Math.abs(r - 0xc0) + Math.abs(g - 0x39) + Math.abs(b - 0x2b)).toBeLessThanOrEqual(3)
+  })
+
+  // QA 2026-11-12: a blue brand deck's numbers and contact slides on the brand mesh flagged the big number at 2.8:1,
+  // the footer at 1.8:1 and the contact labels at 1.7:1 and 2.0:1 (the mesh's cyan blob under white type)
+  test.if(!!typst && !!pretendardDir())('the brand theme on a blue brand: cover, numbers and contact on the mesh have no contrast finding', async () => {
+    const slides: DeckSlide2[] = [
+      { kind: 'cover', headline: 'Robots for\n*every* factory', sub: 'Arms, vision and the cloud' },
+      { kind: 'offer', title: 'What we make', figure: { kind: 'layers', items: [{ head: 'Robot arms' }, { head: 'Vision' }, { head: 'Cloud control' }] } },
+      { kind: 'numbers', title: 'Factories trust our robots', figure: { kind: 'figures', items: [{ number: '340', label: 'factories' }, { number: '99.5%', label: 'robot uptime' }] } },
+      { kind: 'contact', line: 'Talk to us about\nyour factory', phone: '+62 22 555 0101', email: 'hello@acme-robotics.example', website: 'acme-robotics.example' },
+    ]
+    for (const brand of ['#1d6ae5', '#0b5fff']) {
+      const doc: DeckDoc2 = { v: 2, theme: 'brand', lang: 'en', title: 'Acme Robotics', company: 'Acme Robotics', website: 'acme-robotics.example', brand, sampled: null, logo: null, pattern: 'dots', seed: 7, slides, sections: ['Cover', 'Offer', 'Numbers', 'Contact'], pics: {}, picNotes: {}, accents: {}, treat: {}, notes: slides.map(() => []) }
+      const look = lookFor2('brand', brand)
+      for (const i of [0, 2, 3]) {
+        const out = layoutSlide2(doc, i, look)
+        expect(out.ground, `${brand} slide ${i} is on the brand colour`).toBe(brand)
+        const r = (await renderSlidePngs([out], { title: doc.title, lang: 'en', read: () => null, ground: true }))!
+        const findings = reviewSlide(out, i, { full: decodePng(r.full[0]!), ground: decodePng(r.ground![0]!) })
+        expect(findings.filter((f) => f.code === 'contrast'), `${brand} slide ${i}`).toEqual([])
+      }
+    }
   })
 })

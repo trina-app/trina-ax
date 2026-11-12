@@ -79,6 +79,7 @@ import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy, useMediaQuery } from '../components/ui'
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
+import { FileDropZone } from '../components/FileDropZone'
 import { useFocusAfterRemove } from './admin/common'
 
 const PHONE = '(max-width: 767.98px)'
@@ -512,7 +513,17 @@ export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat
   )
 }
 
+// Files from this computer dropped anywhere on a project's page go into its new-chat box, as on Home and a chat's page
+// (QA TC-071); a project that takes no chat here (in the trash, managed from outside) says nothing can be attached.
 export function ProjectHome() {
+  return (
+    <FileDropZone className="h-full" data-testid="project-drop">
+      <ProjectPage />
+    </FileDropZone>
+  )
+}
+
+function ProjectPage() {
   const t = useT()
   const locale = useLocale()
   const { projectId } = useParams()

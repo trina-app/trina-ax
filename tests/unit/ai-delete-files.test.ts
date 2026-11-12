@@ -20,7 +20,7 @@ import { CONFIRMED } from '../lib/schedule-card'
 import { componentC } from '../../server/src/team-files/component'
 import { AI_SKILL_TRASH_REFUSAL, AI_TRASH_FOLDER_REFUSAL, type AiTrashPlan } from '../../server/src/team-files/service'
 import { AI_TRASH_MAX_ENTRIES, stampTree, TrashStranded } from '../../server/src/team-files/ai-trash'
-import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, MAX_DELETE_CARDS, type DeleteExec } from '../../server/src/chat/delete-files'
+import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, MAX_DELETE_CARDS, restoreUntilDay, type DeleteExec } from '../../server/src/chat/delete-files'
 import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { buildAgentDefinitions, PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { localTool } from '../../server/src/safe-ops/confidential'
@@ -742,6 +742,18 @@ describe('refused up front, before any card', () => {
   })
 })
 
+describe('the restore day the AI is told (QA TC-015)', () => {
+  test("is the team's day, not the UTC day, near midnight in a +07:00 zone", () => {
+    // 2026-12-12 18:30 UTC is 2026-12-13 01:30 in Jakarta: the card and the trash list say Dec 13
+    expect(restoreUntilDay('2026-12-12T18:30:00.000Z', 'Asia/Jakarta')).toBe('2026-12-13')
+    expect(restoreUntilDay('2026-12-12T16:59:59.000Z', 'Asia/Jakarta')).toBe('2026-12-12')
+    expect(restoreUntilDay('2026-12-12T17:00:00.000Z', 'Asia/Jakarta')).toBe('2026-12-13')
+    // and the card's own date for the same instant agrees
+    expect(new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone: 'Asia/Jakarta' }).format(new Date('2026-12-12T18:30:00.000Z'))).toBe('December 13, 2026')
+    expect(restoreUntilDay('2026-12-12T18:30:00.000Z', 'UTC')).toBe('2026-12-12')
+  })
+})
+
 describe('the card, the answer, the audit and the restore', () => {
   test('full paths, files per folder, other people by name, who loses it, the purge date of the setting; yes trashes exactly that, one audit row, restorable', async () => {
     put('users/alice/del-card.md', 'mine\n')
@@ -774,6 +786,8 @@ describe('the card, the answer, the audit and the restore', () => {
       // the result says what went and where to restore it
       expect(r.content).toContain('Moved to the team trash (2):\n- shared/del-card\n- users/alice/del-card.md')
       expect(r.content).toContain('Files › Trash')
+      // the day the AI is told is the team's day, the one the card shows (QA TC-015)
+      expect(r.content).toContain(`restore each item until ${restoreUntilDay(rows[0]!.purge_at, teamTimeZone(h.ctx.db))} (in the team's time zone, ${teamTimeZone(h.ctx.db)})`)
       // one audit row: the card, the turn, the trash ids
       const [a, ...more] = audits(r.turnId)
       expect(more).toEqual([])

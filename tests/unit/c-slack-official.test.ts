@@ -115,7 +115,7 @@ describe('Add to Slack (the owner)', () => {
     expect(resume.pathname).toBe('/slack/signin-return')
     expect(resume.searchParams.get('to')).toBe('install')
     const callback = `/api/integrations/slack/official/callback?${new URLSearchParams({ state: resume.searchParams.get('state')!, handoff: resume.searchParams.get('handoff')! })}`
-    expect(await open('dana', callback)).toBe('/admin/slack?slack=installed')
+    expect(await open('dana', callback)).toBe('/admin/connectors/slack?slack=installed')
     // the same return again: used
     expect(outcome(await open('dana', callback))).toBe('install_expired')
     // Slack itself was asked whose token it is
@@ -307,7 +307,7 @@ describe('removed, restored and removed by the owner', () => {
     expect((h.ctx.db.query('SELECT count(*) n FROM slack_install_flows').get() as { n: number }).n).toBe(0)
   })
 
-  test('the hosting service down or not serving: Admin › Slack says so, and it comes back by itself', async () => {
+  test('the hosting service down or not serving: the Slack page says so, and it comes back by itself', async () => {
     broker.serving = 'down'
     await waitFor(async () => (await admin()).lastError === 'broker_unreachable')
     expect((await admin()).state).toBe('error')

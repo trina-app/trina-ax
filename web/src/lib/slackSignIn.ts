@@ -15,7 +15,7 @@ const OUTCOME: Record<string, MessageKey> = {
 }
 /** The words for an outcome; anything else (also a name like "constructor") is the general failure */
 export const outcomeText = (code: string): MessageKey => Object.hasOwn(OUTCOME, code) ? OUTCOME[code]! : 'slack.signin.failed'
-/** an outcome of "Add to Slack" (Admin › Slack and the done page say it in those words) */
+/** an outcome of "Add to Slack" (Admin › Connected apps › Slack and the done page say it in those words) */
 export const installOutcome = (code: string) => code === 'installed' || code.startsWith('install_') || ['workspace_taken', 'enterprise_install', 'missing_scope', 'own_app_saved', 'broker_unreachable', 'not_workspace_admin'].includes(code)
 
 /** The server's callbacks, the only places the return page sends a browser */

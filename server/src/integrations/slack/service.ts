@@ -16,7 +16,7 @@
 // Envelopes are acknowledged by the socket before any of this runs; an event id or a message seen before is ignored.
 //
 // Two ways to have the Slack app (slack_config.mode): 'own', the team's own app from our manifest, its tokens pasted in
-// Admin › Slack and its own Socket Mode connection; or 'official', the hosting service's one public app ("Add to
+// Slack's admin page and its own Socket Mode connection; or 'official', the hosting service's one public app ("Add to
 // Slack", broker.ts): only the workspace's bot token is here (sealed, delivered sealed), the envelopes come from the
 // hosting service's long poll and go through the very same onEnvelope checks, "Sign in with Slack" goes through it,
 // and Remove takes the app off the workspace there. Everything else (links, turns, answers) is the same.
@@ -246,8 +246,8 @@ export class SlackConnector {
   }
 
   /** The bot's name as people find it in Slack (`@`, `/invite`): users.info of the bot user, its display name or else
-   * its full name. null: Slack did not say (Admin › Slack then shows the manifest's). Not auth.test's `user`: that is
-   * the user name (`trinaax`), which Slack's `@` does not find. */
+   * its full name. null: Slack did not say (Slack's admin page then shows the manifest's). Not auth.test's `user`: that
+   * is the user name (`trinaax`), which Slack's `@` does not find. */
   private async botNameOf(bot: string, botUserId: string): Promise<string | null> {
     try {
       const info = await this.api.call('users.info', bot, { user: botUserId })
@@ -293,7 +293,7 @@ export class SlackConnector {
     }
   }
 
-  /** Admin › Slack: the hosting service asked again when its last answer is old (or never came), so the page says
+  /** Slack's admin page: the hosting service asked again when its last answer is old (or never came), so the page says
    * whether "Add to Slack" can be used now. */
   async freshAdminView(origin: string | null = null): Promise<SlackAdmin> {
     if (this.broker && this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : BROKER_RETRY_MS)) await this.checkBroker()
@@ -734,9 +734,9 @@ export class SlackConnector {
     return !!answer
   }
 
-  /** The owner pressed "Add to Slack" (Admin › Slack): a flow bound to them (state hashed, its PKCE verifier sealed, 10
-   * minutes, used once, the newest only), and Slack's own install page from the hosting service. `origin`: the team's
-   * address the page is open at (where links in Slack will open). */
+  /** The owner pressed "Add to Slack" (Slack's admin page): a flow bound to them (state hashed, its PKCE verifier
+   * sealed, 10 minutes, used once, the newest only), and Slack's own install page from the hosting service. `origin`:
+   * the team's address the page is open at (where links in Slack will open). */
   async startInstall(userId: string, sessionId: string, client: string, origin: string): Promise<{ authorizationUrl: string }> {
     if (!this.broker) throw new SlackError('official_off', 'conflict')
     const cfg = this.config()

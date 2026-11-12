@@ -12,7 +12,8 @@
 //
 // "최근": the person's own file events (moves in, uploads, saves: file_events, no new storage), folders they can still
 // write. ✕ on a suggestion: per person, folder and the file's name pattern (digits as '#'), in suggestion_dismissals
-// (migration 229), on every device.
+// (migration 229), on every device. A ✕'d folder is out of "최근" for those files too, and the others keep the bar the
+// best folder set before the ✕ (rank: a ✕ never promotes a weak folder).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { MoveSuggestions } from '@mycel/shared/api'
@@ -166,8 +167,11 @@ function matchesOf(qwords: Set<string>, vocab: Map<string, number>): Map<string,
  *   evidence, and damped while the folder has few files (n / (n + 1)).
  * - extension: +0.1 × the share of its files with the file's extension, only once the match is over THRESHOLD (it
  *   ranks; it never makes a suggestion).
+ * `dropped`: folders the person ✕'d for these files. They are scored like any other and taken out only at the end, so a
+ * ✕ never promotes a weaker folder: the best one (and RELATIVE of it) is still the bar, and their files still make a
+ * word common rather than rare.
  */
-export function rank(queries: readonly Query[], folders: readonly Folder[]): { path: string; confidence: number }[] {
+export function rank(queries: readonly Query[], folders: readonly Folder[], dropped: (path: string) => boolean = () => false): { path: string; confidence: number }[] {
   if (!queries.length) return []
   const vocab = new Map<string, number>()
   for (const f of folders) for (const [w, k] of f.df) vocab.set(w, (vocab.get(w) ?? 0) + k)
@@ -199,7 +203,7 @@ export function rank(queries: readonly Query[], folders: readonly Folder[]): { p
   }
   out.sort((a, b) => b.confidence - a.confidence || a.path.localeCompare(b.path))
   const best = out[0]?.confidence ?? 0
-  return out.filter((s) => s.confidence >= best * RELATIVE).slice(0, SUGGEST_MAX).map((s) => ({ path: s.path, confidence: Math.round(Math.min(0.99, s.confidence) * 100) / 100 }))
+  return out.filter((s) => s.confidence >= best * RELATIVE && !dropped(s.path)).slice(0, SUGGEST_MAX).map((s) => ({ path: s.path, confidence: Math.round(Math.min(0.99, s.confidence) * 100) / 100 }))
 }
 
 /** At most `max` entries of a folder, streamed (a huge folder is not read whole). */
@@ -310,14 +314,17 @@ export async function moveSuggestions(files: TeamFiles, userId: string, paths: r
     const { stem, ext } = splitName(name)
     return { name, words: [...new Set([...words(stem), ...lineWords(lines(a.rel))])].slice(0, WORDS_PER_FILE), ext }
   })
+  // ✕ for any of the files' names (suggestion_dismissals)
+  const no = dismissed(files, userId)
+  const names = items.slice(0, FILES_SCORED).map((a) => nameOf(a.rel))
+  const wasDismissed = (folder: string) => names.some((n) => no.has(dismissKey(folder, n)))
   let suggested: MoveSuggestions['suggested'] = []
   if (queries.some((q) => q.words.length)) {
-    const no = dismissed(files, userId)
-    const cands = (await candidates(files, user, rules, lines, skip, moved)).filter((c) => !queries.some((q) => no.has(dismissKey(c.path, q.name))))
-    suggested = rank(queries, cands)
+    suggested = rank(queries, await candidates(files, user, rules, lines, skip, moved), wasDismissed)
   }
+  // a folder ✕'d for these files is not under "최근" either (it would read as still suggested)
   const taken = new Set(suggested.map((s) => s.path))
-  const recent = recentFolders(files, user, rules, (rel) => skip(rel) || taken.has(rel)).map((p) => ({ path: p }))
+  const recent = recentFolders(files, user, rules, (rel) => skip(rel) || taken.has(rel) || wasDismissed(rel)).map((p) => ({ path: p }))
   return { suggested, recent }
 }
 
