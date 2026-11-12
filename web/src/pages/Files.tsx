@@ -791,7 +791,7 @@ export default function Files() {
               />
               {q && (
                 <Tooltip label={t('files.search.clear')}>
-                  <button type="button" className="touch-hit text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')}>
+                  <button type="button" className="touch-hit text-faint hover:text-ink max-md:-mr-2 max-md:inline-flex max-md:w-11 max-md:justify-center max-md:self-stretch max-md:items-center" onClick={() => setQuery('')} aria-label={t('files.search.clear')}>
                     <X size={14} aria-hidden />
                   </button>
                 </Tooltip>
@@ -1085,7 +1085,7 @@ function BulkBar({ count, readOnly, fixed, canMove, canShare, running, onMove, o
 function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }: { checked: boolean; disabled?: boolean; label: string; title?: string; onCheck: (shift: boolean) => void; inputRef?: React.Ref<HTMLInputElement>; testId: string }) {
   return (
     <label
-      className={clsx('flex items-center justify-center rounded p-1.5 max-sm:p-2.5', disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-hover')}
+      className={clsx('touch-hit flex items-center justify-center rounded p-1.5 max-sm:p-2.5', disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-hover')}
       title={title}
       onMouseDown={(ev) => {
         if (!ev.shiftKey) return
@@ -1144,7 +1144,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [menu])
-  const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover disabled:opacity-40'
+  const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover disabled:opacity-40 max-md:min-h-11'
   // a download-only (quarantined) file: the AI cannot read it, so "Ask AI" and "add to chat" could only fail; they stay
   // in the menu, turned off, with the reason (like the file panel)
   const aiOff = !folder && !!e.downloadOnly

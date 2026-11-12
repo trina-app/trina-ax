@@ -21,7 +21,7 @@ export function FilterPill<T extends string>({ label, value, options, onChange, 
   return (
     <div
       className={clsx(
-        'relative inline-flex h-9 max-w-full items-center rounded-lg border bg-surface text-sm transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent hover:bg-hover max-sm:min-h-10',
+        'relative inline-flex h-9 max-w-full items-center rounded-lg border bg-surface text-sm transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent hover:bg-hover max-md:h-11',
         active ? 'border-line-strong' : 'border-line',
         className,
       )}
@@ -34,7 +34,7 @@ export function FilterPill<T extends string>({ label, value, options, onChange, 
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="h-full min-w-0 max-w-[14rem] cursor-pointer truncate bg-transparent font-medium text-ink outline-none [field-sizing:content]"
+        className="h-full min-w-0 max-w-[14rem] cursor-pointer max-md:-my-px max-md:h-11 truncate bg-transparent font-medium text-ink outline-none [field-sizing:content]"
         data-testid={testId}
       >
         {options.map((o) => (

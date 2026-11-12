@@ -246,6 +246,14 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
   }
 }
 
+/* touch-hit-placed: the same 44px box for a control already placed with absolute/fixed (a field's clear button): it
+   keeps its own position and place, only the ::after is added. */
+@utility touch-hit-placed {
+  @media (max-width: 767.98px) {
+    &::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+  }
+}
+
 /* A row that scrolls sideways (useEdgeFade in components/ui.tsx): an edge with more behind it fades out, in both
    themes (a mask, not a colour), and a tab scrolled into view keeps a margin from the edge instead of sitting cut. */
 .edge-fade { --fade: 1.75rem; scroll-padding-inline: 2rem; }

@@ -72,7 +72,7 @@ export function FileContentList({ res, query, folderLabel }: { res: FileContentH
         <ul className="space-y-2" aria-label={t('files.search.scope', { q: query, folder: folderLabel })}>
           {groups.map(([p, hits]) => (
             <li key={p} className="rounded-lg border border-line">
-              <button type="button" className="flex w-full items-center gap-2 rounded-t-lg px-3 py-2 text-left text-sm hover:bg-hover" onClick={() => openTeamFile(p)} data-testid="content-hit-file">
+              <button type="button" className="flex w-full items-center gap-2 rounded-t-lg px-3 py-2 text-left text-sm hover:bg-hover max-md:min-h-11" onClick={() => openTeamFile(p)} data-testid="content-hit-file">
                 <FileText size={15} className="shrink-0 text-faint" aria-hidden />
                 <span className="min-w-0 flex-1 truncate font-medium">{hits[0]!.name}</span>
                 <span className="min-w-0 shrink truncate text-xs text-faint max-sm:hidden" title={p}>{folderWords.path(p)}</span>
@@ -80,7 +80,7 @@ export function FileContentList({ res, query, folderLabel }: { res: FileContentH
               <ul className="border-t border-line">
                 {hits.map((h) => (
                   <li key={h.line}>
-                    <button type="button" className="flex w-full items-baseline gap-3 px-3 py-1.5 text-left text-xs hover:bg-hover" onClick={() => openTeamFile(p)} title={t('files.search.line', { n: h.line })} data-testid="content-hit">
+                    <button type="button" className="flex w-full items-baseline gap-3 px-3 py-1.5 text-left text-xs hover:bg-hover max-md:py-3.5" onClick={() => openTeamFile(p)} title={t('files.search.line', { n: h.line })} data-testid="content-hit">
                       <span className="w-10 shrink-0 text-right font-mono text-faint tabular-nums">{h.line}</span>
                       <span className="min-w-0 flex-1 font-mono break-words whitespace-pre-wrap">
                         <Highlighted text={h.snippet} query={query} />
@@ -162,7 +162,7 @@ export function FileNameList({ items, truncated, query, onFolder, stale = false 
             <li key={f.path}>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover max-md:min-h-11"
                 disabled={stale}
                 onClick={() => (f.type === 'folder' ? onFolder(f.path) : openTeamFile(f.path))}
                 data-testid="name-hit"

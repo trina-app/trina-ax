@@ -517,7 +517,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 <div className="flex flex-wrap justify-center gap-1.5" data-testid="side-chat-starters">
                   {STARTERS.map((k) => (
                     <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(`sideChat.starter.${k}`))}
-                      className="rounded-full border border-line px-3 py-1 text-xs text-ink hover:bg-hover disabled:opacity-40" data-testid={`side-chat-starter-${k}`}>
+                      className="rounded-full border border-line px-3 py-1 text-xs text-ink hover:bg-hover disabled:opacity-40 max-md:min-h-11" data-testid={`side-chat-starter-${k}`}>
                       {t(`sideChat.starterLabel.${k}`)}
                     </button>
                   ))}

@@ -146,7 +146,7 @@ export default function MyUsage() {
           <p className="mt-1 text-xs text-muted" data-testid="my-usage-updated">{t('myUsage.updated', { when: formatRelative(new Date(state.at).toISOString(), locale) })}</p>
           {isAdmin(me) && (
             <p className="mt-3 text-sm">
-              <Link to="/admin/usage" className="text-accent-text underline-offset-2 hover:underline" data-testid="my-usage-team-link">
+              <Link to="/admin/usage" className="text-accent-text underline-offset-2 hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="my-usage-team-link">
                 {t('myUsage.teamLink')}
               </Link>
             </p>

@@ -209,7 +209,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
           }}
           placeholder={path ? t('picker.searchIn', { folder: folderName(path) }) : t('picker.search')}
           aria-label={path ? t('picker.searchIn', { folder: folderName(path) }) : t('picker.search')}
-          className={clsx(inputCls, 'pr-9 pl-9')}
+          className={clsx(inputCls, 'pr-9 pl-9 max-md:pr-11')}
           data-testid="picker-search"
           data-own-clear
           // the dialog puts focus here when it opens (mouse and keyboard; phones would open the keyboard over the list)
@@ -217,7 +217,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
         />
         {query && (
           <Tooltip label={t('picker.clearSearch')}>
-            <button type="button" className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:bg-hover" aria-label={t('picker.clearSearch')} onClick={() => { setQuery(''); searchRef.current?.focus() }}>
+            <button type="button" className="touch-hit-placed absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:bg-hover" aria-label={t('picker.clearSearch')} onClick={() => { setQuery(''); searchRef.current?.focus() }}>
               <X size={14} />
             </button>
           </Tooltip>

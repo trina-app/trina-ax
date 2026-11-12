@@ -76,7 +76,7 @@ export function ActionMenu({ items, label, testId }: { items: AddMenuItem[]; lab
           aria-expanded={open}
           aria-label={label}
           onClick={() => setOpen((v) => !v)}
-          className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-md:min-h-11 max-md:px-2.5"
+          className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-md:min-h-11 max-md:min-w-11 max-md:justify-center max-md:px-2.5"
           data-testid={testId}
         >
           <ChevronDown size={15} aria-hidden />
