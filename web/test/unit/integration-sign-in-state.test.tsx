@@ -5,7 +5,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { act } from 'react'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { awaitingFirstSignIn } from '../../src/lib/integrations'
+import { awaitingFirstSignIn, connectionRowStatus } from '../../src/lib/integrations'
 import { SignInPanel, useSignIn, type SignInState } from '../../src/components/integrations/IntegrationRow'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -38,6 +38,16 @@ test('never signed in: not connected yet; a lapsed sign-in (still stored) and a 
   expect(awaitingFirstSignIn({ auth: 'oauth', hasSecret: true })).toBe(false)
   expect(awaitingFirstSignIn({ auth: 'bearer', hasSecret: false })).toBe(false)
   expect(awaitingFirstSignIn({ auth: 'none', hasSecret: false })).toBe(false)
+})
+
+test('a line in Your connectors (own or from a team template): never signed in says 로그인 필요, never Connected or Reconnect', () => {
+  expect(connectionRowStatus({ auth: 'oauth', hasSecret: false, status: 'needs_auth' })).toBe('signin')
+  expect(connectionRowStatus({ auth: 'oauth', hasSecret: false, status: 'error' })).toBe('signin')
+  // a lapsed sign-in (still stored): Reconnect
+  expect(connectionRowStatus({ auth: 'oauth', hasSecret: true, status: 'needs_auth' })).toBe('reconnect')
+  expect(connectionRowStatus({ auth: 'oauth', hasSecret: true, status: 'connected' })).toBe('connected')
+  expect(connectionRowStatus({ auth: 'bearer', hasSecret: true, status: 'error' })).toBe('attention')
+  expect(connectionRowStatus({ auth: 'none', hasSecret: false, status: 'connected' })).toBe('connected')
 })
 
 test('back on the page with the sign-in not finished: "not finished yet", 다시 시도 and 취소; finishing late still completes', async () => {

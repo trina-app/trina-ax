@@ -122,6 +122,11 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'schedule.failure' && item.needsKey) return title
     ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
     : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+  // a task paused because only the project's members can use it now (the owner or an admin who may add themselves):
+  // it starts again once they do (docs/DECISIONS.md "Projects from before the update: one card, Add me to these")
+  if (item.code === 'schedule.failure' && item.projectGone && item.membersOnly) return title
+    ? isolate(locale, 'notifications.event.schedule.membersOnlyNamed', { title }, ['title'])
+    : t('notifications.event.schedule.membersOnly')
   // a run that did not start because its owner no longer sees the task's project
   if (item.code === 'schedule.failure' && item.projectGone) return title
     ? isolate(locale, 'notifications.event.schedule.projectGoneNamed', { title }, ['title'])

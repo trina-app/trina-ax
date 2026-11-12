@@ -309,6 +309,11 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	// later. Only for a release newer than the app that runs (root files catching up with the running version are not
 	// held), never on a hosted server (its control plane picks), and never for an administrator's `mycel-ctl update`.
 	if !u.in.Hosted && u.res.From != "" && compareVersions(feed.Version, u.res.From) > 0 {
+		// an older copy of a head a hold or resume changed (root/feed-seen.json): left, so it cannot lift a hold
+		fu, _ := u.feedURL()
+		if older, seen := olderCopy(u.e, fu, feed); older {
+			return u.syncOnly("the feed answered with an older copy of release " + feed.Version + " (a newer one, changed " + seen + ", was seen); waiting for the current one"), nil
+		}
 		if w := rolloutTurn(feed, installIDOf(u.in, s), serverChannel(u.e.base), u.e.now()); w.wait {
 			// a deferral left by an earlier release (no quiet moment for it) must not carry its three days over to this
 			// one: at this release's turn the last resort would cut answers off at the first check
@@ -461,6 +466,12 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		}
 		if feed.Version == u.res.From && rootVersion(u.e) == feed.Version {
 			return skip("already at " + feed.Version)
+		}
+		// the publisher paused the release (rollout.go hold; the held head also names it as its own minFrom, which holds
+		// the timers that do not know hold): not installed until it resumes, by the timer or by hand. A server that
+		// already runs it may finish its root files.
+		if feed.Rollout != nil && feed.Rollout.Hold != nil && (u.res.From == "" || compareVersions(feed.Version, u.res.From) > 0) {
+			return fmt.Errorf("the publisher paused release %s (since %s); it is not installed until the roll-out resumes", feed.Version, feed.Rollout.Hold.At)
 		}
 		if feed.MinFrom != "" && u.res.From != "" && compareVersions(u.res.From, feed.MinFrom) < 0 {
 			return fmt.Errorf("%s cannot update to %s by itself (needs %s or newer first)", u.res.From, feed.Version, feed.MinFrom)

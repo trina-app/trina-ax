@@ -44,15 +44,17 @@
 bun run changelog:fold
 
 # 1) 버전을 올린다: server/package.json과 desktop/package.json의 version. 자리는 위 "버전 번호"로 고른다 (예: 0.3.0-beta.1)
+#    main은 리뷰된 PR로만 바뀐다(ruleset "main protection"): dev → main PR을 열고 승인받아 병합한다.
 git commit -am "0.3.0-beta.1"
-git push origin main
 
-# 2) 그 커밋에 태그를 단다. 태그 메시지가 릴리스 노트가 된다(설치의 "새 버전" 안내, GitHub Release).
+# 2) main에 들어간 그 커밋에 태그를 단다. 태그 메시지가 릴리스 노트가 된다(설치의 "새 버전" 안내, GitHub Release).
 git tag -a v0.3.0-beta.1 -m "새 기능: …"
 git push origin v0.3.0-beta.1
 ```
 
 - 태그는 `v` + `server/package.json`의 version과 정확히 같아야 한다. 다르면 아무것도 하지 않고 실패한다.
+- 태그의 커밋은 main에 있어야 한다(리뷰된 커밋만 나간다). 아니면 prepare가 비밀값을 읽기 전에 멈춘다(`is not on main`). 손으로 다시 돌릴 때는 "Use workflow from"이 그 태그여야 한다(브랜치면 멈춘다).
+  - 이 검사는 워크플로 파일 안에 있어 실수를 막는 난간이다. 쓰기 권한이 있는 사람이 검사를 뺀 워크플로로 태그를 다는 것까지 막으려면 4장 5(태그 보호)와 6(environment `release`, 비밀값을 그 environment로)을 설정해야 한다.
 - 태그에 `-`가 있으면 beta 채널(`v0.3.0-beta.1`, `v0.3.0-rc.1`), 없으면 stable 채널(`v0.3.0`)이다.
 - stable 릴리스는 사흘에 걸쳐 나간다(아래 "단계적 배포"). 모든 서버에 한 번에 내려면 태그 메시지에 `Rollout: all` 한 줄을 넣는다.
 - 주석 없는 태그(`git tag v0.3.0`)도 된다. 그때 피드의 노트는 비고, GitHub Release는 노트를 자동으로 만든다.
@@ -62,7 +64,7 @@ git push origin v0.3.0-beta.1
 
 | 순서 | job | 하는 일 | 비밀값 |
 |---|---|---|---|
-| 1 | prepare | 태그 = 버전 확인, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트, 단계적 배포(`Rollout:` 줄, `release-ci.ts rollout`) | 키 확인 단계만 |
+| 1 | prepare | 태그 = 버전 확인, 태그의 커밋이 main에 있는지, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트, 단계적 배포(`Rollout:` 줄, `release-ci.ts rollout`) | 키 확인 단계만 |
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-office | 사무실 zip(macos-15, 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
@@ -140,6 +142,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
   어느 쪽이든 경고를 남긴다). 사무실 목록도 다시 돌리면 처음 올린 `<dir>/<version>/<channel>.json`을 머리에 다시 둔다(`publishedAt`과 salt가 그대로). 처음에
   윈도우 설치 파일 없이 올린 버전에 다시 돌려 그 파일을 더해도 처음의 `publishedAt`과 `rollout`으로 다시 서명한다.
 - 로컬에서: `publish-server.ts --rollout staged|all`, `publish.ts --rollout staged|all`(기본 staged, beta 채널은 늘 없음).
+- 나쁜 릴리스의 roll-out을 멈추고 다시 잇기: 6장 "배포 멈추기"(`hosting.ts hold|resume <channel>`, `rollout.hold`).
 
 ## 3. 지키는 것
 
@@ -171,7 +174,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
   - 올리는 법: 새 Go를 정한 뒤 한 커밋에서 `versions.json`의 `"go"`, 두 워크플로의 `GO_VERSION`을 같이 바꾼다(`tests/unit/release-ci.test.ts`가
     셋이 같은지 본다). 필요하면 `native/go.mod`의 `go` 줄도. 그 커밋이 들어간 첫 릴리스는 root 프로그램이 바뀌므로 `needsRoot`가 되고,
     서버는 `mycel-update.timer`나 `sudo mycel-ctl update`로 한 번 root 업데이트를 받는다. 보안 패치가 아니면 다른 root 변경과 묶어 올린다.
-- **워크플로를 고친 뒤**: `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/release.yml .github/workflows/ci.yml`
+- **워크플로를 고친 뒤**: `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/release.yml .github/workflows/ci.yml .github/workflows/msstore.yml`
   (shellcheck가 있으면 `-shellcheck $(command -v shellcheck)`도). 스크립트 시험은 `bun test tests/unit/release-ci.test.ts tests/unit/publish-server.test.ts`.
 
 ## 4. 처음 한 번 할 일 (계정, 대표 확인 뒤)
@@ -212,6 +215,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | 어디서 | 상태 | 할 일 |
 |---|---|---|
 | prepare: 태그 ≠ 버전 | 아무것도 안 함 | 태그를 지운다(`git push --delete origin vX && git tag -d vX`). 버전을 고친 커밋에 다시 단다. |
+| prepare: `is not on main` | 아무것도 안 함(비밀값을 읽기 전) | 태그를 지우고, 그 커밋을 리뷰된 PR로 main에 넣은 뒤 main의 커밋에 다시 단다. |
 | prepare: 비밀값 없음, 키 불일치 | 아무것도 안 함 | 비밀값을 고친 뒤 그 run에서 "Re-run all jobs" |
 | test·build-linux (사무실·윈도우 빌드는 아래 "Desktop builds missing") | 아무것도 안 올라감 | 고친 커밋에 **새 버전**으로 태그(예: `0.3.1`, `0.3.0-beta.2`). 태그를 옮기지 않는다. |
 | publish 중간 | 버전 파일 일부만 올라갔을 수 있다. 머리는 그대로라 설치는 영향 없음 | 그 run에서 **"Re-run failed jobs"**. 같은 run의 빌드 결과(7일 보관)를 다시 서명해도 바이트가 같으므로 이어서 올라간다. 올라간 파일을 지우지 않는다. |
@@ -223,7 +227,49 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
-| 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
+| 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | **먼저 멈춘다: `bun scripts/release/hosting.ts hold stable --reason "…"`** (아래 "배포 멈추기"). 아직 받지 않은 서버·사무실은 지금 버전에 머문다. 그다음 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
+
+### 배포 멈추기 (hold a bad release)
+
+나쁜 stable 릴리스가 더 많은 서버에 닿지 않게 하는 한 단계. 새 버전을 낼 필요가 없다. 주인의 맥에서(배포 키와 Cloudflare 토큰이
+있는 곳):
+
+```sh
+bun scripts/release/hosting.ts hold stable --reason "0.5.2 crashes on start"   # 멈춘다
+bun scripts/release/hosting.ts held stable                                      # 지금 머리가 무엇을 말하는지(읽기만)
+bun scripts/release/hosting.ts resume stable                                    # 다시 이어 간다
+```
+
+- 먼저 `--dry-run`을 붙여 무엇을 올릴지 본다. `--version 0.5.2`를 붙이면 머리가 그 버전일 때만 바꾼다(다른 릴리스를 멈추지 않게).
+- 하는 일(`scripts/release/hold.ts`): 채널 머리 `server/<channel>.json`(+ `.sig`)과, 같은 버전이면 사무실 목록 `<officeDir>/<channel>.json`만
+  같은 릴리스 키로 다시 서명해 올린다. 버전의 파일(`server/<version>/release.json`, `<officeDir>/<version>/<channel>.json`, 묶음)은
+  건드리지 않고, 머리를 다른 버전으로 옮기지 않고, 아무것도 지우지 않는다. 올리기 직전에 머리를 다시 읽어 그사이 배포가 있었으면 멈춘다.
+- 멈춘 머리의 `rollout`: `percent: 0`, ramp는 0% 한 단계, `hold: { at, reason }`, `changedAt`. 서버 머리는 `minFrom`도 그 버전 자신이
+  된다. 그래서 모든 업데이트가 멈춘다: 앱의 자동 업데이트(`why: 'paused'`, 로그 "automatic update: the publisher paused this release"),
+  root 타이머("the publisher paused release …"), 사무실 맥, `hold`를 모르는 서버(ramp만 아는 0.4.0-beta.3 이후는 0% 단계, percent만
+  아는 0.4.0-beta.2 이하는 percent 0, rollout을 모르는 옛 root 타이머는 `minFrom`), urgent 릴리스와 beta 채널(percent만 본다)도.
+  관리자의 "지금 업데이트"(관리자 › 시스템, `sudo mycel-ctl update`, `teamax update now`)도 설치하지 않는다. 관리자 › 홈은
+  "Updates are paused by {product}"(제품 이름)라고만 말한다(이유는 로그와 `mycel-ctl status`에만).
+- 이미 그 버전인 서버는 그대로 돈다(설치는 뒤로 가지 않는다). 되돌리기는 위 표대로 고친 새 버전으로 한다.
+- `resume`: 멈추기 전의 roll-out(멈춘 머리의 `rollout.before`)과 `minFrom`(`hold.minFrom`)을 돌려준다. 아직 오지 않은 단계는 멈춘 시간만큼
+  늦춰지므로 ramp는 멈춘 곳에서 이어진다(예: 30시간째 50%에서 멈추고 72시간 뒤 다시 이으면 바로 50%, 100%는 120시간째). roll-out 없이
+  낸 릴리스(`Rollout: all`)는 percent 100(모두)으로 돌아간다.
+- **다시 보낸 옛 머리**: 서버·root 타이머·사무실은 그 피드 주소(사무실은 채널)에서 본, 멈춤·이어 감이 바꾼 가장 새 머리의 버전과
+  `changedAt`을 따로 기억한다(앱 `data/update-seen-head.json`, root `root/feed-seen.json`, 사무실 `update/state.json` `seenHead`). 같은 버전인데
+  그보다 이른(또는 없는) 머리는 옛 사본으로 보고 받지 않는다("지금 업데이트"도). 그 사이 더 옛 버전의 머리가 와도 기록은 그대로다. 그래서
+  멈추기 전의 서명된 머리를 누가 다시 내보내도 멈춤이 풀리지 않는다. 처음 보는 서버는 이 보호가 없다(머리는 캐시하지 않는다).
+- 멈춘 머리 위에 **새 버전**을 내면 보통처럼 그 버전이 머리가 된다(새 ramp, 멈춘 릴리스의 salt·시작을 이어받지 않는다). 고친 릴리스는
+  `Rollout: all`로 낸다. 멈추거나 이어 간 버전을 **다시 돌리면**(Re-run failed jobs) 버전 파일은 올라가도 머리는 그대로다(`publish-server.ts`,
+  `publish.ts`가 "holds … left as it is" / "was resumed … left as it is"를 남긴다). 풀려면 `resume`. 서버 머리가 새 버전으로 갔는데 사무실
+  목록만 멈춘 채 남았으면(사무실 배포 실패) `resume <channel> --office-version <그 버전>`으로 그 목록을 돌려준다(이름을 댈 때만:
+  서버 머리를 위한 `resume`이 다른 나쁜 릴리스를 풀지 않게).
+- beta 채널은 따로다: stable 릴리스는 beta 머리도 되므로 beta 서버까지 멈추려면 `hold beta`도 한다.
+- `hold`가 머리와 `.sig` 사이에서 끊기면 다음 `hold`·`resume`이 "does not verify"로 멈춘다(설치는 마지막으로 확인한 머리를 쓰니 안전하다).
+  로그의 `↑` 줄로 어디까지 올라갔는지 보고, 같은 명령을 다시 돌리기 전에 버킷의 `server/<channel>.json`을 `server/<version>/release.json`과
+  같게 되돌린다(그 `.sig`는 버전 파일의 것과 같다). 그러면 다시 멈출 수 있다.
+- 지키지 못하는 것: rollout을 모르는 사무실(0.4.0-beta.2 이하)은 사무실 목록의 `minFrom`을 바꾸지 않으므로 멈추지 않는다. 호스팅 클라우드는
+  rollout을 보지 않는다(제어판이 고른다); 멈춘 머리의 `minFrom`을 제어판이 어떻게 읽는지는 그쪽 레포에서 확인한다.
+- 시험: `tests/unit/release-hold.test.ts`(계산, 업데이트, 임시 키·임시 피드로 스크립트), `TestScheduledUpdateHeld`(root 타이머).
 
 - 같은 태그를 다시 돌리려면 Actions → Release → Run workflow에서 tag를 넣는다. "Use workflow from"도 같은 태그로 고른다(그 태그의 release.yml·ci.yml로 돈다).
 - 로컬에서 같은 일을 하려면 `publish.ts`(사무실)와 `publish-server.ts --dir <서명된 묶음 폴더>`(리눅스)를 쓴다. 리눅스 묶음은 리눅스(같은 아키텍처)에서만 빌드된다.

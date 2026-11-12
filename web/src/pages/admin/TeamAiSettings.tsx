@@ -7,7 +7,7 @@
 //   to that AI's company).
 // - Members' own AI accounts: whether members may add their own Claude or Codex account, whether a subscription may be
 //   shared (it warns first), and the accounts members connected.
-// - Usage limits (#ai-limits).
+// - Usage limits (#ai-limits). A phone's Usage limits page has Add limit as the Admin bar's + (barActions.tsx, QA TC-377).
 // Each group saves through its own endpoint as before: AI defaults and Who picks the engine show Cancel and Save once
 // something in them changed; the switches and the limits save at once. They stay apart from the Team settings form and
 // its save bar, which saves another endpoint (PATCH /api/admin/settings).
@@ -24,6 +24,7 @@ import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk,
 import { PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
 import { useKeptDraft } from '../../lib/keptDraft'
 import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
+import { AdminBarActions, BarAdd, useAdminBarSlot } from './barActions'
 
 type EnginesData = EnginesResponse
 
@@ -312,6 +313,8 @@ function Budgets({ openHere }: { openHere?: boolean }) {
       focus.removed(budgets.data?.findIndex((x) => x.id === b.id) ?? 0)
       await budgets.reload()
     })
+  // under the phone's Admin bar: Add limit is the bar's + (the line takes the row); elsewhere the section's button
+  const inBar = useAdminBarSlot()
   const who = (b: Budget) => (b.subjectType === 'team' ? t('budgets.team') : b.subjectType === 'group' ? groups.data?.find((g) => g.id === b.subjectId)?.name ?? '?' : users.data?.find((u) => u.id === b.subjectId)?.name ?? '?')
   const period = (b: Budget) => t(b.period === 'day' ? 'budgets.perDay' : 'budgets.perMonth')
   return (
@@ -321,12 +324,17 @@ function Budgets({ openHere }: { openHere?: boolean }) {
       title={t('budgets.title')}
       desc={t('budgets.desc')}
       testId="engine-budgets"
-      actions={
+      actions={inBar ? undefined : (
         <Button size="sm" onClick={() => setEditing('new')} data-testid="budget-new">
           <Plus size={14} aria-hidden /> {t('budgets.new')}
         </Button>
-      }
+      )}
     >
+      {inBar && (
+        <AdminBarActions>
+          <BarAdd label={t('budgets.new')} onClick={() => setEditing('new')} testId="budget-new" />
+        </AdminBarActions>
+      )}
       <div ref={focus.box}>
         <Loadable state={budgets}>
           {(list) =>

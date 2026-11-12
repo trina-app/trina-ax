@@ -28,7 +28,7 @@ import type { Logger } from '../log'
 import { fsyncPath, fsyncTree, readFileChunks, writeAtomic, zstdDecompress } from './streams'
 import { extractTar } from './tar'
 import { RELEASE_KEYS } from './release-keys'
-import { FeedRollout } from './rollout'
+import { changedMs, FeedRollout, newerHeadSeen } from './rollout'
 import { DOWNLOAD_IDLE_MS, downloadDeadline, downloadTotalMs } from '../http/download-deadline'
 
 /** Ed25519 release public keys (base64, raw 32 bytes): system/release-keys.ts. */
@@ -229,6 +229,9 @@ export class UpdateManager {
   needsRoot(feed: Pick<ReleaseFeed, 'needsRoot' | 'rootSince'>): boolean { return releaseNeedsRoot(feed, this.rootVersion()) }
   private stateFile() { return path.join(this.o.appDir!, 'state.json') }
   private checkFile() { return path.join(this.o.dataDir, 'update-check.json') }
+  /** the newest head a hold or resume changed (system/rollout.ts changedAt) seen on this feed: kept apart from the last
+   * check, so heads of other versions in between cannot make an older copy of it count again */
+  private seenFile() { return path.join(this.o.dataDir, 'update-seen-head.json') }
 
   readState(): AppState {
     if (!this.o.appDir) return emptyAppState()
@@ -375,7 +378,27 @@ export class UpdateManager {
         f(this.o.feedUrl + '.sig', { redirect: 'error', signal }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed signature: HTTP ${r.status}`); return r.text() }),
       ])
       if (!verifySignature(body, sig, this.keys)) throw new UpdateError('release feed signature does not verify')
-      rec.feed = ReleaseFeed.parse(JSON.parse(Buffer.from(body).toString('utf8')))
+      const got = ReleaseFeed.parse(JSON.parse(Buffer.from(body).toString('utf8')))
+      // an older copy of a head this server has already seen changed (a hold or resume, system/rollout.ts changedAt):
+      // not taken, so a copy served again cannot lift a hold (the last verified feed stands)
+      let seen: { url?: string; version?: string; changedAt?: string } | null = null
+      try { seen = JSON.parse(fs.readFileSync(this.seenFile(), 'utf8')) } catch {}
+      const seenHere = seen && seen.url === this.o.feedUrl && typeof seen.version === 'string' ? { version: seen.version, rollout: { changedAt: seen.changedAt } } : null
+      if (seenHere && newerHeadSeen(seenHere, got)) {
+        this.o.log.warn('update check: the feed answered with an older copy of this release; not taken', { version: got.version, changedAt: got.rollout?.changedAt ?? null, seen: seen!.changedAt ?? null })
+        throw new UpdateError(`the feed answered with an older copy of release ${got.version} (a newer one, changed ${seen!.changedAt}, was seen)`)
+      }
+      // kept until a newer version's changed head: an older version's head served in between does not reset it
+      if (got.rollout?.changedAt && (!seenHere || compareVersions(got.version, seenHere.version) > 0 || (got.version === seenHere.version && changedMs(got.rollout) > changedMs(seenHere.rollout)))) {
+        // a record that cannot be written loses the protection only, never the check
+        const tmp = `${this.seenFile()}.tmp-${process.pid}`
+        try {
+          fs.mkdirSync(this.o.dataDir, { recursive: true, mode: 0o700 })
+          fs.writeFileSync(tmp, JSON.stringify({ url: this.o.feedUrl, version: got.version, changedAt: got.rollout.changedAt }), { mode: 0o600 })
+          fs.renameSync(tmp, this.seenFile())
+        } catch (e) { fs.rmSync(tmp, { force: true }); this.o.log.warn('update check: the seen head could not be kept', { error: String(e).slice(0, 200) }) }
+      }
+      rec.feed = got
     } catch (e) {
       rec.error = (e as Error).message
       // a failed look is not news that the release is gone: the record keeps the last verified feed (the return value stays null)

@@ -16,6 +16,7 @@ import { actionLabel } from './Audit'
 import { AdminPageHeader } from './common'
 import { JobLine } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
+import { OldProjectsCard } from './OldProjectsCard'
 import { names, useAdminOverview, type AttentionItem, type State } from './overview'
 
 export default function Home() {
@@ -52,6 +53,9 @@ export default function Home() {
           )}
         </section>
       )}
+
+      {/* team projects from before the update that are members-only now (the owner and admins it concerns) */}
+      <OldProjectsCard />
 
       {owner && <OwnerSetup />}
 

@@ -20,6 +20,9 @@
 // 관리자만", and no rules to change here: its panel links to the project's members ("멤버 관리", /projects/:id?members=1;
 // docs/DECISIONS.md "Project contents only for members"). The server refuses changes there (409 project_members_only),
 // which the edit panel shows in its words if one is opened by its address.
+// A phone (QA TC-377, TC-379): Add folder is the bar's + and the "Rule folders only" switch is under the Filters icon
+// beside it (the page's header slot "actions" sits in the bar there, Folders.tsx), so By folder / By person have the
+// row to themselves.
 import clsx from 'clsx'
 import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Info, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -45,6 +48,7 @@ import { hasAppHistory } from '../../lib/back'
 import { FOLDER_Q } from './adminScreens'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { setPeopleRefocus } from './folder-slots'
+import { BarAdd } from './barActions'
 
 /** One level as loaded so far: its children's paths in the server's order. */
 interface Level { children: string[]; total: number; nextCursor: string | null }
@@ -822,6 +826,24 @@ export default function AccessTree() {
     if (lookup?.state === 'failed') document.querySelector<HTMLElement>('[data-testid="folder-detail-failed"] [role="alert"] button')?.focus()
   }, [lookup?.state])
 
+  // "Rule folders only": in the header's filter row (a computer), under the Filters icon in the bar (a phone)
+  const ruledFilter = (
+    <PhoneFilters icon={phone} active={ruledOnly ? 1 : 0} testId="tree-filters">
+      <span className="inline-flex h-9 items-center rounded-lg border border-line px-3 max-md:min-h-11">
+        <Switch
+          checked={ruledOnly}
+          onChange={(on) => {
+            setRuledOnly(on)
+            if (on && !tree.data?.ruled) void tree.ruledPage(false)
+            // back to the whole tree: the chosen folder is opened to again
+            if (!on && selected !== null && selected !== '' && node) void reveal(selected)
+          }}
+          label={t('accessTree.ruledOnly')}
+          testId="tree-ruled-only"
+        />
+      </span>
+    </PhoneFilters>
+  )
   let body: ReactNode
   if (tree.error) body = <ErrorNote onRetry={() => void tree.loadRoot().then((o) => { if (o) { setOpen(new Set(['', ...o])); setReady(true) } })}>{tree.error}</ErrorNote>
   else if (!tree.data) body = <Skeleton lines={8} />
@@ -830,25 +852,9 @@ export default function AccessTree() {
       <div className="@container">
         <div className="flex flex-col gap-4 @2xl:flex-row @2xl:items-start @2xl:gap-0">
           <div ref={treeBox} className={clsx('min-w-0 flex-1 @2xl:pr-4', treeHidden && '@max-2xl:hidden')}>
-            {/* the switch sits in the page header's filter row, next to By folder / By person; a phone: under its
-                Filters button (components/PhoneFilters.tsx), so the two views and the button share one row */}
-            <InFolderHeader slot="filter">
-              <PhoneFilters active={ruledOnly ? 1 : 0} testId="tree-filters">
-                <span className="inline-flex h-9 items-center rounded-lg border border-line px-3 max-md:min-h-11">
-                  <Switch
-                    checked={ruledOnly}
-                    onChange={(on) => {
-                      setRuledOnly(on)
-                      if (on && !tree.data?.ruled) void tree.ruledPage(false)
-                      // back to the whole tree: the chosen folder is opened to again
-                      if (!on && selected !== null && selected !== '' && node) void reveal(selected)
-                    }}
-                    label={t('accessTree.ruledOnly')}
-                    testId="tree-ruled-only"
-                  />
-                </span>
-              </PhoneFilters>
-            </InFolderHeader>
+            {/* the switch sits in the page header's filter row, next to By folder / By person; a phone: under the
+                Filters icon in the bar, beside + (below) */}
+            {!phone && <InFolderHeader slot="filter">{ruledFilter}</InFolderHeader>}
             {/* how to read the tree: one small fold instead of a paragraph */}
             <details className="group mb-2 px-1.5 text-xs text-muted" data-testid="tree-how">
               <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded py-1 text-faint hover:text-ink [&::-webkit-details-marker]:hidden">
@@ -920,9 +926,16 @@ export default function AccessTree() {
     <>
       {/* no card: the tree and the chosen folder sit on the page, split by a hairline; Add folder is the header's button */}
       <InFolderHeader slot="actions">
-        <Button size="sm" variant="primary" onClick={() => void leaveEdit().then((ok) => ok && setPicking(true))} data-testid="folder-rule-new">
-          <Plus size={14} aria-hidden /> {t('rules.addFolder')}
-        </Button>
+        {phone ? (
+          <>
+            {tree.data && ruledFilter}
+            <BarAdd label={t('rules.addFolder')} onClick={() => void leaveEdit().then((ok) => ok && setPicking(true))} testId="folder-rule-new" />
+          </>
+        ) : (
+          <Button size="sm" variant="primary" onClick={() => void leaveEdit().then((ok) => ok && setPicking(true))} data-testid="folder-rule-new">
+            <Plus size={14} aria-hidden /> {t('rules.addFolder')}
+          </Button>
+        )}
       </InFolderHeader>
       <section aria-labelledby="access-tree-title" data-testid="access-tree">
         <h3 id="access-tree-title" ref={cardHeading} tabIndex={-1} className="sr-only">

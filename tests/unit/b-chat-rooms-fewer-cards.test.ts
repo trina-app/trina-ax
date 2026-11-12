@@ -252,16 +252,23 @@ describe('outside content saved into my folder', () => {
     const dup = await run('alice', await newChat('alice'), fake({ tool: 'read', args: { file_path: `${base}/duplicate.md` } }, { tool: 'remember', args: { text: `dup fact ${tag}` } }, { say: 'ok' }), () => 'no')
     expect(dup.cards).toHaveLength(1)
 
-    // a file a clean chat wrote, and one I wrote myself, in a folder of mine no marked answer touched: no card, the memory
-    // is kept (the folder above, made by hand, takes its name from the first save in it: the side chat's, so it counts)
+    // a file a clean chat wrote, in a folder of mine no marked answer touched: no card, the memory is kept (the folder
+    // above, made by hand, takes its name from the first save in it: the side chat's, so it counts)
     const plain = `users/alice/plain-${tag}`
     fs.mkdirSync(at(plain), { recursive: true })
     const clean = await run('alice', await newChat('alice'), fake(write(`${plain}/clean.md`, 'clean\n'), { say: 'ok' }))
     expect(turnMark(clean.turnId)).toBe(0)
-    put(`${plain}/by-hand.md`, 'by hand\n')
-    const ok = await run('alice', await newChat('alice'), fake({ tool: 'read', args: { file_path: `${plain}/clean.md` } }, { tool: 'read', args: { file_path: `${plain}/by-hand.md` } }, { tool: 'remember', args: { text: `plain fact ${tag}` } }, { say: 'ok' }), () => 'no')
+    const ok = await run('alice', await newChat('alice'), fake({ tool: 'read', args: { file_path: `${plain}/clean.md` } }, { tool: 'remember', args: { text: `plain fact ${tag}` } }, { say: 'ok' }), () => 'no')
     expect(ok.cards).toHaveLength(0)
     expect(memory(`plain fact ${tag}`)).toEqual({ source: 'ai' })
+    // a file put there outside the app (no AI turn wrote its bytes): its words are the file's, not the person's own
+    // message, so remember asks (QA TC-326); it counts only as content someone else wrote (no room card is affected)
+    put(`${plain}/by-hand.md`, 'by hand\n')
+    const byHand = newChat('alice')
+    const hand = await run('alice', await byHand, fake({ tool: 'read', args: { file_path: `${plain}/by-hand.md` } }, { tool: 'remember', args: { text: `hand fact ${tag}` } }, { say: 'ok' }), () => 'no')
+    expect(hand.cards).toHaveLength(1)
+    expect(memory(`hand fact ${tag}`)).toBeNull()
+    expect(chatRow(await byHand)).toMatchObject({ session_tainted: 1, room_outside: 0 })
     fs.rmSync(at(base), { recursive: true, force: true })
     fs.rmSync(at(plain), { recursive: true, force: true })
   })

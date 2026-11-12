@@ -30,7 +30,7 @@ import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
-import { awaitingFirstSignIn, canonicalService, splitByScope } from '../lib/integrations'
+import { canonicalService, connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
@@ -198,7 +198,7 @@ export function ConnectorsHome() {
       const c = connectorFor(i.url)
       return { name: i.name, row: (
         <ConnectorRow key={i.id} id={i.id} logo={c ? connectorLogo(c) : undefined} name={i.name}
-          status={awaitingFirstSignIn(i) ? 'signin' : i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'} onOpen={() => navigate(`/connectors/mcp/${i.id}`)} />
+          status={connectionRowStatus(i)} onOpen={() => navigate(`/connectors/mcp/${i.id}`)} />
       ) }
     }),
     ...fromTeam.rows,
