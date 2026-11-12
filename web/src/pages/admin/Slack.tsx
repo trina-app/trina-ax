@@ -1,4 +1,7 @@
-// Admin › Slack (the owner's; docs/SLACK.md). Not set up: four steps, each linking to its Slack page (make the app from
+// Admin › Connected apps › Slack (/admin/connectors/slack, a page of Integrations.tsx like a Google connector's; the
+// owner's; docs/SLACK.md). Until 2026-11-12 it was an Admin menu item of its own; /admin/slack leads here
+// (AdminLayout.tsx). On top the header of a connector's page (AppDetail.tsx: Connected apps › Slack, the logo, the name
+// and one line), then the settings. Not set up: four steps, each linking to its Slack page (make the app from
 // our manifest, install it, make the app-level token and copy the app's credentials, paste them: the tokens and the
 // client secret sealed in this browser for 'slack.token', never shown again, then turned on). Without the team's https
 // address one line says "Sign in with Slack" needs it. Set up: one status line with one button (turn on / off); a problem says the one
@@ -9,7 +12,7 @@
 // instead (the official app: nothing to copy, also on a phone); the four steps stay one link away. Added: the same
 // status line, with Remove (it takes the app off the workspace) in place of "Replace tokens". How "Add to Slack" went
 // comes back in the address (?slack=…) and is said once.
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { ApiError, SLACK, type SlackAdmin, type SlackErrorCode } from '@mycel/shared/api'
@@ -17,8 +20,10 @@ import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { outcomeText } from '../../lib/slackSignIn'
+import { SLACK_APP, slackLogo } from '../../lib/connectors'
 import { Badge, Button, Field, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
-import { AdminPageHeader, Card, Loadable, useAction, useLoad } from './common'
+import { AppDetail } from '../../components/integrations/AppDetail'
+import { Card, Loadable, useAction, useLoad } from './common'
 
 const STATE: Record<SlackAdmin['state'], { key: MessageKey; tone: 'neutral' | 'ok' | 'warn' | 'danger' }> = {
   off: { key: 'slack.state.off', tone: 'neutral' },
@@ -80,10 +85,14 @@ function CodeText({ text }: { text: string }) {
     : part)}</>
 }
 
-export default function AdminSlack() {
+/** `onChange`: the state as this page last read or changed it (Connected apps' Slack row shows it on the way back). */
+export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) => void } = {}) {
   const t = useT()
   // the page's own address: the manifest's redirect URL and where links open both come from it (and are the same)
   const state = useLoad(() => api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }))
+  const changed = useRef(onChange)
+  changed.current = onChange
+  useEffect(() => { if (state.data) changed.current?.(state.data) }, [state.data])
   const act = useAction()
   const [replacing, setReplacing] = useState(false)
   // the own app's four steps although the official app can be added here
@@ -100,8 +109,10 @@ export default function AdminSlack() {
     if (v) { state.setData(v); setReplacing(false) }
   }
   return (
-    <>
-      <AdminPageHeader title={t('slack.admin.title')} desc={t('slack.admin.desc')} testId="slack-admin" />
+    <AppDetail embedded list={{ to: '/admin/connectors', name: t('admin.integrations') }} testId="slack-admin" state={state.data?.state ?? 'loading'}
+      logo={slackLogo} name={SLACK_APP.name} byLine={t('slack.admin.desc')} tools={[]}>
+      {/* one block under the header: the cards keep their own spacing */}
+      <div data-testid="slack-settings">
       <Loadable state={state}>
         {(s) => {
           const fix = s.enabled && s.lastError ? FIX[s.lastError] : null
@@ -180,7 +191,8 @@ export default function AdminSlack() {
           )
         }}
       </Loadable>
-    </>
+      </div>
+    </AppDetail>
   )
 }
 

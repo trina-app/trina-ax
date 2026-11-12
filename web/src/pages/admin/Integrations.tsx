@@ -10,24 +10,28 @@
 // - **Discover**: what is not on yet: Google Drive, Gmail, Google Calendar, Google Docs, Google Sheets, then the listed
 //   MCP services (lib/connectors.ts), the first ten and Show all. A row opens its page; its + sets a Google one up (or
 //   opens its page) and adds a listed service for the team.
+// - **Slack** (the owner's only, as the server decides: admins never see it): a row in Connected once it is added, with
+//   its state (On, Off, Needs attention; Reconnect after the app was removed in Slack), else a card in Discover after
+//   the Google ones. Until 2026-11-12 it was an Admin menu item of its own (/admin/slack leads to its page now).
 // Pages, each its own address: a Google connector's (/admin/connectors/<id>, GoogleAdminPage.tsx: the member's page with
-// Team settings; the old ?drive=1 and ?app=gmail lead there, AdminLayout.tsx), a listed service's (ConnectorDetail:
+// Team settings; the old ?drive=1 and ?app=gmail lead there, AdminLayout.tsx), Slack's (/admin/connectors/slack,
+// Slack.tsx: Add to Slack or its own app's steps, its status, Turn off, Remove), a listed service's (ConnectorDetail:
 // Connect ⌄ for the team or as a template) and a team connection's (/admin/connectors/mcp/<id>: its row with who may use
 // it, test, edit, delete and its tools). Members' personal connections are not listed (nobody but the owner can use
 // those).
 import { Plus, Send } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, GoogleAppView, Group, Integration, IntegrationRequest, IntegrationTemplate, RequestableService, User } from '@mycel/shared/api'
+import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { CONNECTOR_DOCS, connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../../lib/connectors'
+import { CONNECTOR_DOCS, connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
-import { useMeStrict } from '../../store/session'
+import { isOwner, useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
 import { Badge, EmptyState, useMediaQuery } from '../../components/ui'
-import { ConnectorDetail, ConnectorRow, ConnectorsHeader, DiscoverCard, DISCOVER_FIRST, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds, type DiscoverItem } from '../../components/integrations/ConnectorsView'
+import { ConnectorDetail, ConnectorRow, ConnectorsHeader, DiscoverCard, DISCOVER_FIRST, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds, type DiscoverItem, type RowStatus } from '../../components/integrations/ConnectorsView'
 import { driveAdminLine, driveAdminOn, DriveSetupDialog } from '../../components/integrations/DriveConnector'
 import { googleAppAdminLine, googleAppAdminOn, GoogleAppSetupDialog } from '../../components/integrations/GoogleAppAdmin'
 import { DriveAdminPage, GoogleAppAdminPage } from '../../components/integrations/GoogleAdminPage'
@@ -39,8 +43,14 @@ import { toast } from '../../store/ui'
 import { Loadable, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { MemberAsks, useMemberAsks } from '../../components/integrations/MemberAsks'
+import AdminSlack from './Slack'
 
-type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'listed'; c: Connector } | { kind: 'team'; id: string }
+type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'slack' } | { kind: 'listed'; c: Connector } | { kind: 'team'; id: string }
+
+/** Slack's row on the right: added (on, off, a problem), or removed in Slack (Reconnect: Add to Slack again) */
+export const slackRowStatus = (s: SlackAdmin): RowStatus => (!s.tokens ? 'reconnect' : !s.enabled ? 'off' : s.state === 'error' ? 'attention' : 'on')
+/** Slack is in Connected (else a card in Discover): added, or removed in Slack and not added again */
+export const slackAdded = (s: SlackAdmin) => s.tokens || s.lastError === 'removed'
 
 export default function AdminIntegrations() {
   const t = useT()
@@ -57,6 +67,9 @@ export default function AdminIntegrations() {
   const [driveSetup, setDriveSetup] = useState(false)
   // Gmail, Google Calendar, Google Docs and Google Sheets on this server (an older server has none): set up per card
   const gapps = useLoad(async () => { try { return (await api.call(API.googleAppsAdminStatus)).apps } catch { return [] as GoogleAppAdminStatus[] } })
+  // Slack: the owner's (the server refuses admins too), so nobody else asks; it fails quietly (no row)
+  const owner = isOwner(me)
+  const slack = useLoad(async () => { if (!owner) return null; try { return await api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }) } catch { return null as SlackAdmin | null } })
   // Team settings' "Members can add their own connections": off, the admin's own ("Just for me") is refused too
   const personal = useLoad(async () => { try { return (await api.call(API.listIntegrations)).personalAllowed } catch { return true } })
   // the admin's own view of them (Connectors'), for each page's tools
@@ -71,9 +84,10 @@ export default function AdminIntegrations() {
   const open: Open | null = !sub ? null
     : sub === 'google-drive' ? { kind: 'drive' }
       : isGoogleApp(sub) ? { kind: 'gapp', id: sub }
+      : sub === SLACK_APP.id ? (owner ? { kind: 'slack' } : null)
         : sub === 'mcp' ? (item ? { kind: 'team', id: item } : null)
           : (() => { const c = CONNECTORS.find((x) => x.id === sub); return c ? { kind: 'listed' as const, c } : null })()
-  const pathOf = (o: Open) => (o.kind === 'drive' ? '/admin/connectors/google-drive' : o.kind === 'gapp' ? `/admin/connectors/${o.id}` : o.kind === 'listed' ? `/admin/connectors/${o.c.id}` : `/admin/connectors/mcp/${o.id}`)
+  const pathOf = (o: Open) => (o.kind === 'drive' ? '/admin/connectors/google-drive' : o.kind === 'gapp' ? `/admin/connectors/${o.id}` : o.kind === 'slack' ? SLACK_ADMIN_PATH : o.kind === 'listed' ? `/admin/connectors/${o.c.id}` : `/admin/connectors/mcp/${o.id}`)
   const setOpen = (o: Open | null) => {
     if (!o) { if (sub) upTo('/admin/connectors'); return }
     navigate(pathOf(o))
@@ -83,7 +97,7 @@ export default function AdminIntegrations() {
   useEffect(() => { if ((sub && !open) || teamGone) navigate('/admin/connectors', { replace: true }) }, [sub, open, teamGone, navigate])
   // the phone's bar names the connector whose page this is
   const teamOpen = open?.kind === 'team' ? state.data?.find((i) => i.id === open.id) : undefined
-  useAdminBar(open ? (open.kind === 'drive' || open.kind === 'gapp' ? builtInName(open.kind === 'drive' ? 'google-drive' : open.id) : open.kind === 'listed' ? open.c.name : teamOpen?.name ?? '') : null)
+  useAdminBar(open ? (open.kind === 'drive' || open.kind === 'gapp' ? builtInName(open.kind === 'drive' ? 'google-drive' : open.id) : open.kind === 'slack' ? SLACK_APP.name : open.kind === 'listed' ? open.c.name : teamOpen?.name ?? '') : null)
   const requests = useTeamRequests()
   // what members asked to have added (QA TC-133), read again when the team's list changes
   const memberAsks = useMemberAsks(state.data?.length)
@@ -140,7 +154,8 @@ export default function AdminIntegrations() {
           { label: t('integrations.requests.add'), icon: <Send size={15} aria-hidden />, onSelect: () => setAsk({}), testId: 'integration-request-add' },
         ]}
       />
-      <Loadable state={state}>
+      {/* Slack's page reads its own state, so it does not wait for the list */}
+      {open?.kind === 'slack' ? <AdminSlack onChange={(st) => slack.setData(st)} /> : <Loadable state={state}>
         {(list) => {
           const tpls = templates.data ?? []
           const d = drive.data
@@ -198,11 +213,18 @@ export default function AdminIntegrations() {
             return [{ id, name: builtInName(id), logo: builtInLogo(id), line: googleAppAdminLine(t, g), on, state: on ? 'added' as const : 'available' as const,
               onOpen: openIt, onAdd: () => { openIt(); if (g.canSetUp && !g.configured) setGappSetup(id) } }]
           })
+          // Slack (the owner's): added, a row in Connected; not yet, a card in Discover after the Google ones
+          const sl = slack.data
+          const openSlack = () => setOpen({ kind: 'slack' })
+          const slackLine = t('slack.admin.desc')
           // Connected: one line each, by name; then the templates and the requests
           const rows: { name: string; row: ReactNode }[] = [
             ...builtIns.filter((b) => b.on && fits(q, b.name)).map((b) => ({ name: b.name, row: (
               <ConnectorRow key={b.id} id={b.id} logo={b.logo} name={b.name} status="on" onOpen={b.onOpen} />
             ) })),
+            ...(sl && slackAdded(sl) && fits(q, SLACK_APP.name, slackLine) ? [{ name: SLACK_APP.name, row: (
+              <ConnectorRow key={SLACK_APP.id} id={SLACK_APP.id} logo={slackLogo} name={SLACK_APP.name} status={slackRowStatus(sl)} onOpen={openSlack} />
+            ) }] : []),
             ...list.filter((i) => matchesQuery(i, query)).map((i) => {
               const c = connectorFor(i.url)
               return { name: i.name, row: (
@@ -221,7 +243,9 @@ export default function AdminIntegrations() {
             id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c), state: 'available' as const,
             onOpen: () => setOpen({ kind: 'listed', c }), onAdd: () => setDialog({ connector: c, toList: true }),
           }))
-          const cards = [...builtIns.filter((b) => !b.on), ...listed].filter((c) => fits(q, c.name, c.line))
+          const slackCard: DiscoverItem[] = sl && !slackAdded(sl)
+            ? [{ id: SLACK_APP.id, name: SLACK_APP.name, line: slackLine, logo: slackLogo, state: 'available', onOpen: openSlack, onAdd: openSlack }] : []
+          const cards = [...builtIns.filter((b) => !b.on), ...slackCard, ...listed].filter((c) => fits(q, c.name, c.line))
           const shownCards = q || all ? cards : cards.slice(0, DISCOVER_FIRST)
           if (q && !connected && !cards.length) return <EmptyState title={t('integrations.noMatch', { q })} />
           return (
@@ -271,7 +295,7 @@ export default function AdminIntegrations() {
             </div>
           )
         }}
-      </Loadable>
+      </Loadable>}
       {ask && (
         <RequestDialog
           users={users.data ?? []}

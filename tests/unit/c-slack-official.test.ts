@@ -115,7 +115,7 @@ describe('Add to Slack (the owner)', () => {
     expect(resume.pathname).toBe('/slack/signin-return')
     expect(resume.searchParams.get('to')).toBe('install')
     const callback = `/api/integrations/slack/official/callback?${new URLSearchParams({ state: resume.searchParams.get('state')!, handoff: resume.searchParams.get('handoff')! })}`
-    expect(await open('dana', callback)).toBe('/admin/slack?slack=installed')
+    expect(await open('dana', callback)).toBe('/admin/connectors/slack?slack=installed')
     // the same return again: used
     expect(outcome(await open('dana', callback))).toBe('install_expired')
     // Slack itself was asked whose token it is
