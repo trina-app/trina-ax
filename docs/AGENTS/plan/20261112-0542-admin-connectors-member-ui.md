@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 05:42
 - Branch: `feat/admin-connectors-member-ui`
-- Status: in progress
+- Status: done
 - Where: `web/` (Admin › Connectors, `pages/admin/Integrations.tsx`, and the shared connector parts). Why: the web app's
   own screens; no server change (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. A new layout, and the members' switch is gone (its endpoints stay and change nothing); no
@@ -86,4 +86,10 @@ connectors, integrations, google-apps, drive, drive-team-share, phone-admin-page
 
 ## Result
 
-Filled in at the end.
+- Built as planned with the owner's A and B. Admin › Connectors: Connected and Discover in the member page's rows
+  (`ConnectorRow`, `DiscoverCard`, now shared in ConnectorsView.tsx); a Google connector's page is `AppDetail` with
+  Team settings (GoogleAdminPage.tsx, `SettingsSection`/`SettingRow`); a team connection's page is
+  `/admin/connectors/mcp/<id>`.
+- No members' switch (server, mock, web, tests, docs; docs/DECISIONS.md "No members' switch for connectors").
+- C: Google apps have no shared connection on the server; plan only, on branch `plan/google-apps-team-shares`.
+- Templates and requests stay one-line rows in the list (no page of their own yet).
