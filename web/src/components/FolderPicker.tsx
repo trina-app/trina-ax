@@ -71,7 +71,8 @@ export default function FolderPicker({
     next?.focus()
   }, [refocus])
   const dismiss = (folder: string) => {
-    setHints((h) => h && { ...h, suggested: h.suggested.filter((s) => s.path !== folder) })
+    // not under "Recent" either: there it would still read as suggested (the server leaves it out from then on)
+    setHints((h) => h && { ...h, suggested: h.suggested.filter((s) => s.path !== folder), recent: h.recent.filter((r) => r.path !== folder) })
     setRefocus((n) => n + 1)
     api.call(API.dismissMoveSuggestion, { body: { paths: moving, folder } }).catch(() => undefined)
   }

@@ -10,7 +10,9 @@
 //      python3 with openpyxl / python-docx, written in the folder the command starts in), never the form itself;
 //   4. saved as a new file named from the inputs, in the person's own folder or a folder they name (copied with box_shell
 //      into users/<id>/, moved with move_files);
-//   5. only when that fails, make_file with the same fields, saying the look may differ.
+//   5. only when that fails, make_file once with the same fields (no template, straight into that folder), saying the
+//      look may differ and what an admin turns on: the HWP plugin for a Hangul form, the dev environment for Excel/Word.
+// One save per file: a save the person allowed is never repeated (a room asks for each save).
 // The pure parts are here (material, instructions, reading the answer, the procedure); starting and sharing a draft are
 // in skill-draft.ts with S's.
 import path from 'node:path'
@@ -150,10 +152,21 @@ interface ProcText {
   save: string
   link: string
   fallback: (ext: string) => string
+  /** how make_file falls back: one call, the fields as its content, no template, straight where it belongs */
+  fallbackOnce: string
+  /** one save per file: a save the person allowed is never repeated (a room asks for each save) */
+  saveOnce: string
   /** what a Hangul form falls back to */
   hangulFallback: string
-  /** what the person is told when it falls back */
-  fallbackSay: string
+  /** what the person is told when it falls back: what an admin turns on (the Hangul plugin for a Hangul form, the dev
+   * environment for Excel and Word) */
+  fallbackSay: (how: string) => string
+  /** what fills a Hangul form: the HWP plugin, where an admin turns it on */
+  hangulOn: string
+  /** a Hangul form whose edit_hwp was there but failed: the plugin is not the reason, so no plugin advice */
+  hangulFailed: string
+  /** what fills an Excel or Word form */
+  devOn: string
 }
 
 const PROC: Record<Locale, ProcText> = {
@@ -167,8 +180,13 @@ const PROC: Record<Locale, ProcText> = {
     save: '팀원이 폴더를 말하지 않으면 팀원 개인 폴더(users/<id>/)에 저장해요: box_shell로 만든 파일은 `$TRINA_TEAM/users/<id>/`로 복사해요. 다른 폴더를 말하면 move_files로 그 폴더로 옮겨요.',
     link: '저장한 파일을 링크로 알려 주고, 채운 값을 한두 줄로 말해요.',
     fallback: (ext) => `채우기가 실패했을 때만(도구를 쓸 수 없거나 실행이 실패하면) make_file로 같은 내용의 새 파일(${ext})을 만들고, 모양이 양식과 다를 수 있다고 말해요.`,
+    fallbackOnce: 'make_file은 한 번만 불러요: 채운 항목을 `content`에 적고(.xlsx면 표로), `template`은 주지 않고(양식 파일은 make_file의 template이 될 수 없어요), `output`은 처음부터 5번의 폴더 안 새 파일 이름으로 줘요. 만든 뒤 다시 만들거나 옮기지 않아요.',
+    saveOnce: '파일은 한 번만 저장해요. 팀원이 허락한 저장(대화방에서는 저장마다 허락을 물어요)을 다시 하지 않고, 같은 파일을 두 번 만들지 않아요.',
     hangulFallback: '.hwpx, 한글 쓰기가 꺼져 있으면 .docx',
-    fallbackSay: '이때는 꼭 이렇게 말해요: 여기서는 양식 파일 자체를 채울 수 없어서 같은 항목으로 새 파일을 만들었다고, 그리고 자기 대화에서 열거나 관리자에게 개발 환경을 켜 달라고 하면 진짜 양식이 채워진다고.',
+    fallbackSay: (how) => `이때는 꼭 이렇게 말해요: 여기서는 양식 파일 자체를 채울 수 없어서 같은 항목으로 새 파일을 만들었다고, 그리고 ${how} 진짜 양식이 채워진다고.`,
+    hangulOn: '관리자에게 관리 › 플러그인에서 한글 문서 미리보기(HWP) 플러그인을 켜 달라고 하면',
+    hangulFailed: '단, edit_hwp가 있었는데 실패했다면 플러그인 얘기는 하지 말고, 양식의 어느 칸을 채우지 못했는지 말해요.',
+    devOn: '자기 대화에서 열거나 관리자에게 개발 환경을 켜 달라고 하면',
   },
   en: {
     inputs: 'Check the values the teammate gave (the inputs). Ask once, in one line, for a blank of the form that must be filled and has no value. Never invent a value.',
@@ -180,8 +198,13 @@ const PROC: Record<Locale, ProcText> = {
     save: 'Unless the teammate names a folder, save it in their own folder (users/<id>/): copy a file made with box_shell into `$TRINA_TEAM/users/<id>/`. If they name another folder, move it there with move_files.',
     link: 'Give the saved file as a link and say in a line or two what was filled in.',
     fallback: (ext) => `Only when filling fails (the tool is not available or the run fails), make a new file with the same fields with make_file (${ext}), and say that its look may differ from the form.`,
+    fallbackOnce: 'Call make_file once: the filled fields in `content` (a table for .xlsx), no `template` (a form file is not a template make_file takes), and `output` the new file\'s name in the folder of step 5 from the start. Do not make it again or move it afterwards.',
+    saveOnce: 'Save the file once. Never repeat a save the teammate allowed (in a team chat room every save waits for their yes), and never make the same file twice.',
     hangulFallback: 'a .hwpx, or a .docx when Hangul writing is off',
-    fallbackSay: 'Then say plainly: the form itself cannot be filled here, so you made a new file with the same fields; opening this in their own chat (or asking an admin to turn on the dev environment) fills the real form.',
+    fallbackSay: (how) => `Then say plainly: the form itself cannot be filled here, so you made a new file with the same fields; ${how} fills the real form.`,
+    hangulOn: 'asking an admin to turn on the Hangul document preview (HWP) plugin in Admin › Plugins',
+    hangulFailed: 'But if edit_hwp was there and failed, do not mention the plugin: say which blanks of the form could not be filled.',
+    devOn: 'opening this in their own chat (or asking an admin to turn on the dev environment)',
   },
   id: {
     inputs: 'Periksa nilai yang diberikan rekan tim (input). Tanyakan sekali, dalam satu baris, isian formulir yang wajib tetapi belum ada nilainya. Jangan mengarang nilai.',
@@ -193,8 +216,13 @@ const PROC: Record<Locale, ProcText> = {
     save: 'Kecuali rekan tim menyebut folder, simpan di folder pribadinya (users/<id>/): salin berkas buatan box_shell ke `$TRINA_TEAM/users/<id>/`. Jika ia menyebut folder lain, pindahkan ke sana dengan move_files.',
     link: 'Berikan berkas yang disimpan sebagai tautan dan sebutkan dalam satu dua baris apa yang diisi.',
     fallback: (ext) => `Hanya jika pengisian gagal (alatnya tidak tersedia atau gagal dijalankan), buat berkas baru dengan isian yang sama memakai make_file (${ext}), dan katakan bahwa tampilannya bisa berbeda dari formulir.`,
+    fallbackOnce: 'Panggil make_file sekali saja: isian yang sudah diisi di `content` (tabel untuk .xlsx), tanpa `template` (berkas formulir bukan templat yang diterima make_file), dan `output` sejak awal nama berkas baru di folder langkah 5. Jangan membuatnya lagi atau memindahkannya sesudahnya.',
+    saveOnce: 'Simpan berkas sekali saja. Jangan mengulang penyimpanan yang sudah diizinkan rekan tim (di ruang obrolan tim setiap penyimpanan menunggu persetujuannya), dan jangan membuat berkas yang sama dua kali.',
     hangulFallback: '.hwpx, atau .docx jika penulisan Hangul mati',
-    fallbackSay: 'Lalu katakan dengan jelas: formulirnya sendiri tidak bisa diisi di sini, jadi Anda membuat berkas baru dengan isian yang sama; membukanya di obrolan sendiri (atau meminta admin menyalakan lingkungan pengembangan) akan mengisi formulir yang asli.',
+    fallbackSay: (how) => `Lalu katakan dengan jelas: formulirnya sendiri tidak bisa diisi di sini, jadi Anda membuat berkas baru dengan isian yang sama; ${how} akan mengisi formulir yang asli.`,
+    hangulOn: 'meminta admin menyalakan plugin Pratinjau dokumen Hangul (HWP) di Admin › Plugin',
+    hangulFailed: 'Tetapi jika edit_hwp ada dan gagal, jangan sebut plugin: katakan isian formulir mana yang tidak bisa diisi.',
+    devOn: 'membukanya di obrolan sendiri (atau meminta admin menyalakan lingkungan pengembangan)',
   },
   ja: {
     inputs: 'メンバーが入れた値(入力)を確認します。テンプレートの空欄のうち必須なのに値がないものは、一行で一度だけ聞きます。値を作り出しません。',
@@ -206,8 +234,13 @@ const PROC: Record<Locale, ProcText> = {
     save: 'メンバーがフォルダーを指定しなければ本人のフォルダー(users/<id>/)に保存します: box_shell で作ったファイルは `$TRINA_TEAM/users/<id>/` にコピーします。別のフォルダーを指定されたら move_files でそこへ移します。',
     link: '保存したファイルをリンクで伝え、記入した内容を一、二行で伝えます。',
     fallback: (ext) => `記入に失敗したときだけ(ツールが使えないか実行に失敗したとき)、make_file で同じ項目の新しいファイル(${ext})を作り、見た目がテンプレートと違うことがあると伝えます。`,
+    fallbackOnce: 'make_file は一度だけ呼びます: 記入した項目を `content` に書き(.xlsx なら表で)、`template` は渡さず(テンプレートのファイルは make_file の template になりません)、`output` は最初から手順 5 のフォルダーの新しいファイル名にします。作った後で作り直したり移したりしません。',
+    saveOnce: 'ファイルの保存は一度だけです。メンバーが許可した保存(チャットルームでは保存のたびに許可を求めます)を繰り返さず、同じファイルを二度作りません。',
     hangulFallback: '.hwpx、Hangul の書き込みがオフなら .docx',
-    fallbackSay: 'そのときははっきり伝えます: ここではテンプレートのファイル自体に記入できないので同じ項目で新しいファイルを作ったこと、自分のチャットで開くか管理者に開発環境をオンにしてもらえば本物のテンプレートに記入できること。',
+    fallbackSay: (how) => `そのときははっきり伝えます: ここではテンプレートのファイル自体に記入できないので同じ項目で新しいファイルを作ったこと、${how}本物のテンプレートに記入できること。`,
+    hangulOn: '管理者に 管理 › プラグインでハングル文書のプレビュー(HWP)プラグインをオンにしてもらえば',
+    hangulFailed: 'ただし edit_hwp があったのに失敗した場合はプラグインの話はせず、テンプレートのどの欄を記入できなかったかを伝えます。',
+    devOn: '自分のチャットで開くか管理者に開発環境をオンにしてもらえば',
   },
   es: {
     inputs: 'Revise los valores que dio el compañero (las entradas). Pregunte una vez, en una línea, por un campo obligatorio de la plantilla que no tenga valor. Nunca invente un valor.',
@@ -219,8 +252,13 @@ const PROC: Record<Locale, ProcText> = {
     save: 'Salvo que el compañero indique una carpeta, guárdelo en su carpeta personal (users/<id>/): copie el archivo hecho con box_shell en `$TRINA_TEAM/users/<id>/`. Si indica otra carpeta, muévalo allí con move_files.',
     link: 'Dé el archivo guardado como enlace y diga en una o dos líneas qué se rellenó.',
     fallback: (ext) => `Solo si el relleno falla (la herramienta no está disponible o la ejecución falla), cree un archivo nuevo con los mismos campos con make_file (${ext}) y diga que su aspecto puede ser distinto del de la plantilla.`,
+    fallbackOnce: 'Llame a make_file una sola vez: los campos rellenados en `content` (una tabla para .xlsx), sin `template` (un archivo de plantilla no es un template que make_file acepte) y con `output` desde el principio el nombre del archivo nuevo en la carpeta del paso 5. No lo vuelva a crear ni lo mueva después.',
+    saveOnce: 'Guarde el archivo una sola vez. Nunca repita un guardado que el compañero ya permitió (en una sala de chat del equipo cada guardado espera su sí) y nunca cree el mismo archivo dos veces.',
     hangulFallback: 'un .hwpx, o un .docx si la escritura de Hangul está desactivada',
-    fallbackSay: 'Entonces dígalo claramente: aquí no se puede rellenar la propia plantilla, así que creó un archivo nuevo con los mismos campos; abrirlo en su propio chat (o pedir a un administrador que active el entorno de desarrollo) rellena la plantilla real.',
+    fallbackSay: (how) => `Entonces dígalo claramente: aquí no se puede rellenar la propia plantilla, así que creó un archivo nuevo con los mismos campos; ${how} rellena la plantilla real.`,
+    hangulOn: 'pedir a un administrador que active el complemento Vista previa de documentos Hangul (HWP) en Administración › Complementos',
+    hangulFailed: 'Pero si edit_hwp estaba disponible y falló, no mencione el complemento: diga qué campos de la plantilla no se pudieron rellenar.',
+    devOn: 'abrirlo en su propio chat (o pedir a un administrador que active el entorno de desarrollo)',
   },
 }
 
@@ -255,9 +293,9 @@ export function formSteps(m: Pick<FormMaterial, 'path' | 'type' | 'like' | 'loca
     `2. ${t.find(folder, like)}`,
     `3. ${t.keep} ${fill}`,
     `4. ${t.name(kind, ext)}`,
-    `5. ${t.save}`,
+    `5. ${t.save} ${t.saveOnce}`,
     `6. ${t.link}`,
-    `7. ${t.fallback(hangul ? t.hangulFallback : `.${ext}`)} ${t.fallbackSay}`,
+    `7. ${t.fallback(hangul ? t.hangulFallback : `.${ext}`)} ${t.fallbackOnce} ${t.fallbackSay(hangul ? t.hangulOn : t.devOn)}${hangul ? ` ${t.hangulFailed}` : ''}`,
   ].join('\n')
 }
 
