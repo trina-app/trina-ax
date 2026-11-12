@@ -122,9 +122,9 @@ test('withdrawn and declined requests: the member\'s link says what became of it
   await page.goto(`/connectors?request=${gone.id}`)
   await expect(page.getByTestId('integrations-asked-note')).toContainText('관리자가 Board 연결 요청을 철회했어요.')
   const wiki = page.getByTestId('integration-asked').filter({ hasText: 'Wiki' })
-  // a sign-in: the token goes to the address's host, even when the sign-in page is the real service's
+  // a sign-in at an address that is not in the app's list: the address, in plain words (no "token")
   await wiki.getByTestId('integration-asked-connect').click()
-  await expect(page.getByTestId('integration-answer-host-warning')).toContainText('로그인 토큰을 받는 곳: mcp.wiki.example.')
+  await expect(page.getByTestId('integration-answer-host-warning')).toContainText('로그인하면 이 주소(mcp.wiki.example)에서 내 Wiki 계정을 쓸 수 있게 돼요.')
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
   await expect(wiki).toContainText('관리자가 요청')
   await expect(wiki).not.toContainText('Olga')

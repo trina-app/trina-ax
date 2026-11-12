@@ -1546,7 +1546,8 @@ export class MockServer {
       const requestId = 'cc-notion'
       const request: TurnRequest = {
         kind: 'connect_service', requestId, target: 'service', name: 'Notion', scope: 'personal',
-        service: { kind: 'mcp', url: 'https://mcp.notion.example/mcp', host: 'mcp.notion.example', auth: 'none', authHeader: null },
+        // Notion's official address (shared/src/service-catalog.ts): a listed name at another address gets no button
+        service: { kind: 'mcp', url: 'https://mcp.notion.com/mcp', host: 'mcp.notion.com', auth: 'none', authHeader: null },
         why: '출시 페이지를 읽으려면 Notion 연결이 필요해요.', expiresAt: new Date(Date.now() + 60_000).toISOString(),
       }
       this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
