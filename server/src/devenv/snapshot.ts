@@ -28,7 +28,7 @@ export interface Change { path: string; action: 'create' | 'update' | 'delete'; 
 const sha = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex')
 
 /**
- * The kernel's path of an open file, or null. Linux: /proc/self/fd. macOS: Bun's realpath of /dev/fd/N asks the kernel
+ * The kernel's path of an open file, or null (throws for a bad fd; readInside catches it). Linux: /proc/self/fd. macOS: Bun's realpath of /dev/fd/N asks the kernel
  * for the path of that open file (F_GETPATH), with the real case of each name. The real path of the file's name now
  * would not do: between that check and the open (or a stat after it) the box can swap a folder for a link and back.
  * A runtime that does not resolve /dev/fd that way (Node returns /dev/fd/N) gets null, so nothing is read.
