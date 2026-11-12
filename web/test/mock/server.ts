@@ -4214,7 +4214,8 @@ export class MockServer {
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: (c) => {
       const mine = this.inbox.filter((n) => n.userId === c.user.id)
-      return { items: mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length }
+      // no conversation rows here (the specs that need them answer GET /api/notifications themselves)
+      return { items: mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length, roomUnreadCount: 0 }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
     markNotificationRead: (c) => {
