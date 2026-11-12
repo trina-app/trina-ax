@@ -7,19 +7,19 @@ With Slack connected, people ask Trina AX without leaving Slack: mention **@Trin
 direct message. Each question runs as the person who asked, with their own folder permissions, AI engine and limits,
 and the whole answer is also kept as a chat in Trina AX.
 
-It takes two short steps. The team's owner adds the app to Slack once, and each person links their own Slack account
+It takes two short steps. The team's owner or an admin adds the app to Slack once, and each person links their own Slack account
 once.
 
 :::note
 The screenshots on this page use a made-up team and workspace, "Acme".
 :::
 
-## Add Trina AX to Slack (the owner)
+## Add Trina AX to Slack (the owner or an admin)
 
 :::steps
 #### Open Slack in Admin › Connected apps
 In **Admin**, choose **Connected apps**. Slack is one of the services there: under **Discover** until it is added, then
-under **Connected**. Only the team's owner sees it.
+under **Connected**. The team's owner and admins see it.
 
 ![Admin › Connected apps: the Admin menu with Connected apps selected, and Slack among the services under Discover, after the Google apps](../images/slack/connected-apps.webp "Admin › Connected apps, with Slack under Discover")
 
@@ -100,11 +100,13 @@ Go back to Slack and ask your question again. From now on Trina AX answers right
 **Add to Slack** appears where the Trina hosting service serves your server: a hosted team, or a server you installed
 yourself that the hosting service has registered. Anywhere else, Slack's page in **Admin › Connected apps** shows
 **Connect a Slack app** instead: four steps to make your team's own Slack app from our manifest and paste its keys. Follow
-[Setting up the team's own app](../../SLACK.md#setting-up-the-teams-own-app-the-owner).
+[Setting up the team's own app](../../SLACK.md#setting-up-the-teams-own-app-the-owner). Only the team's owner can do
+this, because it means pasting the app's keys; an admin sees "Only the team owner can connect Slack here."
 
-You also see the four steps when your team's own Slack app is set up already. To switch, remove it first (**Replace
-tokens**, then **Remove Slack**), then press **Add to Slack**. If Slack isn't in Admin › Connected apps at all, you
-aren't the team's owner: ask them.
+You also see the four steps when your team's own Slack app is set up already. To switch, the owner removes it first
+(**Replace tokens**, then **Remove Slack**), then presses **Add to Slack**. An admin can turn the team's own app off and
+on, but only the owner can change or remove it. If Slack isn't in Admin › Connected apps at all, you aren't the
+team's owner or an admin: ask them.
 
 ## Remove or reconnect
 
@@ -126,8 +128,10 @@ Anyone can **Unlink** their own Slack account in **Settings › Connectors**, on
 
 ### Who can add Trina AX to Slack?
 
-The team's owner presses **Add to Slack** in Trina AX, and in Slack it has to be allowed by an admin or owner of the
-workspace. Admins of the team don't see Slack in Admin › Connected apps.
+The team's owner or an admin presses **Add to Slack** in Trina AX, and in Slack it has to be allowed by an admin or
+owner of the workspace. Admins can also turn it off and on, add it again, and remove it. Setting up your team's own
+Slack app (pasting its keys) is for the team's owner only. Members never see Admin; they link their own Slack account
+in **Settings › Connectors**.
 
 ### Does each person have to sign in?
 

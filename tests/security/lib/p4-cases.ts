@@ -13,6 +13,7 @@ export const P4_SPECS: Record<string, Spec> = {
   },
   listNotifications: { build: c => c.get('/api/notifications?userId=alice'), scope: 'self' },
   getNotification: { build: c => c.get('/api/notifications/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  markAllNotificationsRead: { build: c => c.post('/api/notifications/read', { tab: 'all' }), scope: 'self' },
   markNotificationRead: { build: c => c.post('/api/notifications/00000000-0000-7000-8000-000000000000/read'), scope: 'nobody' },
   getNotificationPreferences: { build: c => c.get('/api/notification-preferences?userId=alice'), scope: 'self' },
   updateNotificationPreferences: { build: c => c.patch('/api/notification-preferences', { scheduleSuccess: false, roomLevel: 'direct', roomThreadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }), scope: 'self' },

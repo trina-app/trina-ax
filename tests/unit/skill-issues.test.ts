@@ -128,3 +128,13 @@ test('a duplicate key in any case breaks a legacy header, also after a line that
   expect(checkSkill('---\nname: a\ndescription: |\n  name: b\n---\nBody', 'skills/x.md'))
     .toEqual({ ok: true, name: 'a', description: '|', body: 'Body' })
 })
+
+// QA TC-467 (2026-11-13): the change log called a skill's extra files "team rule" (reference.md written before its
+// SKILL.md by a share or a registered suggestion). Team rules are skills/*.md only; nothing deeper is one.
+test('only a header-less skills/*.md is a team rule; deeper files and personal skills folders are not', () => {
+  expect(skillFileKind(root, 'skills/plain-rule.md', 'Answer in Korean.\n')).toBe('rule')
+  for (const rel of ['skills/not-yet-a-skill/reference.md', 'skills/sales/notes.md', 'skills/a/b/c.md', 'users/u1/skills/notes.md', 'groups/sales/skills/notes.md']) {
+    expect(skillFileKind(root, rel, 'Plain text without a header.\n')).toBe('other')
+  }
+  expect(skillFileKind(root, 'skills/sales/quote.md', '---\nname: 견적\ndescription: d\n---\nB')).toBe('skill')
+})

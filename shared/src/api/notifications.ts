@@ -20,6 +20,9 @@ export const NotificationPreferences = z.object({
    * and where only, with the generic line. Older servers omit it (they never show the text). */
   messagePreview: z.boolean().optional(),
   quietHours: QuietHours.optional(),
+  /** a push when an answer in my own AI chat needs me: it finished, failed, or the AI waits for me (a question or a
+   * yes/no card) and I am not looking at that chat (docs/DECISIONS.md "AI 답변 알림"; default on). Older servers omit it. */
+  chatAnswers: z.boolean().optional(),
 })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
 /** A name or line from people (a person's or a room's name, a message's first line) made safe to show in one line of the
@@ -38,7 +41,10 @@ export function plainLabel(s: string, max = 80): string {
  * locked after too many wrong tries (docs/DECISIONS.md "W6"; handover_notices with their own deliveries,
  * handover_push_deliveries): no setting of their own, the owner may be away for days, and a note left only in the app
  * would reach the very session that may be stolen. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked'])
+/** chat.answer_done: an answer in my own AI chat finished, failed or waits for me (a question or a yes/no card), for the
+ * person who asked it only (chat_answer_notices with their own deliveries, chat_answer_push_deliveries; docs/DECISIONS.md
+ * "AI 답변 알림"). Pushed only: never listed in the Inbox (the chat list's markers show these chats). */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -215,12 +221,27 @@ export const InboxNotification = z.object({
   }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
+/** Activity's tabs (web/src/pages/Activity.tsx). */
+export const ActivityTab = z.enum(['all', 'mentions', 'threads'])
+export type ActivityTab = z.infer<typeof ActivityTab>
+/** Which tabs a notice shows under besides All: an @mention (or @everyone) under Mentions, a reply in a thread under
+ * Threads (in a direct or group chat too). A notice of the app's own is under All only (no DMs tab: direct and group
+ * chats are read in the conversation list). The page filters with it and the server marks a tab read with it
+ * (POST /api/notifications/read), so both follow one rule. */
+export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room'>, tab: ActivityTab): boolean {
+  if (tab === 'all') return true
+  const room = item.room
+  if (!room || (item.code !== 'room.dm' && item.code !== 'room.mention')) return false
+  if (tab === 'mentions') return item.code === 'room.mention' || room.reason === 'mention' || room.reason === 'everyone'
+  return !!room.thread
+}
 /** GET /api/notifications: `unreadCount` counts every unread row; `roomUnreadCount` is its part that is conversation rows
  * (mentions, replies in threads I follow) of rooms I did not mute, which the rooms list counts too (a phone's 나 tab
  * leaves them to 대화). `only=rooms`: the conversation rows alone (a phone's 멘션·스레드), the counts the same. */
 export const NOTIFICATIONS = {
   getNotification: endpoint({ method: 'GET', path: '/api/notifications/:id', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Read an own notification without marking read; current-access filtered and never cached.' }),
   listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional(), only: z.enum(['rooms']).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative(), roomUnreadCount: z.number().int().nonnegative().optional() }), summary: 'Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it.' }),
+  markAllNotificationsRead: endpoint({ method: 'POST', path: '/api/notifications/read', auth: 'user', owner: 'B', body: z.object({ tab: ActivityTab, only: z.enum(['rooms']).optional() }).strict(), response: z.object({ read: z.number().int().nonnegative() }), summary: 'Mark every unread own notification of an Activity tab read (only=rooms: the conversation rows alone); a conversation row also moves my read place in its room or thread to its newest message. Returns how many rows it marked.' }),
   markNotificationRead: endpoint({ method: 'POST', path: '/api/notifications/:id/read', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Mark an own notification read.' }),
   getNotificationPreferences: endpoint({ method: 'GET', path: '/api/notification-preferences', auth: 'user', owner: 'B', response: NotificationPreferences, summary: 'Own inbox event preferences. OS push opt-in is separate.' }),
   updateNotificationPreferences: endpoint({ method: 'PATCH', path: '/api/notification-preferences', auth: 'user', owner: 'B', body: NotificationPreferences.partial().strict(), response: NotificationPreferences, summary: 'Change own inbox event preferences and room notification settings (room default, thread replies, quiet hours).' }),

@@ -12,6 +12,7 @@ import {
   setAvailableMemoryForTests, setLimitsPlatformForTests, setPlanForTests, turnMemoryEstimateMiB, typstJobs, whisperThreads,
 } from '../../server/src/system/limits'
 import { setSetting } from '../../server/src/admin/settings'
+import { AUTH_MESSAGES } from '../../server/src/auth/messages'
 import { OWNER_PW, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
@@ -196,8 +197,14 @@ describe('seats (BIZ-01, UX-14)', () => {
     const acc = await anon.try('POST', `/api/invites/${inv.token}/accept`, { username: 'otto', name: 'Otto', password: 'quiet river stone 9' })
     expect(acc.status).toBe(409)
     expect(acc.body.error.code).toBe('plan_limit')
-    expect(acc.body.error.params).toMatchObject({ reason: 'seat_limit', limit: 3, manageUrl: 'https://app.teamax.example/billing' })
-    expect(acc.body.error.message).toContain('3')
+    expect(acc.body.error.params).toMatchObject({ reason: 'seat_limit', limit: 3 })
+    // the person accepting is not on the team: told to let whoever invited them know, never the admin's message with
+    // the billing link (QA TC-489)
+    expect(acc.body.error.params.manageUrl).toBeUndefined()
+    expect(acc.body.error.message).not.toContain('https://')
+    expect(Object.values(AUTH_MESSAGES.inviteTeamFull)).toContain(acc.body.error.message)
+    // the invite page says so before the form (as the team link): still valid, full, no inviter name
+    expect(await anon.call('GET', `/api/invites/${inv.token}`)).toMatchObject({ valid: true, full: true, inviterName: null })
     expect((await owner.call('GET', '/api/admin/invites')).items.find((i: any) => i.id === inv.invite.id).usedAt).toBeNull()
     expect((await owner.try('POST', '/api/admin/invites', { role: 'member' })).status).toBe(409)
     const add = await owner.try('POST', '/api/admin/users', { username: 'paul', name: 'Paul', role: 'member' })
@@ -206,6 +213,7 @@ describe('seats (BIZ-01, UX-14)', () => {
     // disabled accounts do not count: disabling one frees a seat, enabling it again needs a free one
     await owner.call('PATCH', `/api/admin/users/${m1.id}`, { status: 'disabled' })
     expect(seatsUsed(h.ctx.db)).toBe(2)
+    expect(await anon.call('GET', `/api/invites/${inv.token}`)).toMatchObject({ valid: true, full: false })
     expect((await anon.try('POST', `/api/invites/${inv.token}/accept`, { username: 'otto', name: 'Otto', password: 'quiet river stone 9' })).status).toBe(201)
     const again = await owner.try('PATCH', `/api/admin/users/${m1.id}`, { status: 'active' })
     expect(again.status).toBe(409)

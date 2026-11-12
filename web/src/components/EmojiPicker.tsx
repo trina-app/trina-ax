@@ -220,11 +220,12 @@ function Popover({ anchor, title, onClose, children }: { anchor: HTMLElement; ti
       if (s && (a.bottom < s.top || a.top > s.bottom)) return close.current()
       place()
     }
-    document.addEventListener('pointerdown', outside)
+    // in the capture phase: a press on something that keeps its press to itself (a reaction chip, a menu) closes it too
+    document.addEventListener('pointerdown', outside, true)
     document.addEventListener('scroll', moved, { capture: true, passive: true })
     window.addEventListener('resize', place)
     return () => {
-      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('pointerdown', outside, true)
       document.removeEventListener('scroll', moved, { capture: true })
       window.removeEventListener('resize', place)
       // the keyboard back to the button it came from, when it was in the picker

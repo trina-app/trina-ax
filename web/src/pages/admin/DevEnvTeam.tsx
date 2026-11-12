@@ -7,7 +7,7 @@ import { TerminalSquare } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { DevEnvTeamResponse, Group } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
-import { clampLimit, draftOf, limitMax, LIMIT_RANGE, needsWarning, teamBody, type DevEnvTeamDraft, type LimitKey } from '../../lib/dev-env-team'
+import { afterRefusedSave, clampLimit, draftOf, limitMax, LIMIT_RANGE, needsWarning, teamBody, type DevEnvTeamDraft, type LimitKey } from '../../lib/dev-env-team'
 import { useT } from '../../i18n'
 import { Badge, Button, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
 import { keepDraft, takeDraft, useDraftOwner } from '../../lib/keptDraft'
@@ -51,7 +51,10 @@ function DevEnvTeamForm() {
   const dirty = Object.keys(body).some((k) => k !== 'acceptWarning')
   const save = async () => {
     setBusy(true)
-    const x = await act(() => api.call(API.updateDevEnvTeam, { body }), t('common.saved'))
+    const x = await act(() => api.call(API.updateDevEnvTeam, { body }).catch((e: unknown) => {
+      if (isApiError(e, 'conflict')) setD((cur) => cur && afterRefusedSave(cur, r.setting, e.body.params?.reason))
+      throw e
+    }), t('common.saved'))
     setBusy(false)
     if (x) { setR(x); setD(draftOf(x.setting)); setAccept(false) }
   }

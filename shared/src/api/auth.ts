@@ -150,6 +150,9 @@ export const InviteInfo = z.object({
   /** who made the invite ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
    * from an older server */
   inviterName: z.string().nullable().optional(),
+  /** true while every seat of the plan is taken: accepting is refused until a seat is free (the page says so instead
+   * of the form). Absent from an older server */
+  full: z.boolean().optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({

@@ -1,13 +1,13 @@
 // Lock-screen text. Never message content (App Review 4.5.4): the gateway picks one of these generic lines from the
-// request's `code` and `locale`. The three event texts are the team server's (server/src/notifications/text.ts); a test
-// keeps them equal.
+// request's `code` and `locale`. The event texts are the team server's (server/src/notifications/text.ts); a test keeps
+// them equal.
 import type { PushLocale } from '../../shared/src/cloud-protocol/push-gateway.ts'
 
 type ByLocale = Record<PushLocale, string>
 
 export const DEFAULT_APP_TITLE = 'Trina AX'
 
-export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect', ByLocale> = {
+export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done', ByLocale> = {
   'schedule.success': {
     ko: '예약 작업이 완료됐어요.',
     en: 'A scheduled task completed.',
@@ -22,6 +22,12 @@ export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'conne
     ko: '연결에 다시 로그인이 필요해요.',
     en: 'A connection needs you to sign in again.',
     id: 'Koneksi perlu login ulang.', ja: '接続のために再ログインが必要です。', es: 'Una conexión requiere que vuelva a iniciar sesión.',
+  },
+  // an answer in my own AI chat needs me (finished, failed or waits for me); older team servers never send it
+  'chat.answer_done': {
+    ko: '트리나가 대화에 답했어요.',
+    en: 'Trina replied in your chat.',
+    id: 'Trina membalas di obrolan Anda.', ja: 'トリナがチャットで返信しました。', es: 'Trina respondió en su chat.',
   },
 }
 

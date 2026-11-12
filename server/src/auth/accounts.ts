@@ -361,9 +361,9 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const valid = inviteValid(ctx.db, r!, authOf(ctx).now())
   // who made it, only while it works ("{inviter} invited you to {team}"): not while every seat is taken either, when the
   // accept is refused (the team link's 'full'); `valid` stays as it was, so the page does not say "expired or used"
-  const max = seatLimit()
-  const inviterName = valid && (max === null || seatsUsed(ctx.db) < max) && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName }
+  const full = valid && seatsFull(ctx.db)
+  const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName, full }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
@@ -386,8 +386,10 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
     // checked again inside the write: the maker may have been demoted, disabled or deleted during the (slow) hash
     const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r!.id) as InviteRow | null
     if (!fresh || !inviteValid(ctx.db, fresh, a.now())) return 'gone'
-    // the plan's seats, inside the write: two accepts at once cannot both take the last one (409, nothing used up)
-    assertSeatFree(ctx.db, locale)
+    // the plan's seats, inside the write: two accepts at once cannot both take the last one (409, nothing used up). The
+    // person accepting is not on the team yet: they are told to let whoever invited them know, never the admin's
+    // "disable an account or change the plan" with the billing link (QA TC-489)
+    if (seatsFull(ctx.db)) fail('plan_limit', msg('inviteTeamFull', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
     // one use only, even with concurrent accepts
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r!.id, now)
     if (res.changes !== 1) return 'gone'
@@ -418,6 +420,11 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   return a.signIn(c, id, b.client, b.tokenMode)
 }
 class UsernameTaken extends Error {}
+/** every seat of the plan is taken (no plan file: never) */
+function seatsFull(db: Database): boolean {
+  const max = seatLimit()
+  return max !== null && seatsUsed(db) >= max
+}
 
 // ---------------- password reset links ----------------
 /**

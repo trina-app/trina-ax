@@ -20,6 +20,19 @@ export type { MarkedChat, Marker, MarkerKind, MarkerReason, MarkerView }
 export type IconBadge = number | 'dot'
 export const iconBadge = (a: { n: number; unread: boolean }): IconBadge => (a.n > 0 ? a.n : a.unread ? 'dot' : 0)
 
+/** ⌘K's "Needs attention" (components/SearchDialog.tsx): the chats whose row shows a marker, each with it, by the same
+ * rule and view as the sidebar's rows (`here`: the chat on screen in a visible window; `cards`: the chats with a card
+ * open in this window). Your turn ("?") first, then a new answer, then the ring; the latest activity first in each. */
+export function markedChats<C extends MarkedChat & Pick<Chat, 'id' | 'updatedAt'>>(chats: readonly C[], o: { here?: string | null; cards?: ReadonlySet<string> } = {}): { chat: C; marker: Marker }[] {
+  const rank: Record<MarkerKind, number> = { ask: 0, new: 1, running: 2 }
+  return chats
+    .flatMap((chat) => {
+      const marker = markerOf(chat, { here: chat.id === o.here, card: o.cards?.has(chat.id) })
+      return marker ? [{ chat, marker }] : []
+    })
+    .sort((a, b) => rank[a.marker.kind] - rank[b.marker.kind] || b.chat.updatedAt.localeCompare(a.chat.updatedAt))
+}
+
 /** The 트리나 기록 filter "답변 중이거나 내 답을 기다림": spinner and "?" rows (failed and paused included), not new ones. */
 export const waitingOrRunning = (c: MarkedChat, v: MarkerView = {}) => {
   const m = markerOf(c, v)

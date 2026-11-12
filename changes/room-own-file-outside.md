@@ -1,0 +1,1 @@
+- Room AI: an answer that read only your own file no longer says, when you post it, that it used content from the web or a connected service.

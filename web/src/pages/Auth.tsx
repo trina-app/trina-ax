@@ -696,6 +696,14 @@ export function AcceptInvite() {
         <SignInInstead />
       </AuthFrame>
     )
+  // every seat of the plan is taken: no form that would only be refused after it was filled in (as the team link)
+  if (info.full)
+    return (
+      <AuthFrame title={t('invite.title')}>
+        <p className="text-sm text-muted" data-testid="invite-full">{t('invite.full')}</p>
+        <SignInInstead />
+      </AuthFrame>
+    )
   return (
     <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       <JoinChoices path={`/invite/${token}`}>

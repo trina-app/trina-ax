@@ -136,6 +136,15 @@ test('the keyboard: ↓ into the grid, arrows move; Esc closes and gives the key
   await expect(pop).toBeVisible()
   await page.mouse.click(700, 300)
   await expect(pop).toHaveCount(0)
+  // and a press on another message's reaction (which keeps its press from the message): the picker goes, and the press
+  // is the reaction's
+  await (await strip(msg)).getByTestId('reaction-more').click()
+  await expect(pop).toBeVisible()
+  const before = room.reacted.length
+  await page.getByTestId('room-message').nth(1).getByTestId('reaction-chip').first().click()
+  await expect(pop).toHaveCount(0)
+  await expect.poll(() => room.reacted.length).toBe(before + 1)
+  expect(room.reacted.at(-1)?.messageId).toBe(id(2))
 })
 
 test(`a message with 20 different emoji: a new one is refused before asking the server; one that is there still works`, async ({ page }) => {
