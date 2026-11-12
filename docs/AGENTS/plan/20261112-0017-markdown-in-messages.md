@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 00:17
 - Branch: `fix/markdown-in-messages`
-- Status: in progress
+- Status: done
 - Where: web (components/rooms, components/Markdown.tsx, lib). Why: a UI rule change requested by the owner.
 - Version impact: minor — a new user-visible behaviour (people's messages render Markdown).
 
@@ -41,3 +41,7 @@ typecheck, check:i18n, check:docs, build:web, test:web; e2e room*, dm*, thread*,
 
 ## Result
 
+Built as planned. `lib/messageMarkdown.ts` also turns footnotes and "#…" links into text (they jumped out of the
+room), resolves reference links so they get the same checks, and shows the real address after a link whose words are
+(or look like) another site's address. Mentions may follow Markdown marks ("**@Ben**"). Reviewed by an independent
+reviewer (approve after two rounds). PR: see the branch `fix/markdown-in-messages`.
