@@ -1,4 +1,5 @@
-import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
+import { PhotoPicks, PhotoRefused } from './photos'
+import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPicks, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -117,11 +118,13 @@ export interface PushBridge {
 /** Where Back goes in the page on screen (nav-v1): `home` is true unless the page said it is on another tab. */
 export interface PageNav { canGoBack: boolean; home: boolean }
 /** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. `share`
- * (share-text-v1): the phone's share sheet with a text, answered once the sheet is up or closed. */
+ * (share-text-v1): the phone's share sheet with a text, answered once the sheet is up or closed. `photos`
+ * (photo-pick-v1): the phone's photo picker and the picked files' bytes, fenced with the file transfers. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>) {}
-  async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.files.clear() }
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>, private photos?: PhotoPicks) {}
+  private async fence() { await this.files.clear(); await this.photos?.clear() }
+  async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.fence() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {
     if (!this.enabled || !sameTeam(this.origin, sourceUrl)) return null
@@ -134,7 +137,7 @@ export class MobileReceiver {
       // the session ended: names must not stay on the lock screen, and the extension must not ask for more; done before
       // the answer, so the next sign-in's key is never deleted by this
       if (m.signedOut === true) await this.push?.signedOut?.().catch(() => {})
-      await this.files.clear()
+      await this.fence()
       return this.enabled && this.config.nonce === current.nonce ? { ...reply, nextGeneration: this.config.generation } : null
     }
     try {
@@ -170,8 +173,18 @@ export class MobileReceiver {
       } else if (m.type === 'share-text') {
         if (!this.share || !current.capabilities.includes(SHARE_TEXT_CAPABILITY)) throw new Error('unsupported')
         await this.share(m.text)
+      } else if (m.type === 'photo-pick' || m.type === 'photo-chunk' || m.type === 'photo-done') {
+        if (!this.photos || !current.capabilities.includes(PHOTO_PICK_CAPABILITY)) throw new Error('unsupported')
+        const owner = { id: m.id, generation: m.generation, nonce: m.nonce }
+        if (m.type === 'photo-pick') {
+          const picks = await this.photos.pick({ ...owner, limit: m.limit })
+          // the page checks the same again (web/src/lib/mobile.ts)
+          if (!validPicks(picks.files, picks.tooBig, m.limit)) { await this.photos.done(owner).catch(() => {}); throw new Error('photo_invalid') }
+          reply.files = picks.files; reply.tooBig = picks.tooBig
+        } else if (m.type === 'photo-chunk') reply.b64 = await this.photos.chunk({ ...owner, seq: m.seq, index: m.index, offset: m.offset })
+        else await this.photos.done(owner)
       } else await this.files.receive(m)
-    } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused ? error.code : 'mobile_operation_failed' }
+    } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused || error instanceof PhotoRefused ? error.code : 'mobile_operation_failed' }
     return this.enabled && this.config === current ? reply : null
   }
 }

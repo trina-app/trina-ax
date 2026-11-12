@@ -11,7 +11,9 @@ import { WebView as NativeWebView, type WebViewProps } from 'react-native-webvie
 import { FileTransfers, MobileReceiver, StuckLoad, stillStuck, type PageNav } from './src/bridge'
 import { backAction, backGestures, openScript, START_TAB_SCRIPT } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
-import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
+import { PhotoPicks } from './src/photos'
+import { clearPickCache, photoPickIO } from './src/photo-io'
+import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
 import { devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
@@ -137,6 +139,8 @@ export default function App() {
   useEffect(() => windowLook(page), [page])
   useEffect(() => {
     try { clearDownloadCache() } catch { /* a later operation reports an inaccessible cache */ }
+    // copies of picked photos a closed app never handed over (src/photo-io.ts)
+    clearPickCache()
     let off = () => {}
     void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam()]).then(async ([origin, chosen, pads]) => {
       since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads
@@ -432,7 +436,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
       token: () => devicePushToken(t.channelName),
       async registered({ deviceId, removeKey }) {
@@ -455,7 +459,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
     }, nav => setPageNav(p => p?.canGoBack === nav.canGoBack && p.home === nav.home ? p : nav), async text => {
       // share-text-v1: the phone's own share sheet (the team invite message to KakaoTalk, Slack, a text message)
       await Share.share({ message: text })
-    })
+    // photo-pick-v1: the phone's own photo picker for the page's 사진 보관함 (no iOS menu before the library)
+    }, new PhotoPicks(photoPickIO()))
     void receiver.current.disable()
   }
   const r = receiver.current
