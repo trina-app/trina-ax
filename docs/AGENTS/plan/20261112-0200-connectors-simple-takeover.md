@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:00
 - Branch: `feat/connectors-simple` (PR #399, taken over by session trina-ax-1e; rebuilt on dev after #534)
-- Status: in progress
+- Status: done
 - Where: `web/`. Why: connectors and onboarding are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a step that connects in one click; nothing new to set up
 
@@ -45,3 +45,11 @@ missing:
 
 ## Result
 
+Built as planned on dev 4526b4af9, after #534 had landed the simple page; the branch was rebuilt (force-with-lease).
+The first takeover merged #399 with dev and kept its own versions of the ask-an-admin cards, the never-signed-in rows
+and the server texts. #534 made the same choices its own way, so they are dev's now and not repeated here.
+
+Tests:
+- `bun run typecheck`, `bun run check:i18n` and `bun run check:docs` pass. `bun run test:web`: 2704 pass.
+- e2e (chromium, built app): welcome-tools, connectors-hub, integrations and drive, 34 passed, 1 skipped. That includes
+  the new "Notion in one click" and "no Drive: its card says so".
