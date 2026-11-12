@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 07:36
 - Branch: `fix/catalog-lookalikes`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`shared/src/service-catalog.ts`, `server/src/chat/connect-service.ts`,
   `web/src/lib/connectCard.ts`). Why: the chat's connect card is core (docs/REPOSITORY-RULES.md).
 - Version impact: patch. A security hardening of #582; no API or data change.
@@ -54,4 +54,6 @@ Out: the full Unicode confusables table; renaming saved connections.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The look-alike map runs before and after lower case. `mixedScript` and `posesAsListed` live in
+`shared/src/service-catalog.ts`. The server uses them for new cards and reconnect cards, and the web card's `cardTrust`
+uses them too. The new server tests fail on the handler and list from #582.
