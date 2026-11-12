@@ -752,32 +752,85 @@ describe('another key on the same card follows the rules of now', () => {
   })
 })
 
-describe('a service in the app\'s list (QA TC-135)', () => {
-  test('"Notion" at a made-up address: the card goes to Notion\'s official address, and the AI is told its address was not used', async () => {
-    const t = await start('erin', { name: 'Notion', kind: 'mcp', url: 'https://notion-mcp.example.com/mcp', auth: 'oauth', why: 'connect Notion' })
-    const card = await cardOf(t.turnId)
-    expect(card).toMatchObject({ name: 'Notion', scope: 'personal', service: { kind: 'mcp', url: 'https://mcp.notion.com/mcp', host: 'mcp.notion.com', auth: 'oauth', authHeader: null } })
-    expect(JSON.stringify(card)).not.toContain('example.com')
-    expect((await post('erin', t.turnId, { action: 'skip', requestId: card.requestId })).body).toMatchObject({ state: 'skipped' })
-    const r = resultOf(await doneOf(t.messageId))
-    expect(r).toMatchObject({ skipped: true })
-    expect(r.note).toContain("not Notion's official address and was not used")
-    expect(rowsAt('https://notion-mcp.example.com/mcp')).toEqual([])
+describe('a service in the app\'s list (QA TC-135; editions: owner decision 2026-11-12)', () => {
+  const made = 'https://notion-mcp.example.com/mcp'
+  test('a listed name, a look-alike or a local name at another address: an unknown service named by its host, at the address given', async () => {
+    const cases = [
+      { name: 'Notion', url: made },
+      { name: 'Notion workspace', url: made },
+      { name: 'N\u043etion', url: made },
+      { name: '노션', url: made },
+      { name: 'Acme GitLab', url: 'https://gitlab.acme.com/api/v4/mcp' },
+      { name: 'GitLab', url: 'https://gitlab.acme.com/api/v4/mcp' },
+    ]
+    for (const c of cases) {
+      const t = await start('erin', { ...c, kind: 'mcp', auth: 'oauth' })
+      const card = await cardOf(t.turnId)
+      const host = new URL(c.url).host
+      expect(card, c.name).toMatchObject({ name: host, service: { kind: 'mcp', url: c.url, host, auth: 'oauth' } })
+      expect(JSON.stringify(card)).not.toMatch(/"name":"(Notion|GitLab)/)
+      await post('erin', t.turnId, { action: 'skip', requestId: card.requestId })
+      const r = resultOf(await doneOf(t.messageId))
+      expect(r).toMatchObject({ skipped: true })
+      expect(r.note).toBeUndefined()
+    }
+    expect(rowsAt(made)).toEqual([])
   })
 
-  test('a name that holds a listed service\'s at another address: no card; a listed service\'s address: its own name and sign-in', async () => {
+  test('the official address under any name, or a listed name at its official host: the list\'s address, name and sign-in', async () => {
     const t = await start('erin',
-      { name: 'Notion workspace', kind: 'mcp', url: 'https://notion-mcp.example.com/mcp', auth: 'oauth' },
       { name: 'Team wiki', kind: 'mcp', url: 'https://mcp.notion.com/mcp/', auth: 'bearer' },
+      { name: 'Notion', kind: 'mcp', url: 'https://mcp.notion.com/other?x=1', auth: 'bearer' },
     )
-    const card = await cardOf(t.turnId)
-    // the second call's card: the official name, address and sign-in, not the AI's name or key
-    expect(card).toMatchObject({ name: 'Notion', service: { url: 'https://mcp.notion.com/mcp', auth: 'oauth' } })
-    await post('erin', t.turnId, { action: 'skip', requestId: card.requestId })
+    const first = await cardOf(t.turnId)
+    expect(first).toMatchObject({ name: 'Notion', service: { url: 'https://mcp.notion.com/mcp', host: 'mcp.notion.com', auth: 'oauth', authHeader: null } })
+    await post('erin', t.turnId, { action: 'skip', requestId: first.requestId })
+    const second = await waitFor(() => cards(t.turnId)[1], { timeoutMs: 20_000, what: 'second card' })
+    expect(second).toMatchObject({ name: 'Notion', service: { url: 'https://mcp.notion.com/mcp', auth: 'oauth' } })
+    await post('erin', t.turnId, { action: 'skip', requestId: second.requestId })
     const m = await doneOf(t.messageId)
-    expect(m.content).toContain('contains Notion, a service in this app\'s list')
-    expect(cards(t.turnId)).toHaveLength(1)
-    expect(rowsAt('https://notion-mcp.example.com/mcp')).toEqual([])
+    expect(m.content).toContain("not Notion's official address and was not used")
+  })
+
+  test('an ordinary word that is a listed service\'s name is not that service inside a longer name', async () => {
+    const url = `${svc.base}/mcp-open?sqft=1`
+    const t = await start('erin', { name: 'Square Feet API', kind: 'mcp', url, auth: 'none' })
+    const card = await cardOf(t.turnId)
+    expect(card).toMatchObject({ name: 'Square Feet API', service: { url } })
+    await post('erin', t.turnId, { action: 'skip', requestId: card.requestId })
+    await doneOf(t.messageId)
+  })
+})
+
+describe('a team connection limited to other people is never named to the caller (review of #582)', () => {
+  test('a member\'s team request is refused before anything is looked up; a personal one does not see it; an admin outside it is told without its name', async () => {
+    const url = `${svc.base}/mcp-open?finance=1`
+    const carol = activeUser(h.ctx.db, 'carol')!
+    const team = await integrationsOf(h.ctx).create(carol, { kind: 'mcp', name: 'Finance board', url, auth: 'none', writePolicy: 'ask', access: { everyone: false, groups: [], users: ['dana'] } }, 'team', 'en')
+    try {
+      expect(team.status).toBe('connected')
+      const t = await start('erin', { name: 'Board', kind: 'mcp', url, auth: 'none', scope: 'team' })
+      const m = await doneOf(t.messageId)
+      expect(cards(t.turnId)).toEqual([])
+      expect(m.content).toContain('Only an admin can add a team connection')
+      expect(m.content).not.toContain('Finance')
+      expect(m.content).not.toContain('already')
+      // a personal request: the team connection is not hers, so she gets a card for her own, and its name never shows
+      const p = await start('erin', { name: 'Board', kind: 'mcp', url, auth: 'none' })
+      const card = await cardOf(p.turnId)
+      expect(card).toMatchObject({ name: 'Board', scope: 'personal' })
+      await post('erin', p.turnId, { action: 'skip', requestId: card.requestId })
+      expect((await doneOf(p.messageId)).content).not.toContain('Finance')
+      // an admin who may not use it: told it exists, never its name, never "its tools are yours"
+      const c = await start('carol', { name: 'Board', kind: 'mcp', url, auth: 'none', scope: 'team' })
+      const cm2 = await doneOf(c.messageId)
+      expect(cards(c.turnId)).toEqual([])
+      expect(cm2.content).toContain('not among the people who may use it')
+      expect(cm2.content).not.toContain('Finance')
+      expect(cm2.content).not.toContain('tools are yours')
+    } finally {
+      await integrationsOf(h.ctx).remove(carol, team.id)
+    }
   })
 })
 

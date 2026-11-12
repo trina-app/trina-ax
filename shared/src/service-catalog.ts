@@ -5,45 +5,45 @@
 // goes to the official address (server/src/chat/connect-service.ts, docs/DECISIONS.md "The chat's connect card trusts
 // the app's list"). One list, here only.
 export const SERVICE_CATALOG = [
-  { id: 'notion', name: 'Notion', url: 'https://mcp.notion.com/mcp' },
-  { id: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp' },
-  { id: 'atlassian', name: 'Atlassian', url: 'https://mcp.atlassian.com/v1/mcp' },
-  { id: 'canva', name: 'Canva', url: 'https://mcp.canva.com/mcp' },
-  { id: 'figma', name: 'Figma', url: 'https://mcp.figma.com/mcp' },
-  { id: 'stripe', name: 'Stripe', url: 'https://mcp.stripe.com/' },
-  { id: 'supabase', name: 'Supabase', url: 'https://mcp.supabase.com/mcp' },
-  { id: 'cloudflare', name: 'Cloudflare', url: 'https://mcp.cloudflare.com/mcp' },
-  { id: 'higgsfield', name: 'Higgsfield', url: 'https://mcp.higgsfield.ai/mcp' },
+  { id: 'notion', name: 'Notion', url: 'https://mcp.notion.com/mcp', aliases: ['노션', 'ノーション'] },
+  { id: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp', ambiguous: true, aliases: ['리니어'] },
+  { id: 'atlassian', name: 'Atlassian', url: 'https://mcp.atlassian.com/v1/mcp', aliases: ['아틀라시안', 'jira', '지라', 'confluence', '컨플루언스'] },
+  { id: 'canva', name: 'Canva', url: 'https://mcp.canva.com/mcp', aliases: ['캔바'] },
+  { id: 'figma', name: 'Figma', url: 'https://mcp.figma.com/mcp', aliases: ['피그마', 'フィグマ'] },
+  { id: 'stripe', name: 'Stripe', url: 'https://mcp.stripe.com/', ambiguous: true, aliases: ['스트라이프'] },
+  { id: 'supabase', name: 'Supabase', url: 'https://mcp.supabase.com/mcp', aliases: ['수파베이스'] },
+  { id: 'cloudflare', name: 'Cloudflare', url: 'https://mcp.cloudflare.com/mcp', aliases: ['클라우드플레어'] },
+  { id: 'higgsfield', name: 'Higgsfield', url: 'https://mcp.higgsfield.ai/mcp', aliases: ['힉스필드'] },
   { id: 'ahrefs', name: 'Ahrefs', url: 'https://api.ahrefs.com/mcp/mcp' },
-  { id: 'airtable', name: 'Airtable', url: 'https://mcp.airtable.com/mcp' },
+  { id: 'airtable', name: 'Airtable', url: 'https://mcp.airtable.com/mcp', aliases: ['에어테이블'] },
   { id: 'brex', name: 'Brex', url: 'https://api.brex.com/mcp' },
   { id: 'calendly', name: 'Calendly', url: 'https://mcp.calendly.com' },
-  { id: 'clickup', name: 'ClickUp', url: 'https://mcp.clickup.com/mcp' },
+  { id: 'clickup', name: 'ClickUp', url: 'https://mcp.clickup.com/mcp', aliases: ['클릭업'] },
   { id: 'cloudinary', name: 'Cloudinary', url: 'https://asset-management.mcp.cloudinary.com/mcp' },
-  { id: 'gitlab', name: 'GitLab', url: 'https://gitlab.com/api/v4/mcp' },
-  { id: 'indeed', name: 'Indeed', url: 'https://mcp.indeed.com/claude/mcp' },
-  { id: 'intercom', name: 'Intercom', url: 'https://mcp.intercom.com/mcp' },
-  { id: 'mermaid', name: 'Mermaid Chart', url: 'https://mcp.mermaid.ai/mcp' },
+  { id: 'gitlab', name: 'GitLab', url: 'https://gitlab.com/api/v4/mcp', aliases: ['깃랩'] },
+  { id: 'indeed', name: 'Indeed', url: 'https://mcp.indeed.com/claude/mcp', ambiguous: true },
+  { id: 'intercom', name: 'Intercom', url: 'https://mcp.intercom.com/mcp', ambiguous: true },
+  { id: 'mermaid', name: 'Mermaid Chart', url: 'https://mcp.mermaid.ai/mcp', ambiguous: true },
   { id: 'mintlify', name: 'Mintlify', url: 'https://mcp.mintlify.com' },
-  { id: 'monday', name: 'Monday', url: 'https://mcp.monday.com/mcp' },
-  { id: 'neon', name: 'Neon', url: 'https://mcp.neon.tech/mcp' },
+  { id: 'monday', name: 'Monday', url: 'https://mcp.monday.com/mcp', ambiguous: true, aliases: ['먼데이닷컴'] },
+  { id: 'neon', name: 'Neon', url: 'https://mcp.neon.tech/mcp', ambiguous: true },
   { id: 'netlify', name: 'Netlify', url: 'https://netlify-mcp.netlify.app/mcp' },
   { id: 'openrouter', name: 'OpenRouter', url: 'https://mcp.openrouter.ai/mcp' },
-  { id: 'paypal', name: 'PayPal', url: 'https://mcp.paypal.com/mcp' },
+  { id: 'paypal', name: 'PayPal', url: 'https://mcp.paypal.com/mcp', aliases: ['페이팔'] },
   { id: 'planetscale', name: 'PlanetScale', url: 'https://mcp.pscale.dev/mcp/planetscale' },
   { id: 'posthog', name: 'PostHog', url: 'https://mcp.posthog.com/mcp' },
-  { id: 'postman', name: 'Postman', url: 'https://mcp.postman.com/mcp' },
-  { id: 'railway', name: 'Railway', url: 'https://mcp.railway.com' },
+  { id: 'postman', name: 'Postman', url: 'https://mcp.postman.com/mcp', ambiguous: true },
+  { id: 'railway', name: 'Railway', url: 'https://mcp.railway.com', ambiguous: true },
   { id: 'razorpay', name: 'Razorpay', url: 'https://mcp.razorpay.com/mcp' },
-  { id: 'resend', name: 'Resend', url: 'https://mcp.resend.com/mcp' },
-  { id: 'sanity', name: 'Sanity', url: 'https://mcp.sanity.io' },
-  { id: 'sentry', name: 'Sentry', url: 'https://mcp.sentry.dev/mcp' },
-  { id: 'square', name: 'Square', url: 'https://mcp.squareup.com/mcp' },
+  { id: 'resend', name: 'Resend', url: 'https://mcp.resend.com/mcp', ambiguous: true },
+  { id: 'sanity', name: 'Sanity', url: 'https://mcp.sanity.io', ambiguous: true },
+  { id: 'sentry', name: 'Sentry', url: 'https://mcp.sentry.dev/mcp', ambiguous: true },
+  { id: 'square', name: 'Square', url: 'https://mcp.squareup.com/mcp', ambiguous: true },
   { id: 'todoist', name: 'Todoist', url: 'https://ai.todoist.net/mcp' },
-  { id: 'vercel', name: 'Vercel', url: 'https://mcp.vercel.com/' },
+  { id: 'vercel', name: 'Vercel', url: 'https://mcp.vercel.com/', aliases: ['버셀'] },
   { id: 'webflow', name: 'Webflow', url: 'https://mcp.webflow.com/mcp' },
-  { id: 'wix', name: 'Wix', url: 'https://mcp.wix.com/mcp' },
-  { id: 'wordpress', name: 'WordPress.com', url: 'https://public-api.wordpress.com/wpcom/v2/mcp/v1' },
+  { id: 'wix', name: 'Wix', url: 'https://mcp.wix.com/mcp', aliases: ['윅스'] },
+  { id: 'wordpress', name: 'WordPress.com', url: 'https://public-api.wordpress.com/wpcom/v2/mcp/v1', aliases: ['워드프레스'] },
 ] as const
 
 export type CatalogService = (typeof SERVICE_CATALOG)[number]
@@ -63,23 +63,52 @@ export function canonicalService(url: string): string {
   }
 }
 
-/** The listed service at this address, if it is one's official address. */
+/** The listed service at this address by host and path (any scheme, query or letter case): for a logo or a list
+ * match. To vouch for an address, use officialService. */
 export function catalogAt(url: string): CatalogService | undefined {
   const key = canonicalService(url)
   return SERVICE_CATALOG.find((c) => canonicalService(c.url) === key)
 }
 
+/** The listed service whose official address this is, exactly: https, the same host and path (a trailing slash aside),
+ * no user name, password, port of its own, query or fragment. Only this makes a card or dialog say "official". */
+export function officialService(url: string): CatalogService | undefined {
+  let u: URL
+  try { u = new URL(url) } catch { return undefined }
+  if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return undefined
+  const path = u.pathname.replace(/\/+$/, '')
+  return SERVICE_CATALOG.find((c) => { const o = new URL(c.url); return o.host === u.host && o.pathname.replace(/\/+$/, '') === path })
+}
+
+/** The official host of a listed service ("mcp.notion.com"). */
+export const catalogHost = (c: CatalogService) => new URL(c.url).host
+
+/** Letters that look like Latin ones in other scripts (Cyrillic, Greek, IPA) and digits that pass for letters, mapped to
+ * the Latin letter they imitate: a name is compared by its look ("Nоtion" with a Cyrillic о, "N0tion"), not its code
+ * points. Not the whole Unicode confusables table: the letters service names are made of. */
+const LOOKALIKE: Record<string, string> = {
+  а: 'a', в: 'b', с: 'c', ԁ: 'd', е: 'e', ё: 'e', һ: 'h', н: 'h', і: 'i', ї: 'i', ј: 'j', к: 'k', ӏ: 'l', м: 'm', о: 'o',
+  р: 'p', ԛ: 'q', ѕ: 's', т: 't', у: 'y', ү: 'y', х: 'x', ԝ: 'w', ɡ: 'g', ɑ: 'a', ɩ: 'i', ο: 'o', α: 'a', β: 'b',
+  ε: 'e', η: 'n', ι: 'i', κ: 'k', ν: 'v', ρ: 'p', τ: 't', υ: 'u', χ: 'x', γ: 'y', '0': 'o', '1': 'l',
+}
+/** a name as it looks: compatibility forms folded (full-width, ligatures), accents dropped, look-alike letters and
+ * digits made Latin, lower case */
+export function nameSkeleton(s: string): string {
+  return [...s.normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase()].map((ch) => LOOKALIKE[ch] ?? ch).join('')
+}
+
 /** words a name can carry around a service's own name and still mean that service ("Notion MCP", "the Notion app") */
 const FILLER = new Set(['mcp', 'server', 'app', 'api', 'official', 'the', 'connector', 'integration', 'com', 'my'])
-const words = (s: string) => s.normalize('NFKC').toLowerCase().match(/\p{L}+|\p{N}+/gu) ?? []
-/** a listed service's name and id, as the joined words they are compared by ("clickup", "mermaidchart", "mermaid") */
-const namesOf = (c: CatalogService) => [...new Set([words(c.name).filter((w) => !FILLER.has(w)).join(''), c.id])]
+const words = (s: string) => nameSkeleton(s).match(/\p{L}+|\p{N}+/gu) ?? []
+/** a listed service's names (its name, id and local names such as 노션), as the joined words they are compared by */
+const namesOf = (c: CatalogService) => [...new Set([words(c.name).filter((w) => !FILLER.has(w)).join(''), c.id, ...('aliases' in c ? c.aliases.map((a) => words(a).join('')) : [])])]
 
 /**
- * Which listed service a name means, as the AI wrote it:
- * - `exact`: the name is that service's own ("Notion", "notion", "Notion MCP", "ClickUp", "Click Up", "WordPress").
- * - `contains`: the name holds it among other words ("Notion workspace", "Acme GitLab"). A card under such a name at
- *   another address would read as that service's, so it is not offered there.
+ * Which listed service a name means, as the AI wrote it, compared by how it looks (nameSkeleton: "Nоtion" with a
+ * Cyrillic о, "Notíon", "N0tion" and "노션" are Notion):
+ * - `exact`: the name is that service's own ("Notion", "notion", "Notion MCP", "Click Up", "WordPress", "노션").
+ * - `contains`: the name holds it among other words ("Notion workspace", "Acme GitLab"). A service whose name is an
+ *   ordinary word (`ambiguous`: Square, Linear, Monday …) is matched only exactly, so "Square Feet API" names none.
  * Undefined: the name names no listed service.
  */
 export function catalogNamed(name: string): { service: CatalogService; exact: boolean } | undefined {
@@ -89,15 +118,14 @@ export function catalogNamed(name: string): { service: CatalogService; exact: bo
   for (const c of SERVICE_CATALOG) {
     const names = namesOf(c)
     if (core && names.includes(core)) return { service: c, exact: true }
+    if (contains || ('ambiguous' in c && c.ambiguous)) continue
     // any run of the name's words, joined, that is the service's name ("Click Up Tasks" holds "clickup")
-    if (!contains) {
-      outer: for (let i = 0; i < all.length; i++) {
-        let joined = ''
-        for (let j = i; j < all.length; j++) {
-          joined += all[j]
-          if (names.includes(joined)) { contains = c; break outer }
-          if (joined.length > 40) break
-        }
+    outer: for (let i = 0; i < all.length; i++) {
+      let joined = ''
+      for (let j = i; j < all.length; j++) {
+        joined += all[j]
+        if (names.includes(joined)) { contains = c; break outer }
+        if (joined.length > 40) break
       }
     }
   }

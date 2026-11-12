@@ -114,6 +114,16 @@ Out:
 `tests/unit/connect-continue.test.ts` (Bun 1.3.12), `web/test/unit/connect-card.test.tsx`,
 `web/test/unit/connectors.test.ts`, the e2e `connect-continue.spec.ts`.
 
+## Review of #582 (same branch)
+
+- A team request from a member is refused before any lookup; a team connection is never named to someone who may not
+  use it (an admin's team request outside its people is told only that one exists).
+- Owner decision: self-hosted and regional editions are allowed. A listed name at a non-official address is no longer
+  rewritten or refused: it is an unknown service named by its host, with the warning; "official" only for exactly the
+  official address (https, host, path). The red "not official" block is gone.
+- Names compared by look (NFKD, accents, Cyrillic/Greek look-alikes, 0/1) with Korean and Japanese names of popular
+  services; ordinary-word services (Square, Linear, Monday, …) match only exactly.
+
 ## Result
 
 Built as planned, with these differences:
@@ -124,10 +134,8 @@ Built as planned, with these differences:
   services.
 - The old "not on {name}'s own site" caution stays only on template and reconnect cards; an unknown service's card has
   the new warning box instead (one warning, not two).
-- Korean or other translated names ("노션") are not matched to a listed service: the tool asks the AI for the
-  service's own spelling, and such a card is an unknown service with the warning box.
 
-Tests: server `connect-service` 33/0 (4 new, all 4 fail on the old handler), `connect-continue`,
-`c-template-chat-schedule`, `schedule-connections`, `connected` 74/0 under Bun 1.3.12; web unit 2798/0; e2e
-`connect-continue`, `integration-requests`, `integration-templates`, `connectors`, `connectors-hub`,
-`phone-connectors` 52/0.
+Tests (after the review): server `connect-service` 35/0 (the review's leak and edition tests fail on the first
+commit), with `connect-continue`, `c-template-chat-schedule`, `schedule-connections`, `connected` 76/0 under Bun 1.3.12;
+web unit 2801/0; e2e `connect-continue`, `integration-requests`, `integration-templates`, `connectors`,
+`connectors-hub`, `phone-connectors` 52/0.

@@ -7,7 +7,7 @@
 import { BadgeCheck, Inbox, LogIn, Plug } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { catalogAt } from '@mycel/shared'
+import { officialService } from '@mycel/shared'
 import type { Integration, IntegrationRequest, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
@@ -189,8 +189,8 @@ export function OwnKeyDialog({ src: r, title, intro, submit, onClose, onDecline,
   const [busy, setBusy] = useState(false)
   const key = r.auth !== 'oauth'
   const host = new URL(r.url).host
-  /** the address is the official one of a service in the app's list */
-  const official = catalogAt(r.url)
+  /** the address is exactly the official one of a service in the app's list (https, host and path) */
+  const official = officialService(r.url)
   const phone = !!mobileApp()
   const signInNext = !key && !phone
   const keyError = server.secret !== undefined ? server.secret ?? t('integrations.error.field') : submitted && key && !secret.trim() ? t('integrations.error.key') : secret.trim().length > 8000 ? t('integrations.error.keyLong') : null

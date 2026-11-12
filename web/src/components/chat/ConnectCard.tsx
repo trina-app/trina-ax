@@ -10,12 +10,12 @@
 // or the Google Drive flow of Settings (useDriveFlow). A team connection: who may use it, just the admin or everyone.
 // "Not now" skips. A failed check keeps the card and the box for another key. The card closes when the server sends
 // turn.request.closed, and right away here after a connected or skipped answer. Never answered from the message box.
-// Trust (lib/connectCard.ts cardTrust): a service in the app's list at its official address says so; any other address
-// gets a warning with the address in bold; a card that calls itself a listed service at another address (only an
-// older server sends one: the server now always uses the official address) offers no button. A reconnect card is for
-// a connection the person already has and fixes that one.
+// Trust (lib/connectCard.ts cardTrust): a service in the app's list at exactly its official address says so; any other
+// address gets a warning with the address in bold, and one that calls itself a listed service (a self-hosted edition,
+// a made-up address) is named by its host, never by the listed name. A reconnect card is for a connection the person
+// already has and fixes that one.
 import clsx from 'clsx'
-import { BadgeCheck, Globe, Lock, LogIn, Plug, ShieldAlert, TriangleAlert } from 'lucide-react'
+import { BadgeCheck, Globe, Lock, LogIn, Plug, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
 import type { TurnConnectResult } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
@@ -54,8 +54,8 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
   const host = service?.host ?? ''
   const team = r.scope === 'team' && r.target === 'service'
   const trust = cardTrust(r)
-  /** a listed service's name at another address: nothing to connect from this card */
-  const blocked = trust.kind === 'not_official'
+  /** the name the card uses: an unknown service that calls itself a listed one is named by its host */
+  const name = trust.kind === 'unlisted' ? trust.display : r.name
   const phone = !!mobileApp()
   const secure = canSeal()
   const flow = signIn.state
@@ -63,7 +63,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
 
   const outcome = (res: TurnConnectResult | null) => {
     if (!res) return
-    if (res.state === 'connected') toast({ level: 'success', text: t('connect.done', { name: r.name }) })
+    if (res.state === 'connected') toast({ level: 'success', text: t('connect.done', { name }) })
     else if (res.state === 'retry') setLastError(res.lastError || t('connect.failed'))
     else if (res.state === 'sign_in') {
       // to sign in at the service (next click); after a sign-in that did not take, the server says why
@@ -87,7 +87,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
   }
 
   const connectKey = async () => {
-    if (!key.trim() || !secure || working || blocked) return
+    if (!key.trim() || !secure || working) return
     try {
       setBusy('connect')
       setError(null)
@@ -106,7 +106,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
   }
   /** in the click: the window first (opened later it would be blocked), then add the connection and sign in */
   const startSignIn = async () => {
-    if (working || blocked) return
+    if (working) return
     if (signInId) return void signIn.start(signInId)
     const win = reserveSignInWindow()
     setBusy('connect')
@@ -138,7 +138,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
     void run('skip', () => skipConnect(r))
   }
 
-  const primary = blocked ? null : doneFailed ? (
+  const primary = doneFailed ? (
     <Button size="sm" variant="primary" busy={busy === 'done'} onClick={() => void finish()} data-testid="connect-finish">
       {t('common.retry')}
     </Button>
@@ -150,7 +150,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
     !phone &&
     !flow && (
       <Button size="sm" variant="primary" className="min-w-0 max-w-full" disabled={working} busy={busy === 'connect'} onClick={() => void startSignIn()} data-testid="connect-sign-in">
-        <LogIn size={14} aria-hidden /> <span className="truncate">{t('connect.signIn', { name: r.name })}</span>
+        <LogIn size={14} aria-hidden /> <span className="truncate">{t('connect.signIn', { name })}</span>
       </Button>
     )
   ) : kase === 'google_drive' ? (
@@ -173,20 +173,18 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
       data-case={kase}
       onSubmit={(e) => {
         e.preventDefault()
-        if (kase === 'key' && !blocked) void connectKey()
+        if (kase === 'key') void connectKey()
       }}
     >
       <div className="flex items-start gap-2 bg-subtle px-4 py-2.5 text-sm font-semibold">
         <Plug size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
         {/* the whole name, on more lines when it is long: it is what the person checks against the address */}
         <span id={`${id}-title`} className="min-w-0 flex-1 [overflow-wrap:anywhere]" data-testid="connect-title">
-          {trust.kind === 'not_official'
-            ? t('connect.title', { name: host })
-            : r.reconnect
-              ? t(kase === 'key' ? 'connect.reconnectKeyTitle' : 'connect.reconnectTitle', { name: r.name })
-              : r.template
-                ? t(kase === 'sign_in' ? 'connect.templateTitleSignIn' : 'connect.templateTitle', { name: r.name })
-                : t('connect.title', { name: r.name })}
+          {r.reconnect
+            ? t(kase === 'key' ? 'connect.reconnectKeyTitle' : 'connect.reconnectTitle', { name })
+            : r.template
+              ? t(kase === 'sign_in' ? 'connect.templateTitleSignIn' : 'connect.templateTitle', { name })
+              : t('connect.title', { name })}
         </span>
         {team && <Badge tone="accent">{t('connect.team')}</Badge>}
         {r.template && <Badge tone="accent">{t('connect.fromTeam')}</Badge>}
@@ -215,10 +213,10 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
                 <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.official', { name: trust.service.name })}</span>
               </p>
             )}
-            {trust.kind === 'template' && hostOffName(r.name, host) && (
+            {trust.kind === 'template' && hostOffName(name, host) && (
               <p className="mt-1.5 flex items-start gap-1.5 text-xs text-warn" data-testid="connect-host-caution">
                 <TriangleAlert size={12} className="mt-0.5 shrink-0" aria-hidden />
-                <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.hostCaution', { name: r.name })}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.hostCaution', { name })}</span>
               </p>
             )}
           </div>
@@ -228,20 +226,13 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
           <p role="note" className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="connect-unlisted">
             <TriangleAlert size={14} className="mt-0.5 shrink-0" aria-hidden />
             <span className="min-w-0 [overflow-wrap:anywhere]">
-              <strong className="font-semibold">{host}</strong> · {t('connect.unlisted', { name: r.name })}
+              <strong className="font-semibold">{host}</strong> · {t('connect.unlisted')}
             </span>
-          </p>
-        )}
-        {/* a listed service's name at another address: not connected from here */}
-        {trust.kind === 'not_official' && (
-          <p role="alert" className="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger" data-testid="connect-not-official">
-            <ShieldAlert size={14} className="mt-0.5 shrink-0" aria-hidden />
-            <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.notOfficial', { name: trust.service.name, host })}</span>
           </p>
         )}
         {r.reconnect && (
           <p className="text-muted [overflow-wrap:anywhere]" data-testid="connect-reconnect-note">
-            {t(kase === 'key' ? 'connect.reconnectKeyNote' : 'connect.reconnectNote', { name: r.name })}
+            {t(kase === 'key' ? 'connect.reconnectKeyNote' : 'connect.reconnectNote', { name })}
           </p>
         )}
         {/* an admin's template: the address and sign-in are the team's; the key or account is the person's own, used only in their chats */}
@@ -268,10 +259,10 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
           </div>
         )}
 
-        {kase === 'key' && !blocked && (
+        {kase === 'key' && (
           <div>
             <label className="block">
-              <span className="mb-1.5 block text-label font-medium text-ink">{t('connect.key', { name: r.name })}</span>
+              <span className="mb-1.5 block text-label font-medium text-ink">{t('connect.key', { name })}</span>
               <input
                 className={inputCls}
                 type="password"
@@ -297,14 +288,14 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
             )}
           </div>
         )}
-        {kase === 'sign_in' && !blocked && (
+        {kase === 'sign_in' && (
           <p className="flex items-start gap-1.5 text-muted" data-testid="connect-where">
             <Lock size={14} className="mt-0.5 shrink-0" aria-hidden />
             <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.signInWhere')}</span>
           </p>
         )}
-        {kase === 'sign_in' && phone && !blocked && <p className="text-xs text-faint">{t('integrations.signIn.phone')}</p>}
-        {kase === 'none' && !blocked && (
+        {kase === 'sign_in' && phone && <p className="text-xs text-faint">{t('integrations.signIn.phone')}</p>}
+        {kase === 'none' && (
           <p className="text-muted [overflow-wrap:anywhere]" data-testid="connect-where">
             {t('connect.noKey', { host })}
           </p>

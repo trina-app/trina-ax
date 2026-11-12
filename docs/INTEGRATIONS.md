@@ -223,13 +223,13 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
 (`shared/src/tools.ts`), `ConnectServiceRequest` (`shared/src/api/ws.ts`), `TurnConnectBody` / `TurnConnectResult`
 (`shared/src/api/chats.ts`).
 
-- **A known service goes to its official address.** For a service in the app's list (`shared/src/service-catalog.ts`,
-  the Discover list) the server ignores the AI's address: the name "Notion" is Notion at `mcp.notion.com`, a listed
-  address gets that service's name, and a name holding a listed one's ("Notion workspace") at another address gets no
-  card. The card says "Official {name} address", or warns, with the address in bold, that the app does not know the
-  service. A service the person already uses is not connected twice: a working one gets no card, their own that needs
-  a sign-in or key gets a card for that same connection (`reconnect`). docs/DECISIONS.md "The chat's connect card
-  trusts the app's list".
+- **A known service only at its official address.** For a service in the app's list (`shared/src/service-catalog.ts`,
+  the Discover list) the card says "Official {name} address" only for exactly its official address (https, host and
+  path). Its name, a look-alike ("Nоtion", "노션") or a name holding it, at any other address (a self-hosted GitLab, a
+  made-up address) is an unknown service named by its host, with a warning and the host in bold; it is not refused.
+  A service the person already uses is not connected twice: a working one gets no card, their own that needs a
+  sign-in or key gets a card for that same connection (`reconnect`). A team connection is never named to someone who
+  may not use it. docs/DECISIONS.md "The chat's connect card trusts the app's list".
 - **The key never reaches the AI.** It is not in the tool's input or result, the steps, the audit lines
   (`tool_events`), the engine's session file, the logs, the realtime events, the admin audit or any error text. The
   card seals it in the browser for the purpose `'integration.secret'` (the same sealing as AI connections) and sends it
