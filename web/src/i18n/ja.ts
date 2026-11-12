@@ -1211,6 +1211,7 @@ export const ja: Record<MessageKey, string> = {
   'feed.chats': 'メンション・スレッド',
   'feed.chatsUnread': '新しいメンションや返信があります',
   'feed.chatsEmpty': 'メンションやスレッドの返信はまだありません。',
+  'feed.notInRecent': '最新の{n}件にはありません。',
   'connectors.top': "よく使われるサービス",
   'connectors.discover': "見つける",
   'connectors.connected': "接続済み",

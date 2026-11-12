@@ -1238,6 +1238,7 @@ export const ko = {
   'feed.chats': '멘션·스레드',
   'feed.chatsUnread': '새 멘션이나 답글이 있어요',
   'feed.chatsEmpty': '아직 멘션이나 스레드 답글이 없어요.',
+  'feed.notInRecent': '최근 {n}개 안에는 없어요.',
   'connectors.top': "많이 쓰는 서비스",
   'connectors.discover': "둘러보기",
   'connectors.connected': "연결됨",

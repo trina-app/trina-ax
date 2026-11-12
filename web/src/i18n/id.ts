@@ -1239,6 +1239,7 @@ export const id: Record<MessageKey, string> = {
   'feed.chats': 'Mention & thread',
   'feed.chatsUnread': 'Ada mention atau balasan baru',
   'feed.chatsEmpty': 'Belum ada mention atau balasan thread.',
+  'feed.notInRecent': 'Tidak ada di {n} terbaru.',
   'connectors.top': "Aplikasi populer",
   'connectors.discover': "Jelajahi",
   'connectors.connected': "Terhubung",
