@@ -264,6 +264,10 @@ export class MockServer {
    * (someone else typing, as server/src/rooms/typing.ts relays it) */
   typingSent: { user: string; roomId: string; threadRootId: string | null; typing: boolean; at: number }[] = []
   sessions = new Map<string, string>() // token -> user id
+  /** one-time password reset links made in Admin › Members (createResetLink): token → whose, until when, used when */
+  resetLinks = new Map<string, { userId: string; expiresAt: string; usedAt: string | null }>()
+  /** open account deletion requests (Settings › 계정 삭제 요청): user id → when asked */
+  deletionRequests = new Map<string, string>()
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
   users: User[] = []
@@ -637,6 +641,8 @@ export class MockServer {
     this.uploads.clear()
     this.attachments.clear()
     this.jobs.clear()
+    this.resetLinks.clear()
+    this.deletionRequests.clear()
     this.files.clear()
     this.log = []
     this.engineRequests = []
@@ -1352,6 +1358,17 @@ export class MockServer {
       passwordReset: this.resets.get(u.id) ?? null,
     }
     void sid
+  }
+
+  stubDownload(id: string, key: string, ext: string, type: string) {
+    const a = this.artifacts.find((x) => x.id === id && x.key === key) ?? fail('not_found', 404)
+    return new Response(`mock ${ext}`, { headers: { 'content-type': type, 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${a.title ?? key}.${ext}`)}` } })
+  }
+
+  deletionOf(u: User) {
+    if (u.role === 'owner') return { state: 'owner' as const, requestedAt: null }
+    const at = this.deletionRequests.get(u.id)
+    return at ? { state: 'pending' as const, requestedAt: at } : { state: 'none' as const, requestedAt: null }
   }
 
   startSession(u: User) {
@@ -2193,6 +2210,38 @@ export class MockServer {
       }
     },
     mySessions: () => ({ items: [{ id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36', createdAt: now(), lastSeenAt: now(), expiresAt: now(), current: true }] }),
+    // a reset link (server/src/auth/password-reset.ts): whose account while unused; a new password ends every other session
+    // of that person and signs in here
+    passwordResetInfo: (c) => {
+      const l = this.resetLinks.get(c.params.token!) ?? fail('not_found', 404)
+      const u = this.users.find((x) => x.id === l.userId)
+      // used, expired or its person gone: nothing about the account
+      if (!u || l.usedAt || Date.parse(l.expiresAt) <= Date.now()) return { valid: false, username: null, name: null, expiresAt: null }
+      return { valid: true, username: u.username, name: u.name, expiresAt: l.expiresAt }
+    },
+    completePasswordReset: (c) => {
+      const l = this.resetLinks.get(c.params.token!)
+      if (!l || l.usedAt || Date.parse(l.expiresAt) <= Date.now()) fail('gone', 410)
+      const u = this.users.find((x) => x.id === l!.userId) ?? fail('not_found', 404)
+      this.passwords.set(u.username, c.body.newPassword)
+      u.mustChangePassword = false
+      this.tempLogins.delete(u.id)
+      l!.usedAt = now()
+      for (const [token, id] of this.sessions) if (id === u.id) this.sessions.delete(token)
+      u.lastSeenAt = now()
+      return { cookie: this.startSession(u), body: { me: this.me(u, '') } }
+    },
+    // account deletion requests (server/src/auth/deletion-requests.ts): the owner cannot ask; asking again changes nothing
+    myDeletionRequest: (c) => this.deletionOf(c.user),
+    requestAccountDeletion: (c) => {
+      if (c.user.role === 'owner') fail('conflict', 409)
+      if (!this.deletionRequests.has(c.user.id)) this.deletionRequests.set(c.user.id, now())
+      return this.deletionOf(c.user)
+    },
+    cancelAccountDeletion: (c) => {
+      this.deletionRequests.delete(c.user.id)
+      return this.deletionOf(c.user)
+    },
     inviteInfo: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token)
       if (!i) fail('not_found', 404)
@@ -3033,6 +3082,11 @@ export class MockServer {
       const a = this.artifacts.find((x) => x.id === c.params.id && x.key === DECK_ARTIFACT_KEY) ?? fail('not_found', 404)
       return { artifactId: a.id, chatId: a.chatId, title: a.title ?? '', theme: 'paper' as const, slides: 1, pptx: false, pdf: false }
     },
+    // a deck's files and a promo video's MP4: a few bytes under the file's name (the mock never builds them; the specs
+    // that download first turn the info to "can be made", test/e2e/intro-deck.spec.ts, promo-video.spec.ts)
+    downloadIntroDeckPptx: (c) => this.stubDownload(c.params.id!, DECK_ARTIFACT_KEY, 'pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'),
+    downloadIntroDeckPdf: (c) => this.stubDownload(c.params.id!, DECK_ARTIFACT_KEY, 'pdf', 'application/pdf'),
+    downloadPromoVideo: (c) => this.stubDownload(c.params.id!, PROMO_ARTIFACT_KEY, 'mp4', 'video/mp4'),
     // intro decks being built (round 2): the chat's builds, newest first, and a finished slide's small picture
     listDeckBuilds: (c) => {
       if (!this.chats.some((x) => x.id === c.query.chatId)) fail('not_found', 404)
@@ -3055,9 +3109,11 @@ export class MockServer {
       return { status: 202, body: { jobId: this.transcribeJob(c.user) } }
     },
     pollCalls: () => ({ calls: [] }),
-    postResult: () => undefined,
+    // like server/src/routes/browser.ts: a result for a call this server is not waiting for is 404 (the mock never makes calls)
+    postResult: () => fail('not_found', 404),
 
-    listUsers: () => ({ items: this.users }),
+    // the people who asked to have their account deleted: the owner sees them all, an admin the members' only
+    listUsers: (c) => ({ items: this.users, deletionRequested: this.users.filter((u) => this.deletionRequests.has(u.id) && (c.user.role === 'owner' || u.role === 'member')).map((u) => u.id) }),
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
@@ -3073,6 +3129,7 @@ export class MockServer {
     },
     deleteUser: (c) => {
       const target = this.users.find((u) => u.id === c.params.id) ?? fail('not_found', 404)
+      this.deletionRequests.delete(target.id)
       const me = c.user
       // as the server: an admin removes a member only, with their password again
       if (me.role === 'admin') {
@@ -3148,7 +3205,11 @@ export class MockServer {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (u.role === 'owner') fail('forbidden', 403)
       const token = 'rst' + uuidv7().replace(/-/g, '')
-      return { token, url: `/reset-password/${token}`, expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString() }
+      const expiresAt = new Date(Date.now() + 24 * 3600_000).toISOString()
+      // only the newest link of a person works
+      for (const [k, l] of this.resetLinks) if (l.userId === u.id) this.resetLinks.delete(k)
+      this.resetLinks.set(token, { userId: u.id, expiresAt, usedAt: null })
+      return { token, url: `/reset-password/${token}`, expiresAt }
     },
     listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
     createInvite: (c) => {
@@ -3886,6 +3947,18 @@ export class MockServer {
         this.publish({ type: 'job.done', data: { job } })
       }, 200)
       void c
+      return { status: 202, body: { jobId: id } }
+    },
+    // the export (server/src/system/export.ts): a job that ends with where the archive was written (the owner's folder)
+    startExport: (c) => {
+      const id = uuidv7()
+      const job: Job = { id, kind: 'export', status: 'running', progress: 0, message: 'Exporting', result: null, error: null, createdAt: now(), finishedAt: null }
+      this.jobs.set(id, job)
+      const path = `users/${c.user.id}/exports/mycel-export-20261113-0900.tar.zst${c.body.password ? '.age' : ''}`
+      setTimeout(() => {
+        Object.assign(job, { status: 'done', progress: 1, result: { path, size: 4096 }, finishedAt: now() })
+        this.publish({ type: 'job.done', data: { job } })
+      }, 200)
       return { status: 202, body: { jobId: id } }
     },
     // the restore: owner-reauth like the server (a wrong password is 403 with fields['body.password']); the job only
