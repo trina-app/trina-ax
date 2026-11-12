@@ -9,57 +9,11 @@
 // Priority ? > spinner > dot. While a chat runs again, its earlier answer is behind the new one: a card's "?" or the
 // spinner. The chat on screen in a visible window shows no dot and no failed "?" (the window sends /seen, and the
 // server's word follows a moment later).
-import type { Chat } from '@mycel/shared/api'
-import { roomLightsDot, roomWantsMe } from './rooms'
+import { attentionCount, markerOf, needsMe, type Chat, type MarkedChat, type Marker, type MarkerKind, type MarkerReason, type MarkerView } from '@mycel/shared/api'
 
-export type MarkerKind = 'ask' | 'running' | 'new'
-/** why: the first line of the hover peek and the row's label */
-export type MarkerReason = 'card' | 'error' | 'paused' | 'running' | 'queued' | 'new'
-export interface Marker { kind: MarkerKind; reason: MarkerReason }
-
-export type MarkedChat = Pick<Chat, 'runState' | 'waiting' | 'unseen' | 'lastOutcome'>
-/** How this window sees a chat: `here`, it is on screen and the window is visible; `card`, a card of it is open in this
- * window (a card one desktop window shows alone is in no list). */
-export interface MarkerView { here?: boolean; card?: boolean }
-
-/** The chat's one marker (null: nothing). */
-export function markerOf(c: MarkedChat, v: MarkerView = {}): Marker | null {
-  if (c.waiting || v.card) return { kind: 'ask', reason: 'card' }
-  if (c.runState === 'running') return { kind: 'running', reason: 'running' }
-  if (c.runState === 'queued') return { kind: 'running', reason: 'queued' }
-  if (!c.unseen || v.here) return null
-  if (c.lastOutcome) return { kind: 'ask', reason: c.lastOutcome }
-  return { kind: 'new', reason: 'new' }
-}
-
-/** A chat that needs me: its row shows "?" or a dot (the spinner does not: it works on its own). */
-export const needsMe = (m: Marker | null) => m?.kind === 'ask' || m?.kind === 'new'
-
-type CountedChat = MarkedChat & Pick<Chat, 'id'>
-type CountedRoom = Parameters<typeof roomWantsMe>[0]
-/** The one count n: the AI chats showing "?" or a dot, and the rooms that want me (lib/rooms.ts roomWantsMe: the room's
- * AI waiting on me, or unread messages for me by my level for the room: by default a DM or group chat message, an
- * @mention, a reply in a thread I follow), each once. Chats and rooms, not events: a chat that ended twice counts once.
- * `ask`: any of them is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the phone's ☰ dot: the drawer holds
- * only them). `unread`: some other room has unread messages n does not count, in a room I did not turn off or hide
- * (lib/rooms.ts roomLightsDot: a plain message in a team room at its default), the app icon's dot while n is 0
- * (iconBadge). `here`: the chat on screen in a visible window; `cards`: the chats with a card open in this window;
- * `threadReplies`: my "replies in threads I follow" switch (the rooms list's alerts). */
-export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string>; threadReplies?: boolean } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean; unread: boolean } {
-  let chatsN = 0, chatAsk = false
-  for (const c of chats) {
-    const m = markerOf(c, { here: c.id === o.here, card: o.cards?.has(c.id) })
-    if (!needsMe(m)) continue
-    chatsN++
-    if (m!.kind === 'ask') chatAsk = true
-  }
-  let n = chatsN, ask = chatAsk, unread = false
-  for (const r of rooms) {
-    if (roomWantsMe(r, o.threadReplies ?? true)) { n++; if (r.aiWaits) ask = true }
-    else if (roomLightsDot(r)) unread = true
-  }
-  return { n, ask, chats: chatsN, chatAsk, unread }
-}
+// the count rules live in shared/src/api/attention.ts: the server counts a phone push's badge with the same code
+export { attentionCount, markerOf, needsMe }
+export type { MarkedChat, Marker, MarkerKind, MarkerReason, MarkerView }
 
 /** What the app icon shows (the desktop app's Dock, an installed web app's icon): n; at 0 a plain dot while some room
  * has unread messages n does not count, as Slack and Discord do; else nothing (0 clears it). */

@@ -23543,3 +23543,51 @@ the Android QA app and the iPhone TestFlight build. Plan and evidence:
 - **Left:** a tap on 사진 보관함 faster than the reinstall the sheet's opening brings on iPhone build 9 (tens of ms);
   gone with the native fix.
 - Version impact: **patch**.
+
+## 휴대폰 앱 아이콘의 숫자 — the phone app's icon shows the unread count (feat/phone-app-badge, 2026-11-12, QA TC-408)
+
+넣을 곳: Team AX core (`mobile/`, `push-gateway/`, `shared/src/cloud-protocol/push-gateway.ts`, `shared/src/api/attention.ts`,
+`server/src/notifications/`, `web/src/lib/mobile.ts`, `web/src/store/sessionMarkers.ts`). Why: phone and push are core.
+
+- **Problem.** Pushes reached the iPhone (an answer finished, an @mention, a DM), but the app icon never showed a number:
+  the app asked the OS with `allowBadge: false`, no push carried a count and nothing set one.
+- **Which number.** The one count n ("Session markers"): the AI chats that need me and the rooms that want me, each
+  once. It is already the tab title's "(n)", the Mac Dock's and an installed web app's icon number, so the phone shows
+  the same, not a new count. The Inbox's unread count is not used: it counts notices (schedules, connections), not what
+  waits for me. The phone shows no dot for "other unread rooms" (the Dock's dot): a phone icon shows a number or nothing.
+- **One set of rules.** `markerOf`, `roomWantsMe`, `roomLightsDot` and `attentionCount` moved from `web/src/lib/` to
+  `shared/src/api/attention.ts`; the web re-exports them from where they were. The server counts with the same code.
+- **While the app is closed: the push.** At send time the push service asks, for an iPhone device only, `pushBadge(userId)`
+  (`server/src/notifications/push-badge.ts`): the person's rooms as GET /api/rooms gives them (read only: `Rooms.listed`,
+  no sync) and the AI chats of the first page of their list (pinned ones, then the newest 50, as the page loads; a shared
+  chat only while they see its project, as the list's `visible()`), with the runtime's word on what waits for them. The count is per recipient: a DM counts for its other member, an @mention for the one named, a plain team
+  message for nobody at its default level, a room set to 끄기 or hidden never. The gateway contract gets an optional
+  `badge` (0 to 9999, `validPushBadge`, used by the server and the gateway); APNs `aps.badge`. Android gets none: launchers count the notifications in the tray and add up each one's
+  `notification_count`, so a total on every push would show 1+2+3 = 6 after three; there each notification counts as
+  one, and the open app sets the exact number. The server does
+  not know which chat is on screen in a window: the page corrects that when it opens.
+- **An older gateway.** Its body schema is strict, so it answers `400 invalid_body` to `badge`. Only that answer (the
+  code read from the 400's body, at most 512 bytes) to a push that carried a badge counts as an older gateway; any other
+  400 is the push's answer as before. The transport then sends the same push without it (`invalid_body` is checked before the dedupe, so nothing is lost or doubled) and tries
+  the field again an hour later (`NO_BADGE_RETRY_MS`). Team servers can update before the gateway.
+- **While the page is open: the page.** New capability `badge-v1`: `{type:'badge', count}` (a whole number 0 to 9999),
+  sent by `setAppBadge` (`web/src/lib/mobile.ts`) when n changes (a burst waits `WEB_BADGE_MS`), when the bridge comes,
+  after a session reset and on every `mycel:mobile-foreground` even unchanged (a push may have set the server's number
+  meanwhile). The app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  In the foreground a push's number is not applied (`shouldSetBadge: false`): the page's is the newer.
+- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the app
+  (`forgetDelivered`); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
+  0, never the last session's number, until its own count is worked out.
+- **Permission.** The OS question asks for the badge with alerts and sounds. iOS asks once: an iPhone that said yes before
+  1.0.5 is asked once more (`askBadgeAgain`, remembered in the keychain), which shows no dialog; if iOS keeps Badges off,
+  Settings › Notifications › Badges turns it on. Android's notification permission covers the icon; while the app is closed
+  the launcher shows its own count of the notifications in the tray (or a dot).
+- **Privacy.** A number only: no id, name or kind of what it counts in the push or the bridge message. Lock-screen text
+  is unchanged (TC-365).
+- **Ships with:** the next phone build (1.0.5 on dev). The gateway (push.trina.app) needs a deploy for the number to come
+  with pushes; until then the app sets it when it opens. Team servers need nothing else.
+- Tests: `tests/unit/push-badge.test.ts` (per recipient; the push carries it; an older gateway), `push-gateway.test.ts`
+  (contract, APNs, FCM), `push-native.test.ts`, `mobile-badge.test.ts` (permission, the message, the bridge, latest
+  wins), `web/test/unit/mobile.test.ts` (badge-v1: changes, bridge, foreground, sign-out), `web-badge.test.ts` (the
+  phone app gets n).
+- Version impact: **patch**.
