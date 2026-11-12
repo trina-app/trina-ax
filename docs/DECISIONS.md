@@ -23889,7 +23889,9 @@ and **supersedes** two earlier decisions:
   drawer the date groups as before ("Group by: Project" with nothing to group shows dates).
 - **The header**, small and grey (12 px, `text-faint`): the project's name (a link to its page), a folder icon, ▾ (folds
   the group). **+** at its right end on hover and keyboard focus, always on a touch screen (44 px on a phone): it opens
-  the project's page with its "이 프로젝트에서 채팅" box focused (with a mouse; a phone's keyboard does not jump up), the
+  the project's page with its "이 프로젝트에서 채팅" box focused. Its name is **"'<project>'에서 트리나에게 묻기" / "Ask
+  Trina in <project>"**, the AI action's one name (navigation plan `docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.0;
+  "새 채팅" leaves navigation) (with a mouse; a phone's keyboard does not jump up), the
   same as starting there; the word leaves that history entry once the box has it, so Back or a reload do not focus it
   again. The name's link is as tall as the header (28 px, 44 px on a phone); ▾ is a 24 px button (44 px to a finger).
   On a computer + shows on hover and on keyboard focus only, not on the focus a click on ▾ leaves (folding would hide
@@ -23933,4 +23935,8 @@ and **supersedes** two earlier decisions:
   "모두 보기" filtered to the project (opening in place keeps the person where they are).
 - Tests: `web/test/unit/history-groups.test.ts`, `web/test/unit/sidebar.test.tsx` ("Trina history by project"),
   `web/test/e2e/history-by-project.spec.ts`; `account-settings.spec.ts` updated (project grouping by default).
+- Part of the navigation redesign (`docs/AGENTS/plan/20261112-1839-nav-rail.md`, phase P0a): ships now on today's
+  sidebar with no flag (owner, 2026-11-12/13). The redesign's Trina panel (P2) later keeps at most eight projects with
+  activity in the last 14 days and reads the group heads from the server; until then the grouping is of the loaded
+  chats.
 - Version impact: patch (web only; no API, no migration).

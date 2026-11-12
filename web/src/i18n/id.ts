@@ -207,7 +207,7 @@ export const id: Record<MessageKey, string> = {
   'sidebar.sort.title': "Judul",
   'history.other': "Chat lainnya",
   'history.group.chats': "Chat di {name}",
-  'history.group.newChat': "Chat baru di {name}",
+  'history.group.newChat': "Tanya {ai} di {name}",
   'history.group.more': "{n} lainnya",
   'sidebar.filter': "Saring dan urutkan riwayat",
   'sidebar.filter.project': "Dalam proyek",

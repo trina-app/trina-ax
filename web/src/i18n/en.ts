@@ -207,7 +207,7 @@ export const en: Record<MessageKey, string> = {
   'sidebar.sort.title': "Title",
   'history.other': "Other chats",
   'history.group.chats': "Chats in {name}",
-  'history.group.newChat': "New chat in {name}",
+  'history.group.newChat': "Ask {ai} in {name}",
   'history.group.more': "{n} more",
   'sidebar.filter': "Filter and sort history",
   'sidebar.filter.project': "In a project",

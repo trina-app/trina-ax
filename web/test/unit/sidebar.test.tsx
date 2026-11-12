@@ -1381,7 +1381,7 @@ describe('Trina history by project (docs/DECISIONS.md "Trina history by project"
     try {
       await ready(m)
       const plus = groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-new"]')!
-      expect(plus.getAttribute('aria-label')).toBe(ko('history.group.newChat', { name: 'Acme 1' }))
+      expect(plus.getAttribute('aria-label')).toBe(ko('history.group.newChat', { name: 'Acme 1', ai: aiName }))
       expect(groupNamed(m, 'Acme 2').querySelector('[data-testid="history-group-new"]')).toBeNull()
       expect(groupNamed(m, ko('history.other')).querySelector('[data-testid="history-group-new"]')).toBeNull()
       await m.click(plus)

@@ -196,7 +196,7 @@ export const ja: Record<MessageKey, string> = {
   'sidebar.sort.title': "タイトル",
   'history.other': "その他のチャット",
   'history.group.chats': "{name}のチャット",
-  'history.group.newChat': "「{name}」で新しいチャット",
+  'history.group.newChat': "「{name}」で{ai}に聞く",
   'history.group.more': "他 {n} 件",
   'sidebar.filter': "履歴の絞り込みと並べ替え",
   'sidebar.filter.project': "プロジェクト内",

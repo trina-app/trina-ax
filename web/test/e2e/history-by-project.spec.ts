@@ -5,11 +5,13 @@
 // "프로젝트로 옮기기…" moves the row to its group at once; no project chats: the five latest as before; the phone's drawer
 // groups the same, + always there.
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { CSRF_HEADER } from '@mycel/shared/api'
+import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 import { DICTS } from '../../src/i18n'
+import { PRODUCT } from '@mycel/shared'
 
 const t = DICTS.ko
+const ai = PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName
 const side = (page: Page) => page.getByRole('navigation', { name: t['sidebar.label'] })
 const post = (page: Page, url: string, data: unknown = {}) => page.request.post(url, { headers: { [CSRF_HEADER]: '1' }, data })
 const headings = (scope: Locator) => scope.getByTestId('history-group-head').getByRole('heading', { level: 3 })
@@ -60,7 +62,7 @@ test('a computer: groups by project, the other chats last; three rows and "N mor
   await expect(plus).toHaveCSS('opacity', '0')
   await head.hover()
   await expect(plus).toHaveCSS('opacity', '1')
-  await expect(plus).toHaveAccessibleName(t['history.group.newChat'].replace('{name}', 'Acme launch'))
+  await expect(plus).toHaveAccessibleName(t['history.group.newChat'].replace('{name}', 'Acme launch').replace('{ai}', ai))
   await plus.click()
   await expect(page).toHaveURL(new RegExp(`/projects/${launch}$`))
   await expect(page.getByTestId('composer-input')).toBeFocused()

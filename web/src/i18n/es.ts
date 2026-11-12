@@ -196,7 +196,7 @@ export const es: Record<MessageKey, string> = {
   'sidebar.sort.title': "Título",
   'history.other': "Otros chats",
   'history.group.chats': "Chats de {name}",
-  'history.group.newChat': "Nuevo chat en {name}",
+  'history.group.newChat': "Preguntar a {ai} en {name}",
   'history.group.more': "{n} más",
   'sidebar.filter': "Filtrar y ordenar el historial",
   'sidebar.filter.project': "En un proyecto",

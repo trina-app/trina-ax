@@ -206,7 +206,7 @@ export const ko = {
   'sidebar.sort.title': "제목",
   'history.other': "기타 기록",
   'history.group.chats': "'{name}' 기록",
-  'history.group.newChat': "'{name}'에서 새 채팅",
+  'history.group.newChat': "'{name}'에서 {ai}에게 묻기",
   'history.group.more': "{n}개 더 보기",
   'sidebar.filter': "기록 필터와 정렬",
   'sidebar.filter.project': "프로젝트 안",

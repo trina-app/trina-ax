@@ -9,7 +9,8 @@
 //   then the dot, then the ring), so a folded group never hides a chat that waits; a group's "N more" carries the mark
 //   of the rows it holds back.
 // - + on a project's header (on hover and keyboard focus; always on a touch screen) opens the project's page with its
-//   "New chat in this project" box ready, the same as starting there.
+//   "New chat in this project" box ready, the same as starting there. Its words are "Ask Trina in '<project>'" (the
+//   AI action's one name everywhere: docs/AGENTS/plan/20261112-1839-nav-rail.md §2.0), never "new chat".
 // - Only a project the project list says the person sees now has a header; the chats of any other (no read access any
 //   more: the chat page names no project for them either) are with the other chats. A project the chat header found
 //   gone (store/projects.ts `drop`) leaves at once.
@@ -21,6 +22,7 @@ import type { Chat, Project } from '@mycel/shared/api'
 import { capGroups, groupByProject, hasProjects, strongestMark, type Caps, type ShownGroup } from '../../lib/historyGroups'
 import type { MarkerView } from '../../lib/sessionMarkers'
 import { useT } from '../../i18n'
+import { aiName } from '../../lib/tabs'
 import { useChats } from '../../store/chats'
 import { readForUnknown, readProjectList, useProjects } from '../../store/projects'
 import { useMeStrict } from '../../store/session'
@@ -210,10 +212,10 @@ function Group({ group, state, row, onNavigate }: { group: ShownGroup; state: Hi
           </span>
         )}
         {canStart && (
-          <Tooltip label={t('history.group.newChat', { name })}>
+          <Tooltip label={t('history.group.newChat', { name, ai: aiName(t) })}>
             <button
               type="button"
-              aria-label={t('history.group.newChat', { name })}
+              aria-label={t('history.group.newChat', { name, ai: aiName(t) })}
               onClick={() => {
                 onNavigate()
                 navigate(`/projects/${group.projectId}`, { state: { newChat: true } })
