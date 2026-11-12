@@ -1,1 +1,0 @@
-- Welcome steps, team files (desktop app on a Mac): a folder macOS keeps Trina out of (Documents, Desktop or Downloads after Don't Allow, or Trina off in Files and Folders) no longer reads as an empty folder; the step says macOS blocked it, where to turn Trina on, and offers "Pick another folder" (QA TC-049).
