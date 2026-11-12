@@ -61,7 +61,7 @@ const ITEMS: { step: keyof Steps; label: MessageKey; to: string }[] = [
   { step: 'folders', label: 'owner.check.folders', to: '/admin/folders' },
   { step: 'members', label: 'owner.check.members', to: '/admin/members' },
   { step: 'skill', label: 'owner.check.skill', to: '/skills' },
-  { step: 'backup', label: 'owner.check.backup', to: '/admin/system' },
+  { step: 'backup', label: 'owner.check.backup', to: '/admin/system/backups' },
 ]
 
 const OPEN_KEY = 'mycel.ownerChecklistOpen'

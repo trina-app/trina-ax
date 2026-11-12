@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
 import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
@@ -76,6 +76,7 @@ export function resetMobileSession(signedOut = false): void {
     // Native also installs this config before delivering its acknowledgement.
     if (!mobileApp() || mobileApp()!.generation !== reply.nextGeneration) throw new Error('mobile_protocol_mismatch')
     void sendAppearance().catch(() => {})
+    void sendNav().catch(() => {})
   })
   void barrier.catch(reportMobileError)
 }
@@ -215,6 +216,34 @@ async function sendAppearance(): Promise<void> {
   if (!config?.capabilities.includes(APPEARANCE_CAPABILITY)) return
   await request({ ...envelope(config), type: 'appearance', dark: document.documentElement.classList.contains('dark'), system: currentTheme() === 'system' }, config, 10_000)
 }
+/** Where Back goes in this page (nav-v1, lib/appNav.ts): the latest the page worked out. */
+export interface AppNav { canGoBack: boolean; home: boolean }
+let nav: AppNav | null = null
+/** what the app last heard, for this bridge (nonce and generation): a send of the same is skipped */
+let navSent = ''
+/** Tells the app where Back goes (nav-v1: the iOS edge swipe, Android's Back): when it changes, when the bridge comes
+ * and again after every session reset (a send the reset fenced off is not lost). Like the look, not tied to a session:
+ * the latest always wins. Only an app offering nav-v1 hears it (an older one would never answer). */
+export function setAppNav(next: AppNav): void {
+  nav = { canGoBack: next.canGoBack, home: next.home }
+  void sendNav().catch(() => {})
+}
+async function sendNav(): Promise<void> {
+  await barrier.catch(() => {})
+  const config = mobileApp()
+  if (!nav || !config?.capabilities.includes(NAV_CAPABILITY)) return
+  const { canGoBack, home } = nav
+  const sent = `${config.nonce}:${config.generation}:${canGoBack}:${home}`
+  if (sent === navSent) return
+  navSent = sent
+  try {
+    await request({ ...envelope(config), type: 'nav', canGoBack, home }, config, 10_000)
+  } catch (error) {
+    // not heard: the next change, bridge or reset sends it again
+    if (navSent === sent) navSent = ''
+    throw error
+  }
+}
 export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return
   initialized = true; onError = errorHandler ?? onError
@@ -224,7 +253,10 @@ export function initMobile(errorHandler?: (error: unknown) => void): void {
     // a page that knew it was signed out before the bridge came (a cold start on the sign-in page) tells the app now;
     // the reset sends the look after it
     if (pageSignedOut && !signedOutTold) resetMobileSession(true)
-    else void sendAppearance().catch(() => {})
+    else {
+      void sendAppearance().catch(() => {})
+      void sendNav().catch(() => {})
+    }
   })
   window.addEventListener('mycel:theme', () => void sendAppearance().catch(() => {}))
   window.addEventListener('pagehide', () => abortPending())

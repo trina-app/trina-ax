@@ -231,7 +231,8 @@ for (const touch of [true, false])
 
   test('Admin: System\'s "Learn more", Team settings\' "Learn more", Members\' ⌄ beside Invite', async ({ page }) => {
     await signIn(page)
-    await page.goto('/admin/system')
+    // (the connected folders' line, a page of its own on a phone: pages/admin/systemGroups.ts)
+    await page.goto('/admin/system/connected')
     await expect(page.getByRole('button', { name: 'Learn more' }).first()).toBeVisible()
     await expectTargets(page, 'button[aria-expanded].font-medium.whitespace-nowrap')
     // a setting row's "Learn more" (admin/common.tsx), and the switch beside it still takes its own taps
