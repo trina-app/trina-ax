@@ -4,6 +4,7 @@
 // in a POST body only.
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { CONNECTORS_HOME } from '../lib/connectors'
 import { SLACK, type SlackLinkPreview } from '@mycel/shared/api'
 import { api, errorText } from '../lib/api'
 import { useLocale, useT } from '../i18n'
@@ -73,7 +74,7 @@ export default function SlackLink() {
               : `${t(info.emailCheck === 'mismatch' ? 'slack.link.emailMismatch' : info.emailCheck === 'missing' ? 'slack.link.emailMissing' : 'slack.link.emailRecent')} ${t(info.signIn ? 'slack.link.useSignIn' : 'slack.signin.off')}`}</p>
           ) : info.linkedElsewhere ? (
             <p className="text-sm text-warn" data-testid="slack-link-elsewhere">
-              {t('slack.link.elsewhere')} <Link to="/connectors" className="text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>
+              {t('slack.link.elsewhere')} <Link to={CONNECTORS_HOME} className="text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>
             </p>
           ) : (
             <p className="text-sm text-warn">{t('slack.link.warning')}</p>

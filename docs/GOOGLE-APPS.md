@@ -1,7 +1,7 @@
 # Gmail, Google Calendar, Google Docs and Google Sheets
 
-Four built-in connectors next to Google Drive ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)). A person opens **Connectors** in
-the sidebar, picks Gmail (or Calendar, Docs, Sheets), presses **Connect**, signs in at Google, and the AI can use that
+Four built-in connectors next to Google Drive ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)). A person opens **Settings ›
+Connectors**, picks Gmail (or Calendar, Docs, Sheets), presses **Connect**, signs in at Google, and the AI can use that
 app in their chats. Each app is its own card with its own Google sign-in. Google Drive stays Trina's own connector.
 
 The tools come from the open-source Google Workspace MCP server (github.com/taylorwilsdon/google_workspace_mcp, MIT,

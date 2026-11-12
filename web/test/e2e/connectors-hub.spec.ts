@@ -129,21 +129,39 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await expect(page.getByTestId('connector-connect-mine')).toHaveCount(0)
 })
 
-test('Connectors is in the sidebar, not in Settings; the old Settings address leads to it', async ({ page }) => {
+test('Connectors is in Settings, not in the sidebar; the old addresses lead to it (QA TC-400)', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/admin/connectors')
+  await expect(page.getByTestId('nav-connectors')).toHaveCount(0)
   await page.getByTestId('account-menu').click()
   await page.getByTestId('account-settings').click()
   const settings = page.getByTestId('settings-dialog')
-  await expect(settings.getByTestId('settings-menu')).toBeVisible()
-  await expect(settings.getByTestId('settings-menu').getByRole('link', { name: '커넥터', exact: true })).toHaveCount(0)
-  await page.goto('/settings/connectors')
-  await expect(page).toHaveURL(/\/connectors$/)
-  await expect(page.getByTestId('settings-dialog')).toHaveCount(0)
-  await expect(header(page).getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
-  await expect(page.getByTestId('nav-connectors')).toHaveAttribute('aria-current', 'page')
+  const item = settings.getByTestId('settings-menu').getByRole('link', { name: '커넥터', exact: true })
+  // in the Connections group, first
+  await expect(settings.getByTestId('settings-group-connections').getByRole('link').first()).toHaveText('커넥터')
+  await item.click()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  // (Admin's Connectors stays under the dialog, with the same cards: look inside Settings)
+  await expect(settings.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
+  // a connector's page under it keeps the section marked, and its way back is the list
+  await settings.locator('[data-testid="connector-card"][data-id="notion"]').getByTestId('connector-open').click()
+  await expect(page).toHaveURL(/\/settings\/connectors\/notion$/)
+  await expect(item).toHaveClass(/font-medium/)
+  await settings.getByTestId('connector-back').click()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  // closing Settings goes back to the page under it, Admin's Connectors (unchanged)
+  await page.getByTestId('settings-close').click()
+  await expect(page).toHaveURL(/\/admin\/connectors$/)
+  // the old addresses, with their query, open the same place in Settings over the page they came from
+  for (const [old, now] of [['/connectors', '/settings/connectors'], ['/connectors/notion', '/settings/connectors/notion'], ['/settings/integrations', '/settings/connectors'], ['/settings/drive', '/settings/connectors/google-drive']]) {
+    await page.goto(old)
+    await expect(page).toHaveURL(new RegExp(`${now.replace(/\//g, '\\/')}$`))
+    await expect(page.getByTestId('settings-dialog')).toBeVisible()
+  }
+  await page.goto('/connectors/notion?x=1#y')
+  await expect(page).toHaveURL(/\/settings\/connectors\/notion\?x=1#y$/)
   expect(realErrors(errors)).toEqual([])
 })
 

@@ -151,8 +151,9 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   const menu = dialog.getByTestId('settings-menu')
   await expect(menu.getByRole('link', { name: t['aiApps.title'] })).toBeVisible()
   await expect(dialog.getByTestId('settings-more')).toHaveCount(0)
-  // Connectors is not in Settings (it is its own item of the sidebar and the phone's drawer)
-  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toHaveCount(0)
+  // Connectors is a section of Settings (QA TC-400), the first row of Connections; the drawer has none
+  await expect(menu.getByRole('link', { name: t['integrations.title'], exact: true })).toHaveCount(1)
+  await expect(dialog.getByTestId('settings-group-connections').getByRole('link').first()).toHaveAttribute('href', '/settings/connectors')
   await audit(page, 'settings list at phone width')
   // the tab bar is the way out
   await dialog.getByTestId('tab-chats').click()

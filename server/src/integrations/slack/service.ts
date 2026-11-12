@@ -1128,7 +1128,7 @@ export class SlackConnector {
       AND actor_id IS NOT NULL AND actor_id != target ORDER BY id LIMIT 100`).all(this.emailAuditSeen) as { id: number; target: string }[]
     const last = (this.db.query('SELECT COALESCE(max(id), 0) id FROM audit_log').get() as { id: number }).id
     for (const r of rows) {
-      try { this.ctx.services.realtime.publish(r.target, { type: 'notice', data: { level: 'info', code: 'slack_email_changed', message: say('emailChangedNotice', this.localeOf(r.target)), link: '/connectors' } }) } catch {}
+      try { this.ctx.services.realtime.publish(r.target, { type: 'notice', data: { level: 'info', code: 'slack_email_changed', message: say('emailChangedNotice', this.localeOf(r.target)), link: '/settings/connectors' } }) } catch {}
     }
     this.emailAuditSeen = rows.length === 100 ? rows.at(-1)!.id : last
   }

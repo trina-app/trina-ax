@@ -29,8 +29,8 @@ const iso = (ms: number) => new Date(ms).toISOString()
 /** A character something shows for. Not one: control and format characters, spaces, default-ignorable ones (the Hangul
  * fillers count as letters, so a list of what to refuse misses them) and the Braille blank. */
 const SHOWS = /[^\p{Cc}\p{Cf}\p{Z}\p{DI}\u{2800}]/u
-/** where the request opens in the app: Settings › External services */
-export const requestPath = (id: string) => `/settings/integrations?request=${encodeURIComponent(id)}`
+/** where the request opens in the app: Settings › Connectors */
+export const requestPath = (id: string) => `/settings/connectors?request=${encodeURIComponent(id)}`
 const ENDED: Record<Exclude<IntegrationRequestState, 'waiting'>, TextKey> = { connected: 'requestDone', declined: 'requestDeclined', withdrawn: 'requestWithdrawn', expired: 'requestExpired' }
 
 export class ConnectionRequests {

@@ -170,7 +170,7 @@ describe('Sign in with Slack through the hosting service', () => {
     expect(url.origin + url.pathname).toBe('https://slack.com/openid/connect/authorize')
     expect(url.searchParams.get('team')).toBe('T0ACME')
     broker.signinAs = { slackUserId: 'U0ALICE', slackTeamId: 'T0ACME' }
-    expect(await open('alice', broker.slackReturn('signin'))).toBe('/connectors?slack=linked')
+    expect(await open('alice', broker.slackReturn('signin'))).toBe('/settings/connectors?slack=linked')
     expect(h.ctx.db.query('SELECT user_id, team_id, slack_user_id FROM slack_links').all()).toEqual([{ user_id: 'alice', team_id: 'T0ACME', slack_user_id: 'U0ALICE' }])
     // the Slack account is told which account it now asks as (its DM, with the delivered token)
     expect(fake.of('conversations.open').at(-1)).toMatchObject({ token: fake.botToken, args: { users: 'U0ALICE' } })
@@ -189,7 +189,7 @@ describe('Sign in with Slack through the hosting service', () => {
     expect(resume.searchParams.get('handoff')).toMatch(/^[A-Za-z0-9_-]{43}$/)
     expect(resume.searchParams.get('code')).toBeNull()
     broker.signinAs = { slackUserId: 'U0BOB', slackTeamId: 'T0ACME' }
-    expect(await open('bob', `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: resume.searchParams.get('state')!, handoff: resume.searchParams.get('handoff')! })}`)).toBe('/connectors?slack=linked')
+    expect(await open('bob', `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: resume.searchParams.get('state')!, handoff: resume.searchParams.get('handoff')! })}`)).toBe('/settings/connectors?slack=linked')
     expect(links()).toBe(2)
   })
 })

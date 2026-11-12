@@ -20,11 +20,11 @@ Before 0.4.0, this screen is called **External services**.
 
 | | Personal | Team |
 |---|---|---|
-| Made by | The member, in **Connectors** in the sidebar (from Discover; by address only owners and admins) | An admin, in **Admin › Connected apps** |
+| Made by | The member, in **Settings › Connectors** (from Discover; by address only owners and admins) | An admin, in **Admin › Connected apps** |
 | Used by | That member, in their own chats | The people its rules name: everyone, groups or people |
 | Visible to | Only that member, not admins | Admins |
 
-In **Connectors**, the team connections you may use are listed in **Your connectors** with a **Team** label and one
+In **Settings › Connectors**, the team connections you may use are listed in **Your connectors** with a **Team** label and one
 status each. Each opens its own page, read only.
 
 Admins manage team connections but do not use them unless a rule names them. Who may use a connection is checked on every call.
@@ -33,7 +33,8 @@ Admins manage team connections but do not use them unless a rule names them. Who
 
 :::steps
 #### Open Connectors or Connected apps
-**Connectors** in the sidebar for yourself, or **Admin › Connected apps** for the team.
+**Settings › Connectors** for yourself (your name at the bottom of the sidebar › **Settings**; on a phone the **Me**
+tab), or **Admin › Connected apps** for the team. Earlier versions had Connectors in the sidebar.
 
 ![Connectors: nothing connected yet, with Discover under it on the same page](../images/mcp/connected.webp "Connectors")
 
@@ -74,7 +75,7 @@ Many services give a key its owner's rights and log every call under that person
 In **Admin › Connected apps**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field, and the address can't have a query (`?…`): a key there would reach every member.
 
 #### Members connect
-The members it is for see it in **Connectors** under **Your connectors**, with a **Team** label, and choose **Connect**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
+The members it is for see it in **Settings › Connectors** under **Your connectors**, with a **Team** label, and choose **Connect**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
 :::
 
 | | Team connection (one key) | Template |
