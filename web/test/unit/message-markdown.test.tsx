@@ -154,4 +154,11 @@ test('footnotes and "#…" links are text (no jump out of the room, no repeated 
   expect(words('[x](javascript:alert(1)) [https://a.com](javascript:alert(1))')).not.toMatch(/href="javascript/)
   // a reference link whose label is a mention still finds its definition
   expect(words('[@Cy Park]\n\n[@Cy Park]: https://example.com/cy', [CY.id])).toMatch(/<a href="https:\/\/example\.com\/cy"[^>]*><span class="font-medium text-accent-text">@Cy Park<\/span><\/a>/)
+  // reference links get the same checks; words that only look like an address show the real one too
+  for (const body of ['[https://bank.com][r]\n\n[r]: https://evil.example/x', '[https://bank.com]\n\n[https://bank.com]: https://evil.example/x', '[https://bank.com@x.y](https://evil.example/x)', '[https://bank\uff0ecom](https://evil.example/x)'])
+    expect(words(body)).toMatch(/ \(<a href="https:\/\/evil\.example\/x"[^>]*>https:\/\/<wbr\/>evil\.example\/<wbr\/>x<\/a>\)/)
+  expect(words('[x][r]\n\n[r]: #top')).not.toContain('<a ')
+  expect(words('[docs][r]\n\n[r]: https://example.com/d')).toMatch(/<a href="https:\/\/example\.com\/d"[^>]*>docs<\/a>/)
+  // raw HTML in a footnote's text is a paragraph's words too
+  expect(words('[^1]: note\n\n    more\n\nx')).not.toContain('<a ')
 })

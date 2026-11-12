@@ -115,12 +115,16 @@ function hostOf(url: string): string | null {
  * - raw HTML is words: a block of it a paragraph of text, inline HTML text (its mentions, addresses and line breaks are
  *   kept as in the rest of the message; nothing of it is ever HTML);
  * - GFM's autolink literals ("https://…", "www.…", "a@b.c" with no [ ] or < >) are their text again (textLinks rules);
+ * - a reference link is its definition's link (the checks below);
  * - a footnote ("x[^1]", "[^1]: note") is its text: its links and ids would jump out of the room ("/#user-content-fn-1")
  *   and repeat in every message; a link to "#…" the same;
- * - a link whose words are another site's address ("[https://bank.com](https://evil.example)") shows where it really
- *   goes: its words as text, then the real address as a link in brackets. */
-function expand(c: Node, flow: boolean, src: string, found: Found[]): Node[] {
+ * - a link whose words are another site's address ("[https://bank.com](https://evil.example)"), or look like one,
+ *   shows where it really goes: its words, then the real address as a link in brackets. */
+function expand(c0: Node, flow: boolean, src: string, found: Found[], defs: Map<string, Node>): Node[] {
   const text = (value: string): Node => ({ type: 'text', value })
+  // a reference link ("[words][r]" … "[r]: https://…") is the link its definition makes, so the same checks see it
+  const def = c0.type === 'linkReference' ? defs.get(c0.identifier ?? '') : undefined
+  const c: Node = def ? { type: 'link', url: def.url ?? '', title: def.title ?? null, children: c0.children ?? [], position: c0.position } : c0
   if (c.type === 'html') return [flow ? { type: 'paragraph', children: [text(c.value ?? '')] } : text(c.value ?? '')]
   if (c.type === 'footnoteReference') return [text(`[^${c.label ?? c.identifier ?? ''}]`)]
   if (c.type === 'footnoteDefinition') {
@@ -128,14 +132,16 @@ function expand(c: Node, flow: boolean, src: string, found: Found[]): Node[] {
     const mark = text(`[^${c.label ?? c.identifier ?? ''}]: `)
     if (kids[0]?.type === 'paragraph') kids[0] = { ...kids[0], children: [mark, ...(kids[0].children ?? [])] }
     else kids.unshift({ type: 'paragraph', children: [mark] })
-    return kids
+    return kids.flatMap((k) => expand(k, true, src, found, defs))
   }
   if (c.type !== 'link') return [c]
   const at = c.position?.start.offset
   if ((at !== undefined && src[at] !== '[' && src[at] !== '<') || (c.url ?? '').startsWith('#')) return c.children ?? []
-  const shown = linkParts(textOf(c, found)).find((p) => p.href)
+  // (words that only look like an address, "https://bank.com@x.y" or "https://bank．com", show it too)
+  const words = textOf(c, found)
+  const shown = linkParts(words).find((p) => p.href)
   const real = restore(c.url ?? '', found)
-  if (shown && hostOf(shown.href!) !== hostOf(real))
+  if ((shown && hostOf(shown.href!) !== hostOf(real)) || (!shown && /:\/\/|www\./i.test(words)))
     return [...(c.children ?? []), text(' ('), { type: 'link', url: real, title: null, children: [text(real)], data: { hProperties: { dataPlain: '' } } }, text(')')]
   return [c]
 }
@@ -144,13 +150,20 @@ function expand(c: Node, flow: boolean, src: string, found: Found[]): Node[] {
 export function personWords({ found }: { found: Found[] }) {
   return (tree: Node, file: { value?: unknown }) => {
     const src = typeof file.value === 'string' ? file.value : ''
+    // the definitions of reference links, by their identifier
+    const defs = new Map<string, Node>()
+    const collect = (n: Node) => {
+      if (n.type === 'definition' && n.identifier && !defs.has(n.identifier)) defs.set(n.identifier, n)
+      n.children?.forEach(collect)
+    }
+    collect(tree)
     const walk = (node: Node, inLink: boolean) => {
       if (node.children) {
         // (expand), then neighbouring texts joined, so lib/textLinks.ts reads an address with the words around it
         const flow = FLOW.has(node.type)
         const kids: Node[] = []
         for (const c0 of node.children) {
-          for (const k of expand(c0, flow, src, found)) {
+          for (const k of expand(c0, flow, src, found, defs)) {
             const prev = kids.at(-1)
             if (k.type === 'text' && prev?.type === 'text' && !prev.data) prev.value = (prev.value ?? '') + (k.value ?? '')
             else kids.push(k.type === 'text' ? { type: 'text', value: k.value ?? '' } : k)
