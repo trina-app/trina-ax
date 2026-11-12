@@ -191,7 +191,7 @@ describe('the draft from a form (no server)', () => {
     const rel = 'skills/general/gyeonjeokseo-mandeulgi/SKILL.md'
     expect(checkSkill(text, rel)).toMatchObject({ ok: true })
     expect(parseSkill(text, rel)).toMatchObject({ name: 'gyeonjeokseo-mandeulgi', title: '견적서 만들기' })
-    expect(text).toContain("`shared/양식/` 폴더에서 이름에 '견적서 양식'가 들어간 가장 최근 파일")
+    expect(text).toContain("`shared/양식/` 폴더에서 이름에 '견적서 양식' 글자가 들어간 가장 최근 파일")
     expect(text).toContain(formSteps(material()))
     expect(text).toContain(FORM_RULES.ko)
     expect(text).not.toContain('파일로 저장해 달라고 할 때만 저장해요')

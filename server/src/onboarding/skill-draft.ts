@@ -261,7 +261,7 @@ const HEADINGS = {
   rules: { ko: '지킬 것', en: 'Rules', id: 'Aturan', ja: '守ること', es: 'Reglas' },
 } satisfies Record<string, Record<Locale, string>>
 const LATEST: Record<Locale, (folder: string, like: string) => string> = {
-  ko: (folder: string, like: string) => `\`${folder}/\` 폴더${like ? `에서 이름에 '${like}'가 들어간` : '의'} 가장 최근 파일(파일 이름의 날짜로, 날짜가 없으면 고친 날짜로 정해요)`,
+  ko: (folder: string, like: string) => `\`${folder}/\` 폴더${like ? `에서 이름에 '${like}' 글자가 들어간` : '의'} 가장 최근 파일(파일 이름의 날짜로, 날짜가 없으면 고친 날짜로 정해요)`,
   en: (folder: string, like: string) => `the newest file${like ? ` whose name has '${like}'` : ''} in \`${folder}/\` (by the date in its name, else the last change)`,
   id: (folder: string, like: string) => `berkas terbaru${like ? ` yang namanya memuat '${like}'` : ''} di \`${folder}/\` (menurut tanggal di namanya, atau perubahan terakhir)`,
   ja: (folder: string, like: string) => `\`${folder}/\` フォルダーの${like ? `名前に「${like}」を含む` : ''}最新のファイル(ファイル名の日付で、なければ更新日で決めます)`,

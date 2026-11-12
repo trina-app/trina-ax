@@ -171,7 +171,7 @@ describe('reading a draft (no server)', () => {
     expect(s).toMatchObject({ name: 'juganhoeui-hal-il', title: '주간 회의 할 일', inputs: good.inputs, recurring: 'weekly' })
     expect(isRecurring(s)).toBe(true)
     expect(s.description).toBe('주간 회의 할 일 — 팀 회의록에서 사람마다 할 일을 정리해요')
-    expect(s.body).toContain("## 쓰는 자료\n- `groups/Acme/회의록/` 폴더에서 이름에 '주간회의'가 들어간 가장 최근 파일")
+    expect(s.body).toContain("## 쓰는 자료\n- `groups/Acme/회의록/` 폴더에서 이름에 '주간회의' 글자가 들어간 가장 최근 파일")
     expect(s.body).toContain('## 하는 방법\n1. 쓰는 자료의 회의록을 읽어요.')
     expect(s.body).toContain('## 지킬 것')
     const once = parseSkill(skillFileOf({ ...d, recurring: false, inputs: [], files: [] }, { name: 'gyeonjeokseo-sseugi', title: '견적서 "쓰기": #1', locale: 'en' }), 'skills/general/gyeonjeokseo-sseugi/SKILL.md')!
