@@ -4,8 +4,9 @@
 // count of other members who cannot open the team file (never who; a disabled account counts), my read access now
 // (another group's file, a missing one, a folder, a link, a quarantined file: all 404 alike), a room I am not in, the
 // 50 MB limit, a bad path, the copy readable by the room only once sent, the same file picked again (its copy again),
-// the cap on a person's unsent copies, and the audit row when it is sent (the path, the room as room audits name it,
-// never the contents). The fixture team: alice and erin in marketing, bob in finance, carol admin, dana
+// the cap on a person's unsent copies (also for picks at the same time), my read access checked again at the send (taken
+// out of the group meanwhile: nothing goes, the copy is removed), and the audit row when it is sent (the path, the room
+// as room audits name it, never the contents). The fixture team: alice and erin in marketing, bob in finance, carol admin, dana
 // owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -20,6 +21,7 @@ const cm = () => 'cm-' + crypto.randomUUID()
 
 let h: Harness
 let rooms: { all: string; marketing: string; finance: string; dm: string }
+let marketingGroup: string
 let clock = Date.now()
 beforeAll(async () => {
   h = await startHarness({ name: 'b-rooms-team-file' })
@@ -35,6 +37,7 @@ beforeAll(async () => {
   roomsOf(h.ctx).clock = () => (clock += 10_000)
   const list = async (u: string) => (await h.api(u).call(API.listRooms)).items as Room[]
   const alice = await list('alice')
+  marketingGroup = alice.find((r) => r.kind === 'team' && r.name === 'Marketing')!.groupId!
   rooms = {
     all: alice.find((r) => r.kind === 'all')!.id,
     marketing: alice.find((r) => r.kind === 'team' && r.name === 'Marketing')!.id,
@@ -187,10 +190,73 @@ describe('a team file sent in a room', () => {
     expect(err.error.params.reason).toBe('team_copies_full')
     expect(err.error.message).toContain('200 MB')
     expect(unsent('bob', 'cap-room.md')).toBe(0)
-    // copies once sent do not count, nor do uploads from the phone
+    // copies once sent do not count, nor do uploads from the phone (the send checks bob may still open its team file)
+    put('users/bob/big.bin', 'x')
     await send('bob', rooms.dm, [big])
     h.ctx.db.query("INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, sha256, thumb, created_at) VALUES (?, ?, 'bob', 'upload.bin', ?, 'application/octet-stream', 'other', ?, 0, ?)")
       .run(uuidv7(), rooms.dm, TEAM_COPIES_UNSENT_MAX, 'd'.repeat(64), new Date().toISOString())
     expect((await copy('bob', rooms.all, 'users/bob/cap-room.md')).file.name).toBe('cap-room.md')
+  })
+  test('sent while I may still open the team file: it goes, and the room reads it', async () => {
+    put('groups/marketing/kept-room.md', '# 캠페인 일정\n')
+    const r = await copy('alice', rooms.all, 'groups/marketing/kept-room.md')
+    expect(r.unable).toBe(1)
+    const m = await send('alice', rooms.all, [r.file.id])
+    expect(m.files.map((f) => f.id)).toEqual([r.file.id])
+    expect(await (await read('bob', rooms.all, r.file.id)).text()).toBe('# 캠페인 일정\n')
+  })
+
+  test('taken out of the group after the pick: the send is refused (nothing goes), the copy is removed, the box is told which', async () => {
+    put('groups/marketing/revoked-room.md', '# 마케팅만 보는 메모\n')
+    const team = await copy('alice', rooms.all, 'groups/marketing/revoked-room.md')
+    // an upload in the same message stays for the next try
+    const up = await roomFilesOf(h.ctx).create('alice', rooms.all, 'kept-upload.txt', (() => { const p = path.join(h.dataDir, `up-${uuidv7()}`); fs.writeFileSync(p, 'x'); return p })(), 'e'.repeat(64))
+    const before = (await h.api('alice').call(API.listRoomMessages, { params: { id: rooms.all }, query: {} })).items.length
+    await h.api('dana').call(API.updateGroup, { params: { id: marketingGroup }, body: { memberIds: ['erin'] } })
+    try {
+      const r = await h.req('alice', `/api/rooms/${rooms.all}/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'accept-language': 'ko' }, body: JSON.stringify({ body: '메모 보내요', mentions: [], fileIds: [team.file.id, up.id], clientMessageId: cm() }) })
+      expect(r.status).toBe(403)
+      const err = (await r.json()) as { error: { message: string; params: { reason: string; files: string } } }
+      expect(err.error.params).toMatchObject({ reason: 'team_file_access', files: team.file.id })
+      expect(err.error.message).toContain('revoked-room.md')
+      // nothing went: no message, no audit row; the copy is gone (row and bytes), even for alice; the upload stays
+      expect((await h.api('alice').call(API.listRoomMessages, { params: { id: rooms.all }, query: {} })).items.length).toBe(before)
+      expect(auditOf(team.file.id)).toBeNull()
+      expect(h.ctx.db.query('SELECT 1 FROM room_files WHERE id = ?').get(team.file.id)).toBeNull()
+      expect(fs.existsSync(path.join(roomFilesOf(h.ctx).root(), rooms.all, team.file.id))).toBe(false)
+      expect((await read('alice', rooms.all, team.file.id)).status).toBe(404)
+      expect((await read('bob', rooms.all, team.file.id)).status).toBe(404)
+      expect(h.ctx.db.query('SELECT message_id FROM room_files WHERE id = ?').get(up.id)).toEqual({ message_id: null })
+      // the same send without it goes
+      expect((await send('alice', rooms.all, [up.id])).files.map((f) => f.id)).toEqual([up.id])
+    } finally {
+      await h.api('dana').call(API.updateGroup, { params: { id: marketingGroup }, body: { memberIds: ['alice', 'erin'] } })
+    }
+  })
+
+  test('the team file moved or deleted after the pick: refused the same way (where it went is not mine to check)', async () => {
+    put('users/alice/moved-room.md', '# 옮길 메모\n')
+    const team = await copy('alice', rooms.all, 'users/alice/moved-room.md')
+    fs.rmSync(path.join(h.ctx.files.fx.root, 'users', 'alice', 'moved-room.md'))
+    const r = await h.req('alice', `/api/rooms/${rooms.all}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body: '', mentions: [], fileIds: [team.file.id], clientMessageId: cm() }) })
+    expect(r.status).toBe(403)
+    expect(h.ctx.db.query('SELECT 1 FROM room_files WHERE id = ?').get(team.file.id)).toBeNull()
+  })
+
+  test('picks at the same time cannot pass the cap together; the same pick twice at once is one copy', async () => {
+    const png = fs.readFileSync(path.join(import.meta.dir, '../../web/public/icons/icon-192.png'))
+    const names = [1, 2, 3, 4, 5].map((i) => `users/carol/pic-${i}.png`)
+    for (const n of names) { const abs = path.join(h.ctx.files.fx.root, ...n.split('/')); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, png) }
+    // carol's unsent copies leave room for two of these pictures, not three
+    h.ctx.db.query("INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, sha256, thumb, created_at, team_path, team_stamp) VALUES (?, ?, 'carol', 'big.bin', ?, 'application/octet-stream', 'other', ?, 0, ?, 'users/carol/big.bin', 'x')")
+      .run(uuidv7(), rooms.all, TEAM_COPIES_UNSENT_MAX - Math.floor(png.length * 2.5), 'f'.repeat(64), new Date().toISOString())
+    const results = await Promise.all(names.map((n) => attach('carol', rooms.all, n)))
+    expect(results.map((r) => r.status).sort()).toEqual([201, 201, 409, 409, 409])
+    expect((h.ctx.db.query("SELECT COUNT(*) n FROM room_files WHERE user_id = 'carol' AND message_id IS NULL AND name LIKE 'pic-%'").get() as { n: number }).n).toBe(2)
+    // a double tap: two requests for one file at once give one copy
+    put('users/carol/twice-room.md', '# 한 번만\n')
+    const [a, b] = await Promise.all([copy('carol', rooms.all, 'users/carol/twice-room.md'), copy('carol', rooms.all, 'users/carol/twice-room.md')])
+    expect(b.file.id).toBe(a.file.id)
+    expect(unsent('carol', 'twice-room.md')).toBe(1)
   })
 })

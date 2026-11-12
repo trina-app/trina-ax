@@ -600,6 +600,14 @@ export class Rooms {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
       if (n !== fileIds.length) fail('validation', undefined, { fields: { 'body.fileIds': 'unknown file' } })
     }
+    // team files copied in with a phone's attach sheet (rooms/files.ts teamCopy) were copied with my access then: the
+    // send gives them to the whole room, so I must still be able to open each team file now. One I may not open any
+    // more: nothing is sent, that copy is removed, and the refusal names it (params.files: the copies taken out, so the
+    // app does not put them back in the box)
+    if (fileIds.length && !answer) {
+      const revoked = roomFilesOf(this.ctx).revokedTeamCopies(userId, roomId, fileIds)
+      if (revoked.ids.length) fail('forbidden', tr('roomTeamFileNoAccess', o.locale ?? DEFAULT_LOCALE, { names: revoked.names.join(', ') }), { params: { reason: 'team_file_access', files: revoked.ids.join(',') } })
+    }
     // "@트리나 …" (a person picked from the list under the same name wins), only while the server allows it
     // (AppConfig.roomAiMentions; off by default: the side chat asks the AI beside a room); anything that stops the
     // question stops the send. Off: the text is an ordinary message.

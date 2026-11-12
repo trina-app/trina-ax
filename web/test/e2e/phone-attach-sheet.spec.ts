@@ -161,6 +161,25 @@ test.describe('Android', () => {
     await expect.poll(() => room.sent.length).toBe(1)
     expect([...(room.sent[0] as unknown as { fileIds: string[] }).fileIds].sort()).toEqual(['019a5f00-0000-7000-8000-00000000f001', '019a5f00-0000-7000-8000-00000000f002'])
     await expect(page.getByTestId('room-team-file-widen')).toHaveCount(0)
+    // a team file I can no longer open when I send (taken out of its group meanwhile): the server refuses the send and
+    // removes the copy; the text comes back, that file does not, and the toast says why
+    await page.getByTestId('room-attach').click()
+    await page.getByTestId('attach-team').click()
+    await dialog.getByTestId('picker-search').fill('plan')
+    await dialog.getByTestId('picker-file').filter({ hasText: 'plan.md' }).first().locator('input').check()
+    await dialog.getByTestId('picker-attach').click()
+    await expect(chip).toHaveAttribute('data-status', 'done')
+    await page.getByTestId('room-input').fill('기획안이에요')
+    await page.route(`**/api/rooms/${ROOM_ID}/messages`, async (r) => {
+      if (r.request().method() !== 'POST') return r.fallback()
+      await r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'forbidden', message: '이제 열 수 없는 팀 파일이 있어서 보내지 않았어요: plan.md. 그 파일은 메시지에서 뺐어요.', params: { reason: 'team_file_access', files: '019a5f00-0000-7000-8000-00000000f001' } } }) })
+    })
+    await page.getByTestId('room-send').click()
+    await expect(page.getByText('이제 열 수 없는 팀 파일이 있어서 보내지 않았어요: plan.md.')).toBeVisible()
+    await expect(page.getByTestId('room-input')).toHaveValue('기획안이에요')
+    await expect(chip).toHaveCount(0)
+    await expect(page.getByTestId('room-team-file-widen')).toHaveCount(0)
+    expect(room.sent.length).toBe(1)
     // a thread's box: the same sheet
     await page.goto(`/rooms/${ROOM_ID}/t/${ROOT}`)
     const threadAttach = page.locator('[data-testid="room-attach"]:visible')

@@ -77,6 +77,10 @@ const services = new WeakMap<AppContext, RoomFiles>()
 
 export class RoomFiles {
   constructor(readonly ctx: AppContext) {}
+  /** teamCopy: bytes of copies on their way, per person (counted by the cap until their row carries them) */
+  private reserved = new Map<string, number>()
+  /** teamCopy: the copies on their way, by person, room, team path and stamp */
+  private copying = new Map<string, Promise<RoomFile>>()
   root() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms') }
   private dir(roomId: string) { return path.join(this.root(), roomId) }
   private abs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), f.id) }
@@ -204,11 +208,52 @@ export class RoomFiles {
     for (const f of same) {
       try { checkRegular(this.abs(f)); return fileOut(f) } catch { /* its file is gone: a new copy below */ }
     }
+    // the same pick already on its way (a double tap, two boxes): that copy, not a second one
+    const key = [userId, roomId, src.rel, stamp].join('\n')
+    const going = this.copying.get(key)
+    if (going) return going
+    // the cap counts the copies on their way too: their bytes are taken here, before anything awaits (one server
+    // process: nothing else runs between the sum and the reservation), and given back once the row carries them
     const unsent = (this.ctx.db.query('SELECT COALESCE(SUM(size), 0) n FROM room_files WHERE user_id = ? AND message_id IS NULL AND team_path IS NOT NULL').get(userId) as { n: number }).n
-    if (unsent + src.st.size > TEAM_COPIES_UNSENT_MAX) fail('conflict', tr('roomTeamCopiesFull', locale, { max: '200 MB' }), { params: { reason: 'team_copies_full' } })
-    const file = await this.fromTeamFile(userId, roomId, src.rel)
-    this.ctx.db.query('UPDATE room_files SET team_path = ?, team_stamp = ? WHERE id = ?').run(src.rel, stamp, file.id)
-    return file
+    const held = this.reserved.get(userId) ?? 0
+    if (unsent + held + src.st.size > TEAM_COPIES_UNSENT_MAX) fail('conflict', tr('roomTeamCopiesFull', locale, { max: '200 MB' }), { params: { reason: 'team_copies_full' } })
+    this.reserved.set(userId, held + src.st.size)
+    const copy = (async () => {
+      try {
+        const file = await this.fromTeamFile(userId, roomId, src.rel)
+        this.ctx.db.query('UPDATE room_files SET team_path = ?, team_stamp = ? WHERE id = ?').run(src.rel, stamp, file.id)
+        return file
+      } finally {
+        const left = (this.reserved.get(userId) ?? 0) - src.st.size
+        if (left > 0) this.reserved.set(userId, left)
+        else this.reserved.delete(userId)
+        this.copying.delete(key)
+      }
+    })()
+    this.copying.set(key, copy)
+    return copy
+  }
+
+  /**
+   * Before a send hands team-file copies to the room (Rooms.send): `userId` must still be able to open each one's team
+   * file now (the copy was made with their access then: a person taken out of a group since must not pass that
+   * group's file on). Copies they may not open any more are removed (their bytes are not kept for a day, not even for
+   * them) and their names are returned; the send is then refused. Uploads and other copies are left as they are.
+   */
+  revokedTeamCopies(userId: string, roomId: string, fileIds: readonly string[]): { ids: string[]; names: string[] } {
+    if (!fileIds.length) return { ids: [], names: [] }
+    const copies = this.ctx.db.query(`SELECT id, room_id, name, team_path FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND team_path IS NOT NULL AND id IN (${fileIds.map(() => '?').join(',')})`)
+      .all(roomId, userId, ...fileIds) as Pick<FileRow, 'id' | 'room_id' | 'name' | 'team_path'>[]
+    if (!copies.length) return { ids: [], names: [] }
+    const who = loadPrincipal(this.ctx.db, userId)
+    const fx = this.ctx.files.fx, rules = this.ctx.files.rules()
+    const mayRead = (rel: string) => {
+      if (!who) return false
+      try { const a = authorize(fx, rules, who, rel, 'read'); return !a.st?.isDirectory() && !!visiblePath(fx, rules, who, a.rel) } catch { return false }
+    }
+    const gone = copies.filter((f) => !mayRead(f.team_path!))
+    this.discardUnsent(userId, roomId, gone.map((f) => f.id))
+    return { ids: gone.map((f) => f.id), names: gone.map((f) => f.name) }
   }
 
   /** Uploads of `userId` in this room not sent with a message: removed (a shared answer that did not go after all). */
