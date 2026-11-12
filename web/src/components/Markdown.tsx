@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
-import { footnotesTooHeavy, personWords, tableTooBig, protectMentions, remarkCapDepth, remarkFootnotesAsText, remarkGfmNoFootnotes, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
+import { footnotesTooHeavy, lineEnds, personWords, tableTooBig, protectMentions, remarkCapDepth, remarkFootnotesAsText, remarkGfmNoFootnotes, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
 import { LinkedText, RoomLink } from './rooms/MessageText'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
@@ -547,7 +547,8 @@ export const Markdown = memo(function Markdown({ text, streaming, className, siz
 function AnswerMarkdown({ text, streaming, className, size, copyQuotes }: { text: string; streaming?: boolean; className?: string; size: keyof typeof SIZES; copyQuotes?: boolean }) {
   // (one element while the text is the same: a new render of the page around it does not read the Markdown again)
   const body = useMemo(() => {
-    const source = prepareMarkdown(text, streaming)
+    // ("\r" ends a line too: the same text for the checks and the parser)
+    const source = prepareMarkdown(lineEnds(text), streaming)
     if (tableTooBig(source)) return null
     return (
       <ReactMarkdown remarkPlugins={remarkFor(source)} rehypePlugins={copyQuotes ? REHYPE_ANSWER : REHYPE} components={copyQuotes ? COMPONENTS_ANSWER : COMPONENTS} urlTransform={urlTransform}>
@@ -607,16 +608,18 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
   // (one element while the words and the names are the same, whatever else changes: a new "edited" mark or a new list
   // of the same names does not read the Markdown again)
   const names = JSON.stringify(mentions)
-  const heavy = useMemo(() => tooHeavyForMarkdown(text), [text])
+  // ("\r" ends a line too: the same text for the checks and the parser)
+  const lines = useMemo(() => lineEnds(text), [text])
+  const heavy = useMemo(() => tooHeavyForMarkdown(lines), [lines])
   const body = useMemo(() => {
     if (heavy) return null
-    const p = protectMentions(text, JSON.parse(names) as MessageMention[])
+    const p = protectMentions(lines, JSON.parse(names) as MessageMention[])
     return (
       <ReactMarkdown remarkPlugins={[...REMARK_PERSON, [personWords, { found: p.found, origin: origin() }] as never]} components={COMPONENTS_PERSON} urlTransform={urlTransform}>
         {p.source}
       </ReactMarkdown>
     )
-  }, [text, names, heavy])
+  }, [lines, names, heavy])
   // (if it cannot be drawn: its words, as a message being sent shows them)
   const plain = (
     <div className={clsx('whitespace-pre-wrap break-words text-reading leading-reading text-ink', className)} data-testid="message-markdown" data-plain="">

@@ -288,13 +288,17 @@ function codeSearchTooLong(text: string): boolean {
  * however short the row ("a|a|…" 2,000 columns, then a thousand lines of "x": two million cells, seconds to draw and
  * far more for the browser to lay out). */
 export const MAX_TABLE_CELLS = 20_000
+const CONTAINER_SIGNS = /^(?:[ \t]*(?:>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t])))*/
+/** The text with Markdown's other line ends ("\r\n", "\r") as "\n": what the parser reads, and the guards count. */
+export const lineEnds = (text: string) => (text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text)
 const DELIMITER_ROW = /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/
 
 /** Whether a text's tables would have more than MAX_TABLE_CELLS cells (counted generously: a table's rows run to the
  * next blank line). For an AI's answer too. */
 export function tableTooBig(text: string): boolean {
   if (!text.includes('-')) return false
-  const lines = text.split('\n')
+  // (a table in a quote or a list is one too: its lines without the signs before them)
+  const lines = lineEnds(text).split('\n').map((l) => l.replace(CONTAINER_SIGNS, ''))
   let cells = 0
   for (let k = 1; k < lines.length; k++) {
     const line = lines[k]
@@ -320,7 +324,8 @@ function footnoteMark(text: string, i: number): number {
  * them is slow in itself), hundreds of "[" or emphasis openers open at once (MAX_OPEN), thousands of lines (MAX_LINES), a thousand emphasis marks that do not pair up (MAX_LOOSE), code spans that never end (MAX_CODE_SEARCH), a thousand words after a "[" that is not closed (MAX_AUTOLINK_TRIES), tables of more than MAX_TABLE_CELLS cells, or a long run mixing
  * "*" and "_". Nothing a person writes on purpose. For people's messages only: an AI's answer or a file is Markdown
  * whatever it holds (capDepth and MarkdownBoundary keep those from taking the page down). */
-export function tooHeavyForMarkdown(text: string): boolean {
+export function tooHeavyForMarkdown(text0: string): boolean {
+  const text = lineEnds(text0)
   let lines = 0
   for (let k = text.indexOf('\n'); k >= 0; k = text.indexOf('\n', k + 1)) if (++lines > MAX_LINES) return true
   for (const run of text.matchAll(LONG_RUN)) if (run[0].includes('*') && run[0].includes('_')) return true

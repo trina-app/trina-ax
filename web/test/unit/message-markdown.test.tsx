@@ -429,6 +429,21 @@ test('a table of millions of cells (a wide header, then short lines) is its word
     expect(md(s)).toContain('data-plain=""')
     expect(answer(s)).not.toContain('<table')
   }
+  // in a quote, with "\r" or "\r\n" line ends (review round 3, second pass)
+  const quoted = (p: string, cols: number, rows: number) => p + 'a|'.repeat(cols) + '\n' + p + '-|'.repeat(cols) + '\n' + (p + 'x\n').repeat(rows)
+  for (const body of [quoted('> ', 1200, 900), quoted('>', 1200, 900), quoted('> > ', 1000, 800), quoted('- ', 1200, 900).replace(/^- /gm, (m, i) => (i ? '  ' : m)), wide(2000, 998).replace(/\n/g, '\r'), wide(1500, 998).replace(/\n/g, '\r\n')]) {
+    const s = body.slice(0, 10_000)
+    expect(tableTooBig(s)).toBe(true)
+    for (const [name, f] of [['message', () => md(s)], ['answer', () => answer(s)]] as const) {
+      const ms = fastest(f)
+      if (ms >= 200) throw new Error(`${name} ${JSON.stringify(s.slice(0, 12))}: ${Math.round(ms)} ms`)
+    }
+  }
+  // "\r" ends lines for the other checks too
+  expect(tooHeavyForMarkdown('> x\r' + 'x\r'.repeat(4998))).toBe(true)
+  const crlf = md('**a**\r\n\r\n- b\r\n- c')
+  expect(crlf).toContain('<strong>a</strong>')
+  expect(crlf).toContain('<li>c</li>')
   // ordinary tables are tables
   const t = '|이름|부서|메모|\n|---|:-:|--:|\n' + '|김|영업|3~5분|\n'.repeat(150)
   expect(tableTooBig(t)).toBe(false)
