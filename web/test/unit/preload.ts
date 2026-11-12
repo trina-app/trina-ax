@@ -19,11 +19,12 @@
 //   TZ and deleted it to put back "no TZ" (audit-dates, usage-range) left every later file in New York. So TZ is set to
 //   the zone the run started in (a file puts back that value, never deletes it), and at the start of each file it is
 //   that zone again.
-// - React's act() is closed. An act, mount, click, type or unmount that was not awaited lets two act() scopes overlap;
-//   React's act depth then stays above 0 and from then on React keeps every render in its act queue for good, so every
-//   page mounted later in the run stays `<div></div>` (2026-11-12: one such file, about 500 failures in the files CI
-//   ran after it, none on a Mac that listed the files in another order). React keeps that depth to itself, so it cannot
-//   be put back: the next file fails at once with one line that names the file before it, and so does every file after.
+// - React's act() is closed. An act, mount, click, type or unmount that was not awaited, or a test that timed out inside
+//   one, leaves an act() scope open; two that overlap leave React's act depth above 0 for good. While a scope is open
+//   React keeps every render in its act queue, so every page mounted later in the run stays `<div></div>` (2026-11-12:
+//   one such file, about 550 failures in the 88 files CI ran after it, none with Bun 1.4.4). React keeps that depth to
+//   itself, so it cannot be put back: while it is open, each file fails at once with one line that names the file that
+//   most likely left it (the last one that started with act() closed).
 //
 // The start of a file is a beforeAll that a loader plugin puts in front of each test file's own code, on its first line
 // (line numbers in errors stay right). Tests without installDom still see no `window`: the fake document is taken away
@@ -77,7 +78,7 @@ const actOpen = () => {
   React.act(() => {})
   return reactInternals.actQueue != null
 }
-/** the test file that started last, and the one that left an act() scope open (while it is open) */
+/** the last test file that started with act() closed, and, while a scope is open, the file named for it */
 let lastFile = ''
 let actLeftBy = ''
 
@@ -85,7 +86,7 @@ let actLeftBy = ''
 export function fileStart(file = '') {
   if (actOpen()) {
     actLeftBy ||= lastFile || 'a file before this one'
-    throw new Error(`${actLeftBy} left a React act() open (an act, mount, click, type or unmount not awaited; look there for "overlapping act() calls"). From then on nothing renders in this run, so every later file fails here.`)
+    throw new Error(`a React act() is open, most likely left by ${actLeftBy}: an act, mount, click, type or unmount not awaited (React says "overlapping act() calls" or "without await" there), or a test that timed out inside one. While it is open nothing renders, so every file fails here.`)
   }
   actLeftBy = ''
   if (file) lastFile = file
@@ -115,7 +116,7 @@ plugin({
   name: 'web-test-file-start',
   setup(build) {
     build.onLoad({ filter: /[\\/]test[\\/]unit[\\/][^\\/]+\.test\.tsx?$/ }, async ({ path }) => ({
-      contents: `import { beforeAll as __webTestFileStart } from 'bun:test'; __webTestFileStart(() => (globalThis as any)[Symbol.for('mycel.web-test.file-start')]?.(${JSON.stringify(path.replace(/^.*[\\/](test[\\/]unit[\\/])/, '$1'))}));` + (await Bun.file(path).text()),
+      contents: `import { beforeAll as __webTestFileStart } from 'bun:test'; __webTestFileStart(() => (globalThis as any)[Symbol.for('mycel.web-test.file-start')]?.(${JSON.stringify(path.replace(/\\/g, '/').replace(/^.*\/(test\/unit\/)/, '$1'))}));` + (await Bun.file(path).text()),
       loader: path.endsWith('x') ? 'tsx' : 'ts',
     }))
   },

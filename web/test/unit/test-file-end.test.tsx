@@ -6,7 +6,7 @@
 // - A file that sets TZ and puts it back leaves the next file in the zone the run started in (Bun 1.3: a deleted TZ
 //   kept the last zone for the rest of the run).
 // - A file that leaves a React act() open (an unmount not awaited: two act() scopes overlap) would leave every page
-//   mounted later in the run empty, `<div></div>` (CI: about 500 failures in the files after it). The next file fails
+//   mounted later in the run empty, `<div></div>` (CI: about 550 failures in the files after it). The next file fails
 //   at once instead, with one line that names the file that left it.
 import { afterAll, beforeEach, expect, test } from 'bun:test'
 import { act, useState } from 'react'
@@ -78,8 +78,8 @@ test('a file that left an act() open: the next file fails at once and names it; 
   // awaited at once (no "not awaited" warning); the scope stays open until close()
   const closed = new Promise<void>((done, fail) => scope.then(done, fail))
   try {
-    expect(() => start('test/unit/next.test.tsx')).toThrow('test/unit/test-file-end.test.tsx left a React act() open')
-    expect(() => start('test/unit/after-that.test.tsx')).toThrow('test/unit/test-file-end.test.tsx left a React act() open')
+    expect(() => start('test/unit/next.test.tsx')).toThrow('a React act() is open, most likely left by test/unit/test-file-end.test.tsx:')
+    expect(() => start('test/unit/after-that.test.tsx')).toThrow('a React act() is open, most likely left by test/unit/test-file-end.test.tsx:')
   } finally {
     close()
     await closed
