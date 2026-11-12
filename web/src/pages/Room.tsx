@@ -34,10 +34,10 @@ import { lookingAt, onWindowFocus } from '../lib/attention'
 import { readUpTo, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { useOverlayEntry } from '../lib/backCloses'
-import { holdPlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
+import { holdPlace, listPlace, restorePlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
 import { useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
-import { useRooms, type PendingSend } from '../store/rooms'
+import { useRooms, type PendingSend, type RoomPlace } from '../store/rooms'
 import { useMe } from '../store/session'
 import { useSideChats } from '../store/sideChats'
 import { MembersDialog } from '../components/rooms/MembersDialog'
@@ -78,6 +78,9 @@ const documentLoad = () => {
 
 const NO_MESSAGES: RoomMessage[] = []
 const NO_PENDING: PendingSend[] = []
+/** the rows of the timeline by their message (a message, an event line): where the reader was is kept by them */
+const ROOM_ROW_ID = messageDomId('')
+const ROOM_PLACE_ROWS = `[id^="${ROOM_ROW_ID}"]`
 
 export default function RoomPage() {
   const { roomId = '', messageId } = useParams()
@@ -111,7 +114,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const navigate = useNavigate()
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId) ?? null)
   const loaded = useRooms((s) => s.loaded)
-  const timeline = useRooms((s) => (s.timeline?.roomId === roomId ? s.timeline : null))
+  // (a room left a moment ago shows as it was from the first frame: kept until the open below takes it)
+  const timeline = useRooms((s) => (s.timeline?.roomId === roomId ? s.timeline : (s.kept[roomId] ?? null)))
   const allPending = useRooms((s) => s.pending[roomId]) ?? NO_PENDING
   // the timeline's own sends (a thread's are in its panel)
   const pending = useMemo(() => allPending.filter((p) => !p.threadRootId), [allPending])
@@ -197,10 +201,13 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     if (room.hidden && byChoice) void useRooms.getState().setHidden(room.id, false).catch(() => {})
   }, [room, byChoice])
 
+  // where the reader was when the page leaves the room (read while its messages are still on screen), kept with the
+  // room for going back
+  const leftPlace = useRef<RoomPlace | null>(null)
   useEffect(() => {
     useRooms.getState().open(roomId)
     return () => {
-      useRooms.getState().close(roomId)
+      useRooms.getState().close(roomId, leftPlace.current)
       // back in the room, ✦ opens the side chat afresh
       roomLeft(roomId)
     }
@@ -272,6 +279,20 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     toBottom.current = true
     void useRooms.getState().loadNewest(roomId)
   }
+  // back in a room left a moment ago with the reader part way up: the same message in the same place (at the bottom
+  // when it was there: the newest, as on any open; not for a link to a message, which goes to it). After the follow
+  // above, before the first frame shows
+  const [place] = useState(() => (target ? null : (useRooms.getState().kept[roomId]?.place ?? null)))
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (place && el && restorePlace(el, document.getElementById(messageDomId(place.messageId)), place.offset)) stick.current = false
+    // leaving: where the reader is now (none at the bottom), for the next time
+    return () => {
+      const at = scroller.current
+      leftPlace.current = at ? listPlace(at, ROOM_PLACE_ROWS, (row) => row.id.slice(ROOM_ROW_ID.length) || null, stick.current) : null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const tryRead = useCallback(() => {
     const el = scroller.current

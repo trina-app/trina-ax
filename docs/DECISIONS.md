@@ -23379,3 +23379,45 @@ suggestions and the setup's folder plan read, so a team must not be able to lose
   c-file-list-format.test.ts` (the rule's text), `web/test/unit/file-list-settings.test.tsx`, `web/test/e2e/
   admin-file-list.spec.ts`.
 - Version impact: **minor** (an admin setting removed).
+
+## Rooms left a moment ago open at once (perf/room-switch-cache, 2026-11-12, the owner, QA TC-401)
+
+The owner: going back and forth between rooms loads everything again. Measured on a copy of the QA team (a team room of
+93 messages, a DM of 70, an AI chat of 18; a phone network of 150 ms and 1.6 Mbit/s): each return to a room showed the
+skeleton for about 340 ms, read its whole newest page again (about 24 KB, plus the AI's two small reads) and landed at
+the bottom, wherever the reader was. The cause was the web app: the rooms store held one timeline, `close()` dropped it
+and `open()` started from an empty one (`web/src/store/rooms.ts` open/close, `pages/Room.tsx`). The server already
+pages by position with an older and a newer cursor and never reads a whole history. AI chats already showed at once
+from memory (their messages stay in `store/chats.ts`) and re-read their newest page in the background; they too opened
+at the bottom.
+- **Kept rooms** (`kept` in the rooms store): leaving a room keeps its timeline when it was read to the newest (not a
+  window around an older message, not loading or failed) and the room is in my list: the last `KEPT_ROOMS` (10) rooms,
+  each cut to its newest `KEPT_MESSAGES` (200; the rest load again on scrolling up from there). In memory only, never on
+  the device.
+- **Kept current by the events**: the same pure changes that keep the open timeline right (`withMessage`,
+  `withUpdatedMessage`, `withThreadSummary`, `withReactions`) apply to the kept ones, so messages, edits, deletes,
+  reactions and thread counts that come while away are there on return. Unread counts are not touched by this (the
+  rooms list keeps them, as before).
+- **Going back** shows the kept timeline from the first frame (the page reads it until `open()` takes it), then asks
+  only for what came after its newest message: `GET /api/rooms/:id/messages?cursor=` with the server's own newer cursor
+  from that position (`roomTimelineCursor` in `shared/src/api/rooms.ts`, the format `server/src/rooms/service.ts`
+  reads, pinned by a server test). Usually empty; added by id, with the changes made meanwhile made again on top. More
+  than a page (a gap the events did not fill): the newest page as on a first open.
+- **When unsure, read as before**: a reconnect the server could not resume (reset, resync, events it could not read)
+  drops every kept room (`live.ts` onReload and `resync()`); someone joining or leaving drops that room's (the events do
+  not say whose reactions went), and an open room left before its re-read is in is not kept. A reconnect that resumed
+  needs nothing: the server replays what was missed.
+- **Access**: a kept room goes when the room goes from my list (taken out, left, closed: `withoutRoom`, and every list
+  read), when the newer read answers 403 or 404 (the page then shows "not found" with nothing of it on screen), and at
+  sign-out or another person signing in (`reset`). Another team is another address and another page, so nothing
+  crosses teams.
+- **The reader's place**: leaving a room or an AI chat part way up keeps the first message in sight and its distance
+  from the top (`listPlace` in `lib/stickToBottom.ts`); going back puts it there before the first frame. At the bottom
+  it opens at the bottom as before, following new messages; a link to a message goes to that message. AI chats keep the
+  last 20 places (`chatPlaces`, `store/chats.ts`), message ids only.
+- After, same network: a room returns in about 40 to 50 ms with no skeleton, reading 86 bytes (the empty newer page
+  and the AI's two reads) instead of about 24 KB, at the place it was left; 1440 and 390 the same.
+- **Not changed**: an AI chat still re-reads its newest page when shown again (3 small reads; about 10 KB here). Its
+  events do not carry everything (a version picked in another window, another member's turn in a shared project chat),
+  and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
+  visible branch). AI chats' messages stay in memory without a limit, as before.

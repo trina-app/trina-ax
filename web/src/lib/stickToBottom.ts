@@ -163,6 +163,31 @@ export function holdPlace(scroller: HoldBox, rows: string): () => void {
   }
 }
 
+/** Where a list was left, to put it back there when it is shown again (a room or an AI chat gone back to): the first row in sight
+ * (`idOf`: its message's id) and how far below the list's top that row's top was. Null when there is nothing to keep:
+ * the list followed its newest message (it opens at the bottom again), it is out of sight (a phone's thread over it), or
+ * no row is in sight. */
+type PlaceRow = Rect & Pick<Element, 'id' | 'getAttribute'>
+export function listPlace(scroller: Rect & { clientHeight: number; querySelectorAll(rows: string): Iterable<PlaceRow> }, rows: string, idOf: (row: PlaceRow) => string | null, following: boolean): { messageId: string; offset: number } | null {
+  if (following || !scroller.clientHeight) return null
+  const top = scroller.getBoundingClientRect().top
+  for (const r of scroller.querySelectorAll(rows)) {
+    const box = r.getBoundingClientRect()
+    if (box.bottom <= top) continue
+    const messageId = idOf(r)
+    return messageId ? { messageId, offset: Math.round(box.top - top) } : null
+  }
+  return null
+}
+
+/** The list scrolled so that `row` is where listPlace saw it (`offset` below the list's top). False when the row is not
+ * on the list (gone since): the list stays where it is. */
+export function restorePlace(scroller: Pick<HTMLElement, 'scrollTop' | 'getBoundingClientRect'>, row: Pick<Element, 'getBoundingClientRect'> | null, offset: number): boolean {
+  if (!row) return false
+  scroller.scrollTop += row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset
+  return true
+}
+
 /** A message list's scrolling, the same in every list. Put `scroller` on the scrolling box and `content` on the box of
  * its messages; call `onScroll()` first in the list's scroll handler and `follow()` in a layout effect on what makes
  * the list grow (new messages, a streaming answer). `stick` is true while it follows the newest message (set it to true

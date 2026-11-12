@@ -274,6 +274,9 @@ export function startLive() {
     createSocket: (url, protocols) => new WebSocket(url, protocols) as never,
     onEvent: dispatch,
     onReload: (reason) => {
+      // the rooms left a moment ago may have missed events: read again when opened (also when no screen that reads the
+      // rooms again is up: components/rooms/useRoomsSync)
+      useRooms.setState({ kept: {} })
       void useChats.getState().reloadAll()
       void useDeckBuilds.getState().reloadAll()
       void useSession.getState().refreshMe() // a language change may have happened while we were away

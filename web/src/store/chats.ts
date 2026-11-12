@@ -190,6 +190,19 @@ const initial = () => ({
   buildOpened: {} as Record<string, string>,
 })
 
+/** Where the reader was in the chats left lately (pages/Chat.tsx, lib/stickToBottom.ts listPlace), the last left
+ * last: going back to one puts the same message in the same place. Only while the reader was part way up (at the bottom
+ * a chat opens at the bottom), in this window's memory only, gone at sign-out with the chats. */
+const chatPlaces = new Map<string, { messageId: string; offset: number }>()
+export const CHAT_PLACES = 20
+export const chatPlace = (chatId: string) => chatPlaces.get(chatId) ?? null
+export function keepChatPlace(chatId: string, place: { messageId: string; offset: number } | null) {
+  chatPlaces.delete(chatId)
+  if (!place) return
+  chatPlaces.set(chatId, place)
+  while (chatPlaces.size > CHAT_PLACES) chatPlaces.delete(chatPlaces.keys().next().value!)
+}
+
 const sortChats = (list: Chat[]) => list.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
 
 export const useChats = create<ChatsState>((set, get) => {
@@ -454,6 +467,7 @@ export const useChats = create<ChatsState>((set, get) => {
       for (const t of loadRetries.values()) clearTimeout(t)
       loadRetries.clear()
       closedRequests.clear()
+      chatPlaces.clear()
       set(initial())
     },
 

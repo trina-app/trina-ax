@@ -1,0 +1,1 @@
+- Going back to a room, group chat or 1:1 chat you just had open now shows it at once, where you left it, and loads only the messages that came since. Before, each return showed a loading placeholder and read the newest page again, and it always opened at the newest message. An AI chat you go back to also opens where you left it.
