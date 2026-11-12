@@ -13,7 +13,7 @@ import { useSession } from '../../src/store/session'
 import { currentCount, startSessionMarkers, stopSessionMarkers, useSessionMarkers, WEB_BADGE_MS } from '../../src/store/sessionMarkers'
 import { badgeHintKey } from '../../src/components/settings/PushNotifications'
 import { ME, room } from './rooms-fixtures'
-import { MOBILE_CAPABILITIES, type MobileConfig } from '../../../mobile/src/protocol'
+import { BADGE_CAPABILITY, MOBILE_CAPABILITIES, type MobileConfig } from '../../../mobile/src/protocol'
 
 const chat = (o: Partial<Chat> = {}): Chat => ({ id: uuidv7(), projectId: null, title: 'Weekly report', engine: 'claude-code', model: null, createdAt: '2026-11-07T00:00:00.000Z', updatedAt: '2026-11-07T00:00:10.000Z', deletedAt: null, runState: 'idle', ...o })
 const settle = () => new Promise((r) => setTimeout(r, WEB_BADGE_MS + 30))
@@ -148,6 +148,43 @@ describe('the icon of an installed web app', () => {
     stopSessionMarkers()
     expect(dock).toEqual([1, 0])
     expect(calls).toEqual([])
+  })
+
+  test('inside the phone app with badge-v1: the same n goes to the app icon once a burst settles, 0 when it stops', async () => {
+    const config: MobileConfig = { protocol: 1, appVersion: '1.0.5', platform: 'ios', nonce: 'e'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, BADGE_CAPABILITY] }
+    const sent: { type: string; count?: number }[] = []
+    const win: Record<string, unknown> = { matchMedia: () => ({ matches: false }), mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (raw: string) => { sent.push(JSON.parse(raw)) } } }
+    win.top = win; win.self = win
+    stub('window', win)
+    stub('navigator', badging())
+    startSessionMarkers()
+    useSessionMarkers.setState({ visible: true, onScreen: null })
+    // a DM and a team room at its default: n is 1 (the team room's plain message wants nobody)
+    useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 }), room({ kind: 'team', unreadCount: 5 })] })
+    await settle()
+    const badges = () => sent.filter((m) => m.type === 'badge').map((m) => m.count)
+    expect(badges()).toEqual([0, 1])
+    // no web badge inside the app
+    expect(calls).toEqual([])
+    stopSessionMarkers()
+    await settle()
+    expect(badges()).toEqual([0, 1, 0])
+  })
+
+  test('the phone app\'s bridge comes after the markers started (an iPhone WebView with the Badging API): the app icon still gets n', async () => {
+    const config: MobileConfig = { protocol: 1, appVersion: '1.0.5', platform: 'ios', nonce: 'f'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, BADGE_CAPABILITY] }
+    const sent: { type: string; count?: number }[] = []
+    const win: Record<string, unknown> = { matchMedia: () => ({ matches: false }), ReactNativeWebView: { postMessage: (raw: string) => { sent.push(JSON.parse(raw)) } } }
+    win.top = win; win.self = win
+    stub('window', win)
+    stub('navigator', badging())
+    startSessionMarkers()
+    useSessionMarkers.setState({ visible: true, onScreen: null })
+    // the bridge arrives (the app's load end), then something comes in
+    win.mycelMobile = { ...config }
+    useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 1 }), room({ kind: 'group', unreadCount: 3 })] })
+    await settle()
+    expect(sent.filter((m) => m.type === 'badge').map((m) => m.count).at(-1)).toBe(2)
   })
 
   test('inside the phone app: no web badge (the app has its own)', () => {

@@ -1,11 +1,12 @@
 // APNs with token auth (developer.apple.com "Sending notification requests to APNs"). APNs speaks only HTTP/2: the
 // `fetch` given here must do HTTP/2 to api.push.apple.com (bun.ts: node:http2).
 //
-// Payload: { aps: { alert, sound, mutable-content? }, body: { notificationId, code, path?, device? } } and nothing else
+// Payload: { aps: { alert, sound, badge?, mutable-content? }, body: { notificationId, code, path?, device? } } and nothing else
 // (device = the request's tag, see fcm.ts appData). expo-notifications reads a remote notification's data on iOS from
 // userInfo["body"]. A room notice (code room.*) is mutable: the phone app's notification service extension may replace
 // the title with who and where, which it asks the team server for itself (docs/DECISIONS.md "아이폰 알림의 이름"). The
 // generic alert stays as it is: an app without the extension (1.0.0), or an extension that gets no answer, shows it.
+// `badge`: the request's count for the app icon (iOS shows it only when the person allowed badges).
 import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importEs256, sha256Hex, signJwt, type FetchLike } from './crypto.ts'
 import { appData, type SendOutcome } from './fcm.ts'
@@ -57,7 +58,7 @@ export function createApns(cfg: ApnsConfig, deps: ApnsDeps) {
 
   async function post(msg: PushGatewaySend, alert: { title: string; body: string }, jwt: string): Promise<{ status: number; reason: string | null }> {
     const origin = msg.environment === 'sandbox' ? deps.sandbox ?? APNS_SANDBOX : deps.production ?? APNS_PRODUCTION
-    const body = { aps: { alert, sound: 'default', ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
+    const body = { aps: { alert, sound: 'default', ...(msg.badge !== undefined ? { badge: msg.badge } : {}), ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
     const nowS = Math.floor(deps.now() / 1000)
     const res = await deps.fetch(`${origin}/3/device/${msg.token}`, {
       method: 'POST',

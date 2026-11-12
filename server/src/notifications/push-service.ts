@@ -17,9 +17,11 @@ import { handoverPushWanted } from '../admin/handover-notices'
 import { roomNoticeOut } from '../rooms/inbox'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
+import { pushBadge } from './push-badge'
 import { createNativeTransport, nativeConfigKey, readNativePushConfig, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
-/** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue. */
-export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number}
+/** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
+ * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
+export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number;badge:(userId:string)=>number|null}
 /** kind 'native': a phone app device token (migration 243), delivered through the push gateway, not Web Push. */
 type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native'}
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string;config_key:string}
@@ -57,7 +59,7 @@ export class PushService {
   /** label requests with the right key per device this minute (in memory: a restart forgets it) */
   private labelUse=new Map<string,{since:number;n:number}>()
   constructor(readonly ctx:AppContext,options:Partial<PushOptions>={}){
-    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,...options}
+    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,badge:userId=>pushBadge(ctx,userId),...options}
     this.secrets=path.join(ctx.config.dataDir,'secrets','push');this.vault=new Vault(this.secrets)
     this.unlisten=onPushCancellation(ctx,scope=>{
       const f=this.flight
@@ -272,8 +274,10 @@ export class PushService {
             const device=this.vault.decrypt(aad,'native-push',allowed.sub.secret_enc,allowed.sub.key_version) as NativeDevice
             // The gateway gets ids, the event code and the recipient's language; it picks generic words itself.
             const locale=getUser(this.ctx.db,allowed.sub.user_id)?.locale??teamDefaultLocale(this.ctx.db),path=pushPathOf(this.ctx,allowed.event,r.notification_id)
-            // tag: this device's id on this team; the gateway hands it to the app as data.device, and the app ignores a tap for another device
-            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
+            // tag: this device's id on this team; the gateway hands it to the app as data.device, and the app ignores a tap for another device.
+            // badge: the person's count now (what the page would show on the icon), a number only
+            const badge=this.o.badge(allowed.sub.user_id)
+            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{}),...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
           }else{
             const config=this.o.config();if(!config)throw new Error('push_web_off')
             const sub=this.vault.decrypt(aad,'web-push',allowed.sub.secret_enc,allowed.sub.key_version) as PushSubscription

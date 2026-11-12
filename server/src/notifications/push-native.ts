@@ -7,7 +7,7 @@ import dns from 'node:dns/promises'
 import http from 'node:http'
 import https from 'node:https'
 import {
-  PUSH_GATEWAY_SEND_PATH, PUSH_GATEWAY_MAX_TTL_SECONDS, pushGatewayAuthorization, pushGatewaySigningString, validPushPath,
+  PUSH_GATEWAY_SEND_PATH, PUSH_GATEWAY_MAX_BADGE, PUSH_GATEWAY_MAX_TTL_SECONDS, pushGatewayAuthorization, pushGatewaySigningString, validPushPath,
   validPushToken, type PushEnvironment, type PushGatewaySend, type PushLocale, type PushPlatform,
 } from '@mycel/shared/cloud-protocol'
 import type { PushEventType } from '@mycel/shared/api'
@@ -19,7 +19,8 @@ import { errorCode, postPinned, PushSendError, type PushLookup } from './push-tr
 /** The gateway address (AppConfig push.gatewayUrl: MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl; unset = off). */
 export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
-export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string }
+/** badge: the recipient's count for the app icon (push-badge.ts), a number only */
+export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string; badge?: number }
 export interface NativeSend { device: NativeDevice; payload: NativePayload; config: NativePushConfig; signal: AbortSignal; beforeSend: () => boolean; ttlSeconds: number }
 export type NativeTransport = (input: NativeSend) => Promise<{ statusCode: number }>
 
@@ -61,7 +62,15 @@ export function signedGatewayRequest(send: PushGatewaySend, key: KeyObject, publ
 /** The team key (Ed25519): the relay's <data>/relay/team-key.pem, created on first use exactly like the relay does. */
 function teamKey(dataDir: string) { const { key, publicKey } = loadOrCreateKey(dataDir); return { key, publicKey } }
 
+/** A gateway from before `badge` refuses the key (400 invalid_body: its body schema is strict). The push then goes again
+ * without it, and that gateway gets none for this long before the next try with it (a gateway updated meanwhile). */
+export const NO_BADGE_RETRY_MS = 60 * 60_000
+const validBadge = (b: unknown): b is number => typeof b === 'number' && Number.isInteger(b) && b >= 0 && b <= PUSH_GATEWAY_MAX_BADGE
+
 export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup; request?: typeof https.request; loopbackRequest?: typeof http.request; now?: () => number }): NativeTransport {
+  // gateway address -> until when it gets no badge
+  const noBadge = new Map<string, number>()
+  const now = () => (o.now ?? Date.now)()
   return async input => {
     const url = validGatewayUrl(input.config.url)
     if (!url) throw new Error('push_gateway_invalid')
@@ -73,9 +82,18 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
       ...(input.payload.tag && /^[A-Za-z0-9_-]{1,100}$/.test(input.payload.tag) ? { tag: input.payload.tag } : {}),
       ttlSeconds: Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))),
     }
+    const badge = validBadge(input.payload.badge) && (noBadge.get(url) ?? 0) <= now() ? input.payload.badge : undefined
+    if (badge === undefined) return post(url, send, input)
+    const first = await post(url, { ...send, badge }, input)
+    if (first.statusCode !== 400) return first
+    // an older gateway: the same push without the number (the app sets it itself when it opens)
+    noBadge.set(url, now() + NO_BADGE_RETRY_MS)
+    return post(url, send, input)
+  }
+  async function post(url: string, send: PushGatewaySend, input: NativeSend): Promise<{ statusCode: number }> {
     if (input.signal.aborted || !input.beforeSend()) throw new PushSendError('push_cancelled')
     const { key, publicKey } = teamKey(o.dataDir)
-    const { body, authorization } = signedGatewayRequest(send, key, publicKey, (o.now ?? Date.now)())
+    const { body, authorization } = signedGatewayRequest(send, key, publicKey, now())
     const headers = { 'content-type': 'application/json', authorization, 'content-length': String(Buffer.byteLength(body)) }
     if (new URL(url).protocol === 'http:') return postLoopback(new URL(PUSH_GATEWAY_SEND_PATH, url), headers, Buffer.from(body, 'utf8'), input.signal, input.beforeSend, o.loopbackRequest)
     return postPinned({
