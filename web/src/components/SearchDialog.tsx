@@ -26,7 +26,9 @@
 // made until they press its button. Both lists load in the background when no screen has read them yet.
 // A phone has one more type, 대화 (QA TC-256): my rooms, the team's people and the rooms' messages, nothing else. The 대화
 // tab's 🔍 opens search on it (store/ui.ts searchScope; components/PhoneTopBar.tsx); with no text it lists my rooms. A
-// computer's types stay as they were.
+// computer's types stay as they were, except with the new navigation (lib/navRail.ts): its 대화 panel's 🔍 opens the same
+// 대화 type, so a computer has it too, and ⌘K finds 프로젝트 (all projects), 사용량 (Usage, no longer in the account menu)
+// and the files by "팀 폴더" (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "⌘K aliases").
 // Files sent in rooms (전체 and 파일 tabs, after the team files' names, 4 file rows in all on 전체): searched on the server
 // by name (GET /api/room-files), only those of messages I see; a row is the name, then who sent it, where and when;
 // it opens its message in the room, as a message found does.
@@ -35,7 +37,7 @@
 // shown or opened: a fast Enter opens the top row shown at that moment. The highlighted row is kept by its key, so
 // results arriving above it do not move it.
 import clsx from 'clsx'
-import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
+import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import { nameMatch, searchWords } from '@mycel/shared'
@@ -49,6 +51,7 @@ import { platform } from '../lib/pwa'
 import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { aiName } from '../lib/tabs'
+import { useNavRail } from '../lib/navRail'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
 import { useUi } from '../store/ui'
@@ -281,6 +284,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const inputRef = useRef<HTMLInputElement>(null)
   const [q, setQ] = useState('')
   const [tab, setTabState] = useState<SearchType>(scope ?? 'all')
+  const navRail = useNavRail()
   // the highlighted row: by its key once arrows or the mouse chose one (results arriving above it do not move it), else
   // the row at `index` (the first; after 메시지 더 보기, where that row was, so the keys go on to the first new message)
   const [sel, setSel] = useState<{ key: string | null; index: number }>({ key: null, index: 0 })
@@ -522,7 +526,13 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     // the add-by-address form; everyone else to the list of what they can connect (the Google apps also when members
     // may not add their own). "MCP", "Connectors" and "Settings" find it.
     if (m) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin && m.personalAllowed ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')} ${t('settings.title')}` })
-    list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
+    list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: navRail ? t('files.root') : undefined })
+    // the new navigation: the old sidebar's 프로젝트 row and the account menu's Usage are found here too
+    if (navRail)
+      list.push(
+        { key: 'act:projects', kind: 'action', icon: FolderKanban, title: t('sidebar.projects'), href: '/projects', typed: true },
+        { key: 'act:usage', kind: 'action', icon: Gauge, title: t('sidebar.usage'), href: '/settings/usage', terms: t('settings.title'), typed: true },
+      )
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0
     list.push({
@@ -537,7 +547,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       )
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, unread, locale, admin])
+  }, [mcp, unread, locale, admin, navRail])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -673,7 +683,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (!row || row.scrollWidth <= row.clientWidth) return
     row.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [tab])
-  const types: readonly SearchType[] = phone ? PHONE_SEARCH_TYPES : SEARCH_TABS
+  const types: readonly SearchType[] = phone || navRail ? PHONE_SEARCH_TYPES : SEARCH_TABS
   const moveTab = (d: 1 | -1) => setTab((x) => types[(Math.max(0, types.indexOf(x)) + d + types.length) % types.length]!)
   const loading = (tab === 'all' && !!query && ((foundNow === null && !errorNow) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow : recent === null || projectFirst === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && (namesNow === null || roomFilesNow === null))
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')
@@ -775,7 +785,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
             </div>
           ) : (
           <div ref={tabRow} role="tablist" aria-label={t('search.types')} className="scroll-thin edge-fade flex gap-1 overflow-x-auto px-4 pb-3">
-            {SEARCH_TABS.map((x) => (
+            {types.map((x) => (
               <button
                 key={x}
                 type="button"

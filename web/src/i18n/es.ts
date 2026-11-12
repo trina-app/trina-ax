@@ -5159,4 +5159,11 @@ export const es: Record<MessageKey, string> = {
   "files.personalInside": "Su propia carpeta está dentro",
   "files.addHere": "Puede añadir archivos en las carpetas que puede editar",
   "files.addInMyFolder": "Añada sus archivos en Mi carpeta",
+  "rail.label": "Menú de la app",
+  "rail.skipList": "Ir a la lista",
+  "rail.hideList": "Ocultar lista",
+  "rail.showList": "Mostrar lista",
+  "rail.searchChats": "Buscar conversaciones",
+  "rail.unreadRooms": "{n, plural, one {# conversación sin leer} other {# conversaciones sin leer}}",
+  "rail.pickConversation": "Elija una conversación de la lista o empiece una nueva con +.",
 }

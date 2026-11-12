@@ -5203,4 +5203,11 @@ export const en: Record<MessageKey, string> = {
   "files.personalInside": "Your own folder is inside",
   "files.addHere": "You can add files in folders you can edit",
   "files.addInMyFolder": "Add your files in My folder",
+  "rail.label": "App menu",
+  "rail.skipList": "Skip to list",
+  "rail.hideList": "Hide list",
+  "rail.showList": "Show list",
+  "rail.searchChats": "Search conversations",
+  "rail.unreadRooms": "{n, plural, one {# conversation with unread messages} other {# conversations with unread messages}}",
+  "rail.pickConversation": "Pick a conversation from the list, or start a new one with +.",
 }

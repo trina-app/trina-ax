@@ -19,8 +19,11 @@ import { settingsOpenedFrom } from '../settings/SettingsDialog'
  * Settings (a dialog over the page, components/settings/SettingsDialog.tsx), Usage (their own usage in Settings; the
  * team's is Admin > Usage), Deleted chats and Sign out. The theme is not here, it is chosen in Settings. My picture carries my
  * own online dot, as the team sees it. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard
- * back. */
-export function AccountMenu() {
+ * back.
+ * `rail`: my photo at the bottom of the new navigation's rail (components/rail/Rail.tsx, behind the server's `navRail`
+ * switch): the menu opens to its right and starts with my name, email and role; Usage is in Settings and Deleted history
+ * at the end of the 트리나 list there, so neither is repeated here (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1). */
+export function AccountMenu({ rail = false }: { rail?: boolean } = {}) {
   const t = useT()
   const me = useMeStrict()
   const [open, setOpen] = useState(false)
@@ -70,12 +73,20 @@ export function AccountMenu() {
   }
   const item = 'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm text-ink hover:bg-hover focus-visible:-outline-offset-2'
   return (
-    <div ref={ref} className="relative border-t border-line p-2" onKeyDown={onKey}>
+    <div ref={ref} className={clsx('relative', rail ? 'flex justify-center px-1.5 py-2' : 'border-t border-line p-2')} onKeyDown={onKey}>
       {open && (
-        <div ref={menu} role="menu" aria-label={me.user.name} className="absolute right-2 bottom-full left-2 z-30 mb-1 rounded-xl border border-line bg-surface p-1.5 shadow-lg" data-testid="account-dropdown">
-          <p className="truncate px-2.5 pt-1 pb-1.5 text-xs text-faint" data-testid="account-who">
-            {me.user.email || me.user.username}
-          </p>
+        <div ref={menu} role="menu" aria-label={me.user.name} className={clsx('absolute z-30 rounded-xl border border-line bg-surface p-1.5 shadow-lg', rail ? 'bottom-2 left-full ml-2 w-64' : 'right-2 bottom-full left-2 mb-1')} data-testid="account-dropdown">
+          {rail ? (
+            <div className="px-2.5 pt-1 pb-1.5" data-testid="account-who">
+              <p className="truncate text-sm font-medium text-ink">{me.user.name}</p>
+              <p className="truncate text-xs text-faint">{me.user.email || me.user.username}</p>
+              <p className="truncate text-xs text-faint" data-testid="account-role">{t(`role.${me.user.role}` as 'role.member')}</p>
+            </div>
+          ) : (
+            <p className="truncate px-2.5 pt-1 pb-1.5 text-xs text-faint" data-testid="account-who">
+              {me.user.email || me.user.username}
+            </p>
+          )}
           <button role="menuitem" type="button" className={clsx(item, '[--presence-bg:var(--c-surface)] hover:[--presence-bg:var(--c-hover)]')} onClick={toggleAway} data-testid="account-away">
             <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
               <PresenceDot state={away ? 'online' : 'away'} size={10} />
@@ -113,6 +124,7 @@ export function AccountMenu() {
           >
             <Settings size={16} className="text-muted" aria-hidden /> {t('sidebar.settings')}
           </button>
+          {!rail && (
           <button
             role="menuitem"
             type="button"
@@ -127,6 +139,8 @@ export function AccountMenu() {
           >
             <Gauge size={16} className="text-muted" aria-hidden /> {t('sidebar.usage')}
           </button>
+          )}
+          {!rail && (
           <Link
             role="menuitem"
             to="/trash"
@@ -139,12 +153,30 @@ export function AccountMenu() {
           >
             <Trash2 size={16} className="text-muted" aria-hidden /> {t('sidebar.trash')}
           </Link>
+          )}
           <div role="separator" className="mx-1 my-1.5 border-t border-line" />
           <button role="menuitem" type="button" onClick={logout} className={item} data-testid="logout">
             <LogOut size={16} className="text-muted" aria-hidden /> {t('auth.logout')}
           </button>
         </div>
       )}
+      {rail ? (
+        <button
+          ref={button}
+          type="button"
+          aria-expanded={open}
+          aria-haspopup="menu"
+          onClick={() => (open ? hide(false) : setOpen(true))}
+          className="relative flex size-11 items-center justify-center rounded-full [--presence-bg:var(--c-subtle)] hover:bg-hover hover:[--presence-bg:var(--c-hover)] aria-expanded:bg-hover"
+          data-testid="account-menu"
+          data-rail-stop=""
+        >
+          <PresenceFace user={me.user} size={32} />
+          <span className="sr-only">{me.user.name}</span>
+          <StatusEmoji userId={me.user.id} className="absolute -top-0.5 -right-0.5 text-xs leading-none" />
+          <PresenceText userId={me.user.id} />
+        </button>
+      ) : (
       <button
         ref={button}
         type="button"
@@ -168,6 +200,7 @@ export function AccountMenu() {
         </span>
         <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
       </button>
+      )}
     </div>
   )
 }

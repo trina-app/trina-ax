@@ -5203,6 +5203,13 @@ export const ko = {
   "files.personalInside": "안에 내 폴더가 있어요",
   "files.addHere": "고칠 수 있는 폴더 안에 파일을 넣을 수 있어요",
   "files.addInMyFolder": "내 파일은 내 폴더에 넣어요",
+  "rail.label": "앱 메뉴",
+  "rail.skipList": "목록으로",
+  "rail.hideList": "목록 숨기기",
+  "rail.showList": "목록 보기",
+  "rail.searchChats": "대화 검색",
+  "rail.unreadRooms": "안 읽은 대화 {n}개",
+  "rail.pickConversation": "목록에서 대화를 고르거나, +로 새 대화를 시작하세요.",
 } as const
 
 export type MessageKey = keyof typeof ko

@@ -5203,4 +5203,11 @@ export const id: Record<MessageKey, string> = {
   "files.personalInside": "Folder Anda sendiri ada di dalam",
   "files.addHere": "Anda bisa menambahkan file di folder yang bisa Anda ubah",
   "files.addInMyFolder": "Tambahkan file Anda di Folder saya",
+  "rail.label": "Menu aplikasi",
+  "rail.skipList": "Lewati ke daftar",
+  "rail.hideList": "Sembunyikan daftar",
+  "rail.showList": "Tampilkan daftar",
+  "rail.searchChats": "Cari percakapan",
+  "rail.unreadRooms": "{n} percakapan belum dibaca",
+  "rail.pickConversation": "Pilih percakapan dari daftar, atau mulai yang baru dengan +.",
 }
