@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:33
 - Branch: `fix/phone-room-header-viewer`
-- Status: in progress
+- Status: done
 - Where: trina-ax/web. Why: the room page and the file viewer are the web app's, which the phone app shows (no
   server change).
 - Version impact: patch. Phone layout fixes only; computers are unchanged.
@@ -62,4 +62,16 @@ phone specs: `phone-room-header` (Chromium, WebKit), `room-file-viewer`, `image-
 
 ## Result
 
-Filled in at the end.
+Built as planned, phones only; 1440 screenshots of the room, its ⋯ menu, a picture and a PDF in the viewer are
+pixel-identical to dev.
+
+- Room header: the bell's menu stays mounted without a button on phones (`bare`, as a row's), so ⋯ › 알림 설정 opens
+  it as a sheet and the keyboard goes back to ⋯. `RoomMenu` takes `phone` (no 이름 바꾸기, the level after 알림 설정,
+  the threads entry first), `dot` and `buttonRef`; `MenuButton` takes `dot`.
+- Viewer: one set of actions, in the top bar on computers and in the bottom bar below 768 px. A phone's document bar is
+  4.25rem (two lines of name and the line under it); the stage sits between the two bars. The sender's picture shows on
+  phones again (the bar has the room now).
+- The PDF toolbar was already hidden on touch phones on dev (`max-md:pointer-coarse:hidden`); the e2e checks it.
+- Stacked on #524 (merged into this branch) for the stage lines and `data-own-zoom`.
+- e2e: `phone-room-header.cases.ts` (Chromium and WebKit, 390×844 touch); `phone-overlay-back.cases.ts`,
+  `room-file-viewer.spec.ts`, `room-leave-hide.spec.ts` and `image-viewer.spec.ts` follow the new layout.
