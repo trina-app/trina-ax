@@ -312,6 +312,8 @@ export class TurnExec {
   private readonly wallEndsAt: number
   private activeCore: Running | null = null
   private terminationUnconfirmed = false
+  /** why a stop for 'shutdown' happened: an update (the answer says so) or another restart */
+  private interruptedFor: 'update' | 'restart' | null = null
   private quarantined = false
   /** the process group of the latest engine launch (the launcher's started event); null: none reported */
   private enginePgid: number | null = null
@@ -451,6 +453,14 @@ export class TurnExec {
     if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
     this.halt(reason)
+  }
+
+  /** The server or the engine launcher stops (a restart, an update): the answer ends as interrupted, and says it was
+   * the update when it was one (QA TC-338: it read as an engine crash). */
+  interrupt(cause: 'update' | 'restart') {
+    if (this.stopReason || this.status === 'finished') return
+    this.interruptedFor = cause
+    this.stop('shutdown')
   }
 
   /** What every stop of the answer does (Stop, a time limit, shutdown: `reason`; a used-up budget: none, checkBudget),
@@ -1353,6 +1363,8 @@ export class TurnExec {
     const err = new Utf8Text(20000)
     const notes: string[] = []
     let exit: any = null
+    /** the launcher's orderly stop ended the engine (its exit says "update" / "shutdown": mycel-launcher ending.go) */
+    let launcherStop: 'update' | 'restart' | null = null
     try {
     const it = h.events[Symbol.asyncIterator]()
     const abandoned = new Promise<'abandoned'>((r) => {
@@ -1372,6 +1384,7 @@ export class TurnExec {
         // Native terminal replies are emitted after cleanup (including sandbox startup failures).
         // SocketLauncher synthesizes transport errors with this prefix; a broken socket proves nothing.
         if (e.ev === 'exit' || !e.message.startsWith('launcher: ')) this.terminationUnconfirmed = false
+        if (e.ev === 'exit' && (e.signal === 'update' || e.signal === 'shutdown')) launcherStop = e.signal === 'update' ? 'update' : 'restart'
       }
       else if (e.ev === 'note') notes.push(e.message)
     }
@@ -1391,6 +1404,14 @@ export class TurnExec {
       throw error
     } finally {
       this.handle = null
+      // its end is confirmed (no quarantine): the answer ends as interrupted, never retried as a crash
+      if (launcherStop) {
+        // a launcher stopped by an installer while an update switches this server (office mode, macOS) said only
+        // "shutdown"
+        if (launcherStop === 'restart') { try { launcherStop = this.rt.shutdownCause() } catch {} }
+        this.rt.log.info('engine launcher stopped the turn', { turn: this.id, cause: launcherStop })
+        this.interrupt(launcherStop)
+      }
     }
   }
 
@@ -3465,7 +3486,7 @@ export class TurnExec {
       if (this.producedOutput) this.limitReason = 'time_limit'
       else this.error = this.timeoutSource === 'wall' ? engineError('wall_timeout', this.spec.locale) : engineError('timeout', this.spec.locale)
     }
-    if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
+    if (this.stopReason === 'shutdown') this.error = engineError(this.interruptedFor === 'update' ? 'updating' : 'interrupted', this.spec.locale)
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
     else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit

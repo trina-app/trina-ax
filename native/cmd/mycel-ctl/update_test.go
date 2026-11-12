@@ -872,3 +872,41 @@ func TestUpdateSaysWhenRootFilesAreHalfReplaced(t *testing.T) {
 		t.Fatalf("changed something: downloads %d, %q", f.downloaded(), tb.file("root/mycel-ctl"))
 	}
 }
+
+// QA TC-338: an administrator's update says what it waits for, and the answers still running at the end of the wait
+// are stopped for the update by the launcher itself (a confirmed end the server can name) right before its restart,
+// never cut by the restart.
+func TestUpdateWaitsVisiblyAndTellsTheLauncher(t *testing.T) {
+	tb := boxdBase(t)
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("same boxd"), 0o755))
+	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
+	arch, k := boxdArchive(t, "0.2.0", "same boxd")
+	prev := updateTestHook
+	updateTestHook = func(u *updater) {
+		prev(u)
+		left := []int{2, 2, 1}
+		u.liveTurns = func() (int, error) {
+			if len(left) == 0 {
+				return 0, nil
+			}
+			n := left[0]
+			left = left[1:]
+			return n, nil
+		}
+		u.sleep = func(time.Duration) {}
+	}
+	code, out, errs := tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
+	var r UpdateResult
+	if err := json.Unmarshal([]byte(out), &r); err != nil || code != 0 || !r.RootUpdated {
+		t.Fatalf("%d %q %s", code, out, errs)
+	}
+	// one line per change of the count, on stderr (stdout stays the JSON result)
+	if strings.Count(errs, "waiting for 2 running answer(s)") != 1 || strings.Count(errs, "waiting for 1 running answer(s)") != 1 {
+		t.Fatalf("stderr: %q", errs)
+	}
+	c := tb.calls()
+	p, l := indexOf(c, "prepare-stop update"), indexOf(c, "restart mycel-launcher.service")
+	if p < 0 || l != p+1 {
+		t.Fatalf("the launcher is told right before its restart: %v", c)
+	}
+}
