@@ -84,7 +84,7 @@ export default function AdminIntegrations() {
   const open: Open | null = !sub ? null
     : sub === 'google-drive' ? { kind: 'drive' }
       : isGoogleApp(sub) ? { kind: 'gapp', id: sub }
-      : sub === SLACK_APP.id ? (owner ? { kind: 'slack' } : null)
+        : sub === SLACK_APP.id ? (owner ? { kind: 'slack' } : null)
         : sub === 'mcp' ? (item ? { kind: 'team', id: item } : null)
           : (() => { const c = CONNECTORS.find((x) => x.id === sub); return c ? { kind: 'listed' as const, c } : null })()
   const pathOf = (o: Open) => (o.kind === 'drive' ? '/admin/connectors/google-drive' : o.kind === 'gapp' ? `/admin/connectors/${o.id}` : o.kind === 'slack' ? SLACK_ADMIN_PATH : o.kind === 'listed' ? `/admin/connectors/${o.c.id}` : `/admin/connectors/mcp/${o.id}`)

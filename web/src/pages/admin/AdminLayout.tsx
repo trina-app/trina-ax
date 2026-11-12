@@ -6,13 +6,14 @@
 // scrolls. From 1024 px it has the names beside the icons; between 768 and 1023 px (a tablet, beside the app's own
 // sidebar) it is a narrow rail with each name small under its icon (no tips: a finger has no hover), so the page keeps
 // room (a column of the full width there left it 280 to 330 px). Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
-// connectors, AI apps, plugins; Slack is one of the connected apps, the owner's, not a menu item: owner 2026-11-12) · Activity · Team (team settings, with the team's AI settings, and the server). Home
+// connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
 // (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team:
 // the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
 // everyone in <team>", common.tsx AdminScope), so page titles keep the same nouns as Settings'. Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
-// /admin/slack (Slack's menu item until 2026-11-12, and where "Add to Slack" came back with ?slack=…) opens Slack's page
-// in Connected apps with the same query; for an admin who is not the owner, Admin's list, as before.
+// Slack is one of the connected apps (the owner's), not a menu item (owner, 2026-11-12): /admin/slack (its menu item
+// until then, and where "Add to Slack" came back with ?slack=…) opens Slack's page in Connected apps with the same
+// query; for an admin who is not the owner, Admin's list, as before.
 //
 // Below 768 px (phones): /admin is a list (PhoneRoot.tsx) and each page opens over it with a push, under its own bar
 // (‹ and the page's name; the phone top bar steps aside for /admin). The list is always under a page, also one opened
