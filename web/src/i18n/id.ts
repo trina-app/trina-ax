@@ -4586,6 +4586,7 @@ export const id: Record<MessageKey, string> = {
   "welcome.teamFiles.tooBig": "{n} file lebih dari 50 MB diunggah di halaman File",
   "welcome.teamFiles.cut": "Folder ini besar, jadi hanya {n} dokumen yang diperiksa · Pilih folder yang lebih dalam agar pilihannya lebih baik",
   "welcome.teamFiles.empty": "Tidak ada dokumen di folder ini · Pilih folder lain",
+  "welcome.teamFiles.macBlocked": "macOS memblokir folder '{folder}' · Nyalakan Trina di Pengaturan Sistem › Privasi & Keamanan › File dan Folder",
   "welcome.teamFiles.addFolder": "Tambah folder lain",
   "welcome.teamFiles.otherFolder": "Pilih folder lain",
   "welcome.teamFiles.uploadPicked": "Unggah {n} rekomendasi",
