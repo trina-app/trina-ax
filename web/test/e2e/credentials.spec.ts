@@ -395,3 +395,32 @@ test('my own ChatGPT sign-in asks for my own account, not the team\'s', async ({
   await expect(page.getByTestId('chatgpt-code')).toContainText(DICTS.ko['credentials.chatgpt.step3Own'])
   await expect(page.getByTestId('chatgpt-code')).not.toContainText(DICTS.ko['credentials.chatgpt.step3'])
 })
+
+// A member's own API key (Settings › AI accounts; QA TC-519): the advice is about their own key, not "a key just for
+// this team in the company's console"; a key the provider refused, then edited, shows only the new key's problem.
+test('my own API key: advice for my own key; the provider\'s refusal goes when I change the key', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/settings/providers')
+  await page.getByTestId('my-credential-add-claude').click()
+  await page.getByTestId('kind-anthropic-api-key').check()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText(DICTS.ko['credentials.apiKey.hintOwn'])
+  await expect(dialog).not.toContainText(DICTS.ko['credentials.apiKey.hint'])
+  // the provider refuses the key (as the server answers when the provider says 401)
+  await page.route('**/api/me/credentials', (route) => route.request().method() === 'POST'
+    ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: { code: 'validation', message: '공급자가 이 키를 받지 않았어요. 키를 다시 확인해 주세요.' } }) })
+    : route.fallback())
+  await page.getByTestId('credential-label').fill('내 키')
+  await page.getByTestId('credential-secret').fill(KEY)
+  await page.getByTestId('credential-submit').click()
+  await expect(dialog.getByTestId('dialog-error')).toHaveText('공급자가 이 키를 받지 않았어요. 키를 다시 확인해 주세요.')
+  await page.getByTestId('credential-secret').fill('not-a-key')
+  await expect(dialog).toContainText(DICTS.ko['credentials.apiKey.invalidFormat'])
+  await expect(dialog.getByTestId('dialog-error')).toHaveCount(0)
+  // the team's own dialog keeps the team advice
+  await page.goto('/admin/providers')
+  await page.getByTestId('provider-accounts-claude').getByRole('button', { name: '계정 추가' }).click()
+  await page.getByTestId('kind-anthropic-api-key').check()
+  await expect(page.getByRole('dialog')).toContainText(DICTS.ko['credentials.apiKey.hint'])
+})

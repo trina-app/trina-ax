@@ -59,7 +59,7 @@ const DAY_MS = 86_400_000
 const SEAL_KIND = 'team-link'
 const aadOf = (id: string) => `team-link:${id}`
 
-const KEYS = { expired: 'teamLinkExpired', used_up: 'teamLinkUsedUp', revoked: 'teamLinkRevoked', full: 'teamLinkFull', tooMany: 'teamLinkTooMany', overPlan: 'teamLinkOverPlan', skillNotForNew: 'teamLinkSkillNotForNew', noKey: 'teamLinkNoKey' } as const satisfies Record<string, MessageKey>
+const KEYS = { expired: 'teamLinkExpired', used_up: 'teamLinkUsedUp', revoked: 'teamLinkRevoked', full: 'teamLinkFull', tooMany: 'teamLinkTooMany', overPlan: 'teamLinkOverPlan', skillNotForNew: 'teamLinkSkillNotForNew', noKey: 'teamLinkNoKey', notOpen: 'teamLinkNotOpen' } as const satisfies Record<string, MessageKey>
 const say = (k: keyof typeof KEYS, locale: Locale, n?: number) => msg(KEYS[k], locale).replace('{n}', String(n ?? ''))
 const problemText = (p: TeamLinkProblem, locale: Locale) => say(p === 'stopped' ? 'revoked' : p, locale)
 
@@ -149,13 +149,21 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
     } catch { /* key file gone or changed: the admin makes a new link */ }
   }
   return {
-    id: r.id, url, groupIds: parseIds(r.group_ids),
+    // groups deleted since the link was made are not shown: nobody who joins gets them (insertUser takes existing ones)
+    id: r.id, url, groupIds: existingGroups(ctx.db, parseIds(r.group_ids)),
     skill: r.skill_path ? skillOf(viewer && teamSkill(ctx, viewer, r.skill_path), r.skill_path) : null,
     maxUses: r.max_uses, uses: r.uses, createdBy: userRef(ctx.db, r.created_by), createdAt: r.created_at, expiresAt: r.expires_at,
     state: stateOf(ctx.db, r, authOf(ctx).now()),
     limitedUntil: limitedUntil(ctx, r.id),
     memberAi: memberAiOf(ctx, parseIds(r.group_ids)),
+    groupsChosen: groupsChosen(ctx.db, r.id),
   }
+}
+
+/** An admin replaced this link's groups (Admin › Members, an audited `team_link.update` with `from`): the welcome steps
+ * then no longer add the team's group back to it (web TeamLinkPanel linkDiffers). */
+function groupsChosen(db: Database, id: string): boolean {
+  return !!db.query("SELECT 1 FROM audit_log WHERE action = 'team_link.update' AND target = ? AND json_valid(detail) AND json_type(detail, '$.from') = 'array' LIMIT 1").get(id)
 }
 
 /** What AI someone joining with these groups has (the invite message's "본인 AI 계정이 필요해요"); a read that fails
@@ -225,10 +233,17 @@ export function createTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
 }
 
 /**
- * PATCH /api/admin/team-link: what the open link leads to, keeping its address (a link already posted keeps working):
- * its skill, and groups added to it (never removed: people who joined keep theirs, and a narrower link would only be a
- * new link). The skill is checked against someone joining with the link's groups after the change. The welcome steps'
- * invite uses it when a link is already out, so people who join land on the skill the steps point at.
+ * PATCH /api/admin/team-link: what the open link leads to, keeping its address, uses and expiry (a link already posted
+ * keeps working): its skill, and its groups. `groupIds` replaces them (Admin › Members, QA TC-458: a link made with the
+ * wrong group put everyone who joined in it); `addGroupIds` adds (the welcome steps' invite). Either way only people
+ * who join after the change get the new groups: nobody's groups change here. Unknown group ids are refused; groups
+ * deleted since the link was made drop out. Groups are not changed on a link that has expired or stopped (a new link
+ * is the answer there). The skill is checked against someone joining with the link's groups after the change: a skill
+ * asked for here that they could not open is refused (as when making a link); the link's own skill that the replaced
+ * groups can no longer open is taken off (people then land on Home) and the answer shows it gone. Refusing there would
+ * leave the admin unable to take a wrong group off a link whose skill only that group opens (the case of TC-458), and
+ * a link that opens nothing is better than one that puts everyone in the wrong group. A change that changes nothing is
+ * not written or audited.
  */
 export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<typeof UpdateTeamLinkBody>): TeamLinkResponse {
   const auth = c.get('auth')!
@@ -236,11 +251,19 @@ export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
   const add = b.addGroupIds ?? []
   const added = existingGroups(ctx.db, add)
   if (added.length !== new Set(add).size) fail('validation', msg('unknownGroups', locale), { fields: { 'body.addGroupIds': 'unknown group' } })
+  const replace = b.groupIds ? existingGroups(ctx.db, b.groupIds) : null
+  if (replace && b.groupIds && replace.length !== new Set(b.groupIds).size) fail('validation', msg('unknownGroups', locale), { fields: { 'body.groupIds': 'unknown group' } })
   const done = ctx.db.transaction(() => {
     const r = openRow(ctx.db)
     if (!r) return false
-    const groups = [...new Set([...existingGroups(ctx.db, parseIds(r.group_ids)), ...added])]
+    const before = existingGroups(ctx.db, parseIds(r.group_ids))
+    if (replace) {
+      const s = stateOf(ctx.db, r, authOf(ctx).now())
+      if (s === 'expired' || s === 'stopped') fail('gone', say('notOpen', locale), { params: { reason: s } })
+    }
+    const groups = [...new Set([...(replace ?? before), ...added])]
     let skillPath = r.skill_path
+    let skillCleared: string | null = null
     if (b.skillPath !== undefined) {
       if (b.skillPath === null) skillPath = null
       else {
@@ -248,9 +271,15 @@ export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
         if (!s) fail('validation', say('skillNotForNew', locale), { fields: { 'body.skillPath': 'not readable for a new member' } })
         skillPath = s!.path
       }
+    } else if (replace && skillPath && !teamSkill(ctx, newMember(groups), skillPath)) {
+      skillCleared = skillPath
+      skillPath = null
     }
+    const same = (a: string[], z: string[]) => a.length === z.length && a.every((x) => z.includes(x))
+    // nothing changes (Save pressed on the same groups): no write, no audit row
+    if (same(groups, parseIds(r.group_ids)) && skillPath === r.skill_path) return true
     ctx.db.query('UPDATE team_links SET group_ids = ?, skill_path = ? WHERE id = ? AND revoked_at IS NULL').run(JSON.stringify(groups), skillPath, r.id)
-    audit(ctx.db, { actor: auth.user.id, action: 'team_link.update', target: r.id, detail: { groupIds: groups, ...(added.length ? { added } : {}), skillPath } })
+    audit(ctx.db, { actor: auth.user.id, action: 'team_link.update', target: r.id, detail: { groupIds: groups, ...(replace ? { from: before } : {}), ...(added.length ? { added } : {}), skillPath, ...(skillCleared ? { skillCleared } : {}) } })
     return true
   }).immediate()
   if (!done) fail('not_found')
@@ -367,7 +396,10 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   const weak = passwordProblem(b.password, { username: b.username })
   if (weak) fail('validation', weakPasswordMessage(weak, locale), { fields: { 'body.password': weak } })
   const passwordHash = await hashPassword(b.password)
-  const groups = existingGroups(ctx.db, parseIds(r.group_ids))
+  // the link's groups as they are inside the write (below), not as read before the slow hash: an admin may change
+  // them meanwhile (Admin › Members, QA TC-458), and a join in flight must not land in the groups just taken off
+  let groups: string[] = []
+  let skillPath = r.skill_path
   let id = ''
   const tx = ctx.db.transaction((): TeamLinkProblem | 'ok' => {
     const now = a.now()
@@ -380,6 +412,8 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
     const why = problemOf(ctx.db, fresh, now)
     if (why) return why
     if (ctx.db.query('UPDATE team_links SET uses = uses + 1 WHERE id = ? AND revoked_at IS NULL AND uses < max_uses AND expires_at > ?').run(r.id, at).changes !== 1) return 'used_up'
+    groups = existingGroups(ctx.db, parseIds(fresh.group_ids))
+    skillPath = fresh.skill_path
     id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
     // always a member: a team link has no role of its own
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: groups })
@@ -410,7 +444,7 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   roomsOf(ctx).memberJoined(id)
   // the skill the link names, only when the new member can open it now (the folder rules decide, not the link)
   const me = viewerOf(ctx, id)
-  const found = r.skill_path && me ? teamSkill(ctx, me, r.skill_path) : null
+  const found = skillPath && me ? teamSkill(ctx, me, skillPath) : null
   const skill = found ? { path: found.path, name: found.name, title: found.title } : null
   // who made the skill (its file's first version; none for a starter pack's own text): the line above its form
   // (docs/DECISIONS.md "S — The lead's way becomes a team skill")
