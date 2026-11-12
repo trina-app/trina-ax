@@ -25,13 +25,17 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
 - Notification content: there is no message content (App Review 4.5.4). The title is `APP_TITLE`; the body is a
   generic line picked from `code` and `locale` (`src/text.ts`).
 - Data the app reads:
-  - iOS: the APNs payload is `{aps:{alert,sound}, body:{notificationId, code, path?, device?}}`. expo-notifications reads
+  - iOS: the APNs payload is `{aps:{alert,sound,badge?}, body:{notificationId, code, path?, device?}}`. expo-notifications reads
     remote data from `userInfo["body"]`. A room code (`room.*`) also gets `aps.mutable-content: 1`: the app's
     notification service extension (1.0.1 and later) may ask its own team server for who and where and put that in the
     title. The gateway never sees a name; the generic alert stays as the fallback (an app without the extension, or an
     extension that gets no answer, shows it).
   - Android: FCM `data` is the same keys as flat strings, and never a key named `body` or `tag` (expo-notifications uses
     `data.tag` as the notification id, so the request's `tag` travels as `device`).
+  - The app icon's number: the request's optional `badge` (an integer 0–9999, the recipient's one count as the team
+    server knows it) becomes `aps.badge` and FCM `android.notification.notification_count`. A request without it (an
+    older team server) leaves the icon as it is. iOS shows it only while the person allows badges; an app build that
+    never asked for them ignores it.
 - Logs: only `{evt, outcome, platform, status}`. Tokens, bodies, keys, signatures, client addresses and provider
   answers are never logged.
 
