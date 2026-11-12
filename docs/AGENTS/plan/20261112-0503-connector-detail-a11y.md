@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 05:03
 - Branch: `fix/connector-detail-a11y`
-- Status: in progress
+- Status: done
 - Where: `web/` (the connector page, `AppDetail.tsx`, and the ⋯ menu, `AppConnectorCard.tsx`). Why: both are the web
   app's own screens (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. Accessibility fixes on one page; no API, setting or data change.
@@ -48,4 +48,9 @@ phone-connectors e2e specs.
 
 ## Result
 
-Filled in at the end.
+- Tool chips: `tabIndex=0` when there is a tooltip (a description or the "changes" marker), the description as
+  `sr-only` text inside the chip. Looks the same.
+- Links: `aria-label` from the new keys `gapps.privacyName` / `gapps.termsName` ("{by} privacy policy", "{by} terms of
+  service") in all five languages.
+- `CardMenu` focuses its ⋯ button before running an item, so the Settings dialog (and confirms) return focus to ⋯.
+  New unit test `web/test/unit/connector-detail-a11y.test.tsx`; its focus test fails without the fix.
