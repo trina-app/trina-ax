@@ -22297,13 +22297,16 @@ task stayed on.
   conversation is never taken away). A turn there no longer gets the project's name, folder or instructions
   (`projectForChat`), she cannot start a new chat in it, and nobody else sees the chat. Unchanged; now tested for an
   upgraded team.
-- **A template task** (Daily file index, Weekly summary) whose folder is in a team project (`projects/<name>/…`, any
-  letter case) its owner does not read now is treated like a task whose project is gone ("Project skills"): its next
+- **A template task** (Daily file index, Weekly summary) whose folder its owner cannot read now (the access check of
+  `validateTemplateFolders`, on that folder itself) and which is in a team project (`projects/<name>/…`) is treated
+  like a task whose project is gone ("Project skills"): its next
   due run does not start, it is paused, `schedule_project_skips` records that project's id and its owner gets the
   "project gone" inbox notice once (no project name, no folder); **Run now** answers 409 `schedule_project_gone`.
   Before, `members-only-once` step 3 only took save folders, and the run only checked `project_id`, so the task stayed
   on and every day started a turn that `validateTemplateTurn` refused at dispatch (an empty failed chat, no reason).
-  A folder in `projects/` that no project uses keeps the old behaviour (the skip row names a project).
+  A member who reads only a folder inside a project (a 0.4.0 grant) keeps a working task on it. The project is the
+  one on that folder as the volume compares names, a live one first, then the oldest. A folder in `projects/` that no
+  project uses keeps the old behaviour (the skip row names a project).
 - **Open, for the owner:** (1) a one-time notice at the upgrade to the owner and admins ("N team projects are now for
   members only; find them in Projects") — default 4 of "Project contents only for members" says none; the QA row
   expected one. (2) An ordinary 0.4.0 team folder inside a `Projects/` folder (any letter case, possible on Linux next

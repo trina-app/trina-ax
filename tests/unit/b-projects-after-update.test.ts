@@ -28,7 +28,7 @@ const q = (p: string) => encodeURIComponent(p)
 
 let h: Harness
 const projectId = uuidv7(), ownerChat = uuidv7()
-let templateOnProject = '', templateOnShared = '', projectTask = ''
+let templateOnProject = '', templateOnShared = '', projectTask = '', bobOnReports = ''
 async function raw(who: string, method: string, p: string, body?: unknown): Promise<{ status: number; text: string; json: any }> {
   const r = await h.req(who, p, { method, ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }) })
   const text = await r.text()
@@ -50,12 +50,18 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(root, ...DIR.split('/'), 'pipeline.md'), `${SECRET}\n`)
   fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
   fs.mkdirSync(path.join(root, 'users', 'dana'), { recursive: true })
+  fs.mkdirSync(path.join(root, ...DIR.split('/'), 'reports'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'users', 'bob'), { recursive: true })
   const now = new Date().toISOString()
   // 0.4.0 createProject: a folders row with a write rule for each participant and the creator, then the project row
   // (no folder_made: the column came later and is 0 for every older project)
   const folder = uuidv7()
   db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(folder, DIR, now)
   for (const who of ['alice', 'carol']) db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by) VALUES (?, ?, 'user', ?, 'write', 'carol')").run(uuidv7(), folder, who)
+  // and a 0.4.0 grant on only a folder inside it, for bob (not a member): members keep such partial access
+  const reports = uuidv7()
+  db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(reports, `${DIR}/reports`, now)
+  db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by) VALUES (?, ?, 'user', 'bob', 'read', 'carol')").run(uuidv7(), reports)
   db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(projectId, 'Sales', DIR, INSTR, 'carol', now, 'carol', INSTR)
   // the owner's own chat in it, from 0.4.0 (she read the project by her role then)
@@ -66,13 +72,14 @@ beforeAll(async () => {
   db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answer, ownerChat)
   // the owner's scheduled tasks from 0.4.0: two templates (on the project's folder, on shared/) and one in the project
   const rt = h.rt()
-  const template = (source: string) => {
-    const s = rt.schedules.create('dana', { title: 'Daily file index and organization suggestions', prompt: 'index', repeat: 'daily', time: '09:00' } as never, new Date(), CONFIRMED)
-    db.query("UPDATE schedules SET template_id = 'daily-file-index', template_version = 1, template_source_path = ?, template_output_path = 'users/dana/reports' WHERE id = ?").run(source, s.id)
+  const template = (source: string, who = 'dana') => {
+    const s = rt.schedules.create(who, { title: 'Daily file index and organization suggestions', prompt: 'index', repeat: 'daily', time: '09:00' } as never, new Date(), CONFIRMED)
+    db.query("UPDATE schedules SET template_id = 'daily-file-index', template_version = 1, template_source_path = ?, template_output_path = ? WHERE id = ?").run(source, `users/${who}/reports`, s.id)
     return s.id
   }
   templateOnProject = template(DIR)
   templateOnShared = template('shared')
+  bobOnReports = template(`${DIR}/reports`, 'bob')
   projectTask = rt.schedules.create('dana', { title: 'Sales digest', prompt: 'digest', repeat: 'daily', time: '09:00', projectId } as never, new Date(), CONFIRMED).id
   // the first start of the new build
   await membersOnlyOnce(h.ctx)
@@ -90,7 +97,10 @@ describe('after the update from 0.4.0', () => {
       expect((await raw(who, 'GET', `/api/files/content?path=${q(`${DIR}/pipeline.md`)}`)).text, who).toContain(SECRET)
     }
     expect((await names('bob', true)).some((p) => p.id === projectId)).toBe(false)
-    expect((await raw('bob', 'GET', `/api/files/tree?path=${q(DIR)}`)).status).toBe(404)
+    // (bob reads only reports/ inside it, from 0.4.0: the project's files stay out of his reach)
+    expect((await raw('bob', 'GET', `/api/files/content?path=${q(`${DIR}/pipeline.md`)}`)).status).toBe(404)
+    expect((await raw('bob', 'GET', `/api/files/tree?path=${q(DIR)}`)).text).not.toContain('pipeline.md')
+    expect((await raw('erin', 'GET', `/api/files/tree?path=${q(DIR)}`)).status).toBe(404)
   })
 
   test('the owner and another admin still find it in Projects, as not a member, and read nothing of it', async () => {
@@ -123,17 +133,20 @@ describe('after the update from 0.4.0', () => {
     expect((await raw('dana', 'POST', '/api/chats', { projectId })).status).toBe(404)
   })
 
-  test("the owner's scheduled tasks on it are skipped, paused and she is told; a task on a folder she reads runs", async () => {
+  test("the owner's scheduled tasks on it are skipped, paused and she is told; a task on a folder its owner reads runs", async () => {
     const db = h.ctx.db
     const rt = h.rt()
     const starts: TurnExec[] = []
     const held = spyOn(TurnExec.prototype, 'run').mockImplementation(async function (this: TurnExec) { starts.push(this) })
     try {
       const due = new Date(Date.now() - 60_000).toISOString()
-      for (const id of [templateOnProject, templateOnShared, projectTask]) db.query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(due, id)
+      for (const id of [templateOnProject, templateOnShared, projectTask, bobOnReports]) db.query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(due, id)
       const ran = rt.schedules.runDue(new Date())
-      expect(ran).toEqual([templateOnShared])
-      expect(starts).toHaveLength(1)
+      // bob's task reads only the folder inside the project he was given on 0.4.0: it still runs, never paused
+      expect([...ran].sort()).toEqual([templateOnShared, bobOnReports].sort())
+      expect(starts).toHaveLength(2)
+      expect(db.query('SELECT enabled FROM schedules WHERE id = ?').get(bobOnReports)).toEqual({ enabled: 1 })
+      expect(db.query('SELECT 1 AS x FROM schedule_project_skips WHERE schedule_id = ?').get(bobOnReports)).toBeNull()
       for (const id of [templateOnProject, projectTask]) {
         expect(db.query('SELECT project_id FROM schedule_project_skips WHERE schedule_id = ?').get(id), id).toEqual({ project_id: projectId })
         expect(db.query('SELECT enabled FROM schedules WHERE id = ?').get(id), id).toEqual({ enabled: 0 })
@@ -154,7 +167,7 @@ describe('after the update from 0.4.0', () => {
       const now = await raw('dana', 'POST', `/api/schedules/${templateOnProject}/run`)
       expect(now.status).toBe(409)
       expect(now.json.error.params?.reason).toBe('schedule_project_gone')
-      expect(starts).toHaveLength(1)
+      expect(starts).toHaveLength(2)
     } finally {
       for (const exec of starts) { db.query("UPDATE turns SET status = 'done' WHERE id = ?").run(exec.id); rt.turnFinished(exec); (exec as any).resolveDone() }
       held.mockRestore()

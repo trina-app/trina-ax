@@ -33,6 +33,8 @@ import { audit } from '../admin/audit'
 import { missingTemplateKey } from '../integrations/connections/schedule-needs'
 import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type ScopeSource } from './schedule-scope'
 import { inZone } from '../policy/zone'
+import { volumeKey } from '../policy/names'
+import { canRead } from './projects'
 
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
@@ -350,27 +352,31 @@ export class Schedules {
     return started
   }
 
-  /** The chat of a run of this task that is queued or running now, or null. */
   /**
-   * A template task (Daily file index, Weekly summary) reads one folder its owner chose. When that folder is in a team
-   * project (`projects/<name>/…`, any letter case) its owner does not read now, the project's id, else null. Such a
-   * run could not start (schedule-templates.ts validateTemplateTurn refuses the folder at dispatch), so it is skipped,
-   * paused and its owner told once, as a task whose project is gone (QA TC-360: an owner's task on an admin's project
-   * from 0.4.0 stayed on and failed every day). A folder in projects/ that no project uses: null (unchanged).
+   * A template task (Daily file index, Weekly summary) reads one folder its owner chose. When its owner cannot read
+   * that folder now (the same access check as schedule-templates.ts validateTemplateFolders) and it is in a team
+   * project (`projects/<name>/…`), the project's id, else null. Such a run could not start (validateTemplateTurn
+   * refuses the folder at dispatch), so it is skipped, paused and its owner told once, as a task whose project is gone
+   * (QA TC-360: an owner's task on an admin's project from 0.4.0 stayed on and failed every day). Only the folder the
+   * task reads counts: a member with access to just a folder inside a project keeps a working task. The project is the
+   * one on that folder as the volume compares names (projects.ts projectOnFolder), a live one first, then the oldest; a
+   * folder in projects/ that no project uses: null (unchanged).
    */
   private templateProjectGone(s: Pick<ScheduleRow, 'user_id' | 'template_id' | 'template_source_path'>): string | null {
     const src = s.template_id ? s.template_source_path : null
     if (!src || !inZone(src)) return null
-    const fold = (x: string) => x.normalize('NFC').toLowerCase()
-    const segs = src.split('/')
-    const top = fold(`${segs[0]}/${segs[1]}`)
-    const project = (this.db.query('SELECT id, folder_path FROM projects').all() as { id: string; folder_path: string }[]).find((p) => fold(p.folder_path) === top)
-    if (!project) return null
+    const files = this.rt.ctx.files
     let reads = false
-    try { reads = !!this.rt.projectForChat(project.id, this.rt.ctx.files.principal(s.user_id)) } catch { reads = false }
-    return reads ? null : project.id
+    try { reads = canRead(files, files.principal(s.user_id), src) } catch { reads = false }
+    if (reads) return null
+    const ci = files.fx.caseInsensitive
+    const segs = src.split('/')
+    const top = volumeKey(`${segs[0]}/${segs[1]}`, ci)
+    const rows = this.db.query('SELECT id, folder_path FROM projects ORDER BY trashed_with IS NOT NULL, created_at, id').all() as { id: string; folder_path: string }[]
+    return rows.find((p) => volumeKey(p.folder_path, ci) === top)?.id ?? null
   }
 
+  /** The chat of a run of this task that is queued or running now, or null. */
   private runningChat(s: Pick<ScheduleRow, 'id' | 'user_id'>): string | null {
     return (this.db.query("SELECT chat_id FROM turns WHERE schedule_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(s.id, s.user_id) as { chat_id: string } | null)?.chat_id ?? null
   }

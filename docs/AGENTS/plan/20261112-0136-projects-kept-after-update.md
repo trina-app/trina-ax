@@ -78,4 +78,6 @@ the schedule suites (`tests/unit/*schedule*`), `tests/security/project-members-o
 Built as planned: `templateProjectGone()` in `chat/schedules.ts`, used by `runDue` and `runNow`; the upgrade test
 `tests/unit/b-projects-after-update.test.ts` (fails on dev without the change: the template task on the project ran);
 the DECISIONS entry "Projects made on 0.4.0: what the owner and admins keep after the update"; the changelog fragment.
-No migration and no new words. The two open questions are in the PR.
+No migration and no new words. The two open questions are in the PR. After the review: the check is read access on
+the task's own folder (not the project's top folder), so a member with a grant on a folder inside a project keeps a
+working task (tested); the project row is only the skip record's id (live first, then oldest, volume name compare).
