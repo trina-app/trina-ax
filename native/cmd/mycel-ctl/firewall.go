@@ -247,6 +247,23 @@ func verifyAndRecord(e *env, c *FirewallConf, text string) (*fwstatus.Status, er
 	return s, nil
 }
 
+// firewallLiveCheck reads the table the kernel holds now and checks it like `firewall apply` does, without writing
+// anything (`mycel-ctl status`). The returned configuration is nil when it could not be read.
+func firewallLiveCheck(e *env) (*FirewallConf, error) {
+	c, err := loadFirewallConf(e)
+	if err != nil {
+		return nil, err
+	}
+	out, err := runNft(e, nil, "-j", "list", "table", "inet", c.ID)
+	if err != nil {
+		return c, fmt.Errorf("table inet %s is not loaded (nft list: %s)", c.ID, strings.TrimSpace(out))
+	}
+	if _, err := checkTable([]byte(out), c); err != nil {
+		return c, err
+	}
+	return c, nil
+}
+
 func firewallRemove(e *env) (int, error) {
 	c, err := loadFirewallConf(e)
 	if err != nil {

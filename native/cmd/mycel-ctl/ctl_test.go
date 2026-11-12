@@ -574,3 +574,39 @@ func TestPreflightJudgement(t *testing.T) {
 	}
 	_ = strconv.Itoa
 }
+
+// QA TC-310: after `nft flush ruleset` the status file still says loaded; status reads the kernel's table, says
+// "not OK", and records it in the status file so the launcher refuses turns from the file too
+func TestStatusChecksTheLiveTable(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	if code, out, errs := tb.ctl("", "firewall", "apply"); code != 0 {
+		t.Fatalf("apply: %d %s %s", code, out, errs)
+	}
+	read := func() Status {
+		t.Helper()
+		code, out, errs := tb.ctl("", "status", "--detail", "--json")
+		var s Status
+		if code != 0 || json.Unmarshal([]byte(out), &s) != nil {
+			t.Fatalf("status: %d %s %s", code, out, errs)
+		}
+		return s
+	}
+	if s := read(); !s.FirewallOK || s.FirewallLive == nil || !*s.FirewallLive {
+		t.Fatalf("loaded table: %+v", s)
+	}
+	// the table is gone: nft list answers "No such file or directory"
+	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "nft"), []byte("#!/bin/sh\nif [ \"$1\" = -j ]; then echo 'Error: No such file or directory' >&2; exit 1; fi\nexit 0\n"), 0o755))
+	s := read()
+	if s.FirewallOK || s.FirewallLive == nil || *s.FirewallLive || !strings.Contains(s.FirewallErr, "not loaded") || s.Firewall == nil || s.Firewall.Loaded {
+		t.Fatalf("flushed table: %+v", s)
+	}
+	st, err := fwstatus.Read(filepath.Join(tb.base, "run/firewall.json"), os.Getuid())
+	must(t, err)
+	if st.Loaded || st.Check(time.Now(), 990, 47821) == nil {
+		t.Fatalf("status file still says loaded: %+v", st)
+	}
+	// the next status reads the failure from the file it wrote
+	if _, out, _ := tb.ctl("", "status"); !strings.Contains(out, "firewall: NOT OK (not loaded: the table is not in effect now") {
+		t.Fatalf("text:\n%s", out)
+	}
+}

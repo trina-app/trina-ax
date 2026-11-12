@@ -51,6 +51,10 @@ test('the owner and admins read where to fix it, in the menu\'s own words; the h
     // a full server disk (QA TC-209): the owner and admins are pointed at Admin › System, where the storage card is
     expect(say(l, 'storage_full', 'owner')).toContain(adminPath(t, 'system'))
     expect(say(l, 'storage_full', 'admin')).toContain(adminPath(t, 'system'))
+    // the engine firewall is off on the server (QA TC-310): the owner is pointed at the health page's firewall line,
+    // an admin (who cannot open it) reads the member's words
+    expect(say(l, 'network_protection_off', 'owner')).toContain(adminPath(t, 'health'))
+    expect(say(l, 'network_protection_off', 'admin')).toBe(CHAT_ERROR_MESSAGES.network_protection_off[l])
     for (const r of REASONS) expect([l, r, JARGON.test(say(l, r, 'owner'))]).toEqual([l, r, false])
   }
 })

@@ -404,6 +404,10 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
   - 우분투 24.04에서 샌드박스 실패: AppArmor가 사용자 네임스페이스를 막음. 설치기가 bwrap 전용 프로필을 넣는다(`repair`로 다시).
   - 컨테이너 안 설치: `nesting=1`이 없으면 bwrap의 `/proc` 마운트가 실패한다. 호스트 설정이 필요하다.
   - "방화벽 확인이 멈췄어요": `systemctl status mycel-firewall.timer`. 다른 도구가 nftables를 비웠으면 `sudo mycel-ctl firewall apply`.
+  - "AI 엔진의 네트워크 보호가 지금 꺼져 있어요": 다른 도구(`nft flush ruleset`, ufw·Docker 다시 읽기)가 규칙을 지웠다. 실행기가 턴마다
+    엔진 계정으로 규칙이 실제로 막는지 시험하고, 막지 않으면 그 턴을 시작하지 않는다(채팅에는 "서버의 네트워크 보호가 꺼져 있어요").
+    방화벽 타이머가 30초마다 다시 넣는다. 계속되면 `sudo mycel-ctl firewall apply`, `sudo mycel-ctl status`(커널에 있는 표를 직접
+    확인한다: `firewallLive`).
   - 커널이 오래됨(6.12 미만): 진단 "커널 격리"·"샌드박스"가 경고. 배포판 커널을 올린다.
 
 ## 12. 보안 모델(요약)
