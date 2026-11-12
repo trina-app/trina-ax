@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 06:23
 - Branch: `fix/connector-approval-gate`
-- Status: in progress
+- Status: done
 - Where: server `integrations/connections/`, `chat/connect-service.ts`, shared API, web chat card. Why: the write card
   and the sign-in card are core chat permissions (see docs/REPOSITORY-RULES.md)
 - Version impact: minor — a new choice on the write card (Always allow for every connector), a new reconnect card and
@@ -75,4 +75,9 @@ the connect card.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Differences: the card's answer values are `allow` / `always` / `deny` (the yes / no card's values,
+so clients and tests that answer `allow` still work); a team connection's own allow is turned back from its row in
+Connectors (`integration_user_allow`, migration 346); the AI's text for a team connection that needs a sign-in now says
+an admin fixes it. Scheduled runs are unchanged (noted in DECISIONS as the owner's call). Tests: new
+`tests/unit/c-connector-approval-gate.test.ts` (6 of its 7 tests fail on the old gate), four TC-127 tests in
+`connect-service.test.ts`, a Google app case, web `integration-always-allow.test.tsx` and a ConnectCard case.

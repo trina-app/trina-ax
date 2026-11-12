@@ -13,6 +13,8 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   refreshIntegration: { build: c => c.post(`/api/integrations/${NONE}/refresh`, {}), scope: 'nobody' },
   // turning one tool off: the manager of the connection only (owner / admin rules are in tests/unit/c-integrations-tools.test.ts)
   setIntegrationTool: { build: c => c.post(`/api/integrations/${NONE}/tools`, { name: 'search', enabled: false }), scope: 'nobody' },
+  // ending one's own Always allow on a team connection: anyone who may use it (tests/unit/c-connector-approval-gate.test.ts)
+  stopAlwaysAllow: { build: c => c.del(`/api/integrations/${NONE}/always-allow`), scope: 'nobody' },
   authorizeIntegration: { build: c => c.post(`/api/integrations/${NONE}/authorize`, {}), scope: 'nobody' },
   integrationFlow: { build: c => c.get(`/api/integrations/flows/${NONE}`), scope: 'nobody' },
   listTeamIntegrations: { build: c => c.get('/api/admin/integrations'), scope: 'byLevel' },
