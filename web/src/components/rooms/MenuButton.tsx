@@ -13,7 +13,8 @@
 // for a screen reader); `sheetTitle`: what the menu is about, on a phone's sheet only (a row's long press: the room's
 // name, as the row is under the scrim); `focusBack`: where the keyboard goes when a menu without a button of its own
 // closes (a row's level menu: the row's "⋯"); `footer`: words under the rows, such as why some items are off (an item's
-// `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header).
+// `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header);
+// `describedBy`: the id of the words that describe the button (a phone's choice row: its short line, phone/PhoneChoice.tsx).
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
@@ -98,7 +99,7 @@ const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLEle
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const own = useRef<HTMLButtonElement>(null)
@@ -209,6 +210,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
           ref={button}
           type="button"
           aria-label={label}
+          aria-describedby={describedBy}
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={toggle}
@@ -248,7 +250,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
         >
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(false))}</div>}
           {/* the menu's name (aria-label above), shown: not one of its items */}
-          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
+          {/* (a phone's long sheet, the time zones: it stays at the top while the rows scroll) */}
+          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:sticky max-md:top-0 max-md:z-[1] max-md:bg-surface max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
           {sheetTitle && <p aria-hidden className="truncate px-3 pt-2 pb-2 text-sm text-muted md:hidden" data-testid="menu-sheet-title">{sheetTitle}</p>}
           {sheetOrder(items).map((it, i, all) => (
             <button

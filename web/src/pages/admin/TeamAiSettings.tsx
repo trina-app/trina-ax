@@ -19,10 +19,12 @@ import type { Budget, EngineId, EnginesResponse, Group, MemberEngineChoice, User
 import { api, API } from '../../lib/api'
 import { formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
+import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
 import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
 import { useKeptDraft } from '../../lib/keptDraft'
+import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
+import { PhoneChecks } from '../../components/phone/PhoneChecks'
 import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 
 type EnginesData = EnginesResponse
@@ -94,7 +96,9 @@ function GroupSave({ busy, onSave, onCancel, testId }: { busy?: boolean; onSave:
   )
 }
 
-/** AI defaults: the engine and model of new chats, and how many answers run at the same time. */
+/** AI defaults: the engine and model of new chats, and how many answers run at the same time. A phone (QA TC-378): the
+ * engine and the model are rows "Name   value ›" that open a sheet (components/phone/PhoneChoice.tsx) and the number
+ * has no ⌃⌄; each still waits for the group's Save. */
 function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (r: EnginesData) => void; headingRef?: Ref<HTMLHeadingElement> }) {
   const t = useT()
   const act = useAction()
@@ -110,6 +114,9 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   const max = data.concurrencyMax ?? 16
   const choices = defaultEngineChoices(data.engines, data.defaultEngine)
   const engineOff = choices.some((c) => c.id === f.defaultEngine && c.off)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const engineNote = engineOff && <p className="mt-1 text-xs text-warn" id="ai-engine-off" data-testid="default-engine-off">{t('engines.defaultEngineOff')}</p>
+  const models = data.engines.find((e) => e.id === f.defaultEngine)?.models ?? []
   const save = async () => {
     setBusy(true)
     const r = await act(() => api.call(API.updateEngines, { body: f }), t('common.saved'))
@@ -118,8 +125,18 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   }
   return (
     <SettingsSection title={t('teamAi.defaults')} desc={t('engines.defaultsDesc')} id="ai" testId="engine-defaults" headingRef={headingRef}>
+      {phone ? (
+        <>
+          <PhoneChoiceRow title={t('engines.defaultEngine')} below={engineNote} value={f.defaultEngine} testId="ai-engine"
+            options={choices.map((c) => ({ value: c.id, label: c.off ? t('engines.defaultEngineOffOption', { engine: ENGINE_LABEL[c.id] }) : ENGINE_LABEL[c.id], disabled: c.off }))}
+            onChange={(v) => setF({ ...f, defaultEngine: v, defaultModel: null })} />
+          <PhoneChoiceRow title={t('engines.defaultModel')} value={f.defaultModel ?? ''} testId="ai-model"
+            options={[{ value: '', label: t('composer.defaultModel') }, ...models.map((m) => ({ value: m.id, label: m.label }))]}
+            onChange={(v) => setF({ ...f, defaultModel: v || null })} />
+        </>
+      ) : (<>
       <SettingRow id="ai-engine" title={t('engines.defaultEngine')}
-        below={engineOff && <p className="mt-1 text-xs text-warn" id="ai-engine-off" data-testid="default-engine-off">{t('engines.defaultEngineOff')}</p>}
+        below={engineNote}
         control={
           <select id="ai-engine" aria-describedby={engineOff ? 'ai-engine-off' : undefined} className={clsx(inputCls, 'md:w-64')} value={f.defaultEngine} onChange={(e) => setF({ ...f, defaultEngine: e.target.value as EngineId, defaultModel: null })}>
             {choices.map((c) => (
@@ -142,11 +159,12 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
               ))}
           </select>
         } />
+      </>)}
       <SettingRow id="ai-concurrency" inline title={t('engines.concurrency')} desc={t('engines.concurrencyHint')}
         below={data.concurrencyMax !== undefined && data.concurrencyMax < 16 && <p className="mt-1 text-xs text-faint">{t('engines.concurrencyPlan', { max: data.concurrencyMax })}</p>}
         control={
           // the plan's maximum on the hosted cloud (concurrencyMax; older servers: 16)
-          <input id="ai-concurrency" aria-describedby="ai-concurrency-desc" className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" min={1} max={max} data-testid="engines-concurrency" value={f.concurrency}
+          <input id="ai-concurrency" aria-describedby="ai-concurrency-desc" className={clsx(inputCls, 'text-right tabular-nums', phoneNumberCls)} style={{ width: '6.5rem' }} type="number" inputMode="numeric" min={1} max={max} data-testid="engines-concurrency" value={f.concurrency}
             onChange={(e) => setF({ ...f, concurrency: Math.max(1, Math.min(max, Number(e.target.value) || 1)) })} />
         } />
       {dirty && <GroupSave busy={busy} onSave={() => void save()} onCancel={() => setF(saved)} testId="engine-defaults-save" />}
@@ -154,7 +172,7 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   )
 }
 
-/** "팀원이 엔진 고르기 허용" and "다른 AI로 대신 답하기". */
+/** "팀원이 엔진 고르기 허용" and "다른 AI로 대신 답하기". A phone: who may pick is three ✓ rows, not a segmented box. */
 function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: EnginesData) => void }) {
   const t = useT()
   const act = useAction()
@@ -182,13 +200,22 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
   }
   const dirty = JSON.stringify(choice) !== JSON.stringify(data.memberChoice) || fallback !== data.limitFallback
   const fallbackOn = fallback && data.limitFallbackAvailable
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const modes = ['off', 'everyone', 'selected'] as const
   return (
     <SettingsSection title={t('engines.choice')} desc={<OneLine>{t('engines.choiceDesc')}</OneLine>} testId="engine-choice">
       <SettingRow heading title={t('engines.choice.allow')} desc={t('engines.choice.hint')}
         below={
           <>
+            {/* a phone: the three as ✓ rows across the screen, like Notifications (QA TC-378), not a segmented box */}
+            {phone ? (
+              <div className="-mx-4 mt-1">
+                <PhoneChecks label={t('engines.choice.allow')} value={choice.mode} onChange={(mode) => setChoice({ ...choice, mode })}
+                  options={modes.map((mode) => ({ value: mode, label: t(`engines.choice.${mode}`), testId: `engine-choice-${mode}` }))} />
+              </div>
+            ) : (
             <div className="mt-3 flex flex-wrap gap-1 rounded-lg bg-subtle p-0.5 sm:inline-flex" role="radiogroup" aria-label={t('engines.choice.allow')}>
-              {(['off', 'everyone', 'selected'] as const).map((mode) => (
+              {modes.map((mode) => (
                 <button
                   key={mode}
                   type="button"
@@ -202,6 +229,7 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
                 </button>
               ))}
             </div>
+            )}
             {choice.mode === 'selected' && (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div>
