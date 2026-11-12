@@ -1,1 +1,0 @@
-- Phone app: when a team link can't reach the server (no internet for a moment), the question now offers **Try again** instead of only Cancel, and says to check the connection rather than the address or HTTPS certificate.

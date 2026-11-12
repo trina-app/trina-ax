@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
 import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
@@ -76,6 +76,7 @@ export function resetMobileSession(signedOut = false): void {
     // Native also installs this config before delivering its acknowledgement.
     if (!mobileApp() || mobileApp()!.generation !== reply.nextGeneration) throw new Error('mobile_protocol_mismatch')
     void sendAppearance().catch(() => {})
+    void sendNav().catch(() => {})
   })
   void barrier.catch(reportMobileError)
 }
@@ -206,6 +207,21 @@ export async function openAppSettings(): Promise<void> {
   // and that is no failure. Coming back checks the permission again (lib/mobile-push.ts).
   void request({ ...envelope(config), type: 'open-settings' }, config, 600_000).catch(() => {})
 }
+/** The app opens the phone's own share sheet with a text (share-text-v1; lib/share.ts): Android's WebView has no
+ * navigator.share. */
+export const appSharesText = () => !!mobileApp()?.capabilities.includes(SHARE_TEXT_CAPABILITY)
+/** The phone's share sheet with `text` (share-text-v1), answered once the sheet is up or closed. Rejects when the app
+ * cannot (an older build), the text is too long, or the page moved on. */
+export async function shareTextToApp(text: string): Promise<void> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(SHARE_TEXT_CAPABILITY)) throw new Error('mobile_unavailable')
+  if (!text.trim() || text.length > MAX_SHARE_TEXT) throw new Error('mobile_share_text')
+  // the sheet waits for the person (iOS answers when it closes)
+  await request({ ...envelope(config), type: 'share-text', text }, config, 300_000)
+}
 /** The page's look for the app's status bar (appearance-v1): when the bridge comes, when the theme changes, and again
  * after every session reset (a send that the reset fenced off is not lost). Not tied to a session: the latest look
  * always wins, so neither a pending reset nor a failed one stops it. */
@@ -214,6 +230,34 @@ async function sendAppearance(): Promise<void> {
   const config = mobileApp()
   if (!config?.capabilities.includes(APPEARANCE_CAPABILITY)) return
   await request({ ...envelope(config), type: 'appearance', dark: document.documentElement.classList.contains('dark'), system: currentTheme() === 'system' }, config, 10_000)
+}
+/** Where Back goes in this page (nav-v1, lib/appNav.ts): the latest the page worked out. */
+export interface AppNav { canGoBack: boolean; home: boolean }
+let nav: AppNav | null = null
+/** what the app last heard, for this bridge (nonce and generation): a send of the same is skipped */
+let navSent = ''
+/** Tells the app where Back goes (nav-v1: the iOS edge swipe, Android's Back): when it changes, when the bridge comes
+ * and again after every session reset (a send the reset fenced off is not lost). Like the look, not tied to a session:
+ * the latest always wins. Only an app offering nav-v1 hears it (an older one would never answer). */
+export function setAppNav(next: AppNav): void {
+  nav = { canGoBack: next.canGoBack, home: next.home }
+  void sendNav().catch(() => {})
+}
+async function sendNav(): Promise<void> {
+  await barrier.catch(() => {})
+  const config = mobileApp()
+  if (!nav || !config?.capabilities.includes(NAV_CAPABILITY)) return
+  const { canGoBack, home } = nav
+  const sent = `${config.nonce}:${config.generation}:${canGoBack}:${home}`
+  if (sent === navSent) return
+  navSent = sent
+  try {
+    await request({ ...envelope(config), type: 'nav', canGoBack, home }, config, 10_000)
+  } catch (error) {
+    // not heard: the next change, bridge or reset sends it again
+    if (navSent === sent) navSent = ''
+    throw error
+  }
 }
 export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return
@@ -224,7 +268,10 @@ export function initMobile(errorHandler?: (error: unknown) => void): void {
     // a page that knew it was signed out before the bridge came (a cold start on the sign-in page) tells the app now;
     // the reset sends the look after it
     if (pageSignedOut && !signedOutTold) resetMobileSession(true)
-    else void sendAppearance().catch(() => {})
+    else {
+      void sendAppearance().catch(() => {})
+      void sendNav().catch(() => {})
+    }
   })
   window.addEventListener('mycel:theme', () => void sendAppearance().catch(() => {}))
   window.addEventListener('pagehide', () => abortPending())

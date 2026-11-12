@@ -52,7 +52,7 @@
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
 import type { Database } from 'bun:sqlite'
-import { createHmac, randomBytes } from 'node:crypto'
+import { createHmac } from 'node:crypto'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import {
@@ -64,18 +64,18 @@ import { fail } from '../http/errors'
 import { atLeast, loadPrincipal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { badSegment, hiddenEntry } from '../policy/names'
-import { getRow } from '../integrations/connections/store'
-import { shareRow } from '../integrations/google-drive/shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { confidentialChat } from '../safe-ops/confidential'
 import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
-import { groupName, messagesOut, MSG_COLS, roomRow, type MemberRow as RoomMemberRow, type MessageRow as RoomMessageRow, type RoomRow } from '../rooms/store'
+import { messagesOut, MSG_COLS, roomRow, type MemberRow as RoomMemberRow, type MessageRow as RoomMessageRow, type RoomRow } from '../rooms/store'
 import { historyKinds, openHistories } from '../rooms/history'
 import { DECIDE_HISTORY_MS } from '../rooms/ai'
 import { hashFile } from '../team-files/place'
 import { missingReaders, scopeWithListing, sourceKey, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
+import { confirmMac, confirmSecret } from './confirm-key'
 import { tr } from './i18n'
+import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
 
 /** Every this many linked files past the first take one more send from the budget (a row per file is a count per file). */
@@ -183,14 +183,8 @@ export interface AnswerScopeKept { sources: ReadSource[]; unknown: boolean; atta
 /** One file that went with a shared answer as a copy: the room file, its team path when it was copied, the links. */
 export interface AttachedCopy { file: string; path: string; links: string[] }
 
-/** Per AppContext: the secret the confirm keys are made with (in memory: a restart asks again). */
-const secrets = new WeakMap<AppContext, Buffer>()
-const secretOf = (ctx: AppContext) => secrets.get(ctx) ?? secrets.set(ctx, randomBytes(32)).get(ctx)!
-/** An opaque key over `state` (HMAC-SHA-256 with this server process's secret): what a person saw when asked. The share
- * of a chat (chat/share-chat.ts) puts `kind: 'chat.share'` in its state, Slack's "Post anyway" `kind: 'slack.post'`
- * (integrations/slack/post-check.ts); this file's room confirm (confirmKeyOf) has a `roomId` and no `kind`: a key of
- * one question is never one of another. */
-export const confirmMac = (ctx: AppContext, state: unknown): string => createHmac('sha256', secretOf(ctx)).update(JSON.stringify(state)).digest('base64url')
+/** The confirm keys (chat/confirm-key.ts): this file's room confirm (confirmKeyOf) has a `roomId` and no `kind`. */
+export { confirmMac }
 
 /** The provenance core, without what is particular to a room (the linked files, kept sources): who of the audience
  * misses some of what `uses` read, the places as `userId` may be told them, and what a key binds. */
@@ -260,31 +254,7 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
     return p
   }
 
-  /** a team folder ('' = the top), named only when I may read it now myself (a rule changed since: not) */
-  const folderPlace = (p: string | undefined): AnswerSharePlace | null => (p !== undefined && me && atLeast(rules.access(me, p === '' ? [] : p.split('/')), 'read') ? { kind: 'folder', path: p } : null)
-  const placeOf = (s: ReadSource): AnswerSharePlace | null => {
-    switch (s.type) {
-      case 'root': return folderPlace('')
-      case 'folder': return folderPlace((db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null)?.path)
-      case 'user': return s.id === userId ? { kind: 'mine' } : null
-      case 'integration': { const name = getRow(db, s.id)?.name; return name ? { kind: 'service', name } : null }
-      case 'drive_share': { const name = shareRow(db, s.id)?.name; return name ? { kind: 'service', name } : null }
-      case 'room': {
-        const r = roomRow(db, s.id)
-        const team = r?.kind === 'team' ? groupName(db, r) : null
-        if (r?.kind === 'all') return { kind: 'room', name: '' }
-        if (team) return { kind: 'room', name: team }
-        // a 1:1 or group conversation: its name is people's names
-        return r?.kind === 'dm' || r?.kind === 'group' ? { kind: 'conversation' } : null
-      }
-      case 'name': {
-        const segs = s.path.split('/').filter(Boolean)
-        if (segs[0] === 'users') return segs[1] === userId ? { kind: 'mine' } : null
-        const at = sourceOf(db, rules, s.path)
-        return at.type === 'name' ? null : placeOf(at)
-      }
-    }
-  }
+  const placeOf = (s: ReadSource): AnswerSharePlace | null => sharePlaceOf(db, rules, userId, me, s)
 
   /** The provenance of what `uses` read, with `leftOut` (paths or links whose own row tells who sees them) not counted. */
   const of = async (uses: readonly BranchUse[], leftOut: ReadonlySet<string>): Promise<Provenance> => {
@@ -468,7 +438,7 @@ function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId
     files: c.rows.map((r) => [r.rel ?? '', r.attach, r.unable]),
     sources: prov.keys,
   })
-  return createHmac('sha256', secretOf(ctx)).update(state).digest('base64url')
+  return createHmac('sha256', confirmSecret(ctx)).update(state).digest('base64url')
 }
 
 export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }

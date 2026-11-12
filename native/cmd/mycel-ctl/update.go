@@ -28,6 +28,7 @@ import (
 	"golang.org/x/sys/unix"
 	"mycel/native/internal/bootflags"
 	"mycel/native/internal/bundle"
+	"mycel/native/internal/version"
 )
 
 // UpdateResult is `mycel-ctl update --json` (spec 3.6.5 step 6). Exit codes: ok 0, rolled_back 10, verify_failed 20,
@@ -187,6 +188,10 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	if updateTestHook != nil {
 		updateTestHook(u)
 	}
+	// a hold of the release that runs here and answers is over (QA TC-334): neither the timer nor this run waits for it
+	if _, note := readHold(e, in); note != "" {
+		res.Notes = append(res.Notes, note)
+	}
 	if u.scheduled {
 		// the window and a quiet moment first, without the lock: an administrator's `mycel-ctl update` meanwhile is not
 		// "busy", and nothing is downloaded while answers run
@@ -284,6 +289,9 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 		why = "already at " + feed.Version
 	}
 	if why != "" {
+		if half := rootUnfinished(u.e, root); len(half) > 0 {
+			why += "; " + unfinishedError(half, root, feed.Version).Error()
+		}
 		clearDeferred(u.e)
 		clearFailedUpTo(u.e, u.res.From) // a hold of a version the app has reached is over
 		return u.syncOnly(why), nil
@@ -416,6 +424,9 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	needsRoot := true
 	if bundleFile != "" {
 		u.attempted = true
+		if err := u.checkSpace("", 0); err != nil {
+			return err
+		}
 		if err := extractBundle(bundleFile, dir); err != nil {
 			u.res.Result = "verify_failed"
 			return err
@@ -430,19 +441,26 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the feed moved from "+u.gateVersion+" to "+feed.Version+" while this run waited for a quiet moment; the next check decides on "+feed.Version
 			return nil
 		}
+		// root files half replaced (an update that stopped, from a kit newer than the feed say): the release that would
+		// be skipped here cannot finish them, so an administrator's run says so instead of "already at" (QA TC-340
+		// retest). The update timer skips as before (its gate adds the reason): it would fail at every check.
+		skip := func(why string) error {
+			if half := rootUnfinished(u.e, rootVersion(u.e)); len(half) > 0 && !u.scheduled {
+				return unfinishedError(half, rootVersion(u.e), feed.Version)
+			}
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+			return nil
+		}
 		if version == "" {
 			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
-				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
-				return nil
+				return skip(why)
 			}
 		}
 		if onlyRoot && !needsRoot {
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "release "+feed.Version+" does not change root files"
-			return nil
+			return skip("release " + feed.Version + " does not change root files")
 		}
 		if feed.Version == u.res.From && rootVersion(u.e) == feed.Version {
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "already at "+feed.Version
-			return nil
+			return skip("already at " + feed.Version)
 		}
 		if feed.MinFrom != "" && u.res.From != "" && compareVersions(u.res.From, feed.MinFrom) < 0 {
 			return fmt.Errorf("%s cannot update to %s by itself (needs %s or newer first)", u.res.From, feed.Version, feed.MinFrom)
@@ -476,6 +494,12 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		return nil
 	}
 	return u.updateApp(dir, m.Version)
+}
+
+// unfinishedError: root files (half) are not those of root/VERSION (root) and the release the feed names (feed) is no
+// newer, so this run cannot finish them.
+func unfinishedError(half []string, root, feed string) error {
+	return fmt.Errorf("an update did not finish: some root files (%s) are not those of %s, the version in root/VERSION, and the feed's release %s does not replace them. %s", strings.Join(half, ", "), orNone(root), feed, rerunHint)
 }
 
 // lastOldUpdater is the last release whose updaters (the app's own and mycel-ctl) read only the feed's needsRoot and
@@ -696,6 +720,9 @@ func (u *updater) download(f *ReleaseFeed, dir string) error {
 		if err := allowedURL(b.URL); err != nil {
 			return err
 		}
+		if err := u.checkSpace(f.Version, b.Size); err != nil {
+			return err
+		}
 		file := filepath.Join(u.work, "bundle.tar.zst")
 		out, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
@@ -731,9 +758,81 @@ func (u *updater) download(f *ReleaseFeed, dir string) error {
 	return fmt.Errorf("release %s has no bundle for linux-%s", f.Version, u.arch)
 }
 
+// ---------- free space (QA TC-339) ----------
+
+// spaceMargin is left free after an update: the server, the database and the team folder go on writing.
+const spaceMargin = 256 << 20
+
+// spaceNeeded is about what an update writes on the install's disk: the archive it downloads (0 for --bundle, which
+// is on disk already), the archive unpacked in .install-tmp and that copy in app/versions (each about the size of the
+// version that runs now, or three times the archive when that is larger), the copy of the database the new version
+// makes before it migrates (db: the size of data/app.db, as install-linux.sh counts it), and a margin.
+func spaceNeeded(archive, current, db int64) uint64 {
+	unpacked := current
+	if 3*archive > unpacked {
+		unpacked = 3 * archive
+	}
+	return uint64(archive + 2*unpacked + db + spaceMargin)
+}
+
+// treeSize: the bytes of the regular files under dir (links are not followed); 0 when it cannot be read.
+func treeSize(dir string) int64 {
+	var n int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if i, e := d.Info(); e == nil {
+				n += i.Size()
+			}
+		}
+		return nil
+	})
+	return n
+}
+
+func gib(b uint64) string { return fmt.Sprintf("%.1f GB", float64(b)/(1<<30)) }
+
+// checkSpace refuses an update that would not fit before anything is downloaded or changed, saying how much it needs:
+// a full disk used to end in a bare "no space left on device" from the download or the copy.
+func (u *updater) checkSpace(version string, archive int64) error {
+	_, free, _, err := diskUsage(u.e.base)
+	if err != nil {
+		return nil // unknown: the update says what failed, as before
+	}
+	cur := int64(0)
+	if v := currentVersion(u.e.base); v != "" {
+		cur = treeSize(filepath.Join(u.e.base, "app", "versions", v))
+	}
+	var db int64
+	if st, err := os.Lstat(filepath.Join(u.e.base, "data", "app.db")); err == nil && st.Mode().IsRegular() {
+		db = st.Size()
+	}
+	need := spaceNeeded(archive, cur, db)
+	if free >= need {
+		return nil
+	}
+	return spaceError(u.e.base, version, need, free)
+}
+
+func spaceError(base, version string, need, free uint64) error {
+	what := "the update"
+	if version != "" {
+		what = version
+	}
+	return fmt.Errorf("not enough free space for %s on the disk of %s: it needs about %s free, it has %s; nothing was changed. Free some space (old backups in Admin > System > Backups, apt's cache: sudo apt-get clean) and run it again", what, base, gib(need), gib(free))
+}
+
 // ---------- root files ----------
 
-// rootDiff lists the files of the bundle's root/ that differ from <base>/root (relative paths).
+// ctlProgram is root's mycel-ctl. Updates replace it before the other root files (rootDiff, install-linux.sh): a reset
+// after any of them changed then leaves the new mycel-ctl, whose `status` says "AN UPDATE DID NOT FINISH" and whose
+// `update` does not answer "already at" (QA TC-340 retest: 0.4.0's mycel-ctl has neither). The new mycel-ctl with the
+// old other root files is a state updates always had (the old walk put it before the launcher, the sandbox helper and
+// the unit templates, and a kit older than root/VERSION keeps newer root files): the units on disk call only
+// `firewall apply` and `update --only-if-needs-root --scheduled`, and units are rendered only after every file is in.
+const ctlProgram = "mycel-ctl"
+
+// rootDiff lists the files of the bundle's root/ that differ from <base>/root (relative paths): mycel-ctl first
+// (ctlProgram), then the others in name order.
 func rootDiff(bundleRoot, installed string) ([]string, error) {
 	var diff []string
 	err := filepath.WalkDir(bundleRoot, func(p string, d fs.DirEntry, err error) error {
@@ -756,6 +855,13 @@ func rootDiff(bundleRoot, installed string) ([]string, error) {
 	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
+	}
+	for i, rel := range diff {
+		if rel == ctlProgram {
+			copy(diff[1:i+1], diff[:i])
+			diff[0] = ctlProgram
+			break
+		}
 	}
 	return diff, err
 }
@@ -1542,89 +1648,4 @@ func (u *updater) restartServer() error {
 // a part of the main version is its leading digits (parseInt, none = 0), an identifier is numeric only when it is all
 // digits (/^\d+$/), and both become float64 like a JavaScript number. testdata/version-order.json is checked by both
 // sides (TestCompareVersionsMatchesServer here, tests/unit/g-update.test.ts there).
-func compareVersions(a, b string) int {
-	split := func(v string) ([]float64, []string) {
-		core := strings.SplitN(v, "+", 2)[0]
-		main, pre, hasPre := strings.Cut(core, "-")
-		var nums []float64
-		for _, x := range strings.Split(main, ".") {
-			n, _ := jsNumber(x[:len(x)-len(strings.TrimLeft(x, "0123456789"))])
-			nums = append(nums, n)
-		}
-		if !hasPre {
-			return nums, nil
-		}
-		return nums, strings.Split(pre, ".")
-	}
-	xn, xp := split(a)
-	yn, yp := split(b)
-	for i := 0; i < len(xn) || i < len(yn); i++ {
-		var p, q float64
-		if i < len(xn) {
-			p = xn[i]
-		}
-		if i < len(yn) {
-			q = yn[i]
-		}
-		if p != q {
-			if p < q {
-				return -1
-			}
-			return 1
-		}
-	}
-	if xp == nil || yp == nil {
-		switch {
-		case xp == nil && yp == nil:
-			return 0
-		case xp != nil:
-			return -1
-		default:
-			return 1
-		}
-	}
-	for i := 0; i < len(xp) || i < len(yp); i++ {
-		if i >= len(xp) {
-			return -1
-		}
-		if i >= len(yp) {
-			return 1
-		}
-		p, q := xp[i], yp[i]
-		if p == q {
-			continue
-		}
-		pn, pok := jsNumber(p)
-		qn, qok := jsNumber(q)
-		switch {
-		case pok && qok:
-			if pn < qn {
-				return -1
-			}
-			if pn > qn {
-				return 1
-			}
-		case pok != qok:
-			if pok {
-				return -1
-			}
-			return 1
-		default:
-			if p < q {
-				return -1
-			}
-			return 1
-		}
-	}
-	return 0
-}
-
-// jsNumber reads an all-digit string as JavaScript's Number() does (the nearest float64); ok is false for "" and
-// anything else.
-func jsNumber(s string) (float64, bool) {
-	if s == "" || strings.TrimLeft(s, "0123456789") != "" {
-		return 0, false
-	}
-	n, err := strconv.ParseFloat(s, 64)
-	return n, err == nil || errors.Is(err, strconv.ErrRange)
-}
+func compareVersions(a, b string) int { return version.Compare(a, b) }

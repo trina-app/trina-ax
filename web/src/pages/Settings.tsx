@@ -11,9 +11,11 @@
 // pages under it (the password form, every signed-in device); Memory has its "+" in the bar, a row opens its edit sheet
 // (forgetting one asks first) and "Forget all" is a red row; 트리나에게 허용한 것 also holds Browser and Dev environment
 // sites (`fold`). On a phone itself (the phone app, or a phone's browser) Apps sends the Apps page to a computer instead
-// of offering Mac and Windows files.
+// of offering Mac and Windows files. Profile on a phone (QA TC-382): the photo centred, a tap on it changes it (the same
+// choices: a new one, or take it away), the name, job title and email as rows of one group, the username and role as
+// list rows, and Save in the bar (SettingsBar.tsx) once something changed: the same one Save of the same form.
 import clsx from 'clsx'
-import { Brain, KeyRound, Laptop, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
+import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { EngineId, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
@@ -37,7 +39,8 @@ import { browserTabShown } from './settingsTabs'
 import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
-import { teamAddressHost } from '../lib/team-address'
+import { teamAddressShown } from '../lib/team-address'
+import { canShareText, shareText } from '../lib/share'
 import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, Skeleton, confirmDialog, inputCls, noKeyRepeat, useCopy, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
@@ -53,7 +56,8 @@ import { MemoryForm } from '../components/settings/MemoryForm'
 import AiApps from './AiApps'
 import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { PhoneChecks } from '../components/phone/PhoneChecks'
-import { SettingsBarAction } from '../components/settings/SettingsBar'
+import { SettingsBarAction, useSettingsBar } from '../components/settings/SettingsBar'
+import { MenuButton } from '../components/rooms/MenuButton'
 import { useGoBack } from '../lib/back'
 import MyUsage from '../components/settings/MyUsage'
 
@@ -182,11 +186,43 @@ function Profile() {
   }
   const theme = me.user.prefs.theme ?? 'system'
   const phone = useMediaQuery('(max-width: 767.98px)')
+  // a phone's Settings bar: Save goes there (the same submit of this form, by its id)
+  const bar = useSettingsBar()
+  const formId = `${ids}-form`
+  const removePhoto = () => { setPhotoNote(null); setPhoto(me.user.avatarVersion && photo !== 'remove' ? 'remove' : null) }
   return (
     <>
       <Section title={t('settings.profile')} page>
         {/* noValidate: the server checks the email and its answer shows in the app's own style, not a browser popup */}
-        <form onSubmit={save} noValidate data-testid="profile-form">
+        <form id={formId} onSubmit={save} noValidate data-testid="profile-form">
+          {phone ? (
+            <>
+              <PhonePhoto
+                user={{ id: me.user.id, name, avatarVersion: photo === 'remove' ? undefined : me.user.avatarVersion }}
+                previewUrl={previewUrl}
+                hasPhoto={hasPhoto}
+                note={photoNote}
+                hintId={`${ids}-photo-hint`}
+                onPick={() => pick.current?.click()}
+                onRemove={removePhoto}
+              />
+              {/* the hints under the group: the email's and who sees what */}
+              <PhoneSection className="mb-0">
+                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {t('profile.visible')}</span>} testId="profile-fields">
+                  <PhoneField label={t('auth.name')} id={`${ids}-name`}>
+                    <input id={`${ids}-name`} className={phoneFieldCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="name" />
+                  </PhoneField>
+                  <PhoneField label={t('profile.title')} id={`${ids}-title`}>
+                    <input id={`${ids}-title`} className={phoneFieldCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={t('profile.titleHint')} />
+                  </PhoneField>
+                  <PhoneField label={t('settings.email')} id={`${ids}-email`}>
+                    <input id={`${ids}-email`} className={phoneFieldCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} autoComplete="email" />
+                  </PhoneField>
+                </PhoneListGroup>
+              </PhoneSection>
+            </>
+          ) : (
+          <>
           <Row label={t('profile.photo')} hint={photoNote ?? t('profile.photoHint')} hintId={`${ids}-photo-hint`} hintError={!!photoNote} framed quietHint>
             <div className="flex items-center gap-3">
               {previewUrl ? (
@@ -199,12 +235,11 @@ function Profile() {
                   {hasPhoto ? t('profile.photoChange') : t('profile.photoChoose')}
                 </Button>
                 {hasPhoto && (
-                  <Button type="button" size="sm" variant="ghost" onClick={() => { setPhotoNote(null); setPhoto(me.user.avatarVersion && photo !== 'remove' ? 'remove' : null) }} data-testid="profile-photo-remove">
+                  <Button type="button" size="sm" variant="ghost" onClick={removePhoto} data-testid="profile-photo-remove">
                     {t('profile.photoRemove')}
                   </Button>
                 )}
               </div>
-              <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
             </div>
           </Row>
           <Row label={t('auth.name')} htmlFor={`${ids}-name`} framed>
@@ -217,14 +252,35 @@ function Profile() {
             <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
           </Row>
           <p className="pt-3 text-xs text-muted">{t('profile.visible')}</p>
-          {changed && (
+          </>
+          )}
+          <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
+          {changed && !bar && (
             <div className="flex justify-end pt-3 max-sm:[&>button]:w-full">
               <Button type="submit" variant="primary" busy={busy} disabled={!name.trim()} data-testid="profile-save">
                 {t('common.save')}
               </Button>
             </div>
           )}
+          {/* a phone: Save on the bar's right, where iOS puts it; it submits this form (its form attribute) */}
+          {changed && bar && (
+            <SettingsBarAction>
+              <button type="submit" form={formId} disabled={busy || !name.trim()} aria-busy={busy || undefined} className="flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold text-accent-text transition hover:bg-hover disabled:opacity-50" data-testid="profile-save">
+                {busy && <Loader2 size={14} className="animate-spin" aria-hidden />}
+                {t('common.save')}
+              </button>
+            </SettingsBarAction>
+          )}
         </form>
+        {phone ? (
+          // the username and the role to read, as list rows
+          <PhoneSection className="mb-0">
+            <PhoneListGroup testId="profile-account">
+              <PhoneListRow title={t('auth.username')} badge={<span className="max-w-[60%] truncate text-sm text-muted" data-testid="profile-username">{me.user.username}</span>} />
+              <PhoneListRow title={t('settings.role')} badge={<span className="max-w-[60%] text-right text-sm text-muted" data-testid="profile-role">{t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}</span>} />
+            </PhoneListGroup>
+          </PhoneSection>
+        ) : (
         <div className="mt-2">
           <Row label={t('auth.username')} value>
             <span className="block truncate text-sm text-muted md:text-right" data-testid="profile-username">
@@ -251,6 +307,7 @@ function Profile() {
             </Link>
           </Row>}
         </div>
+        )}
       </Section>
       {phone ? (
         // a phone: the language as a checkmark list (the team's default first)
@@ -312,6 +369,63 @@ function Profile() {
         </PhoneSection>
       )}
     </>
+  )
+}
+
+/** The profile's photo on a phone: the photo (or the first letter) centred, with "사진 바꾸기" ("사진 넣기" when there is
+ * none) under it; one tap target for both. With a photo, a tap opens the photo choices as a sheet (a new one, or take it
+ * away: the computer's two buttons); without one, it opens the photo picker. Nothing is saved before Save. */
+function PhonePhoto({ user, previewUrl, hasPhoto, note, hintId, onPick, onRemove }: { user: { id: string; name: string; avatarVersion?: number }; previewUrl: string | null; hasPhoto: boolean; note: string | null; hintId: string; onPick: () => void; onRemove: () => void }) {
+  const t = useT()
+  const face = (
+    <span className="flex flex-col items-center gap-2">
+      {previewUrl ? (
+        <img src={previewUrl} alt="" width={88} height={88} className="size-22 shrink-0 rounded-full object-cover" data-testid="profile-photo-preview" />
+      ) : (
+        <Avatar user={user} size={88} />
+      )}
+      <span className="text-sm font-medium text-accent-text">{hasPhoto ? t('profile.photoChange') : t('profile.photoAdd')}</span>
+    </span>
+  )
+  return (
+    <div className="flex flex-col items-center pt-2 pb-2" data-testid="profile-photo">
+      {hasPhoto ? (
+        <MenuButton
+          label={t('profile.photoChange')}
+          tip={t('profile.photo')}
+          heading={t('profile.photo')}
+          icon={face}
+          items={[
+            { label: t('profile.photoChange'), onSelect: onPick, testId: 'profile-photo-new' },
+            { label: t('profile.photoRemove'), onSelect: onRemove, danger: true, testId: 'profile-photo-remove' },
+          ]}
+          buttonClassName="rounded-2xl! px-3! py-2! text-ink! hover:bg-hover"
+          testId="profile-photo-pick"
+        />
+      ) : (
+        <button type="button" onClick={onPick} aria-label={t('profile.photoAdd')} aria-describedby={hintId} className="rounded-2xl px-3 py-2 hover:bg-hover" data-testid="profile-photo-pick">
+          {face}
+        </button>
+      )}
+      {/* the size and kind of photo it takes, for screen readers; a photo it could not read says so */}
+      <p id={hintId} className={note ? 'mt-1 text-center text-xs text-danger' : 'sr-only'} role={note ? 'alert' : undefined}>{note ?? t('profile.photoHint')}</p>
+    </div>
+  )
+}
+
+/** The look of a field in a phone's form group: no frame of its own (the row is its frame), the text to the row's end. */
+const phoneFieldCls = 'min-w-0 flex-1 bg-transparent py-3 text-base text-ink outline-none placeholder:text-faint'
+
+/** One field of a phone's form group (the profile): its name on the left, the field filling the rest, a hairline from
+ * where the name starts (phone/PhoneList.tsx's rows); the row is marked while the field has the keyboard. */
+function PhoneField({ label, id, children }: { label: string; id: string; children: React.ReactNode }) {
+  return (
+    <li className="group/row pl-4 focus-within:bg-hover">
+      <span className="flex min-h-12 items-center gap-3 border-t border-line pr-4 group-first/row:border-t-0">
+        <label htmlFor={id} className="w-28 shrink-0 text-sm leading-tight break-words text-ink">{label}</label>
+        {children}
+      </span>
+    </li>
   )
 }
 
@@ -889,9 +1003,10 @@ function Apps() {
   )
 }
 
-/** A phone's row that sends the team's Apps page to a computer: the phone's share sheet where there is one, else the
- * link is copied (and a toast says so). Opened on the computer, the person signs in and gets the Mac or Windows app
- * there. The address is the team's (GET /api/me team.address), else this page's. */
+/** A phone's row that sends the team's Apps page to a computer: the phone's share sheet where there is one (the phone
+ * app's own, share-text-v1, then the browser's: lib/share.ts; Android's WebView has no navigator.share), else the link
+ * is copied (and a toast says so). Opened on the computer, the person signs in and gets the Mac or Windows app there.
+ * The address is the team's (GET /api/me team.address), else this page's. */
 function SendToComputer({ address }: { address: string | undefined }) {
   const t = useT()
   const { copy } = useCopy()
@@ -899,16 +1014,9 @@ function SendToComputer({ address }: { address: string | undefined }) {
     try { return `${new URL(address ?? window.location.origin).origin}/settings/apps` } catch { return `${window.location.origin}/settings/apps` }
   })()
   const send = async () => {
-    const nav = navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> }
-    if (typeof nav.share === 'function') {
-      try {
-        await nav.share({ url: link, title: t('apps.desktopTitle') })
-        return
-      } catch (e) {
-        // closed without sending: nothing more; a share sheet that failed: the link is copied instead
-        if (e instanceof DOMException && e.name === 'AbortError') return
-      }
-    }
+    // closed without sending: nothing more; no sheet, or one that failed: the link is copied instead
+    // the row shows on phones and tablets only (by platform): any width, a phone held sideways too
+    if (canShareText({ anyWidth: true }) && (await shareText(link, { url: true, title: t('apps.desktopTitle') })) !== 'failed') return
     await copy(link)
     toast({ level: 'success', text: t('apps.linkCopied') })
   }
@@ -917,20 +1025,23 @@ function SendToComputer({ address }: { address: string | undefined }) {
 
 /**
  * The team's address, for a new device (docs/AGENTS/plan/20261108-0930-first-run-one-box.md): the desktop and phone
- * apps take it in their one box. It comes from the server (GET /api/me team.address: the relay's or the public
- * address), never from the address this page is at, and shows as the URL API gives it (punycode). No address known
- * (the office network only): no row.
+ * apps take it in their one box. It comes from the server (GET /api/me team.address: the relay's, the public address,
+ * or for a server without a relay the address it is reached at, with its port), and shows as the URL API gives it
+ * (punycode). A plain http address (an office server without a certificate) shows with its http:// and says the apps
+ * need https: they refuse it, a browser opens it. No address known: no row.
  */
 export function TeamAddressRow({ address }: { address: string | undefined }) {
   const t = useT()
-  const host = teamAddressHost(address)
-  if (!address || !host) return null
+  const shown = teamAddressShown(address)
+  if (!address || !shown) return null
+  const origin = new URL(address).origin
+  const insecure = origin.startsWith('http:')
   return (
     <div className="mb-6" data-testid="apps-team-address">
-      <Row label={t('apps.teamAddress')} hint={t('apps.teamAddressHint')}>
+      <Row label={t('apps.teamAddress')} hint={t(insecure ? 'apps.teamAddressHttpHint' : 'apps.teamAddressHint')}>
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{host}</span>
-          <CopyButton text={new URL(address).origin} showLabel className="shrink-0" />
+          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{shown}</span>
+          <CopyButton text={origin} showLabel className="shrink-0" />
         </div>
       </Row>
     </div>

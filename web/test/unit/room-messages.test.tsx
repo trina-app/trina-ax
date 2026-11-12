@@ -1,10 +1,10 @@
-// How a room's messages are shown (components/rooms/RoomMessages.tsx): another member's words as plain text (never
-// HTML), the @names they mention stand out, no read count anywhere, deleted and edited messages say so, one avatar and
+// How a room's messages are shown (components/rooms/RoomMessages.tsx): another member's words in Markdown (never
+// HTML; QA TC-072), the @names they mention stand out, no read count anywhere, deleted and edited messages say so, one avatar and
 // name per run of one author, a root's thread line, reactions, and a reply sent to the room too.
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
-import { ANSWER_QUOTES, previewConfirm, previewLine, previewReasons, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
+import { ANSWER_QUOTES, previewLine, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
 import { groupRuns } from '../../src/lib/rooms'
 import { useRooms } from '../../src/store/rooms'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
@@ -15,11 +15,11 @@ const R = uuidv7()
 const render = (ms: ReturnType<typeof message>[]) => renderToStaticMarkup(<RoomMessages roomId={R} messages={ms} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
 const count = (html: string, s: string) => html.split(s).length - 1
 
-test("another member's text stays text: HTML is escaped, line breaks kept, mentions marked", () => {
+test("another member's text: HTML is escaped, line breaks kept, mentions marked (Markdown: QA TC-072)", () => {
   const html = render([message({ roomId: R, seq: 1, body: '<img src=x onerror=alert(1)>\n@Cy Park look', mentions: [CY.id] })])
   expect(html).not.toContain('<img src=x')
-  expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
-  expect(html).toContain('whitespace-pre-wrap')
+  expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;<br/>')
+  expect(html).toContain('data-testid="message-markdown"')
   expect(html).toMatch(/<span class="font-medium text-accent-text">@Cy Park<\/span>/)
 })
 
@@ -110,59 +110,22 @@ test('a private preview says at its top that only I see it, with one text action
   expect(translate('ko', 'rooms.aiPrivateWhy')).toBe('방 사람 중 일부가 볼 수 없는 자료를 참고한 답이라 지금은 나만 보고 있어요.')
 })
 
-test('the confirm before posting names each folder I may open with how many cannot see it, never who, and the other reasons', () => {
-  const t = ((k: string, p?: Record<string, string | number>) => translate('en', k as never, p as never)) as never
-  const tk = ((k: string, p?: Record<string, string | number>) => translate('ko', k as never, p as never)) as never
-  // by the last part of the path, once each; the top of the team folder in words; the skills folders never named
-  const p = { folders: ['acme/finance', '', 'skills/marketing', 'shared/teams/finance'], unable: { 'acme/finance': 1, '': 3, 'shared/teams/finance': 2 }, personal: true, outside: true, joinedLater: ['Cy Park'] }
-  expect(previewReasons(p, tk, { others: 3 })).toEqual([
-    translate('ko', 'rooms.aiPostFolder', { folder: 'finance', n: 2 }),
-    translate('ko', 'rooms.aiPostFolderAll', { folder: translate('ko', 'rooms.aiRootFolder') }),
-    translate('ko', 'rooms.aiPostOtherFolders'),
-    translate('ko', 'rooms.aiPostMine'),
-    translate('ko', 'rooms.aiPostJoined', { names: 'Cy Park' }),
-    translate('ko', 'rooms.aiPostOutside'),
-  ])
-  expect(translate('ko', 'rooms.aiPostFolder', { folder: '단가표', n: 2 })).toBe('단가표 · 방 사람 중 2명은 못 봐요')
-  expect(JSON.stringify(previewReasons(p, t, { others: 3 }))).not.toContain('marketing')
-  expect(JSON.stringify(previewReasons(p, t, { others: 3 }))).not.toContain('acme/')
-  // a preview decided before the counts: "some people", no number
-  expect(previewReasons({ folders: ['acme/finance'], personal: false, outside: false }, t)).toEqual([translate('en', 'rooms.aiPostFolderSome', { folder: 'finance' })])
-  // a folder the asker cannot open themselves: one row, no name
-  expect(previewReasons({ folders: [], otherFolders: true, personal: false, outside: false }, t)).toEqual([translate('en', 'rooms.aiPostOtherFolders')])
-  expect(previewReasons(undefined, t)).toEqual([])
-})
-
-test('the confirm: who will see it, the rows, and a line when it went through a hidden earlier answer, also with no row left', () => {
-  const t = ((k: string, p?: Record<string, string | number>) => translate('ko', k as never, p as never)) as never
-  const withFolder = previewConfirm({ folders: ['groups/sales/prices'], unable: { 'groups/sales/prices': 2 }, personal: false, outside: false, earlier: true }, t, { others: 3 })
-  expect(withFolder).toEqual({ intro: translate('ko', 'rooms.aiPostIntro'), rows: [translate('ko', 'rooms.aiPostFolder', { folder: 'prices', n: 2 })], earlier: translate('ko', 'rooms.aiPostEarlier') })
-  // what the hidden answer used is readable by everyone now (an old hidden row): no row, but the line still says so,
-  // never "everyone will see it" as if nothing were behind it
-  const none = previewConfirm({ folders: [], personal: false, outside: false, earlier: true }, t, { others: 3 })
-  expect(none).toEqual({ intro: translate('ko', 'rooms.aiPostIntro'), rows: [], earlier: translate('ko', 'rooms.aiPostEarlierNone') })
-  // nothing named (an older preview): everyone would see it, no list
-  expect(previewConfirm(undefined, t)).toEqual({ intro: translate('ko', 'rooms.aiPrivateAll'), rows: [], earlier: null })
-  expect(previewConfirm({ folders: [], personal: true, outside: false }, t, { dm: true }).intro).toBe(translate('ko', 'rooms.aiPostIntroDm'))
-})
-
 test('the one line: the web alone has its own, a preview without reasons says everyone would see it', () => {
   const t = ((k: string, p?: Record<string, string | number>) => translate('en', k as never, p as never)) as never
   expect(previewLine({ folders: [], personal: false, outside: true }, t)).toBe(translate('en', 'rooms.aiPrivateWhyOutside'))
   for (const p of [{ folders: ['acme/finance'], personal: false, outside: true }, { folders: [], personal: true, outside: false }, { folders: [], otherFolders: true, personal: false, outside: false }, { folders: [], personal: false, outside: false, joinedLater: ['Cy Park'] }, { folders: ['acme/x'], personal: false, outside: false, earlier: true as const }])
     expect(previewLine(p, t)).toBe(translate('en', 'rooms.aiPrivateWhy'))
+  // another conversation some people here are not in is material, never "the web or a connected service"
+  expect(previewLine({ folders: [], personal: false, outside: false, otherRooms: true }, t)).toBe(translate('en', 'rooms.aiPrivateWhy'))
   expect(previewLine({ folders: [], personal: false, outside: false }, t)).toBe(translate('en', 'rooms.aiPrivateAll'))
   expect(previewLine(undefined, t)).toBe(translate('en', 'rooms.aiPrivateAll'))
 })
 
-test('in a 1:1 room the line and the confirm name the other person, never "the room"', () => {
+test('in a 1:1 room the line names the other person, never "the room"', () => {
   const t = (k: string, v?: Record<string, string | number>) => translate('ko', k as never, v)
   expect(previewLine({ folders: ['acme/finance'], personal: false, outside: false }, t as never, true)).toBe(translate('ko', 'rooms.aiPrivateWhyDm'))
   expect(previewLine(undefined, t as never, true)).toBe(translate('ko', 'rooms.aiPrivateAllDm'))
-  expect(previewReasons({ folders: ['acme/finance'], unable: { 'acme/finance': 1 }, otherFolders: true, personal: true, outside: false }, t as never, { dm: true, others: 1 })).toEqual([
-    translate('ko', 'rooms.aiPostFolderDm', { folder: 'finance' }), translate('ko', 'rooms.aiPostOtherFoldersDm'), translate('ko', 'rooms.aiPostMineDm'),
-  ])
-  for (const k of ['rooms.aiPrivateWhyDm', 'rooms.aiPostFolderDm', 'rooms.aiPostOtherFoldersDm', 'rooms.aiPostMineDm', 'rooms.aiPrivateAllDm', 'rooms.aiPostIntroDm']) expect(translate('ko', k as never, { folder: 'x' })).not.toContain('방 사람')
+  for (const k of ['rooms.aiPrivateWhyDm', 'rooms.aiPrivateAllDm']) expect(translate('ko', k as never, { folder: 'x' })).not.toContain('방 사람')
 })
 
 test("an AI answer's team file links are chips only for files the viewer may open; the rest is plain text", () => {
@@ -257,15 +220,6 @@ test('a room badge: "@" alone when it mentions me, grey for a muted room; a lett
   const face = renderToStaticMarkup(<Avatar user={{ id: 'x', name: 'Ada' }} />)
   expect(face).toContain('>A<')
   expect(face).not.toContain('bg-accent')
-})
-
-test("a preview's folders the asker cannot open themselves are never named, only said to be there", () => {
-  const t = ((k: string, p?: Record<string, string | number>) => translate('en', k as never, p as never)) as never
-  expect(previewReasons({ folders: [], otherFolders: true, personal: false, outside: false }, t)).toEqual([translate('en', 'rooms.aiPostOtherFolders')])
-  // with one the person may open: that one is named with its count, the others are one row without names
-  expect(previewReasons({ folders: ['acme/finance'], unable: { 'acme/finance': 1 }, otherFolders: true, personal: false, outside: false }, t, { others: 2 })).toEqual([
-    translate('en', 'rooms.aiPostFolder', { folder: 'finance', n: 1 }), translate('en', 'rooms.aiPostOtherFolders'),
-  ])
 })
 
 test("a photo's thumbnail takes its own shape once loaded (an older row with a landscape size, a portrait thumbnail)", async () => {

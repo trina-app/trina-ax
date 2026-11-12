@@ -7,8 +7,8 @@
 // granted by playwright.config.ts, never the computer's). A room's photo has its thread beside it on computers (the
 // viewer's column, room-file-viewer.spec.ts), so it is fitted to the stage left of it. The room is answered through
 // page.route as the team server sends it (rooms-mock.ts).
-// SHOTS_DIR=<folder>: the screenshots (1440 light fitted, 1440 dark zoomed, 390 light; 복사 at 1440 light and its toast at
-// 390 light) go there.
+// SHOTS_DIR=<folder>: the screenshots (1440 light fitted, 1440 dark zoomed, 390 light; 복사 at 1440 light: a phone's bar
+// has no 복사, QA TC-257) go there.
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -603,16 +603,5 @@ test.describe('screenshots on a phone (SHOTS_DIR)', () => {
     await shown(page)
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/image-viewer-390-light.png` })
-  })
-  test('390 light, the toast after 복사', async ({ page }) => {
-    const dir = process.env.SHOTS_DIR
-    test.skip(!dir, 'only with SHOTS_DIR')
-    await openRoom(page)
-    await page.getByTestId('room-image').first().tap()
-    await shown(page)
-    await page.getByTestId('image-viewer-copy').tap()
-    await expect(page.getByTestId('toast').last()).toHaveText('이미지를 복사했어요')
-    await page.waitForTimeout(300)
-    await page.screenshot({ path: `${dir}/image-viewer-copy-toast-390-light.png` })
   })
 })

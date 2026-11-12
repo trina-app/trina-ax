@@ -4,6 +4,12 @@
 // is the writer's photo (a bell for a notice of the app's own), who and the time, the line, and underneath where it was
 // (a DM, #room › Thread) or what it is about. The unread count sits on the right. The whole row opens the place and reads
 // it; a notice with nowhere to open keeps its "Mark as read". The preferences stay in Settings › Notifications (the gear).
+// Opened from a phone's 대화 tab (its 멘션·스레드 row, `?in=chats`: lib/screens.ts CHATS_ACTIVITY) it is that tab's page of
+// the conversations only: All · Mentions · Threads, rows of rooms (no notice of the app's own: the server sends only
+// those, GET /api/notifications?only=rooms), named "멘션·스레드". "Nothing here" is never said while older pages are left:
+// a tab, "Unreads" or a search that shows nothing of what is loaded reads the next pages by itself (AUTO_PAGES of them,
+// once for that choice), then says "not in the latest N" with "Load more". A read again (a new notice, the rooms
+// changing) is one request: the newest rows, with the older ones already loaded kept after them.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { AtSign, Bell, BellRing, Check, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
@@ -13,6 +19,7 @@ import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
 import { badgeText } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
+import { activityInChats } from '../lib/screens'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { useRooms } from '../store/rooms'
@@ -38,6 +45,11 @@ const FILTERS: { id: Filter; label: MessageKey; short?: MessageKey; icon?: typeo
  * A phone: the four share the width equally, 44px tall, words only (no icons), never scrolling sideways. */
 export const tabCls = 'inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition focus-visible:-outline-offset-2 max-md:h-11 max-md:min-w-0 max-md:justify-center max-md:px-1'
 const isFilter = (s: string | null): s is Filter => FILTERS.some((f) => f.id === s)
+/** while nothing loaded shows, this many older pages (30 rows each) are read by themselves, once per tab, Unreads and
+ * search text: 300 rows with the first page, then "Load more" */
+const AUTO_PAGES = 9
+/** the conversations' tabs (opened from 대화): DMs are that tab's own list */
+const CHATS_FILTERS = FILTERS.filter((f) => f.id !== 'dms')
 
 /** Which tabs a notice shows under besides All: a direct or group chat's under DMs, an @mention (or @everyone) under
  * Mentions, a reply in a thread under Threads. A notice of the app's own is under All only. */
@@ -65,10 +77,23 @@ function dayLabel(iso: string, t: T, locale: ReturnType<typeof useLocale>, now =
 
 const timeOf = (iso: string, locale: ReturnType<typeof useLocale>) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 
+/** The page for the address: the conversations' (from 대화) or the whole Activity, each with its own state, so going from one
+ * to the other (a tab of the phone's bar) starts afresh. */
 export default function Activity() {
+  const [params] = useSearchParams()
+  const chats = activityInChats(params.toString())
+  return <ActivityPage key={chats ? 'chats' : 'all'} chats={chats} />
+}
+
+/** `chats`: the conversations only (opened from 대화): rows of rooms, without the DMs tab */
+function ActivityPage({ chats }: { chats: boolean }) {
   const t = useT(), locale = useLocale()
   const [params, setParams] = useSearchParams()
-  const filter: Filter = isFilter(params.get('tab')) ? (params.get('tab') as Filter) : 'all'
+  const filters = chats ? CHATS_FILTERS : FILTERS
+  const asked = params.get('tab')
+  const filter: Filter = isFilter(asked) && filters.some((f) => f.id === asked) ? asked : 'all'
+  const shows = (item: InboxNotification, f: Filter) => inFilter(item, f) && (!chats || isRoomRow(item))
+  const title = chats ? t('feed.chats') : t('inbox.title')
   const setFilter = (f: Filter) => setParams((p) => { const n = new URLSearchParams(p); if (f === 'all') n.delete('tab'); else n.set('tab', f); return n }, { replace: true })
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [searching, setSearching] = useState(false)
@@ -76,32 +101,65 @@ export default function Activity() {
   const [items, setItems] = useState<InboxNotification[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // the older page on its way (its cursor), and how many reads have ended: the reading of older pages looks again
+  // after each, so a read that lands meanwhile never leaves it waiting
+  const [paging, setPaging] = useState<string | null>(null)
+  const [ended, setEnded] = useState(0)
   const life = useRef(0), sequence = useRef(0), shown = useRef(0)
+  // what is on screen, for the reads that land later (a page goes on only where the list still ends)
+  const itemsRef = useRef<InboxNotification[] | null>(null), cursorRef = useRef<string | null>(null), pagingRef = useRef<string | null>(null)
+  const setList = (next: InboxNotification[] | null) => { itemsRef.current = next; shown.current = next?.length ?? 0; setItems(next) }
+  const setEnd = (next: string | null) => { cursorRef.current = next; setCursor(next) }
   const searchRef = useRef<HTMLInputElement>(null)
   const roomTitle = useRoomTitle()
   const rooms = useRooms((s) => s.rooms)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
 
-  // a read again keeps the pages already loaded ("Load more"), up to the API's 100
+  /** `after`: the older page after that cursor (one at a time; its rows go on only while the list still ends there).
+   * Else a read again: the newest rows (as many as are shown, up to the API's 100, in one request), with the older rows
+   * already loaded kept after them from where the new first rows end in what was there; those keep how they were read. */
   const load = useCallback(async (after?: string) => {
-    const generation = life.current, seq = ++sequence.current
+    const generation = life.current
+    const only = chats ? { only: 'rooms' as const } : {}
+    if (after) {
+      if (pagingRef.current === after) return
+      pagingRef.current = after
+      setPaging(after)
+      try {
+        const inbox = await api.call(API.listNotifications, { query: { limit: 30, cursor: after, ...only } })
+        if (generation !== life.current || cursorRef.current !== after) return
+        setList([...new Map([...(itemsRef.current ?? []), ...inbox.items].map((item) => [item.id, item])).values()])
+        setEnd(inbox.nextCursor)
+        setError(null)
+      } catch (e) { if (generation === life.current && cursorRef.current === after) setError(errorText(e, locale, t('error.network'))) }
+      finally {
+        if (generation === life.current) {
+          if (pagingRef.current === after) { pagingRef.current = null; setPaging(null) }
+          setEnded((n) => n + 1)
+        }
+      }
+      return
+    }
+    const seq = ++sequence.current
     try {
-      const inbox = await api.call(API.listNotifications, { query: { limit: after ? 30 : Math.min(100, Math.max(30, shown.current)), cursor: after } })
+      const inbox = await api.call(API.listNotifications, { query: { limit: Math.min(100, Math.max(30, shown.current)), ...only } })
       if (generation !== life.current || seq !== sequence.current) return
-      setItems((previous) => {
-        const next = after && previous ? [...new Map([...previous, ...inbox.items].map((item) => [item.id, item])).values()] : inbox.items
-        shown.current = next.length
-        return next
-      })
-      setCursor(inbox.nextCursor); setError(null)
+      const fresh = inbox.items, tail = fresh.at(-1), previous = itemsRef.current ?? []
+      const from = inbox.nextCursor && tail ? previous.findIndex((x) => x.id === tail.id) : -1
+      const ids = new Set(fresh.map((x) => x.id))
+      const older = from >= 0 ? previous.slice(from + 1).filter((x) => !ids.has(x.id)) : []
+      setList([...fresh, ...older])
+      setEnd(older.length ? cursorRef.current : inbox.nextCursor)
+      setError(null)
     } catch (e) { if (generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
-    // useT returns a fresh function; its translations change only with locale.
+    finally { if (generation === life.current) setEnded((n) => n + 1) }
+    // useT returns a fresh function; its translations change only with locale. setList and setEnd use refs and setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale])
+  }, [locale, chats])
   useEffect(() => {
     void load()
     const off = notificationsChanged.on(() => void load()), reload = reloadAsked.on(() => void load())
-    const access = accessChanged.on(() => { setItems(null); void load() })
+    const access = accessChanged.on(() => { setList(null); setEnd(null); void load() })
     // a conversation row grows while its run goes on (another reply in the thread) without a new notice: read the rows
     // again once the rooms have been quiet for a second, and at least every 5 seconds while they keep changing
     let timer: ReturnType<typeof setTimeout> | undefined, since = 0
@@ -119,7 +177,7 @@ export default function Activity() {
     if (item.readAt) return
     const generation = life.current
     // shown read at once; the server's answer follows
-    setItems((cur) => cur?.map((x) => (x.id === item.id ? { ...x, readAt: new Date().toISOString() } : x)) ?? null)
+    setList(itemsRef.current?.map((x) => (x.id === item.id ? { ...x, readAt: new Date().toISOString() } : x)) ?? null)
     try { await api.call(API.markNotificationRead, { params: { id: item.id } }); if (generation === life.current) await load() }
     catch (e) { if (generation === life.current) { setError(errorText(e, locale, t('error.network'))); void load() } }
   }
@@ -135,13 +193,13 @@ export default function Activity() {
     return typeof text === 'string' ? text : ''
   }
 
-  const unreadIn = (f: Filter) => !!items?.some((x) => !x.readAt && inFilter(x, f))
+  const unreadIn = (f: Filter) => !!items?.some((x) => !x.readAt && shows(x, f))
   const q = query.trim().toLocaleLowerCase()
   const visible = useMemo(() => (items ?? [])
-    .filter((x) => inFilter(x, filter) && (!unreadOnly || !x.readAt) && (!q || wordsOf(x).toLocaleLowerCase().includes(q)))
+    .filter((x) => shows(x, filter) && (!unreadOnly || !x.readAt) && (!q || wordsOf(x).toLocaleLowerCase().includes(q)))
     .sort((a, b) => at(b).localeCompare(at(a))),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [items, filter, unreadOnly, q, rooms, locale])
+  [items, filter, unreadOnly, q, rooms, locale, chats])
   const groups = useMemo(() => {
     const out: { day: string; label: string; items: InboxNotification[] }[] = []
     for (const item of visible) {
@@ -153,6 +211,21 @@ export default function Activity() {
     return out
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, locale])
+  // nothing loaded shows here and older pages are left: read them by themselves, one after another, at most AUTO_PAGES
+  // for this choice of tab, Unreads and search (a read again keeps the rows, so it starts no new run)
+  const choice = `${filter}|${unreadOnly}|${q}`
+  const auto = useRef({ choice, pages: 0 })
+  if (auto.current.choice !== choice) auto.current = { choice, pages: 0 }
+  const empty = !!items && !visible.length && !!cursor && !error
+  const seeking = empty && auto.current.pages < AUTO_PAGES
+  useEffect(() => {
+    // a page still on its way from where the list ended before (a read again moved the end) does not hold this one back
+    if (!seeking || !cursor || paging === cursor || auto.current.choice !== choice) return
+    auto.current.pages++
+    void load(cursor)
+  }, [seeking, cursor, paging, ended, choice, load])
+  // waiting on an older page (asked by itself or with "Load more"), or about to ask: a skeleton, never "nothing here"
+  const waiting = empty && (!!paging || seeking)
 
   const toolBtn = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink hover:bg-hover max-md:h-11 max-md:rounded-full max-md:border-transparent'
   // a phone: the tabs share the width; the search is in the top bar (phone/PhoneBarAction.tsx), its field opens here;
@@ -166,15 +239,15 @@ export default function Activity() {
         <div className={clsx(pageColumn, 'px-4 pt-4 sm:px-6 sm:pt-5 max-md:pt-1')}>
           <div className="flex items-center justify-between gap-3 max-md:block">
             {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}
-            <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{t('inbox.title')}</h1>
+            <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{title}</h1>
             <Tooltip label={t('feed.settings')}>
               <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink max-md:hidden" aria-label={t('feed.settings')} data-testid="activity-settings">
                 <Settings size={18} aria-hidden />
               </Link>
             </Tooltip>
           </div>
-          <div role="tablist" aria-label={t('inbox.title')} className="scroll-thin -mb-px mt-2 flex gap-1 overflow-x-auto max-md:mt-0 max-md:grid max-md:auto-cols-[minmax(0,1fr)] max-md:grid-flow-col max-md:gap-0 max-md:overflow-visible" data-testid="activity-tabs">
-            {FILTERS.map(({ id, label, short, icon: Icon }) => {
+          <div role="tablist" aria-label={title} className="scroll-thin -mb-px mt-2 flex gap-1 overflow-x-auto max-md:mt-0 max-md:grid max-md:auto-cols-[minmax(0,1fr)] max-md:grid-flow-col max-md:gap-0 max-md:overflow-visible" data-testid="activity-tabs">
+            {filters.map(({ id, label, short, icon: Icon }) => {
               const on = filter === id
               const word = phone && short ? t(short) : t(label)
               return (
@@ -227,9 +300,10 @@ export default function Activity() {
         </div>
 
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
-        {!items && !error && <Skeleton lines={4} />}
-        {items && !visible.length && (
-          <EmptyState icon={<Inbox size={28} />} title={items.length && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : t('notifications.empty')} />
+        {((!items && !error) || waiting) && <Skeleton lines={4} />}
+        {/* "nothing here" only when no older page is left */}
+        {items && !visible.length && !cursor && (
+          <EmptyState icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
         )}
         {groups.map((g, i) => (
           <section key={g.day} aria-labelledby={`activity-day-${g.day}`} data-testid="activity-day">
@@ -241,7 +315,9 @@ export default function Activity() {
             </ul>
           </section>
         ))}
-        {cursor && items && <div className="pt-3"><Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button></div>}
+        {/* nothing among the rows read so far: says so, with the way to older ones */}
+        {empty && !waiting && <p className="pt-3 text-sm text-muted" data-testid="activity-not-in-recent">{t('feed.notInRecent', { n: items!.length })}</p>}
+        {cursor && items && !paging && !waiting && <div className="pt-3"><Button onClick={() => void load(cursor)} data-testid="activity-load-more">{t('common.loadMore')}</Button></div>}
       </div>
     </div>
   )

@@ -761,3 +761,114 @@ func TestUpdateRestartsBoxdWhenALaterStepFails(t *testing.T) {
 		t.Fatalf("%d %+v %v", code, r, tb.calls())
 	}
 }
+
+// QA TC-339: with 600 MB free, `mycel-ctl update` failed cleanly but did not say how much space it needs. The check
+// runs before the download (and before unpacking a --bundle) and names both numbers.
+func TestUpdateSaysHowMuchSpaceItNeeds(t *testing.T) {
+	const mb = int64(1 << 20)
+	// the version that runs is the estimate; three times the archive when that is larger
+	if got, want := spaceNeeded(150*mb, 540*mb, 0), uint64(150*mb+2*540*mb+spaceMargin); got != want {
+		t.Fatalf("spaceNeeded = %d, want %d", got, want)
+	}
+	if got, want := spaceNeeded(300*mb, 0, 0), uint64(300*mb+2*900*mb+spaceMargin); got != want {
+		t.Fatalf("spaceNeeded without a current version = %d, want %d", got, want)
+	}
+	// the copy of the database the new version makes before it migrates counts too
+	if got, want := spaceNeeded(150*mb, 540*mb, 700*mb), uint64(150*mb+2*540*mb+700*mb+spaceMargin); got != want {
+		t.Fatalf("spaceNeeded with a database = %d, want %d", got, want)
+	}
+	msg := spaceError("/var/lib/mycel", "0.5.0", 1536<<20, 600<<20).Error()
+	for _, s := range []string{"not enough free space for 0.5.0", "/var/lib/mycel", "it needs about 1.5 GB free, it has 0.6 GB", "nothing was changed"} {
+		if !strings.Contains(msg, s) {
+			t.Fatalf("%q does not say %q", msg, s)
+		}
+	}
+	base := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(base, "app", "versions", "0.4.0"), 0o755))
+	must(t, os.WriteFile(filepath.Join(base, "app", "versions", "0.4.0", "main.js"), make([]byte, 4096), 0o644))
+	must(t, os.Symlink("versions/0.4.0", filepath.Join(base, "app", "current")))
+	if treeSize(filepath.Join(base, "app", "versions", "0.4.0")) != 4096 {
+		t.Fatal("treeSize does not count the version's files")
+	}
+	u := &updater{e: &env{base: base}}
+	if err := u.checkSpace("0.5.0", 1<<20); err != nil {
+		t.Fatalf("a small update on a temp disk: %v", err)
+	}
+	err := u.checkSpace("0.5.0", 1<<52) // 4 PiB: never free
+	if err == nil || !strings.Contains(err.Error(), "it needs about") || !strings.Contains(err.Error(), "free, it has") {
+		t.Fatalf("an update that cannot fit: %v", err)
+	}
+}
+
+// QA TC-340 retest: a reset in the middle of an update leaves the new mycel-ctl once any root file changed, so its
+// status reports the half state. mycel-ctl update replaces it first, then the rest in name order.
+func TestRootDiffPutsMycelCtlFirst(t *testing.T) {
+	w := t.TempDir()
+	kit, installed := filepath.Join(w, "kit"), filepath.Join(w, "root")
+	must(t, os.MkdirAll(filepath.Join(kit, "systemd"), 0o755))
+	must(t, os.MkdirAll(installed, 0o755))
+	for _, n := range []string{"mycel-account", "mycel-bootstrap", "mycel-ctl", "mycel-launcher", "mycel-sandbox", "systemd/server.service.in"} {
+		must(t, os.WriteFile(filepath.Join(kit, n), []byte("new "+n), 0o755))
+	}
+	diff, err := rootDiff(kit, installed)
+	must(t, err)
+	if got := strings.Join(diff, " "); got != "mycel-ctl mycel-account mycel-bootstrap mycel-launcher mycel-sandbox systemd/server.service.in" {
+		t.Fatalf("order: %s", got)
+	}
+	// an unchanged mycel-ctl is not in the list
+	must(t, os.WriteFile(filepath.Join(installed, "mycel-ctl"), []byte("new mycel-ctl"), 0o755))
+	diff, err = rootDiff(kit, installed)
+	must(t, err)
+	if got := strings.Join(diff, " "); got != "mycel-account mycel-bootstrap mycel-launcher mycel-sandbox systemd/server.service.in" {
+		t.Fatalf("without mycel-ctl: %s", got)
+	}
+}
+
+// The same order in install-linux.sh: the first root program it installs is mycel-ctl.
+func TestInstallScriptInstallsMycelCtlFirst(t *testing.T) {
+	src, err := os.ReadFile("../../../scripts/install-linux.sh")
+	must(t, err)
+	_, part, ok := strings.Cut(string(src), "\nrootfile() {")
+	if !ok {
+		t.Fatal("no rootfile() in install-linux.sh")
+	}
+	_, part, _ = strings.Cut(part, "\n}\n")
+	var first string
+	for _, line := range strings.Split(part, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") || !strings.Contains(line, "rootfile ") {
+			continue
+		}
+		first = line
+		break
+	}
+	if !strings.HasPrefix(first, "for f in mycel-ctl ") || !strings.Contains(first, " mycel-bootstrap ") || !strings.Contains(first, " mycel-launcher ") {
+		t.Fatalf("first root file install: %q", first)
+	}
+}
+
+// Root files half replaced by an update that stopped (from a kit newer than the feed): a plain mycel-ctl update does
+// not answer "already at" but says why it cannot finish them and what can.
+func TestUpdateSaysWhenRootFilesAreHalfReplaced(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.17", true)
+	tb, _ := feedBase(t, f, "0.2.17", "0.2.17")
+	kit := filepath.Join(tb.base, "app/versions/0.2.17/root")
+	must(t, os.MkdirAll(kit, 0o755))
+	for _, n := range []string{"mycel-ctl", "mycel-launcher"} {
+		must(t, os.WriteFile(filepath.Join(kit, n), []byte("0.2.17 "+n), 0o755))
+		must(t, os.WriteFile(filepath.Join(tb.base, "root", n), []byte("0.2.17 "+n), 0o755))
+	}
+	if code, r := tb.update(t, "--pubkey", f.key); code != 0 || !r.Skipped || r.Detail != "already at 0.2.17" {
+		t.Fatalf("whole root files: %d %+v", code, r)
+	}
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-ctl"), []byte("0.2.18 mycel-ctl"), 0o755))
+	for _, args := range [][]string{{"--pubkey", f.key}, {"--version", "0.2.17", "--pubkey", f.key}, {"--only-if-needs-root", "--pubkey", f.key}} {
+		code, out, errs := tb.ctl("", append([]string{"update"}, args...)...)
+		if code == 0 || strings.Contains(out, "already at") || !strings.Contains(errs, "an update did not finish: some root files (mycel-ctl) are not those of 0.2.17") || !strings.Contains(errs, "install-linux.sh update --from . in the kit's folder") {
+			t.Fatalf("%v: %d\n%s\n%s", args, code, out, errs)
+		}
+	}
+	if f.downloaded() != 0 || tb.file("root/mycel-ctl") != "0.2.18 mycel-ctl" {
+		t.Fatalf("changed something: downloads %d, %q", f.downloaded(), tb.file("root/mycel-ctl"))
+	}
+}

@@ -38,7 +38,7 @@ import { PRODUCT } from '../product'
 import { emojiForm } from '../emoji-form'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
 import { isStatusEmoji } from '../status-message'
-import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page, type Locale } from './common'
+import { ApiErrorBody, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
@@ -396,6 +396,8 @@ export const RoomMessage = z.object({
     /** such old answers were given and what they were built on is in `folders` / `personal`: postable like them
      * (docs/DECISIONS.md "방에 올리기…") */
     earlier: z.literal(true).optional(),
+    /** messages of another conversation (a 1:1, a group chat, another team room) that some member here is not in */
+    otherRooms: z.literal(true).optional(),
     /** for each folder of `folders`, how many members (not the person who asked) cannot see it; counts only, never
      * who. Absent: a preview decided before the counts */
     unable: z.record(z.string(), z.number().int().nonnegative()).optional() }).optional(),
@@ -686,6 +688,95 @@ export const ReactRoomMessageBody = z.object({ emoji: RoomReactionEmoji, on: z.b
 export const RoomReactions = z.object({ reactions: z.array(RoomReaction) })
 export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).optional(), size: z.string().regex(/^\d+$/).transform(Number).optional() })
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
+/** "팀 파일" in a room's message box (a phone's attach sheet): a team file I may read now, copied as my upload in the
+ * room, sent by id like one from POST /api/rooms/:id/files */
+export const RoomTeamFileBody = z.object({ path: RelPath }).strict()
+/** the copy (not sent yet), and how many other members of the room cannot open the team file now: who will see it only
+ * through this message (a count, never who; as "대화방에 보내기" tells it before a copy goes: AnswerShareFile.unable) */
+export const RoomTeamFile = z.object({ file: RoomFile, unable: z.number().int().nonnegative() })
+export type RoomTeamFile = z.infer<typeof RoomTeamFile>
+
+// ---------------- the confirm before content goes to a room ("대화방에 보내기", a room AI preview) ----------------
+/** at most this many rows in a "confirm": past it the rest of the answer's links is one more row nothing is told about
+ * (everyone else counted) */
+export const ANSWER_SHARE_FILES_MAX = 100
+/** Where something the answer used came from that some member cannot open (never who cannot). */
+export const AnswerSharePlace = z.discriminatedUnion('kind', [
+  /** a team folder ('' = the top of the team folder) */
+  z.object({ kind: z.literal('folder'), path: z.string() }),
+  /** my own folder, or what only I saw (the in-app browser, a personal connection) */
+  z.object({ kind: z.literal('mine') }),
+  /** a team connection (a connected service) or a shared Google Drive, by its name */
+  z.object({ kind: z.literal('service'), name: z.string() }),
+  /** a team room by its group's name, or the everyone room (name '') */
+  z.object({ kind: z.literal('room'), name: z.string() }),
+  /** a 1:1 or group conversation (never named: its name is people's names) */
+  z.object({ kind: z.literal('conversation') }),
+])
+export type AnswerSharePlace = z.infer<typeof AnswerSharePlace>
+/** One file the answer links to or shows, as the person sending may be told. */
+export const AnswerShareFile = z.object({
+  /** its name; '' when `missing` (never named: I cannot open it now) */
+  name: z.string(),
+  /** its team path, only when I may open it now */
+  path: RelPath.optional(),
+  /** I cannot open it now: gone or not mine to open read the same, and it is never named */
+  missing: z.boolean(),
+  /** yes: it can go with the message as a copy (the switch, on by default); no: not needed (everyone can open it) or not
+   * a file to copy; too_big: over 50 MB; hidden: I cannot open it (`missing`) */
+  attach: z.enum(['yes', 'no', 'too_big', 'hidden']),
+  /** members of the room (not me) who cannot open it now; for a `missing` file, everyone else (nothing is told) */
+  unable: z.number().int().nonnegative(),
+})
+export type AnswerShareFile = z.infer<typeof AnswerShareFile>
+/** The answer carries content from material some members cannot see. */
+export const AnswerShareProvenance = z.object({
+  /** members (not me) who cannot see some of it */
+  people: z.number().int().positive(),
+  /** where it came from, named only where I may look myself */
+  places: z.array(AnswerSharePlace),
+  /** more such places that are not named */
+  otherPlaces: z.boolean(),
+  /** what this answer used is not all known (it is not on the chat's current branch): `people` is everyone else */
+  unknown: z.literal(true).optional(),
+})
+export type AnswerShareProvenance = z.infer<typeof AnswerShareProvenance>
+/** Nothing sent yet: the person is asked first. `files`: every file the answer links to (a row each; for a room AI
+ * preview, its sources some members cannot open); `provenance`: content from material some members
+ * cannot see (null: none); `confirmKey`: send it with the same request to go ahead
+ * (shareAnswerToRoom, shareRoomMessage). Older clients read `people` (the
+ * members, not me, who cannot open a linked file or see some of that material), `places` and `otherPlaces` */
+export const AnswerShareConfirm = z.object({
+  status: z.literal('confirm'), people: z.number().int().positive(), places: z.array(AnswerSharePlace), otherPlaces: z.boolean(),
+  files: z.array(AnswerShareFile).max(ANSWER_SHARE_FILES_MAX),
+  provenance: AnswerShareProvenance.nullable(),
+  confirmKey: z.string(),
+  /** asked again after a confirmKey: `changed`, something changed meanwhile (the app says so); `choice`, the same state,
+   * but the files I chose to attach change the provenance line (shown for that choice) */
+  reason: z.enum(['changed', 'choice']).optional(),
+})
+export type AnswerShareConfirm = z.infer<typeof AnswerShareConfirm>
+/** Posting my private preview of a room AI answer (shareRoomMessage): `confirmKey`, the last "confirm"'s key (I saw it
+ * and said yes). Without it, a preview that used material some member cannot see answers "confirm" and posts nothing. */
+export const ShareRoomMessageBody = z.object({
+  confirmKey: z.string().min(1).max(200).optional(),
+  /** always answer "confirm" first, also when nothing private is at stake (the app's one card before every post) */
+  ask: z.literal(true).optional(),
+}).strict()
+export type ShareRoomMessageBody = z.infer<typeof ShareRoomMessageBody>
+/** A room AI preview's "confirm": "대화방에 보내기"'s, and `people` may be 0 (asked with `ask`, nothing private at stake);
+ * `outside`: it used the web or a connected service; `earlier`: it went through an earlier answer hidden from someone */
+export const ShareRoomMessageConfirm = AnswerShareConfirm.extend({
+  people: z.number().int().nonnegative(),
+  outside: z.literal(true).optional(),
+  earlier: z.literal(true).optional(),
+})
+export type ShareRoomMessageConfirm = z.infer<typeof ShareRoomMessageConfirm>
+export const ShareRoomMessageResult = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('sent'), message: RoomMessage }),
+  ShareRoomMessageConfirm,
+])
+export type ShareRoomMessageResult = z.infer<typeof ShareRoomMessageResult>
 
 export const ROOMS = {
   listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
@@ -710,11 +801,12 @@ export const ROOMS = {
   unpinRoom: endpoint({ method: 'DELETE', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Unpin a room ("Unpin"); not pinned: unchanged. My other windows hear it (room.updated).' }),
   leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
+  attachRoomTeamFile: endpoint({ method: 'POST', path: '/api/rooms/:id/team-file', auth: 'user', owner: 'B', status: 201, body: RoomTeamFileBody, response: RoomTeamFile, summary: 'Copy a team-folder file I may read now (not a folder, a link or a quarantined file: 404 like a missing one; ≤ 50 MB) as my upload to send in a room I am in, readable by the room\'s members once sent; with how many other members cannot open the team file (a count). The same unchanged file again before sending: that copy again; past 200 MB of my unsent copies: 409 team_copies_full. Audited when sent (room.team_file).' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
   roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
   getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),
   stopRoomAi: endpoint({ method: 'POST', path: '/api/rooms/:id/ai/:turnId/stop', auth: 'user', owner: 'B', response: z.object({ stopped: z.boolean() }), summary: 'Stop the AI answering my question (only the person who asked; anyone else gets 404).' }),
-  shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', response: RoomMessage, summary: 'Post my private preview of an AI answer to the room: sources some member cannot read are left out; it notifies like a new message and is audited.' }),
+  shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', body: ShareRoomMessageBody, response: ShareRoomMessageResult, summary: 'Post my private preview of an AI answer to the room. When it used material some member who will see it cannot see (folders, my own folder, messages from before someone joined, another conversation, a connection) or a source file some cannot open, or always with ask: true (the app asks before every post), it first answers "confirm" as "대화방에 보내기" does (how many people, the places I may look myself, the source files, never who) with a confirmKey; sent again with that key it posts. Anything changed since asks again. Sources some member cannot read are left out; it notifies like a new message and is audited (room.ai_share, with confirmed).' }),
   roomMessageSources: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files an AI answer in a room I am in used, each checked against my access now (no name or path for the others).' }),
 } as const
 

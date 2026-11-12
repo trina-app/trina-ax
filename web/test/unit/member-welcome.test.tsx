@@ -121,7 +121,8 @@ describe('the card on Home', () => {
       expect(m.find('team-prepared')).toBeNull()
       expect(m.find('no-ai-card')).toBeNull()
       // the card sits above the greeting on a computer
-      expect(m.get('home-head').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
+      expect(m.get('home-top').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
+      expect(m.get('home-top').nextSibling).toBe(m.get('home-head'))
     } finally { await m.unmount() }
   })
 
@@ -213,14 +214,15 @@ describe('the card on Home', () => {
     } finally { await m.unmount() }
   })
 
-  test('a phone: the same card under the box, without a frame, 44 px targets', async () => {
+  test('a phone: the same card at the top (the box docked at the bottom), without a frame, 44 px targets', async () => {
     signIn()
     phoneWidth()
     const m = await home()
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
-      expect(m.get('home-tail').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
-      expect(m.get('home-head').querySelector('[data-testid="member-welcome"]')).toBeNull()
+      expect(m.get('home-top').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
+      expect(m.get('home-dock').querySelector('[data-testid="member-welcome"]')).toBeNull()
+      expect(m.get('home-tail').querySelector('[data-testid="member-welcome"]')).toBeNull()
       expect(m.get('member-welcome').getAttribute('class')).toContain('md:border')
       expect(m.get('member-welcome').getAttribute('class')).not.toMatch(/(^| )border( |$)/)
       for (const id of ['member-welcome-hide', 'member-welcome-hi-button', 'member-welcome-photo-button', 'member-welcome-rooms-open'])

@@ -1,0 +1,1 @@
+- Windows: uninstalling the app now also removes its trina-ax:// link handler, so links no longer point at the removed app (only when the handler still points into the install folder; updates keep it).

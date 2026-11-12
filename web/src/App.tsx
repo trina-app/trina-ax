@@ -34,6 +34,7 @@ import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { noteLocation } from './lib/backStack'
+import { useAppNav } from './lib/appNav'
 import { safeNext } from './lib/nav'
 import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
 import { toast } from './store/ui'
@@ -44,6 +45,7 @@ const Files = lazy(() => import('./pages/Files'))
 const FileView = lazy(() => import('./pages/FileView'))
 const ProjectList = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectList })))
 const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectHome })))
+const ProjectFiles = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectFiles })))
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
 const Skills = lazy(() => import('./pages/Skills'))
@@ -175,6 +177,8 @@ function Gate() {
   }, [load])
 
   useSessionLifecycle()
+  // the phone app's swipe and Back follow the screens (nav-v1, lib/appNav.ts)
+  useAppNav(status.kind === 'signed-in' ? status.me.user.id : '')
 
   useEffect(() => {
     document.title = PRODUCT.displayName
@@ -254,6 +258,7 @@ function Gate() {
           <Route path="files/view" element={<FileView />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
+          <Route path="projects/:projectId/files" element={<ProjectFiles />} />
           <Route path="admin" element={<AdminLayout />} />
           <Route path="admin/:section" element={<AdminLayout />} />
           {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}

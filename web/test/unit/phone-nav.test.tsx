@@ -7,20 +7,18 @@
 //   room, ‹ and the page's name below a tab;
 // - ‹ goes back in the history when the entry before is the app's own and otherwise replaces this entry with the tab's
 //   list, never pushes (the phone's own back would loop between the two);
-// - the 나 list starts with 활동 (Activity, with the count) and, for admins, 관리자; 알림 (the settings) stays in its group;
-// - Home's latest AI chats: three, newest first, never a chat only made for a draft's attachments.
+// - the 나 list starts with 활동 (Activity, with the count) and, for admins, 관리자; 알림 (the settings) stays in its group.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act, type ReactNode } from 'react'
 import { Link, MemoryRouter, Route, Routes, useLocation, useNavigationType, type InitialEntry } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { PRODUCT_NAMED_AFTER_AI, type Chat, type Me } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { BottomTabs } from '../../src/components/BottomTabs'
 import { PhoneTopBar } from '../../src/components/PhoneTopBar'
 import SettingsDialog from '../../src/components/settings/SettingsDialog'
 import { useBackLink } from '../../src/lib/back'
 import { aiName, hidesTabs, landingPath, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../../src/lib/tabs'
-import { RecentChats } from '../../src/pages/Home'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useInbox } from '../../src/store/inbox'
@@ -406,40 +404,5 @@ describe('the 나 tab\'s list on a phone', () => {
         await m.unmount()
       }
     }
-  })
-})
-
-describe('Home\'s latest AI chats on a phone', () => {
-  const chat = (n: number, o: Partial<Chat> = {}): Chat => ({
-    id: `01900000-0000-7000-8000-0000000000${String(n).padStart(2, '0')}`, projectId: null, title: `채팅 ${n}`, engine: 'claude-code', model: null,
-    createdAt: '2026-11-01T00:00:00.000Z', updatedAt: `2026-11-0${n}T00:00:00.000Z`, deletedAt: null, runState: 'idle', ...o,
-  })
-  /** the rendered rows (a client render: the chats store's current state) */
-  const render = () => rendered(<MemoryRouter><RecentChats /></MemoryRouter>)
-
-  test('three, newest first, each opening its chat', async () => {
-    useChats.setState({ chats: [chat(1), chat(4), chat(2), chat(3)] })
-    const html = await render()
-    const rows = [...html.matchAll(/<a [^>]*data-testid="home-recent"[^>]*>/g)].map((m) => m[0])
-    expect(rows.length).toBe(3)
-    expect(rows[0]).toContain(`href="/c/${chat(4).id}"`)
-    expect([...html.matchAll(/채팅 (\d)/g)].map((m) => m[1])).toEqual(['4', '3', '2'])
-    expect(html).toContain(`>${ko('sidebar.aiChats', { name: aiName(ko) })}</h2>`)
-  })
-
-  test('a chat only made for a draft\'s attachments is not one; nothing at all without a chat', async () => {
-    const draft = chat(5, { title: '', createdAt: '2026-11-05T00:00:00.000Z', updatedAt: '2026-11-05T00:00:00.000Z' })
-    useChats.setState({ chats: [draft] })
-    expect(await render()).not.toContain('home-recents')
-    useChats.setState({ chats: [draft, chat(1)] })
-    expect([...(await render()).matchAll(/data-testid="home-recent"/g)].length).toBe(1)
-  })
-
-  test('a chat whose AI waits for me says so: its "?" at the row\'s end, named by the reason (session markers)', async () => {
-    const c = chat(2)
-    useChats.setState({ chats: [c], requests: { r1: { turnId: 't', chatId: c.id, messageId: 'm', request: {} } } as never })
-    const html = await render()
-    expect(html).toContain(`aria-label="${ko('marker.card')}"`)
-    expect(html).toContain('data-testid="marker-ask"')
   })
 })

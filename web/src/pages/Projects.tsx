@@ -31,9 +31,15 @@
 // members dialog) loads the page again. Deleting a team project in projects/ moves it to the trash with its folder; a
 // project in the trash says so on its page with 되돌리기 (the owner and admins; gone once the server says its folder
 // was deleted for good) and 완전히 삭제, and has no name menu there.
-import { ArchiveRestore, FileText, FolderKanban, Folder, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
+// Phones (below 768 px; QA TC-254, TC-380): the list has "+" in the top bar (components/phone/PhoneBarAction.tsx) and no
+// intro or button in the page, and is a phone list (components/phone/PhoneList.tsx), not cards: one row per project with
+// its name, who sees it, the card's "···" (44 px; a long press opens it too) and a chevron. A project's page has one bar, "‹ 프로젝트 · name · ···" (the name in the bar's title,
+// the name's menu as the bar's "···" sheet; the big name for screen readers only); its files line is one row that opens
+// the project's files on a screen of the 트리나 tab (ProjectFiles below, /projects/:id/files, with no folder path line),
+// so Back returns to the project.
+import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
@@ -58,14 +64,20 @@ import { whoSees } from '../lib/sharedChat'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
+import { useRowMenu } from '../components/rooms/RoomMenu'
+import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
-import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy, useMediaQuery } from '../components/ui'
+import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
+import { Tooltip } from '../components/Tooltip'
 import { useFocusAfterRemove } from './admin/common'
+
+const PHONE = '(max-width: 767.98px)'
 
 /** A project's chats as its page lists them: my pinned ones first (the most recently pinned first, as the server's first
  * page has them), then the newest. */
@@ -184,16 +196,24 @@ function useRenameProject() {
 }
 
 /** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
- * it shows on hover and keyboard focus, on a touch screen always. */
-function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }) {
+ * it shows on hover and keyboard focus, on a touch screen always. A phone's row (`row`: useRowMenu's signals) has it
+ * always, 44 px, before the chevron (as the AI chat rows in ☰ have theirs), and a long press opens it too. */
+function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void; row?: { openSignal: number; openRequest: number } }) {
   const t = useT()
+  const phone = useMediaQuery(PHONE)
   const { copy } = useCopy()
   const remove = useDeleteProject()
   const renameProject = useRenameProject()
-  // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there
+  // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there; a "…" not on
+  // screen (none should be) gives the keyboard to its row's link instead of losing it
   const more = useRef<HTMLButtonElement>(null)
+  const focusBack = () => {
+    const b = more.current
+    if (b && b.offsetParent !== null) b.focus()
+    else b?.closest('li')?.querySelector<HTMLElement>('[data-row-focus]')?.focus()
+  }
   const select = (fn: () => unknown) => () => {
-    more.current?.focus()
+    focusBack()
     void fn()
   }
   const rename = async () => {
@@ -210,16 +230,33 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { proj
     { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
     ...(mayManage(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => remove(p).then((d) => d && onDeleted(d))), testId: 'project-card-delete' }] : []),
   ]
+  if (row)
+    return (
+      <MenuButton
+        label={t('rooms.menu.rowLabel', { name: p.name })}
+        tip={t('rooms.menu.label')}
+        items={items}
+        sheetTitle={p.name}
+        // in the room the row keeps for it before its chevron (phone/PhoneList.tsx): 44 px from the screen's edge
+        className="absolute inset-y-0 right-11 flex items-center"
+        buttonClassName="size-11 hover:bg-surface"
+        buttonRef={more}
+        focusBack={focusBack}
+        openSignal={row.openSignal}
+        openRequest={row.openRequest}
+        testId="project-card-menu"
+      />
+    )
   return (
     <MenuButton
       label={t('rooms.menu.rowLabel', { name: p.name })}
       tip={t('rooms.menu.label')}
       items={items}
       sheetTitle={p.name}
-      // in line with the name's first line, its right edge at the card's padding
-      className="absolute top-3.5 right-2.5"
-      // phones: its size, in line with the name; taps from a 44 px box around it
-      compact
+      // in line with the name's first line, its right edge at the card's padding; phones: a 44 px button in the card's
+      // corner (QA TC-254)
+      className={phone ? 'absolute top-1 right-1' : 'absolute top-3.5 right-2.5'}
+      compact={!phone}
       buttonClassName="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
       buttonRef={more}
       testId="project-card-menu"
@@ -261,6 +298,44 @@ function ProjectCardLines({ project: p }: { project: Project }) {
   )
 }
 
+/** A project on a phone's list (QA TC-380): a row like Settings' (components/phone/PhoneList.tsx) with its name (a lock
+ * after it when I may not see its contents), who sees it in its 멤버 line's words ("in the trash" while it is), the
+ * card's "···" (44 px; a long press opens it too) and a chevron. No instructions here (the page has them), and no
+ * time: the project has no last-activity field, and the chats this app holds are only mine, so a time would mislead. */
+function ProjectRow({ project: p, onRenamed, onDeleted, onMembers }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }) {
+  const t = useT()
+  const menu = useRowMenu()
+  const who = whoSeesProject(t, p, 'projects.whoMembers')
+  return (
+    <PhoneListRow
+      icon={<FolderKanban size={16} className="text-accent-text" />}
+      to={`/projects/${p.id}`}
+      testId="project-row"
+      title={
+        <span className="block min-w-0">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{p.name}</span>
+            {p.member === false && !p.inTrash && (
+              <>
+                <Lock size={12} className="shrink-0 text-faint" aria-hidden />
+                <span className="sr-only">{t('projects.cardMembersOnly')}</span>
+              </>
+            )}
+          </span>
+          {/* the card's words and their test ids (ProjectCardLines) */}
+          {(who || p.inTrash) && (
+            <span className="block truncate text-xs text-faint" data-testid="project-row-sub">
+              <span data-testid="project-card-who">{who}</span>
+              {p.inTrash && <span data-testid="project-card-state">{who ? ' · ' : ''}{t('chat.project.inTrash')}</span>}
+            </span>
+          )}
+        </span>
+      }
+      menu={{ row: menu.row, guard: menu.guard, node: <ProjectCardMenu project={p} onRenamed={onRenamed} onDeleted={onDeleted} onMembers={onMembers} row={menu} /> }}
+    />
+  )
+}
+
 export function ProjectList() {
   const t = useT()
   const locale = useLocale()
@@ -294,17 +369,56 @@ export function ProjectList() {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  const phone = useMediaQuery(PHONE)
+  const renamed = (r: Project) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
+  const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
+    // in the trash: the card stays, saying so
+    if (d !== 'gone') return setItems((xs) => xs && xs.map((x) => (x.id === d.id ? d : x)))
+    removed(i)
+    setItems((xs) => xs && xs.filter((x) => x.id !== p.id))
+  }
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <PageHeader
-        title={t('projects.title')}
-        desc={t('projects.desc')}
-        actions={
-          <Button variant="primary" onClick={() => setCreating(true)} data-testid="project-new">
-            <Plus size={15} aria-hidden /> {t('projects.new')}
-          </Button>
-        }
-      />
+      {phone ? (
+        // a phone: the top bar says 프로젝트 and holds "+" (no intro, no button row under it)
+        <>
+          <h1 className="sr-only">{t('projects.title')}</h1>
+          <PhoneBarAction>
+            <Tooltip label={t('projects.new')}>
+              <button type="button" onClick={() => setCreating(true)} aria-label={t('projects.new')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-new">
+                <Plus size={22} aria-hidden />
+              </button>
+            </Tooltip>
+          </PhoneBarAction>
+        </>
+      ) : (
+        <PageHeader
+          title={t('projects.title')}
+          desc={t('projects.desc')}
+          actions={
+            <Button variant="primary" onClick={() => setCreating(true)} data-testid="project-new">
+              <Plus size={15} aria-hidden /> {t('projects.new')}
+            </Button>
+          }
+        />
+      )}
+      {phone ? (
+        // a phone: rows from edge to edge, like Settings' list
+        <div ref={box} className="pb-8" data-testid="project-rows">
+          {(error || !items || !items.length) && (
+            <div className="p-4">
+              {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
+              {!items && !error && <Skeleton lines={4} />}
+              {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
+            </div>
+          )}
+          {!!items?.length && (
+            <PhoneListGroup>
+              {items.map((p, i) => <ProjectRow key={p.id} project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />)}
+            </PhoneListGroup>
+          )}
+        </div>
+      ) : (
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
@@ -316,26 +430,17 @@ export function ProjectList() {
               {/* the card stays marked while its "…" menu is open */}
               <Link to={`/projects/${p.id}`} className="block h-full rounded-2xl border border-line bg-surface p-4 transition group-has-[[aria-expanded=true]]:bg-hover hover:bg-hover" data-row-focus>
                 {/* clear of the "…" in the card's corner; the icon stays on the first line of a long name */}
-                <span className="flex items-start gap-2 pr-8 font-medium">
+                <span className="flex items-start gap-2 pr-8 font-medium max-md:pr-10">
                   <FolderKanban size={16} className="mt-1 shrink-0 text-accent-text" aria-hidden /> <span className="min-w-0 break-words">{p.name}</span>
                 </span>
                 <ProjectCardLines project={p} />
               </Link>
-              <ProjectCardMenu
-                project={p}
-                onRenamed={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))}
-                onDeleted={(d) => {
-                  // in the trash: the card stays, saying so
-                  if (d !== 'gone') return setItems((xs) => xs && xs.map((x) => (x.id === d.id ? d : x)))
-                  removed(i)
-                  setItems((xs) => xs && xs.filter((x) => x.id !== p.id))
-                }}
-                onMembers={() => setMembers(p)}
-              />
+              <ProjectCardMenu project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />
             </li>
           ))}
         </ul>
       </div>
+      )}
       {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
       {/* the card as the server sees it now (an owner or admin who added or took out themselves: its instructions come or go) */}
       {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? r : x)))} />}
@@ -417,6 +522,7 @@ export function ProjectHome() {
     if (!v && params.has('members')) setParams((x) => { x.delete('members'); return x }, { replace: true })
   }
   const me = useMe()
+  const phone = useMediaQuery(PHONE)
   // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
   // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
   const personal = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`) && (isAdmin(me) || me.team.projectCreators === 'members')
@@ -591,15 +697,25 @@ export function ProjectHome() {
         : null
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      {/* like Claude's project page: where you are, with the few things you rarely do behind the name; it stays at the
-          top while the page scrolls */}
+      {phone ? (
+        // a phone: one bar, "‹ 프로젝트 · name · ···" (components/PhoneTopBar.tsx); the name's menu is the bar's "···"
+        <>
+          <PhoneBarTitle>{p.name}</PhoneBarTitle>
+          {menu && (
+            <PhoneBarAction>
+              <MenuButton label={t('rooms.menu.rowLabel', { name: p.name })} tip={t('rooms.menu.label')} sheetTitle={p.name} items={menu} muted buttonClassName="size-11" testId="project-menu" />
+            </PhoneBarAction>
+          )}
+        </>
+      ) : (
+      /* like Claude's project page: where you are, with the few things you rarely do behind the name; it stays at the
+          top while the page scrolls */
       <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6" testId="project-topline">
         <nav aria-label={t('files.breadcrumb')} className="flex min-w-0 items-center gap-1.5 text-sm">
-          {/* phones: the top bar above says 프로젝트, with its ‹ (components/PhoneTopBar.tsx) */}
-          <Link to="/projects" className="shrink-0 text-muted hover:text-ink max-md:hidden">
+          <Link to="/projects" className="shrink-0 text-muted hover:text-ink">
             {t('projects.title')}
           </Link>
-          <span className="text-faint max-md:hidden" aria-hidden>
+          <span className="text-faint" aria-hidden>
             /
           </span>
           {menu ? (
@@ -611,10 +727,12 @@ export function ProjectHome() {
           )}
         </nav>
       </StickyHeader>
-      <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 sm:px-6 sm:pt-10">
-        <h1 className="text-[1.625rem] font-semibold tracking-tight break-words sm:text-[1.875rem]">{p.name}</h1>
+      )}
+      <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 max-md:pt-4 sm:px-6 sm:pt-10">
+        {/* phones: the name is the bar's; here for screen readers only */}
+        <h1 className="text-[1.625rem] font-semibold tracking-tight break-words max-md:sr-only sm:text-[1.875rem]">{p.name}</h1>
         {summary && (
-          <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted" data-testid="project-summary">
+          <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted max-md:mt-0" data-testid="project-summary">
             {summary}
           </p>
         )}
@@ -663,7 +781,18 @@ export function ProjectHome() {
                     {p.instructions ? <Markdown text={p.instructions} className="text-sm! leading-6! prose-headings:text-sm!" /> : <p className="text-faint">{t('projects.noInstructions')}</p>}
                   </DisclosureRow>
                 )}
-                {!outside && (
+                {!outside && phone && (
+                  // a phone: one row to the project's files, a screen of this tab (Back comes here)
+                  <div data-testid="project-files">
+                    <Link to={`/projects/${p.id}/files`} className="flex min-h-12 items-center gap-2.5 py-3 text-sm" data-testid="project-files-open">
+                      <Folder size={16} className="shrink-0 text-muted" aria-hidden />
+                      <span className="min-w-0 truncate font-medium">{t('files.title')}</span>
+                      {files && !files.failed && <span className="shrink-0 text-xs text-faint">{files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length })}</span>}
+                      <ChevronRight size={16} className="ml-auto shrink-0 text-faint" aria-hidden />
+                    </Link>
+                  </div>
+                )}
+                {!outside && !phone && (
                   <DisclosureRow
                     testId="project-files"
                     icon={<Folder size={16} />}
@@ -671,8 +800,6 @@ export function ProjectHome() {
                     meta={files && !files.failed && (files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
                     action={<Link to={folderLink} className={sideAction}>{t('projects.open')}</Link>}
                   >
-                    {/* phones: the folder's path here, not as a line of its own under the rows */}
-                    <p className="mb-2 truncate text-xs text-faint md:hidden" title={p.folderPath || t('files.root')}>{p.folderPath || t('files.root')}</p>
                     {!files && <Skeleton lines={3} />}
                     {files && !files.failed && !files.entries.length && <p className="text-faint">{t('files.emptyReadOnly')}</p>}
                     <ul className="-ml-2 space-y-0.5">
@@ -726,6 +853,113 @@ export function ProjectHome() {
       {members && <ProjectMembersDialog project={p} onClose={() => setMembers(false)} onSaved={membersSaved} />}
       {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
       {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { setP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) }) }} />}
+    </div>
+  )
+}
+
+/** A folder of a project's files as the address says it (`?dir=`, relative to the project's folder): no leading or
+ * trailing "/", no "." or ".." parts. */
+export const projectDir = (raw: string | null) => (raw ?? '').split('/').filter((x) => x && x !== '.' && x !== '..').join('/')
+
+/**
+ * A project's files on a phone (QA TC-254): /projects/:id/files, a screen of the 트리나 tab under the project's page
+ * (lib/screens.ts), so Back goes up a folder and then to the project, never into the Files tab. No folder path line
+ * (QA TC-380: "projects/QA 프로젝트" is the server's word for it; the bar names where you are). Its folders open
+ * further down here (?dir=, relative to the project's folder); a file opens in the file sheet over it (lib/sidePanel.ts,
+ * Back closes it). The bar: "‹ name · 파일 (or the folder's name)" and a button to the same folder on the 파일 screen,
+ * where it can be changed (upload, rename, move). A computer has the 파일 line on the project's page and the 파일 screen:
+ * this address takes it to that folder there.
+ */
+export function ProjectFiles() {
+  const t = useT()
+  const locale = useLocale()
+  const { projectId } = useParams()
+  const [params] = useSearchParams()
+  const dir = projectDir(params.get('dir'))
+  const navigate = useNavigate()
+  const phone = useMediaQuery(PHONE)
+  const [p, setP] = useState<Project | null>(null)
+  const [missing, setMissing] = useState(false)
+  const [list, setList] = useState<{ entries: FileEntry[]; cursor: string | null } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [more, setMore] = useState(false)
+  const loads = useRef(0)
+  useEffect(() => {
+    let live = true
+    setMissing(false)
+    api.call(API.getProject, { params: { id: projectId! }, query: { manage: '1' } }).then(
+      (x) => { if (!live) return; setP(x); useProjects.getState().put(x) },
+      (e) => { if (!live) return; if (isApiError(e, 'not_found')) setMissing(true); else setError(errorText(e, locale, t('error.network'))) },
+    )
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
+  const path = p ? [p.folderPath, dir].filter(Boolean).join('/') : null
+  const read = (cursor?: string) => {
+    if (path === null) return
+    const mine = cursor ? loads.current : ++loads.current
+    if (cursor) setMore(true)
+    api.call(API.tree, { query: { path, limit: 100, ...(cursor ? { cursor } : {}) } }).then(
+      (r) => { if (mine !== loads.current) return; setList((cur) => ({ entries: cursor && cur ? [...cur.entries, ...r.entries] : r.entries, cursor: r.nextCursor })); setError(null) },
+      (e) => { if (mine === loads.current) setError(errorText(e, locale, t('error.network'))) },
+    ).finally(() => { if (cursor) setMore(false) })
+  }
+  useEffect(() => {
+    setList(null)
+    setError(null)
+    if (p?.member !== false) read()
+    return () => { loads.current++ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, p?.member])
+  // a computer: the folder on the 파일 screen (the project's page for someone who is not a member: no files for them)
+  if (!phone && p && path !== null) return <Navigate to={p.member === false ? `/projects/${p.id}` : `/files?path=${encodeURIComponent(path)}`} replace />
+  if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
+  const name = dir ? dir.slice(dir.lastIndexOf('/') + 1) : t('files.title')
+  const down = (f: FileEntry) => `/projects/${projectId}/files?dir=${encodeURIComponent(dir ? `${dir}/${f.name}` : f.name)}`
+  return (
+    <div className="flex h-full flex-col overflow-y-auto" data-testid="project-files-page">
+      <h1 className="sr-only">{name}</h1>
+      <PhoneBarTitle>{name}</PhoneBarTitle>
+      {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them */}
+      {path !== null && p?.member !== false && (
+        <PhoneBarAction>
+          <Tooltip label={t('projects.openFolder')}>
+            <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">
+              <FolderOpen size={20} aria-hidden />
+            </button>
+          </Tooltip>
+        </PhoneBarAction>
+      )}
+      <div className="px-4 pt-2 pb-8">
+        {error && <ErrorNote onRetry={() => read()}>{error}</ErrorNote>}
+        {p?.member === false && <p className="py-3 text-sm break-keep text-muted" data-testid="project-files-members-only">{t('projects.membersOnly')}</p>}
+        {!list && !error && p?.member !== false && <Skeleton lines={4} />}
+        {list && !list.entries.length && <p className="py-3 text-sm text-faint">{t('files.emptyReadOnly')}</p>}
+        <ul className="divide-y divide-line">
+          {list?.entries.map((f) => (
+            <li key={f.path}>
+              {f.type === 'folder' ? (
+                <Link to={down(f)} className="flex min-h-12 items-center gap-3 py-2 text-sm" data-testid="project-file" data-type="folder">
+                  <Folder size={18} className="shrink-0 text-accent-text" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                  <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+                </Link>
+              ) : (
+                <button type="button" onClick={() => openTeamFile(f.path)} className="flex min-h-12 w-full items-center gap-3 py-2 text-left text-sm" data-testid="project-file" data-type="file">
+                  <FileText size={18} className="shrink-0 text-faint" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                  <span className="shrink-0 text-xs text-faint">{formatRelative(f.mtime, locale)}</span>
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {list?.cursor && (
+          <Button className="mt-3 w-full" busy={more} onClick={() => read(list.cursor!)} data-testid="project-files-more">
+            {t('common.loadMore')}
+          </Button>
+        )}
+      </div>
     </div>
   )
 }

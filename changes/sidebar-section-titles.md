@@ -1,1 +1,0 @@
-- The sidebar's section titles, **Conversations** and **Trina history**, are now as large as the rows below them and bold, so it is clear where one list ends and the next starts (on the phone drawer too). The labels inside the lists (Team rooms, Group chats, Direct messages, Today…) and Show more / Less stay small and grey.

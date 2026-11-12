@@ -406,10 +406,14 @@ func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
 	rb := `{"at":"x","from":"0.2.0","to":"0.1.0","result":"rolled_back","detail":"not healthy within 2m0s"}`
 	updateHooks(t, tb, func(v string) {
 		os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`]}`), 0o644)
+		// update looks every 0.5 s (rollbackGrace/4). The forward at 1.2 s is seen at the 1.5 s look, so its own health
+		// wait ends at 4.5 s; v answers at 3.2 s: past the grace (2 s) and the first health wait (3 s), seen at the 3.5 s
+		// look, a second before the end. v used to answer at exactly 3 s, the end of the forward's wait less one look:
+		// a look a few ms early missed it and the next came too late (CI on Linux, 2026-11-11 and 11-12).
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(1200 * time.Millisecond)
 			os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`],"forward":"0.2.0"}`), 0o644)
-			time.Sleep(2500 * time.Millisecond) // longer than the grace: the forward keeps the wait going
+			time.Sleep(2000 * time.Millisecond)
 			tb.health.Store(v)
 		}()
 	})
@@ -573,4 +577,49 @@ func TestPreflightJudgement(t *testing.T) {
 		t.Fatal("versionAtLeast")
 	}
 	_ = strconv.Itoa
+}
+
+// QA TC-310: after `nft flush ruleset` the status file still says loaded; status reads the kernel's table, says
+// "not OK", and records it in the status file so the launcher refuses turns from the file too
+func TestStatusChecksTheLiveTable(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	if code, out, errs := tb.ctl("", "firewall", "apply"); code != 0 {
+		t.Fatalf("apply: %d %s %s", code, out, errs)
+	}
+	stderr := ""
+	read := func() Status {
+		t.Helper()
+		code, out, errs := tb.ctl("", "status", "--detail", "--json")
+		var s Status
+		if code != 0 || json.Unmarshal([]byte(out), &s) != nil {
+			t.Fatalf("status: %d %s %s", code, out, errs)
+		}
+		stderr = errs
+		return s
+	}
+	if s := read(); !s.FirewallOK || s.FirewallLive == nil || !*s.FirewallLive {
+		t.Fatalf("loaded table: %+v", s)
+	}
+	// the table is gone: nft list answers "No such file or directory", echoes the command and marks it with ^^^^^
+	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "nft"), []byte("#!/bin/sh\nif [ \"$1\" = -j ]; then printf 'Error: No such file or directory\\nlist table inet mycel\\n                ^^^^^\\n' >&2; exit 1; fi\nexit 0\n"), 0o755))
+	s := read()
+	if s.FirewallOK || s.FirewallLive == nil || *s.FirewallLive || !strings.Contains(s.FirewallErr, "not loaded") || s.Firewall == nil || s.Firewall.Loaded {
+		t.Fatalf("flushed table: %+v", s)
+	}
+	// one plain line for Admin › Diagnostics; nft's whole answer goes to stderr (the timer's journal)
+	if s.FirewallErr != "the table is not in effect now: table inet mycel is not loaded" || *s.Firewall.Error != s.FirewallErr {
+		t.Fatalf("reason: %q", s.FirewallErr)
+	}
+	if !strings.Contains(stderr, "^^^^^") {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	st, err := fwstatus.Read(filepath.Join(tb.base, "run/firewall.json"), os.Getuid())
+	must(t, err)
+	if st.Loaded || st.Check(time.Now(), 990, 47821) == nil {
+		t.Fatalf("status file still says loaded: %+v", st)
+	}
+	// the next status reads the failure from the file it wrote
+	if _, out, _ := tb.ctl("", "status"); !strings.Contains(out, "firewall: NOT OK (not loaded: the table is not in effect now") {
+		t.Fatalf("text:\n%s", out)
+	}
 }

@@ -264,7 +264,7 @@ describe('where the steps go', () => {
     expect(prevStep('ai')).toBeNull()
   })
 
-  test('a phone walks past 도구 연결 (docs/DECISIONS.md "W6"): never opened there, ← 이전 skips it, the walk records it as put off; it still counts', () => {
+  test('a phone walks past 도구 연결 (docs/DECISIONS.md "W6"): never opened there, ← 이전 skips it, the walk records it as put off; a phone counts only its own steps (QA TC-271)', () => {
     const p = { ...fresh(), steps: { ...fresh().steps, profile: 'done', skills: 'done', files: 'done' } } as WelcomeProgress
     expect(openHere(p, 'tools', false)).toBe(false)
     expect(openHere(p, 'tools', true)).toBe(true)
@@ -285,8 +285,12 @@ describe('where the steps go', () => {
     expect(showResume(last, false)).toBe(false)
     expect(phoneSkips(last, null, false)).toEqual(['tools'])
     expect(resumeStep(last, true, true)).toBe('tools')
-    // counted on the phone too (n/5), but not named as left there
+    // a computer counts it (n/5); a phone counts only the steps it shows (n/4: the bar jumped 3/5 → 5/5 there)
     expect(stepTotal(last)).toBe(5)
+    expect(stepTotal(last, true, false)).toBe(4)
+    expect(countedSteps(last, true, false)).toEqual(['profile', 'skills', 'files', 'invite'])
+    expect(doneCount(last, true, false)).toBe(4)
+    expect(countedSteps({ ...fresh(), steps: { ...fresh().steps, ai: 'skipped' } }, false, false)).toEqual(['ai', 'profile', 'skills', 'files', 'invite'])
     expect(stepsLeft(last, true, false)).toEqual([])
     expect(stepsLeft(last, true, true)).toEqual(['tools'])
   })
@@ -364,6 +368,8 @@ describe('where the steps go', () => {
     // a computer has 내 스킬 and 도구 연결 left too: the steps done, "2/5", never "5/5"
     expect(stepsLeft(phone, true, true)).toEqual(['skills', 'files', 'tools'])
     expect(setupRowWords(ko, phone, true, true)).toEqual({ text: '설정 이어서 하기', count: '2/5' })
+    // a phone with two left counts its own four steps ("2/4", QA TC-271)
+    expect(setupRowWords(ko, { ...phone, skillsLater: false }, true, false)).toEqual({ text: '설정 이어서 하기', count: '2/4' })
     // only put-off steps left, no phone in it: the one left is named whether open or put off
     const off = { ...fresh(), steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: 'skipped' } } as WelcomeProgress
     expect(setupRowWords(ko, off)).toEqual({ text: '남은 일: 팀원 초대', count: null })
@@ -1225,7 +1231,7 @@ describe('the later steps and the end', () => {
     }
   })
 
-  test('도구 연결 (docs/DECISIONS.md "W6"): no Drive on this server: the MCP line alone, its dialog opens and closes with nothing changed; 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
+  test('도구 연결 (docs/DECISIONS.md "W6", QA TC-136): no Drive on this server: its card says so, the listed services are cards, the address form last; its dialog opens and closes with nothing changed; 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: false, teamShares: [] })
@@ -1238,7 +1244,16 @@ describe('the later steps and the end', () => {
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('자주 쓰는 도구를 연결해 둘까요?')
       expect(m.get('welcome-tools').textContent).toContain('나중에 커넥터에서')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
-      expect(m.find('welcome-tools-drive')).toBeNull()
+      // Drive is not on this server: its card says so, never a hidden row (TC sheet TC-145)
+      const drive = await m.until(() => m.find('welcome-tools-drive'), 'the Drive card')
+      expect(drive.getAttribute('data-state')).toBe('not-set-up')
+      expect(m.get('welcome-tools-drive-off').textContent).toBe('아직 설정 안 됨')
+      expect(m.find('welcome-tools-drive-connect')).toBeNull()
+      // the listed services as Discover's cards: logo, name, one line, 연결
+      const services = await m.until(() => { const x = m.container.querySelectorAll('[data-testid="welcome-tools-service"]'); return x.length ? x : null }, 'the service cards')
+      expect([...services].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'linear', 'atlassian', 'canva', 'figma'])
+      expect(services[0]!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe(translate('ko', 'integrations.catalog.notion'))
+      expect(services[0]!.querySelector('[data-testid="connector-logo"]')!.getAttribute('src')).toBe('/icons/connectors/notion.svg')
       expect(m.get('welcome-tools-mcp-add').textContent?.trim()).toBe('다른 도구 연결하기')
       // no primary until something is connected: 나중에 하기 alone
       expect(m.find('welcome-tools-next')).toBeNull()
@@ -1262,6 +1277,42 @@ describe('the later steps and the end', () => {
       await m.unmount()
       delete routes['GET /api/integrations/google-drive']
       delete routes['GET /api/admin/users']
+    }
+  })
+
+  test('도구 연결 (QA TC-136): Notion in one click: the owner\'s own connection from the list (nothing typed), its sign-in in the window reserved during the click, then 연결됨 and the primary', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
+    const NOTION = { id: 'int-notion', scope: 'personal', kind: 'mcp', name: 'Notion', slug: 'notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', authHeader: null, hasSecret: false, account: null, notes: null, writePolicy: 'ask', status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null, access: null, createdBy: null, createdAt: '2026-11-12T00:00:00.000Z', updatedAt: '2026-11-12T00:00:00.000Z', lastUsedAt: null, canManage: true }
+    let items: unknown[] = []
+    let opened = 0
+    routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
+    routes['GET /api/integrations'] = () => json(200, { items, personalAllowed: true })
+    routes['POST /api/integrations'] = () => { items = [NOTION]; return json(201, NOTION) }
+    routes['POST /api/integrations/int-notion/authorize'] = () => json(200, { flowId: 'flow-n', authorizationUrl: 'https://mcp.notion.com/authorize?state=x', expiresAt: '2099-01-01T00:00:00.000Z' })
+    routes['GET /api/integrations/flows/flow-n'] = () => { items = [{ ...NOTION, hasSecret: true, status: 'connected' }]; return json(200, { flowId: 'flow-n', state: 'completed', expiresAt: '2099-01-01T00:00:00.000Z', reason: null }) }
+    routes['GET /api/admin/users'] = () => json(200, { items: [] })
+    g.open = () => { opened++; return { opener: {}, close() {}, closed: false, location: { replace() {} } } }
+    withGroup()
+    const m = await app()
+    try {
+      await m.until(() => stepOf(m) === 'tools', '도구 연결')
+      const notion = () => m.container.querySelector('[data-testid="welcome-tools-service"][data-id="notion"]') as any
+      await m.until(() => notion(), 'the Notion card')
+      expect(notion()!.getAttribute('data-state')).toBe('available')
+      await m.click(notion()!.querySelector('[data-testid="welcome-tools-service-connect"]')!)
+      // one click: the window reserved, the connection made from the list (no name or address typed), the sign-in
+      expect(opened).toBe(1)
+      await m.until(() => called('POST /api/integrations/int-notion/authorize').length > 0, 'the sign-in started')
+      expect(called('POST /api/integrations').map((c) => c.body)).toEqual([{ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', writePolicy: 'ask' }])
+      expect(called('POST /api/admin/integrations')).toEqual([])
+      await m.until(() => notion()?.getAttribute('data-state') === 'connected', 'connected', 6000)
+      expect(notion()!.querySelector('[data-testid="welcome-tools-service-on"]')!.textContent).toContain('연결됨')
+      expect(m.get('welcome-tools-next').textContent).toBe('다음: 팀원 초대')
+    } finally {
+      await m.unmount()
+      for (const k of ['GET /api/integrations/google-drive', 'GET /api/integrations', 'POST /api/integrations', 'POST /api/integrations/int-notion/authorize', 'GET /api/integrations/flows/flow-n', 'GET /api/admin/users']) delete routes[k]
+      delete g.open
     }
   })
 
@@ -1321,7 +1372,7 @@ describe('the later steps and the end', () => {
     } finally { await m.unmount() }
   })
 
-  test('a phone walks past 도구 연결: from 팀 파일 straight to the invite, recorded as put off; ← 이전 on the invite goes to 팀 파일', async () => {
+  test('a phone walks past 도구 연결: from 팀 파일 straight to the invite, recorded as put off; its own bar (‹ · "4/4 팀원 초대" · 나중에), no "← 이전" (QA TC-271)', async () => {
     signIn('owner')
     phoneWidth()
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: null, tools: null, invite: null } })
@@ -1329,12 +1380,18 @@ describe('the later steps and the end', () => {
     const m = await app()
     try {
       await m.until(() => stepOf(m) === 'files', '팀 파일')
+      // a phone's four steps (도구 연결 is a computer's): 팀 파일 is 3/4, in the bar
+      expect(m.get('welcome-bar-title').textContent).toBe('3/4 팀 파일')
+      expect(items(m)).toEqual(['profile', 'skills', 'files', 'invite'])
       await m.click(laterButton())
       await m.until(() => stepOf(m) === 'invite', 'the invite, past 도구 연결')
       expect(progress!.steps.tools).toBe('skipped')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body.step).filter(Boolean)).toEqual([{ id: 'files', state: 'skipped' }, { id: 'tools', state: 'skipped' }])
-      await m.click('welcome-back')
-      await m.until(() => stepOf(m) === 'files', '팀 파일, not 도구 연결')
+      expect(m.get('welcome-bar-title').textContent).toBe('4/4 팀원 초대')
+      // Back is the bar's ‹, the history's own (each step an entry: phone-welcome-flow e2e); no "← 이전" here
+      expect(m.find('welcome-back')).toBeNull()
+      expect(m.find('welcome-bar-back')).not.toBeNull()
+      expect(m.find('welcome-bar-later')?.textContent).toBe(translate('ko', 'welcome.leave'))
     } finally { await m.unmount() }
   })
 

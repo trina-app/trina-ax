@@ -54,7 +54,7 @@ describe('a Google app\'s page for a member, not set up', () => {
   const flow = { flow: null, inProgress: false, busy: false, error: false, authorizationUrl: null, start: async () => {}, cancel: async () => {}, complete: async () => {}, setError: () => {} }
   const g = (apps: GoogleAppView[]) => ({ apps, load: async () => {}, busy: null, setPolicy: async () => {}, disconnect: async () => {}, flows: Object.fromEntries(GOOGLE_APP_IDS.map((id) => [id, flow])) as unknown as Record<GoogleAppId, GoogleAppsState['flows']['gmail']> }) as unknown as GoogleAppsState
   const v: GoogleAppView = { id: 'gmail', available: false, reason: 'not_set_up', status: 'disconnected', account: null, writePolicy: 'ask', serviceDown: false, tools: MOCK_GOOGLE_TOOLS.gmail }
-  const page = (ask?: AskProps) => renderToStaticMarkup(<MemoryRouter><GoogleAppDetail v={v} g={g([v])} onChat={() => {}} ask={ask} /></MemoryRouter>)
+  const page = (ask?: AskProps) => renderToStaticMarkup(<MemoryRouter><GoogleAppDetail v={v} g={g([v])} ask={ask} /></MemoryRouter>)
   const ask = (state: AskProps['state'], error: string | null = null): AskProps => ({ state, busy: false, onAsk: () => {}, error })
 
   test('the button takes the place of the Connect that cannot work and of the "not set up" line', () => {

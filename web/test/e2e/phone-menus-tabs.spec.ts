@@ -168,7 +168,8 @@ for (const lang of ['ko', 'en'] as const) {
       await type.click()
       const sheet = page.getByRole('menu', { name: t['search.types'] })
       await isSheet(sheet)
-      await expect(sheet.getByRole('menuitemradio')).toHaveText(['all', 'chats', 'projects', 'files', 'skills', 'scheduled', 'mcp'].map((x) => t[`search.tab.${x}` as keyof typeof t]))
+      // a phone's 대화 type (rooms, people, messages: TC-256) right after 전체
+      await expect(sheet.getByRole('menuitemradio')).toHaveText(['all', 'rooms', 'chats', 'projects', 'files', 'skills', 'scheduled', 'mcp'].map((x) => t[`search.tab.${x}` as keyof typeof t]))
       await expect(sheet.getByRole('menuitemradio', { checked: true })).toHaveText(t['search.tab.all'])
       await shot(page, `${lang}-search-types`)
       await sheet.getByTestId('search-type-chats').click()

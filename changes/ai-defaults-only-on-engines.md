@@ -1,1 +1,0 @@
-- Admin › Team settings › AI defaults: the default AI list shows only the AIs that are switched on, by the names the rest of the app uses (Claude, ChatGPT). A saved default that is off now is shown as off, with a line saying to pick another one.

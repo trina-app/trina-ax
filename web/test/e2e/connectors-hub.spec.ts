@@ -84,8 +84,9 @@ test('a field that needs fixing under Advanced opens it', async ({ page }) => {
   await dialog.getByTestId('integration-auth-none').check()
   await dialog.getByTestId('integration-advanced').click()
   await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
-  // an API with no sign-in and no usage notes saves; the point here is that Advanced shows its choices in one line
-  await expect(dialog.getByTestId('integration-advanced-summary')).toContainText('API')
+  // an API with no sign-in and no usage notes saves; the point here is that Advanced shows its choices in one line, in
+  // plain words: no kind ("MCP 서버" / "API") and no sign-in where there is none (QA TC-204)
+  await expect(dialog.getByTestId('integration-advanced-summary')).toHaveText('매번 묻기')
 })
 
 test('Admin: a connector page Connects with one team key, and its ⌄ makes a template for the whole team', async ({ page }) => {

@@ -462,6 +462,31 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.rmSync(d, { recursive: true, force: true })
   })
 
+  test('/etc/os-release as a link (Debian and Ubuntu: ../usr/lib/os-release) names the system as the sync wrote it', () => {
+    // QA: Diagnostics kept "Not yet brought to this version's list" after a sync, because the server refused the link
+    // and read "-/<machine-id>" while packages.sh and mycel-ctl follow it
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-os-link-'))
+    fs.mkdirSync(path.join(d, 'usr', 'lib'), { recursive: true }); fs.mkdirSync(path.join(d, 'etc'))
+    fs.writeFileSync(path.join(d, 'usr', 'lib', 'os-release'), 'PRETTY_NAME="Ubuntu 24.04.3 LTS"\nID=ubuntu\nVERSION_ID="24.04"\n')
+    fs.symlinkSync('../usr/lib/os-release', path.join(d, 'etc', 'os-release'))
+    fs.writeFileSync(path.join(d, 'etc', 'machine-id'), '0123456789abcdef0123456789abcdef\n')
+    const env = { PK_OS_RELEASE: path.join(d, 'etc', 'os-release'), PK_MACHINE_ID: path.join(d, 'etc', 'machine-id') }
+    const want = 'ubuntu-24.04/0123456789abcdef0123456789abcdef'
+    expect(lib('pk_os_identity', env).out).toBe(want)
+    expect(osIdentity({ osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID })).toBe(want)
+    const root = path.join(d, 'root'); fs.mkdirSync(root)
+    fs.writeFileSync(path.join(root, 'packages.json'), '{"format":1}')
+    const sum = new Bun.CryptoHasher('sha256').update('{"format":1}').digest('hex')
+    fs.writeFileSync(path.join(root, 'packages.synced'), JSON.stringify({ format: 1, list: sum, result: 'ok', at: '2026-11-07T00:00:00Z', os: want }))
+    expect(systemPackagesDiagnostic(root, { by: 'hosted', when: (x) => x, os: { osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID } })?.status).toBe('ok')
+    // a link to something that is not a file (a device, a folder) still reads as nothing; root/ files never follow links
+    fs.rmSync(path.join(d, 'etc', 'os-release')); fs.symlinkSync('/dev/zero', path.join(d, 'etc', 'os-release'))
+    expect(osIdentity({ osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID })).toBe('-/0123456789abcdef0123456789abcdef')
+    fs.rmSync(path.join(root, 'packages.json')); fs.symlinkSync(path.join(d, 'usr', 'lib', 'os-release'), path.join(root, 'packages.json'))
+    expect(systemPackagesDiagnostic(root, { by: 'hosted', when: (x) => x, os: { osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID } })).toBeNull()
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
   test('a name in the list that is not a package name stops pk_packages (no option, no glob reaches apt)', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-name-'))
     for (const bad of ['-oAPT::Get::Hack=1', 'lib*', 'a b']) {

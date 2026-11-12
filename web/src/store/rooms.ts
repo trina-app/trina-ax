@@ -9,7 +9,7 @@
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
-import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type ShareRoomMessageBody, type ShareRoomMessageResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { noteRecent } from '../lib/emoji'
 import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
@@ -350,8 +350,9 @@ interface RoomsState extends RoomsData {
   dismissAi: (roomId: string, turnId: string) => void
   /** the message box took back a refused send (by placeKey) */
   takeReturned: (key: string) => void
-  /** post my private preview of an AI answer to the room */
-  shareAi: (roomId: string, messageId: string) => Promise<void>
+  /** post my private preview of an AI answer to the room (shared/src/api/rooms.ts shareRoomMessage): "confirm" first when
+   * it used material some member cannot see (with `ask`: always); sent again with that `confirmKey`, it posts */
+  shareAi: (roomId: string, messageId: string, body?: ShareRoomMessageBody) => Promise<ShareRoomMessageResult>
   /** "대화방에 보내기": a finished answer of my own AI chat to a room I am in, as my message (shared/src/api/chats.ts
    * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
    * finds it there) */
@@ -700,7 +701,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
       if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 404) {
         setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
-        set((s) => ({ returned: { ...s.returned, [placeKey(roomId, p.threadRootId)]: p } }))
+        // team files I may no longer open: the server took those copies out (params.files), so they do not come back
+        const out = e.body.params?.reason === 'team_file_access' ? new Set(String(e.body.params.files ?? '').split(',')) : null
+        const back = out ? { ...p, files: p.files.filter((f) => !out.has(f.id)) } : p
+        set((s) => ({ returned: { ...s.returned, [placeKey(roomId, p.threadRootId)]: back } }))
         toast({ level: 'warn', text: error })
         return
       }
@@ -1152,9 +1156,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       set((s) => ({ returned: omit(s.returned, key) }))
     },
 
-    async shareAi(roomId, messageId) {
-      const m = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId } })
-      patchMessages((s) => withMessage(s, roomId, m, myId()))
+    async shareAi(roomId, messageId, body = {}) {
+      const r = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId }, body })
+      if (r.status === 'sent') patchMessages((s) => withMessage(s, roomId, r.message, myId()))
+      return r
     },
 
     async shareAnswer(chatId, messageId, body) {

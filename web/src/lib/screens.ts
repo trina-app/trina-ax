@@ -11,6 +11,7 @@
 // Admin → /settings; an Admin page and what is under it: pages/admin/adminScreens.ts; a connector → /connectors.
 import { parsePath } from 'react-router-dom'
 import { useCallback } from 'react'
+import { WELCOME_COUNTED, type WelcomeStep } from '@mycel/shared/api'
 import { useT, type MessageKey } from '../i18n'
 import { settingsPageName } from '../pages/settingsTabs'
 import { useChats } from '../store/chats'
@@ -19,6 +20,7 @@ import { useRooms } from '../store/rooms'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
 import { useFolderName } from './folderLabels'
 import { aiName, TAB_ROOT, type Tab } from './tabs'
+import { prevStep } from './welcome'
 import { adminParent } from '../pages/admin/adminScreens'
 
 export interface Screen {
@@ -36,6 +38,11 @@ export interface Screen {
 const q = (search: string) => new URLSearchParams(search)
 const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const folder = (p: string) => (p ? `/files?path=${encodeURIComponent(p)}` : '/files')
+
+/** Activity's conversations (mentions and thread replies, `?in=chats`): a page of the 대화 tab, opened from its
+ * 멘션·스레드 row (pages/Rooms.tsx), so it is under /rooms here. The whole Activity (/activity) stays 나's. */
+export const CHATS_ACTIVITY = '/activity?in=chats'
+export const activityInChats = (search: string) => q(search).get('in') === 'chats'
 
 /** The pieces of an address ("/files?path=a#x" → pathname, search, hash). */
 function split(to: string) {
@@ -70,6 +77,13 @@ export function screenOf(to: string): Screen {
       return s('ai', project ? `/projects/${project}` : '/', pathname)
     }
     case 'projects':
+      // a project's files (pages/Projects.tsx ProjectFiles; ?dir= is a folder in the project's folder): the folder above,
+      // then the project
+      if (b && c === 'files') {
+        const dir = (q(search).get('dir') ?? '').split('/').filter(Boolean).join('/')
+        const up = dirOf(dir)
+        return s('ai', dir ? `/projects/${b}/files${up ? `?dir=${encodeURIComponent(up)}` : ''}` : `/projects/${b}`, `project-files:${b}:${dir}`)
+      }
       return b ? s('ai', '/projects', pathname) : s('ai', '/', pathname)
     case 'scheduled':
       return b ? s('ai', '/scheduled', pathname) : s('ai', '/')
@@ -78,6 +92,11 @@ export function screenOf(to: string): Screen {
       return b === 'share' && c ? s('ai', '/skills') : s('ai', '/', '/skills')
     case 'trash':
       return s('ai', '/')
+    case 'welcome':
+      // Getting started (pages/Welcome.tsx), a flow of its own over the tabs: each step a screen (?step=), under the step
+      // a phone shows before it (도구 연결 is a computer's: lib/welcome.ts prevStep), the first one (and the AI step, which
+      // is over once AI answers) under Home; the end screen under the invite
+      return s(null, welcomeParent(q(search).get('step')))
     case 'connectors':
       if (b === 'authorize') return s(null, null)
       if (b === 'mcp' && c) return s('ai', '/connectors')
@@ -102,6 +121,8 @@ export function screenOf(to: string): Screen {
       if (c) return s('me', `/${seg.slice(0, -1).join('/')}`)
       return b ? s('me', '/settings') : s('me', null)
     case 'activity':
+      // its conversations (?in=chats, 대화's 멘션·스레드 row) are a page of the 대화 tab, whichever of its tabs is chosen
+      if (activityInChats(search)) return s('chats', '/rooms', CHATS_ACTIVITY)
       return s('me', '/settings')
     case 'admin':
       // Admin's own table (pages/admin/adminScreens.ts): a page → /admin, a group of Team settings → /admin/settings,
@@ -111,6 +132,13 @@ export function screenOf(to: string): Screen {
     default:
       return s(null, null)
   }
+}
+
+/** The step a phone shows before a Getting started step, as an address; Home for the first. */
+function welcomeParent(step: string | null): string {
+  const counted = (WELCOME_COUNTED as readonly string[]).includes(step ?? '')
+  const before = step === 'done' ? WELCOME_COUNTED.at(-1)! : counted ? prevStep(step as WelcomeStep, false) : null
+  return before ? `/welcome?step=${before}` : '/'
 }
 
 /** The parent of an address (see the top of this file), or null. */
@@ -140,6 +168,7 @@ const TITLES: [RegExp, MessageKey][] = [
   [/^\/trash$/, 'trash.title'],
   [/^\/admin$/, 'admin.title'],
   [/^\/rooms$/, 'tabs.chats'],
+  [/^\/welcome$/, 'welcome.eyebrow'],
 ]
 
 /**
@@ -165,6 +194,10 @@ export function useScreenName(): (to: string) => string | null {
       const chat = chats.find((x) => x.id === seg[1])
       return chat ? chat.title || t('chat.untitled') : aiName(t)
     }
+    if (seg[0] === 'projects' && seg[1] && seg[2] === 'files') {
+      const dir = q(search).get('dir') ?? ''
+      return dir.slice(dir.lastIndexOf('/') + 1) || t('files.title')
+    }
     if (seg[0] === 'projects' && seg[1]) return projects[seg[1]]?.name ?? t('projects.title')
     if (seg[0] === 'rooms' && seg[1]) {
       const room = rooms.find((x) => x.id === seg[1])
@@ -176,6 +209,7 @@ export function useScreenName(): (to: string) => string | null {
       if (q(search).get('view') === 'trash') return t('files.trash')
       return path ? folderName(path) : t('tabs.files')
     }
+    if (pathname === '/activity' && activityInChats(search)) return t('feed.chats')
     const settings = settingsPageName(pathname, t)
     if (settings) return settings
     const key = TITLES.find(([re]) => re.test(pathname))?.[1]

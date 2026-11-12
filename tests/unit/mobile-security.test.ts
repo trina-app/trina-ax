@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { MobileReceiver, FileTransfers, type TransferIO } from '../../mobile/src/bridge'
-import { MOBILE_CAPABILITIES, MAX_CHUNK_BYTES, base64Size, type MobileConfig } from '../../mobile/src/protocol'
+import { MOBILE_CAPABILITIES, MAX_CHUNK_BYTES, NAV_CAPABILITY, base64Size, type MobileConfig } from '../../mobile/src/protocol'
 import { parseTeamAddress, readTeamInput } from '../../mobile/src/address'
 import { accentInk, installGuide, mobileProduct, mobileService } from '../../mobile/src/product'
 import { fill, inputError, stringsFor } from '../../mobile/src/strings'
@@ -86,7 +86,9 @@ test('the first-run screen speaks Korean or English; the questions name both tea
   expect(Object.keys(ko).sort()).toEqual(Object.keys(en).sort())
   for (const v of Object.values(en)) expect(/[\uAC00-\uD7A3\u3130-\u318F]/.test(v)).toBe(false)
   expect(fill(ko.switchTitle, { old: 'acme.trina.app', new: 'beta.trina.app' })).toBe('acme.trina.app에서 나가고 beta.trina.app에 연결할까요?')
-  expect(fill(ko.switchBody, { old: 'acme.trina.app' })).toBe('이제 acme.trina.app 알림은 이 휴대폰으로 오지 않아요.')
+  expect(fill(ko.switchBody, { old: 'acme.trina.app' })).toBe('이 휴대폰에서 acme.trina.app은(는) 로그아웃되고 알림도 오지 않아요.')
+  // QA TC-369: leaving a team signs out of it, and the question says so
+  expect(fill(en.switchBody, { old: 'acme.trina.app' })).toBe("You'll be signed out of acme.trina.app on this phone, and its notifications will stop.")
   expect(fill(ko.backTo, { team: 'acme.trina.app' })).toBe('acme.trina.app(으)로 돌아가기')
   expect(fill(ko.teamUnknown, { name: 'acme' })).toBe("'acme' 팀을 찾지 못했어요. 철자를 확인하거나 초대 링크를 붙여 넣어 주세요.")
   // a value is never read as a pattern
@@ -103,7 +105,7 @@ test('the phone has no "create a team" link (App Review 3.1.1, Google Play payme
   // leaving happens in connect(), which only the box's yes (or a first team) reaches
   expect(app.match(/leaveTeam\(/g)?.length).toBe(1)
   // the new team is saved before the old one is left: a refused save leaves the phone where it was
-  const connect = app.slice(app.indexOf('  async function connect(address: TeamAddress) {'), app.indexOf('  async function connect(address: TeamAddress) {') + 600)
+  const connect = app.slice(app.indexOf('  function connect(address: TeamAddress): Promise<boolean> {'), app.indexOf('  function connect(address: TeamAddress): Promise<boolean> {') + 1200)
   expect(connect.indexOf('await saveTeamUrl(address.origin)')).toBeGreaterThan(0)
   expect(connect.indexOf('if (old) await leave(old)')).toBeGreaterThan(connect.indexOf('await saveTeamUrl(address.origin)'))
   const leave = app.slice(app.indexOf('  async function leave(origin: string) {'), app.indexOf('  async function leave(origin: string) {') + 400)
@@ -140,4 +142,37 @@ test('links open the app only through screen ④ (phase 2): the hosted domain\'s
   // the link comes only from the gate: a fresh yes, or [다시 시도] with the link that yes confirmed (LinkGate.retry)
   expect(app).toMatch(/const o = again \? gate\.retry\(offer\.host\) : gate\.answer\(true, offer\.host, Date\.now\(\)\)\n\s*if \(!o\) return\n[\s\S]{0,80}const r = await checkTeam\(o\.origin, service\.teamDomain\)/)
   expect(app.match(/Linking\.(getInitialURL|addEventListener)\(/g)?.length).toBe(2)
+})
+
+test('nav-v1: only the current team document can set where Back goes, and only on an app that offers it', async () => {
+  const io: TransferIO = { async create() {}, async append() {}, async inspect() { return { size: 0, sha256: '' } }, async share() {}, async remove() {} }
+  const heard: unknown[] = []
+  const make = (capabilities: readonly string[], nav?: (n: { canGoBack: boolean; home: boolean }) => void) =>
+    new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, nav)
+  const message = (over: object = {}) => JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'request-nav-1', type: 'nav', canGoBack: false, home: false, ...over })
+  const app = make([...MOBILE_CAPABILITIES, NAV_CAPABILITY], n => heard.push(n))
+  for (const source of ['https://evil.example/', 'about:blank', 'blob:https://team.example/id']) expect(await app.receive(message(), source)).toBeNull()
+  for (const over of [{ nonce: 'b'.repeat(64) }, { generation: 2 }]) expect(await app.receive(message(over), 'https://team.example/rooms')).toBeNull()
+  expect(heard).toEqual([])
+  expect((await app.receive(message(), 'https://team.example/rooms'))?.ok).toBe(true)
+  // home left out: Back leaves the app at the root, as on a page in no tab
+  expect((await app.receive(message({ canGoBack: true, home: undefined }), 'https://team.example/rooms/abc'))?.ok).toBe(true)
+  expect(heard).toEqual([{ canGoBack: false, home: false }, { canGoBack: true, home: true }])
+  // an app config without nav-v1 (or no handler) refuses it; nothing changes
+  const older = make([...MOBILE_CAPABILITIES], n => heard.push(n))
+  expect((await older.receive(message(), 'https://team.example/rooms'))?.ok).toBe(false)
+  expect((await make([...MOBILE_CAPABILITIES, NAV_CAPABILITY]).receive(message(), 'https://team.example/rooms'))?.ok).toBe(false)
+  expect(heard).toHaveLength(2)
+})
+
+test('nav-v1 in the app: the swipe and Back follow the page, a tapped notification opens through the page, no pull-to-refresh', () => {
+  const app = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, '../../mobile/App.tsx'), 'utf8') as string
+  expect(app).toContain('allowsBackForwardNavigationGestures={backGestures(pageNav)}')
+  expect(app).not.toMatch(/allowsBackForwardNavigationGestures[\s}]|pullToRefreshEnabled/)
+  expect(app).toContain('const action = backAction(pageNav, canBack)')
+  expect(app).toContain('web.current?.injectJavaScript(openScript(opened.path))')
+  expect(app).not.toContain('location.assign')
+  expect(app).toMatch(/APPEARANCE_CAPABILITY, NAV_CAPABILITY,/)
+  // a new document forgets the old one's word, before its bridge is installed again
+  expect(app).toMatch(/void clear\(\)\n\s*\/\/ a new document[^\n]*\n\s*setPageNav\(null\)/)
 })

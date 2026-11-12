@@ -270,9 +270,12 @@ test.describe('TC-262: the phone app does not offer what only works on a compute
     await signIn(page, BOB)
   })
 
-  test('1. Me › Connectors, tap + — one line "connect on a computer", no form, Save or Advanced', async ({ page }) => {
-    await me(page, 'settings-row-connectors')
-    await expect(page).toHaveURL(/\/connectors/)
+  // Connectors is in the ☰ drawer since #534 (no longer a row of Me); phone-connectors.cases.ts has the rest of the step
+  test('1. ☰ › Connectors, tap + — one line "connect on a computer", no form, Save or Advanced', async ({ page }) => {
+    await page.goto('/')
+    await page.getByTestId('menu-open').click()
+    await page.locator('[data-testid="nav-connectors"]:visible').click()
+    await expect(page).toHaveURL(/\/connectors$/)
     const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
     await card.getByTestId('connector-add').click()
     await expect(page.getByTestId('integration-on-computer')).toBeVisible()
@@ -303,6 +306,27 @@ test.describe('TC-262: the phone app does not offer what only works on a compute
     await send.click()
     await expect(page.getByText(t['apps.linkCopied'])).toBeVisible()
     expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/settings\/apps$/)
+  })
+
+  test('3b. Me › Apps in a phone app with share-text-v1 (Android: no navigator.share): the app\'s own share sheet, no copy (QA TC-089)', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { mycelMobile: MobileConfig; ReactNativeWebView: { postMessage(raw: string): void }; mobileMessages: MobileMessage[] }
+      w.mycelMobile = { ...w.mycelMobile, platform: 'android', capabilities: [...w.mycelMobile.capabilities, 'share-text-v1'] }
+      w.mobileMessages = []
+      const post = w.ReactNativeWebView.postMessage
+      w.ReactNativeWebView = { postMessage(raw) { w.mobileMessages.push(JSON.parse(raw) as MobileMessage); post(raw) } }
+    })
+    await page.reload()
+    await me(page, 'settings-row-apps')
+    await page.evaluate(() => navigator.clipboard.writeText('before'))
+    await page.getByTestId('apps-send-to-computer').click()
+    const sent = () => page.evaluate(() => (window as unknown as { mobileMessages: MobileMessage[] }).mobileMessages.filter((m) => m.type === 'share-text'))
+    await expect.poll(async () => (await sent()).length).toBe(1)
+    const [m] = (await sent()) as Extract<MobileMessage, { type: 'share-text' }>[]
+    expect(m!.text).toMatch(/^https?:\/\/[^/]+\/settings\/apps$/)
+    // the app's sheet answered: nothing copied, no toast
+    await expect(page.getByText(t['apps.linkCopied'])).toHaveCount(0)
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('before')
   })
 })
 

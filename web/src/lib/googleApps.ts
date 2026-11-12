@@ -19,12 +19,10 @@ export const builtInLogo = (id: BuiltInId) => appConnectorLogo(APP_CONNECTORS.fi
 
 /** The one line under a built-in card's name (what the AI does with it). */
 export const lineKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-drive' ? 'drive' : id}.line` as MessageKey
-export const aboutKey = (id: BuiltInId): MessageKey => (id === 'google-drive' ? 'connectors.drive.about' : `gapps.${id}.about` as MessageKey)
+/** A connector page's About (what it lets the AI do, and that only the person uses it); what the AI may change is the
+ * page's own line under it, so the text does not say it again. */
+export const aboutKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-drive' ? 'drive' : id}.about` as MessageKey
 export const categoryKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-drive' ? 'drive' : id}.category` as MessageKey
-export const exampleKeys = (id: BuiltInId): MessageKey[] => {
-  const k = id === 'google-drive' ? 'drive' : id
-  return [`gapps.${k}.ex1`, `gapps.${k}.ex2`, `gapps.${k}.ex3`] as MessageKey[]
-}
 
 /** A card's state in Popular: connected (✓), needs a new sign-in, can be connected (+), or not now (with why). */
 export type CardState = 'added' | 'reconnect' | 'available' | 'off'
@@ -64,10 +62,12 @@ export function fits(query: string, ...texts: string[]) {
   return !q || texts.join(' ').toLocaleLowerCase().includes(q)
 }
 
-/** Who made the tools the AI gets from a built-in card, for Information › Developer. */
+/** Who made the tools the AI gets from a built-in card, for the page's details ("Made by"). */
 export const developerKey = (id: BuiltInId): MessageKey => (id === 'google-drive' ? 'gapps.dev.trina' : 'gapps.dev.google')
 
-/** Google's privacy policy and terms, for Information (what the person agrees to at Google's sign-in). */
+/** Who the person signs in with, and Google's privacy policy and terms, for a connector page's details (what the
+ * person agrees to at Google's sign-in). A name, never translated. */
+export const GOOGLE = 'Google'
 export const GOOGLE_PRIVACY = 'https://policies.google.com/privacy'
 export const GOOGLE_TERMS = 'https://policies.google.com/terms'
 

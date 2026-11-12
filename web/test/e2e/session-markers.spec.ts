@@ -157,8 +157,8 @@ test.describe('a phone (390 px)', () => {
     await expect(toast).toBeVisible({ timeout: 25_000 })
     await expect(page.getByTestId('menu-dot')).toBeVisible()
     await expect(page.getByTestId('menu-dot')).not.toHaveAttribute('data-ask', '')
-    // Home's latest chats: the same dot at the row's end
-    await expect(page.getByTestId('home-recents').locator('li', { has: page.locator(`a[href="/c/${id}"]`) }).getByTestId('marker-new')).toBeVisible()
+    // Home lists no chats (the drawer has them: QA TC-253)
+    await expect(page.getByTestId('home-recents')).toHaveCount(0)
     // the drawer: the dot left of the always-shown "···"
     await page.getByTestId('menu-open').click()
     const row = rowOf(page, id, true)

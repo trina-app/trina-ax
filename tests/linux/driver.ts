@@ -70,6 +70,8 @@ if (SANDBOX) {
       { id: 'P-net-metadata', kind: 'connect', host: '169.254.169.254', port: 80 },
       { id: 'P-net-internet', kind: 'connect', host: '1.1.1.1', port: 443 },
       { id: 'P-net-dns', kind: 'connect', host: '127.0.0.1', port: 53, proto: 'udp' },
+      { id: 'P-unix-abstract', kind: 'unix', path: '@mycel-t1-host' },
+      { id: 'P-unix-all', kind: 'unix-all' },
       { id: 'P-team', kind: 'stat', path: '/srv/mycel' },
       { id: 'P-db', kind: 'stat', path: '/srv/mycel/linux/data/app.db' },
       { id: 'P-codex-auth', kind: 'read', path: '/srv/agent/codex-auth/auth.json' },
@@ -90,8 +92,23 @@ if (SANDBOX) {
   check('P-net-proxy: the model proxy port is reachable', pr['P-net-proxy'] === 'ok', String(pr['P-net-proxy']))
   check('P-net-api: the server API port is blocked (listener present)', pr['P-net-api'] !== 'ok', String(pr['P-net-api']))
   check('P-net-peer: another loopback service is blocked (listener present)', pr['P-net-peer'] !== 'ok', String(pr['P-net-peer']))
-  for (const id of ['P-net-v6', 'P-net-metadata', 'P-net-internet', 'P-net-dns'])
+  for (const id of ['P-net-v6', 'P-net-metadata', 'P-net-internet'])
     check(`${id}: blocked`, pr[id] !== 'ok' && pr[id] !== 'sent', String(pr[id]))
+  // UDP to 127.0.0.1:53: a root-owned echo answers there on the host (control below). The turn has its own network
+  // namespace, so its datagram may leave the socket ('sent') but must never get the host's answer
+  check('P-net-dns: blocked (no answer from the host resolver port)', pr['P-net-dns'] !== 'answered' && pr['P-net-dns'] !== 'ok', String(pr['P-net-dns']))
+  const hostDns = await new Promise<string>((res) => {
+    const d = require('node:dgram').createSocket('udp4'); const fin = (r: string) => { try { d.close() } catch {}; res(r) }
+    d.on('message', () => fin('answered')); d.on('error', (e: any) => fin(e.code)); d.send(Buffer.from('x'), 53, '127.0.0.1'); setTimeout(() => fin('timeout'), 2000)
+  })
+  check('P-net-dns: the host echo on 127.0.0.1:53 answers outside the sandbox', hostDns === 'answered', hostDns)
+  // QA TC-309: the host's abstract unix socket answers the server account (outside the sandbox), not the turn
+  const hostAbstract = await new Promise<string>((res) => {
+    const c = net.connect('\0mycel-t1-host'); c.on('data', (d) => { res(d.toString()); c.destroy() }); c.on('error', (e: any) => res(e.code)); setTimeout(() => res('timeout'), 2000)
+  })
+  check('P-unix-abstract: the host abstract socket is live outside the sandbox', hostAbstract === 'host', hostAbstract)
+  check('P-unix-abstract: a turn cannot connect to a host abstract unix socket', pr['P-unix-abstract'] !== undefined && pr['P-unix-abstract'] !== 'ok', String(pr['P-unix-abstract']))
+  check('P-unix-all: no abstract socket of the host (listed through /proc/1/net/unix) accepts a turn', pr['P-unix-all']?.hasHost === true && Array.isArray(pr['P-unix-all']?.accepted) && pr['P-unix-all'].accepted.length === 0, JSON.stringify(pr['P-unix-all']))
   for (const id of ['P-team', 'P-db', 'P-codex-auth', 'P-tmp', 'P-sys'])
     check(`${id}: not present in the sandbox`, /ENOENT|EACCES|EPERM/.test(String(pr[id])), String(pr[id]))
   check('P-agent-root: only this chat is visible', pr['P-agent-root']?.entries === 1, JSON.stringify(pr['P-agent-root']))
@@ -103,8 +120,25 @@ if (SANDBOX) {
   const refused = await fakeTurn(srv, 'alice', { calls: [] })
   check('fail closed: no firewall status -> turn refused', refused.exit?.ev === 'error' && /firewall_not_loaded/.test(refused.exit?.message ?? ''), JSON.stringify(refused.exit))
   fs.rmSync('/run/test-ctl/fw-off.done', { force: true })
-  fs.writeFileSync('/run/test-ctl/fw-on', ''); for (let i = 0; i < 50 && !fs.existsSync('/run/test-ctl/fw-on.done'); i++) await Bun.sleep(100)
-  fs.rmSync('/run/test-ctl/fw-on.done', { force: true })
+  const rootCtl = async (what: string) => {
+    fs.writeFileSync(`/run/test-ctl/${what}`, ''); for (let i = 0; i < 50 && !fs.existsSync(`/run/test-ctl/${what}.done`); i++) await Bun.sleep(100)
+    fs.rmSync(`/run/test-ctl/${what}.done`, { force: true })
+  }
+  await rootCtl('fw-on')
+  // QA TC-310: root flushes the whole ruleset (a ufw / Docker reload does the same); run/firewall.json still says
+  // "loaded" and is fresh, so only the launcher's live test can tell. The next turn is refused before it runs.
+  await rootCtl('fw-flush')
+  await Bun.sleep(3500) // past the launcher's 3-second memory of its last good test
+  const flushed = await fakeTurn(srv, 'alice', { calls: [], probe: [{ id: 'P-net-internet', kind: 'connect', host: '1.1.1.1', port: 443 }] })
+  check('fail closed: a flushed ruleset (status file still fresh) -> turn refused', flushed.exit?.ev === 'error' && /^firewall_off:/.test(flushed.exit?.message ?? '') && !flushed.lines.some((l: any) => l.probe), JSON.stringify(flushed.exit))
+  const { launcherStatus: lstat } = await import('../../server/src/native')
+  const off = await lstat('/run/mycel-launcher/launcher.sock')
+  check('launcher status: firewall.live false after the flush', off?.firewall?.live === false && /went through/.test(off?.firewall?.liveProblem ?? ''), JSON.stringify(off?.firewall))
+  await rootCtl('fw-on')
+  const back = await fakeTurn(srv, 'alice', { calls: [] })
+  check('after the table is applied again turns run', back.exit?.ev === 'exit', JSON.stringify(back.exit))
+  const on = await lstat('/run/mycel-launcher/launcher.sock')
+  check('launcher status: firewall.live true with the table', on?.firewall?.live === true, JSON.stringify(on?.firewall))
   // the turn cgroups are gone after the turns
   await Bun.sleep(500)
   const leftover = (() => { try { return fs.readdirSync(TURNS_CG).filter((d) => d.startsWith('t-')) } catch { return [] } })()
@@ -114,6 +148,7 @@ if (SANDBOX) {
   const st = await launcherStatus('/run/mycel-launcher/launcher.sock')
   out.launcherStatus = st
   check('launcher status: bwrap + seccomp + a turn cgroup', !!st && st.sandbox === 'bwrap' && st.seccomp === true && st.cgroup === 'delegated', JSON.stringify(st))
+  check('launcher status: turns have their own network namespace', st?.net === 'private', JSON.stringify(st?.net))
   // the server account cannot look into the agent root (axagent 700): a turn leaves a marker in its chat folder,
   // forget removes the folder, and a new turn in the same chat (a fresh, empty folder) must not find the marker
   const chatId = 'c_' + Math.random().toString(36).slice(2, 8)

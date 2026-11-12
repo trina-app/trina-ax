@@ -40,6 +40,7 @@ import (
 
 	"mycel/native/internal/bootflags"
 	"mycel/native/internal/bundle"
+	"mycel/native/internal/version"
 )
 
 type multi []string
@@ -653,6 +654,13 @@ func run() int {
 			switch {
 			case forwarded && code == exitSchemaTooNew:
 				goOn = block(&after, v, fmt.Sprintf("%s cannot read the database: a newer version has updated it", v))
+			case pending && code == exitSchemaTooNew && after.Previous != nil && version.Compare(v, *after.Previous) < 0:
+				// a switch to an older version (Admin › System › Go back) whose reader cannot open the database the
+				// running one migrated: starting it again can never help, and the history says why in plain words
+				// (QA TC-336: it said "exited 3 times before it was healthy"). Only going back: a newer version that
+				// exits 75 keeps the usual tries (TestForwardedExit75StopsAtOnce)
+				rollBack(&after, v, fmt.Sprintf("%s cannot read the database: %s has already updated it (exit 75)", v, orUnknown(after.Previous)))
+				goOn = sleepOrStop(retryDelay)
 			case after.Attempts < *maxAttempts:
 				_ = writeState(after)
 				goOn = sleepOrStop(retryDelay)

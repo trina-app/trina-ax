@@ -2314,6 +2314,18 @@ export class MockServer {
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
     },
     getRoomAi: (c) => (this.rooms.some((r) => r.id === c.params.id) ? { answering: 0, mine: [] } : fail('not_found', 404)),
+    // "팀 파일" in a room's box (server/src/routes/rooms.ts attachRoomTeamFile, short): a team file I may read becomes my
+    // upload in a room of POST /__test/rooms; the room's other people (its peers) who cannot open it are counted
+    attachRoomTeamFile: (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      const path: string = c.body.path
+      const n = this.files.get(path)
+      if (!n || n.type !== 'file' || this.access(path, c.user) === 'none') fail('not_found', 404)
+      const name = path.slice(path.lastIndexOf('/') + 1)
+      const mime = mimeOf(path) ?? 'application/octet-stream'
+      const file = { id: uuidv7(), name, size: n!.data!.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'document', thumb: false }
+      return { status: 201, body: { file, unable: path.startsWith('users/') ? room.peers.length : 0 } }
+    },
     markRoomRead: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       Object.assign(room, { lastReadSeq: Math.max(room.lastReadSeq, c.body.seq), unreadCount: 0, mentioned: false })
@@ -4214,7 +4226,8 @@ export class MockServer {
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: (c) => {
       const mine = this.inbox.filter((n) => n.userId === c.user.id)
-      return { items: mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length }
+      // no conversation rows here (the specs that need them answer GET /api/notifications themselves): only=rooms is none
+      return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length, roomUnreadCount: 0 }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
     markNotificationRead: (c) => {
