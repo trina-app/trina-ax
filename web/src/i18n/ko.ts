@@ -176,6 +176,7 @@ export const ko = {
 
   'invite.keepAccount': '이 계정으로 계속 쓰기',
   'invite.invalid': '이 초대 링크는 만료됐거나 이미 사용됐어요. 초대한 사람에게 새 링크를 요청해 주세요.',
+  'invite.full': '지금은 팀 인원이 다 찼어요. 초대한 분께 알려 주세요.',
   'invite.joinTeam': '{team} 팀에 참여하기',
   'invite.sub': '{role} 역할로 초대받았어요. 링크는 {date}까지 쓸 수 있어요.',
   'invite.accept': '계정 만들고 참여하기',

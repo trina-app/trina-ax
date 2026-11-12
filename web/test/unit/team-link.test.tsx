@@ -155,6 +155,11 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain('skills/marketing/ad-copy/SKILL.md')
     expect(html).not.toContain('data-testid="team-link-full"')
   })
+  test('an open link while no seat is left: the panel says so above the message (QA TC-488); not while one is', () => {
+    expect(view(LINK)).not.toContain('data-testid="team-link-no-seats"')
+    expect(view({ ...LINK, seats: { used: 10, limit: 10 } })).toContain(`data-testid="team-link-no-seats">${translate('en', 'teamLink.noSeats')}<`)
+    expect(view({ ...LINK, seats: { used: 10, limit: null } })).not.toContain('data-testid="team-link-no-seats"')
+  })
   test('no seats left: the form says so and cannot make a link', () => {
     const html = view({ link: null, seats: { used: 10, limit: 10 } })
     expect(html).toContain('data-testid="team-link-full"')

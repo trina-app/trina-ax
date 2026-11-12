@@ -346,6 +346,10 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   // as plain text, a hairline and quiet text buttons (docs/DESIGN-SYSTEM.md, Layout patterns)
   return (
     <div className="space-y-5" data-testid="team-link" data-folded={folded || undefined}>
+      {/* every seat of the plan is taken: the link looks ready, but whoever opens it is told the team is full (QA TC-488) */}
+      {left === 0 && (
+        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-no-seats">{t('teamLink.noSeats')}</p>
+      )}
       {link.limitedUntil && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-limited">
           {t('teamLink.limited', { time: formatDateTime(link.limitedUntil, locale) })}

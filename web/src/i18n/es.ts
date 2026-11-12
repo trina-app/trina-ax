@@ -167,6 +167,7 @@ export const es: Record<MessageKey, string> = {
   'invite.signOutAccept': "Cerrar sesión y aceptar la invitación",
   'invite.keepAccount': "Seguir con esta cuenta",
   'invite.invalid': "Este enlace de invitación venció o ya se usó. Pida uno nuevo a quien le invitó.",
+  'invite.full': "El equipo no tiene plazas libres ahora. Avise a quien le invitó.",
   'invite.joinTeam': "Unirse a {team}",
   'invite.sub': "Se le invita como {role}. El enlace es válido hasta {date}.",
   'invite.accept': "Crear cuenta y unirse",
