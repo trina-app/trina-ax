@@ -2,7 +2,8 @@
 // default for rooms without a level of their own (알림 받을 메시지), replies in threads I follow, quiet hours (방해 금지 시간,
 // in the team's time zone) and the rooms I turned off, with each one's level to change back. Each room's own level is
 // on its bell (components/rooms/RoomNotifyMenu.tsx). The rule is the server's and the sound's (shared room-alerts.ts).
-// A phone: the three levels are checkmark rows (no radio circles), like the iPhone's Settings.
+// A phone: the three levels are checkmark rows (no radio circles), like the iPhone's Settings, and a muted room's level
+// is "Off ›" at its row's end that opens a sheet with ✓ (components/phone/PhoneChoice.tsx, QA TC-378), not a select box.
 import clsx from 'clsx'
 import { Check } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -17,6 +18,7 @@ import { inputCls, Switch, useMediaQuery } from '../ui'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { roomNotify } from '../rooms/RoomNotifyMenu'
 import { PrefRow, PrefSection } from './PrefRows'
+import { PhoneChoicePill } from '../phone/PhoneChoice'
 
 const LEVELS: readonly RoomNotifyDefault[] = ['direct', 'all', 'none']
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -118,6 +120,7 @@ function MutedRooms() {
   useEffect(() => { if (!useRooms.getState().loaded) void useRooms.getState().loadRooms() }, [])
   const touched = useRef(new Set<string>())
   const [, bump] = useState(0)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const off = useMemo(() => rooms.filter((r) => roomNotify(r).own === 'off'), [rooms])
   const shown = rooms.filter((r) => roomNotify(r).own === 'off' || touched.current.has(r.id))
   if (!shown.length) return null
@@ -137,13 +140,16 @@ function MutedRooms() {
           return (
             <li key={r.id} className="flex items-center gap-3 py-2" data-testid="notification-muted-room">
               <RoomIcon room={r} size={24} />
-              <label htmlFor={id} className="min-w-0 flex-1 truncate text-sm">{title(r)}</label>
-              <select id={id} className={clsx(inputCls, 'w-auto max-w-[11rem] shrink-0')} value={n.own ?? 'default'} onChange={(e) => void set(r.id, e.target.value === 'default' ? null : (e.target.value as RoomNotifyLevel))} data-testid="notification-muted-room-level">
+              {phone ? <span className="min-w-0 flex-1 truncate text-sm">{title(r)}</span> : <label htmlFor={id} className="min-w-0 flex-1 truncate text-sm">{title(r)}</label>}
+              {phone ? (
+                <PhoneChoicePill bare label={title(r)} value={n.own ?? 'default'} onChange={(v) => void set(r.id, v === 'default' ? null : v)} testId="notification-muted-room-level" className="max-w-[55%] shrink-0"
+                  options={[{ value: 'default', label: `${t('rooms.notify.default')} · ${t(`rooms.notify.${n.byDefault}`)}` }, ...(['all', 'mentions', 'off'] as const).map((l) => ({ value: l, label: t(`rooms.notify.${l}`) }))]} />
+              ) : <select id={id} className={clsx(inputCls, 'w-auto max-w-[11rem] shrink-0')} value={n.own ?? 'default'} onChange={(e) => void set(r.id, e.target.value === 'default' ? null : (e.target.value as RoomNotifyLevel))} data-testid="notification-muted-room-level">
                 <option value="default">{t('rooms.notify.default')} · {t(`rooms.notify.${n.byDefault}`)}</option>
                 <option value="all">{t('rooms.notify.all')}</option>
                 <option value="mentions">{t('rooms.notify.mentions')}</option>
                 <option value="off">{t('rooms.notify.off')}</option>
-              </select>
+              </select>}
             </li>
           )
         })}

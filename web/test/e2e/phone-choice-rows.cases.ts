@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
 
 const t = DICTS.en
 
@@ -224,6 +224,25 @@ export function phoneCases() {
     await week
     await expect(page.getByTestId('my-usage-period')).toContainText(t['myUsage.period.week'])
   })
+
+  // not in the row's steps, the same pattern: Me › Profile's own default engine (people who may pick one)
+  test('Me › Profile: "Engine  Team default (Claude) ›" and the model are list rows; a pick saves at once', async ({ page }) => {
+    await page.goto('/settings/profile')
+    await expect(page.getByTestId('my-engine-select')).toBeVisible()
+    await noSelect(page)
+    const team = translate('en', 'settings.myEngine.team', { engine: 'Claude' })
+    await expect(page.getByTestId('my-engine-select-value')).toHaveText(team)
+    await expect(page.getByTestId('my-model-select')).toHaveCount(0)
+    await page.getByTestId('my-engine-select').scrollIntoViewIfNeeded()
+    await shot(page, 'profile-engine.png')
+    await backCloses(page, 'my-engine-select', team)
+    const menu = await openChoices(page, 'my-engine-select', team)
+    const saved = page.waitForRequest((r) => r.method() === 'PATCH' && /\/api\/me\b/.test(r.url()))
+    await menu.getByRole('menuitemradio', { name: 'ChatGPT', exact: true }).click()
+    expect((await saved).postDataJSON()).toMatchObject({ prefs: { engine: 'codex' } })
+    await expect(page.getByTestId('my-engine-select-value')).toHaveText('ChatGPT')
+    await expect(page.getByTestId('my-model-select-value')).toHaveText(t['composer.defaultModel'])
+  })
 }
 
 /** A computer (1440 wide) keeps its select boxes, segmented box and number fields as they were. */
@@ -249,5 +268,8 @@ export function desktopCases() {
     await page.goto('/settings/usage')
     await expect(page.getByTestId('my-usage-period')).toHaveJSProperty('tagName', 'SELECT')
     await shot(page, 'desktop-my-usage.png', true)
+    await page.goto('/settings/profile')
+    await expect(page.getByTestId('my-engine-select')).toHaveJSProperty('tagName', 'SELECT')
+    await shot(page, 'desktop-profile.png', true)
   })
 }

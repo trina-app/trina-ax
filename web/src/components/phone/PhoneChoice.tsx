@@ -42,11 +42,12 @@ function ToChecked() {
   return <span ref={ref} hidden />
 }
 
-/** A setting as one row: its name, then the current choice and › at the row's end, its short line under them; the
- * whole row opens the sheet. `more`: the longer details behind "Learn more" under the row (as admin/common.tsx SettingRow has
- * them); `below`: under the row, always shown (a warning). `testId`: the row's button; `-value` its value, `-option-<v>`
- * each choice in the sheet. */
-export function PhoneChoiceRow<T extends string>({ title, desc, more, below, value, options, onChange, testId }: {
+/** A setting as one row: its name, then the current choice and › at the row's end, its short line under them; a tap
+ * anywhere on it opens the sheet. `more`: the longer details behind "Learn more" under the row (as admin/common.tsx
+ * SettingRow has them); `below`: under the row, always shown (a warning). `list`: a row of a phone list
+ * (phone/PhoneList.tsx PhoneListGroup: an <li>, hairlines, across the screen) instead of a page's row. `testId`: the
+ * row's button; `-value` its value, `-option-<v>` each choice in the sheet. */
+export function PhoneChoiceRow<T extends string>({ title, desc, more, below, value, options, onChange, testId, list }: {
   title: string
   desc?: ReactNode
   more?: ReactNode
@@ -55,25 +56,41 @@ export function PhoneChoiceRow<T extends string>({ title, desc, more, below, val
   options: readonly PhoneChoiceOption<T>[]
   onChange: (v: T) => void
   testId?: string
+  list?: boolean
 }) {
   const t = useT()
   const descId = useId()
   const [open, setOpen] = useState(false)
+  const button = useRef<HTMLButtonElement>(null)
   const current = shown(options, value)
+  if (list)
+    return (
+      <li className="group/row" data-testid={testId ? `${testId}-row` : undefined}>
+        <MenuButton label={`${title} ${current}`} heading={title} items={items(options, value, onChange, testId)} footer={<ToChecked />}
+          className="w-full" buttonClassName="w-full !rounded-none !py-0 !pr-0 !pl-4 text-left" testId={testId}
+          icon={
+            <span className="flex min-h-12 w-full min-w-0 items-center gap-3 border-t border-line py-2.5 pr-4 text-sm group-first/row:border-t-0">
+              <span className="min-w-0 flex-1 truncate text-ink">{title}</span>{' '}
+              <span className="max-w-[55%] shrink-0 truncate text-muted" data-testid={testId ? `${testId}-value` : undefined}>{current}</span>
+              <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+            </span>
+          } />
+      </li>
+    )
   return (
     <div className="py-1.5" data-testid={testId ? `${testId}-row` : undefined}>
-      <MenuButton label={`${title}: ${current}`} heading={title} describedBy={desc ? descId : undefined} items={items(options, value, onChange, testId)} footer={<ToChecked />}
-        className="w-full" buttonClassName="w-full !rounded-lg !p-0 text-left" testId={testId}
+      {/* the button holds the name and the value only (its name is what it shows); the line under it describes it and
+          opens the sheet too, for a finger */}
+      <MenuButton label={`${title} ${current}`} heading={title} describedBy={desc ? descId : undefined} items={items(options, value, onChange, testId)} footer={<ToChecked />}
+        className="w-full" buttonClassName="w-full !rounded-lg !p-0 text-left" testId={testId} buttonRef={button}
         icon={
-          <span className="block w-full min-w-0 py-2.5">
-            <span className="flex min-h-7 items-center gap-3">
-              <span className="min-w-0 flex-1 text-sm font-medium text-ink">{title}</span>
-              <span className="max-w-[55%] shrink-0 truncate text-sm text-muted" data-testid={testId ? `${testId}-value` : undefined}>{current}</span>
-              <ChevronRight size={16} className="-mr-1 shrink-0 text-faint" aria-hidden />
-            </span>
-            {desc && <span id={descId} className="mt-0.5 block text-sm text-muted">{desc}</span>}
+          <span className="flex min-h-12 w-full min-w-0 items-center gap-3">
+            <span className="min-w-0 flex-1 text-sm font-medium text-ink">{title}</span>{' '}
+            <span className="max-w-[55%] shrink-0 truncate text-sm text-muted" data-testid={testId ? `${testId}-value` : undefined}>{current}</span>
+            <ChevronRight size={16} className="-mr-1 shrink-0 text-faint" aria-hidden />
           </span>
         } />
+      {desc && <p id={descId} className="-mt-2 cursor-pointer pb-1 text-sm text-muted" onClick={() => button.current?.click()}>{desc}</p>}
       {more && (
         <>
           <button type="button" aria-expanded={open} className="touch-hit text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
@@ -88,23 +105,39 @@ export function PhoneChoiceRow<T extends string>({ title, desc, more, below, val
 }
 
 /** A toolbar's choice (Range, Group by, Period): "Label   value ›" in a 44 px frame, as wide as its words, or as wide
- * as its place when that stretches it. `testId`: the button; `-pill` the frame, `-option-<v>` each choice. */
-export function PhoneChoicePill<T extends string>({ label, value, options, onChange, testId, className }: {
+ * as its place when that stretches it. `bare`: the value and › alone, no frame (the end of a list row that names what
+ * it is about: a muted room's level); `label` then names it for screen readers and heads the sheet. `testId`: the
+ * button; `-pill` the frame, `-option-<v>` each choice. */
+export function PhoneChoicePill<T extends string>({ label, value, options, onChange, testId, className, bare }: {
   label: string
   value: T
   options: readonly PhoneChoiceOption<T>[]
   onChange: (v: T) => void
   testId?: string
   className?: string
+  bare?: boolean
 }) {
   const current = shown(options, value)
+  if (bare)
+    return (
+      <div className={clsx('inline-flex max-w-full min-w-0', className)} data-testid={testId ? `${testId}-pill` : undefined}>
+        <MenuButton label={`${label} ${current}`} heading={label} items={items(options, value, onChange, testId)} footer={<ToChecked />}
+          className="flex w-full min-w-0" buttonClassName="h-11 w-full min-w-0 gap-1 !rounded-lg !py-0 !pr-0 !pl-2 text-sm" testId={testId}
+          icon={
+            <>
+              <span className="min-w-0 truncate text-muted" data-testid={testId ? `${testId}-value` : undefined}>{current}</span>
+              <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+            </>
+          } />
+      </div>
+    )
   return (
     <div className={clsx('inline-flex max-w-full min-w-0', className)} data-testid={testId ? `${testId}-pill` : undefined}>
-      <MenuButton label={`${label}: ${current}`} heading={label} items={items(options, value, onChange, testId)} footer={<ToChecked />}
+      <MenuButton label={`${label} ${current}`} heading={label} items={items(options, value, onChange, testId)} footer={<ToChecked />}
         className="flex w-full min-w-0" buttonClassName="h-11 w-full min-w-0 gap-1.5 !rounded-lg border border-line bg-surface !px-3 !py-0 text-sm" testId={testId}
         icon={
           <>
-            <span className="shrink-0 text-muted">{label}</span>
+            <span className="shrink-0 text-muted">{label}</span>{' '}
             <span className="min-w-0 flex-1 truncate text-right font-medium text-ink">{current}</span>
             <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
           </>

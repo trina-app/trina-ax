@@ -29,6 +29,7 @@ import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
+import { PhoneChoiceRow } from '../components/phone/PhoneChoice'
 import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
@@ -412,7 +413,9 @@ function TextSizeSetting() {
   )
 }
 
-/** "내 기본 엔진/모델" (only for people who may pick the engine): what new chats start with; empty = the team default. */
+/** "내 기본 엔진/모델" (only for people who may pick the engine): what new chats start with; empty = the team default. A
+ * phone: two list rows "Engine   Team default (Claude) ›" that open a sheet with ✓ (QA TC-378), saved at once as the
+ * select boxes are. */
 function MyEngine() {
   const t = useT()
   const locale = useLocale()
@@ -431,6 +434,22 @@ function MyEngine() {
     }
   }
   const teamLabel = ENGINE_LABEL[defaultEngine] + (defaultModel ? ` · ${models[defaultEngine]?.find((x) => x.id === defaultModel)?.label ?? defaultModel}` : '')
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  if (phone && loaded)
+    return (
+      <PhoneSection className="-mt-6">
+        <PhoneListGroup title={t('settings.myEngine')} footer={t('settings.myEngineHint')} testId="my-engine">
+          <PhoneChoiceRow list title={t('settings.myEngine.engine')} value={engine ?? ''} testId="my-engine-select"
+            options={[{ value: '', label: t('settings.myEngine.team', { engine: teamLabel }) }, ...engines.map((id) => ({ value: id, label: ENGINE_LABEL[id] }))]}
+            onChange={(v) => void save((v || null) as EngineId | null, null)} />
+          {engine && (
+            <PhoneChoiceRow list title={t('settings.myEngine.model')} value={model ?? ''} testId="my-model-select"
+              options={[{ value: '', label: t('composer.defaultModel') }, ...(models[engine] ?? []).map((x) => ({ value: x.id, label: x.label }))]}
+              onChange={(v) => void save(engine, v || null)} />
+          )}
+        </PhoneListGroup>
+      </PhoneSection>
+    )
   return (
     <Section title={t('settings.myEngine')} desc={t('settings.myEngineHint')}>
       {!loaded ? (

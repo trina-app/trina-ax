@@ -1,6 +1,6 @@
 // Small phone fixes from the 11-11 phone audit (QA TC-265), at 390×844: a Mermaid diagram follows the dark theme, an
 // answer table keeps an amount with its unit on one line, the page behind a file preview is out of reach, the usage
-// filters have one ⌄, the empty room's box says its line on one line, and the room's side chat (full screen on a phone)
+// pills have one arrow, the empty room's box says its line on one line, and the room's side chat (full screen on a phone)
 // has no "Open full screen". SHOTS_DIR=<folder>: a screenshot of each.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -76,17 +76,18 @@ test('a file preview on a phone: the page behind is inert until it closes', asyn
   await expect(row).toBeFocused()
 })
 
-test('the usage filters show one ⌄ each (the select\'s own)', async ({ page }) => {
+// (a phone's setting pills are no select boxes since QA TC-378: one › each, a sheet behind it; phone-choice-rows)
+test('the usage pills show one arrow each', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/usage')
   const pill = page.getByTestId('usage-range-pill')
   await expect(pill).toBeVisible()
-  await expect(pill.locator('svg')).toHaveCount(0)
-  expect(await page.getByTestId('usage-range').evaluate((s) => getComputedStyle(s).backgroundImage)).toContain('data:image/svg+xml')
+  await expect(pill.locator('svg')).toHaveCount(1)
+  await expect(pill.locator('select')).toHaveCount(0)
   await shot(page, 'after-5-admin-usage.png')
   await page.goto('/settings/usage')
-  await expect(page.getByTestId('my-usage-period-pill').locator('svg')).toHaveCount(0)
+  await expect(page.getByTestId('my-usage-period-pill').locator('svg')).toHaveCount(1)
   await shot(page, 'after-5-my-usage.png')
 })
 
