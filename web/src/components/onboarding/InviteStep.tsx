@@ -12,10 +12,11 @@ import { Link } from 'react-router-dom'
 import type { WelcomeProgress } from '@mycel/shared/api'
 import { t as tNow, useT } from '../../i18n'
 import { SKILL_CATALOG } from '../../lib/nav'
+import { canShareText, SHARE_PHONE_QUERY } from '../../lib/share'
 import { isAdmin, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
-import { Button, Modal } from '../ui'
+import { Button, Modal, useMediaQuery } from '../ui'
 import { TeamLinkPanel } from './TeamLinkPanel'
 import { quietLink } from './SkillShareReview'
 import { useTeamPrepared } from './TeamPrepared'
@@ -66,11 +67,13 @@ export interface InviteStepProps {
 export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare, title, shared, steps }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
+  // a phone with a share sheet sends the message from there (TeamLinkPanel's primary), so the line says send, not paste
+  const sharing = useMediaQuery(SHARE_PHONE_QUERY) && canShareText()
   return (
     <div className="space-y-4" data-testid="invite-step">
       <div>
         {title !== null && <h2 className="mb-1 text-lg font-semibold">{title ?? t('teamLink.stepTitle')}</h2>}
-        <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
+        <p className="text-sm text-muted">{t(sharing ? 'teamLink.stepDescShare' : 'teamLink.stepDesc')}</p>
       </div>
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
       <EmptyTeamLine steps={steps} />

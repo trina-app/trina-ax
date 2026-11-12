@@ -4,7 +4,7 @@ import path from 'node:path'
 import { FileTransfers, MobileReceiver, onceEvery, PushRefused, StuckLoad, stillStuck, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, startRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { readSessionCheck, sessionCheckScript } from '../../mobile/src/session-check'
-import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
 import { DARK, LIGHT, NO_INSETS, frame, insetScript, isDark, padding, pageInsets } from '../../mobile/src/look'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
@@ -262,6 +262,30 @@ test('appearance-v1: only a boolean look (and whether it follows the phone), onl
   const old = permissionApp('granted', config.capabilities)
   expect((await old.send('appearance', { dark: true }))?.ok).toBe(false)
   expect(old.looks).toEqual([])
+})
+
+test('share-text-v1: the phone\'s share sheet with a bounded text, only with the capability and the same checks (QA TC-271)', async () => {
+  const shared: string[] = []
+  const app = (capabilities: readonly string[], share?: (text: string) => Promise<void>) => {
+    const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, undefined, share)
+    return (over: object, source = 'https://team.example/welcome?step=invite') => receiver.receive(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'share-text-1', type: 'share-text', ...over }), source)
+  }
+  const text = 'Acme에 초대해요\nhttps://team.example/join#t=abc'
+  for (const bad of [{}, { text: '' }, { text: '   ' }, { text: 5 }, { text: 'x'.repeat(MAX_SHARE_TEXT + 1) }]) expect(parseMessage(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'share-text-1', type: 'share-text', ...bad }))).toBeNull()
+  expect(parseMessage(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'share-text-1', type: 'share-text', text }))?.type).toBe('share-text')
+  const send = app([...config.capabilities, SHARE_TEXT_CAPABILITY], async (t) => { shared.push(t) })
+  expect(await send({ text })).toMatchObject({ ok: true, for: 'share-text' })
+  expect(shared).toEqual([text])
+  // another origin or an old nonce: no answer, no sheet
+  expect(await send({ text }, 'https://evil.example/')).toBeNull()
+  expect(await send({ text, nonce: 'b'.repeat(64) })).toBeNull()
+  expect(shared).toEqual([text])
+  // an app without the capability (today's store builds) refuses: the page uses navigator.share or copies
+  expect((await app(config.capabilities, async (t) => { shared.push(t) })({ text }))?.ok).toBe(false)
+  expect((await app([...config.capabilities, SHARE_TEXT_CAPABILITY])({ text }))?.ok).toBe(false)
+  // a sheet that fails says so
+  expect((await app([...config.capabilities, SHARE_TEXT_CAPABILITY], async () => { throw new Error('no sheet') })({ text }))?.error).toBe('mobile_operation_failed')
+  expect(shared).toEqual([text])
 })
 
 test('the look: the page says first, the phone before that; insets reach the page as CSS variables, even before it has a root', () => {

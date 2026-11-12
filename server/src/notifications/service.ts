@@ -676,13 +676,15 @@ export class Notifications {
     const title = s ? plainLabel(s.title) : ''
     return title ? { schedule: { title } } : {}
   }
-  list(userId: string, o: { cursor?: string; limit?: number }) {
+  /** `only: 'rooms'`: the conversation rows alone (a phone's 멘션·스레드, opened from 대화), paged the same way; the counts
+   * are the whole Inbox's either way. */
+  list(userId: string, o: { cursor?: string; limit?: number; only?: 'rooms' }) {
     const cur = decodeCursor(o.cursor, ['t', 'id'])
     if (o.cursor && (!cur || !Number.isFinite(Date.parse(cur.t!)))) throw new HttpError('validation')
     if (!this.active(userId)) return { items: [], nextCursor: null, unreadCount: 0, roomUnreadCount: 0 }
     const limit = Math.min(100, Math.max(1, o.limit ?? 30)), db = this.ctx.db, cutoff = this.cutoff()
     // newest first by sort_at: a notice's own time, a room row's its newest message's
-    const rows = db.query(`SELECT * FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND created_at>=?
+    const rows = o.only === 'rooms' ? [] : db.query(`SELECT * FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND created_at>=?
       ${cur ? 'AND (sort_at<? OR (sort_at=? AND id<?))' : ''} ORDER BY sort_at DESC,id DESC LIMIT ?`)
       .all(...(cur ? [userId, cutoff, cur.t!, cur.t!, cur.id!, limit + 1] : [userId, cutoff, limit + 1])) as (Row & { sort_at: string })[]
     const rooms = roomRows(db, userId, cutoff)
@@ -690,9 +692,11 @@ export class Notifications {
     const merged = [...rows, ...rooms.filter(after)].sort((a, b) => (a.sort_at === b.sort_at ? (a.id < b.id ? 1 : -1) : a.sort_at < b.sort_at ? 1 : -1)).slice(0, limit + 1)
     const selected = merged.slice(0, limit), last = selected.at(-1)
     const { n } = db.query(`SELECT COUNT(*) n FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
-    // the conversation rows' part on its own: the rooms list counts those too, so a phone's 나 tab leaves them to 대화
-    const roomUnreadCount = rooms.filter((r) => r.counted).length
-    return { items: selected.map(r => this.out(r)), nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + roomUnreadCount, roomUnreadCount }
+    // the conversation rows' part on its own: the rooms list counts those too, so a phone's 나 tab leaves them to 대화.
+    // Not a room I muted: the 대화 tab does not count it (lib/rooms.ts totalUnread), so its row counts on 나 instead
+    const counted = rooms.filter((r) => r.counted)
+    const roomUnreadCount = counted.filter((r) => !r.muted).length
+    return { items: selected.map(r => this.out(r)), nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + counted.length, roomUnreadCount }
   }
   get(userId: string, id: string): InboxNotification {
     if (!this.active(userId)) throw new HttpError('not_found')

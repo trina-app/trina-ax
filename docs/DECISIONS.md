@@ -22421,3 +22421,40 @@ partway".
 
 Version impact: patch (security fix in the Linux launcher, its status and diagnostics; no API shape, data or migration
 change).
+
+## 방에 올리기…: the server asks first, as "대화방에 보내기" does (fix/room-ai-share-confirm, 2026-11-12, QA TC-329)
+
+- **Problem.** In the older "@트리나 in the room" mode (`roomAiMentions`), the app asked before posting a private preview,
+  but the server did not: one `POST /api/rooms/:id/messages/:messageId/share` posted an answer built from the asker's
+  own private files, and the others saw the numbers (Activity: `room.ai_share`). The side chat's "대화방에 보내기"
+  answers "confirm" first and posts only with its key (`room.answer_share`).
+- **Decision.** `RoomAi.share()` answers the same "confirm" (`AnswerShareConfirm`, moved to `shared/src/api/rooms.ts`
+  and used by both: `people`, `places`, `files`, `provenance`, `confirmKey`, `reason`) when the preview used material
+  some member who will see it cannot see (`decide()`'s new `missing`: the members, not the asker, who miss a folder, the
+  asker's own folder or messages from before they joined; ids only inside the server, never stored with the reasons nor
+  sent) or a source file some of them cannot open (the rows that leave the shared copy's list: named when the asker may
+  open them, else counted). Places are named as "대화방에 보내기" names them (the reasons' folders, 내 폴더, this room for
+  messages from before someone joined). The body `{ confirmKey }` of the same call posts it. The key is the side chat's
+  keyed hash (`chat/confirm-key.ts confirmMac`, now its own module so rooms/ai.ts does not import chat/answer-share.ts)
+  over the asker, room, message, who misses what and the reasons: another message's key, a change in members or access,
+  or a restart answers "confirm" again with `reason: 'changed'`. The reasons check (409 `room_ai_reasons_changed`) and the
+  refusals (409 `room_ai_hidden`, `room_ai_ask_again`) come first, as before. A preview from before migration 246 is
+  judged by its stored reasons (counts only). `room.ai_share` gets `confirmed` and `people` when it was asked.
+- **The app asks before every post, the server too** (after the PR review). The app sends `{ ask: true }` first, and the
+  server then always answers "confirm" (`ShareRoomMessageConfirm`: "대화방에 보내기"'s, with `people` 0 when nothing is at
+  stake, `outside` for the web or a connected service, `earlier` for an earlier hidden answer); nothing is posted
+  without the key of that card. A call without `ask` (any other client) is asked only when something private is at
+  stake and otherwise posts at once, as before.
+- **What came from elsewhere counts** (after the PR review). `decide()` used to mark another conversation, a team
+  connection, a shared Drive and a folder that is gone as `outside` and nothing more. Now another conversation that some
+  member here is not in (or not from where it was read) is `otherRooms` (stored with the reasons, so the preview's line
+  says "material some people here can't see", never "the web or a connected service") and its members who miss it count;
+  a connection or Drive counts the members who cannot use it (`missingReaders`, as "대화방에 보내기" does); a folder that
+  is gone counts everyone else. Their places are named by `chat/share-places.ts` (moved out of answer-share.ts, used by
+  both): a team room by its group, the everyone room, "1:1 and group conversations", a service by its name.
+- **Source files past the rows**: every one some member cannot open counts; past `ANSWER_SHARE_FILES_MAX` rows the rest
+  is one row with how many cannot open some of them.
+- **The app.** "Post to room…" opens the side chat's card (`ShareConfirm`, the same words; with `sources` its rows are
+  "참고한 파일 · 올리는 답의 출처 목록에서 빠져요", no attach switch: sources are left out, never copied), with lines of its own
+  under the provenance line: "올리면 대화방 모두가 이 내용을 봐요." when nothing is at stake, "웹이나 연결된 서비스의 내용",
+  and the earlier-hidden-answer line. The app's own confirm with a row per reason is gone, and with it its strings.
