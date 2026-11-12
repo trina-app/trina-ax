@@ -5017,7 +5017,7 @@ export const es: Record<MessageKey, string> = {
   "serviceRequest.teamLine": "¿Lo quiere para todo el equipo?",
   "serviceRequest.admin.title": "Pedidos por miembros",
   "serviceRequest.admin.one": "{name} lo pidió",
-  "serviceRequest.admin.more": "{name} y {n} más lo pidieron",
+  "serviceRequest.admin.more": "{name} y {n, plural, one {# persona más} other {# personas más}} lo pidieron",
   "serviceRequest.admin.add": "Añadir",
   "serviceRequest.admin.dismiss": "Descartar",
   "serviceRequest.admin.dismissed": "Solicitud de {name} descartada.",

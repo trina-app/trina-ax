@@ -5017,7 +5017,7 @@ export const ja: Record<MessageKey, string> = {
   "serviceRequest.teamLine": "チーム全体で使いたいですか？",
   "serviceRequest.admin.title": "メンバーからのリクエスト",
   "serviceRequest.admin.one": "{name}さんがリクエストしました",
-  "serviceRequest.admin.more": "{name}さんほか{n}人がリクエストしました",
+  "serviceRequest.admin.more": "{name}さんほか{n, plural, one {#人} other {#人}}がリクエストしました",
   "serviceRequest.admin.add": "追加",
   "serviceRequest.admin.dismiss": "見送る",
   "serviceRequest.admin.dismissed": "{name}のリクエストを見送りました。",

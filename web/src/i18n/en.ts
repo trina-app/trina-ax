@@ -5061,7 +5061,7 @@ export const en: Record<MessageKey, string> = {
   "serviceRequest.teamLine": "Want it for the whole team?",
   "serviceRequest.admin.title": "Asked by members",
   "serviceRequest.admin.one": "{name} asked",
-  "serviceRequest.admin.more": "{name} and {n} others asked",
+  "serviceRequest.admin.more": "{name} and {n, plural, one {# other} other {# others}} asked",
   "serviceRequest.admin.add": "Add",
   "serviceRequest.admin.dismiss": "Dismiss",
   "serviceRequest.admin.dismissed": "Request for {name} dismissed.",
