@@ -23,6 +23,8 @@ In:
 - Switch text: "You'll be signed out of {old} on this phone, and its notifications will stop." (en, ko).
 
 Out: a native iOS module to drop WKWebView cookies without the server (the remembered sign-out covers the next visit).
+On iOS the app's own clearing never reaches the WKWebView cookie store, so there only the server's 204 within 4 s
+removes the cookie at the switch.
 
 ## Steps
 
@@ -41,3 +43,8 @@ next visit to that team, whose first page signs out.
 Built as planned: `mobile/src/leave.ts`, `leave()` and TeamWeb in `mobile/App.tsx`, the remembered sign-out reuses
 `ReinstallSignOut` with storage clearing, switch text in en and ko. Unit tests and the mobile typecheck pass; not yet
 tried on a phone (QA with the next phone build).
+
+After review: the owed sign-out keeps the page the person opened (an invite link) and reloads it on 204 instead of
+going to /login; a leave sign-out always resolves (LeaveAsk) and only one switch runs at a time; Cancel / Back / Android
+back are off while the switch waits; the sign-out is owed before the new team is saved (taken back if the save fails).
+React Native exposes no CookieManager flush on Android.

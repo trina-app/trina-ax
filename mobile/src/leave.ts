@@ -35,6 +35,38 @@ export function readLeaveAnswer(raw: string, token: string | null): number | nul
   } catch { return null }
 }
 
+/** One leave sign-out at a time on a team page: `start` injects the script and always resolves, with the server's status,
+ * or 0 when the wait ran out, a newer start replaced it, or the page went (`cancel`). */
+export class LeaveAsk {
+  private pending: { token: string; done: (status: number) => void } | null = null
+  constructor(private newToken: () => string, private wait = LEAVE_WAIT_MS) {}
+  start(origin: string, inject: (script: string) => void): Promise<number> {
+    this.cancel()
+    return new Promise<number>(resolve => {
+      const token = this.newToken()
+      let settled = false
+      const done = (status: number) => {
+        if (settled) return
+        settled = true; clearTimeout(timer)
+        if (this.pending?.token === token) this.pending = null
+        resolve(status)
+      }
+      const timer = setTimeout(() => done(0), this.wait)
+      this.pending = { token, done }
+      try { inject(leaveScript(origin, token)) } catch { done(0) }
+    })
+  }
+  /** A message from the page: true when it was the pending sign-out's answer (then it is not a bridge message). */
+  answer(raw: string): boolean {
+    const p = this.pending
+    const status = p ? readLeaveAnswer(raw, p.token) : null
+    if (status === null || !p) return false
+    p.done(status)
+    return true
+  }
+  cancel() { this.pending?.done(0) }
+}
+
 /** Teams left whose server has not confirmed the sign-out: the next visit to one signs out first. */
 async function read(slot: Slot): Promise<string[]> {
   try { const v = JSON.parse((await slot.get()) ?? '[]'); return Array.isArray(v) ? v.filter((o): o is string => typeof o === 'string') : [] } catch { return [] }

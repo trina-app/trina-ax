@@ -81,10 +81,12 @@ export class ReinstallSignOut {
 }
 
 /** POST <team>/api/auth/logout (the server removes this phone's push device with the session), the answer back to the
- * app with the one-time token, and the sign-in page once the session is gone. */
+ * app with the one-time token, and the sign-in page once the session is gone. The sign-out owed to a team left
+ * (`wipe`) keeps the page the person opened (an invite link's /invite/<token> or /join#t=…): reloaded after a 204 (a
+ * replace to the same URL with a #fragment would not load), left as it is after a 401 (there was no session). */
 export function signOutScript(origin: string, token: string, wipe = false): string {
   return (wipe ? WIPE_JS : '') + `fetch(${JSON.stringify(`${origin}/api/auth/logout`)},{method:'POST',credentials:'same-origin',headers:{'x-mycel-csrf':'1'}})`
     + `.then(function(r){return r.status},function(){return 0}).then(function(s){`
     + `try{window.ReactNativeWebView.postMessage(JSON.stringify({signOut:${JSON.stringify(token)},status:s}))}catch(e){}`
-    + `if(s===204||s===401)location.replace('/login')});true;`
+    + (wipe ? 'if(s===204)location.reload()});true;' : `if(s===204||s===401)location.replace('/login')});true;`)
 }
