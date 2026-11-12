@@ -2,10 +2,11 @@
 // groups under a small heading, rows of at least 48 px with an icon, the name, a short value or a badge on the right
 // and a chevron when the row opens a page, hairlines that start where the name does, and a quiet footer line. Admin's
 // root and the 나 list (Settings) both use it (docs/DECISIONS.md "Admin and Settings on phones: a list you tap into").
-// A row that opens a page pushes it (Back returns to the list).
+// A row that opens a page pushes it (Back returns to the list). A row may have its own menu (Projects' list: rename,
+// members, delete), opened by a long press as the Chats list's rows are (`menu`).
 import clsx from 'clsx'
 import { ChevronRight } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 export function PhoneListGroup({ title, footer, children, testId, labelId }: { title?: ReactNode; footer?: ReactNode; children: ReactNode; testId?: string; labelId?: string }) {
@@ -27,8 +28,12 @@ const chevronIcon = <ChevronRight size={16} className="shrink-0 text-faint" aria
 /** One row. `to`: opens a page (a push) with a chevron; `onClick`: an action in place (no chevron unless `chevron`);
  * neither: a plain row. `value`: a short word on the right (a count, an engine's name); `badge`: in its place when
  * something needs a look ("2 to fix"). `wrap`: the name may take two lines (a "needs attention" sentence). `below`:
- * buttons under the name (an attention row that can be acted on here). `end`: a control in place of the chevron. */
-export function PhoneListRow({ icon, title, value, badge, to, state, onClick, chevron, wrap, below, end, testId, disabled, ariaLabel, expanded }: {
+ * buttons under the name (an attention row that can be acted on here). `end`: a control in place of the chevron.
+ * `menu`: a row that opens a page and has a menu of its own (components/rooms/RoomMenu.tsx useRowMenu): `row` on the
+ * row (a long press or a right-click opens the menu, a sheet on a phone), `guard` on its link (the finger lifting after
+ * a long press opens no page), `node` the menu with its button over the row's end where a mouse points. Its link is
+ * where the keyboard goes after a row above it was removed (admin/common.tsx useFocusAfterRemove). */
+export function PhoneListRow({ icon, title, value, badge, to, state, onClick, chevron, wrap, below, end, testId, disabled, ariaLabel, expanded, menu }: {
   icon?: ReactNode
   title: ReactNode
   value?: ReactNode
@@ -44,6 +49,7 @@ export function PhoneListRow({ icon, title, value, badge, to, state, onClick, ch
   disabled?: boolean
   ariaLabel?: string
   expanded?: boolean
+  menu?: { row: HTMLAttributes<HTMLLIElement>; guard: (e: MouseEvent) => void; node: ReactNode }
 }) {
   const shown = badge ?? (value != null && value !== '' ? <span className="max-w-[45%] shrink-0 truncate text-sm text-muted tabular-nums">{value}</span> : null)
   const mark = end ?? ((chevron ?? !!to) ? chevronIcon : null)
@@ -71,6 +77,14 @@ export function PhoneListRow({ icon, title, value, badge, to, state, onClick, ch
       </li>
     )
   }
+  if (to && menu)
+    return (
+      <li className="group/row relative" {...menu.row}>
+        {/* no text selection or the phone's own link menu under a long press; marked while its menu is open */}
+        <Link to={to} state={state} onClick={menu.guard} className={clsx(rowCls, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]/row:bg-hover')} aria-label={ariaLabel} data-testid={testId} data-row-focus>{iconCell}{content}</Link>
+        {menu.node}
+      </li>
+    )
   return (
     <li className="group/row">
       {to ? (
