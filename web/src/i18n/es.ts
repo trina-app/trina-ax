@@ -2877,6 +2877,7 @@ export const es: Record<MessageKey, string> = {
   'credentials.setupToken.invalidFormat': "Pegue el token completo que empieza por sk-ant-oat01-.",
   'credentials.apiKey.paste': "Clave de API",
   'credentials.apiKey.hint': "Cree una clave exclusiva para este equipo en la consola de su empresa y establezca allí un límite de gasto mensual.",
+  'credentials.apiKey.hintOwn': "Cree una clave propia en la consola de su cuenta y establezca allí un límite de gasto mensual. Solo se usa para sus propias preguntas.",
   'credentials.apiKey.consoleAnthropic': "Crear una clave en la consola de Anthropic",
   'credentials.apiKey.consoleOpenai': "Crear una clave en la plataforma de OpenAI",
   'credentials.apiKey.invalidFormat': "No es una clave de API de este tipo.",

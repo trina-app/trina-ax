@@ -2918,6 +2918,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.setupToken.invalidFormat': 'Tempel seluruh token yang diawali sk-ant-oat01-.',
   'credentials.apiKey.paste': 'Kunci API',
   'credentials.apiKey.hint': 'Buat kunci khusus tim ini di konsol akun perusahaan, dan pasang batas pemakaian bulanan di sana.',
+  'credentials.apiKey.hintOwn': 'Buat kunci milik Anda sendiri di konsol akun Anda, dan pasang batas pemakaian bulanan di sana. Kunci ini hanya dipakai untuk pertanyaan Anda sendiri.',
   'credentials.apiKey.consoleAnthropic': 'Buat kunci di konsol Anthropic',
   'credentials.apiKey.consoleOpenai': 'Buat kunci di platform OpenAI',
   'credentials.apiKey.invalidFormat': 'Bukan kunci API jenis ini.',

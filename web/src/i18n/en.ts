@@ -2918,6 +2918,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.setupToken.invalidFormat': 'Paste the whole token that starts with sk-ant-oat01-.',
   'credentials.apiKey.paste': 'API key',
   'credentials.apiKey.hint': 'Make a key just for this team in your company\'s console, and set a monthly spend limit there.',
+  'credentials.apiKey.hintOwn': 'Make a key of your own in your account\'s console, and set a monthly spend limit there. It is used only for your own questions.',
   'credentials.apiKey.consoleAnthropic': 'Make a key in the Anthropic console',
   'credentials.apiKey.consoleOpenai': 'Make a key on the OpenAI platform',
   'credentials.apiKey.invalidFormat': 'Not an API key of this kind.',

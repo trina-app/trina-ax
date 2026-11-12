@@ -2917,6 +2917,7 @@ export const ko = {
   'credentials.setupToken.invalidFormat': 'sk-ant-oat01-로 시작하는 토큰 전체를 붙여 넣어 주세요.',
   'credentials.apiKey.paste': 'API 키',
   'credentials.apiKey.hint': '회사 계정 콘솔에서 이 팀 전용 키를 만들고, 콘솔에서 월 사용 한도를 걸어 두기를 권해요.',
+  'credentials.apiKey.hintOwn': '내 계정의 콘솔에서 내 키를 만들어 넣어요. 콘솔에서 월 사용 한도를 걸어 두기를 권해요. 내 질문에만 쓰여요.',
   'credentials.apiKey.consoleAnthropic': 'Anthropic 콘솔에서 키 만들기',
   'credentials.apiKey.consoleOpenai': 'OpenAI 플랫폼에서 키 만들기',
   'credentials.apiKey.invalidFormat': '이 종류의 API 키가 아니에요.',
