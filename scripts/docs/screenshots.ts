@@ -156,9 +156,9 @@ async function main() {
   const failed: string[] = []
   for (const s of SHOTS.filter((x) => (!o.only || x.file.startsWith(o.only)) && !!x.mock === o.mock)) {
     const ctx = await contextFor(!!s.phone, !!s.signedOut)
-    if (s.mock) await control(ctx, 'slack', s.mock)
     const page = await ctx.newPage()
     try {
+      if (s.mock) await control(ctx, 'slack', s.mock)
       await page.goto(o.url + s.path)
       await page.waitForLoadState('networkidle')
       await page.addStyleTag({ content: HIDE })
