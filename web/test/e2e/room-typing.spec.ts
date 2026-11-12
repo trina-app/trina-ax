@@ -34,11 +34,24 @@ async function tell(page: Page, userId: string, typing = true, threadRootId: str
 }
 const sentFrames = async (page: Page) => ((await (await page.request.get('/__test/typing')).json()) as { sent: { roomId: string; threadRootId: string | null; typing: boolean }[] }).sent
 const line = (page: Page, where = page.getByTestId('room')) => where.getByTestId('room-typing-line').first()
+/** the box's place once the page has settled (fonts, banners, the first scroll): two readings 200 ms apart agree */
+async function settledBox(page: Page) {
+  const box = page.getByTestId('room-composer').first()
+  await expect(page.getByTestId('room-message').first()).toBeVisible()
+  let prev = JSON.stringify(await box.boundingBox())
+  await expect.poll(async () => {
+    await page.waitForTimeout(200)
+    const now = JSON.stringify(await box.boundingBox())
+    const same = now === prev
+    prev = now
+    return same
+  }).toBe(true)
+  return { box, before: JSON.parse(prev) as Awaited<ReturnType<typeof box.boundingBox>> }
+}
 
 test('a second member typing: one line over the box, two names, several; it runs out; the box does not move', async ({ page }) => {
   await openRoom(page)
-  const box = page.getByTestId('room-composer').first()
-  const before = await box.boundingBox()
+  const { box, before } = await settledBox(page)
   await expect(line(page)).toHaveAttribute('aria-live', 'polite')
   await expect(line(page)).toHaveText('')
   await tell(page, SORA.id)
@@ -189,8 +202,7 @@ test.describe('phone', () => {
   test('at 390: the line fits over the box and the box does not move (light and dark)', async ({ page }) => {
     test.setTimeout(120_000)
     await openRoom(page)
-    const box = page.getByTestId('room-composer').first()
-    const before = await box.boundingBox()
+    const { box, before } = await settledBox(page)
     await tell(page, SORA.id)
     await expect(line(page)).toHaveText('김소라님이 입력 중…')
     expect(await box.boundingBox()).toEqual(before)
