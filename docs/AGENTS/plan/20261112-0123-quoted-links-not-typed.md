@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:23
 - Branch: `fix/quoted-links-not-typed`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `server/src/tools/url-gate.ts` and `server/src/chat/read-rooms.ts`. Why: the web address gate
   and the "this chat has read rooms" rule are core chat security (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a security fix with no new setting or screen
@@ -43,4 +43,5 @@ for the chat). That is the same reading read-rooms already makes of any quote. N
 
 ## Result
 
-Filled in at the end.
+Built as planned. `chat/read-rooms.ts` exports `isQuoteLine` / `withoutQuoteLines`; `quotesOnBranch` and the URL
+gate's `typedUrls` both use them. The new gate test fails without the fix. PR: see the branch's pull request to `dev`.
