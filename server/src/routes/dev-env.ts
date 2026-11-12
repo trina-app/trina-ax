@@ -1,95 +1,27 @@
-// Dev environment EXPERIMENT (docs/DECISIONS.md "Dev environment (experiment)"): per-project setting, box state,
-// stop / restart, preview links, activity. Every endpoint answers 404 while the server runs without MYCEL_DEV_ENV=1,
-// so the feature does not exist for clients of a normal install.
-import fs from 'node:fs'
-import path from 'node:path'
-import { API, DEV_ENV_SRT_WARNING_VERSION, type DevEnvMySites, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity, type DevEnvProjectSetting } from '@mycel/shared/api'
-import type { BoxdBoxInfo } from '@mycel/shared'
+// The dev environment's routes (docs/DECISIONS.md "Dev environment on srt, behind a flag", "Dev environment: box runner
+// removed, srt only"): the team setting, a project's runs, stops, the sites a person allows, activity. Every endpoint
+// answers 404 while the server runs without MYCEL_DEV_ENV=1, so the feature does not exist for clients of a normal
+// install.
+import { API, DEV_ENV_SRT_WARNING_VERSION, type DevEnvMySites, type DevEnvAvailability, type DevEnvProjectResponse, type DevEnvActivity, type DevEnvProjectSetting } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { afterAccessChange, captureState, ensureFolderRow, replaceRules, resolveFolderPath } from '../admin/folders'
-import { unmakeProjectFolder } from '../chat/project-access'
-import { assertFolderFree, canRead, canSeeProject, projectFolderName, takenProjectPaths } from '../chat/projects'
-import type { FolderRuleInput, Locale } from '@mycel/shared/api'
+import { canRead, canSeeProject } from '../chat/projects'
 import type { Principal } from '../policy/access'
 import { ticketIds } from '../devenv/srt/queue'
-import { boxd } from '../devenv/boxd'
-import { devEnvFlag, devEnvInForce, devEnvRunner, devEnvSetting, mayUseBox, mayUseDevEnv, newConsent, requiredWarningVersion, saveDevEnvSetting, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
+import { devEnvFlag, mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
 import { findRun, fullAvailable, networkNow, planState, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
-import { issuePreview, startPreviewGateway } from '../devenv/preview'
-import { pollSrt, runningJobs, startJobTracker } from '../devenv/jobs'
+import { pollSrt, startJobTracker } from '../devenv/jobs'
 
 const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
 async function availability(): Promise<DevEnvAvailability> {
   if (!devEnvFlag()) return { available: false, reason: 'flag' }
-  if (devEnvRunner() === 'srt') {
-    const why = await srtProblem().catch((e) => String(e))
-    return why ? { available: false, reason: 'platform', detail: why.slice(0, 500) } : { available: true }
-  }
-  const c = boxd()
-  if (!c) return { available: false, reason: 'boxd', detail: 'MYCEL_BOXD_SOCK is not set' }
-  const st = await c.status()
-  if (!st.ok) return { available: false, reason: 'boxd', detail: st.message.slice(0, 500) }
-  return st.value.available ? { available: true } : { available: false, reason: 'platform', ...(st.value.reason ? { detail: st.value.reason.slice(0, 500) } : {}) }
-}
-
-/** Why this box does not run, when boxd stopped it. boxd keeps its last stop after the next start: a stop from before the
- * last start is not why the box is stopped now (a person stopped it). startedAt null: boxd has no later start. */
-const stopOfThisStart = (b: BoxdBoxInfo) =>
-  b.state !== 'running' && b.stopCode && b.stoppedAt && (!b.startedAt || Date.parse(b.stoppedAt) >= Date.parse(b.startedAt)) ? b.stopCode : null
-
-async function boxState(projectId: string, withPs: boolean): Promise<DevEnvBox | null> {
-  if (devEnvRunner() === 'srt') return null // no box: runs has what runs
-  const c = boxd()
-  if (!c) return null
-  const st = await c.status()
-  if (!st.ok) return null
-  const b = st.value.boxes.find((x) => x.box === projectId)
-  if (!b) return { state: 'none', startedAt: null, lastActiveAt: null, memoryMiB: null, processes: [] }
-  const ps = withPs && b.state === 'running' ? await c.ps(projectId) : null
-  return { state: b.state, startedAt: b.startedAt, lastActiveAt: b.lastActiveAt, memoryMiB: b.memoryMiB, processes: ps?.ok ? ps.value.processes : [], stopCode: stopOfThisStart(b) }
-}
-
-/**
- * A project on the team root (folder_path '') has no folder for a box: boxd refuses the whole team root. Turning on
- * gives the project projects/<name>, made like a new project folder and named like one (a name clash takes the next
- * name). The new folder has no rules of its own, so it inherits the access the project had on the team root. Files on
- * the team root stay there. Refuses when the folder cannot be made.
- */
-function giveProjectFolder(ctx: AppContext, p: Principal, project: { id: string; name: string }, locale: Locale): string {
-  const root = ctx.files.fx.root
-  let made: { path: string; abs: string } | null = null
-  try {
-    fs.mkdirSync(path.join(root, 'projects'), { recursive: true, mode: 0o700 })
-    // never a name kept in folders, still named by another project (one project per folder) or by old saved versions
-    const taken = takenProjectPaths(ctx.db)
-    const want = `projects/${projectFolderName(path.join(root, 'projects'), 'projects', taken, project.name, project.id)}`
-    // made as the system: nothing new goes directly into projects/ otherwise (docs/DECISIONS.md "Project contents only for
-    // members"). It keeps no floor, so the team's members see it as they saw the project on the team root; the admin who
-    // turns the box on is a member of it by name (a rule they see in its members, recorded like any other join)
-    const r = resolveFolderPath(ctx, want, { create: true, locale })
-    if (!r.created) throw new Error('taken')
-    made = { path: r.path, abs: path.join(root, ...r.path.split('/')) }
-    const before = captureState(ctx.db)
-    ctx.db.transaction(() => {
-      assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, r.path, locale, { except: project.id, mayName: (x) => canRead(ctx.files, p, x) })
-      const row = ensureFolderRow(ctx.db, r.path)
-      replaceRules(ctx.db, row.id, [{ subjectType: 'user', subjectId: p.id, access: 'write' } as FolderRuleInput], p.id)
-      ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(r.path, project.id)
-      audit(ctx.db, { actor: p.id, action: 'dev_env.folder', target: project.id, detail: { before: '', after: r.path } })
-    })()
-    afterAccessChange(ctx, before, { actor: p.id, target: r.path, created: [r.path], via: 'dev_env' })
-    return r.path
-  } catch (e) {
-    if (made) unmakeProjectFolder(ctx, made)
-    ctx.log.warn('dev env project folder failed', { err: e })
-    return fail('conflict', 'This project has no folder of its own and the server could not create one under projects/. Choose a folder for the project, then try again.', { params: { reason: 'dev_env_folder' } })
-  }
+  const why = await srtProblem().catch((e) => String(e))
+  return why ? { available: false, reason: 'platform', detail: why.slice(0, 500) } : { available: true }
 }
 
 export const devEnvRoutes: RouteModule = {
@@ -97,8 +29,6 @@ export const devEnvRoutes: RouteModule = {
   owner: 'B',
   init(ctx) {
     if (!devEnvFlag()) return
-    const g = startPreviewGateway(ctx)
-    if (g) ctx.onClose(() => g.stop())
     const jobs = startJobTracker(ctx)
     ctx.onClose(() => jobs.stop())
   },
@@ -112,23 +42,15 @@ export const devEnvRoutes: RouteModule = {
       if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       return { p, r: r!, ref: { id: r!.id, folderPath: r!.folder_path } }
     }
-    /** srt: the team setting, in the shape of a project setting (the project page shows it read-only) */
+    /** the team setting, in the shape of a project setting (read-only here) */
     const teamAsProject = (): DevEnvProjectSetting => { const t = teamSetting(ctx.db); return { enabled: t.enabled, scope: t.scope, network: t.network, limits: t.limits, consent: t.consent } }
     const response = async (id: string, folderPath: string, p: Principal): Promise<DevEnvProjectResponse> => {
-      if (devEnvRunner() === 'srt') {
-        // a person in scope can run commands in this project's chats when they can open its folder
-        const mayUse = mayUseDevEnv(ctx.db, ctx.files, p.id) && canRead(ctx.files, p, folderPath)
-        return {
-          availability: await availability(), setting: teamAsProject(), warningVersion: requiredWarningVersion(),
-          mayUse, mayManage: isAdmin(p), needsFolder: false, box: null, jobs: [],
-          runs: mayUse || isAdmin(p) ? await runsOf(ctx, { projectId: id }) : { running: [], waiting: [] }, runner: 'srt',
-        }
-      }
-      const mayUse = mayUseBox(ctx.db, ctx.files, { id, folderPath }, p.id)
+      // a person in scope can run commands in this project's chats when they can open its folder
+      const mayUse = mayUseDevEnv(ctx.db, ctx.files, p.id) && canRead(ctx.files, p, folderPath)
       return {
-        availability: await availability(), setting: devEnvSetting(ctx.db, id), warningVersion: requiredWarningVersion(),
-        mayUse, mayManage: isAdmin(p), needsFolder: folderPath === '', box: await boxState(id, mayUse || isAdmin(p)),
-        jobs: mayUse || isAdmin(p) ? runningJobs(ctx.db, id) : [], runs: { running: [], waiting: [] }, runner: 'box',
+        availability: await availability(), setting: teamAsProject(), warningVersion: DEV_ENV_SRT_WARNING_VERSION,
+        mayUse, mayManage: isAdmin(p),
+        runs: mayUse || isAdmin(p) ? await runsOf(ctx, { projectId: id }) : { running: [], waiting: [] },
       }
     }
 
@@ -137,79 +59,20 @@ export const devEnvRoutes: RouteModule = {
       return response(ref.id, ref.folderPath, p)
     })
 
-    kit.handle(API.updateDevEnv, async ({ c, params, body, auth }) => {
-      const { p, r, ref } = project(params.id, auth.user.id)
-      if (devEnvRunner() === 'srt') fail('conflict', 'On this server the dev environment is turned on for the whole team, in Admin settings, not per project.', { params: { reason: 'dev_env_team_setting' } })
-      if (r.folder_path === 'users' || r.folder_path.startsWith('users/')) fail('validation', 'The dev environment is for team folders only, not personal projects.')
-      const groups = new Set((ctx.db.query('SELECT id FROM groups').all() as { id: string }[]).map((g) => g.id))
-      if (body.scope.groupIds.some((g) => !groups.has(g))) fail('validation', 'Unknown group.', { fields: { 'body.scope.groupIds': 'unknown group' } })
-      const people = new Set((ctx.db.query('SELECT id FROM users WHERE deleted_at IS NULL').all() as { id: string }[]).map((u) => u.id))
-      if (body.scope.userIds.some((u) => !people.has(u))) fail('validation', 'Unknown person.', { fields: { 'body.scope.userIds': 'unknown person' } })
-      const before = devEnvSetting(ctx.db, ref.id)
-      let consent = before.consent
-      let folderPath = ref.folderPath
-      if (body.enabled) {
-        const a = await availability()
-        if (!a.available) fail('conflict', 'This server cannot run dev environments.', { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'boxd' } })
-        const need = requiredWarningVersion()
-        if (consent?.warningVersion !== need) {
-          if (body.acceptWarning !== need) fail('conflict', 'Accept the dev environment warning first.', { params: { reason: 'dev_env_warning', warningVersion: need } })
-        }
-        // read again: an earlier save of this project may have ended while this one waited above
-        folderPath = (ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(ref.id) as { folder_path: string } | null)?.folder_path ?? fail('not_found')
-        if (folderPath === '') folderPath = giveProjectFolder(ctx, p, r, c.get('locale'))
-        if (consent?.warningVersion !== requiredWarningVersion()) {
-          consent = newConsent({ id: auth.user.id, name: auth.user.name })
-          audit(ctx.db, { actor: auth.user.id, action: 'dev_env.consent', target: ref.id, detail: { warningVersion: requiredWarningVersion() } })
-        }
-      }
-      const after = { enabled: body.enabled, scope: body.scope, network: body.network ?? before.network, limits: { ...before.limits, ...(body.limits ?? {}) }, consent }
-      saveDevEnvSetting(ctx.db, ref.id, after)
-      audit(ctx.db, { actor: auth.user.id, action: 'dev_env.setting', target: ref.id, detail: { before: { enabled: before.enabled, scope: before.scope, network: before.network, limits: before.limits }, after: { enabled: after.enabled, scope: after.scope, network: after.network, limits: after.limits } } })
-      // off, or a change the box must start again for (network, limits): stop it; the next command starts it again
-      const changed = before.network !== after.network || JSON.stringify(before.limits) !== JSON.stringify(after.limits)
-      if (!devEnvInForce(after) || changed) await boxd()?.stop(ref.id).catch(() => null)
-      return response(ref.id, folderPath, p)
-    })
-
-    kit.handle(API.devEnvBox, async ({ params, body, auth }) => {
+    kit.handle(API.devEnvStop, async ({ params, auth }) => {
       const { p, ref } = project(params.id, auth.user.id)
-      if (devEnvRunner() === 'srt') {
-        if (!mayUseDevEnv(ctx.db, ctx.files, p.id) && !isAdmin(p)) fail('forbidden')
-        // no box to start again: both stop every run of the project's chats. A command that waits in the queue (a
-        // ticket, srt/queue.ts) is cancelled only by its owner, as with the stop of one run: its AI is told "the person
-        // cancelled this command"
-        const tickets = ticketIds(ctx.db)
-        await stopWhere(ctx, (s) => s.projectId === ref.id && (s.userId === p.id || !tickets.has(s.id)), 'stopped')
-        audit(ctx.db, { actor: p.id, action: 'dev_env.stop', target: ref.id, detail: { runner: 'srt' } })
-        return response(ref.id, ref.folderPath, p)
-      }
-      if (!mayUseBox(ctx.db, ctx.files, ref, p.id) && !isAdmin(p)) fail('forbidden')
-      const c = boxd()
-      if (!c) fail('conflict', 'The dev environment helper is not set up on this server.')
-      const r = await c!.stop(ref.id)
-      audit(ctx.db, { actor: p.id, action: body.action === 'stop' ? 'dev_env.stop' : 'dev_env.restart', target: ref.id, detail: r.ok ? null : { error: r.message.slice(0, 300) } })
-      if (body.action === 'restart' && devEnvInForce(devEnvSetting(ctx.db, ref.id))) {
-        const s = devEnvSetting(ctx.db, ref.id)
-        const up = await c!.ensure({ box: ref.id, folder: ref.folderPath, network: s.network, limits: s.limits, denyAddrs: (process.env.MYCEL_DEV_ENV_DENY_ADDRS ?? '').split(',').map((x) => x.trim()).filter(Boolean) })
-        // the box stopped and did not start: the person must see why (a nearly full disk, another box that runs)
-        if (!up.ok) fail('conflict', up.message.slice(0, 500), { params: { reason: 'dev_env_start' } })
-      }
+      if (!mayUseDevEnv(ctx.db, ctx.files, p.id) && !isAdmin(p)) fail('forbidden')
+      // every run of the project's chats stops. A command that waits in the queue (a ticket,
+      // srt/queue.ts) is cancelled only by its owner, as with the stop of one run: its AI is told "the person cancelled
+      // this command"
+      const tickets = ticketIds(ctx.db)
+      await stopWhere(ctx, (s) => s.projectId === ref.id && (s.userId === p.id || !tickets.has(s.id)), 'stopped')
+      audit(ctx.db, { actor: p.id, action: 'dev_env.stop', target: ref.id, detail: { runner: 'srt' } })
       return response(ref.id, ref.folderPath, p)
-    })
-
-    kit.handle(API.devEnvPreview, async ({ c, params, body, auth }) => {
-      const { p, ref } = project(params.id, auth.user.id)
-      if (devEnvRunner() === 'srt') fail('conflict', 'Preview is not available yet on this server. Ask the AI to test the dev server with curl in one command.', { params: { reason: 'dev_env_preview_not_configured' } })
-      if (!devEnvInForce(devEnvSetting(ctx.db, ref.id))) fail('conflict', 'The dev environment of this project is off.')
-      const r = issuePreview(ctx, { projectId: ref.id, folderPath: ref.folderPath, port: body.port, userId: p.id, appHost: c.req.header('host') ?? null })
-      if ('error' in r) fail('conflict', r.error === 'same_site' ? 'The preview origin must be on another domain than the app.' : 'The preview origin is not set up on this server.', { params: { reason: `dev_env_preview_${r.error}` } })
-      return r as { url: string; expiresAt: string }
     })
 
     kit.handle(API.devEnvRunStop, async ({ params, auth }) => {
       const { p, ref } = project(params.id, auth.user.id)
-      if (devEnvRunner() !== 'srt') fail('not_found')
       const f = findRun(ctx, params.runId)
       const owner = !f ? null : 'row' in f ? { userId: f.row.user_id, projectId: f.row.project_id } : { userId: f.command.space.userId, projectId: f.command.space.projectId }
       if (!owner || owner.projectId !== ref.id) fail('not_found')
@@ -222,9 +85,9 @@ export const devEnvRoutes: RouteModule = {
       return response(ref.id, ref.folderPath, p)
     })
 
-    // srt: the runs of one person, from every chat (a chat with no project has no project page)
+    // the runs of one person, from every chat (a chat with no project has no project page)
     const mine = (userId: string) => {
-      if (!devEnvFlag() || devEnvRunner() !== 'srt') fail('not_found')
+      if (!devEnvFlag()) fail('not_found')
       try { ctx.files.principal(userId) } catch { fail('forbidden') }
       return runsOf(ctx, { userId })
     }
@@ -239,10 +102,10 @@ export const devEnvRoutes: RouteModule = {
       return mine(auth.user.id)
     })
 
-    // srt: the sites one person allowed and her Full internet switch (docs/DECISIONS.md "Dev environment: sites a
+    // the sites one person allowed and her Full internet switch (docs/DECISIONS.md "Dev environment: sites a
     // person allows"). Only her own: no admin sees or changes them here, and nobody else's runs get them.
     const mySites = (userId: string): DevEnvMySites => {
-      if (!devEnvFlag() || devEnvRunner() !== 'srt') fail('not_found')
+      if (!devEnvFlag()) fail('not_found')
       const base = { sites: [], fullInternet: false, fullAvailable: false, fullWarningVersion: DEV_ENV_FULL_WARNING_VERSION, teamSites: [], maxSites: DEV_ENV_MAX_USER_SITES }
       if (!mayUseDevEnv(ctx.db, ctx.files, userId)) return { state: 'off', ...base }
       if (networkNow(ctx) === 'offline') return { state: 'no_network', ...base }
@@ -282,7 +145,7 @@ export const devEnvRoutes: RouteModule = {
       return {
         setting: teamSetting(ctx.db), defaultDomains: [...DEV_ENV_DEFAULT_DOMAINS],
         plan: plan.ok && plan.plan ? { plan: plan.plan.plan, maxRunning: plan.plan.maxRunning, cpus: plan.plan.cpus, memoryMiB: plan.plan.memoryMiB, pids: plan.plan.pids, network: plan.plan.network || 'offline' } : null,
-        runner: devEnvRunner(), warningVersion: DEV_ENV_SRT_WARNING_VERSION, availability: await availability(),
+        warningVersion: DEV_ENV_SRT_WARNING_VERSION, availability: await availability(),
       }
     }
     kit.handle(API.devEnvTeam, () => {
@@ -312,13 +175,13 @@ export const devEnvRoutes: RouteModule = {
       }
       if (body.network) after.network = body.network
       if (body.enabled !== undefined) after.enabled = body.enabled
-      // turning on (srt): the server must run srt, and the current warning must be accepted
-      if (devEnvRunner() === 'srt' && after.enabled && !teamInForce(before)) {
+      // turning on: the server must run srt, and the current warning must be accepted
+      if (after.enabled && !teamInForce(before)) {
         const a = await availability()
         if (!a.available) fail('conflict', 'This server cannot run the dev environment.', { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'platform' } })
         if (after.consent?.warningVersion !== DEV_ENV_SRT_WARNING_VERSION) {
           if (body.acceptWarning !== DEV_ENV_SRT_WARNING_VERSION) fail('conflict', 'Accept the dev environment warning first.', { params: { reason: 'dev_env_warning', warningVersion: DEV_ENV_SRT_WARNING_VERSION } })
-          after.consent = { by: { id: auth.user.id, name: auth.user.name }, at: new Date().toISOString(), warningVersion: DEV_ENV_SRT_WARNING_VERSION }
+          after.consent = newConsent({ id: auth.user.id, name: auth.user.name })
           audit(ctx.db, { actor: auth.user.id, action: 'dev_env.consent', target: null, detail: { warningVersion: DEV_ENV_SRT_WARNING_VERSION, team: true } })
         }
       }
@@ -328,7 +191,7 @@ export const devEnvRoutes: RouteModule = {
       // off, or a change that every run must start again for (network, limits): stop them; a change of who may use
       // it is checked by the tracker per person
       const changed = before.network !== after.network || JSON.stringify(before.limits) !== JSON.stringify(after.limits)
-      if (devEnvRunner() === 'srt' && (changed || (teamInForce(before) && !teamInForce(after)))) await stopAll(ctx, 'setting')
+      if (changed || (teamInForce(before) && !teamInForce(after))) await stopAll(ctx, 'setting')
       return teamView()
     })
 
@@ -343,7 +206,7 @@ export const devEnvRoutes: RouteModule = {
       const items: DevEnvActivity[] = [
         ...audits.map((a) => {
           const d = parse(a.detail)
-          const kind: DevEnvActivity['kind'] = a.action === 'dev_env.command' ? 'command' : a.action === 'dev_env.preview' ? 'preview' : 'box'
+          const kind: DevEnvActivity['kind'] = a.action === 'dev_env.command' ? 'command' : 'event'
           const text = kind === 'command' ? String(d?.command ?? '')
             : a.action === 'dev_env.job' ? `job ${String(d?.name ?? '')}: ${d?.code === null || d?.code === undefined ? 'no exit code' : `exit ${String(d.code)}`}`
             : a.action.slice('dev_env.'.length)

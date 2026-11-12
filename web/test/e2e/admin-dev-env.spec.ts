@@ -7,9 +7,9 @@ import { reset, signIn } from './helpers'
 
 const putBody = (page: Page) => page.waitForRequest((r) => r.url().endsWith('/api/admin/dev-env') && r.method() === 'PUT').then((r) => r.postDataJSON() as Record<string, unknown>)
 
-test('srt: a team with no projects turns the dev environment on after the warning', async ({ page }) => {
+test('a team with no projects turns the dev environment on after the warning', async ({ page }) => {
   await reset(page)
-  await page.request.post('/__test/dev-env', { data: { srt: true } })
+  await page.request.post('/__test/dev-env', { data: {} })
   await signIn(page)
   await page.goto('/admin/settings')
   const card = page.getByTestId('dev-env-team')
@@ -35,9 +35,9 @@ test('srt: a team with no projects turns the dev environment on after the warnin
   await expect(page.getByTestId('dev-env-team-warning')).toHaveCount(0)
 })
 
-test('srt: who, network, limits and sites; only the changed fields are sent; a limit is cut to the plan', async ({ page }) => {
+test('who, network, limits and sites; only the changed fields are sent; a limit is cut to the plan', async ({ page }) => {
   await reset(page)
-  await page.request.post('/__test/dev-env', { data: { srt: true } })
+  await page.request.post('/__test/dev-env', { data: {} })
   await signIn(page)
   await page.goto('/admin/settings')
   const card = page.getByTestId('dev-env-team')
@@ -58,17 +58,6 @@ test('srt: who, network, limits and sites; only the changed fields are sent; a l
   body = putBody(page)
   await card.getByTestId('dev-env-team-save').click()
   expect(await body).toEqual({ scope: { mode: 'selected', groupIds: [], userIds: [] }, network: 'offline', limits: { memoryMiB: 3072 } })
-})
-
-test('the box runner: only the extra sites; no switch for the team', async ({ page }) => {
-  await reset(page)
-  await page.request.post('/__test/dev-env', { data: {} })
-  await signIn(page)
-  await page.goto('/admin/settings')
-  const card = page.getByTestId('dev-env-team')
-  await expect(card.getByTestId('dev-env-team-sites')).toBeVisible()
-  await expect(card.getByTestId('dev-env-team-enabled')).toHaveCount(0)
-  await expect(card.getByTestId('dev-env-team-network')).toHaveCount(0)
 })
 
 test('a server without the dev environment has no section', async ({ page }) => {

@@ -5856,6 +5856,55 @@ have no dev environment. The `/api/projects/:id/dev-env*` endpoints stay for old
 What only the line had: the project's run list with Stop for other people's runs, the activity, the preview, and on the
 box runner the per-project on/off and the box (stop, restart, processes).
 
+### Dev environment: box runner removed, srt only (chore/remove-box-runner, 2026-11-12)
+
+Owner (pras): "harusnya di hapus box kan kita pindah ke srt total". QA on 2026-11-12 found that the box runner was still
+the default (`MYCEL_DEV_ENV_RUNNER` unset meant the box) and that every kit still had `root/mycel-boxd` (a 0.5.0-beta.1
+VM). The team runs srt since "Dev environment on srt, behind a flag".
+
+- **srt is the only runner.** `MYCEL_DEV_ENV=1` turns the dev environment on; `MYCEL_DEV_ENV_RUNNER` is not read.
+  `install-srt.sh` still writes `MYCEL_DEV_ENV_RUNNER=srt` in its drop-in: `uninstall-srt.sh` and `mycel-ctl update`
+  know the file of srt by that line.
+- **Removed.** `native/cmd/mycel-boxd`, `root/mycel-boxd` in the kit, `server/src/devenv/boxd.ts` and `preview.ts` (the
+  preview gateway needed the box's socket; srt has no preview), the Boxd wire types (`shared/src/dev-env.ts`), the box
+  branches of `tool.ts`, `jobs.ts`, `setting.ts`, `routes/dev-env.ts`, `chat/turn.ts` and the group page, the box
+  scripts of `scripts/dev-env/` and `docs/research/dev-env-test-vm-plan.md`.
+- **API.** `PUT /api/projects/:id/dev-env` (the per-project setting) and `POST /api/projects/:id/dev-env/preview` are
+  gone (404). `POST /api/projects/:id/dev-env/box` is now `POST /api/projects/:id/dev-env/stop` with no body: it stops
+  every run of the project's chats, as the srt branch did. The project response has no `box`, `jobs`, `needsFolder` or
+  `runner`; the team response has no `runner`, and `warningVersion` is always there. Activity kinds are `command`,
+  `files` and `event`. No client used the removed parts ("Dev environment: no line on the project page").
+- **No migration.** Migrations are additive (`min_compatible_reader`), and a drop would stop a downgrade. The tables of
+  the box (`dev_env_jobs`, `dev_env_stops`), the `dev_env.box` event of `dev_env_notices` and the `devEnv.project.<id>`
+  settings rows stay. Nothing writes them; the purge deletes old `dev_env_jobs` and `dev_env_stops` rows after 30 days
+  (also a job row that never ended). An old box notice shows the generic text of its event, with no project, log or
+  link. Warning version 1 (the box's) no longer counts.
+- **Upgrade of a server of the box trial.** `mycel-ctl update` (`retireBoxRunner`) and `install-linux.sh`
+  (`retire_box_runner`) stop and disable `mycel-boxd.service`, end the boxes of `mycel-devbox` (`podman rm -af`: they run
+  in that account's own systemd session, not in the service), unmount the box mounts, delete the unit, delete the team
+  server's `dev-env.conf` when it names `MYCEL_BOXD_SOCK` and not the srt line (the dev environment is then off until
+  `install-srt.sh`), and delete `root/mycel-boxd`. `mycel-ctl update` does not run the new `mycel-ctl`: the first update
+  to this release runs the older one, which has no such step. So the step runs in two places: before the team server
+  restarts on the new version, and when an update finds the server at this version already (`retireNow`, which then
+  restarts the team server without the drop-in). A trial server needs `sudo mycel-ctl update` twice (its update timer is
+  off since the trial); `install-linux.sh update` needs one run. Until the second run the new server runs with
+  `MYCEL_DEV_ENV=1` and no srt: the dev environment says it is not available, and nobody can use it. They do not delete the box state (the account
+  `mycel-devbox`, `<base>/boxd`, `<base>/boxd-storage`, `/var/lib/mycel-boxd`, `/var/lib/mycel-boxd-trial`): box
+  folders were mounts of project folders, and a delete through a mount deletes team files. A note names what stays, and
+  `docs/INSTALL-LINUX.md` "Removed: the box runner" points to `uninstall-trial.sh` of v0.5.0-beta.1, which unmounts
+  first. Every step is a note: the update never fails or waits for it. A server where the trial never ran has no step,
+  except that `root/mycel-boxd` goes (with systemd). A roll-back to an older version after this has no box helper; that version's
+  dev environment says it is not available.
+- **Kept.** The tool name `box_shell` (steps and transcripts name it), the audit action `dev_env.box_stopped` and the
+  notice code `dev_env_box_stopped` (srt's disk stop uses them), the `dev-env.json` plan file and its parser
+  (`srt/plan.ts`, hosted files have `diskGiB`), and `diskGiB` and `idleStopMin` in the limits schema.
+- **QA.** TC-307 (box runner folder isolation) is not needed any more.
+- **Tests.** `tests/unit/dev-env.test.ts` (the parts with no runner, the purge), the login-card, conflict-copy and storage-rule cases
+  moved to `tests/unit/dev-env-srt.test.ts`, `native/cmd/mycel-ctl/update_test.go` (`TestUpdateRetiresBoxRunner`,
+  `TestUpdateKeepsTheSrtDropin`, `TestUpdateWithoutTheBoxTrial`, `TestUpdateRetireFailsIsANote`,
+  `TestUpdateRetiresWhenAlreadyAtTheVersion`, `TestMountsUnder`,
+  `TestInstallScriptRetiresBoxRunner`).
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.
@@ -22978,8 +23027,59 @@ Plan: `docs/AGENTS/plan/20261112-0623-connector-approval-gate.md`.
     `pruneMemberAllows`), so it never comes back on its own when access is given again; the member can also clear
     their own row without access (the route deletes it, then answers "not found").
 - **Signing in again from the chat (TC-127).** connect_service takes `connection`, the id of the person's own
-  connection that needs a new sign-in or key (the AI's list of connections names it), and a call that fills in the
-  address of such a connection gets the same card instead of "already exists". It is the template card with "Sign in
+  connection that needs a new sign-in or key (the AI's list of connections names it); a call that fills in the
+  address of such a connection gets the same card through the address match of #582 (fix/connect-card-trust, one card
+  builder, `reconnectCard`). It is the template card with "Sign in
   again to …" (`reconnect`): the sign-in or key goes to that connection, never a second one, the limit does not
   count it, and "Not now" leaves it. Google apps keep Reconnect on their own page; a member's team connection still
   says an admin fixes it.
+
+## The chat's connect card trusts the app's list (fix/connect-card-trust, 2026-11-12, QA TC-135, bugs 2, 4, 5)
+
+Adds to "Connecting a service from a chat". Before, the card showed whatever name and address the AI put in
+`connect_service`: QA got "Sign in to Notion" for `notion-mcp.example.com`, with only the small address line to tell.
+- **One list of known services**, `shared/src/service-catalog.ts` (moved from `web/src/lib/connectors.ts`, which adds
+  the logos): each service's name and official MCP address; all sign in with OAuth. The server and the web read it.
+- **A known service is that service only at its official address** (review of #582; owner decision 2026-11-12:
+  self-hosted and regional editions are allowed, safely). In the tool handler (the server builds the card, and the
+  connect endpoint saves only what the card held):
+  - Exactly the official address (`officialService`: https, host and path; no query, port or user) under any name:
+    the list's name, kind and sign-in. A listed name at the official host with another path or no address: the
+    official address, and the tool result's `note` says the AI's address was not used.
+  - A listed name at any other address (a self-hosted GitLab, a regional edition, a made-up `notion-mcp.example.com`):
+    not refused and not rewritten. It is an unknown service at the address given, and the card's name is the address's
+    host ("Sign in to gitlab.acme.com"), so it never reads as the listed service. The connection is saved under that name.
+  - Names are compared by how they look (`nameSkeleton`: NFKD, accents dropped, Cyrillic/Greek look-alike letters and
+    0/1 made Latin), with Korean and Japanese names of popular services (노션, 피그마, 리니어, 지라, ノーション …), so
+    "Nоtion" with a Cyrillic о, "Notíon" and "노션" count as Notion. A name holding a listed one among other words
+    ("Acme GitLab") counts too, except for services named by an ordinary word (Square, Linear, Monday, Neon, Sanity,
+    Railway, Resend, Indeed, Stripe, Sentry, Postman, Intercom, Mermaid): those match only their exact name, so
+    "Square Feet API" stays its own name.
+- **The card says how far it can vouch** (`web/src/lib/connectCard.ts cardTrust`): "Official {name} address" only for
+  exactly the official address; any other address of a card that is not a template or a reconnect gets a warning box
+  with the host in bold ("This app does not know this address …"), and is named by its host when its name is (or looks
+  like) a listed service's. The own-key dialog says "{host} is {name}'s official address" by the same exact rule. An
+  admin's template and a reconnect card keep their address and name (the team's or the person's choice) and the old
+  host caution.
+- **A connection is named only to someone who may use it** (review of #582). A team request (`scope: 'team'`) from a
+  member is refused before anything is looked up. A personal request sees only the team connections the caller may
+  use. An admin's team request that finds a working team connection the admin may not use is told it exists, without
+  its name and without "its tools are yours".
+- **A service the person already uses is not connected twice** (bug 2). Before a template or a new connection, the
+  connections this person uses for the same service (the same address: their own, one
+  made from a template, a team one they may use) are checked: a working one gets "already connected" and no card;
+  their own that needs a sign-in or a key gets a card for that connection (`reconnect: true` on the request): another
+  sign-in or key goes to it, "Not now" never removes it, and the AI is told it is "still not working" if it does not
+  work after. A team one that does not work: no card, an admin fixes it (as before).
+- **Words** (bug 5): a template you sign in to says "Connect your own {name} account" and "You sign in with your own
+  account" (no "key"); the own-key dialog says "{host} is {name}'s official address" for a listed address, and
+  "Signing in lets {host} use your {name} account. Sign in only if {host} really belongs to {name}." otherwise (no
+  "sign-in token").
+- Not changed: the phone app still says "Sign in from a computer" for services other than Google (TC-137; what it
+  would take, a new native purpose and a store release, is in the plan `docs/AGENTS/plan/20261112-0622-connect-card-trust.md`).
+- Tests: `tests/unit/connect-service.test.ts` (a listed, look-alike or Korean name at a made-up or self-hosted
+  address, the official address under another name, an ordinary-word name, a member's and an outside admin's team
+  request next to a team connection for other people, own connection with a template at the same address, working
+  team connection),
+  `web/test/unit/connect-card.test.tsx`, `web/test/unit/connectors.test.ts`.
+- Version impact: **patch** (a security fix and words; one optional field on the card request, no data change).

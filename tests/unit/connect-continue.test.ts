@@ -69,32 +69,32 @@ describe('the same answer goes on after a connect', () => {
   test('connected on the card: the answer resumes with the new tool and uses it; one message, one turn', async () => {
     const url = `${svc.base}/mcp-open?c=1`
     // before the card the tool is not the answer's (the old rule); after it, the same answer calls it
-    const t = await send('alice', { tool: 'my_notion__search_tasks', args: { q: 'launch' } }, ...connect('Notion', url, [
+    const t = await send('alice', { tool: 'my_nota__search_tasks', args: { q: 'launch' } }, ...connect('Nota', url, [
       { say: 'CONTINUED ' }, { echo: 'message' }, { say: ' | ' },
-      { tool: 'my_notion__search_tasks', args: { q: 'launch' }, sayLength: true },
+      { tool: 'my_nota__search_tasks', args: { q: 'launch' }, sayLength: true },
     ]))
     const card = await cardOf(t.turnId)
-    expect(card).toMatchObject({ kind: 'connect_service', name: 'Notion' })
+    expect(card).toMatchObject({ kind: 'connect_service', name: 'Nota' })
     const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })
     expect(r.body).toMatchObject({ state: 'connected', status: 'connected' })
     const m = await doneOf(t.messageId)
     // the connect result tells the AI the answer goes on (Claude: end this step)
-    expect(resultOf(m.content)).toMatchObject({ connected: true, name: 'Notion', next: CONNECTED_NEXT.step })
+    expect(resultOf(m.content)).toMatchObject({ connected: true, name: 'Nota', next: CONNECTED_NEXT.step })
     expect(resultOf(m.content).tools).toContain('search_tasks')
     // then the same answer went on: the server's note (not the person's question again), and the new tool worked
     const after = m.content.slice(m.content.indexOf('CONTINUED '))
     expect(after).toContain(CONTINUE_NOTE_START)
-    expect(after).toContain('"Notion" is connected now')
-    expect(after).toContain('my_notion__search_tasks')
+    expect(after).toContain('"Nota" is connected now')
+    expect(after).toContain('my_nota__search_tasks')
     expect(after).toMatch(/length=\d+/)
     const ev = events(t.turnId)
-    expect(ev.map((e) => [e.tool, e.ok])).toEqual([['my_notion__search_tasks', 0], ['connect_service', 1], ['my_notion__search_tasks', 1]])
+    expect(ev.map((e) => [e.tool, e.ok])).toEqual([['my_nota__search_tasks', 0], ['connect_service', 1], ['my_nota__search_tasks', 1]])
     // one question, one answer: nothing was sent again
     expect(userMessages(t.chatId)).toBe(1)
     expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM turns WHERE chat_id = ?').get(t.chatId)).toEqual({ n: 1 })
     expect(h.ctx.db.query('SELECT status FROM turns WHERE id = ?').get(t.turnId)).toEqual({ status: 'done' })
     // the steps of both parts are on the one answer
-    expect(m.steps.filter((s) => s.tool === 'my_notion__search_tasks').map((s) => s.status)).toEqual(['error', 'ok'])
+    expect(m.steps.filter((s) => s.tool === 'my_nota__search_tasks').map((s) => s.status)).toEqual(['error', 'ok'])
   })
 
   test('"not now" on the card: no continuation, the answer ends as before', async () => {

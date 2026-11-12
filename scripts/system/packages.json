@@ -2,15 +2,14 @@
   "format": 1,
   "_about": [
     "The system packages and downloaded programs of every install path: the hosted image (scripts/image/customize.sh),",
-    "a self-hosted Linux server (scripts/install-linux.sh), the dev environment (scripts/dev-env/srt/install-srt.sh,",
-    "scripts/dev-env/install-trial.sh) and an office Mac (scripts/office/office-install.sh). A feature that needs a system",
+    "a self-hosted Linux server (scripts/install-linux.sh), the dev environment (scripts/dev-env/srt/install-srt.sh)",
+    "and an office Mac (scripts/office/office-install.sh). A feature that needs a system",
     "package or a program adds it here, never to one script (docs/REPOSITORY-RULES.md). Read by scripts/system/packages.sh;",
     "checked by tests/unit/system-packages.test.ts. Shipped in every Linux bundle as root/packages.json, a Linux copy",
     "without the darwin platforms (packages.ts linuxList), so a change of what a Linux server reads is a root change",
     "(rootSince) and mycel-ctl update brings a server to it (packages.sh sync); a Mac-only change is not.",
     "groups.<g>.install: always = every install, also --minimal; default = every install unless --minimal, and the image;",
-    "on-request = only a script that names the group (image: customize.sh; srt: install-srt.sh and the image; boxes:",
-    "install-trial.sh).",
+    "on-request = only a script that names the group (image: customize.sh; srt: install-srt.sh and the image).",
     "Package versions: the distribution release is pinned (distros; the installers accept no other), each package may",
     "carry a floor \">=V\" that is checked after the install (dpkg --compare-versions), and the newest version of that",
     "release is installed, security updates included. A package value is \">=V\", \"\" (any version) or",
@@ -156,24 +155,6 @@
       "for": "the dev environment on srt (install-srt.sh, the image with --srt): node in /opt/trina/node, srt in /opt/trina/srt/<version>",
       "artifacts": ["node", "srt"]
     },
-    "boxes": {
-      "install": "on-request",
-      "for": "the dev environment trial on podman boxes (scripts/dev-env/install-trial.sh)",
-      "packages": {
-        "podman": "",
-        "crun": "",
-        "passt": "",
-        "uidmap": "",
-        "nftables": "",
-        "conntrack": "",
-        "dbus-user-session": "",
-        "systemd-container": "",
-        "python3": "",
-        "xfsprogs": "",
-        "util-linux": "",
-        "iproute2": ""
-      }
-    },
     "docker": {
       "install": "on-request",
       "for": "the Docker image (docker/Dockerfile, with the always groups): ps for mycel-ctl supervise, useradd, python3",
@@ -181,17 +162,6 @@
         "procps": "",
         "passwd": "",
         "python3": ""
-      }
-    },
-    "test-vm": {
-      "install": "on-request",
-      "for": "the dev environment's test VM (scripts/dev-env/vm-setup.sh, with the boxes group): vm-tests.sh measures with time and bc",
-      "packages": {
-        "curl": "",
-        "jq": "",
-        "ca-certificates": "",
-        "time": "",
-        "bc": ""
       }
     }
   },

@@ -1,9 +1,8 @@
 // "Dev environment" in Team settings (EXPERIMENT, docs/research/srt-dev-env.md 3.2): the team setting devEnv.team
-// (GET and PUT /api/admin/dev-env). Hidden when the feature flag is off (Me.server.devEnv) or the API answers 404. On the srt runner the
+// (GET and PUT /api/admin/dev-env). Hidden when the feature flag is off (Me.server.devEnv) or the API answers 404. The
 // setting is the whole team's: on or off, who may use it, network, limits per run, extra sites, and the warning to accept
 // when it is turned on. This is the one place in the app for it: the project page has no dev environment line since
-// 2026-11-08. On the box runner each project has its own setting (PUT /api/projects/:id/dev-env, no screen any more),
-// so only the extra sites are here. Its own Save: the page's Save sends the other team settings to another endpoint.
+// 2026-11-08. Its own Save: the page's Save sends the other team settings to another endpoint.
 import { TerminalSquare } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { DevEnvTeamResponse, Group } from '@mycel/shared/api'
@@ -47,7 +46,6 @@ function DevEnvTeamForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   if (hidden || !r || !d) return null
-  const srt = r.runner === 'srt'
   const warn = needsWarning(r, d)
   const body = teamBody(r, d, accept)
   const dirty = Object.keys(body).some((k) => k !== 'acceptWarning')
@@ -66,44 +64,40 @@ function DevEnvTeamForm() {
   const planOffline = !!r.plan && r.plan.network !== 'open'
   return (
     <Card id="dev-env" title={<span className="inline-flex items-center gap-2"><TerminalSquare size={16} aria-hidden /> {t('devEnv.title')} <Badge tone="warn">{t('devEnv.experiment')}</Badge></span>}
-      desc={t(srt ? 'devEnvTeam.desc' : 'devEnvTeam.descBox')}>
+      desc={t('devEnvTeam.desc')}>
       {/* disabled while a save runs: the form takes the saved setting from the answer, which would erase an edit made
           before the answer came */}
-      <fieldset disabled={busy} className="m-0 min-w-0 space-y-4 border-0 p-0 text-sm" data-testid="dev-env-team" data-on={srt && r.setting.enabled ? 'true' : 'false'}>
+      <fieldset disabled={busy} className="m-0 min-w-0 space-y-4 border-0 p-0 text-sm" data-testid="dev-env-team" data-on={r.setting.enabled ? 'true' : 'false'}>
         {r.availability && !r.availability.available && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs" data-testid="dev-env-team-unavailable">{t('devEnv.unavailable')}</p>}
-        {srt && (
-          <>
-            <Switch checked={d.enabled} onChange={(v) => setD({ ...d, enabled: v })} label={t('devEnvTeam.turnOn')} testId="dev-env-team-enabled" />
-            <fieldset className="space-y-1">
-              <legend className="mb-1 font-medium">{t('devEnv.who')}</legend>
-              <label className="flex items-center gap-2"><input type="radio" name="dev-env-team-scope" checked={d.mode === 'writers'} onChange={() => setD({ ...d, mode: 'writers' })} /> {t('devEnv.scopeEveryoneSrt')}</label>
-              <label className="flex items-center gap-2"><input type="radio" name="dev-env-team-scope" checked={d.mode === 'selected'} onChange={() => setD({ ...d, mode: 'selected' })} data-testid="dev-env-team-selected" /> {t('devEnv.scopeSelectedSrt')}</label>
-              {d.mode === 'selected' && (
-                <div className="ml-6 space-y-1">
-                  <GroupChecks groups={groups} value={d.groupIds} onChange={(v) => setD({ ...d, groupIds: v })} />
-                  {d.userIds.length > 0 && <p className="text-xs text-faint">{t('devEnvTeam.people', { n: d.userIds.length })}</p>}
-                </div>
-              )}
-            </fieldset>
-            <Field label={t('devEnv.network')} hint={planOffline ? t('devEnvTeam.planOffline') : undefined}>
-              <select className={inputCls} value={d.network} onChange={(e) => setD({ ...d, network: e.target.value as 'open' | 'offline' })} data-testid="dev-env-team-network">
-                <option value="open">{t('devEnv.netAllowlist')}</option>
-                <option value="offline">{t('devEnv.netOffline')}</option>
-              </select>
-            </Field>
-            <fieldset>
-              <legend className="mb-1 font-medium">{t('devEnvTeam.limits')}</legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {limit('cpus', t('devEnvTeam.cpus'), 0.25)}
-                {limit('memoryMiB', t('devEnvTeam.memory'), 256)}
-                {limit('pids', t('devEnvTeam.pids'), 64)}
-                {limit('idleStopMin', t('devEnvTeam.idle'), 5)}
-              </div>
-              {r.plan && <p className="mt-1 text-xs text-faint" data-testid="dev-env-team-plan">{t('devEnvTeam.planCaps', { cpus: r.plan.cpus, memory: r.plan.memoryMiB, pids: r.plan.pids, running: r.plan.maxRunning })}</p>}
-              <p className="mt-1 text-xs text-faint">{t('devEnvTeam.stopNote')}</p>
-            </fieldset>
-          </>
-        )}
+        <Switch checked={d.enabled} onChange={(v) => setD({ ...d, enabled: v })} label={t('devEnvTeam.turnOn')} testId="dev-env-team-enabled" />
+        <fieldset className="space-y-1">
+          <legend className="mb-1 font-medium">{t('devEnv.who')}</legend>
+          <label className="flex items-center gap-2"><input type="radio" name="dev-env-team-scope" checked={d.mode === 'writers'} onChange={() => setD({ ...d, mode: 'writers' })} /> {t('devEnv.scopeEveryoneSrt')}</label>
+          <label className="flex items-center gap-2"><input type="radio" name="dev-env-team-scope" checked={d.mode === 'selected'} onChange={() => setD({ ...d, mode: 'selected' })} data-testid="dev-env-team-selected" /> {t('devEnv.scopeSelectedSrt')}</label>
+          {d.mode === 'selected' && (
+            <div className="ml-6 space-y-1">
+              <GroupChecks groups={groups} value={d.groupIds} onChange={(v) => setD({ ...d, groupIds: v })} />
+              {d.userIds.length > 0 && <p className="text-xs text-faint">{t('devEnvTeam.people', { n: d.userIds.length })}</p>}
+            </div>
+          )}
+        </fieldset>
+        <Field label={t('devEnv.network')} hint={planOffline ? t('devEnvTeam.planOffline') : undefined}>
+          <select className={inputCls} value={d.network} onChange={(e) => setD({ ...d, network: e.target.value as 'open' | 'offline' })} data-testid="dev-env-team-network">
+            <option value="open">{t('devEnv.netAllowlist')}</option>
+            <option value="offline">{t('devEnv.netOffline')}</option>
+          </select>
+        </Field>
+        <fieldset>
+          <legend className="mb-1 font-medium">{t('devEnvTeam.limits')}</legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {limit('cpus', t('devEnvTeam.cpus'), 0.25)}
+            {limit('memoryMiB', t('devEnvTeam.memory'), 256)}
+            {limit('pids', t('devEnvTeam.pids'), 64)}
+            {limit('idleStopMin', t('devEnvTeam.idle'), 5)}
+          </div>
+          {r.plan && <p className="mt-1 text-xs text-faint" data-testid="dev-env-team-plan">{t('devEnvTeam.planCaps', { cpus: r.plan.cpus, memory: r.plan.memoryMiB, pids: r.plan.pids, running: r.plan.maxRunning })}</p>}
+          <p className="mt-1 text-xs text-faint">{t('devEnvTeam.stopNote')}</p>
+        </fieldset>
         <Field label={t('devEnvTeam.sites')} hint={t('devEnvTeam.sitesHint', { n: r.defaultDomains.length })}>
           <textarea className={inputCls + ' min-h-24 font-mono'} spellCheck={false} value={d.sites} placeholder="api.example.com" onChange={(e) => setD({ ...d, sites: e.target.value })} data-testid="dev-env-team-sites" />
         </Field>

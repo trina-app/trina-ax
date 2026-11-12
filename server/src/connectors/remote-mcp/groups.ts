@@ -25,7 +25,7 @@ import { listRows as aiConnectionRows } from '../../credentials/store'
 import { accessOf } from '../../integrations/connections/store'
 import { templateAccess } from '../../integrations/connections/templates'
 import { shareAccess, shareRows } from '../../integrations/google-drive/shares'
-import { devEnvInForce, devEnvRunner, devEnvSetting, settingKey, teamInForce, teamSetting } from '../../devenv/setting'
+import { teamInForce, teamSetting } from '../../devenv/setting'
 import { OAuthError } from './policy'
 import { liveStatuses, statusForAi } from '../../auth/status-messages'
 import { teamTimeZone } from '../../admin/settings'
@@ -166,21 +166,11 @@ function alsoIndex(ctx: AppContext): AlsoIndex {
   // the choice of AI engine: admin/engine-choice.ts
   const choice = memberChoice(ctx)
   const chooses = new Set(choice.mode === 'selected' ? choice.groupIds : [])
-  // the dev environment: devenv/setting.ts (srt: the team setting; the box: each project's)
+  // the dev environment: devenv/setting.ts (the team setting)
   const dev = new Map<string, string[]>()
   const addDev = (groupIds: readonly string[], what: string) => { for (const g of groupIds) dev.set(g, [...(dev.get(g) ?? []), what]) }
-  if (devEnvRunner() === 'srt') {
-    const s = teamSetting(db)
-    if (s.scope.mode === 'selected') addDev(s.scope.groupIds, teamInForce(s) ? 'for the team' : 'for the team (off now)')
-  } else {
-    const prefix = settingKey('')
-    for (const row of db.query("SELECT key FROM settings WHERE key LIKE 'devEnv.project.%'").all() as { key: string }[]) {
-      const projectId = row.key.slice(prefix.length), s = devEnvSetting(db, projectId)
-      if (s.scope.mode !== 'selected') continue
-      const p = db.query('SELECT name FROM projects WHERE id = ?').get(projectId) as { name: string } | null
-      if (p) addDev(s.scope.groupIds, `project ${quote(p.name)}${devEnvInForce(s) ? '' : ' (off now)'}`)
-    }
-  }
+  const devSetting = teamSetting(db)
+  if (devSetting.scope.mode === 'selected') addDev(devSetting.scope.groupIds, teamInForce(devSetting) ? 'for the team' : 'for the team (off now)')
   // the team chat room: rooms/service.ts keeps one per group
   const rooms = new Set((db.query("SELECT group_id FROM rooms WHERE kind = 'team' AND archived_at IS NULL AND group_id IS NOT NULL").all() as { group_id: string }[]).map((r) => r.group_id))
   return (g) => {
