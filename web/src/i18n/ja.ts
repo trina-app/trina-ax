@@ -371,6 +371,7 @@ export const ja: Record<MessageKey, string> = {
   "chat.notFoundManage": "自分がメンバーでないプロジェクトのチャットなら、{projects}でそのプロジェクトを開いて自分をメンバーに追加できます。",
   'chat.queued': "待機中 · 推定待ち順 {n}",
   'chat.queueHint': "処理の進行に応じて順番が変わる場合があります。",
+  'chat.providerBusy': "AIサービスが混み合っています。再試行しています…",
   'chat.thinking': "考え中…",
   'chat.answering': "回答を作成中",
   'chat.answerDone': "回答が完了しました",

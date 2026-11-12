@@ -22,7 +22,7 @@ const REAL = 'sk-ant-oat01-' + 'R'.repeat(40)
 const seen: { headers: Record<string, string>; body: string; path: string }[] = []
 let gate: (() => void) | null = null
 let upstreamAborted = false
-let mode: 'ok' | '401' | '429short' | '429long' | 'slow' = 'ok'
+let mode: 'ok' | '401' | '429short' | '429long' | '529' | 'slow' = 'ok'
 const enc = new TextEncoder()
 const sse = (ev: unknown) => enc.encode(`event: x\ndata: ${JSON.stringify(ev)}\n\n`)
 const upstream = Bun.serve({
@@ -31,6 +31,7 @@ const upstream = Bun.serve({
     const u = new URL(req.url)
     seen.push({ headers: Object.fromEntries(req.headers), body: await req.text(), path: u.pathname + u.search })
     if (mode === '401') return Response.json({ type: 'error', error: { type: 'authentication_error', message: 'invalid bearer token' } }, { status: 401 })
+    if (mode === '529') return Response.json({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, { status: 529 })
     if (mode === '429short') return Response.json({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }, { status: 429, headers: { 'retry-after': '7' } })
     if (mode === '429long') return Response.json({ type: 'error', error: { type: 'rate_limit_error', message: 'limit' } }, { status: 429, headers: { 'retry-after': '3600' } })
     if (mode === 'slow') {
@@ -181,7 +182,26 @@ describe('subscription connection behind the proxy', () => {
     mode = '429short'; events.length = 0
     let r = await call(tok)
     expect(r.status).toBe(429); expect(r.headers.get('retry-after')).toBe('7')
-    expect(events).toEqual([])
+    // the engine tries again by itself; the turn shows "busy" once (QA TC-388), and "over" when an answer comes
+    expect(events).toEqual([{ type: 'busy', on: true }])
+    r = await call(tok)
+    expect(r.status).toBe(429)
+    expect(events.length).toBe(1)
+    mode = 'ok'
+    r = await call(tok)
+    expect(r.status).toBe(200); await r.arrayBuffer()
+    expect(events).toEqual([{ type: 'busy', on: true }, { type: 'busy', on: false }])
+    r = await call(tok); await r.arrayBuffer()
+    expect(events.length).toBe(2) // nothing more while not busy
+    // 529 (overloaded): passed through, the engine retries, the turn shows busy the same way
+    mode = '529'
+    r = await call(tok)
+    expect(r.status).toBe(529); await r.arrayBuffer()
+    expect(events.slice(2)).toEqual([{ type: 'busy', on: true }])
+    mode = 'ok'
+    r = await call(tok); await r.arrayBuffer()
+    expect(events.slice(2)).toEqual([{ type: 'busy', on: true }, { type: 'busy', on: false }])
+    events.length = 0
     mode = '429long'
     r = await call(tok)
     expect(r.status).toBe(403)

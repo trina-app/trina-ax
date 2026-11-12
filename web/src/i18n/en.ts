@@ -386,6 +386,7 @@ export const en: Record<MessageKey, string> = {
   "chat.notFoundManage": "If it's a chat in a project you're not a member of, you can open that project in {projects} and add yourself as a member.",
   "chat.queued": "Waiting · estimated position {n}",
   "chat.queueHint": "The order may change as work progresses.",
+  "chat.providerBusy": "The AI service is busy. Still trying…",
   'chat.thinking': 'Thinking…',
   'chat.answering': 'Writing an answer',
   'chat.answerDone': 'Answer complete',
