@@ -197,6 +197,10 @@ export const ConnectServiceRequest = z.object({
   /** the person already has this connection and it needs a sign-in or a new key: the card is for that one (its address
    * and sign-in), never a second connection; older servers omit it */
   reconnect: z.boolean().optional(),
+  /** the AI named a service in the app's list (or something that looks like it) at an address that is not that service's
+   * official one: the card is titled by the host and says this is not {name}'s official address, which is `url`;
+   * older servers omit it */
+  notOfficial: z.object({ name: z.string(), url: z.string() }).optional(),
   /** the AI's one line on what it is for */
   why: z.string().optional(),
   /** the server's line shown first: why it asks (this chat holds messages from the person's conversations, which the

@@ -2,7 +2,7 @@
 // card is, and what its buttons send to POST /api/turns/:id/connect. A key leaves the card only one way: sealed in
 // this browser for 'integration.secret' (lib/seal.ts) with the team server's sealing key. The plain key is never in a
 // request, the store, a log or an address, and never goes through /answer, whose answers reach the AI.
-import { officialService, posesAsListed, type CatalogService } from '@mycel/shared'
+import { officialService, posesAsListed, trustedServiceName, type CatalogService } from '@mycel/shared'
 import type { TurnConnectResult, TurnRequest } from '@mycel/shared/api'
 import { api, API } from './api'
 import { sealSecret } from './seal'
@@ -56,6 +56,16 @@ export function cardTrust(r: ConnectServiceRequest): CardTrust {
   const display = !r.template && posesAsListed(r.name, r.service.url) ? r.service.host : r.name
   if (r.template || r.reconnect) return { kind: 'template', display }
   return { kind: 'unlisted', display }
+}
+
+/** The listed service a card's name claims at an address that is not that service's official one, and its official host:
+ * from the server (`notOfficial`), or worked out here for an older server's card (never for an admin's template, whose
+ * name is the admin's, nor for the official address itself). */
+export function notOfficialOf(r: ConnectServiceRequest, trust: CardTrust): { name: string; host: string } | null {
+  if (trust.kind === 'official' || trust.kind === 'none' || r.template || !r.service) return null
+  const claim = r.notOfficial ?? trustedServiceName(r.name, r.service.url).claimed
+  if (!claim) return null
+  try { return { name: claim.name, host: new URL(claim.url).host } } catch { return null }
 }
 
 /** a personal connection sends no access; a team one says who may use it */

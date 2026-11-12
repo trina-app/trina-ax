@@ -289,7 +289,8 @@ export function OwnKeyDialog({ src: r, title, intro, submit, onClose, onDecline,
           error={server.writePolicy !== undefined ? server.writePolicy ?? t('integrations.error.field') : null}
           options={(['ask', 'deny'] as const).map((p) => ({ value: p, label: t(`integrations.write.${p}`), desc: t(`integrations.write.${p}.desc`), testId: `integration-answer-write-${p}` }))}
         />
-        <p className="text-xs text-faint">{t('integrations.asked.mineNote')}</p>
+        {/* a key is stored for the person (and the service receives it); a sign-in happens on the service's own page */}
+        <p className="text-xs text-faint" data-testid="integration-answer-mine-note">{key ? t('integrations.asked.mineNote') : t('integrations.asked.mineNoteSignIn', { name: r.name })}</p>
         {error && (
           <p role="alert" className="text-sm text-danger" data-testid="integration-answer-error">
             {error}

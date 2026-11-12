@@ -38,6 +38,9 @@ const advancedFields = (f: IntegrationForm): FormField[] =>
 /** Admin: a connection for the team with one key, or a template each member connects with their own */
 type Who = 'team' | 'template'
 
+/** Who a new team connection or template is for until the admin chooses: the whole team. */
+export const TEAM_DEFAULT_ACCESS: IntegrationAccess = { everyone: true, groups: [], users: [] }
+
 export function IntegrationDialog({ scope, existing, template, connector, startAs, onClose, onSaved, onSavedTemplate }: {
   scope: 'personal' | 'team'
   existing?: Integration
@@ -64,12 +67,11 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
   const [f, setF] = useState<IntegrationForm>(() => {
     if (template) return formFromTemplate(template)
     if (existing) return formFrom(existing)
-    // a template starts with the whole team (it carries no key); one team key starts with only you
-    const blank = emptyForm('mcp', team ? (startAs === 'template' ? { everyone: true, groups: [], users: [] } : { everyone: false, groups: [], users: [me.user.id] }) : null)
+    // a team connection ("For the team") and a template both start with the whole team; the admin may narrow it under
+    // Advanced (QA TC-134 retest: "For the team" with only the admin ticked was not what the button says)
+    const blank = emptyForm('mcp', team ? { ...TEAM_DEFAULT_ACCESS } : null)
     return connector ? { ...blank, name: connector.name, url: connector.url } : blank
   })
-  // the admin picked who it is for: switching between "one team key" and "template" no longer changes it
-  const [accessChosen, setAccessChosen] = useState(false)
   const [touched, setTouched] = useState<Partial<Record<FormField, boolean>>>({})
   const [submitted, setSubmitted] = useState(false)
   const [server, setServer] = useState<Partial<Record<FormField, string | null>>>({})
@@ -293,8 +295,6 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
                     setWho(w)
                     // a template is for a member's own key or sign-in: never "no sign-in"
                     if (w === 'template' && f.method === 'none') change({ method: 'key' }, 'method')
-                    // a template carries no key, so it starts with the whole team; one team key starts with only you
-                    if (!accessChosen) change({ access: w === 'template' ? { everyone: true, groups: [], users: [] } : { everyone: false, groups: [], users: [me.user.id] } }, 'access')
                   }}
                   options={(['team', 'template'] as const).map((w) => ({ value: w, label: t(`integrations.who.${w}`), desc: t(`integrations.who.${w}.desc`), testId: `integration-who-${w}` }))}
                 />
@@ -346,7 +346,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
                 )}
               </div>}
               {team && f.access && (
-                <AccessPicker value={f.access} onChange={(a) => { setAccessChosen(true); change({ access: a }, 'access') }} groups={groups.data ?? []} users={users.data ?? []} me={{ id: me.user.id, groupIds: me.groups.map((g) => g.id) }} error={errorOf('access')} template={asTemplate} />
+                <AccessPicker value={f.access} onChange={(a) => change({ access: a }, 'access')} groups={groups.data ?? []} users={users.data ?? []} me={{ id: me.user.id, groupIds: me.groups.map((g) => g.id) }} error={errorOf('access')} template={asTemplate} />
               )}
             </div>
           </div>

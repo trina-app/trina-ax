@@ -304,7 +304,7 @@ async function auditIntegrations(page: Page, where: string) {
   await audit(page, `admin/integrations, a team connection${where}`)
   await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
-  await (await adv(page, 'integration-access')).getByRole('checkbox', { name: /Olga/ }).uncheck()
+  await (await adv(page, 'integration-access')).getByTestId('integration-access-pick').check()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
   await expect((await adv(page, 'integration-access-not-me'))).toBeVisible()
   await audit(page, `admin integration add${where}`)

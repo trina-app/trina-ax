@@ -703,7 +703,10 @@ export class Integrations {
   }
 
   /** a call's failure -> what the connection's status says */
+  /** A call that was tried and failed (only calls come here): it counts as the last time it was used, so its details say
+   * when it was last tried, never "Not used yet" (QA retest 2026-11-12) */
   private noteFailure(row: Row, e: unknown) {
+    this.db.query('UPDATE integrations SET last_used_at=? WHERE id=?').run(iso(this.now()), row.id)
     const s = statusOf(e)
     if (s) this.setStatus(row, s.status, s.reason)
   }
