@@ -1997,20 +1997,15 @@ export class MockServer {
 
   // ---------------- handlers ----------------
   handlers: Partial<Record<ApiName, Handler>> = {
-    // like server/src/routes/file-list.ts: off clears the counts (the stored lines are deleted); Run now is refused while
-    // off; a run "ends" at the next status read
+    // like server/src/routes/file-list.ts: always on (no switch); Run now is refused only when the host turned it off; a
+    // run "ends" at the next status read
     fileListStatus: () => {
       const s = this.fileList
       if (s.running) this.fileList = { ...s, running: false, listed: s.listed + s.waiting, waiting: 0, lastRun: { ...s.lastRun!, endedAt: new Date().toISOString(), read: s.waiting, stoppedBy: 'done' } }
       return s
     },
-    updateFileList: (c) => {
-      if (c.body.enabled && this.fileList.forcedOff) throw new Fail('conflict', 409, 'forced off', undefined, { reason: 'forced_off' })
-      this.fileList = c.body.enabled ? { ...this.fileList, enabled: true, nextRunAt: new Date(Date.now() + 9 * 3600_000).toISOString() } : { ...this.fileList, enabled: false, running: false, listed: 0, waiting: 0, nextRunAt: null, problem: null }
-      return this.fileList
-    },
     runFileList: () => {
-      if (!this.fileList.enabled || this.fileList.forcedOff) throw new Fail('conflict', 409, 'off', undefined, { reason: this.fileList.forcedOff ? 'forced_off' : 'off' })
+      if (this.fileList.forcedOff) throw new Fail('conflict', 409, 'forced off', undefined, { reason: 'forced_off' })
       this.fileList = { ...this.fileList, running: true, lastRun: { startedAt: new Date().toISOString(), endedAt: null, trigger: 'now', read: 0, stoppedBy: null } }
       return this.fileList
     },

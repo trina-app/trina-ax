@@ -9,7 +9,7 @@
 // run's cap (policy.ts: files and tokens; documents before images, newest first); then read, unit by unit, at most
 // PARALLEL model calls at once, each call holding files of one access unit only (reader.ts, engine-reader.ts). No call
 // starts while a person's chat turn waits or runs. A run stops at the night window's end (05:00 team time), at the cap,
-// on the AI's usage or rate limit or the team's block budget, when the switch goes off or the server stops; the rest
+// on the AI's usage or rate limit or the team's block budget, or when the server stops; the rest
 // waits for the next run. A lease row keeps it to one run at a time, across restarts and processes.
 //
 // When: every night between 02:00 and 05:00 in the team's time zone, at least every 30 hours (the knowledge graph's
@@ -21,7 +21,7 @@ import path from 'node:path'
 import { isFileListName, type FileListStatus, type FileListStop } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
-import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
+import { teamTimeZone } from '../admin/settings'
 import { budgetBlock } from '../admin/budgets'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { visiblePath } from '../policy/authorize'
@@ -32,13 +32,12 @@ import { cleanFields, unknownFields, type Fields } from './format'
 import { prepare, READ_MAX, type Item, type PrepareEnv } from './prepare'
 import { buildBlocks, parseAnswer, ReaderLimit, ReaderUnavailable, type Reader, type ReaderAnswer, type ReaderUsage } from './reader'
 import { ownerId, pickReader, READER_CHAT, type ReaderPick } from './engine-reader'
-import { FORGET_ON_OFF, READ_PERSONAL, RUN_FILES, RUN_TOKENS } from './policy'
+import { READ_PERSONAL, RUN_FILES, RUN_TOKENS } from './policy'
 import { extOf } from './sniff'
 import { Sidecar, type Entry, type Via } from './store'
 import { NOT_LISTED_TOP, Units } from './units'
 import { byListFolder, renderList } from './view'
 
-export const ENABLED_SETTING = 'fileList.enabled'
 /** model calls at once */
 export const PARALLEL = 2
 /** files per call: images (each a page or a photo) and texts; texts also by characters; images also by bytes */
@@ -117,22 +116,11 @@ export class FileList implements VirtualFiles {
   /** Tests: the reader to use. */
   useReader(pick: () => ReaderPick) { this.o.reader = pick }
 
-  // ---------------------------------------------------------------- the switch
-  /** the host turned it off in server.json */
+  // ---------------------------------------------------------------- on or off
+  /** the host turned it off in server.json (the only way off: the team has no switch, docs/DECISIONS.md "File list:
+   * always on") */
   forcedOff(): boolean { return this.ctx.config.fileList?.enabled === false }
-  /** the admin's switch (on unless turned off) */
-  switchedOn(): boolean { return getSetting<boolean>(this.ctx.db, ENABLED_SETTING) ?? true }
-  on(): boolean { return !this.closed && !this.forcedOff() && this.switchedOn() }
-
-  setEnabled(on: boolean) {
-    setSetting(this.ctx.db, ENABLED_SETTING, on)
-    if (!on) {
-      this.run?.abort.abort()
-      // the stored lines go (policy.ts FORGET_ON_OFF); turned on again, the files are read again over the next nights
-      if (FORGET_ON_OFF) this.store.clear()
-      this.sweepSearchCopies()
-    }
-  }
+  on(): boolean { return !this.closed && !this.forcedOff() }
 
   /** The per-search copies of rendered lists (files/search.ts pass 0) that a crash left behind. */
   private sweepSearchCopies() {
@@ -253,13 +241,11 @@ export class FileList implements VirtualFiles {
     else {
       const pick = this.pickReader()
       if (pick.ok) { try { signIn = pick.reader.signIn?.() ?? null } catch (e) { this.ctx.log.warn('file list: sign-in not known', { err: e }) } }
-      if (this.switchedOn()) {
-        if (!pick.ok) problem = pick.problem
-        else if (last?.stoppedBy === 'limit' && c.waiting > 0) problem = 'limited'
-      }
+      if (!pick.ok) problem = pick.problem
+      else if (last?.stoppedBy === 'limit' && c.waiting > 0) problem = 'limited'
     }
     return {
-      enabled: this.switchedOn(), forcedOff: this.forcedOff(), running: !!this.run, listed: c.listed, waiting: c.waiting,
+      enabled: !this.forcedOff(), forcedOff: this.forcedOff(), running: !!this.run, listed: c.listed, waiting: c.waiting,
       lastRun: last ? { startedAt: last.startedAt, endedAt: last.endedAt, trigger: last.trigger, read: last.read, stoppedBy: last.stoppedBy } : null,
       nextRunAt: this.on() ? this.nextRunAt().toISOString() : null, problem, signIn,
     }
@@ -352,8 +338,6 @@ export class FileList implements VirtualFiles {
       return stop
     } finally {
       this.store.endRun(runId, stop)
-      // switched off during the run: what it stored meanwhile goes too
-      if (!this.switchedOn() && FORGET_ON_OFF) this.store.clear()
       const last = this.store.lastRun()
       this.ctx.log.info('file list: run ended', { trigger: st.trigger, stoppedBy: stop, read: last?.read ?? 0, calls: last?.calls ?? 0, inputTokens: last?.inputTokens ?? 0, outputTokens: last?.outputTokens ?? 0, costUsd: last?.costUsd ?? 0 })
     }

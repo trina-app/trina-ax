@@ -1,7 +1,7 @@
 // The file list (docs/DECISIONS.md "File list"; server/src/file-list/): every night the team's AI reads new and
 // changed team files and the server keeps one English line per file, saying what it really is. The AI's file tools
-// show the lines, for the person asking, as a `_FILES.md` in each access folder (not a file on disk). Admins turn it off
-// or on, see a short status and start a run now (Admin › Team settings). Owner: C (server/src/routes/file-list.ts).
+// show the lines, for the person asking, as a `_FILES.md` in each access folder (not a file on disk). It is always on
+// (docs/DECISIONS.md "File list: always on"); admins see a short status and start a run now (Admin › Team settings). Owner: C (server/src/routes/file-list.ts).
 import { z } from 'zod'
 import { endpoint } from './endpoint'
 import { IsoTime } from './common'
@@ -22,7 +22,7 @@ export const FileListProblem = z.enum(['forced_off', 'no_ai', 'no_cheap_model', 
 export type FileListProblem = z.infer<typeof FileListProblem>
 
 /** Why the last run ended: done (nothing left), window (the night's window ended), limit (usage or rate limit), off
- * (switched off), stopped (the server stopped), failed (the AI could not be used) */
+ * (a run of an older build that was switched off, or the host turned it off meanwhile), stopped (the server stopped), failed (the AI could not be used) */
 export const FileListStop = z.enum(['done', 'window', 'limit', 'off', 'stopped', 'failed'])
 export type FileListStop = z.infer<typeof FileListStop>
 
@@ -55,7 +55,8 @@ export type FileListSignIn = z.infer<typeof FileListSignIn>
 
 /** Admin › Team settings › File list. Counts and times only: never a path (personal folders are counted too). */
 export const FileListStatus = z.object({
-  /** the admin's switch (on unless an admin turned it off) */
+  /** it runs: always, unless the host turned it off in server.json (the team has no switch since "File list: always
+   * on"; kept for older clients, it is the opposite of forcedOff) */
   enabled: z.boolean(),
   /** the host turned it off in server.json: the switch cannot turn it on */
   forcedOff: z.boolean(),
@@ -74,10 +75,7 @@ export const FileListStatus = z.object({
 })
 export type FileListStatus = z.infer<typeof FileListStatus>
 
-export const UpdateFileListBody = z.object({ enabled: z.boolean() }).strict()
-
 export const FILE_LIST = {
-  fileListStatus: endpoint({ method: 'GET', path: '/api/admin/file-list', auth: 'admin', owner: 'C', response: FileListStatus, summary: 'The file list: on or off, files listed and waiting, the last and next run, why it cannot run, and whose AI sign-in the runs use.' }),
-  updateFileList: endpoint({ method: 'PATCH', path: '/api/admin/file-list', auth: 'admin', owner: 'C', body: UpdateFileListBody, response: FileListStatus, summary: 'Turn the file list on or off (off stops a run and deletes the stored lines); audited.' }),
+  fileListStatus: endpoint({ method: 'GET', path: '/api/admin/file-list', auth: 'admin', owner: 'C', response: FileListStatus, summary: 'The file list: files listed and waiting, the last and next run, why it cannot run, and whose AI sign-in the runs use.' }),
   runFileList: endpoint({ method: 'POST', path: '/api/admin/file-list/run', auth: 'admin', owner: 'C', status: 202, response: FileListStatus, summary: 'Start a file list run now, in the background (new and changed files only, within the per-run cap); audited.' }),
 } as const

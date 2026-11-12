@@ -1,12 +1,12 @@
-// Admin › Team settings › File list (pages/admin/FileList.tsx; server/src/file-list/): one switch and a short status.
-// What the status says in each case: counts, the last and next run, whose team AI account the runs use (they count
-// against its limit), why it cannot run, and Run now only while on.
+// Admin › Team settings › File list (pages/admin/FileList.tsx; server/src/file-list/): always on, no switch, a short
+// status. What the status says in each case: counts, the last and next run, whose team AI account the runs use (they
+// count against its limit), why it cannot run, and Run now unless the host turned it off.
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ERROR_MESSAGES, type FileListStatus } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
 import { ApiError } from '../../src/lib/api'
-import { FileListStatusLines, FileListToggle, runNowError } from '../../src/pages/admin/FileList'
+import FileListSettings, { FileListStatusLines, runNowError } from '../../src/pages/admin/FileList'
 
 const noop = () => {}
 const status = (o: Partial<FileListStatus> = {}): FileListStatus => ({
@@ -50,31 +50,25 @@ describe('the file list status', () => {
     expect(html).toContain('data-testid="file-list-running"')
     expect(html).not.toContain('data-testid="file-list-run"')
   })
-  test('off, and forced off by the host: no counts and no Run now; the switch shows it, and is locked when forced', () => {
-    const off = lines({ enabled: false, nextRunAt: null })
-    expect(text(off)).toContain('Off. The AI finds files by their names and text only.')
-    expect(off).not.toContain('file-list-run')
-    const forced = lines({ forcedOff: true })
+  test('always on: no switch; only the host turns it off, and then no counts and no Run now', () => {
+    expect(renderToStaticMarkup(<FileListSettings />)).not.toContain('role="switch"')
+    expect(renderToStaticMarkup(<FileListSettings />)).not.toContain('file-list-enabled')
+    // a status from an older server that still says "off" is shown as on: the team has no switch any more
+    expect(lines({ enabled: false })).toContain('data-testid="file-list-run"')
+    const forced = lines({ forcedOff: true, enabled: false })
     expect(text(forced)).toContain('Turned off on this server by its host.')
     expect(forced).not.toContain('file-list-run')
-    expect(renderToStaticMarkup(<FileListToggle d={status()} onData={noop} />)).toContain('checked=""')
-    const locked = renderToStaticMarkup(<FileListToggle d={status({ forcedOff: true })} onData={noop} />)
-    expect(locked).not.toContain('checked=""')
-    expect(locked).toContain('disabled=""')
   })
   test('in Korean, plainly', () => {
     expect(translate('ko', 'fileList.countsWaiting', { listed: '1,240', waiting: '18' })).toBe('목록에 있는 파일 1,240개 · 읽기를 기다리는 파일 18개')
     expect(translate('ko', 'fileList.account.teamBy', { label: 'Team Claude', name: 'Dana' })).toBe('팀 AI 계정 “Team Claude” (Dana 님이 로그인)')
   })
-  test('Run now refused because it is off (a screen from before it was turned off): a plain message, and the status is read again', () => {
+  test('Run now refused because the host turned it off (a screen from before): a plain message, and the status is read again', () => {
     const en: Parameters<typeof runNowError>[2] = (k, p) => translate('en', k, p)
-    const ko: Parameters<typeof runNowError>[2] = (k, p) => translate('ko', k, p)
     const refused = (reason: string) => new ApiError(409, { code: 'conflict', message: ERROR_MESSAGES.conflict.en, params: { reason } })
-    expect(runNowError(refused('off'), 'en', en)).toEqual({ text: 'The file list is turned off. Turn it on in Team settings to run it.', refused: true })
-    expect(runNowError(refused('off'), 'ko', ko)).toEqual({ text: '파일 목록이 꺼져 있어요. 팀 설정에서 켜면 실행할 수 있어요.', refused: true })
     expect(runNowError(refused('forced_off'), 'en', en)).toEqual({ text: 'Turned off on this server by its host.', refused: true })
     // before: the generic "This conflicts with another change"
-    expect(runNowError(refused('off'), 'en', en).text).not.toBe(ERROR_MESSAGES.conflict.en)
+    expect(runNowError(refused('forced_off'), 'en', en).text).not.toBe(ERROR_MESSAGES.conflict.en)
     // any other error keeps its own text and does not read the status again
     expect(runNowError(new Error('boom'), 'en', en)).toEqual({ text: 'boom', refused: false })
   })
