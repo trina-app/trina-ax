@@ -1,6 +1,7 @@
 // The phone's navigation in a real browser at 390×844 (docs/DECISIONS.md "Phone navigation: four tabs"): the app opens on
-// the 트리나 tab, four tabs with one count each where there is one, ☰ (the AI's history) only on Home, ⊕ only on 대화, no
-// top bar on 파일, 알림함 and 관리자 on top of 나, and ‹ that goes back instead of piling up entries, so the phone's own back
+// the 트리나 tab, four tabs with one count each where there is one, ☰ (the AI's history) only on Home, ⊕ only on 대화, + and
+// no ‹ on 프로젝트 (a tab's root; QA TC-255), the team folder's own bar under it, 알림함 and 관리자 on top of 나, and ‹
+// that goes back instead of piling up entries, so the phone's own back
 // (the browser's here) never returns to the chat or room that was just left.
 import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
@@ -21,7 +22,7 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await signIn(page)
   await expect(page).toHaveURL(/\/$/)
   const tabs = page.getByTestId('bottom-tabs')
-  await expect(tabs.getByRole('link')).toHaveText([ai, t['tabs.chats'], t['tabs.files'], t['tabs.me']])
+  await expect(tabs.getByRole('link')).toHaveText([ai, t['tabs.chats'], t['tabs.projects'], t['tabs.me']])
   await expect(page.getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('composer-input')).toBeVisible()
   const bar = page.getByTestId('phone-topbar')
@@ -48,11 +49,18 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await page.getByRole('dialog', { name: t['rooms.newChat'] }).getByRole('button', { name: t['common.close'] }).click()
   await expect(page).toHaveURL(/\/rooms$/)
 
-  // 파일: the page's own header is the bar
-  await page.getByTestId('tab-files').click()
-  await expect(page).toHaveURL(/\/files/)
-  await expect(page.getByRole('heading', { level: 1, name: t['files.title'] })).toBeVisible()
+  // 프로젝트: its name and +, no ‹ (a tab's root); the team folder's own header is the bar, ‹ back to 프로젝트
+  await page.getByTestId('tab-projects').click()
+  await expect(page).toHaveURL(/\/projects$/)
+  await expect(page.getByTestId('topbar-title')).toHaveText(t['projects.title'])
+  await expect(page.getByTestId('project-new')).toBeVisible()
+  await expect(page.getByTestId('topbar-back')).toHaveCount(0)
+  await page.getByTestId('projects-team-folder-row').click()
+  await expect(page).toHaveURL(/\/files$/)
+  await expect(page.getByRole('heading', { level: 1, name: t['files.root'] })).toBeVisible()
   await expect(page.getByTestId('phone-topbar')).toHaveCount(0)
+  await expect(page.getByTestId('files-back-label')).toHaveText(t['projects.title'])
+  await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
 
   // 나: 활동 (Activity) first, 관리자 right below for the owner; 알림 (the settings) stays in its group
   await page.getByTestId('tab-me').click()
@@ -83,7 +91,7 @@ test('the drawer is the AI\'s history: no new chat, Inbox or Admin rows, 44 px r
   await page.getByTestId('menu-open').click()
   const drawer = page.getByRole('dialog', { name: t['sidebar.label'] })
   await expect(drawer).toBeVisible()
-  for (const name of [t['sidebar.search'], t['sidebar.projects'], t['sidebar.scheduled'], t['sidebar.skills'], t['sidebar.trash']]) {
+  for (const name of [t['sidebar.search'], t['sidebar.scheduled'], t['sidebar.skills'], t['sidebar.trash']]) {
     const row = drawer.getByRole(name === t['sidebar.search'] ? 'button' : 'link', { name, exact: true }).first()
     await expect(row).toBeVisible()
     expect(Math.round((await row.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
@@ -92,6 +100,8 @@ test('the drawer is the AI\'s history: no new chat, Inbox or Admin rows, 44 px r
   await expect(drawer.getByTestId('nav-inbox')).toBeHidden()
   await expect(drawer.getByRole('link', { name: t['sidebar.admin'] })).toBeHidden()
   await expect(drawer.getByRole('link', { name: t['sidebar.files'] })).toHaveCount(0)
+  // 프로젝트 is a tab on a phone (QA TC-255): each thing in one place
+  await expect(drawer.getByRole('link', { name: t['sidebar.projects'], exact: true })).toHaveCount(0)
   await expect(drawer.getByRole('link', { name: ai }).first()).toBeVisible()
   if (PRODUCT_NAMED_AFTER_AI) await expect(drawer.getByText(PRODUCT.displayName, { exact: true })).toBeHidden()
 

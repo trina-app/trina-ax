@@ -28,6 +28,8 @@ import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, t
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
+import { useGoBack } from '../lib/back'
+import { useBackLabel } from '../lib/backStack'
 import { folderGeneration } from '../lib/folderRuns'
 import { topFoldersFirst, useFolderName, useFolderWords } from '../lib/folderLabels'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
@@ -103,6 +105,9 @@ export default function Files() {
   const words = useFolderWords()
   /** a folder's own name ("leads", 부서), for the phone's bar and its ‹ */
   const folderName = useFolderName()
+  // the phone's ‹ at the team folder: the 프로젝트 tab's list it is under (lib/screens.ts), or what is under it in its stack
+  const upFromTeamFolder = useGoBack('/projects')
+  const teamFolderBackLabel = useBackLabel('/projects', () => null)
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
@@ -824,11 +829,13 @@ export default function Files() {
     >
       {phone ? (
         // phones: one bar, as on the app's other pages. ‹ goes to the folder above (go(): Back to it, lib/screenHistory.ts),
-        // from the trash to the folder it was opened from; ⊕ only where the folder takes new files
+        // from the trash to the folder it was opened from, from the team folder to 프로젝트 (the tab it is under, QA TC-255:
+        // Back in its stack, named after where it goes); ⊕ only where the folder takes new files. The team folder is
+        // named as its row on the projects list ("팀 폴더")
         <PhonePageBar
-          onBack={view === 'trash' ? () => setView('files') : path ? () => go(parentPath(path)) : undefined}
-          backLabel={view === 'trash' ? (path ? folderName(path) : t('files.title')) : path ? (parentPath(path) ? folderName(parentPath(path)) : t('files.title')) : null}
-          title={view === 'trash' ? t('files.trash') : path ? folderName(path) : t('files.title')}
+          onBack={view === 'trash' ? () => setView('files') : path ? () => go(parentPath(path)) : upFromTeamFolder}
+          backLabel={view === 'trash' ? (path ? folderName(path) : t('files.root')) : path ? (parentPath(path) ? folderName(parentPath(path)) : t('files.root')) : teamFolderBackLabel}
+          title={view === 'trash' ? t('files.trash') : path ? folderName(path) : t('files.root')}
           heading
           action={
             view === 'files' && canAdd && !anyChecked ? (

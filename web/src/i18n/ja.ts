@@ -4075,7 +4075,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.aiWaits": "トリナがあなたの回答を待っています",
   "rooms.newMessage": "新しいメッセージがあります",
   "tabs.chats": "トーク",
-  "tabs.files": "ファイル",
+  "tabs.projects": "プロジェクト",
   "tabs.me": "自分",
   "notifications.roomMessages": "1対1・グループトークのメッセージと自分へのメンション",
   "notifications.event.room.dm": "1対1トークかグループトークに新しいメッセージがあります。",

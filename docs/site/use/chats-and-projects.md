@@ -85,6 +85,8 @@ Start a chat from the project's page, or move a chat in from the chat title's me
 ![A project page: its title and instructions, a box to start a chat in the project, and Instructions and Files on the side](../images/chats/project.webp "A project's page")
 :::
 
+- On a phone, **프로젝트** is a tab at the bottom (트리나 · 대화 · 프로젝트 · 나). It lists your projects, and its last row,
+  **팀 폴더**, opens the team folder and its Trash. A chat you open from a project goes back to that project.
 - There is no member list. Whoever can read the folder sees the project.
 - A folder holds one project. Once it is a project, only an admin moves, renames or deletes the folder.
 - Instructions you did not write all by yourself count as outside content. The AI asks before it remembers anything after reading them.

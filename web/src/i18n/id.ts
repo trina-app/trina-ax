@@ -4119,7 +4119,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.aiWaits": "Trina menunggu jawabanmu",
   "rooms.newMessage": "Ada pesan baru",
   "tabs.chats": "Obrolan",
-  "tabs.files": "File",
+  "tabs.projects": "Proyek",
   "tabs.me": "Saya",
   "notifications.roomMessages": "Pesan di obrolan langsung dan grup, serta saat kamu disebut",
   "notifications.event.room.dm": "Ada pesan baru di obrolan langsung atau grup.",

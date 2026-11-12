@@ -5,8 +5,8 @@
 //   whole rows tappable (44 px). The owner: "이거 UI가 최적이 맞나?", "트리나 히스토리가 드로어에서도 보이고 여기서도
 //   보이네". A computer keeps the box under the greeting and the block under the box.
 // - TC-254 (projects): "1. Projects 2. Open a project 3. Open its files row" → "+" in the bar, no intro or orange button
-//   in the page; one bar with the project name and "···", the name once; the files open within the 트리나 tab's stack
-//   (Back returns to the project).
+//   in the page; one bar with the project name and "···", the name once; the files open within the 프로젝트 tab's stack
+//   (QA TC-255; Back returns to the project).
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -200,7 +200,7 @@ test('TC-253: a computer keeps its Home: the box under the greeting, the block u
 test.describe('TC-254: project screens on a phone', () => {
   test.use(PHONE)
 
-  test('"+" in the bar; one bar "‹ name ···"; the files row opens the files in the 트리나 tab and Back returns to the project', async ({ page }) => {
+  test('"+" in the bar; one bar "‹ name ···"; the files row opens the files in the 프로젝트 tab and Back returns to the project', async ({ page }) => {
     await reset(page)
     await signIn(page)
     const r = await page.request.post('/api/projects', { headers: H, data: { name: 'Launch', scope: 'team', folderPath: 'marketing', instructions: '# Launch\n\nAnswer in **short** bullet points.' } })
@@ -208,9 +208,8 @@ test.describe('TC-254: project screens on a phone', () => {
     for (const title of ['Weekly numbers', 'Launch plan review']) await call(page, 'POST', '/api/chats', { projectId: id, title })
     await call(page, 'POST', '/__test/file', { path: 'marketing/sub/notes.md', text: '# Notes' })
 
-    // 1. Projects: "+" in the bar, no intro paragraph or orange button in the page
-    await page.getByTestId('menu-open').click()
-    await page.locator('[data-drawer]').getByRole('link', { name: t['projects.title'] }).click()
+    // 1. Projects (the 프로젝트 tab, QA TC-255): "+" in the bar, no intro paragraph or orange button in the page
+    await page.getByTestId('tab-projects').click()
     await expect(page).toHaveURL(/\/projects$/)
     const bar = page.getByTestId('phone-page-bar')
     await expect(bar.getByTestId('topbar-title')).toHaveText(t['projects.title'])
@@ -260,13 +259,13 @@ test.describe('TC-254: project screens on a phone', () => {
     await page.keyboard.press('Escape')
     await expect(sheet).toHaveCount(0)
 
-    // 3. Open its files row: a screen of the 트리나 tab (not the Files tab), Back returns to the project
+    // 3. Open its files row: a screen of the 프로젝트 tab (not the team folder), Back returns to the project
     const filesRow = page.getByTestId('project-files-open')
     expect((await filesRow.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     await expect(page.getByRole('link', { name: t['projects.open'], exact: true })).toHaveCount(0)
     await filesRow.click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}/files$`))
-    await expect(page.getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
     await expect(bar.getByTestId('topbar-title')).toHaveText(t['files.title'])
     await expect(bar.getByTestId('topbar-back-label')).toHaveText('Launch')
     const files = page.getByTestId('project-file')
@@ -277,7 +276,7 @@ test.describe('TC-254: project screens on a phone', () => {
     await files.filter({ hasText: 'sub' }).click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}/files\\?dir=sub$`))
     await expect(bar.getByTestId('topbar-title')).toHaveText('sub')
-    await expect(page.getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
     // a file opens in the file sheet over it; Back closes the sheet, not the screen
     await files.filter({ hasText: 'notes.md' }).click()
     await expect(page.getByTestId('file-panel')).toBeVisible()

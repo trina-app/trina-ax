@@ -2,6 +2,7 @@
 // app's engine). The owner on Team folder › Groups › leads: "여기 UI가 모바일 친화적임?". The steps follow the QA row:
 //   1. Files › Team folder › Groups › leads: one bar (‹ to the folder above, the folder's name, ⊕ with New folder /
 //      Upload as a sheet), the search scrolls away, rows "name" + "date · size", "팀 폴더" at most once
+// Since QA TC-255 the team folder is reached by 프로젝트 › 팀 폴더 and named so in its bar, with "‹ 프로젝트".
 //   2. Trash: a place you open from the team folder; folder names in words (not storage paths), a short toast
 //   3. Upload 3 files from ⊕: the finished uploads fold into one line ("3개 올렸어요"); the files are listed in two lines
 // TC-249: a row's ⋯ near the end of a long list is a sheet over the tab bar with 44 px rows, closes on an outside tap
@@ -22,6 +23,12 @@ const row = (page: Page, name: string) => page.getByTestId('file-row').filter({ 
 const open = (page: Page, name: string) => row(page, name).getByRole('button').first().click()
 const title = (page: Page) => page.getByRole('heading', { level: 1 })
 const back = (page: Page) => page.getByTestId('files-back')
+/** 프로젝트 › 팀 폴더 (QA TC-255) */
+async function teamFolder(page: Page) {
+  await page.getByTestId('tab-projects').last().click()
+  await page.getByTestId('projects-team-folder-row').click()
+  await expect(page).toHaveURL(/\/files$/)
+}
 
 async function file(page: Page, path: string, text = 'x') {
   expect((await page.request.post('/__test/file', { headers: H, data: { path, text } })).ok()).toBeTruthy()
@@ -36,11 +43,12 @@ test('step 1: Team folder › Groups › leads: one bar with ‹ and the folder 
   await signIn(page)
   await file(page, 'groups/leads/회사/a.txt')
   for (let i = 1; i <= 20; i++) await file(page, `groups/leads/견적서-${String(i).padStart(2, '0')}.html`, '<p>견적</p>'.repeat(i))
-  await page.getByTestId('tab-files').last().click()
+  await teamFolder(page)
 
-  // the team folder: no ‹, "파일" as the title, no Team folder / Trash pills and no breadcrumbs
-  await expect(title(page)).toHaveText(t['files.title'])
-  await expect(back(page)).toHaveCount(0)
+  // the team folder: "팀 폴더" as the title, ‹ to 프로젝트 (the tab it is under), no Team folder / Trash pills and no
+  // breadcrumbs
+  await expect(title(page)).toHaveText(t['files.root'])
+  await expect(page.getByTestId('files-back-label')).toHaveText(t['projects.title'])
   await expect(page.getByTestId('files-add')).toBeVisible()
   await expect(page.getByRole('tab')).toHaveCount(0)
   await expect(page.getByTestId('crumb')).toHaveCount(0)
@@ -48,7 +56,7 @@ test('step 1: Team folder › Groups › leads: one bar with ‹ and the folder 
 
   await open(page, groups)
   await expect(title(page)).toHaveText(groups)
-  await expect(page.getByTestId('files-back-label')).toHaveText(t['files.title'])
+  await expect(page.getByTestId('files-back-label')).toHaveText(t['files.root'])
   await open(page, 'leads')
   await expect(title(page)).toHaveText('leads')
   // ‹ names where it goes
@@ -97,8 +105,8 @@ test('step 1: Team folder › Groups › leads: one bar with ‹ and the folder 
   await expect(title(page)).toHaveText(groups)
   await expect(page).toHaveURL(/path=groups$/)
   await back(page).click()
-  await expect(title(page)).toHaveText(t['files.title'])
-  await expect(back(page)).toHaveCount(0)
+  await expect(title(page)).toHaveText(t['files.root'])
+  await expect(page.getByTestId('files-back-label')).toHaveText(t['projects.title'])
 })
 
 test('step 2: the trash is a place: folder names in words, a one-line note, a short toast, ‹ back to the team folder', async ({ page }) => {
@@ -106,11 +114,11 @@ test('step 2: the trash is a place: folder names in words, a one-line note, a sh
   await signIn(page)
   await file(page, 'groups/leads/회사/old-quote.txt', 'old')
   expect((await page.request.delete('/api/files?path=groups%2Fleads%2F%ED%9A%8C%EC%82%AC%2Fold-quote.txt', { headers: H })).ok()).toBeTruthy()
-  await page.getByTestId('tab-files').last().click()
+  await teamFolder(page)
   await page.getByTestId('files-open-trash').click()
   await expect(page).toHaveURL(/view=trash/)
   await expect(title(page)).toHaveText(t['files.trash'])
-  await expect(page.getByTestId('files-back-label')).toHaveText(t['files.title'])
+  await expect(page.getByTestId('files-back-label')).toHaveText(t['files.root'])
 
   // the name, then the folder it was in, in words; never the storage path
   const item = page.getByTestId('trash-item').filter({ hasText: 'old-quote.txt' })
@@ -132,29 +140,27 @@ test('step 2: the trash is a place: folder names in words, a one-line note, a sh
   // ‹: the team folder again
   await back(page).click()
   await expect(page).not.toHaveURL(/view=trash/)
-  await expect(title(page)).toHaveText(t['files.title'])
+  await expect(title(page)).toHaveText(t['files.root'])
 })
 
-test('Back from the Trash: Files → the Trash row → Back → the team folder → Back leaves Files (‹ the same)', async ({ page }) => {
+test('Back from the Trash: Files → the Trash row → Back → the team folder → Back leaves Files for 프로젝트 (‹ the same)', async ({ page }) => {
   await reset(page)
   await signIn(page)
   for (const how of ['back', '‹'] as const) {
-    await page.getByTestId('tab-files').last().click()
-    await expect(title(page)).toHaveText(t['files.title'])
+    await teamFolder(page)
+    await expect(title(page)).toHaveText(t['files.root'])
     await page.getByTestId('files-open-trash').click()
     await expect(page).toHaveURL(/\/files\?view=trash$/)
     await expect(title(page)).toHaveText(t['files.trash'])
     if (how === 'back') await page.goBack()
     else await back(page).click()
     await expect(page).toHaveURL(/\/files$/)
-    await expect(title(page)).toHaveText(t['files.title'])
-    // the team folder is the Files tab's first entry: Back leaves Files
-    await page.goBack()
-    await expect(page).not.toHaveURL(/\/files/)
-    if (how === 'back') {
-      await page.goto('/')
-      await expect(page.getByTestId('tab-files').last()).toBeVisible()
-    }
+    await expect(title(page)).toHaveText(t['files.root'])
+    // the team folder is under the projects list, the 프로젝트 tab's first entry: Back (or ‹) leaves Files for it
+    if (how === 'back') await page.goBack()
+    else await back(page).click()
+    await expect(page).toHaveURL(/\/projects$/)
+    await expect(page.getByTestId('tab-projects').last()).toHaveAttribute('aria-current', 'page')
   }
 })
 
