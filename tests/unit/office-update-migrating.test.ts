@@ -98,14 +98,14 @@ describe('waitVersion while the new version updates its database', () => {
 // office.js install (run by office-install.sh --update, and by hand): a real server on 127.0.0.1 that migrates for a
 // while, then answers
 describe('waitHealthy (office.js install)', () => {
-  const port = 19823
   let migrateUntil = 0
   const server = Bun.serve({
-    hostname: '127.0.0.1', port,
+    hostname: '127.0.0.1', port: 0, // a free port, as above
     fetch: () => Date.now() < migrateUntil
       ? Response.json({ ok: false, status: 'migrating', version: '0.3.0' }, { status: 503 })
       : Response.json({ ok: true, version: '0.3.0' }),
   })
+  const port = server.port!
   afterAll(() => server.stop(true))
   const s = { appPort: port }
 
