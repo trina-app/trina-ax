@@ -2,7 +2,7 @@
 // change in what it shows (navigation redesign, docs/AGENTS/plan/20261112-1839-nav-rail.md, phase P0b) so the rail's
 // Trina panel can draw the same list. The caps are the caller's (`caps`): the computer's sidebar passes
 // SIDEBAR_HISTORY_CAPS (beside the rooms: my pins, the five latest or the five latest projects with three rows each,
-// "모두 보기" for the rest), the phone's drawer none (the whole history). What the list holds and why is in
+// "모두 보기" for the rest), the phone's drawer `null` (the whole history). What the list holds and why is in
 // Sidebar.tsx's head comment and docs/DECISIONS.md "Trina history by project", "Pinned chats", "Session markers".
 import clsx from 'clsx'
 import { Check, ChevronRight, ListFilter, Loader2, X } from 'lucide-react'
@@ -113,10 +113,10 @@ export const SIDEBAR_HISTORY_CAPS: HistoryCaps = { pins: PINS_SHOWN, latest: LAT
 
 /**
  * The AI's history as one section: its title (it folds), the filter, and the list. `caps`: beside the rooms (a
- * computer's sidebar) the capped list with "모두 보기"; without, the whole of it (the phone's drawer). `peek` is the
+ * computer's sidebar) the capped list with "모두 보기"; `null`, the whole of it (the phone's drawer). `peek` is the
  * hover quick view of the column it sits in (its scroll hides it).
  */
-export function HistoryList({ caps, onNavigate, peek }: { caps?: HistoryCaps; onNavigate: () => void; peek: ChatPeek }) {
+export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | null; onNavigate: () => void; peek: ChatPeek }) {
   const t = useT()
   const capped = !!caps
   // the whole history opened ("모두 보기"), remembered in this browser like the fold
@@ -180,7 +180,7 @@ export function HistoryList({ caps, onNavigate, peek }: { caps?: HistoryCaps; on
   // the history by project (docs/DECISIONS.md "Trina history by project"): beside the rooms the latest projects, a few
   // rows each; the whole of it in the drawer and in "모두 보기". Without a chat in a project there are no headers: the
   // plain list (by date in the whole history), as before
-  const byProject = useHistoryGroups(full ? filtered : unpinned, full || !caps ? { open: openChat } : { projects: caps.projects, rows: caps.rows, open: openChat })
+  const byProject = useHistoryGroups(full ? filtered : unpinned, !caps || full ? { open: openChat } : { projects: caps.projects, rows: caps.rows, open: openChat })
   const grouped = byProject.grouped && (!full || view.group === 'project')
   const dateGroups = useMemo(() => {
     const by = view.group === 'none' ? 'none' : 'date'

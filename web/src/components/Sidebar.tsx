@@ -27,7 +27,8 @@
 // most ten of them above the five latest (or the projects), all of them in "모두 보기" and in the phone's drawer.
 // The pieces are reusable lists in components/nav/ (navigation redesign, docs/AGENTS/plan/20261112-1839-nav-rail.md,
 // phase P0b): MenuRows / PhoneMenuRows, HistoryList (caps as a prop: SIDEBAR_HISTORY_CAPS here), ChatItem, AccountMenu;
-// the rooms are rooms/SidebarRooms.tsx around nav/RoomsList.tsx. This file only places them.
+// the rooms are rooms/SidebarRooms.tsx around nav/RoomsList.tsx. This file places them and keeps what is the column's
+// own: the hover peek (one per column), the scroll's hairline and the phone drawer's status and Deleted history rows.
 import clsx from 'clsx'
 import { Trash2 } from 'lucide-react'
 import { useState } from 'react'
@@ -93,7 +94,7 @@ export default function Sidebar() {
         {wide && <SidebarRooms onNavigate={close} />}
         {/* the owner's way back to the welcome steps (onboarding/SetupRow.tsx): its own row between the sections */}
         <SetupRow onNavigate={close} />
-        <HistoryList caps={wide ? SIDEBAR_HISTORY_CAPS : undefined} onNavigate={close} peek={peek} />
+        <HistoryList caps={wide ? SIDEBAR_HISTORY_CAPS : null} onNavigate={close} peek={peek} />
       </div>
       {peek.card}
       {wide ? (

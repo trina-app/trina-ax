@@ -226,7 +226,7 @@ export const ROW_MENU_SHOWN = 'pointer-fine:group-hover:opacity-0 group-has-[:fo
 export const ROW_MENU_BUTTON = 'opacity-0 pointer-coarse:hidden group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100'
 
 /** `section`: the kind's section it is in under an opened "더 보기" (none in the top rows) */
-export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection }) {
+function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection }) {
   const t = useT()
   const title = useRoomTitle()(room)
   const unread = roomUnread(room)

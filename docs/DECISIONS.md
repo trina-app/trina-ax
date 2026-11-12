@@ -23954,9 +23954,9 @@ approved by the owner 2026-11-13) draws the same lists in new places (the rail's
   `UnreadBadge`, `RoomPinIcon`). `SidebarRooms.tsx` keeps the section around it (title, fold, "+") and re-exports the
   helpers, so no importer changed. `history/HistoryGroups.tsx` (P0a) stays where it is: it was already a list with its
   caps as parameters.
-- **Caps are props:** `HistoryList caps` (`SIDEBAR_HISTORY_CAPS`: 10 pins, 5 latest, 5 projects × 3 rows; none = the whole
-  history, the phone's drawer) and `RoomsList caps` (`SIDEBAR_ROOM_CAPS`: 10 pins, 5 latest). Today's values are the
-  defaults, so nothing on screen changes.
+- **Caps are props:** `HistoryList caps` (required: `SIDEBAR_HISTORY_CAPS`, 10 pins, 5 latest, 5 projects × 3 rows, beside
+  the rooms; `null` = the whole history, the phone's drawer) and `RoomsList caps` (`SIDEBAR_ROOM_CAPS`, 10 pins and 5
+  latest, is its default). The sidebar passes today's values, so nothing on screen changes.
 - Two small structural differences, invisible: the move dialog now renders inside the sidebar's scroll box (it is a
   fixed overlay, so nothing clips it), and after a move the keyboard looks for the moved row inside the history list
   instead of the whole sidebar.

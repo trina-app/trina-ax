@@ -2,7 +2,7 @@
 // of the sidebar with no change in what it shows (sidebar.test.tsx, room-pins.test.tsx and the e2e suites check that,
 // unchanged); here only what is new, that the caps are the caller's:
 // - RoomsList: `caps` sets the pins and the latest rooms before "더 보기 (N)"; without it, the sidebar's ten and five;
-// - HistoryList: `caps` sets the pins and the latest chats before "모두 보기"; without caps, the whole history (the
+// - HistoryList: `caps` sets the pins, the latest chats or projects and rows before "모두 보기"; `null`, the whole history (the
 //   phone's drawer): no "모두 보기", every row.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
@@ -80,7 +80,7 @@ describe('RoomsList', () => {
 })
 
 /** the history with the sidebar's peek, as Sidebar.tsx places it */
-function History({ caps }: { caps?: typeof SIDEBAR_HISTORY_CAPS }) {
+function History({ caps }: { caps: typeof SIDEBAR_HISTORY_CAPS | null }) {
   const peek = useChatPeek()
   return (
     <nav>
@@ -88,7 +88,7 @@ function History({ caps }: { caps?: typeof SIDEBAR_HISTORY_CAPS }) {
     </nav>
   )
 }
-const titles = (m: Awaited<ReturnType<typeof mount>>) => m.get('recents-list').querySelectorAll('a').map((x) => x.textContent)
+const titles = (m: Awaited<ReturnType<typeof mount>>) => m.get('recents-list').querySelectorAll('a').filter((x) => x.getAttribute('href')?.startsWith('/c/')).map((x) => x.textContent)
 
 describe('HistoryList', () => {
   test('caps from the caller: the pins and the latest chats before "모두 보기" (no chat in a project)', async () => {
@@ -103,9 +103,43 @@ describe('HistoryList', () => {
     }
   })
 
-  test('no caps (the phone\'s drawer): every chat, no "모두 보기"', async () => {
+  test('caps with the whole history kept open: every chat and "접기"', async () => {
+    localStorage.setItem('mycel.sidebar.recentsAll', 'yes')
     useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), chatsLoaded: true, chatsCursor: null, requests: {} })
-    const m = await mount(<MemoryRouter initialEntries={['/']}><History /></MemoryRouter>)
+    const m = await mount(<MemoryRouter initialEntries={['/']}><History caps={{ ...SIDEBAR_HISTORY_CAPS, latest: 2 }} /></MemoryRouter>)
+    try {
+      await m.until(() => titles(m).length > 0, 'the rows')
+      expect(titles(m)).toHaveLength(8)
+      expect(m.find('ai-chats-less')).toBeTruthy()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('caps by project from the caller: the projects in sight and the rows of each before "N more"', async () => {
+    const P = (n: number) => `01900000-0000-7000-8000-0000000002${String(n).padStart(2, '0')}`
+    const project = (n: number) => ({ id: P(n), name: `Acme ${n}`, folderPath: `projects/acme-${n}`, instructions: '', createdBy: null, createdAt: '2026-11-01T00:00:00.000Z', canEdit: true })
+    const realFetchHere = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => (String(input).split('?')[0] === '/api/projects' ? json({ items: [project(1), project(2)] }) : json({ error: { code: 'not_found', message: String(input) } }, 404))) as unknown as typeof fetch
+    // Acme 2 has the newest activity, then Acme 1
+    useChats.setState({ chats: [chat(1, { projectId: P(1) }), chat(2, { projectId: P(1) }), chat(3, { projectId: P(2) }), chat(4, { projectId: P(2) }), chat(5)], chatsLoaded: true, chatsCursor: null, requests: {} })
+    const m = await mount(<MemoryRouter initialEntries={['/']}><History caps={{ ...SIDEBAR_HISTORY_CAPS, projects: 1, rows: 1 }} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('history-groups'), 'the groups')
+      const heads = m.container.querySelectorAll('[data-testid="history-group-head"]').map((h) => h.querySelector('h3')?.textContent)
+      expect(heads).toEqual(['Acme 2', ko('history.other')])
+      expect(titles(m)).toEqual(['chat 4', 'chat 5'])
+      expect(m.get('history-group-more').textContent).toBe(ko('history.group.more', { n: 1 }))
+    } finally {
+      await m.unmount()
+      globalThis.fetch = realFetchHere
+    }
+  })
+
+  test('no caps (the phone\'s drawer): every chat, no "모두 보기" and no "접기" even with the whole history kept open', async () => {
+    localStorage.setItem('mycel.sidebar.recentsAll', 'yes')
+    useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), chatsLoaded: true, chatsCursor: null, requests: {} })
+    const m = await mount(<MemoryRouter initialEntries={['/']}><History caps={null} /></MemoryRouter>)
     try {
       await m.until(() => titles(m).length > 0, 'the rows')
       expect(titles(m)).toHaveLength(8)
