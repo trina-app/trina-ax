@@ -13,7 +13,7 @@ import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, typ
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { noteRecent } from '../lib/emoji'
 import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
-import { readDraft, writeDraft } from '../lib/localData'
+import { draftKey, readDraft, writeDraft } from '../lib/localData'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
 import { mergeOpenRequests, useChats } from './chats'
@@ -75,6 +75,9 @@ export interface PendingSend {
   state: 'sending' | 'failed'
   error?: string
   createdAt: string
+  /** kept on this device from an earlier page (the app was closed, the page loaded again) and not confirmed since: it
+   * may have reached the server. Try again is safe (the same client id). */
+  restored?: true
 }
 
 export interface RoomsData {
@@ -369,9 +372,20 @@ export const roomDraftMentions = new Map<string, PickedMention[]>()
 
 // On this device, with the AI chat's drafts (lib/localData.ts: per signed-in person, on the team's own address; signing
 // out, or another person signing in, clears them): each box's draft, and the sends of each room that were on their way
-// or not sent (QA TC-374/375: closing the app or a Reload lost them).
+// or not sent (QA TC-374/375: closing the app or a Reload lost them). Kept 30 days at most, and only for rooms I am
+// still in (pruneRoomDevice). Another tab of the same person shares them (onDeviceChange).
 const draftStoreId = (key: string) => `room:${key}`
 const unsentStoreId = (roomId: string) => `roomUnsent:${roomId}`
+type DeviceStore = Parameters<typeof readDraft>[2]
+/** how long this device keeps a room draft or a send that did not go */
+export const ROOM_DEVICE_DAYS = 30
+const tooOld = (at: number) => !(at > Date.now() - ROOM_DEVICE_DAYS * 86_400_000)
+
+/** the rooms whose kept sends are in this page's store already (restoreUnsent: the first change to the room's sends, or
+ * opening it): until then a change to them adds to what the device kept, never writes over it */
+const restoredUnsent = new Set<string>()
+/** the sends this page saw end (sent, settled, let go, back in the box): never written back from another tab's copy */
+const goneHere = new Set<string>()
 
 const isPicked = (x: unknown): x is PickedMention => {
   const m = x as PickedMention
@@ -383,7 +397,7 @@ export function keepRoomDraft(key: string, s?: Parameters<typeof writeDraft>[3])
   const me = myId()
   if (!me) return
   const text = roomDrafts.get(key) ?? ''
-  writeDraft(me, draftStoreId(key), text ? JSON.stringify({ text, mentions: roomDraftMentions.get(key) ?? [] }) : '', s)
+  writeDraft(me, draftStoreId(key), text ? JSON.stringify({ text, mentions: roomDraftMentions.get(key) ?? [], at: Date.now() }) : '', s)
 }
 
 /** every draft of this page onto this device (before a reload the person asked for: lib/reload-guard.ts) */
@@ -391,43 +405,144 @@ export function keepRoomDrafts(s?: Parameters<typeof writeDraft>[3]) {
   for (const key of roomDrafts.keys()) keepRoomDraft(key, s)
 }
 
+/** a kept draft as it is on the device (null: none, not ours, or too old) */
+function storedDraft(raw: string | null): { text: string; mentions: PickedMention[] } | null {
+  if (!raw) return null
+  try {
+    const v = JSON.parse(raw) as { text?: unknown; mentions?: unknown; at?: unknown }
+    if (typeof v.text !== 'string' || !v.text || typeof v.at !== 'number' || tooOld(v.at)) return null
+    return { text: v.text, mentions: Array.isArray(v.mentions) ? v.mentions.filter(isPicked) : [] }
+  } catch { return null }
+}
+function setDraftHere(key: string, d: { text: string; mentions: PickedMention[] } | null) {
+  if (!d) {
+    roomDrafts.delete(key)
+    roomDraftMentions.delete(key)
+    return
+  }
+  roomDrafts.set(key, d.text)
+  if (d.mentions.length) roomDraftMentions.set(key, d.mentions)
+  else roomDraftMentions.delete(key)
+}
+
 /** A box opens: the draft this device kept for its place (after the app was closed or the page loaded again) is its
  * draft, when this page has none of its own. Once: it is the page's draft from then on. */
-export function restoreRoomDraft(key: string, s?: Parameters<typeof readDraft>[2]) {
+export function restoreRoomDraft(key: string, s?: DeviceStore) {
   const me = myId()
   if (!me || roomDrafts.has(key)) return
-  const raw = readDraft(me, draftStoreId(key), s)
-  if (!raw) return
-  try {
-    const v = JSON.parse(raw) as { text?: unknown; mentions?: unknown }
-    if (typeof v.text !== 'string' || !v.text) return
-    roomDrafts.set(key, v.text)
-    const mentions = Array.isArray(v.mentions) ? v.mentions.filter(isPicked) : []
-    if (mentions.length) roomDraftMentions.set(key, mentions)
-  } catch { /* not ours: left alone */ }
+  const d = storedDraft(readDraft(me, draftStoreId(key), s) || null)
+  if (d) setDraftHere(key, d)
 }
 
 const isPendingSend = (x: unknown): x is PendingSend => {
   const p = x as PendingSend
   return !!p && typeof p === 'object' && typeof p.clientMessageId === 'string' && typeof p.body === 'string' && Array.isArray(p.mentions) && Array.isArray(p.files) && typeof p.createdAt === 'string'
 }
+const byCreated = (a: { createdAt: string }, b: { createdAt: string }) => time(a.createdAt) - time(b.createdAt)
 
-/** this room's sends on their way or not sent onto this device, as they are (none: removed) */
-function keepUnsent(roomId: string, list: PendingSend[] | undefined) {
-  const me = myId()
-  if (me) writeDraft(me, unsentStoreId(roomId), list?.length ? JSON.stringify(list.map(({ state: _s, error: _e, ...p }) => p)) : '')
-}
-
-/** The sends of this room this device kept (on their way or not sent when the page went), each as not sent: Try again
- * sends it with the same client id, so one the server did get comes back as that message, never a second one. */
-export function keptUnsent(roomId: string, s?: Parameters<typeof readDraft>[2]): PendingSend[] {
+/** the kept sends as the device has them, the ones younger than ROOM_DEVICE_DAYS */
+function storedUnsent(roomId: string, s?: DeviceStore): PendingSend[] {
   const me = myId()
   if (!me) return []
   try {
     const v = JSON.parse(readDraft(me, unsentStoreId(roomId), s) || '[]') as unknown
-    if (!Array.isArray(v)) return []
-    return v.filter(isPendingSend).map((p) => ({ ...p, threadRootId: p.threadRootId ?? null, alsoInRoom: !!p.alsoInRoom, state: 'failed' as const }))
+    return Array.isArray(v) ? v.filter(isPendingSend).filter((p) => !tooOld(time(p.createdAt))) : []
   } catch { return [] }
+}
+
+/** This room's sends on their way or not sent onto this device: this page's, and the ones another tab of mine kept that
+ * this page has not seen end (goneHere). None: removed. */
+function keepUnsent(roomId: string, list: PendingSend[] | undefined) {
+  const me = myId()
+  if (!me) return
+  const mine = list ?? []
+  const ids = new Set(mine.map((p) => p.clientMessageId))
+  const others = storedUnsent(roomId).filter((p) => !ids.has(p.clientMessageId) && !goneHere.has(p.clientMessageId))
+  const all = [...mine.map(({ state: _s, error: _e, restored: _r, ...p }) => p), ...others].sort(byCreated)
+  writeDraft(me, unsentStoreId(roomId), all.length ? JSON.stringify(all) : '')
+}
+
+/** The sends of this room this device kept (on their way or not sent when the page went), each as not sent and not
+ * confirmed: Try again sends it with the same client id, so one the server did get comes back as that message, never a
+ * second one. */
+export function keptUnsent(roomId: string, s?: DeviceStore): PendingSend[] {
+  return storedUnsent(roomId, s).map((p) => ({ ...p, threadRootId: p.threadRootId ?? null, alsoInRoom: !!p.alsoInRoom, state: 'failed' as const, restored: true as const }))
+}
+
+/** The room's sends in this page with the kept ones added, the first time this page touches them (once per room). */
+function withKeptUnsent(roomId: string, list: PendingSend[]): PendingSend[] {
+  if (restoredUnsent.has(roomId) || !myId()) return list
+  restoredUnsent.add(roomId)
+  const have = new Set(list.map((p) => p.clientMessageId))
+  const add = keptUnsent(roomId).filter((p) => !have.has(p.clientMessageId) && !goneHere.has(p.clientMessageId))
+  return add.length ? [...list, ...add].sort(byCreated) : list
+}
+
+/** A room I am no longer in: what this device kept for it (its box, its threads' boxes, its sends) goes. */
+function forgetRoomOnDevice(roomId: string, s?: DeviceStore) {
+  const me = myId()
+  if (!me) return
+  writeDraft(me, unsentStoreId(roomId), '', s)
+  pruneRoomDevice((id) => id !== roomId, s)
+}
+
+/** Drop the room drafts and sends this device kept for me that are too old, or of a room `keep` says no to. */
+export function pruneRoomDevice(keep: (roomId: string) => boolean, s: DeviceStore = typeof localStorage === 'undefined' ? null : localStorage) {
+  const me = myId()
+  if (!me || !s) return
+  const head = draftKey(me, '')
+  try {
+    const gone: string[] = []
+    for (let i = 0; i < s.length; i++) {
+      const k = s.key(i)
+      if (!k?.startsWith(head)) continue
+      const id = k.slice(head.length)
+      if (id.startsWith('room:')) {
+        const roomId = id.slice(5).split('/')[0]!
+        if (!keep(roomId) || !storedDraft(s.getItem(k))) gone.push(k)
+      } else if (id.startsWith('roomUnsent:')) {
+        if (!keep(id.slice(11))) gone.push(k)
+      }
+    }
+    for (const k of gone) s.removeItem(k)
+  } catch { /* storage blocked */ }
+}
+
+/** the room drafts another tab of mine changed (by placeKey): each box of the place reads its draft again
+ * (components/rooms/RoomComposer.tsx) */
+const draftWatchers = new Set<(key: string) => void>()
+export function onRoomDraftElsewhere(f: (key: string) => void): () => void {
+  draftWatchers.add(f)
+  return () => draftWatchers.delete(f)
+}
+
+/** Another tab of mine changed what this device keeps (the window's "storage" event): a draft it changed is this page's
+ * draft too; a send of mine it saw end (sent, let go) goes here too, unless this page is sending it now. Nothing is ever
+ * sent from here. */
+export function onDeviceChange(key: string | null, value: string | null) {
+  const me = myId()
+  if (!me || !key) return
+  const head = draftKey(me, '')
+  if (!key.startsWith(head)) return
+  const id = key.slice(head.length)
+  if (id.startsWith('room:')) {
+    const place = id.slice(5)
+    setDraftHere(place, storedDraft(value))
+    for (const f of draftWatchers) f(place)
+    return
+  }
+  if (!id.startsWith('roomUnsent:')) return
+  const roomId = id.slice(11)
+  const list = useRooms.getState().pending[roomId]
+  if (!list || !restoredUnsent.has(roomId)) return
+  let there: Set<string>
+  try {
+    const v = JSON.parse(value || '[]') as unknown
+    there = new Set(Array.isArray(v) ? v.filter(isPendingSend).map((p) => p.clientMessageId) : [])
+  } catch { return }
+  const left = list.filter((p) => p.state === 'sending' || there.has(p.clientMessageId))
+  if (left.length === list.length) return
+  useRooms.setState((s) => ({ pending: left.length ? { ...s.pending, [roomId]: left } : omit(s.pending, roomId) }))
 }
 
 /** read positions already asked for, per room and per thread (placeKey; a scroll fires many times: one request per new
@@ -540,9 +655,10 @@ function closeRun(userId: string | null, turnId: string) {
 }
 
 export const useRooms = create<RoomsState>((set, get) => {
+  // (the first change to a room's sends in this page starts from the ones this device kept: withKeptUnsent)
   const setPending = (roomId: string, f: (list: PendingSend[]) => PendingSend[]) =>
     set((s) => {
-      const list = f(s.pending[roomId] ?? [])
+      const list = f(withKeptUnsent(roomId, s.pending[roomId] ?? []))
       return { pending: list.length ? { ...s.pending, [roomId]: list } : omit(s.pending, roomId) }
     })
 
@@ -580,6 +696,9 @@ export const useRooms = create<RoomsState>((set, get) => {
       try {
         const r = await api.call(API.listRooms)
         set({ rooms: sortRooms(r.items), loaded: true, failed: null, alerts: r.alerts ?? null })
+        // what this device kept for rooms I am no longer in, or for too long, goes
+        const mine = new Set(r.items.map((x) => x.id))
+        pruneRoomDevice((id) => mine.has(id))
       } catch (e) {
         set({ loaded: true, failed: e })
       }
@@ -609,14 +728,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       set({ openRoomId: roomId, timeline: { roomId, messages: [], nextCursor: null, loading: true, error: null } })
       // the sends this device kept for the room come back as not sent, after the newest page: one the server did get
       // (its answer lost when the app closed) is on that page and settles at once (settledPending), not shown failed
+      // (a send before that page came adds them at once: setPending)
       void get().loadNewest(roomId).finally(() => {
-        const kept = keptUnsent(roomId)
-        if (!kept.length || get().openRoomId !== roomId) return
-        setPending(roomId, (list) => {
-          const have = new Set(list.map((p) => p.clientMessageId))
-          const add = kept.filter((p) => !have.has(p.clientMessageId))
-          return add.length ? [...list, ...add].sort((a, b) => time(a.createdAt) - time(b.createdAt)) : list
-        })
+        if (restoredUnsent.has(roomId) || get().openRoomId !== roomId) return
+        setPending(roomId, (list) => list)
         // the ones that settled at once are gone from the device too
         keepUnsent(roomId, get().pending[roomId])
       })
@@ -824,7 +939,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     retry(roomId, clientMessageId) {
       const p = get().pending[roomId]?.find((x) => x.clientMessageId === clientMessageId)
       if (!p || p.state === 'sending') return
-      setPending(roomId, (list) => list.map((x) => (x.clientMessageId === clientMessageId ? { ...x, state: 'sending', error: undefined } : x)))
+      setPending(roomId, (list) => list.map((x) => (x.clientMessageId === clientMessageId ? { ...x, state: 'sending', error: undefined, restored: undefined } : x)))
       // the same client id: a send the server did get before the failure comes back as that message, not a second one
       void post(roomId, { ...p, state: 'sending' })
     },
@@ -934,6 +1049,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         if (get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
         set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
         useSideChats.getState().drop(roomId)
+        forgetRoomOnDevice(roomId)
       } finally {
         setTimeout(() => leaving.delete(roomId), 5000)
       }
@@ -1093,6 +1209,7 @@ export const useRooms = create<RoomsState>((set, get) => {
             const wasOpen = get().openRoomId === roomId
             set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
             useSideChats.getState().drop(roomId)
+            forgetRoomOnDevice(roomId)
             if (wasOpen) {
               if (!leaving.has(roomId)) toast({ level: 'info', text: t('rooms.removed') })
               navigateTo('/rooms')
@@ -1122,6 +1239,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       memberReads.clear()
       roomDrafts.clear()
       roomDraftMentions.clear()
+      restoredUnsent.clear()
+      goneHere.clear()
       useSideChats.getState().reset()
       timelineGen++
       threadGens.clear()
@@ -1136,7 +1255,9 @@ export const useRooms = create<RoomsState>((set, get) => {
 useRooms.subscribe((s, prev) => {
   if (s.timeline === prev.timeline && s.threadViews === prev.threadViews && s.pending === prev.pending) return
   const pending = settledPending(s)
-  if (pending !== s.pending) useRooms.setState({ pending })
+  if (pending === s.pending) return
+  for (const [roomId, list] of Object.entries(s.pending)) for (const p of list) if (!pending[roomId]?.includes(p)) goneHere.add(p.clientMessageId)
+  useRooms.setState({ pending })
 })
 
 // The sends on their way or not sent, kept on this device per room as they change (keptUnsent): closing the app (or a
@@ -1152,6 +1273,16 @@ useRooms.subscribe(() => {
   for (const roomId of new Set([...Object.keys(now), ...Object.keys(before)])) {
     const list = now[roomId]
     if (list === before[roomId]) continue
+    // a room this page has not touched yet (gone from the list: forgetRoomOnDevice; all of them after a reset) keeps
+    // what the device has
+    if (!restoredUnsent.has(roomId)) continue
+    const left = new Set((list ?? []).map((p) => p.clientMessageId))
+    for (const p of before[roomId] ?? []) if (!left.has(p.clientMessageId)) goneHere.add(p.clientMessageId)
     keepUnsent(roomId, list)
   }
 })
+
+// another tab of mine changed what this device keeps
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (e) => onDeviceChange(e.key, e.newValue))
+}

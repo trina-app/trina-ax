@@ -3930,6 +3930,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.tooMany": "{n, plural, one {You can send # file at a time.} other {You can send up to # files at a time.}}",
   "rooms.sending": "Sending…",
   "rooms.sendFailed": "Couldn't send",
+  "rooms.notConfirmed": "Not sure this was sent. Trying again won't send it twice.",
   "rooms.discard": "Discard",
   "rooms.openImage": "Open {name}",
   "rooms.empty": "No messages yet. Send the first one.",

@@ -27,7 +27,7 @@ import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
-import { keepRoomDraft, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
+import { keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
@@ -61,6 +61,10 @@ export const MENTION_ALL_CONFIRM = 10
 
 /** the boxes on screen for each place (placeKey), each with how it reads the place's draft again */
 const boxesOf = new Map<string, Set<() => void>>()
+// another tab of mine changed a place's draft (sent it, typed in it): the boxes of that place here show it too
+onRoomDraftElsewhere((key) => {
+  for (const f of boxesOf.get(key) ?? []) f()
+})
 
 /** `above`: one quiet line over the box (a DM's status line, components/StatusMessage.tsx) */
 export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false, above }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean; above?: ReactNode }) {

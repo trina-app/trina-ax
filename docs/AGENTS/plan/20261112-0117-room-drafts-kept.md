@@ -19,7 +19,8 @@ storage, under the AI chat drafts' per-person prefix (`mycel.draft:<user>:…`, 
 person signing in clear them (TC-373). The box starts from the kept draft when the page has none. Opening a room brings
 the kept sends back as not sent after the newest page is read (one the server already has settles at once); Try again
 uses the same client message id, so the server returns the first message.
-Out: attachments still uploading (not kept, as in the AI chat); an automatic resend on open.
+Out: attachments still uploading (not kept, as in the AI chat); an automatic resend on open; asking the server about a
+kept send older than the newest page (no endpoint by client id: it is shown as "not sure this was sent" instead).
 
 ## Steps
 
@@ -41,3 +42,9 @@ storage. Double send: the same clientMessageId on retry (server dedupe) and sett
 
 Built as planned. One detail: the listener reads the store as it is now, because the settling listener before it may
 have changed the sends inside the same update.
+
+After review (PR #525): the kept list is merged into the page on the first change to a room's sends (or at open), so a
+send before the newest page came no longer wipes it; tabs of the same person share the lists through the `storage`
+event (writes keep the other tab's sends, never rewrite one this page saw end, and drop a failed one the other tab let
+go); a kept send shows "Not sure this was sent. Trying again won't send it twice." (new string in five languages);
+entries older than 30 days and rooms no longer in my list (read with the list, or when I leave) are dropped.
