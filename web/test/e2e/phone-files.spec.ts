@@ -135,6 +135,29 @@ test('step 2: the trash is a place: folder names in words, a one-line note, a sh
   await expect(title(page)).toHaveText(t['files.title'])
 })
 
+test('Back from the Trash: Files → the Trash row → Back → the team folder → Back leaves Files (‹ the same)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  for (const how of ['back', '‹'] as const) {
+    await page.getByTestId('tab-files').last().click()
+    await expect(title(page)).toHaveText(t['files.title'])
+    await page.getByTestId('files-open-trash').click()
+    await expect(page).toHaveURL(/\/files\?view=trash$/)
+    await expect(title(page)).toHaveText(t['files.trash'])
+    if (how === 'back') await page.goBack()
+    else await back(page).click()
+    await expect(page).toHaveURL(/\/files$/)
+    await expect(title(page)).toHaveText(t['files.title'])
+    // the team folder is the Files tab's first entry: Back leaves Files
+    await page.goBack()
+    await expect(page).not.toHaveURL(/\/files/)
+    if (how === 'back') {
+      await page.goto('/')
+      await expect(page.getByTestId('tab-files').last()).toBeVisible()
+    }
+  }
+})
+
 test('step 3: three files uploaded from ⊕ fold into one finished line and are listed in two lines', async ({ page }) => {
   await reset(page)
   await signIn(page)

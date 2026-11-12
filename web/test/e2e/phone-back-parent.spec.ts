@@ -2,7 +2,7 @@
 // in Chromium and WebKit (the iPhone app's engine: its edge swipe is the browser's Back here). The owner: "뒤로가기가 그냥
 // 쌓이는 듯. 다른 폴더 갔다가 뒤로 가기 하면 이전 폴더로 감".
 // - Files: a folder's Back is the folder above it; its bar's ‹ goes back, not forward (phones have no breadcrumbs:
-//   pages/Files.tsx); Team folder ↔ Trash adds nothing (the Trash row at the team folder, ‹ back).
+//   pages/Files.tsx); the Trash is a place under the team folder (its row there): a step down, Back to the team folder.
 // - Tabs: a tap adds no entry, each tab's root is the first entry (Back never walks into another tab), a tab keeps its
 //   own stack, the tab on show goes back to its root.
 // - A chat's project link and the chat again: back, not a ping-pong. 나 › 연결한 서비스 stays in 나 and returns to it.
@@ -34,7 +34,7 @@ async function folders(page: Page) {
   }
 }
 
-test('Files: Back is always the folder above; ‹ goes back; Team folder ↔ Trash adds nothing', async ({ page }) => {
+test('Files: Back is always the folder above; ‹ goes back; the Trash is a step under the team folder', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await folders(page)
@@ -65,13 +65,12 @@ test('Files: Back is always the folder above; ‹ goes back; Team folder ↔ Tra
   await page.goBack()
   await expect(page).toHaveURL(/\/files$/)
   expect(await idx(page)).toBe(0)
-  // Trash (a row at the team folder) and ‹ back: no entry of its own
-  const before = await len(page)
+  // the Trash (a row at the team folder): a step down; its ‹ goes back to the team folder, the tab's first entry
   await page.getByTestId('files-open-trash').click()
   await expect(page).toHaveURL(/view=trash/)
+  expect(await idx(page)).toBe(1)
   await page.getByTestId('files-back').click()
   await expect(page).not.toHaveURL(/view=trash/)
-  expect(await len(page)).toBe(before)
   expect(await idx(page)).toBe(0)
 })
 
