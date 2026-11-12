@@ -44,6 +44,7 @@ const Files = lazy(() => import('./pages/Files'))
 const FileView = lazy(() => import('./pages/FileView'))
 const ProjectList = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectList })))
 const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectHome })))
+const ProjectFiles = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectFiles })))
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
 const Skills = lazy(() => import('./pages/Skills'))
@@ -254,6 +255,7 @@ function Gate() {
           <Route path="files/view" element={<FileView />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
+          <Route path="projects/:projectId/files" element={<ProjectFiles />} />
           <Route path="admin" element={<AdminLayout />} />
           <Route path="admin/:section" element={<AdminLayout />} />
           {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}
