@@ -93,9 +93,8 @@ export function memberPageCases() {
     await signIn(page)
     const { qa, launch } = await twoProjects(page)
     await page.goto('/')
-    // 1. Trina ☰ › Projects
-    await page.getByTestId('menu-open').click()
-    await page.locator('[data-drawer]').getByRole('link', { name: en['projects.title'] }).click()
+    // 1. Projects: the 프로젝트 tab since QA TC-255 (it was Trina ☰ › Projects)
+    await page.getByTestId('tab-projects').click()
     await expect(page).toHaveURL(/\/projects$/)
     const rows = page.getByTestId('project-row')
     await expect(rows).toHaveCount(2)

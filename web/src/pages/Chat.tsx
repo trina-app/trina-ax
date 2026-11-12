@@ -27,6 +27,7 @@ import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuest
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { useBackLink } from '../lib/back'
+import { openHome } from '../lib/screenHistory'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
@@ -392,7 +393,8 @@ function ChatView({ chatId }: { chatId: string }) {
           {shared && <SharedChatMark audience={shared.audience} />}
         </div>
         {isDesktop() && <BrowserToggle />}
-        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => navigate('/')} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
+        {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}
+        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id)} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
           <AiMark />
         </IconButton>
       </div>

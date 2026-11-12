@@ -3,12 +3,18 @@
 // history (lib/screenHistory.ts) keeps each tab's stack as the screen hierarchy with it: Back goes to the parent, an
 // address opened from outside gets its parents put under it, and a folder in Files always has the folder above it under
 // it. docs/DECISIONS.md "Phone navigation: four tabs" (the tabs, lib/tabs.ts), "Admin and Settings on phones: a list you
-// tap into" (lib/backStack.ts).
+// tap into" (lib/backStack.ts); 프로젝트 in place of 파일: QA TC-255.
 //
-// Parents: a page under a tab's ☰ or list → that tab's root (트리나 /, 대화 /rooms, 파일 /files, 나 /settings); one project →
-// /projects; one chat → its project when this window knows it, else /; a room's thread → the room; a folder → the folder
-// above it, a file → its folder, the Trash (a row of the team folder on phones) → the team folder; a Settings section → /settings (the account deletion page → the profile); Activity and
-// Admin → /settings; an Admin page and what is under it: pages/admin/adminScreens.ts; a connector → /connectors.
+// Parents: a page under a tab's ☰ or list → that tab's root (트리나 /, 대화 /rooms, 프로젝트 /projects, 나 /settings); one
+// project → /projects; a project's new chat (/?project=) and its files → the project; the team folder (/files, the
+// 팀 폴더 row at the end of the projects list) → /projects; a folder → the folder above it, a file → its folder, the
+// Trash (a row of the team folder on phones) → the team folder; a room's thread → the room; a Settings section →
+// /settings (the account deletion page → the profile); Activity and Admin → /settings; an Admin page and what is under
+// it: pages/admin/adminScreens.ts; a connector → /connectors.
+// One chat (/c/:id) → / (트리나), always: a chat opened from outside (a link, a notification that loads the page) lands
+// on 트리나 whatever the chat list has loaded by then (its project is not known from the address). A chat opened inside
+// the app stays on the stack it was opened from (a project's page: Back returns to the project): a push keeps the
+// stack's tab (lib/screenHistory.ts).
 import { parsePath } from 'react-router-dom'
 import { useCallback } from 'react'
 import { WELCOME_COUNTED, type WelcomeStep } from '@mycel/shared/api'
@@ -50,16 +56,6 @@ function split(to: string) {
   return { pathname: p.pathname || '/', search: p.search ?? '' }
 }
 
-/** A chat's project as this window knows it (the chats list), else null. */
-function chatProject(id: string): string | null {
-  try {
-    const c = useChats.getState().chats.find((x) => x.id === id)
-    return c?.projectId ?? null
-  } catch {
-    return null
-  }
-}
-
 export function screenOf(to: string): Screen {
   const { pathname, search } = split(to)
   const exact = `${pathname}${search}`
@@ -68,23 +64,23 @@ export function screenOf(to: string): Screen {
   const s = (tab: Tab | null, parent: string | null, id = exact): Screen => ({ tab, parent, id })
   if (pathname === '/') {
     const project = q(search).get('project')
-    // a project's new chat is reached from the project; Home with ?prompt= (from a file's menu) is Home
-    return s('ai', project ? `/projects/${encodeURIComponent(project)}` : null, project ? `/?project=${project}` : '/')
+    // a project's new chat is reached from the project (프로젝트); Home with ?prompt= (from a file's menu) is Home
+    return project ? s('projects', `/projects/${encodeURIComponent(project)}`, `/?project=${project}`) : s('ai', null, '/')
   }
   switch (a) {
-    case 'c': {
-      const project = b ? chatProject(b) : null
-      return s('ai', project ? `/projects/${project}` : '/', pathname)
-    }
+    case 'c':
+      // under 트리나, never looked up in the chat list (see the top of this file)
+      return s('ai', '/', pathname)
     case 'projects':
       // a project's files (pages/Projects.tsx ProjectFiles; ?dir= is a folder in the project's folder): the folder above,
       // then the project
       if (b && c === 'files') {
         const dir = (q(search).get('dir') ?? '').split('/').filter(Boolean).join('/')
         const up = dirOf(dir)
-        return s('ai', dir ? `/projects/${b}/files${up ? `?dir=${encodeURIComponent(up)}` : ''}` : `/projects/${b}`, `project-files:${b}:${dir}`)
+        return s('projects', dir ? `/projects/${b}/files${up ? `?dir=${encodeURIComponent(up)}` : ''}` : `/projects/${b}`, `project-files:${b}:${dir}`)
       }
-      return b ? s('ai', '/projects', pathname) : s('ai', '/', pathname)
+      // the list is 프로젝트's root
+      return b ? s('projects', '/projects', pathname) : s('projects', null, pathname)
     case 'scheduled':
       return b ? s('ai', '/scheduled', pathname) : s('ai', '/')
     case 'skills':
@@ -106,14 +102,15 @@ export function screenOf(to: string): Screen {
       if (b && c === 't' && d) return s('chats', `/rooms/${b}`, pathname)
       return b ? s('chats', '/rooms', pathname) : s('chats', null)
     case 'files': {
+      // the team folder: a screen of 프로젝트, under its list (the 팀 폴더 row at the list's end)
       const path = q(search).get('path') ?? ''
-      if (b === 'view') return { tab: 'files', parent: folder(dirOf(path)), id: `file:${path}`, tree: true }
-      if (b) return s('files', null)
+      if (b === 'view') return { tab: 'projects', parent: folder(dirOf(path)), id: `file:${path}`, tree: true }
+      if (b) return s('projects', '/files')
       // the Trash: a place under the team folder (a row there on phones), so Back from it is the team folder; in the tree,
       // so going into it from a folder goes back to the team folder first, and a folder opened from it goes down from there
-      if (q(search).get('view') === 'trash') return { tab: 'files', parent: '/files', id: 'trash', tree: true }
+      if (q(search).get('view') === 'trash') return { tab: 'projects', parent: '/files', id: 'trash', tree: true }
       // a picked-out row is this folder still
-      return { tab: 'files', parent: path ? folder(dirOf(path)) : null, id: `folder:${path}`, tree: true }
+      return { tab: 'projects', parent: path ? folder(dirOf(path)) : '/projects', id: `folder:${path}`, tree: true }
     }
     case 'settings':
       // a page under a section (the account deletion request is under the profile; 보안 › 비밀번호, 보안 › 기기 under 보안)
@@ -154,7 +151,7 @@ export function chainOf(to: string): string[] {
 /** Are two addresses one screen? */
 export const sameScreen = (x: string, y: string) => screenOf(x).id === screenOf(y).id
 
-/** The tab whose root an address is (its own list: /, /rooms, /files, /settings), else null. */
+/** The tab whose root an address is (its own list: /, /rooms, /projects, /settings), else null. */
 export function rootTab(to: string): Tab | null {
   const sc = screenOf(to)
   return sc.tab && sc.parent === null && sameScreen(TAB_ROOT[sc.tab], to) ? sc.tab : null
@@ -207,7 +204,8 @@ export function useScreenName(): (to: string) => string | null {
       const path = q(search).get('path') ?? ''
       if (seg[1] === 'view') return path.slice(path.lastIndexOf('/') + 1) || null
       if (q(search).get('view') === 'trash') return t('files.trash')
-      return path ? folderName(path) : t('tabs.files')
+      // the team folder by the name of its row on the projects list
+      return path ? folderName(path) : t('files.root')
     }
     if (pathname === '/activity' && activityInChats(search)) return t('feed.chats')
     const settings = settingsPageName(pathname, t)

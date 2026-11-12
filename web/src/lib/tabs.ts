@@ -1,28 +1,30 @@
 // The phone's four tabs (below 768 px; components/BottomTabs.tsx) and where each address belongs: 트리나 (the AI: a new
-// chat on Home, the AI's history behind ☰ there, and the pages that drawer opens), 대화 (rooms, DMs and group chats), 파일
-// and 나 (Settings, with the Inbox and Admin). The app opens on START_TAB: one line to change. docs/DECISIONS.md
-// "Phone navigation: four tabs".
+// chat on Home, the AI's history behind ☰ there, and the pages that drawer opens), 대화 (rooms, DMs and group chats),
+// 프로젝트 (the projects, and the team folder: Files and its Trash, a row at the end of the projects list) and 나
+// (Settings, with the Inbox and Admin). The app opens on START_TAB: one line to change. docs/DECISIONS.md "Phone
+// navigation: four tabs"; 프로젝트 in place of 파일: QA TC-255 (the owner, 2026-11-12, option D).
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
-export type Tab = 'ai' | 'chats' | 'files' | 'me'
+export type Tab = 'ai' | 'chats' | 'projects' | 'me'
 
 /** Where a phone opens (the sign-in landing and the app opened on `/`). 'chats' would open on the 대화 list. */
 export const START_TAB: Tab = 'ai'
 
 /** each tab's own list, where its ‹ falls back to and where the tab bar's button goes */
-export const TAB_ROOT: Record<Tab, string> = { ai: '/', chats: '/rooms', files: '/files', me: '/settings' }
+export const TAB_ROOT: Record<Tab, string> = { ai: '/', chats: '/rooms', projects: '/projects', me: '/settings' }
 
 const under = (path: string, base: string) => path === base || path.startsWith(`${base}/`)
 
-/** the AI tab's pages besides Home and the chats: what the ☰ drawer opens */
-const AI_PAGES = ['/projects', '/scheduled', '/skills', '/connectors', '/trash']
+/** the AI tab's pages besides Home and the chats: what the ☰ drawer opens (`/trash` is the deleted AI chats; the team
+ * folder's Trash is `/files?view=trash`, 프로젝트's) */
+const AI_PAGES = ['/scheduled', '/skills', '/connectors', '/trash']
 
 export function tabOf(path: string): Tab | null {
   if (path === '/' || path.startsWith('/c/') || AI_PAGES.some((p) => under(path, p))) return 'ai'
   if (under(path, '/rooms')) return 'chats'
-  if (under(path, '/files')) return 'files'
+  if (under(path, '/projects') || under(path, '/files')) return 'projects'
   if (under(path, '/settings') || under(path, '/admin') || under(path, '/activity')) return 'me'
   return null
 }

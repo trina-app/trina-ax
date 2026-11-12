@@ -39,6 +39,13 @@ export async function stepping<T>(task: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The history changed under the page without a step (the phone's first entry got its parents put under it:
+ * lib/screenHistory.ts settleOpened): the same "no step on its way" news, so code that follows the history works out
+ * where Back goes again (lib/appNav.ts; lib/backCloses.ts ignores it, no step having started). */
+export function historySettled() {
+  if (!steps) tell(false)
+}
+
 /** `then` once no step of ours is on its way (at once when none is). */
 export function whenStepsDone(then: () => void) {
   if (!steps) then()
