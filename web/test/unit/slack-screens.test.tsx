@@ -21,6 +21,7 @@ let adminQueries: string[] = []
 let saveAnswer: () => Response
 let calls: string[] = []
 let sealingKey: unknown
+let installAnswer: () => Response
 
 const base = (o: Partial<SlackAdmin> = {}): SlackAdmin => ({
   mode: 'own', official: false, enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0,
@@ -49,6 +50,7 @@ beforeEach(() => {
   admin = base()
   me = { available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }
   saveAnswer = () => json(on({ enabled: false, state: 'off' }))
+  installAnswer = () => json({ authorizationUrl: 'https://slack.com/oauth/v2/authorize?client_id=1111111111.2222222222&state=s' })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     const what = `${init?.method ?? 'GET'} ${url.pathname}`
@@ -59,6 +61,7 @@ beforeEach(() => {
     if (what === 'PUT /api/admin/slack/tokens') return saveAnswer()
     if (what === 'POST /api/admin/slack/enabled') return json(on())
     if (what === 'POST /api/slack/signin') return json({ authorizationUrl: 'https://slack.com/openid/connect/authorize?state=s' })
+    if (what === 'POST /api/admin/slack/official/install') return installAnswer()
     if (what === 'GET /api/slack/me') return json(me)
     if (what === 'GET /api/connectors/remote') return json({ configured: false, resource: null, items: [] })
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
@@ -66,7 +69,7 @@ beforeEach(() => {
 })
 afterEach(() => { globalThis.fetch = realFetch })
 
-const page = () => mount(<MemoryRouter><AdminSlack /></MemoryRouter>)
+const page = (at = '/admin/slack') => mount(<MemoryRouter initialEntries={[at]}><AdminSlack /></MemoryRouter>)
 const BOT = 'xoxb-111-222-' + 'b'.repeat(24), APP = 'xapp-1-A0APP-333-' + 'a'.repeat(32)
 const fill = async (m: Awaited<ReturnType<typeof page>>) => {
   await m.type('slack-bot-token', BOT)
@@ -74,6 +77,76 @@ const fill = async (m: Awaited<ReturnType<typeof page>>) => {
   await m.type('slack-client-id', '1234567890.1234567890')
   await m.type('slack-client-secret', 'c'.repeat(32))
 }
+
+describe('Admin › Slack: the official app (the hosting service serves this server)', () => {
+  test('Add to Slack in place of the four steps (also on a phone); it goes to Slack\'s own page', async () => {
+    admin = base({ official: true })
+    const m = await page()
+    await m.until(() => m.find('slack-official'), 'Add to Slack')
+    expect(m.find('slack-setup')).toBeNull()
+    expect(m.get('slack-official').textContent).toContain('Nothing to copy')
+    await m.click('slack-add')
+    await m.until(() => assigned.length > 0, 'went to Slack')
+    expect(calls).toContain('POST /api/admin/slack/official/install')
+    expect(assigned).toEqual(['https://slack.com/oauth/v2/authorize?client_id=1111111111.2222222222&state=s'])
+    await m.unmount()
+  })
+
+  test('a refusal is said by the button; the own app\'s four steps are one link away, and back', async () => {
+    admin = base({ official: true })
+    installAnswer = () => json({ error: { code: 'unavailable', message: 'Could not reach the hosting service. Try again in a moment.', params: { reason: 'broker_unreachable' } } }, 503)
+    const m = await page()
+    await m.until(() => m.find('slack-official'), 'Add to Slack')
+    await m.click('slack-add')
+    const err = await m.until(() => m.find('slack-add-error'), 'the refusal')
+    expect(err.textContent).toContain('hosting service')
+    expect(assigned).toEqual([])
+    await m.click('slack-own-app')
+    await m.until(() => m.find('slack-setup'), 'the steps')
+    expect(m.find('slack-official')).toBeNull()
+    await m.click('slack-use-official')
+    await m.until(() => m.find('slack-official'), 'Add to Slack again')
+    await m.unmount()
+  })
+
+  test('added: the status line with Remove in place of Replace tokens; no https line', async () => {
+    admin = on({ mode: 'official', official: true, redirectUrl: null })
+    const m = await page()
+    await m.until(() => m.find('slack-status'), 'the status line')
+    expect(m.get('slack-status').textContent).toContain('Connected')
+    expect(m.find('slack-replace')).toBeNull()
+    expect(m.find('slack-remove')).not.toBeNull()
+    expect(m.find('slack-https-needed')).toBeNull()
+    expect(m.find('slack-official')).toBeNull()
+    await m.unmount()
+  })
+
+  test('the hosting service\'s problems in plain words; removed in Slack: add it again', async () => {
+    admin = on({ mode: 'official', official: true, state: 'error', lastError: 'broker_unreachable' })
+    let m = await page()
+    expect((await m.until(() => m.find('slack-error'), 'the problem')).textContent).toBe("The server can't reach the hosting service. It reconnects by itself.")
+    await m.unmount()
+    admin = base({ mode: 'official', official: true, enabled: true, lastError: 'removed', workspace: { teamId: 'T0ACME', name: 'Acme', url: null } })
+    m = await page()
+    expect((await m.until(() => m.find('slack-removed'), 'removed')).textContent).toBe('The app was removed from Slack. Add it to Slack again.')
+    expect(m.find('slack-add')).not.toBeNull()
+    await m.unmount()
+  })
+
+  test('how Add to Slack went is said once, from the address', async () => {
+    admin = on({ mode: 'official', official: true })
+    let m = await page('/admin/slack?slack=installed')
+    expect((await m.until(() => m.find('slack-outcome'), 'the outcome')).textContent).toBe('Added to Slack. Invite the app to the channels where people will use it.')
+    await m.unmount()
+    admin = base({ official: true })
+    m = await page('/admin/slack?slack=workspace_taken')
+    expect((await m.until(() => m.find('slack-outcome'), 'the outcome')).textContent).toBe('This Slack workspace is connected to another team. Remove it there first.')
+    await m.unmount()
+    m = await page('/admin/slack?slack=constructor')
+    expect((await m.until(() => m.find('slack-outcome'), 'the outcome')).textContent).toBe('Could not link with the Slack sign-in. Try again in a moment.')
+    await m.unmount()
+  })
+})
 
 describe('Admin › Slack', () => {
   test('not set up: four steps with their Slack pages, no manifest; saving turns it on', async () => {
