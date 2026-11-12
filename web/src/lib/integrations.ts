@@ -442,3 +442,9 @@ export function requestIdFrom(search: string): string | null {
   const id = new URLSearchParams(search).get('request')
   return id && /^[A-Za-z0-9_-]{1,100}$/.test(id) ? id : null
 }
+
+/** A sign-in connection that has never been signed in (or was signed out): nothing is connected yet, so it is listed
+ * as "로그인 필요", not under "연결됨" (QA TC-205). One whose sign-in lapsed keeps its stored sign-in and stays there. */
+export function awaitingFirstSignIn(i: Pick<Integration, 'auth' | 'hasSecret'>): boolean {
+  return i.auth === 'oauth' && !i.hasSecret
+}

@@ -35,6 +35,13 @@ export function readRooms(exec: ReadRoomsExec): boolean {
   return seen
 }
 
+/** A quote line: one that starts with ">" (spaces before it allowed). Its words are someone else's, whoever pasted them
+ * (the person's own "> " too): one rule for this check and the web address gate's typed links (tools/url-gate.ts). No
+ * structured mark exists for a quote ("Ask Trina about this" writes plain Markdown; the thread token is on some only). */
+export const isQuoteLine = (line: string) => /^\s*>/.test(line)
+/** The message without its quote lines: what the person wrote themselves. */
+export const withoutQuoteLines = (text: string) => text.split('\n').filter((line) => !isQuoteLine(line)).join('\n')
+
 /** Does a user message on the branch up to `answerId` hold a line that starts with ">" (spaces before it allowed)? Not
  * a message the server sent for a scheduled run (auto_sent): its text is the task's instruction, approved on its card. */
 export function quotesOnBranch(db: Database, answerId: string): boolean {
@@ -42,5 +49,5 @@ export function quotesOnBranch(db: Database, answerId: string): boolean {
   const rows = db.query(`WITH RECURSIVE up(id, parent_id, role, depth) AS (SELECT id, parent_id, role, 0 FROM messages WHERE id = ?
       UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < ${BRANCH_MAX})
     SELECT m.content content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' AND m.auto_sent = 0 AND instr(m.content, '>') > 0`).all(answerId) as { content: string | null }[]
-  return rows.some((r) => (r.content ?? '').split('\n').some((line) => /^\s*>/.test(line)))
+  return rows.some((r) => (r.content ?? '').split('\n').some(isQuoteLine))
 }

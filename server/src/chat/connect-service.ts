@@ -43,7 +43,8 @@ export function connectRows(db: Database, userId: string, scope: 'personal' | 't
 }
 
 export const CONNECT_TOOL = 'connect_service'
-/** tool names the result lists at most (the AI gets them all as tools from the next message), and each one's length */
+/** tool names the result lists at most (the AI gets them all as tools: in this answer where it goes on, else from the
+ * next message), and each one's length */
 const TOOLS_LISTED = 30
 const TOOL_NAME_MAX = 64
 /** the longest key the card takes (as IntegrationInput.secret) */
@@ -84,10 +85,19 @@ const sameAddress = (a: string, b: string) => a.replace(/\/+$/, '') === b.replac
 const stateOf = (r: Row) => r.status === 'connected' ? 'connected' : r.status === 'needs_auth' ? `needs a sign-in or a new key${r.last_error ? ` (${r.last_error})` : ''}` : `not working${r.last_error ? ` (${r.last_error})` : ''}`
 const accessFor = (a: 'me' | 'everyone', me: string): IntegrationAccess => a === 'everyone' ? { everyone: true, groups: [], users: [] } : { everyone: false, groups: [], users: [me] }
 
-/** the tool result when the card connected it */
-function connectedResult(exec: TurnExec, out: { name: string; status: string; tools?: string[] }): ToolOut {
+/** what happens next after a service was connected on the card, for the AI (TurnExec.noteConnected: owner decision
+ * 2026-11-12, the same answer goes on with the new tools where the engine can) */
+export const CONNECTED_NEXT = {
+  step: 'Its tools are offered to you as soon as you end this step. End your reply here, with no more words or tool calls: this same answer then goes on at once with the new tools, and you continue the person\'s request with them. Never ask the person to send the question again.',
+  round: 'Its tools are yours from your next step in this answer: go on with the person\'s request with them now. Never ask the person to send the question again.',
+  next: 'Its tools are offered from the person\'s next message, not in this answer: say so.',
+} as const
+
+/** the tool result when the card connected it; `drive`: Google Drive, whose tools every turn already has */
+function connectedResult(exec: TurnExec, out: { name: string; status: string; tools?: string[] }, drive = false): ToolOut {
   exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectConnected', exec.spec.locale) }))
-  return { content: json({ connected: true, ...out }), summary: `${CONNECT_TOOL} -> connected` }
+  const next = drive ? null : CONNECTED_NEXT[exec.noteConnected(out.name) ?? 'next']
+  return { content: json({ connected: true, ...out, ...(next ? { next } : {}) }), summary: `${CONNECT_TOOL} -> connected` }
 }
 /** a tool name as the service wrote it, for the AI to read: no control, format or line-separator characters (no hidden
  * text, no direction overrides), at most TOOL_NAME_MAX characters */
@@ -224,7 +234,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   // never "skipped" for a connection that then appears
   if (kept.running) await kept.running.catch(() => {})
   const o = ConnectOutcome.safeParse(answer)
-  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] })
+  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true)
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
   // changed or removed in Connectors or Admin while the card was open: not the connection the card showed, so not "connected"

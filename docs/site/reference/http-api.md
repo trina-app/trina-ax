@@ -91,7 +91,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/memories` | Signed in | Own memories, newest first. |
+| `GET` | `/api/memories` | Signed in | Own memories, newest first, with how many the AI gets now. |
 | `POST` | `/api/memories` | Signed in | Add a memory of one's own (same limits as the AI's remember). |
 | `PATCH` | `/api/memories/:id` | Signed in | Correct the text of one of the own memories. |
 | `DELETE` | `/api/memories/:id` | Signed in | Forget one memory. |
@@ -253,7 +253,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/me/ai-access` | Signed in | Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), and did I already ask. |
+| `GET` | `/api/me/ai-access` | Signed in | Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), did I already ask, and did I already tell an admin that Trina is not ready (within the hour). |
 | `POST` | `/api/me/ai-access/request` | Signed in | Tell the owner(s) and admins I have no AI connection: one inbox notice per owner or admin, a second ask changes nothing. Not for the owner or an admin, nor for someone who can use AI. |
 | `POST` | `/api/me/ai-not-ready/tell` | Signed in | Trina is not ready yet (the AI cannot start): tell the owner(s) and admins with one inbox notice each, at most once an hour per member. Not for the owner or an admin. |
 | `GET` | `/api/admin/credentials` | Admin | AI connections of the team (and that members have their own), with state and this month's use. Never a secret. |

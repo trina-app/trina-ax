@@ -276,7 +276,7 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
         <h4 className="mb-3 text-base font-semibold">{t('connectors.tools')}</h4>
         {tools?.length ? (
           <ul className="flex flex-wrap gap-2" data-testid="connector-tools">
-            {tools.map((x) => <li key={x} className="rounded-full border border-line px-3 py-1 font-mono text-xs">{x}</li>)}
+            {tools.map((x) => <li key={x} className={`rounded-full border border-line px-3 py-1 text-xs${/^[\w.-]+$/.test(x) ? ' font-mono' : ''}`}>{x}</li>)}
           </ul>
         ) : (
           <p className="text-sm text-muted" data-testid="connector-tools-note">{toolsNote ?? t('connectors.toolsAfter')}</p>
@@ -297,7 +297,7 @@ export function InitialTile({ name, className }: { name: string; className?: str
 }
 
 /** What one row of "Your connectors" says on its right: one status or one button, nothing else. */
-export type RowStatus = 'connected' | 'reconnect' | 'attention' | 'connect'
+export type RowStatus = 'connected' | 'signin' | 'reconnect' | 'attention' | 'connect'
 
 /** One row of Connectors' "Your connectors", like Claude's list: logo, name (a small "Team" label for what the team
  * provides) and one status on the right. The row opens the connector's page, where everything else is (switches,
@@ -324,6 +324,8 @@ export function ConnectorRow({ id, logo, name, team, status, onOpen, onConnect, 
         <span className="flex shrink-0 items-center gap-1 text-xs text-muted" data-testid="connector-row-status">
           <Check size={14} className="text-ok" aria-hidden /> {t('drive.status.connected')}
         </span>
+      ) : status === 'signin' ? (
+        <button type="button" className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
       ) : status === 'reconnect' ? (
         <button type="button" className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('drive.reconnect')}: ${name}`} data-testid="connector-row-status">{t('drive.reconnect')}</button>
       ) : status === 'attention' ? (

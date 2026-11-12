@@ -143,7 +143,13 @@ export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: tru
 /** Stream A (onboarding): can I use AI now, and what can I do if not. `requested`: I already asked the owner. `trial`:
  * nothing answers me because the hosting service's trial AI credit (stream B) is used up or over; the line above the
  * composer says that first. */
-export const AiAccessResponse = z.object({ usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean(), trial: z.enum(['used', 'ended']).optional() })
+export const AiAccessResponse = z.object({
+  usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean(), trial: z.enum(['used', 'ended']).optional(),
+  /** "Trina isn't ready yet": this member told the owner(s) and admins within AI_NOT_READY_WINDOW_MS (POST
+   * /api/me/ai-not-ready/tell), so [Tell an admin] reads "Told" after a reload too. The server's own limit record; only
+   * the asker's own; never for the owner or an admin; older servers omit it */
+  notReadyTold: z.boolean().optional(),
+})
 export type AiAccessResponse = z.infer<typeof AiAccessResponse>
 export const AiAccessRequestResponse = z.object({ requested: z.literal(true), already: z.boolean() })
 /** "Trina isn't ready yet" (the AI cannot start, chat error engine_missing): a member told the owner(s) and admins.
@@ -171,7 +177,7 @@ export const TrialCreditResponse = z.object({ credit: TrialCredit.nullable() })
 export type TrialCreditResponse = z.infer<typeof TrialCreditResponse>
 
 export const CREDENTIALS = {
-  getAiAccess: endpoint({ method: 'GET', path: '/api/me/ai-access', auth: 'user', owner: 'A', response: AiAccessResponse, summary: 'Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), and did I already ask.' }),
+  getAiAccess: endpoint({ method: 'GET', path: '/api/me/ai-access', auth: 'user', owner: 'A', response: AiAccessResponse, summary: 'Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), did I already ask, and did I already tell an admin that Trina is not ready (within the hour).' }),
   requestAiAccess: endpoint({ method: 'POST', path: '/api/me/ai-access/request', auth: 'user', owner: 'A', response: AiAccessRequestResponse, summary: 'Tell the owner(s) and admins I have no AI connection: one inbox notice per owner or admin, a second ask changes nothing. Not for the owner or an admin, nor for someone who can use AI.' }),
   tellAiNotReady: endpoint({ method: 'POST', path: '/api/me/ai-not-ready/tell', auth: 'user', owner: 'A', response: AiNotReadyTellResponse, summary: 'Trina is not ready yet (the AI cannot start): tell the owner(s) and admins with one inbox notice each, at most once an hour per member. Not for the owner or an admin.' }),
   listCredentials: endpoint({ method: 'GET', path: '/api/admin/credentials', auth: 'admin', owner: 'A', response: CredentialsResponse, summary: 'AI connections of the team (and that members have their own), with state and this month\'s use. Never a secret.' }),

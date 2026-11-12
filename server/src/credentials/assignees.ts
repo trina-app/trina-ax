@@ -7,9 +7,8 @@
 // for rows older builds left behind.
 import type { Database } from 'bun:sqlite'
 import { audit } from '../admin/audit'
-import { engineStatusCache } from '../admin/engines'
 import type { AppContext } from '../context'
-import { ASSIGNEES_GONE as MARK, credentialsOf, noticeOwners } from './store'
+import { ASSIGNEES_GONE as MARK, connectionsChanged, credentialsOf, noticeOwners } from './store'
 
 /** An assignment whose group or person is gone (the group row deleted; the person deleted, or never there). */
 const DEAD = `((engine_credential_assignments.subject_type = 'group' AND NOT EXISTS (SELECT 1 FROM groups g WHERE g.id = engine_credential_assignments.subject_id))
@@ -48,9 +47,6 @@ export function pruneAssignments(db: Database, actor: string | null, now: string
   return out
 }
 
-/** Open composers ask GET /api/engines again (the same notice as the AI connection routes send). */
-const ENGINES_CHANGED = { type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } } as const
-
 /**
  * After the delete is written: connections it switched off are told to the owner when an admin deleted (as any
  * admin's switch-off is, store.ts noticeOwners), and the engines' state is read again. Never throws.
@@ -61,8 +57,6 @@ export function afterPrune(ctx: AppContext, actor: string, pruned: readonly Prun
   try {
     const cc = credentialsOf(ctx)
     for (const p of off) noticeOwners(cc, actor, 'disabled', p.label)
-    const cache = engineStatusCache(ctx)
-    cache.forget('claude-code'); cache.forget('codex')
-    ctx.services.realtime.publishEach(() => ENGINES_CHANGED)
+    connectionsChanged(cc)
   } catch (e) { ctx.log.warn('could not tell about AI connections switched off by a delete', { err: e }) }
 }

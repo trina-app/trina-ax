@@ -1,54 +1,43 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="72" alt="Trina AX ロゴ">
+<img src="web/public/favicon.svg" width="64" alt="Trina AX ロゴ">
 
-# Trina AX
+<h1>チーム全員で使う AI。</h1>
 
-**チーム全員で使う AI。**
+Trina AX は、チームのファイル、スキル、ツールを1台のサーバーにまとめます。みんなの AI がそこから始まり、<br>AI が開くファイルは、すべて質問した本人の権限でチェックされます。
 
-チームのファイル、スキル、ツールを1台のサーバーに。みんなの AI がそこから始まります。
+<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store からダウンロード"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play で手に入れよう"></a>
 
-[Web サイト](https://ax.trina.app) · [ダウンロード](https://ax.trina.app/download) · [ドキュメント](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
-
-<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store からダウンロード"></a>&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play で手に入れよう"></a>
+[Web サイト](https://ax.trina.app) · [Mac・Windows 版をダウンロード](https://ax.trina.app/download) · [ドキュメント](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 [English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-</div>
-
 <br>
 
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="97秒のストーリーを見る：チームリーダーの Alex は1行の依頼で7ページの提案書を受け取ります。入社初日の Mina が同じことを聞くと、Mina の AI は「Trina Logistics? Who are they?」と答えます。"></a>
+<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="97秒のストーリーを見る。同じ Claude に同じお願いをしても、結果が違います。チームリーダーの Alex は7ページの提案書を受け取り、空のフォルダーで初出社した Mina は「Trina Logistics? Who are they?」と返されます。Trina があれば、Mina の AI もチームのファイルとスキルから始まります。"></a>
 
-<p align="center"><sub>新しく入った人の AI は、空のフォルダーから始まります。Trina は、そこにチームのフォルダーを渡します。</sub></p>
-
-## しくみ
-
-<img src="docs/images/readme/v3/how.png" width="100%" alt="1 ファイルとスキルを入れる：フォルダーごとに誰が開けるかがわかるファイル画面と、Customer quote スキルの4つの手順。2 ツールをつなぐ：Higgsfield、Notion、Linear、GitHub、会社の API は Trina サーバーを通り、人ごとに権限がチェックされます。Higgsfield の写真で作った提案資料。3 チームを招待する：Mina、Alex、Sam がそれぞれの端末から質問します。全員が1台の Trina サーバーに、それぞれの権限でつながります。">
+</div>
 
 ## チームでできること
 
-<img src="docs/images/readme/v3/room.png" width="100%" alt="どのトークの横でも聞けて、ワンクリックで送れる：Expo booth crew トークで、Mina は自分にだけ見えるサイドチャットで Trina に聞き、その回答をトークに送ります。">
+**どのトークの横でも聞けて、ワンクリックで送れる。** 自分にだけ見えるサイドチャットで聞いて、ワンクリックで Trina の回答をトークに送れます。
 
-<p>
-<img src="docs/images/readme/v3/access.png" width="49%" alt="それぞれ、開けるものだけが見える：フォルダーごとに、開ける人の顔が並びます。Mina は shared/Finance を開けません。">
-<img src="docs/images/readme/v3/handoff.png" width="49%" alt="同僚の AI チャットを引き継ぐ：Sam が Mina のプロジェクトチャットを、自分の権限で続けます。">
-</p>
+<img src="docs/images/readme/v3/room.gif" width="100%" alt="Expo booth crew トークで、Mina が自分にだけ見えるサイドチャットで Trina に11月17日の搬入について聞き、ボタンひとつでその回答をトークに送ります。">
 
-<p>
-<img src="docs/images/readme/v3/skills.png" width="32%" alt="チームの仕事のやり方を書いておく：リーダーの Customer quote スキルを、Mina、Sam、Jordan が使います。">
-<img src="docs/images/readme/v3/tools.png" width="32%" alt="いつものツールをつなぐ：どの MCP サーバーでも、Google Drive、Slack、会社の API も。">
-<img src="docs/images/readme/v3/versions.png" width="32%" alt="変更はすべて残る：Alex、Mina、Sam が保存した Price sheet.xlsx のバージョン。AI の回答中に保存されたものも含まれ、復元できます。">
-</p>
+**それぞれ、開けるものだけが見える。** Mina が Finance を開けなければ、Mina の AI も開けません。[権限のしくみ](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-answers.png" width="100%" alt="Alex と Mina が「What was our revenue last quarter?」と聞きます。Finance を開ける Alex には $498,000 と返ります。Mina は開けないので、Mina の AI は、Mina が開けるファイルには売上の数字が見つからなかったと答えます。">
+<img src="docs/images/readme/v3/access-band.png" width="100%" alt="フォルダーごとに、開ける人の顔が並びます。Mina は shared/Finance を開けません。">
 
-AI が開くファイルは、すべて質問した本人の権限でチェックされます。[権限のしくみ](docs/PERMISSIONS.md)
+- 🤝 **同僚の AI チャットを引き継げる。** 同僚のプロジェクトチャットの続きを、自分の権限で進められます。
+- 📋 **チームのスキル。** チームの仕事のやり方を一度書いておけば、みんなの AI がそのとおりに動きます。
+- 🔌 **いつものツール。** どの MCP サーバーでも、Google Drive、Slack、会社の API も。人ごとに権限をチェックします。
+- 🕘 **変更はすべて残る。** 人が変えても、その人の AI が変えても、どのバージョンにも戻せます。
+- 📱 **どの端末でも。** Mac、iPhone、Android、Windows、そしてどのブラウザーからでも。
 
 ## はじめる
 
-- **Trina ホスティング：** サーバーの運用は要りません。14日間の無料トライアルのあと、月額プランになります。[プラン](https://ax.trina.app/#pricing)
-- **アプリ：** Mac、iPhone、Android、Windows、またはどのブラウザーからでも。[ダウンロード](https://ax.trina.app/download)
+- **Trina ホスティング：** サーバーの運用は要りません。14日間の無料トライアルのあと、月額プランになります。[プラン](https://ax.trina.app/pricing)
+- **アプリ：** [Mac、iPhone、Android、Windows](https://ax.trina.app/download)、またはどのブラウザーからでも。
 - **セルフホスト：** 自社の Linux サーバー、Docker、オフィスの Mac で。無料です。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [オフィス Mac](docs/OFFICE.en.md)
 
 <details>

@@ -35,7 +35,7 @@ import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Messa
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { closeImageViewer, closeViewerSheet, getViewerSheet, notePage, openImageViewer, openViewerSheet, showEntry, skipLeftEntry, stepTargets, useImageViewer, useViewerSheet, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { closeImageViewer, closeViewerSheet, getViewerSheet, openImageViewer, openViewerSheet, showEntry, stepTargets, useImageViewer, useViewerSheet, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
 import { fileSeed } from '../lib/sideChatAsk'
 import { openFilePreview } from '../lib/sidePanel'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
@@ -113,20 +113,14 @@ export function useViewerItem(make: ((meta: ViewerMetaValue) => ViewerItem) | nu
 /** Mounted once (App.tsx): the viewer while one is open. A move to another page closes it. */
 export function ImageViewerHost() {
   const open = useImageViewer()
-  const { pathname, key } = useLocation()
+  const { pathname } = useLocation()
   const was = useRef(pathname)
   useEffect(() => {
     if (was.current === pathname) return
     was.current = pathname
-    // a page change (a notice opened meanwhile) left the viewer's history entry already: no going back
-    closeImageViewer(false)
+    // a page change (a notice opened meanwhile) took the viewer's history entry already (lib/backCloses.ts)
+    closeImageViewer()
   }, [pathname])
-  // Back past a viewer's entry left behind by such a page change (lib/imageViewer.ts skipLeftEntry)
-  useEffect(() => notePage(), [key])
-  useEffect(() => {
-    window.addEventListener('popstate', skipLeftEntry)
-    return () => window.removeEventListener('popstate', skipLeftEntry)
-  }, [])
   if (!open || typeof document === 'undefined') return null
   return createPortal(<Viewer open={open} />, document.body)
 }

@@ -1,6 +1,7 @@
 // User-facing error messages per code and language (tab 4: `message` is in the user's language).
 // Handlers may pass their own, more specific message; these are the defaults.
 import { DEFAULT_LOCALE, asLocale, type ApiErrorBody, type ErrorCode, type Locale } from './common'
+import { NAME_FORBIDDEN_FIELD } from '../name-chars'
 
 export const ERROR_MESSAGES: Record<ErrorCode, Record<Locale, string>> = {
   bad_request: { ko: '요청 형식이 올바르지 않아요.', en: 'The request is malformed.', id: 'Format permintaan tidak valid.', ja: "リクエストの形式が正しくありません。", es: "La solicitud tiene un formato incorrecto." },
@@ -56,6 +57,23 @@ const LEGACY_ERROR_MESSAGES: Partial<Record<ErrorCode, readonly string[]>> = {
 export function isDefaultErrorMessage(code: ErrorCode, message: string): boolean {
   const known = ERROR_MESSAGES[code]
   return !!known && (Object.values(known).includes(message) || LEGACY_KO_ERROR_MESSAGES[code] === message || !!LEGACY_ERROR_MESSAGES[code]?.includes(message))
+}
+
+/** Plain words for a field the request schema refused, by its field message (ApiErrorBody.fields): a 'validation' error
+ * whose field has one of these says it in the person's language instead of the default "Please check the input."
+ * (server http/errors.ts HttpError.body). */
+export const FIELD_MESSAGES: Record<string, Record<Locale, string>> = {
+  // ../name-chars.ts NAME_FORBIDDEN_FIELD: a person's or a room's name
+  [NAME_FORBIDDEN_FIELD]: { ko: '이름에는 줄바꿈이나 보이지 않는 문자를 넣을 수 없어요.', en: 'A name cannot have line breaks or invisible characters.', id: 'Nama tidak boleh berisi baris baru atau karakter tak terlihat.', ja: '名前に改行や見えない文字は使えません。', es: 'Un nombre no puede tener saltos de línea ni caracteres invisibles.' },
+}
+
+/** The plain words for a refused field, in `locale`, or null when none of `fields` has them. */
+export function fieldMessage(fields: Record<string, string> | undefined, locale: Locale): string | null {
+  for (const m of Object.values(fields ?? {})) {
+    const known = Object.hasOwn(FIELD_MESSAGES, m) ? FIELD_MESSAGES[m] : undefined
+    if (known) return known[locale] ?? known[DEFAULT_LOCALE]
+  }
+  return null
 }
 
 export function errorMessage(code: ErrorCode, locale: Locale): string {

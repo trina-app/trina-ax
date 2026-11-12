@@ -268,6 +268,23 @@ test('a sign-in address that is not https is never opened', async ({ page }) => 
   }
 })
 
+test('a connection added but never signed in says "로그인 필요" on its line, not "연결됨" (QA TC-205)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const post = (data: object) => page.request.post('/api/integrations', { headers: { [CSRF_HEADER]: '1' }, data })
+  expect((await post({ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth' })).status()).toBe(201)
+  expect((await post({ kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.example/mcp', auth: 'none' })).status()).toBe(201)
+  await page.goto('/connectors')
+  // one line each in Your connectors, each with its one status
+  const line = (name: string) => page.getByTestId('connected-apps').getByTestId('connected-app').filter({ hasText: name })
+  await expect(line('Notion')).toHaveAttribute('data-state', 'signin')
+  await expect(line('Notion').getByTestId('connector-row-status')).toHaveText('로그인 필요')
+  await expect(line('Linear')).toHaveAttribute('data-state', 'connected')
+  // its page says the same
+  await line('Notion').getByTestId('connector-row-status').click()
+  await expect(row(page, 'Notion')).toHaveAttribute('data-status', 'needs_auth')
+})
+
 test('the team turns personal connections off: no adding, and the ones there are marked unused', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)

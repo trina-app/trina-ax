@@ -14,6 +14,7 @@ import { allowedCredentialKinds, anthropicGateway, gatewayModelIds, REPO_ROOT, t
 import { findCodexBin } from '../config'
 import { openRouterKey } from '../credentials/validate'
 import { teamCredentialSummary } from '../credentials/resolve'
+import { credentialsOf } from '../credentials/store'
 import { resolveLayout } from '../system/layout'
 import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
@@ -79,8 +80,8 @@ export const T: Record<string, Record<Locale, string>> = {
   launcherDown: { ko: '실행기(엔진 계정 데몬)가 답하지 않아요.', en: 'The launcher (engine account daemon) does not answer.', id: 'Launcher (daemon akun mesin) tidak menjawab.', ja: "ランチャー（エンジンアカウントのデーモン）が応答しません。", es: "El lanzador (servicio de la cuenta del motor) no responde." },
   companyKey: { ko: '회사 키 모드인데 회사 API 키가 없어요.', en: 'Company-key mode is on but no company API key is stored.', id: 'Mode kunci perusahaan aktif tetapi belum ada kunci API.', ja: "会社キーモードが有効ですが、会社のAPIキーが保存されていません。", es: "El modo de clave de empresa está activo, pero no hay ninguna clave de API de empresa guardada." },
   managedLimited: { ko: 'AI 연결이 사용 한도에 닿았어요. 한도가 풀리면 다시 쓸 수 있어요.', en: 'The AI connections have reached their limit. They work again when the limit ends.', id: 'Koneksi AI mencapai batasnya. Koneksi bisa dipakai lagi saat batas berakhir.', ja: "AI接続が使用上限に達しました。上限が解除されると再び使えます。", es: "Las conexiones de IA alcanzaron su límite. Volverán a funcionar cuando termine el límite." },
-  managedNone: { ko: 'AI 연결이 없어요. 관리자 > 연결 > 제공자에서 추가해 주세요.', en: 'No AI connection. Add one in Admin > Connections > Providers.', id: 'Tidak ada koneksi AI. Tambahkan di Admin > Koneksi > Penyedia.', ja: "AI接続がありません。「管理 > 接続 > プロバイダー」で追加してください。", es: "No hay conexión de IA. Añada una en Administración > Conexiones > Proveedores." },
-  managedNoneDetail: { ko: '이 엔진의 AI 연결을 지금 쓸 수 없어요(거절·만료·한도). 관리자 > 연결 > 제공자를 확인해 주세요.', en: 'This engine\'s AI connections cannot be used now (refused, expired, limit). Check Admin > Connections > Providers.', id: 'Koneksi AI mesin ini tidak bisa dipakai sekarang (ditolak, kedaluwarsa, batas). Periksa Admin > Koneksi > Penyedia.', ja: "このエンジンのAI接続は現在使えません（拒否、期限切れ、上限到達）。「管理 > 接続 > プロバイダー」を確認してください。", es: "Las conexiones de IA de este motor no se pueden usar ahora (rechazadas, vencidas o con límite alcanzado). Revise Administración > Conexiones > Proveedores." },
+  managedNone: { ko: 'AI 연결이 없어요. 관리자 > 연결 > AI 계정에서 추가해 주세요.', en: 'No AI connection. Add one in Admin > Connections > AI accounts.', id: 'Tidak ada koneksi AI. Tambahkan di Admin > Koneksi > Akun AI.', ja: "AI接続がありません。「管理 > 接続 > AIアカウント」で追加してください。", es: "No hay conexión de IA. Añada una en Administración > Conexiones > Cuentas de IA." },
+  managedNoneDetail: { ko: '이 엔진의 AI 연결을 지금 쓸 수 없어요(거절·만료·한도). 관리자 > 연결 > AI 계정를 확인해 주세요.', en: 'This engine\'s AI connections cannot be used now (refused, expired, limit). Check Admin > Connections > AI accounts.', id: 'Koneksi AI mesin ini tidak bisa dipakai sekarang (ditolak, kedaluwarsa, batas). Periksa Admin > Koneksi > Akun AI.', ja: "このエンジンのAI接続は現在使えません（拒否、期限切れ、上限到達）。「管理 > 接続 > AIアカウント」を確認してください。", es: "Las conexiones de IA de este motor no se pueden usar ahora (rechazadas, vencidas o con límite alcanzado). Revise Administración > Conexiones > Cuentas de IA." },
   version: { ko: '아직 검증하지 않은 버전이에요(고정 버전: {pinned}; 잠금 시험을 통과한 버전: {tested}).', en: 'This version has not been tested (pinned: {pinned}; lockdown-tested: {tested}).', id: 'Versi ini belum diuji (versi yang dikunci: {pinned}; lulus uji penguncian: {tested}).', ja: "このバージョンは未検証です（固定：{pinned}、制限テスト済み：{tested}）。", es: "Esta versión no se ha probado (fijada: {pinned}; con restricciones verificadas: {tested})." },
   lockdown: { ko: '이 버전의 엔진 잠금 시험이 실패했어요.', en: 'The engine lockdown test failed for this version.', id: 'Uji penguncian mesin gagal untuk versi ini.', ja: "このバージョンのエンジン制限テストに失敗しました。", es: "Falló la prueba de restricciones del motor para esta versión." },
   error: { ko: '상태를 확인하지 못했어요: {e}', en: 'Could not check the status: {e}', id: 'Tidak dapat memeriksa status: {e}', ja: "状態を確認できませんでした：{e}", es: "No se pudo comprobar el estado: {e}" },
@@ -304,10 +305,15 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
 export class EngineStatusCache {
   private last = new Map<EngineId, { at: number; status: EngineStatus; locale: Locale }>()
   private inflight = new Map<EngineId, Promise<EngineStatus>>()
+  /** bumped by forget: a check that started before is not kept (it read the setup that changed) */
+  private gen = new Map<EngineId, number>()
   constructor(private env: () => EngineEnv) {}
 
-  /** Drop one engine's last check (its setup changed). */
-  forget(id: EngineId) { this.last.delete(id) }
+  /** Drop one engine's last check (its setup changed); a check running now is not kept, the next read checks again. */
+  forget(id: EngineId) {
+    this.last.delete(id); this.inflight.delete(id)
+    this.gen.set(id, (this.gen.get(id) ?? 0) + 1)
+  }
 
   /** The last check's status, without checking. */
   peek(id: EngineId): EngineStatus['status'] | null { return this.last.get(id)?.status.status ?? null }
@@ -315,21 +321,27 @@ export class EngineStatusCache {
   async get(id: EngineId, enabled: boolean, locale: Locale, force = false): Promise<EngineStatus> {
     const c = this.last.get(id)
     if (!force && c && Date.now() - c.at < CACHE_MS && c.locale === locale) return { ...c.status, enabled }
+    const g = this.gen.get(id) ?? 0
     let p = this.inflight.get(id)
     if (!p) {
-      p = checkEngine(id, this.env(), enabled, locale).finally(() => this.inflight.delete(id))
-      this.inflight.set(id, p)
+      const mine: Promise<EngineStatus> = checkEngine(id, this.env(), enabled, locale).finally(() => { if (this.inflight.get(id) === mine) this.inflight.delete(id) })
+      this.inflight.set(id, (p = mine))
     }
     const s = await p
-    this.last.set(id, { at: Date.now(), status: s, locale })
+    if ((this.gen.get(id) ?? 0) === g) this.last.set(id, { at: Date.now(), status: s, locale })
     return { ...s, enabled }
   }
 }
 
-/** One cache per server, shared by Admin > AI engines and the composer's engine list (admin/engine-choice.ts). */
+/** One cache per server, shared by Admin > AI engines and the composer's engine list (admin/engine-choice.ts). A change
+ * of the team's AI connections (credentials/store.ts connectionsChanged) drops the two engines that use them. */
 const caches = new WeakMap<AppContext, EngineStatusCache>()
 export function engineStatusCache(ctx: AppContext): EngineStatusCache {
   let c = caches.get(ctx)
-  if (!c) { c = new EngineStatusCache(() => engineEnv(ctx)); caches.set(ctx, c) }
+  if (!c) {
+    const cache = new EngineStatusCache(() => engineEnv(ctx))
+    credentialsOf(ctx).changeListeners.add(() => { cache.forget('claude-code'); cache.forget('codex') })
+    caches.set(ctx, (c = cache))
+  }
   return c
 }

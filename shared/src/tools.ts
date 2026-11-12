@@ -222,7 +222,7 @@ export const ConnectServiceInput = z.strictObject({
   template: z.string().max(64).optional().describe('The id of a team template listed under "Connected services" as not connected yet: the card connects the person\'s own key for it (its address and sign-in come from the template; kind, url and auth are not needed)'),
 })
 export const ConnectServiceOutput = z.union([
-  z.object({ connected: z.literal(true), name: z.string(), status: z.string(), tools: z.array(z.string()).optional() }),
+  z.object({ connected: z.literal(true), name: z.string(), status: z.string(), tools: z.array(z.string()).optional(), next: z.string().optional() }),
   z.object({ skipped: z.literal(true), reason: z.string().optional() }),
 ])
 

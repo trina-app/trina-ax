@@ -75,4 +75,25 @@ describe('telling an admin', () => {
     const all = ((await owner.call('GET', '/api/notifications')).items as any[]).filter((i) => i.eventType === 'onboarding.ai_request' && i.requester?.name === 'MIA')
     expect(all.map((i) => !!i.notReady).sort()).toEqual([false, true])
   })
+
+  // owner decision 2026-11-12 (QA TC-188): "Told" survives a reload because GET /api/me/ai-access says so, from the
+  // same record as the limit; the member's own only, never for the owner or an admin, gone once the hour has passed
+  test('GET /api/me/ai-access notReadyTold: the teller\'s own, within the hour', async () => {
+    const access = async (c: Client) => (await c.call('GET', '/api/me/ai-access')).notReadyTold
+    expect(await access(mia.client)).toBe(true)
+    expect(await access(noa.client)).toBe(true)
+    expect(await access(owner)).toBe(false)
+    expect(await access(admin)).toBe(false)
+    const sam = await addMember(h, owner, { username: 'sam' })
+    expect(await access(sam.client)).toBe(false)
+    expect(await tell(sam.client)).toEqual({ told: true, already: false })
+    expect(await access(sam.client)).toBe(true)
+    // the hour passed: not told any more, and a press tells again
+    const old = new Date(Date.now() - AI_NOT_READY_WINDOW_MS - 60_000).toISOString()
+    h.ctx.db.query("UPDATE onboarding_notices SET created_at=? WHERE source_id=?").run(old, `not-ready:${sam.id}`)
+    expect(await access(sam.client)).toBe(false)
+    expect(await access(mia.client)).toBe(true)
+    expect(await tell(sam.client)).toEqual({ told: true, already: false })
+    expect(await access(sam.client)).toBe(true)
+  })
 })

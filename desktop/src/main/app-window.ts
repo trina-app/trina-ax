@@ -676,6 +676,14 @@ export class AppWindow {
     return r.response === 0 && !this.win.isDestroyed() ? 'tryAgain' : 'deny'
   }
 
+  /** The team page found nothing to read in the folder it picked last (shared/src/desktop-bridge.ts folderProblem): why,
+   * when macOS kept the app out of it (common/folder-access.ts FolderGrants.problem); null otherwise. QA TC-049. */
+  async folderProblem(origin: string, name: string): Promise<'mac-blocked' | null> {
+    const app = this.app
+    if (!app || app.webContents.isDestroyed()) return null
+    return (await this.folderGrants.get(app.webContents.session)?.problem(origin, name, this.allowedOrigins())) ?? null
+  }
+
   /** Origins the bridge and navigation accept: the team address and, when in use, its pinned LAN address. */
   allowedOrigins(): string[] {
     if (!this.team) return []
