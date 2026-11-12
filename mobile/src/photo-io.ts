@@ -3,7 +3,7 @@
 import * as ImagePicker from 'expo-image-picker'
 import { Directory, File, Paths } from 'expo-file-system'
 import { Platform } from 'react-native'
-import { base64Bytes, PhotoRefused, type PickIO } from './photos'
+import { assetSize, base64Bytes, PhotoRefused, type PickIO } from './photos'
 
 /** expo-image-picker keeps its copies in the cache's ImagePicker folder on both platforms. Startup empties it: a copy
  * left by a pick the app never finished (it was closed) is no one's. */
@@ -31,8 +31,9 @@ export function photoPickIO(): PickIO {
         })
       } catch (error) { throw refused(error) ? new PhotoRefused('photo_denied') : error }
       if (result.canceled || !result.assets) return []
-      // the size of the copy on disk, not what the picker says (Android reports the original's)
-      return result.assets.map(a => { const f = new File(a.uri); return { uri: a.uri, name: a.fileName, mime: a.mimeType, size: f.exists ? f.size : 0 } })
+      // the size of the copy on disk, not what the picker says (Android reports the original's); the picker's when the
+      // copy's cannot be read (src/photos.ts assetSize)
+      return result.assets.map(a => { const f = new File(a.uri); return { uri: a.uri, name: a.fileName, mime: a.mimeType, size: assetSize(f.exists ? f.size : 0, a.fileSize) } })
     },
     async read(uri, offset, length) {
       const handle = new File(uri).open()

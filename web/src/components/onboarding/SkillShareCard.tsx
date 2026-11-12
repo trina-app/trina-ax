@@ -39,9 +39,11 @@ export function fileLabel(f: SkillDraftFile, t: ReturnType<typeof useT>): string
 }
 
 /** `answerId`: the answer the card was opened under (a chat has several; the server drafts from the chat's newest one),
- * so a later answer of the same chat starts its own draft instead of showing the earlier one's. */
-export function SkillShareCard({ chatId, answerId, onShared, onLater }: { chatId: string; answerId?: string; onShared: (saved: SavedSkillDraft) => void; onLater: () => void }) {
-  const cacheKey = answerId ? `${chatId}:${answerId}` : chatId
+ * so a later answer of the same chat starts its own draft instead of showing the earlier one's. `formPath`: a draft from
+ * a form in the team folder instead of a chat (docs/DECISIONS.md "Setup 팀 파일: forms become skills"; `chatId` unused). */
+export function SkillShareCard({ chatId, answerId, formPath, onShared, onLater }: { chatId?: string; answerId?: string; formPath?: string; onShared: (saved: SavedSkillDraft) => void; onLater: () => void }) {
+  const cacheKey = formPath ? `form:${formPath}` : answerId ? `${chatId}:${answerId}` : chatId ?? ''
+  const startDraft = () => (formPath ? api.call(API.startFormSkillDraft, { body: { path: formPath } }) : api.call(API.startSkillDraft, { body: { chatId: chatId! } }))
   const t = useT()
   const locale = useLocale()
   const [draftChat, setDraftChat] = useState<string | null>(started.get(cacheKey) ?? null)
@@ -59,13 +61,13 @@ export function SkillShareCard({ chatId, answerId, onShared, onLater }: { chatId
   useEffect(() => {
     if (draftChat) return
     let live = true
-    api.call(API.startSkillDraft, { body: { chatId } }).then(
+    startDraft().then(
       (r) => { started.set(cacheKey, r.draftChatId); if (live) setDraftChat(r.draftChatId) },
       (e) => live && setFailed({ text: errorText(e, locale, t('skillShare.failed')), again: !isApiError(e, 'conflict') }),
     )
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId, draftChat])
+  }, [cacheKey, draftChat])
   useEffect(() => {
     if (!draftChat) return
     let live = true
@@ -76,7 +78,7 @@ export function SkillShareCard({ chatId, answerId, onShared, onLater }: { chatId
         setState(s)
         if (s.draft) setTitle((cur) => cur || s.draft!.title)
         // the first answer did not pass: starting again asks for its one rewrite (reading never queues anything)
-        if (s.rewrite) void api.call(API.startSkillDraft, { body: { chatId } }).catch(() => {})
+        if (s.rewrite) void startDraft().catch(() => {})
         if (s.status === 'running') timer = setTimeout(() => void read(), SKILL_DRAFT_POLL_MS)
       },
       () => { if (live) timer = setTimeout(() => void read(), SKILL_DRAFT_POLL_MS * 2) },

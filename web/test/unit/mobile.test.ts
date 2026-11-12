@@ -327,6 +327,32 @@ test('nav-v1: the page tells the app where Back goes when it changes, once per b
   expect(navs().slice(1)).toEqual([{ canGoBack: true, home: false }, { canGoBack: true, home: false }])
 })
 
+test('nav-v1: the same answer on another screen is sent again (the Android app forgets on some moves: QA TC-404)', async () => {
+  const navs = () => messages.filter(m => m.type === 'nav').map(m => ({ canGoBack: (m as { canGoBack: boolean }).canGoBack, home: (m as { home?: boolean }).home }))
+  const loc = Object.getOwnPropertyDescriptor(globalThis, 'location'), hist = Object.getOwnPropertyDescriptor(globalThis, 'history')
+  const state: { current: unknown } = { current: { key: 'me' } }
+  Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: 'https://team.example', href: 'https://team.example/settings', pathname: '/settings', search: '' } })
+  Object.defineProperty(globalThis, 'history', { configurable: true, value: { get state() { return state.current } } })
+  try {
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, NAV_CAPABILITY] }
+    win.dispatchEvent(new Event('mycel:mobile-ready'))
+    // 나's root: no Back, not home
+    setAppNav({ canGoBack: false, home: false }); await settle(() => navs().length > 0)
+    const before = navs().length
+    // the same screen again: skipped
+    setAppNav({ canGoBack: false, home: false }); await settle()
+    expect(navs().length).toBe(before)
+    // 프로젝트's root (another entry), the same answer: sent again
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: 'https://team.example', href: 'https://team.example/projects', pathname: '/projects', search: '' } })
+    state.current = { key: 'projects' }
+    setAppNav({ canGoBack: false, home: false }); await settle(() => navs().length > before)
+    expect(navs().at(-1)).toEqual({ canGoBack: false, home: false })
+  } finally {
+    if (loc) Object.defineProperty(globalThis, 'location', loc)
+    if (hist) Object.defineProperty(globalThis, 'history', hist); else Reflect.deleteProperty(globalThis, 'history')
+  }
+})
+
 test('badge-v1: the icon gets the page\'s number when it changes, when the bridge comes, and again at every foreground; 0 at sign-out', async () => {
   const badges = () => messages.filter(m => m.type === 'badge').map(m => (m as { count: number }).count)
   // an app without badge-v1 hears nothing
