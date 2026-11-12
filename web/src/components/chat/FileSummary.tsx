@@ -1,6 +1,7 @@
 // "파일 3개 저장 · 1개 충돌 사본 · 1개 권한 없음" under an answer (turn file_events: files only, a moved one marked
 // 옮김). Open it to see each file; a click previews it. Rejected writes explain why and offer to ask the AI to save into
 // the person's own folder.
+import { ownFolderWord } from '@mycel/shared'
 import { ChevronDown, ChevronRight, FileCheck2, FileWarning, Ban } from 'lucide-react'
 import { useState } from 'react'
 import type { FileChangeSummary } from '@mycel/shared/api'
@@ -58,7 +59,7 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
                 <span title={x.path || undefined}>{x.path ? t('files.summary.rejectedLine', { path: words.path(x.path, ' › ') }) : t('files.summary.rejectedHidden')}</span>
               </span>
               <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onAskOwnFolder(x.path)}>
-                {t('files.summary.askOwnFolder')}
+                {t(ownFolderWord() === 'files' ? 'files.summary.askOwnFolderFiles' : 'files.summary.askOwnFolder')}
               </Button>
             </li>
           ))}

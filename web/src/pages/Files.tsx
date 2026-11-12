@@ -61,6 +61,8 @@ import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
+import { useNavRail } from '../lib/navRail'
+import RecentFiles from './RecentFiles'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
 
@@ -98,7 +100,16 @@ function dragBadge(dt: DataTransfer, text: string) {
   setTimeout(() => el.remove(), 0)
 }
 
-export default function Files() {
+/** /files: the team folder explorer; with the new navigation on a computer (lib/navRail.ts, phase P3) also 파일's
+ * "최근 파일" (`?view=recent`, pages/RecentFiles.tsx), a row of the list beside the rail. */
+export default function FilesRoute() {
+  const [params] = useSearchParams()
+  const computer = useMediaQuery('(min-width: 768px)')
+  const rail = useNavRail() && computer
+  return rail && params.get('view') === 'recent' ? <RecentFiles /> : <Files />
+}
+
+function Files() {
   const t = useT()
   const locale = useLocale()
   // the top folders and the person's own folder in words (전사 공유, 부서, 내 폴더 …): what is shown, never the paths used
@@ -150,6 +161,7 @@ export default function Files() {
   // phones (below 768 px, like the tab bar): rows are selected by a long press, not by a checkbox; a touch phone does
   // not drag rows (a long press there is the selection, and a row cannot be dropped anywhere useful on that screen)
   const phone = useMediaQuery('(max-width: 767.98px)')
+  const rail = useNavRail() && !phone
   const touchPhone = useMediaQuery('(max-width: 767.98px) and (pointer: coarse)')
   const [history, setHistory] = useState<string | null>(params.get('history'))
   const [suggesting, setSuggesting] = useState<string | null>(null)
@@ -860,8 +872,9 @@ export default function Files() {
         />
       ) : (
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
-        <h1 className="mr-2 text-lg font-semibold">{t('files.title')}</h1>
-        <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
+        {/* the new navigation (lib/navRail.ts): the trash is a row of 파일's list beside the rail, so no tabs here */}
+        <h1 className="mr-2 text-lg font-semibold">{rail && view === 'trash' ? t('files.trash') : t('files.title')}</h1>
+        {!rail && <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />}
         {view === 'files' && (
           // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
           // only their icons, and the search box takes the width they leave
@@ -926,7 +939,7 @@ export default function Files() {
       )}
 
       {/* the chosen tab's content: a flex column like the page, so the list below still fills and scrolls */}
-      <TabPanel base={phone ? null : viewTabs} value={view} className="flex min-h-0 flex-1 flex-col">
+      <TabPanel base={phone || rail ? null : viewTabs} value={view} className="flex min-h-0 flex-1 flex-col">
       {view === 'trash' ? (
         <TrashView />
       ) : (

@@ -2,6 +2,7 @@
 // shared/src/folder-labels.ts): rows and breadcrumbs by their word, paths with their top folder in words, the person's
 // own folder as 내 폴더; anything else as it is.
 import { describe, expect, test } from 'bun:test'
+import { ownFolderLabel, setOwnFolderWord } from '@mycel/shared'
 import { folderWords, topFoldersFirst } from '../../src/lib/folderLabels'
 
 describe('folder words', () => {
@@ -46,5 +47,19 @@ describe('the team root in a fixed order', () => {
     // folders named like top folders deeper down are ordinary folders there
     const inner = [folder('groups/shared'), folder('groups/users')]
     expect(topFoldersFirst(inner, 'groups')).toBe(inner)
+  })
+})
+
+describe('the own folder with the new navigation (decision Q4)', () => {
+  test('"내 파일" while the server\'s navRail is on, "내 폴더" otherwise, in every language', () => {
+    try {
+      setOwnFolderWord('files')
+      expect(folderWords('ko', 'olga').name('users/olga', 'olga')).toBe('내 파일')
+      expect(folderWords('ko', 'olga').path('users/olga/메모.md')).toBe('내 파일/메모.md')
+      expect(['en', 'id', 'ja', 'es'].map((l) => ownFolderLabel(l as 'en'))).toEqual(['My files', 'File saya', '自分のファイル', 'Mis archivos'])
+    } finally {
+      setOwnFolderWord('folder')
+    }
+    expect(folderWords('ko', 'olga').name('users/olga', 'olga')).toBe('내 폴더')
   })
 })

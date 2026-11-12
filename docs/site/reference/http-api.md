@@ -353,8 +353,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/notifications/:id` | Signed in | Read an own notification without marking read; current-access filtered and never cached. |
-| `GET` | `/api/notifications` | Signed in | Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it. |
-| `POST` | `/api/notifications/read` | Signed in | Mark every unread own notification of an Activity tab read (only=rooms: the conversation rows alone); a conversation row also moves my read place in its room or thread to its newest message. Returns how many rows it marked. |
+| `GET` | `/api/notifications` | Signed in | Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it. only=rooms: the conversation rows alone; only=notices: the other notices alone. |
+| `POST` | `/api/notifications/read` | Signed in | Mark every unread own notification of an Activity tab read (only=rooms: the conversation rows alone; only=notices: the other notices alone); a conversation row also moves my read place in its room or thread to its newest message. Returns how many rows it marked. |
 | `POST` | `/api/notifications/:id/read` | Signed in | Mark an own notification read. |
 | `GET` | `/api/notification-preferences` | Signed in | Own inbox event preferences. OS push opt-in is separate. |
 | `PATCH` | `/api/notification-preferences` | Signed in | Change own inbox event preferences and room notification settings (room default, thread replies, quiet hours). |

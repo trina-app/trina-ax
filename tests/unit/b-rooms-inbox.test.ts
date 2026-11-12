@@ -396,3 +396,24 @@ test('"Mark all as read" reads one Activity tab on the server: only its rows, on
   // a tab that is not one: refused
   await expect(markAll({ tab: 'everything' })).rejects.toThrow()
 })
+
+test("only=notices (활동 beside the rail, phase P3): the app's notices alone, their own unread count, and \"Mark all as read\" leaves the conversations", async () => {
+  const { mia, nora, n, team, send } = await setup()
+  const m = await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
+  n.connectionReconnect(nora.id, crypto.randomUUID())
+  n.connectionReconnect(nora.id, crypto.randomUUID())
+  const all = n.list(nora.id, {})
+  expect([all.unreadCount, all.roomUnreadCount, all.noticeUnreadCount]).toEqual([3, 1, 2])
+  const notices = n.list(nora.id, { only: 'notices' })
+  expect(notices.items.map((x) => x.code)).toEqual(['connection.reconnect', 'connection.reconnect'])
+  expect(notices.items.some((x) => x.room)).toBe(false)
+  expect(notices.noticeUnreadCount).toBe(2)
+  // through the API, and "Mark all as read" of the notices: the mention stays unread, its room too
+  expect((await nora.client.call('GET', '/api/notifications?only=notices')).items).toHaveLength(2)
+  expect(await nora.client.call('POST', '/api/notifications/read', { tab: 'all', only: 'notices' })).toEqual({ read: 2 })
+  const after = n.list(nora.id, {})
+  expect([after.unreadCount, after.roomUnreadCount, after.noticeUnreadCount]).toEqual([1, 1, 0])
+  expect(n.list(nora.id, { only: 'rooms' }).items.map((x) => x.room?.message)).toEqual([m.id])
+  // a word that is not one: refused
+  await expect(nora.client.call('GET', '/api/notifications?only=everything')).rejects.toThrow()
+})

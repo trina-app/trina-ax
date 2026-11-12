@@ -17,13 +17,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { AtSign, Bell, BellRing, Check, CheckCheck, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { activityTabHas, type ActivityTab, type InboxNotification } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
 import { badgeText } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
-import { activityInChats } from '../lib/screens'
+import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
+import { useNavRail } from '../lib/navRail'
+import { useActivityUnread } from '../store/inbox'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { useRooms } from '../store/rooms'
@@ -70,11 +72,69 @@ function dayLabel(iso: string, t: T, locale: ReturnType<typeof useLocale>, now =
 const timeOf = (iso: string, locale: ReturnType<typeof useLocale>) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 
 /** The page for the address: the conversations' (from 대화) or the whole Activity, each with its own state, so going from one
- * to the other (a tab of the phone's bar) starts afresh. */
+ * to the other (a tab of the phone's bar) starts afresh. With the new navigation on a computer (lib/navRail.ts, phase
+ * P3) 활동's list is the panel beside the rail (components/panels/ActivityPanel.tsx): this page is then the notice opened
+ * from it (`?n=<id>`) or, with none, where to look; an old link to the Mentions or Threads tab goes to 대화's
+ * 멘션·스레드, where those are now. */
 export default function Activity() {
   const [params] = useSearchParams()
   const chats = activityInChats(params.toString())
+  const computer = useMediaQuery('(min-width: 768px)')
+  const rail = useNavRail() && computer
+  if (rail && !chats) {
+    const tab = params.get('tab')
+    if (tab === 'mentions' || tab === 'threads') return <Navigate to={`${CHATS_ACTIVITY}&tab=${tab}`} replace />
+    return <ActivityOpened key={params.get('n') ?? ''} id={params.get('n')} />
+  }
   return <ActivityPage key={chats ? 'chats' : 'all'} chats={chats} />
+}
+
+/** The main area beside 활동's list: the notice opened from it (read as it opens), or what the list is for. */
+function ActivityOpened({ id }: { id: string | null }) {
+  const t = useT(), locale = useLocale()
+  const unread = useActivityUnread()
+  const [item, setItem] = useState<InboxNotification | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const life = useRef(0)
+  const load = useCallback(async () => {
+    if (!id) return
+    const generation = ++life.current
+    try {
+      let got = await api.call(API.getNotification, { params: { id } })
+      if (!got.readAt) got = await api.call(API.markNotificationRead, { params: { id } })
+      if (generation === life.current) (setItem(got), setError(null))
+    } catch (e) {
+      if (generation === life.current) setError(errorText(e, locale, t('error.network')))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, locale])
+  useEffect(() => {
+    void load()
+    const off = notificationsChanged.on(() => void load())
+    return () => (off(), void life.current++)
+  }, [load])
+  if (!id)
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center" data-testid="activity-pick">
+        <Bell size={28} className="text-faint" aria-hidden />
+        <p className="text-sm font-semibold text-ink">{unread > 0 ? t('notifications.unread', { count: unread }) : t('notifications.empty')}</p>
+        <p className="max-w-sm text-sm text-muted">{t('activity.pick')}</p>
+      </div>
+    )
+  return (
+    <div className="h-full overflow-y-auto" data-testid="activity-opened">
+      <div className={clsx(pageColumn, 'px-4 pt-5 pb-6 sm:px-6')}>
+        <h1 className="sr-only">{t('inbox.title')}</h1>
+        {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
+        {!item && !error && <Skeleton lines={3} />}
+        {item && (
+          <ul data-testid="notifications-inbox">
+            <NoticeRow item={item} onRead={() => void load()} onChanged={() => void load()} />
+          </ul>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /** `chats`: the conversations only (opened from 대화): rows of rooms */

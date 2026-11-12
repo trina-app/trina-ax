@@ -10,9 +10,9 @@ import { Bell, FolderOpen, MessageCircle, PanelLeftOpen } from 'lucide-react'
 import { useEffect, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useT } from '../../i18n'
-import { RAIL_ITEMS, railOf, railTarget, useRailMemory, type RailItem } from '../../lib/rail'
+import { RAIL_ITEMS, railHere, railLinkState, railTarget, useRailMemory, type RailItem } from '../../lib/rail'
 import { aiName } from '../../lib/tabs'
-import { useNoticeUnread, useRoomNoticeUnread } from '../../store/inbox'
+import { useActivityUnread, useRoomNoticeUnread } from '../../store/inbox'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
 import { useAttention } from '../../store/sessionMarkers'
@@ -26,8 +26,8 @@ import { useRailPanel } from './railPanel'
 /** `showList`: the panel is hidden by the person (below 1052 px): a button to bring it back */
 export function Rail({ showList }: { showList: boolean }) {
   const t = useT()
-  const { pathname, search } = useLocation()
-  const current = railOf(pathname, search)
+  const { pathname, search, state } = useLocation()
+  const current = railHere(pathname, search, state)
   const last = useRailMemory((s) => s.last)
   const attention = useAttention()
   // 트리나's mark counts the AI chats of the chat list: read it here, whichever place opens first (대화, 파일, 활동), not
@@ -39,7 +39,7 @@ export function Rail({ showList }: { showList: boolean }) {
   }, [chatsLoaded, loadChats])
   const rooms = useRooms((s) => s.rooms)
   const roomNotices = useRoomNoticeUnread()
-  const notices = useNoticeUnread()
+  const notices = useActivityUnread()
   const marks: Record<RailItem, RailMark> = { ai: aiMark(attention), chats: chatsMark(rooms, roomNotices), files: null, activity: activityMark(notices) }
   const label: Record<RailItem, string> = { ai: aiName(t), chats: t('tabs.chats'), files: t('sidebar.files'), activity: t('inbox.title') }
   const icon = (item: RailItem, lit: boolean): ReactNode =>
@@ -60,11 +60,13 @@ export function Rail({ showList }: { showList: boolean }) {
       <ul className="mt-2 flex flex-col gap-1 px-1.5">
         {RAIL_ITEMS.map((item) => {
           const lit = item === current
+          const to = railTarget(item, current, last)
           return (
             <li key={item}>
               <Tooltip label={label[item]}>
                 <Link
-                  to={railTarget(item, current, last)}
+                  to={to}
+                  state={railLinkState(item, to)}
                   aria-current={lit ? 'page' : undefined}
                   className={clsx('group flex w-full flex-col items-center gap-0.5 rounded-lg py-1 text-micro leading-tight focus-visible:-outline-offset-2', lit ? 'font-semibold text-ink' : 'text-muted hover:text-ink')}
                   data-rail-stop=""

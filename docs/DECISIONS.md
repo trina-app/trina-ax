@@ -11669,6 +11669,53 @@ history by project" (five projects, the five latest, "모두 보기") and the P1
 - Version impact: none while the switch is off (an additive endpoint and query flag; no changelog fragment, per
   `changes/README.md`).
 
+## 활동, 파일 and 대화 as lists beside the rail (feat/nav-rail-rest, 2026-11-13, navigation redesign P3)
+
+넣을 곳: Team AX core (`web/src/components/panels/{ActivityPanel,FilesPanel,RoomsByKind}.tsx`, `pages/Activity.tsx`,
+`pages/RecentFiles.tsx`, `pages/Room.tsx`; `server/src/notifications/service.ts` `only=notices`;
+`shared/src/folder-labels.ts`), 이유: the app's own navigation. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.1,
+§3 and decision Q4 (approved by the owner 2026-11-13). Only while the server's `navRail` switch is on; with it off nothing
+changes. On that path it supersedes P1's "파일 and 활동 open today's pages at full width" and its capped rooms list.
+
+- **Activity: notices that are not conversations.** 활동's list holds the app's own notices only (`GET
+  /api/notifications?only=notices`); mentions and thread replies are 대화's 멘션·스레드, and one quiet line on top ("멘션·
+  스레드는 대화에 있어요 ›") goes there. Chips **전체 · 트리나 · 요청** (`web/src/lib/activityKinds.ts`): 트리나 = a
+  scheduled task's run or a project job; 요청 = something waiting for my answer or hand (a skill to review, an ask to add an
+  app or connect the AI, an account deletion, a connection or shared Drive to sign in to again, skills to merge), shown to
+  the owner and admins only. Unread first, newest first, then the read ones under "읽음"; a row read while the list is open
+  keeps its place (its dot goes), so nothing jumps from under the pointer. The rail's 활동 number is the server's
+  `noticeUnreadCount` (new, additive), the same as the list's dots. "Mark all as read" (header, while something is unread)
+  reads those notices only (`only=notices`); the gear opens Settings › Notifications.
+- **A notice opens on the right while 활동 stays lit**: its chat, project, scheduled tasks or setup page, opened with the
+  history entry's state `{ rail: 'activity' }` (`lib/rail.ts` `railHere`), so Back, Forward and a press on 활동 later keep
+  활동 lit; a link followed inside that page lights the page's own place. A notice with no page of its own, or with what only
+  its own view shows (a handover's buttons, a job's log, an ask to add an app), opens as itself at `/activity?n=<id>`.
+  Opening a notice reads it. `/activity` with nothing picked says how many are unread and where mentions are. An old
+  `/activity?tab=mentions|threads` link goes to `/activity?in=chats&tab=…` (대화's 멘션·스레드, its tabs unchanged).
+- **파일**: 최근 파일 (`/files?view=recent`, `GET /api/files/recent`, newest first with the folder each is in), 팀 폴더 (the
+  team folder's top folders, in the Files order, without projects/ and users/), 프로젝트 폴더 (projects I can see, by
+  name; the board icon), then **내 파일** and 휴지통. The deepest place the open folder or file is in is marked. The Files
+  page drops its 팀 폴더 / 휴지통 tabs on this path (the trash is a place on the list; the title says 휴지통 there).
+- **"내 폴더" → "내 파일"** (decision Q4): one switch for the whole server (`setOwnFolderWord`, set from `navRail` at the
+  server's start and from `GET /api/me` in the web app), so the Files screen, the list, the scheduled tasks' "my files",
+  the "save it in my files" prompts and what the AI is told about `users/<id>/` use the same word. `place-words` knows
+  both names. Other sentences that mention 내 폴더 in passing change in P6 with the rest of the copy.
+- **대화 uncapped**: every conversation, by kind: 고정 (all my pins) · 팀 대화방 (전체 first, by name) · 그룹 대화 · 1:1 대화
+  (latest first); no "더 보기" or "모든 대화"; the rooms I hid are behind one quiet row "숨긴 대화 N" (to `/rooms`, where they
+  are). Rendering budget: each section is skipped by the browser while off screen (`content-visibility: auto`), and past
+  200 rows the rest is drawn 200 at a time as the list nears its end (the room on screen is always drawn); 300 rooms are
+  measured in `chats-panel.spec.ts`. It is incremental drawing, not a full virtual list: simpler, and enough at the sizes
+  teams have.
+- **Below 812 px** (72 rail + 740 for a room with its thread) a room's thread or ✦ side chat is a sheet over the room, as
+  on a phone; the room under it is inert until it closes. From 812 px the P1 rule holds (the list folds below 1052 px).
+- Left out on purpose: an Upload button in 파일's header (the folder's own toolbar has it, next to where the file goes;
+  one button, not two). Folders in 대화 come with P4b.
+- Tests: `web/test/unit/rail-panels-p3.test.ts`, `rail.test.ts` (entry state), `folder-labels.test.ts`,
+  `tests/unit/b-rooms-inbox.test.ts` (`only=notices`), `web/test/e2e/activity-panel.spec.ts`, `files-panel.spec.ts`,
+  `chats-panel.spec.ts`.
+- Version impact: none while the switch is off (an additive query value and count; no changelog fragment, per
+  `changes/README.md`).
+
 ## Session markers (feat/session-status-v2, 2026-11-07)
 
 넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,

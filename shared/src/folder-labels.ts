@@ -21,6 +21,23 @@ export const TOP_FOLDER_LABELS = {
 
 /** The person's own folder (users/<their id>/). */
 export const OWN_FOLDER_LABEL = { ko: '내 폴더', en: 'My folder', id: 'Folder saya', ja: '自分のフォルダー', es: 'Mi carpeta' } as const satisfies T
+/** Its name with the new navigation (the server's `navRail` switch; docs/AGENTS/plan/20261112-1839-nav-rail.md decision
+ * Q4): 파일's "내 파일", so "폴더" is left to the list folders of 트리나 and 대화. */
+export const OWN_FILES_LABEL = { ko: '내 파일', en: 'My files', id: 'File saya', ja: '自分のファイル', es: 'Mis archivos' } as const satisfies T
+
+/** Which of the two names the person's own folder has on this server: one switch for the whole server (the server sets
+ * it from its `navRail` setting at start, the web app from GET /api/me), so the screen and the AI say the same word. */
+let ownWord: 'folder' | 'files' = 'folder'
+export function setOwnFolderWord(word: 'folder' | 'files') {
+  ownWord = word
+}
+/** which name it has now ('files': "내 파일") */
+export const ownFolderWord = (): 'folder' | 'files' => ownWord
+/** The person's own folder in words, in this language: "내 폴더", or "내 파일" with the new navigation. */
+export function ownFolderLabel(locale: Locale): string {
+  const words = ownWord === 'files' ? OWN_FILES_LABEL : OWN_FOLDER_LABEL
+  return words[locale] ?? words.en
+}
 
 /** Forms and templates: shared/<this>/, made for a new team in the team's language (createDefaultFolders). */
 export const TEMPLATES_FOLDER = { ko: '양식', en: 'Templates', id: 'Templat', ja: 'テンプレート', es: 'Plantillas' } as const satisfies T
@@ -35,11 +52,12 @@ export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', 
 
 const isTop = (s: string): s is TopFolder => (TOP_FOLDERS as readonly string[]).includes(s)
 
-/** One folder's name in words: a top folder's label, the person's own folder (`me`: their id) as "내 폴더", else null
+/** One folder's name in words: a top folder's label, the person's own folder (`me`: their id) as "내 폴더" ("내 파일" with
+ * the new navigation: ownFolderLabel), else null
  * (its own name is the name). Only the exact disk names: a folder named "Shared" elsewhere is that folder's name. */
 export function folderLabel(path: string, locale: Locale, me?: string | null): string | null {
   if (isTop(path)) return TOP_FOLDER_LABELS[path][locale] ?? TOP_FOLDER_LABELS[path].en
-  if (me && path === `users/${me}`) return OWN_FOLDER_LABEL[locale] ?? OWN_FOLDER_LABEL.en
+  if (me && path === `users/${me}`) return ownFolderLabel(locale)
   return null
 }
 

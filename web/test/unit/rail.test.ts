@@ -9,7 +9,7 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { RAIL_ITEMS, RAIL_ROOT, railOf, railTarget, rememberRail, useRailMemory, type RailItem } from '../../src/lib/rail'
+import { RAIL_ITEMS, RAIL_ROOT, railHere, railLinkState, railOf, railState, railTarget, rememberRail, useRailMemory, type RailItem } from '../../src/lib/rail'
 import { navRailOn } from '../../src/lib/navRail'
 import { clearLocalData } from '../../src/lib/localData'
 import { installDom } from './dom-host'
@@ -139,6 +139,27 @@ describe('what each place remembers', () => {
     rememberRail('/files')
     clearLocalData()
     expect(sessionStorage.getItem('mycel.rail.last')).toBeNull()
+  })
+})
+
+describe("a page opened from another place's list (phase P3: a notice's chat opened from 활동)", () => {
+  test("the entry's state names the place lit; never on an address of no place", () => {
+    expect(railState({ rail: 'activity' })).toBe('activity')
+    expect(railState({ rail: 'nope' })).toBeNull()
+    expect(railState(null)).toBeNull()
+    expect(railHere('/c/abc', '', { rail: 'activity' })).toBe('activity')
+    expect(railHere('/c/abc', '', null)).toBe('ai')
+    expect(railHere('/admin/members', '', { rail: 'activity' })).toBeNull()
+  })
+
+  test('kept as what is open in 활동, and a press on 활동 opens it with 활동 lit again', () => {
+    rememberRail('/c/abc', '', { rail: 'activity' })
+    const { last } = useRailMemory.getState()
+    expect(last).toEqual({ activity: '/c/abc' })
+    expect(railTarget('activity', 'ai', last)).toBe('/c/abc')
+    expect(railLinkState('activity', '/c/abc')).toEqual({ rail: 'activity' })
+    expect(railLinkState('activity', '/activity?n=1')).toBeUndefined()
+    expect(railLinkState('ai', '/c/abc')).toBeUndefined()
   })
 })
 

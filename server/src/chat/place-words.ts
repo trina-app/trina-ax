@@ -6,7 +6,7 @@
 // are told apart by their user name, and a folder at the top whose name is one of these words is said after the team
 // folder's top ("팀 폴더 맨 위 › 내 폴더"). The disk path stays in what the AI reads and in the activity log.
 import type { Database } from 'bun:sqlite'
-import { labeledPath, OWN_FOLDER_LABEL, placeName, STEP_PLACE, TOP_FOLDER_LABELS, TOP_FOLDERS } from '@mycel/shared'
+import { labeledPath, OWN_FILES_LABEL, OWN_FOLDER_LABEL, placeName, STEP_PLACE, TOP_FOLDER_LABELS, TOP_FOLDERS } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { TEXT, tr } from './i18n'
 
@@ -16,6 +16,7 @@ const norm = (s: string) => s.normalize('NFC').trim().toLowerCase()
 const PLACE_WORDS = new Set([
   ...Object.values(TOP_FOLDER_LABELS).flatMap((x) => Object.values(x)),
   ...Object.values(OWN_FOLDER_LABEL),
+  ...Object.values(OWN_FILES_LABEL),
   ...Object.values(STEP_PLACE).flatMap((x) => Object.values(x)).filter((w) => !w.includes('{')),
   ...Object.values(TEXT.placeTop),
 ].map(norm))

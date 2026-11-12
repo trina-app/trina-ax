@@ -5216,6 +5216,21 @@ export const ko = {
   "trinaList.allProjects": "모든 프로젝트",
   "trinaList.history": "기록",
   "projects.askHere": "이 프로젝트에서 {name}에게 묻기",
+  "activity.inChats": "멘션·스레드는 대화에 있어요",
+  "activity.chips": "보기",
+  "activity.chip.requests": "요청",
+  "activity.read": "읽음",
+  "activity.pick": "왼쪽에서 고르면 여기에 열려요. 멘션·스레드는 대화 목록 맨 위에 있어요.",
+  "filesPanel.recent": "최근 파일",
+  "filesPanel.recentEmpty": "최근에 바뀐 파일이 없어요.",
+  "filesPanel.team": "팀 폴더",
+  "filesPanel.projects": "프로젝트 폴더",
+  "scheduled.sourceMineFiles": "내 파일",
+  "schedules.saveFolderNoneFiles": "없음 (내 파일에만 저장)",
+  "files.summary.askOwnFolderFiles": "내 파일에 저장할 요청 준비",
+  "files.summary.askOwnFolderPromptFiles": "{path}에는 쓸 권한이 없었어. 같은 내용을 내 파일에 저장해 줘.",
+  "files.summary.askOwnFolderHiddenPromptFiles": "앞서 저장하려던 위치에는 저장할 수 없었어. 같은 내용을 내 파일에 저장해 줘.",
+  "shareRoom.placeMineFiles": "내 파일",
 } as const
 
 export type MessageKey = keyof typeof ko

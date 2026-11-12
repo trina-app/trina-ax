@@ -64,7 +64,7 @@ export function sidebarRows<R extends Pick<Room, 'id'> & Partial<Pick<Room, 'pin
 /** The sections under an opened "더 보기", in this order: team rooms (전체 and the groups' rooms), group chats, DMs. */
 export const ROOM_SECTIONS = ['team', 'group', 'dm'] as const
 export type RoomSection = (typeof ROOM_SECTIONS)[number]
-const SECTION_WORD = { team: 'rooms.section.team', group: 'rooms.section.group', dm: 'rooms.section.dm' } as const
+export const SECTION_WORD = { team: 'rooms.section.team', group: 'rooms.section.group', dm: 'rooms.section.dm' } as const
 const sectionOf = (kind: Room['kind']): RoomSection => (kind === 'all' ? 'team' : kind)
 
 /** The rooms under the top rows of an opened "더 보기" (`rest`, by latest activity, as the store has them), by kind
@@ -226,7 +226,7 @@ export const ROW_MENU_SHOWN = 'pointer-fine:group-hover:opacity-0 group-has-[:fo
 export const ROW_MENU_BUTTON = 'opacity-0 pointer-coarse:hidden group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100'
 
 /** `section`: the kind's section it is in under an opened "더 보기" (none in the top rows) */
-function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection }) {
+export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' }) {
   const t = useT()
   const title = useRoomTitle()(room)
   const unread = roomUnread(room)

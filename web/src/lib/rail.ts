@@ -68,9 +68,25 @@ export const useRailMemory = create<{ last: Partial<Record<RailItem, string>>; r
   },
 }))
 
-/** The address on screen belongs to a place: kept as what is open there. */
-export function rememberRail(pathname: string, search = '') {
-  const item = railOf(pathname, search)
+/** The history entry's own place, when a page was opened from a place's list for another place's page: 활동's list opens
+ * a notice's chat, project or scheduled task on the right while 활동 stays lit (phase P3). Kept in the entry's state
+ * (`{ rail: 'activity' }`), so Back and Forward keep it; a link followed inside that page lights the page's own place. */
+export const RAIL_STATE_KEY = 'rail'
+export function railState(state: unknown): RailItem | null {
+  const v = state && typeof state === 'object' ? (state as Record<string, unknown>)[RAIL_STATE_KEY] : null
+  return typeof v === 'string' && (RAIL_ITEMS as readonly string[]).includes(v) ? (v as RailItem) : null
+}
+
+/** The place lit for an entry: the place its state names (an address that belongs to a place: never Admin or an unknown
+ * address), else the address's own (railOf). */
+export function railHere(pathname: string, search = '', state?: unknown): RailItem | null {
+  const own = railOf(pathname, search)
+  return own ? railState(state) ?? own : null
+}
+
+/** The address on screen belongs to a place: kept as what is open there (`state`: the entry's, see railHere). */
+export function rememberRail(pathname: string, search = '', state?: unknown) {
+  const item = railHere(pathname, search, state)
   if (!item) return
   const to = `${pathname}${search}`
   const { last } = useRailMemory.getState()
@@ -85,4 +101,11 @@ export function rememberRail(pathname: string, search = '') {
 export function railTarget(item: RailItem, current: RailItem | null, last: Partial<Record<RailItem, string>>): string {
   if (item === current) return RAIL_ROOT[item]
   return last[item] ?? RAIL_ROOT[item]
+}
+
+/** The state a press on a place carries to its target: the place itself, when what was open there belongs to another
+ * place's address (a notice's chat kept as what is open in 활동), so 활동 is what lights again. */
+export function railLinkState(item: RailItem, to: string): { [RAIL_STATE_KEY]: RailItem } | undefined {
+  const u = new URL(to, 'http://x')
+  return railOf(u.pathname, u.search) === item ? undefined : { [RAIL_STATE_KEY]: item }
 }

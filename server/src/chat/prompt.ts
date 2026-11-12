@@ -6,7 +6,7 @@
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
 import fs from 'node:fs'
 import path from 'node:path'
-import { ARCHIVE_FOLDER, OWN_FOLDER_LABEL, PRODUCT, TEAM_TOOL_PREFIX, TEMPLATES_FOLDER, TOP_FOLDER_LABELS } from '@mycel/shared'
+import { ARCHIVE_FOLDER, ownFolderLabel, PRODUCT, TEAM_TOOL_PREFIX, TEMPLATES_FOLDER, TOP_FOLDER_LABELS } from '@mycel/shared'
 import { MEMORY_TEXT_MAX, roomRefsByIdOnly, SIDE_CHAT_SEND, type Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { atLeast, type Principal } from '../policy/access'
@@ -392,7 +392,7 @@ export function folderPurposeLines(locale: Locale, userId: string, templates: st
     `- groups/<name>/ (${say('groups')}): one folder per department (an admin group); its members, owners and admins see it. Work of that department.`,
     `- projects/<name>/ (${say('projects')}): one folder per project, seen by that project's people. Work of that project; people make new projects in the app.`,
     `- skills/ (${say('skills')}): team skills and team rules that everyone's AI follows; admins and the people they let edit skills change them.`,
-    `- users/<id>/ (${say('users')}): each person's own folder. users/${userId} is this user's (${JSON.stringify(OWN_FOLDER_LABEL[locale] ?? OWN_FOLDER_LABEL.en)}); only they see it.`,
+    `- users/<id>/ (${say('users')}): each person's own folder. users/${userId} is this user's (${JSON.stringify(ownFolderLabel(locale))}); only they see it.`,
     templates ? `Forms and templates are in ${templates}/. When you make that kind of document (a quote, a report, an application, a contract…), start there: list it and work from the template that fits, saving the new document where it belongs.` : '',
   ].filter(Boolean)
 }

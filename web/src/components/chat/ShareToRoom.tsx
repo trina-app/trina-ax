@@ -15,6 +15,7 @@
 // server refuses it; components/chat/Messages.tsx hides the button).
 // The confirm step is its own part (ShareConfirm, with useConfirmStep for its state): a room's side chat sends with one
 // click and shows only this step when the server asks (components/rooms/SendHere.tsx), its target above the rows.
+import { ownFolderWord } from '@mycel/shared'
 import clsx from 'clsx'
 import { AlertCircle, Check, FileText, Info, Lock, Search } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -383,7 +384,7 @@ export function placeName(t: ReturnType<typeof useT>, place: AnswerSharePlace): 
     case 'folder':
       return place.path ? `${place.path.replace(/\/+$/, '')}/` : t('rooms.aiRootFolder')
     case 'mine':
-      return t('shareRoom.placeMine')
+      return t(ownFolderWord() === 'files' ? 'shareRoom.placeMineFiles' : 'shareRoom.placeMine')
     case 'service':
       return place.name
     case 'room':

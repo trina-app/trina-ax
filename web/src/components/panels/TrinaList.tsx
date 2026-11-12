@@ -30,7 +30,7 @@ import { SessionMarker } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
-import { panelRow } from './PanelFrame'
+import { PanelLabel, panelRow } from './PanelFrame'
 
 /** how long a window coming back to the front waits before the groups are read again */
 const REFOCUS_READ_MS = 60_000
@@ -301,16 +301,8 @@ const dedupe = (list: Chat[]) => {
 }
 
 /** A section's small grey label (고정, 폴더 · 나만 보여요, 프로젝트, 기타 기록). */
-function Label({ id, icon, action, children }: { id: string; icon?: ReactNode; action?: ReactNode; children: ReactNode }) {
-  return (
-    <div className="flex h-8 items-center gap-1 pt-3 pr-1 pl-3 first:pt-0" data-testid="trina-label">
-      <h3 id={id} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs font-semibold text-faint">
-        {icon}
-        <span className="truncate">{children}</span>
-      </h3>
-      {action}
-    </div>
-  )
+function Label(props: { id: string; icon?: ReactNode; action?: ReactNode; children: ReactNode }) {
+  return <PanelLabel {...props} testId="trina-label" />
 }
 
 /** The strongest of these marks: "?" first, then the new-answer dot, then the ring (a folded group never hides a chat

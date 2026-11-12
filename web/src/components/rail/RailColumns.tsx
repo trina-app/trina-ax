@@ -1,15 +1,18 @@
 // The left of a computer's window with the new navigation on (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase
 // P1; Layout.tsx puts it where the 280 px sidebar was while the server's `navRail` switch is on): the rail, and beside
-// it the list of the place that has one (트리나, 대화). 파일 and 활동 open their pages at full width in this phase;
-// Admin's own menu is its list (pages/admin/AdminLayout.tsx), so nothing is lit and no panel shows there. The panel
+// it the list of the place: 트리나, 대화, and since phase P3 파일 (its places: recent files, team and project folders, 내
+// 파일, the trash) and 활동 (the notices that are not conversations). Admin's own menu is its list
+// (pages/admin/AdminLayout.tsx), so nothing is lit and no panel shows there. The panel
 // folds away by itself below 1052 px while a thread, the room's ✦ side chat or a side panel is open (railPanel.ts), and
 // may be hidden there by the person. What is on screen is remembered as what is open in its place (lib/rail.ts).
 import { useEffect } from 'react'
 import { matchPath, useLocation } from 'react-router-dom'
-import { railOf, rememberRail } from '../../lib/rail'
+import { railHere, rememberRail } from '../../lib/rail'
 import { useSidePanel } from '../../lib/sidePanel'
 import { useRooms } from '../../store/rooms'
+import { ActivityPanel } from '../panels/ActivityPanel'
 import { ChatsPanel } from '../panels/ChatsPanel'
+import { FilesPanel } from '../panels/FilesPanel'
 import { TrinaPanel } from '../panels/TrinaPanel'
 import { useMediaQuery } from '../ui'
 import { Rail } from './Rail'
@@ -17,9 +20,9 @@ import { PANEL_ALWAYS_PX, panelState, useRailPanel } from './railPanel'
 
 /** whether this place has a list panel and how it shows now */
 function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelState> } {
-  const { pathname, search } = useLocation()
-  const item = railOf(pathname, search)
-  const has = item === 'ai' || item === 'chats'
+  const { pathname, search, state } = useLocation()
+  const item = railHere(pathname, search, state)
+  const has = !!item
   const wide = useMediaQuery(`(min-width: ${PANEL_ALWAYS_PX}px)`)
   const roomId = matchPath('/rooms/:roomId/*', pathname)?.params.roomId ?? null
   const thread = !!matchPath('/rooms/:roomId/t/:messageId', pathname)
@@ -31,11 +34,11 @@ function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelStat
 
 /** `onList`: told whether the list panel shows (Layout.tsx's skip link "목록으로") */
 export function RailColumns({ onList }: { onList: (shown: boolean) => void }) {
-  const { pathname, search } = useLocation()
-  const item = railOf(pathname, search)
+  const { pathname, search, state: entry } = useLocation()
+  const item = railHere(pathname, search, entry)
   const { has, state } = useRailPanelShown()
   const shown = has && state === 'shown'
-  useEffect(() => rememberRail(pathname, search), [pathname, search])
+  useEffect(() => rememberRail(pathname, search, entry), [pathname, search, entry])
   useEffect(() => {
     onList(shown)
     return () => onList(false)
@@ -43,7 +46,7 @@ export function RailColumns({ onList }: { onList: (shown: boolean) => void }) {
   return (
     <>
       <Rail showList={has && state === 'hidden'} />
-      {shown && (item === 'ai' ? <TrinaPanel /> : <ChatsPanel />)}
+      {shown && (item === 'ai' ? <TrinaPanel /> : item === 'chats' ? <ChatsPanel /> : item === 'files' ? <FilesPanel /> : <ActivityPanel />)}
     </>
   )
 }

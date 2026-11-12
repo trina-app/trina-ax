@@ -14,6 +14,7 @@
 // live text, so the messages are read again when that turn starts and ends. While safe operations are on it is read-only.
 // Files from this computer dropped anywhere on the screen (its header, the messages, the box) go into the box
 // (components/FileDropZone.tsx); a chat in the trash or a read-only one says why nothing can be attached.
+import { ownFolderWord } from '@mycel/shared'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
@@ -350,7 +351,7 @@ function ChatView({ chatId }: { chatId: string }) {
   // users/<their id> (server/src/chat/prompt.ts); no raw path or id in their message
   const askOwnFolder = (path: string) => {
     if (busy) return
-    composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPrompt', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPrompt'))
+    composer.current?.prepareDraft(path ? t(ownFolderWord() === 'files' ? 'files.summary.askOwnFolderPromptFiles' : 'files.summary.askOwnFolderPrompt', { path: folderWords.path(path, ' › ') }) : t(ownFolderWord() === 'files' ? 'files.summary.askOwnFolderHiddenPromptFiles' : 'files.summary.askOwnFolderHiddenPrompt'))
   }
 
   if (loadError && isApiError(loadError, 'not_found'))

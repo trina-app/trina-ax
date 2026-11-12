@@ -30,7 +30,7 @@ export function PanelFrame({ title, actions, top, children, onScroll, testId }: 
           </IconButton>
         )}
       </div>
-      {top && <div className="shrink-0 space-y-0.5 px-2 pb-2">{top}</div>}
+      {top && <div className="shrink-0 space-y-0.5 px-2 pb-2 empty:hidden">{top}</div>}
       <div
         className={clsx('scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain border-t px-2 pt-2 pb-2', scrolled ? 'border-line' : 'border-transparent')}
         onScroll={(e) => {
@@ -48,3 +48,16 @@ export function PanelFrame({ title, actions, top, children, onScroll, testId }: 
 /** a row at the top of a panel or a quiet row at a list's end: 36 px, a 16 px icon, the words */
 export const panelRow = 'flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm text-ink hover:bg-hover focus-visible:-outline-offset-2'
 export const panelRowActive = ({ isActive }: { isActive: boolean }) => clsx(panelRow, isActive && 'bg-hover font-medium')
+
+/** A section's small grey label in a panel's list (트리나's 고정, 폴더 · 나만 보여요, 프로젝트; 대화's kinds; 파일's places). */
+export function PanelLabel({ id, icon, action, children, testId }: { id: string; icon?: ReactNode; action?: ReactNode; children: ReactNode; testId: string }) {
+  return (
+    <div className="flex h-8 items-center gap-1 pt-3 pr-1 pl-3 first:pt-0" data-testid={testId}>
+      <h3 id={id} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs font-semibold text-faint">
+        {icon}
+        <span className="truncate">{children}</span>
+      </h3>
+      {action}
+    </div>
+  )
+}

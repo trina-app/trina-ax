@@ -1,9 +1,9 @@
 // 대화's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1; behind the server's
 // `navRail` switch). Its header: 🔍 (search on its 대화 type: rooms, people and messages, as the phone's 대화 tab) and
 // ⊕ "새 대화" (the people picker; the only place that word starts something, §2.0). Then the owner's setup row while it
-// shows, 멘션·스레드 (Activity's conversation rows, `/activity?in=chats`) with how many are unread, and my rooms as the
-// old sidebar lists them (nav/RoomsList.tsx with its caps; phase P3 lists them all by kind). The 멘션·스레드 row is
-// here from the first phase because 활동 stops counting conversation rows (rail/railBadges.ts).
+// shows, 멘션·스레드 (Activity's conversation rows, `/activity?in=chats`) with how many are unread, and every room of mine
+// by kind with no cap (panels/RoomsByKind.tsx, phase P3: 고정 · 팀 대화방 · 그룹 대화 · 1:1 대화). The 멘션·스레드 row is
+// here from the first phase because 활동 does not count conversation rows (rail/railBadges.ts).
 import clsx from 'clsx'
 import { AtSign, Plus, Search } from 'lucide-react'
 import { useState } from 'react'
@@ -13,13 +13,11 @@ import { activityInChats, CHATS_ACTIVITY } from '../../lib/screens'
 import { useRoomNoticeUnread } from '../../store/inbox'
 import { useRooms } from '../../store/rooms'
 import { useUi } from '../../store/ui'
-import { RoomsList } from '../nav/RoomsList'
 import { SetupRow } from '../onboarding/SetupRow'
 import { PeoplePicker } from '../rooms/PeoplePicker'
 import { IconButton } from '../ui'
 import { PanelFrame, panelRow } from './PanelFrame'
-
-const noop = () => {}
+import { RoomsByKind } from './RoomsByKind'
 
 export function ChatsPanel() {
   const t = useT()
@@ -60,7 +58,7 @@ export function ChatsPanel() {
         </>
       }
     >
-      {failed && !anyRoom ? null : <RoomsList onNavigate={noop} />}
+      {failed && !anyRoom ? null : <RoomsByKind />}
       <PeoplePicker open={picking} onClose={() => setPicking(false)} />
     </PanelFrame>
   )
