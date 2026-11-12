@@ -317,3 +317,21 @@ test('the last-resort cap bounds accepted anonymous work per minute at 6,000; re
   const next = svc.now() + 60_000; svc.now = () => next
   expect(admitted(() => svc.ingress('register', '192.0.2.1'))).toBe(true)
 }, 300_000)
+
+test('busy minute, real limits: one host cannot use up its /32\'s share before the minute is busy (each /48 adds at most 30)', async () => {
+  const h = await harness('remote-wide-host'); running.push(h)
+  const svc = new RemoteOAuth(h.ctx.db, { origin }); svc.now = fresh()
+  // one /64 sends 170 (under its own 180) in a quiet minute: all let in, but its /48 adds only 30 to the /32
+  for (let i = 0; i < 170; i++) expect(admitted(() => svc.ingress('metadata', '2600:1f18:1:1::1'))).toBe(true)
+  // 14 IPv4 addresses x 180 elsewhere make the minute busy
+  for (let a = 1; a <= 14; a++) for (let i = 0; i < 180; i++) admitted(() => svc.ingress('metadata', `198.51.${a}.1`))
+  // the host's own /48 is over its share; another /48 of the same /32 is not shut out
+  expect(admitted(() => svc.ingress('metadata', '2600:1f18:1:2::1'))).toBe(false)
+  for (const area of ['mcp', 'metadata', 'metadata', 'register']) expect(admitted(() => svc.ingress(area, '2600:1f18:9999:1::20'))).toBe(true)
+  // 3 more /48s of that /32 (30 each) use up the /32's 120 together; then a fifth /48 is refused, writing nothing
+  for (let net = 2; net <= 4; net++) for (let i = 0; i < 30; i++) admitted(() => svc.ingress('metadata', `2600:1f18:${net}::${i + 1}`))
+  const rows = rowCount(h)
+  expect(admitted(() => svc.ingress('register', '2600:1f18:abcd::5'))).toBe(false)
+  expect(rowCount(h)).toBe(rows)
+  expect(admitted(() => svc.ingress('register', '2a02:1234:5678:9::50'))).toBe(true)
+}, 300_000)

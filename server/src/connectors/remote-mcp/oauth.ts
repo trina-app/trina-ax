@@ -35,7 +35,10 @@ const iso = (v: number) => new Date(v).toISOString()
  * - widePerMinute: in a busy minute an IPv6 /32 (wideNetworkKey(), one ISP's or cloud's allocation, which holds 65,536
  *   /48s) also gets at most this many in total, so ever new /48s of one block give no fresh share (owner 2026-11-12,
  *   review of #482: about 1,000 /48s filled the old 30,000 cap). 120 is 4 /48 shares, about 24 new connections a
- *   minute from one /32 while the server is busy. IPv4 has no such level (a /24 is already small).
+ *   minute from one /32 while the server is busy. Each /48 adds at most its own 30 to its /32's count (also before
+ *   the minute is busy), so shutting out a /32 takes at least 4 of its /48s, not one host. The trade-off: someone with
+ *   4 /48s in a large provider's /32 can shut that /32 out during a busy minute. IPv4 has no such level (a /24 is
+ *   already small).
  * - anonymousPerMinute: the last-resort cap for everyone, so the work and the rows written stay bounded. Only requests
  *   let in count. 6,000 (was 30,000): one accepted request costs about 2-4 ms of main-thread SQLite work on a loaded
  *   2-core host, so 6,000 is about 20 s of work a minute, 30,000 was about 100 s. Filling it in a busy minute takes
@@ -175,8 +178,10 @@ export class RemoteOAuth {
     for (const [window, limit] of OAUTH_LIMITS.perAddress[area] ?? OAUTH_LIMITS.perAddress.default!) this.rate(window === 60_000 ? area : `${area}@${window}`, who, limit, window)
     if (shared) {
       // counted in every minute (not only busy ones), so a network that sent much before the minute got busy is known
-      this.count('network', networkKey(ip))
-      if (wide) this.count('wide-network', wide)
+      // a /48 adds at most its own share to its /32, so one host (a /64 may send 180 under its own limit) cannot use
+      // up the /32's share before the minute is busy and so shut out everyone else in it: that takes 4 /48s
+      const net = this.count('network', networkKey(ip))
+      if (wide && net <= OAUTH_LIMITS.networkPerMinute) this.count('wide-network', wide)
       this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute)
     }
     this.housekeep()
