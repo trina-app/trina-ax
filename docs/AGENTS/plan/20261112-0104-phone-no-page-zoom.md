@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:04
 - Branch: `fix/phone-no-page-zoom`
-- Status: in progress
+- Status: done
 - Where: web/ (index.html, index.css, a new lib/pageZoom.ts, main.tsx, the image viewer's stage). Why: the phone app is
   one WebView showing the web app, so the fix is in the web app and needs no app release
 - Version impact: patch, a bug fix with no new feature or API
@@ -52,7 +52,7 @@ Out:
 4. Tests: unit `test/unit/page-zoom.test.ts` (app WebView, bridge only, standalone, plain browser; the viewport string);
    e2e `phone-page-zoom.spec.ts` + `phone-page-zoom.webkit.spec.ts` at 390×844 (stubbed bridge: meta and root
    touch-action; standalone emulated; plain browser unchanged; the image viewer's stage `touch-action: none`, and a
-   two-finger pinch zooms the picture and not the page in Chromium through CDP).
+   two-finger pinch zooms the picture and not the page in Chromium through CDP; a PDF's own pinch still works).
 
 ## Risks
 
@@ -69,4 +69,19 @@ new phone specs on MOCK_PORT=19381, plus `image-viewer.spec.ts` (the phone case)
 
 ## Result
 
-(filled in at the end)
+Built as planned.
+
+- `web/src/lib/pageZoom.ts` (new): `shownIn(win)` (app: react-native-webview's `ReactNativeWebView`, which is there
+  before the page's scripts and always beside the bridge `mycelMobile`; installed: display-mode standalone or
+  `navigator.standalone`), `pageZoomOff`, `viewportContent`, `holdPageZoom` (top page only; again on
+  `mycel:mobile-ready` and a display-mode change). Called from `main.tsx`.
+- `index.css`: `html[data-page-zoom='off'] { touch-action: pan-x pan-y }`; `[data-own-zoom] { touch-action: none }`.
+- `ImageViewer.tsx`: the stage in image mode has `data-own-zoom` in place of the `touch-none` class (same computed
+  value; nothing else changes on a computer).
+- The opt-in for viewers: `data-own-zoom` on the zoomable surface (all gestures to the viewer), or `touch-action: pan-x
+  pan-y` on the element (one-finger scroll stays with the browser, the viewer does the pinch: lib/usePinch.ts).
+- Tests: unit `web/test/unit/page-zoom.test.ts` (7); e2e `phone-page-zoom.spec.ts` (Chromium, 6) and
+  `phone-page-zoom.webkit.spec.ts` (WebKit, 4; the two CDP cases are Chromium only), cases in
+  `phone-page-zoom.cases.ts`. `image-viewer.spec.ts` and `phone-previews-fit.spec.ts` pass as before.
+- Needs a phone: a real pinch and double tap on pages in the iPhone and Android apps, in the picture viewer and on a PDF,
+  and on an iOS Home Screen web app.

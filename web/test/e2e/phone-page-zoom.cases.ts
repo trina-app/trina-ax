@@ -7,7 +7,8 @@
 // - The app's bridge coming after the page loaded turns it on then.
 // - A plain phone browser tab keeps the browser's own zoom (accessibility): the meta and the root as they were.
 // - The picture viewer zooms on its own: its stage has touch-action none (data-own-zoom), a double tap zooms the picture
-//   inside the stage, the bar stays where it was, the page's scale stays 1.
+//   inside the stage, the bar stays where it was, the page's scale stays 1; in Chromium two touch points zoom it too.
+// - A PDF's own pinch (QA TC-259, lib/usePinch.ts) still zooms its pages in the app (Chromium).
 // Playwright makes no real pinch: that the page itself no longer scales under two fingers is for a phone to show (the
 // PR lists the checks). Run in Chromium (Android's engine, phone-page-zoom.spec.ts) and WebKit (the iPhone's,
 // phone-page-zoom.webkit.spec.ts). SHOTS_DIR=<folder>: screenshots.
@@ -141,6 +142,26 @@ export function pageZoomCases() {
     expect(await bar.boundingBox()).toEqual(barBefore)
     expect(await pageScale(page)).toBe(1)
     await shot(page, 'app-viewer-pinched-390')
+  })
+
+  test('the phone app: a PDF\'s own pinch still zooms its pages under the root\'s touch-action (QA TC-259 kept)', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'a synthesized pinch through CDP: Chromium only')
+    await reset(page)
+    await phoneApp(page)
+    await signIn(page)
+    await page.goto(`/files?path=${encodeURIComponent('docs')}`)
+    await page.getByTestId('file-row').filter({ hasText: 'handbook.pdf' }).getByRole('button').first().click()
+    const pdf = page.getByTestId('file-panel').locator('.react-pdf__Page').first()
+    await expect(pdf).toBeVisible()
+    await expectHeld(page)
+    const width = async () => Math.round((await pdf.boundingBox())!.width)
+    const before = await width()
+    const b = (await pdf.boundingBox())!
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send('Input.synthesizePinchGesture', { x: b.x + b.width / 2, y: b.y + 150, scaleFactor: 1.8, relativeSpeed: 400, gestureSourceType: 'touch' })
+    await cdp.detach()
+    await expect.poll(width).toBeGreaterThan(before * 1.4)
+    expect(await pageScale(page)).toBe(1)
   })
 
   test('the app\'s bridge after the page loaded: held from then on', async ({ page }) => {
