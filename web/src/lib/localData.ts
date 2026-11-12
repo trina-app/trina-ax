@@ -8,8 +8,11 @@ const QUEUE_PREFIX = 'mycel.queue:'
 export const UPLOADS_KEY = 'mycel.uploads'
 /** lib/mobile-push.ts OFF_HERE_PREFIX: a person switched push off for this phone (Settings › Notifications) */
 const PUSH_OFF_HERE_PREFIX = 'mycel.phonePush.offHere:'
-/** the phone's other tabs' stacks (lib/screenHistory.ts), in sessionStorage: the addresses that person opened */
-export const TAB_STACKS_KEY = 'mycel.tabStacks'
+/** the phone's other tabs' stacks (lib/screenHistory.ts), in sessionStorage: the addresses that person opened. `.v2`:
+ * the tabs since QA TC-255 (프로젝트 in place of 파일), so a stack saved under the old tabs is never put back under
+ * another one; the old key is only cleared */
+export const TAB_STACKS_KEY = 'mycel.tabStacks.v2'
+const OLD_TAB_STACKS_KEY = 'mycel.tabStacks'
 
 /** Why an upload stops when the person signs out or the session ends, as opposed to a cancel: nothing is dropped on the
  * server (a request would be refused), and the same person can go on from the chunks that are there. */
@@ -50,6 +53,6 @@ export function clearLocalData(s: Store | null = local()) {
     for (const k of keys) s.removeItem(k)
   } catch { /* storage blocked */ }
   try {
-    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(TAB_STACKS_KEY)
+    if (typeof sessionStorage !== 'undefined') for (const k of [TAB_STACKS_KEY, OLD_TAB_STACKS_KEY]) sessionStorage.removeItem(k)
   } catch { /* storage blocked */ }
 }

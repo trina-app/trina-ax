@@ -4108,7 +4108,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.aiWaits": "Trina is waiting for your answer",
   "rooms.newMessage": "You have a new message",
   "tabs.chats": "Chats",
-  "tabs.files": "Files",
+  "tabs.projects": "Projects",
   "tabs.me": "Me",
   "notifications.roomMessages": "Messages in direct and group chats, and mentions of me",
   "notifications.event.room.dm": "You have a new message in a direct or group chat.",

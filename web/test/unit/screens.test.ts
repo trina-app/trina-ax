@@ -3,7 +3,8 @@
 // instead of a second copy of it.
 import { describe, expect, test } from 'bun:test'
 import { activityInChats, chainOf, CHATS_ACTIVITY, parentOf, rootTab, sameScreen, screenOf } from '../../src/lib/screens'
-import { isOverlay, planFor, stackToSave, type Item } from '../../src/lib/screenHistory'
+import { isOverlay, knownTab, planFor, stackToSave, type Item } from '../../src/lib/screenHistory'
+import { useChats } from '../../src/store/chats'
 
 const items = (...ps: string[]): Item[] => ps.map((p, i) => ({ k: `k${i}`, p }))
 const f = (p: string) => `/files?path=${encodeURIComponent(p)}`
@@ -17,12 +18,15 @@ describe('the table', () => {
   test('parents: a tab\'s root has none; pages under ☰ and 나 go to their list', () => {
     expect(parentOf('/')).toBeNull()
     expect(parentOf('/rooms')).toBeNull()
-    expect(parentOf('/files')).toBeNull()
+    expect(parentOf('/projects')).toBeNull()
     expect(parentOf('/settings')).toBeNull()
-    expect(parentOf('/projects')).toBe('/')
+    // 프로젝트 (QA TC-255): a project and the team folder under the list
+    expect(parentOf('/files')).toBe('/projects')
     expect(parentOf('/projects/p1')).toBe('/projects')
     expect(parentOf('/?project=p1')).toBe('/projects/p1')
     expect(parentOf('/c/x')).toBe('/')
+    // the deleted AI chats stay 트리나's
+    expect(parentOf('/trash')).toBe('/')
     expect(parentOf('/scheduled/s1')).toBe('/scheduled')
     expect(parentOf('/skills/share/s1')).toBe('/skills')
     expect(parentOf('/connectors/google-drive')).toBe('/connectors')
@@ -44,7 +48,8 @@ describe('the table', () => {
     expect(parentOf(f('groups/leads/회사'))).toBe(f('groups/leads'))
     expect(parentOf(f('groups'))).toBe('/files')
     expect(parentOf(`/files/view?path=${encodeURIComponent('groups/leads/a.txt')}`)).toBe(f('groups/leads'))
-    expect(chainOf(f('groups/leads'))).toEqual(['/files', f('groups'), f('groups/leads')])
+    expect(chainOf(f('groups/leads'))).toEqual(['/projects', '/files', f('groups'), f('groups/leads')])
+    expect(chainOf(`/files/view?path=${encodeURIComponent('groups/a.txt')}`)).toEqual(['/projects', '/files', f('groups'), `/files/view?path=${encodeURIComponent('groups/a.txt')}`])
     expect(chainOf('/admin/settings/ai')).toEqual(['/settings', '/admin', '/admin/settings', '/admin/settings/ai'])
   })
 
@@ -52,7 +57,7 @@ describe('the table', () => {
     expect(sameScreen('/files', '/files?view=trash')).toBe(false)
     expect(sameScreen('/files?view=trash', `${f('a')}&view=trash`)).toBe(true)
     expect(parentOf('/files?view=trash')).toBe('/files')
-    expect(chainOf(`${f('a')}&view=trash`)).toEqual(['/files', `${f('a')}&view=trash`])
+    expect(chainOf(`${f('a')}&view=trash`)).toEqual(['/projects', '/files', `${f('a')}&view=trash`])
     expect(sameScreen(f('a'), `${f('a')}&select=x&access=1`)).toBe(true)
     expect(sameScreen(f('a'), f('b'))).toBe(false)
     expect(sameScreen('/admin/folders', '/admin/folders?view=people')).toBe(false)
@@ -82,9 +87,14 @@ describe('the table', () => {
 
   test('tabs: the stack an address starts, and the roots', () => {
     expect(screenOf('/connectors').tab).toBe('ai')
+    expect(screenOf('/trash').tab).toBe('ai')
     expect(screenOf('/activity').tab).toBe('me')
     expect(screenOf('/welcome').tab).toBeNull()
-    expect(rootTab('/files')).toBe('files')
+    // 프로젝트 (QA TC-255): the list, a project, its new chat and files, the team folder, its Trash and a file
+    for (const p of ['/projects', '/projects/p1', '/?project=p1', '/projects/p1/files', '/files', f('a'), '/files?view=trash', `/files/view?path=${encodeURIComponent('a/b.txt')}`]) expect(screenOf(p).tab).toBe('projects')
+    expect(rootTab('/projects')).toBe('projects')
+    expect(rootTab('/projects?new=1')).toBe('projects')
+    expect(rootTab('/files')).toBeNull()
     expect(rootTab('/files?view=trash')).toBeNull()
     expect(rootTab('/?project=p1')).toBeNull()
     expect(rootTab('/settings')).toBe('me')
@@ -155,6 +165,40 @@ describe('a navigation on a phone', () => {
     expect(plan(items('/', '/c/x', f('a/b')), f('a/b/c'))).toEqual({ back: 0, replace: undefined, push: [f('a/b/c')] })
     // a file from a chat is pushed on the chat's stack: Back goes to the chat
     expect(plan(items('/', '/c/x'), `/files/view?path=${encodeURIComponent('a/b.txt')}`).push).toHaveLength(1)
+  })
+
+  test('프로젝트 (QA TC-255): a project\'s chat stays on its stack (Back to the project); the team folder under the list, a tree under it', () => {
+    // a chat opened from a project's page: a push on that stack; Back (its link to the project) returns to the project
+    expect(plan(items('/projects', '/projects/p1'), '/c/x')).toEqual({ back: 0, replace: undefined, push: ['/c/x'] })
+    expect(plan(items('/projects', '/projects/p1', '/c/x'), '/projects/p1')).toEqual({ back: 1, replace: undefined, push: [] })
+    // 팀 폴더 from the list, a folder down there, up to the list again
+    expect(plan(items('/projects'), '/files')).toEqual({ back: 0, replace: undefined, push: ['/files'] })
+    expect(plan(items('/projects', '/files'), f('a/b'))).toEqual({ back: 0, replace: undefined, push: [f('a'), f('a/b')] })
+    expect(plan(items('/projects', '/files', f('a'), f('a/b')), '/projects')).toEqual({ back: 3, replace: undefined, push: [] })
+    // a breadcrumb back to the team folder never goes past it to the list
+    expect(plan(items('/projects', '/files', f('a'), f('a/b')), '/files')).toEqual({ back: 2, replace: undefined, push: [] })
+  })
+
+  test('a chat opened from outside is 트리나\'s whatever the chat list has loaded (QA TC-255: one fixed tab)', () => {
+    const before = useChats.getState().chats
+    expect(chainOf('/c/x')).toEqual(['/', '/c/x'])
+    // the chat list knows the chat's project now: still under Home, on 트리나
+    useChats.setState({ chats: [{ ...(before[0] ?? {}), id: 'x', projectId: 'p1' } as never] })
+    try {
+      expect(chainOf('/c/x')).toEqual(['/', '/c/x'])
+      expect(screenOf('/c/x').tab).toBe('ai')
+    } finally {
+      useChats.setState({ chats: before })
+    }
+  })
+
+  test('an entry kept from before the 프로젝트 tab (a stack of the old 파일 tab) takes its first entry\'s tab now', () => {
+    expect(knownTab({ tab: 'files' as never, root: { k: 'a', p: '/files' }, trail: items('/files', f('a')) })).toBe('projects')
+    expect(knownTab({ tab: 'files' as never, trail: items('/', '/c/x') })).toBe('ai')
+    expect(knownTab({ tab: 'chats', trail: items('/rooms') })).toBe('chats')
+    expect(knownTab({ tab: null, trail: items('/welcome') })).toBeNull()
+    // never a name from an object's prototype
+    expect(knownTab({ tab: 'toString' as never, trail: items('/settings') })).toBe('me')
   })
 
   test('a tab tap saves the stack with its first entry, also when the stack is deeper than an entry keeps', () => {

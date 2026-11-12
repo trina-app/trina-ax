@@ -17,7 +17,7 @@ import { OVERLAY_ENTRY_EVENT } from './backCloses'
 import { HISTORY_STEPS_EVENT, historyStepping } from './historySteps'
 import { setAppNav, type AppNav } from './mobile'
 import { navigateTo } from './nav'
-import { isOverlay, isPhone, switchTab, type Scr } from './screenHistory'
+import { isOverlay, isPhone, knownTab, switchTab, type Scr } from './screenHistory'
 import { START_TAB, TAB_ROOT, tabOf } from './tabs'
 
 /** Where Back goes from the history entry on show (its state, its path, a phone-width page or not). Pure: unit tested. */
@@ -25,7 +25,7 @@ export function appNavOf(state: unknown, path: string, phone: boolean): AppNav {
   const s = (state && typeof state === 'object' ? state : {}) as { idx?: unknown; scr?: Partial<Scr> | null }
   const sc = phone && s.scr && Array.isArray(s.scr.trail) && s.scr.trail.length ? s.scr : null
   // the tab marked in the bar (components/BottomTabs.tsx): the stack's
-  const tab = !phone ? null : sc ? (sc.tab ?? null) : tabOf(path)
+  const tab = !phone ? null : sc ? knownTab(sc) : tabOf(path)
   const home = tab === null || tab === START_TAB
   if (isOverlay(state)) return { canGoBack: true, home }
   const idx = typeof s.idx === 'number' ? s.idx : 0

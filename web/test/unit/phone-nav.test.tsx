@@ -98,10 +98,11 @@ const historyAt = (idx: number) => Object.defineProperty(globalThis, 'history', 
 
 describe('which tab an address belongs to', () => {
   test('the four tabs and their lists', async () => {
-    expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', files: '/files', me: '/settings' })
-    for (const p of ['/', '/c/abc', '/projects', '/projects/p1', '/scheduled', '/scheduled/s1', '/skills', '/trash']) expect(tabOf(p)).toBe('ai')
+    expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', projects: '/projects', me: '/settings' })
+    for (const p of ['/', '/c/abc', '/scheduled', '/scheduled/s1', '/skills', '/connectors', '/trash']) expect(tabOf(p)).toBe('ai')
     for (const p of ['/rooms', '/rooms/r1']) expect(tabOf(p)).toBe('chats')
-    for (const p of ['/files', '/files/view']) expect(tabOf(p)).toBe('files')
+    // 프로젝트 (QA TC-255): the projects and the team folder with its Trash
+    for (const p of ['/projects', '/projects/p1', '/projects/p1/files', '/files', '/files/view']) expect(tabOf(p)).toBe('projects')
     for (const p of ['/settings', '/settings/notifications', '/admin', '/admin/members', '/activity']) expect(tabOf(p)).toBe('me')
     for (const p of ['/welcome', '/skillsx', '/roomsy', '/nothing']) expect(tabOf(p)).toBeNull()
   })
@@ -109,7 +110,7 @@ describe('which tab an address belongs to', () => {
   test('the bar stays away only inside a room or an AI chat', async () => {
     expect(hidesTabs('/rooms/r1')).toBe(true)
     expect(hidesTabs('/c/abc')).toBe(true)
-    for (const p of ['/', '/rooms', '/files', '/settings', '/skills']) expect(hidesTabs(p)).toBe(false)
+    for (const p of ['/', '/rooms', '/projects', '/files', '/settings', '/skills']) expect(hidesTabs(p)).toBe(false)
   })
 
   test('the app opens on the 트리나 tab (one constant); a computer lands on Home', async () => {
@@ -141,18 +142,25 @@ describe('the tab bar', () => {
 
   test('four tabs in order, each to its list', async () => {
     const html = await bar('/')
-    expect(tabs(html)).toEqual(['tab-ai', 'tab-chats', 'tab-files', 'tab-me'])
-    for (const [id, to] of [['tab-ai', '/'], ['tab-chats', '/rooms'], ['tab-files', '/files'], ['tab-me', '/settings']]) {
+    expect(tabs(html)).toEqual(['tab-ai', 'tab-chats', 'tab-projects', 'tab-me'])
+    for (const [id, to] of [['tab-ai', '/'], ['tab-chats', '/rooms'], ['tab-projects', '/projects'], ['tab-me', '/settings']]) {
       expect(new RegExp(`<a [^>]*data-testid="${id}"[^>]*>`).exec(html)?.[0]).toContain(`href="${to}"`)
     }
-    expect(html).toContain(`>${aiName(ko)}</a>`)
+    expect(html).toContain(`>${aiName(ko)}</span></a>`)
+    // each label on one line, cut at the tab's width (QA TC-255)
+    const labels = [...html.matchAll(/<span class="([^"]*)" data-testid="bottom-tab-label">([^<]*)</g)]
+    expect(labels.map((m) => m[2])).toEqual([aiName(ko), ko('tabs.chats'), ko('tabs.projects'), ko('tabs.me')])
+    for (const m of labels) expect(m[1]).toContain('whitespace-nowrap')
+    for (const m of labels) expect(m[1]).toContain('truncate')
   })
 
   test('the tab on screen is marked', async () => {
     expect(current(await bar('/'))).toBe('tab-ai')
     expect(current(await bar('/skills'))).toBe('tab-ai')
     expect(current(await bar('/rooms'))).toBe('tab-chats')
-    expect(current(await bar('/files'))).toBe('tab-files')
+    expect(current(await bar('/projects'))).toBe('tab-projects')
+    expect(current(await bar('/files'))).toBe('tab-projects')
+    expect(current(await bar('/trash'))).toBe('tab-ai')
     expect(current(await bar('/admin'))).toBe('tab-me')
     expect(current(await bar('/welcome'))).toBeNull()
   })
@@ -171,9 +179,9 @@ describe('the tab bar', () => {
       await m.until(() => m.find('tab-me-unread'), 'the Inbox count')
       expect(m.get('tab-chats-unread').textContent).toBe(`99+${ko('rooms.unread', { n: 123 })}`)
       expect(m.get('tab-me-unread').textContent).toBe(`4${ko('notifications.unread', { count: 4 })}`)
-      // no count on 트리나 or 파일
+      // no count on 트리나 or 프로젝트
       expect(m.get('tab-ai').textContent).toBe(aiName(ko))
-      expect(m.get('tab-files').textContent).toBe(ko('tabs.files'))
+      expect(m.get('tab-projects').textContent).toBe(ko('tabs.projects'))
     } finally {
       await m.unmount()
     }
@@ -244,12 +252,19 @@ describe('the top bar', () => {
     expect(h).not.toContain('menu-open')
   })
 
-  test('파일, a room and an AI chat: no bar (their own header is the bar)', async () => {
-    for (const p of ['/files', '/rooms/r1', '/c/abc']) expect(await html(p)).toBe('')
+  test('the team folder, a room and an AI chat: no bar (their own header is the bar)', async () => {
+    for (const p of ['/files', '/files/view', '/rooms/r1', '/c/abc']) expect(await html(p)).toBe('')
+  })
+
+  test('프로젝트 (/projects), a tab\'s root: its name, no ‹ and no ☰ (QA TC-255)', async () => {
+    const h = await html('/projects')
+    expect(h).not.toContain('topbar-back')
+    expect(h).not.toContain('menu-open')
+    expect(h).toMatch(new RegExp(`aria-hidden="true"[^>]*data-testid="topbar-title">${ko('projects.title')}<`))
   })
 
   test('a page below a tab: ‹ named after where it goes (its parent, lib/screens.ts), and its name, for the eye only (the page has its heading); no ☰', async () => {
-    for (const [p, key, up] of [['/skills', 'skills.title', aiName(ko)], ['/projects', 'projects.title', aiName(ko)], ['/scheduled/s1', 'settings.schedules', ko('settings.schedules')], ['/trash', 'trash.title', aiName(ko)]] as const) {
+    for (const [p, key, up] of [['/skills', 'skills.title', aiName(ko)], ['/projects/p1', 'projects.title', ko('projects.title')], ['/scheduled/s1', 'settings.schedules', ko('settings.schedules')], ['/trash', 'trash.title', aiName(ko)]] as const) {
       const h = await html(p)
       expect(h).toContain('data-testid="topbar-back"')
       expect(h).toContain(`aria-label="${ko('tabs.backTo', { page: up })}"`)

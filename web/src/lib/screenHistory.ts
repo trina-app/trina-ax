@@ -45,6 +45,18 @@ export interface Item { k: string; p: string; u?: unknown }
 export interface Scr { tab: Tab | null; sid: string; base: number; root: Item; trail: Item[]; open?: true }
 /** What a navigation does to the stack: go back `back` entries, replace the entry then on show, push the rest. */
 export interface Plan { back: number; replace?: Item; push: Item[] }
+/** A tab switch's options (openHome below): `root`, the tab at its root instead of its saved stack; `drop`,
+ * the screen on show is left out of the stack saved for the tab it leaves (a chat just deleted). */
+export interface SwitchOptions { root?: boolean; drop?: boolean }
+
+/** An entry's tab as this build knows it: an entry kept from a build with other tabs (파일, before QA TC-255; a reload or
+ * a web view restored after the update) takes its first entry's tab now. */
+export function knownTab(sc: Partial<Pick<Scr, 'tab' | 'root' | 'trail'>>): Tab | null {
+  const tab = sc.tab ?? null
+  if (tab === null || Object.hasOwn(TAB_ROOT, tab)) return tab
+  const first = sc.root ?? sc.trail?.[0]
+  return first ? screenOf(first.p).tab : null
+}
 
 /** the deepest trail kept in an entry, and the deepest stack a tab tap puts back (WebKit allows 100 pushes in 30 s) */
 const KEEP = 30
@@ -138,7 +150,7 @@ function plain(items: readonly Item[]): Item[] {
 
 export interface ScreenHistory extends History {
   /** a tab bar tap (components/BottomTabs.tsx); `user`: whose saved stacks */
-  switchTab(tab: Tab, user: string): void
+  switchTab(tab: Tab, user: string, o?: SwitchOptions): void
   /** the signed-in app shows its first entry: put its parents under it when it was opened from outside */
   settleOpened(): void
 }
@@ -163,7 +175,7 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
     const sc = s?.scr
     if (sc && Array.isArray(sc.trail) && sc.trail.length) {
       const first = idxNow() - (sc.trail.length - 1)
-      return { ...sc, base: typeof sc.base === 'number' ? sc.base : first, root: sc.root ?? sc.trail[0]! }
+      return { ...sc, tab: knownTab(sc), base: typeof sc.base === 'number' ? sc.base : first, root: sc.root ?? sc.trail[0]! }
     }
     const here: Item = { k: base.location.key, p: pathNow(), u: base.location.state }
     return { tab: screenOf(pathNow()).tab, sid: shownSid ?? newKey(), base: idxNow(), root: here, trail: [here] }
@@ -352,7 +364,7 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
         listener = null
       }
     },
-    switchTab(tab, user) {
+    switchTab(tab, user, o = {}) {
       enqueue(() => {
         const root = TAB_ROOT[tab]
         if (!isPhone()) return base.push(root)
@@ -370,9 +382,12 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
           return run({ back, replace: exact && rootTab(at.p) === tab ? undefined : { k: newKey(), p: root }, push: [] })
         }
         const saved = loadSaved(user)
-        if (sc.tab) saved.stacks[sc.tab] = plain(stackToSave(sc, idxNow()))
+        if (sc.tab) {
+          const kept = stackToSave(sc, idxNow())
+          saved.stacks[sc.tab] = plain(o.drop && kept.length > 1 ? kept.slice(0, -1) : kept)
+        }
         save(saved)
-        const stack = saved.stacks[tab]?.length ? saved.stacks[tab]! : [{ k: newKey(), p: root }]
+        const stack = !o.root && saved.stacks[tab]?.length ? saved.stacks[tab]! : [{ k: newKey(), p: root }]
         return quietly(async () => {
           await backBy(toBase)
           const sid = newKey()
@@ -400,7 +415,7 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
         const above = idxNow() !== 0 ? [] : chain.length > RESTORE ? [chain[0]!, ...chain.slice(-(RESTORE - 1))] : chain
         if (!above.length) {
           const { open: _open, ...kept } = sc
-          h.replaceState({ ...s, scr: { ...kept, tab: sc.tab ?? screenOf(here.p).tab } }, '')
+          h.replaceState({ ...s, scr: { ...kept, tab: knownTab(sc) ?? screenOf(here.p).tab } }, '')
           return
         }
         const tab = screenOf(above[0]!).tab ?? sc.tab
@@ -420,10 +435,22 @@ let made: ScreenHistory | null = null
 export const screenHistory = () => (made ??= createScreenHistory())
 
 /** A tab bar tap: true when the app's history took it (under another router, a test's, the link does its own). */
-export function switchTab(tab: Tab, user: string): boolean {
+export function switchTab(tab: Tab, user: string, o?: SwitchOptions): boolean {
   if (!made) return false
-  made.switchTab(tab, user)
+  made.switchTab(tab, user, o)
   return true
+}
+
+/**
+ * Home as a new chat: a chat's ✦ and a chat deleted while on screen (QA TC-255). On a phone whose stack is another tab's
+ * (a project's chat on 프로젝트, a chat a notification opened on 대화) it is a switch to 트리나 at its root, so Home never
+ * goes on top of that tab's stack; `drop`: the chat on show is left out of the stack saved for that tab (it was
+ * deleted). Elsewhere (트리나's own stack, a computer) a navigation to `/`, as before.
+ */
+export function openHome(navigate: (to: string) => void, user: string, o: { drop?: boolean } = {}) {
+  const tab = stackNow()?.tab
+  if (made && isPhone() && tab && tab !== 'ai') return void made.switchTab('ai', user, { root: true, drop: o.drop })
+  navigate('/')
 }
 
 /** The signed-in app shows its first entry (components/BottomTabs.tsx): see ScreenHistory.settleOpened. */
@@ -436,5 +463,5 @@ export function stackNow(): { tab: Tab | null; below: Item | null; open: boolean
   const s = window.history?.state as { scr?: Scr } | null | undefined
   const sc = s?.scr
   if (!sc || !Array.isArray(sc.trail) || !sc.trail.length) return null
-  return { tab: sc.tab, below: sc.trail.length > 1 ? sc.trail[sc.trail.length - 2]! : null, open: !!sc.open }
+  return { tab: knownTab(sc), below: sc.trail.length > 1 ? sc.trail[sc.trail.length - 2]! : null, open: !!sc.open }
 }

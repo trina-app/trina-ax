@@ -4107,7 +4107,7 @@ export const ko = {
   "rooms.aiWaits": "트리나가 내 답을 기다려요",
   "rooms.newMessage": "새 메시지가 왔어요",
   "tabs.chats": "대화",
-  "tabs.files": "파일",
+  "tabs.projects": "프로젝트",
   "tabs.me": "나",
   "notifications.roomMessages": "1:1·그룹 대화 메시지와 나를 언급한 메시지",
   "notifications.event.room.dm": "1:1 대화나 그룹 대화에 새 메시지가 왔어요.",
