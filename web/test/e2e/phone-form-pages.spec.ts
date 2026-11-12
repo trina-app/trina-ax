@@ -122,7 +122,7 @@ test('a group that saves on its own keeps its draft too: AI defaults, Back to th
 })
 
 test('the dev environment, where the server has it: its own group', async ({ page }) => {
-  expect((await page.request.post('/__test/dev-env', { data: { srt: true } })).ok()).toBe(true)
+  expect((await page.request.post('/__test/dev-env', { data: {} })).ok()).toBe(true)
   await page.goto('/admin/settings')
   await page.getByTestId('team-settings-row-dev-env').click()
   await expect(page).toHaveURL(/\/admin\/settings\/dev-env$/)

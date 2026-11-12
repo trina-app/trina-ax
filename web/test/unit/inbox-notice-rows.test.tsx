@@ -48,7 +48,7 @@ test('where a row goes: the result chat of a run, the page of the rest; none whe
   expect(noticeLink(failure({ review: true, link: null, chatId: null }))).toEqual({ to: '/scheduled', testId: 'notification-review-link' })
   expect(noticeLink(failure({ link: 'integrations', chatId: null, needsKey: { templateId: 't 1', name: 'Tasks' } }))).toEqual({ to: '/connectors?template=t%201', testId: 'notification-template-link' })
   expect(noticeLink(notice({ eventType: 'connection.reconnect', code: 'connection.reconnect', link: 'connections', chatId: null }))).toEqual({ to: '/connectors/google-drive', testId: 'notification-connections-link' })
-  expect(noticeLink(notice({ eventType: 'dev_env.box', code: 'dev_env.box', link: 'project', chatId: null, devEnv: { projectId: 'p1', projectName: 'Site' } }))).toEqual({ to: '/projects/p1', testId: 'notification-project-link' })
+  expect(noticeLink(notice({ eventType: 'dev_env.job', code: 'dev_env.job', link: 'project', chatId: null, devEnv: { projectId: 'p1', projectName: 'Site' } }))).toEqual({ to: '/projects/p1', testId: 'notification-project-link' })
   expect(noticeLink(notice({ eventType: 'team.joined', code: 'team.joined', link: null, chatId: null }))).toEqual({ to: '/admin/members', testId: 'notification-joined-link' })
 })
 

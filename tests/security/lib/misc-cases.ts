@@ -24,18 +24,13 @@ const bodyCheck = (field: string, what: string) => (r: Resp, _w: World, who: Who
 }
 
 // ---- the dev environment (experiment): every route is 404 while the server runs without MYCEL_DEV_ENV=1, so the
-// flag (and for the srt runner's routes, MYCEL_DEV_ENV_RUNNER=srt) is on only while one request runs. No helper is
-// set up (no MYCEL_BOXD_SOCK, no srt install): nothing starts, every answer stops at the checks.
-async function devEnvOn<T>(runner: 'box' | 'srt', run: () => Promise<T>): Promise<T> {
-  const before = { flag: process.env.MYCEL_DEV_ENV, runner: process.env.MYCEL_DEV_ENV_RUNNER }
+// flag is on only while one request runs. srt is not installed: nothing starts, every answer stops at the checks.
+async function devEnvOn<T>(run: () => Promise<T>): Promise<T> {
+  const before = process.env.MYCEL_DEV_ENV
   process.env.MYCEL_DEV_ENV = '1'
-  if (runner === 'srt') process.env.MYCEL_DEV_ENV_RUNNER = 'srt'
-  else delete process.env.MYCEL_DEV_ENV_RUNNER
   try { return await run() } finally {
-    if (before.flag === undefined) delete process.env.MYCEL_DEV_ENV
-    else process.env.MYCEL_DEV_ENV = before.flag
-    if (before.runner === undefined) delete process.env.MYCEL_DEV_ENV_RUNNER
-    else process.env.MYCEL_DEV_ENV_RUNNER = before.runner
+    if (before === undefined) delete process.env.MYCEL_DEV_ENV
+    else process.env.MYCEL_DEV_ENV = before
   }
 }
 const NO_RUN = 'matrixnorun000000000000000000000'
@@ -108,56 +103,35 @@ const ownDraftCheck = (what: string, ownStatus: number) => (r: Resp, _w: World, 
 
 export const MISC_SPECS: Record<string, Spec> = {
   // ---- dev environment of a project: seen like the project (projects/falcon: alice, bob who reads it, owner, admin)
-  devEnv: { build: (c, w) => devEnvOn('box', () => c.get(`/api/projects/${w.ids.projFalcon}/dev-env`)), scope: 'falcon-read',
+  devEnv: { build: (c, w) => devEnvOn(() => c.get(`/api/projects/${w.ids.projFalcon}/dev-env`)), scope: 'falcon-read',
     // alice's personal project: only alice, never the owner or an admin
     check: async (r, w, who) => {
       if (who === 'anon' || who === 'pwchange') return
-      const own = await devEnvOn('box', () => w.as[who].get(`/api/projects/${w.ids.projAlice}/dev-env`))
+      const own = await devEnvOn(() => w.as[who].get(`/api/projects/${w.ids.projAlice}/dev-env`))
       if ((who === 'memberIn') !== (own.status === 200)) throw new Error(`${who}: alice's personal project's dev environment answered ${own.status}`)
     } },
-  devEnvActivity: { build: (c, w) => devEnvOn('box', () => c.get(`/api/projects/${w.ids.projFalcon}/dev-env/activity`)), scope: 'falcon-read' },
-  // the project's settings: admins only (a member 403); the body names an unknown group, so nothing is saved
-  // (on the older project on shared/, an ordinary team folder the owner and admins read; a project in projects/ they
-  // are not members of is not theirs to set: docs/DECISIONS.md "Project contents only for members")
-  updateDevEnv: { build: (c, w) => devEnvOn('box', () => c.put(`/api/projects/${w.ids.projShared}/dev-env`, { enabled: false, scope: badScope })), scope: 'byLevel',
-    check: async (r, w, who) => {
-      bodyCheck('body.scope.groupIds', 'a project dev environment change')(r, w, who)
-      // an admin does not reach alice's personal project, nor projects/falcon, whose member they are not
-      if (admin(who)) {
-        const own = await devEnvOn('box', () => w.as[who].put(`/api/projects/${w.ids.projAlice}/dev-env`, { enabled: false, scope: badScope }))
-        if (own.status !== 404) throw new Error(`${who}: alice's personal project's dev environment answered ${own.status}`)
-        const falcon = await devEnvOn('box', () => w.as[who].put(`/api/projects/${w.ids.projFalcon}/dev-env`, { enabled: false, scope: badScope }))
-        if (falcon.status !== 404) throw new Error(`${who}: a project they are not a member of answered ${falcon.status} for its dev environment`)
-      }
+  devEnvActivity: { build: (c, w) => devEnvOn(() => c.get(`/api/projects/${w.ids.projFalcon}/dev-env/activity`)), scope: 'falcon-read' },
+  // stop every run of the project's chats: people who may use the dev environment and see the project, and admins. The
+  // team setting is off here, so nobody may use it: alice and bob see the project and are refused (403), the others do
+  // not see it (404; on projects/falcon the owner and admins are not members, docs/DECISIONS.md "Project contents only
+  // for members")
+  devEnvStop: { build: (c, w) => devEnvOn(() => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/stop`)), scope: 'falcon-read',
+    check: (r, _w, who) => {
+      if ((who === 'memberIn' || who === 'memberOut') && r.status !== 403) throw new Error(`${who}: stopping the runs of a project with the dev environment off answered ${r.status}, not 403`)
     } },
-  // stop / restart the box: people who may use it, and admins. It is off here, so nobody may use it: alice and bob see
-  // the project and are refused (403), erin does not see it (404); the owner and the admin pass and meet no helper (409)
-  // (on the older project on shared/, which everyone reads; on projects/falcon the owner and admins are not members: 404)
-  devEnvBox: { build: (c, w) => devEnvOn('box', () => c.post(`/api/projects/${w.ids.projShared}/dev-env/box`, { action: 'stop' })), scope: 'admins',
-    check: async (r, w, who) => {
-      const want: Partial<Record<Who, number>> = { owner: 409, admin: 409, memberIn: 403, memberOut: 403, other: 403 }
-      if (want[who] !== undefined && r.status !== want[who]) throw new Error(`${who}: stopping the box answered ${r.status}, not ${want[who]}`)
-      if (admin(who)) {
-        const falcon = await devEnvOn('box', () => w.as[who].post(`/api/projects/${w.ids.projFalcon}/dev-env/box`, { action: 'stop' }))
-        if (falcon.status !== 404) throw new Error(`${who}: stopping the box of a project they are not a member of answered ${falcon.status}`)
-      }
-    } },
-  // a preview link: who can read the folder, while the project's dev environment is on (off here: 409 after the check)
-  devEnvPreview: { build: (c, w) => devEnvOn('box', () => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/preview`, { port: 3000 })), scope: 'falcon-read',
-    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a preview link was issued for a project whose dev environment is off`) } },
-  // srt: a run of this project nobody has (who started a run, who may use it, admins: tests/unit/dev-env-queue.test.ts)
-  devEnvRunStop: { build: (c, w) => devEnvOn('srt', () => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/runs/${NO_RUN}/stop`)), scope: 'nobody' },
-  devEnvTeam: { build: (c) => devEnvOn('box', () => c.get('/api/admin/dev-env')), scope: 'byLevel' },
-  updateDevEnvTeam: { build: (c) => devEnvOn('srt', () => c.put('/api/admin/dev-env', { scope: { ...badScope, groupIds: [UNKNOWN_GROUP] } })), scope: 'byLevel',
+  // a run of this project nobody has (who started a run, who may use it, admins: tests/unit/dev-env-queue.test.ts)
+  devEnvRunStop: { build: (c, w) => devEnvOn(() => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/runs/${NO_RUN}/stop`)), scope: 'nobody' },
+  devEnvTeam: { build: (c) => devEnvOn(() => c.get('/api/admin/dev-env')), scope: 'byLevel' },
+  updateDevEnvTeam: { build: (c) => devEnvOn(() => c.put('/api/admin/dev-env', { scope: { ...badScope, groupIds: [UNKNOWN_GROUP] } })), scope: 'byLevel',
     check: bodyCheck('body.scope.groupIds', 'a team dev environment change') },
-  // srt: each person's own runs and sites (only their own: the request names nobody)
-  myDevEnvRuns: { build: (c) => devEnvOn('srt', () => c.get('/api/dev-env/runs')), scope: 'self',
+  // each person's own runs and sites (only their own: the request names nobody)
+  myDevEnvRuns: { build: (c) => devEnvOn(() => c.get('/api/dev-env/runs')), scope: 'self',
     check: (r, _w, who) => { if (r.status === 200 && [...r.json.running, ...r.json.waiting].some((x: any) => x.by?.id !== USER_OF[who])) throw new Error(`${who} sees someone else's run`) } },
-  stopMyDevEnvRun: { build: (c) => devEnvOn('srt', () => c.post(`/api/dev-env/runs/${NO_RUN}/stop`)), scope: 'nobody' },
-  myDevEnvSites: { build: (c) => devEnvOn('srt', () => c.get('/api/dev-env/sites')), scope: 'self' },
-  removeMyDevEnvSite: { build: (c) => devEnvOn('srt', () => c.post('/api/dev-env/sites/remove', { host: 'example.com' })), scope: 'nobody' },
+  stopMyDevEnvRun: { build: (c) => devEnvOn(() => c.post(`/api/dev-env/runs/${NO_RUN}/stop`)), scope: 'nobody' },
+  myDevEnvSites: { build: (c) => devEnvOn(() => c.get('/api/dev-env/sites')), scope: 'self' },
+  removeMyDevEnvSite: { build: (c) => devEnvOn(() => c.post('/api/dev-env/sites/remove', { host: 'example.com' })), scope: 'nobody' },
   // Full internet on: never without the network and the warning (409 for everyone signed in here)
-  setMyDevEnvFullInternet: { build: (c) => devEnvOn('srt', () => c.put('/api/dev-env/full-internet', { on: true })), scope: 'self',
+  setMyDevEnvFullInternet: { build: (c) => devEnvOn(() => c.put('/api/dev-env/full-internet', { on: true })), scope: 'self',
     check: (r, _w, who) => {
       if (r.status < 300) throw new Error(`${who}: Full internet went on without the warning`)
       if (who !== 'anon' && who !== 'pwchange' && r.status !== 409) throw new Error(`${who}: Full internet was refused with ${r.status}, not 409`)

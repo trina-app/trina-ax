@@ -205,15 +205,13 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
-  /** 'dev_env.job' and 'dev_env.box' only, while the person can read the project folder, and 'dev_env.box' for an admin too.
-   * The text stays in the job's own row, not in the inbox. exitCode null: no exit code is known; note says why, in
-   * English, from boxd. reason: why the job ended (srt runner: timeout, oom, stopped, disk, setting, expired, lost; older
-   * rows and the box omit it). stopCode: why the box stopped. A job of the srt runner from a chat with no project has
-   * projectId and projectName ''. */
+  /** 'dev_env.job' only, while the person can see the project. The text stays in the job's own row, not in the inbox.
+   * exitCode null: no exit code is known; note says why, in English. reason: why the job ended (timeout, oom, stopped,
+   * disk, setting, expired, lost; older rows omit it). A job from a chat with no project has projectId and projectName
+   * ''. 'dev_env.box' (a stop of the removed box runner) never has it. */
   devEnv: z.object({
     projectId: z.string(), projectName: z.string(),
     job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string(), tail: z.string(), reason: z.string().optional() }).optional(),
-    stopCode: z.string().optional(),
   }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>

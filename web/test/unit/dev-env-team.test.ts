@@ -1,5 +1,5 @@
 // Team settings › Dev environment (src/lib/dev-env-team.ts): the body of a save has only the changed fields (a change of
-// network or limits stops every run), the warning is asked only when srt is turned on with an older consent, and the
+// network or limits stops every run), the warning is asked only when it is turned on with an older consent, and the
 // limits stay inside the schema and the plan.
 import { describe, expect, test } from 'bun:test'
 import { DevEnvLimits, DevEnvTeamSetting, type DevEnvTeamResponse } from '@mycel/shared/api'
@@ -7,7 +7,7 @@ import { clampLimit, draftOf, LIMIT_RANGE, limitMax, needsWarning, sitesOf, team
 
 const setting = DevEnvTeamSetting.parse({})
 const plan = { plan: 'starter', maxRunning: 1, cpus: 2, memoryMiB: 3072, pids: 1024, network: 'open' }
-const srt = (s = setting): Pick<DevEnvTeamResponse, 'runner' | 'warningVersion' | 'setting' | 'plan'> => ({ runner: 'srt', warningVersion: 2, setting: s, plan })
+const srt = (s = setting): Pick<DevEnvTeamResponse, 'warningVersion' | 'setting' | 'plan'> => ({ warningVersion: 2, setting: s, plan })
 
 describe('the dev environment of the team', () => {
   test('an unchanged form sends nothing; a site list is cleaned', () => {
@@ -22,7 +22,7 @@ describe('the dev environment of the team', () => {
     expect(teamBody(srt(), on, true)).toEqual({ enabled: true, acceptWarning: 2 })
     const agreed = { ...setting, consent: { by: null, at: new Date().toISOString(), warningVersion: 2 } }
     expect(needsWarning(srt(agreed), on)).toBe(false)
-    // a consent to the box warning (version 1) does not count
+    // a consent to the warning of the removed box runner (version 1) does not count
     expect(needsWarning(srt({ ...setting, consent: { by: null, at: new Date().toISOString(), warningVersion: 1 } }), on)).toBe(true)
     expect(needsWarning(srt(), { enabled: false })).toBe(false)
   })
@@ -37,10 +37,6 @@ describe('the dev environment of the team', () => {
     expect(clampLimit('pids', Number.NaN, null)).toBe(64)
     expect(limitMax('memoryMiB', null)).toBe(8192)
     expect(limitMax('idleStopMin', plan)).toBe(240)
-  })
-  test('the box runner: only the sites, never the srt fields', () => {
-    const box = { ...srt(), runner: 'box' as const, warningVersion: undefined }
-    expect(teamBody(box, { ...draftOf(setting), enabled: true, network: 'offline', sites: 'a.example.com' }, true)).toEqual({ extraDomains: ['a.example.com'] })
   })
   test('the ranges are the schema\'s', () => {
     for (const k of ['cpus', 'memoryMiB', 'pids', 'idleStopMin'] as const) {

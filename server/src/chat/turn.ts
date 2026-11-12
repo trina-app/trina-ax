@@ -59,7 +59,7 @@ import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
-import { devEnvFlag, devEnvRunner, mayUseBox, mayUseDevEnv } from '../devenv/setting'
+import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../policy/refusal'
@@ -620,15 +620,13 @@ export class TurnExec {
     // never in a room: the in-app browser shows the person's signed-in pages, and a room's messages are other people's
     this.browser = !this.restricted && !this.room && !this.shared && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
-    // dev environment EXPERIMENT (devenv/setting.ts), never in a scheduled run (nobody there answers the credential
-    // card), an approved template run (its scope is fixed) or a company profile draft (web_fetch only). The box: a
-    // project chat whose box this person may use.
-    // srt: any chat of a person in scope, with or without a project; the folder access is the person's (devenv/srt).
+    // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
+    // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
+    // scope, with or without a project; the folder access is the person's (devenv/srt).
     if (devEnvFlag() && !this.templateScope && !this.restricted && !this.room && !this.shared && spec.clientKind !== 'schedule') {
       const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
       const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
-      if (devEnvRunner() === 'srt') { if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project } }
-      else if (project && mayUseBox(rt.db, rt.files, project, spec.userId)) this.devEnv = { project }
+      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project }
     }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet

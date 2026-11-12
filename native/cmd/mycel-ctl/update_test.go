@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -325,14 +323,13 @@ func TestUpdateFeedRollBack(t *testing.T) {
 	}
 }
 
-// boxdBase is a test install with systemd (units in a folder of the test) and an empty root/systemd for syncUnits. The
+// retireBase is a test install with systemd (units in a folder of the test) and an empty root/systemd for syncUnits. The
 // server's restart goes into the same record as the systemctl calls, so a test sees the order.
-func boxdBase(t *testing.T) *testBase {
+func retireBase(t *testing.T) *testBase {
 	tb := newTestBase(t, "0.1.0")
 	systemdRunDir, systemdUnitDir = t.TempDir(), t.TempDir()
 	t.Cleanup(func() { systemdRunDir, systemdUnitDir = "/run/systemd/system", "/etc/systemd/system" })
 	must(t, os.Mkdir(filepath.Join(tb.base, "root/systemd"), 0o755))
-	fakeBoxd(t, `{"ev":"status","available":true,"boxes":[]}`)
 	updateHooks(t, tb, func(v string) {
 		os.Remove(filepath.Join(tb.base, "app/current"))
 		os.Symlink("versions/"+v, filepath.Join(tb.base, "app/current"))
@@ -351,52 +348,36 @@ func boxdBase(t *testing.T) *testBase {
 			return err
 		}
 	}
+	prevState, prevMounts, prevInfo := retiredBoxState, retiredBoxMounts, mountInfo
+	retiredBoxState = func(base string) []string { return []string{filepath.Join(base, "boxd"), filepath.Join(base, "boxd-storage")} }
+	retiredBoxMounts = func(base string) []string { return []string{filepath.Join(base, "boxd")} }
+	mountInfo = filepath.Join(t.TempDir(), "none")
+	t.Cleanup(func() { retiredBoxState, retiredBoxMounts, mountInfo = prevState, prevMounts, prevInfo })
 	return tb
 }
 
-// fakeBoxd answers a status request on a socket of the test, as the helper does after its checks.
-func fakeBoxd(t *testing.T, answer string) {
-	dir, err := os.MkdirTemp("", "bx") // short: a socket path has a limit, and t.TempDir has the name of the test
-	must(t, err)
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	ln, err := net.Listen("unix", filepath.Join(dir, "s"))
-	must(t, err)
-	t.Cleanup(func() { ln.Close() })
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			line, _ := bufio.NewReader(c).ReadString('\n')
-			if line == `{"op":"status"}`+"\n" {
-				c.Write([]byte(answer + "\n"))
-			}
-			c.Close()
-		}
-	}()
-	prev := boxdSock
-	boxdSock = ln.Addr().String()
-	t.Cleanup(func() { boxdSock = prev })
-}
-
-// boxdUnitFile writes the service with this ExecStart program.
-func boxdUnitFile(t *testing.T, prog string) {
-	must(t, os.WriteFile(filepath.Join(systemdUnitDir, boxdUnit), []byte("[Unit]\nDescription=box helper\n\n[Service]\nExecStart="+prog+" --server-uid 1 --server-gid 1 --team-root /x\n"), 0o644))
-}
-
-// boxdArchive is a signed update archive of v, with root/mycel-boxd unless boxd is "".
-func boxdArchive(t *testing.T, v, boxd string) (string, string) {
+// retireArchive is a signed update archive of v (a kit with no root/mycel-boxd).
+func retireArchive(t *testing.T, v string) (string, string) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	dir := signedBundle(t, v, priv, "launcher "+v)
-	if boxd != "" {
-		must(t, os.WriteFile(filepath.Join(dir, "root/mycel-boxd"), []byte(boxd), 0o755))
-		must(t, bundle.WriteManifest(dir, v, priv))
-	}
 	arch := filepath.Join(t.TempDir(), v+"-linux-"+runtime.GOARCH+".tar.zst")
 	mkArchive(t, dir, arch, nil)
 	return arch, base64.StdEncoding.EncodeToString(pub)
 }
+
+// what install-trial.sh left: the service, the drop-in of the team server, root/mycel-boxd, and the box volumes
+func boxTrial(t *testing.T, tb *testBase, dropin string) (unit, dropinPath string) {
+	unit = filepath.Join(systemdUnitDir, retiredBoxUnit)
+	must(t, os.WriteFile(unit, []byte("[Service]\nExecStart="+tb.base+"/root/mycel-boxd --server-uid 1\n"), 0o644))
+	dropinPath = filepath.Join(systemdUnitDir, "mycel-server.service.d", "dev-env.conf")
+	must(t, os.MkdirAll(filepath.Dir(dropinPath), 0o755))
+	must(t, os.WriteFile(dropinPath, []byte(dropin), 0o644))
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("old boxd"), 0o755))
+	must(t, os.MkdirAll(filepath.Join(tb.base, "boxd", "box1", "work"), 0o755))
+	return unit, dropinPath
+}
+
+const boxDropin = "[Unit]\nWants=mycel-boxd.service\n\n[Service]\nEnvironment=MYCEL_DEV_ENV=1\nEnvironment=MYCEL_BOXD_SOCK=/run/mycel-boxd/boxd.sock\n"
 
 func (tb *testBase) calls() []string {
 	b, _ := os.ReadFile(tb.sysCalls)
@@ -412,352 +393,121 @@ func indexOf(l []string, s string) int {
 	return -1
 }
 
-const boxdRestart = "restart mycel-boxd.service"
-
-// A changed root/mycel-boxd restarts the service: after the launcher, before the team server (the server must find the
-// new helper). The file is root's own, never a version folder's copy.
-func TestUpdateRestartsChangedBoxd(t *testing.T) {
-	for name, installed := range map[string]string{"replaced": "old boxd", "first time": ""} {
-		t.Run(name, func(t *testing.T) {
-			tb := boxdBase(t)
-			if installed != "" {
-				must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte(installed), 0o755))
-			}
-			boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-			arch, k := boxdArchive(t, "0.2.0", "new boxd")
-			code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-			if code != 0 || r.Result != "ok" || !r.RootUpdated || !r.AppUpdated {
-				t.Fatalf("%d %+v", code, r)
-			}
-			c := tb.calls()
-			l, b, s := indexOf(c, "restart mycel-launcher.service"), indexOf(c, boxdRestart), indexOf(c, "restart mycel-server.service")
-			if l < 0 || b < l || s < b {
-				t.Fatalf("restart order: %v", c)
-			}
-			if !strings.Contains(strings.Join(r.Notes, " "), "boxes that ran have stopped") {
-				t.Fatalf("notes: %v", r.Notes)
-			}
-			st, err := os.Stat(filepath.Join(tb.base, "root/mycel-boxd"))
-			must(t, err)
-			if st.Mode().Perm() != 0o755 || tb.file("root/mycel-boxd") != "new boxd" {
-				t.Fatalf("root/mycel-boxd: %v %q", st.Mode(), tb.file("root/mycel-boxd"))
-			}
-		})
+// A server of the box trial: the update stops and removes the service, the drop-in and root/mycel-boxd before the
+// team server restarts, and leaves the box state with a note.
+func TestUpdateRetiresBoxRunner(t *testing.T) {
+	tb := retireBase(t)
+	unit, dropin := boxTrial(t, tb, boxDropin)
+	arch, k := retireArchive(t, "0.2.0")
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
+	c := tb.calls()
+	d, rl, s := indexOf(c, "disable --now mycel-boxd.service"), indexOf(c, "daemon-reload"), indexOf(c, "restart mycel-server.service")
+	if code != 0 || !r.AppUpdated || d < 0 || rl < d || s < rl {
+		t.Fatalf("%d %+v %v", code, r, c)
+	}
+	for _, p := range []string{unit, dropin, filepath.Dir(dropin), filepath.Join(tb.base, "root/mycel-boxd")} {
+		if fileExists(p) {
+			t.Fatalf("%s is still there", p)
+		}
+	}
+	if !fileExists(filepath.Join(tb.base, "boxd", "box1", "work")) {
+		t.Fatal("the box state was deleted")
+	}
+	notes := strings.Join(r.Notes, " ")
+	for _, want := range []string{"mycel-boxd.service and its boxes are stopped", "the dev environment is off", "install-srt.sh", "the box state stays: " + filepath.Join(tb.base, "boxd") + " ", "Removed: the box runner"} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("no %q in %s", want, notes)
+		}
 	}
 }
 
-// A restart stops the boxes that run, so nothing else restarts the helper. What each case keeps out of systemctl.
-func TestUpdateLeavesBoxdAlone(t *testing.T) {
-	t.Run("same program", func(t *testing.T) { // other root files change: the launcher restarts, the helper does not
-		tb := boxdBase(t)
-		must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("same boxd"), 0o755))
-		boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-		arch, k := boxdArchive(t, "0.2.0", "same boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		if c := tb.calls(); code != 0 || !r.RootUpdated || indexOf(c, boxdRestart) >= 0 || indexOf(c, "restart mycel-launcher.service") < 0 {
-			t.Fatalf("%d %+v %v", code, r, c)
-		}
-	})
-	t.Run("no unit on a hosted server", func(t *testing.T) { // the file comes with the kit; nothing else changes
-		tb := boxdBase(t)
-		in := tb.file("root/install.json")
-		must(t, os.WriteFile(filepath.Join(tb.base, "root/install.json"), []byte(strings.Replace(in, `"hosted":false`, `"hosted":true`, 1)), 0o644))
-		arch, k := boxdArchive(t, "0.2.0", "new boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		if code != 0 || r.Result != "ok" || indexOf(tb.calls(), boxdRestart) >= 0 || tb.file("root/mycel-boxd") != "new boxd" || strings.Contains(strings.Join(r.Notes, " "), "mycel-boxd") {
-			t.Fatalf("%d %+v %v", code, r, tb.calls())
-		}
-	})
-	t.Run("no systemd", func(t *testing.T) {
-		tb := boxdBase(t)
-		boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-		systemdRunDir = filepath.Join(t.TempDir(), "none")
-		arch, k := boxdArchive(t, "0.2.0", "new boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		if code != 0 || r.Result != "ok" || tb.file("root/mycel-boxd") != "new boxd" {
-			t.Fatalf("%d %+v", code, r)
-		}
-		if _, err := os.Stat(tb.sysCalls); err == nil {
-			t.Fatalf("systemctl called without systemd: %v", tb.calls())
-		}
-	})
-	t.Run("a service that runs another program", func(t *testing.T) { // an earlier trial: a restart loads nothing new
-		tb := boxdBase(t)
-		boxdUnitFile(t, "/usr/local/sbin/mycel-boxd")
-		arch, k := boxdArchive(t, "0.2.0", "new boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		if code != 0 || indexOf(tb.calls(), boxdRestart) >= 0 || !strings.Contains(strings.Join(r.Notes, " "), "install-trial.sh") {
-			t.Fatalf("%d %+v %v", code, r, tb.calls())
-		}
-	})
-	t.Run("root files newer than the release", func(t *testing.T) { // an older release: the newer helper stays
-		tb := boxdBase(t)
-		must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("newer boxd"), 0o755))
-		must(t, os.WriteFile(filepath.Join(tb.base, "root/VERSION"), []byte("9.0.0\n"), 0o644))
-		boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-		arch, k := boxdArchive(t, "0.2.0", "older boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		if code != 0 || r.Result != "ok" || r.RootUpdated || !r.AppUpdated || indexOf(tb.calls(), boxdRestart) >= 0 || tb.file("root/mycel-boxd") != "newer boxd" {
-			t.Fatalf("%d %+v %v", code, r, tb.calls())
-		}
-	})
-	t.Run("a release without the file", func(t *testing.T) { // from before the kit had it: the installed file stays
-		tb := boxdBase(t)
-		must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("installed boxd"), 0o755))
-		boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-		arch, k := boxdArchive(t, "0.2.0", "")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		if code != 0 || !r.RootUpdated || indexOf(tb.calls(), boxdRestart) >= 0 || tb.file("root/mycel-boxd") != "installed boxd" {
-			t.Fatalf("%d %+v %v", code, r, tb.calls())
-		}
-	})
+// A server that moved to srt after the trial: install-srt.sh wrote the same drop-in, so it stays; the service goes.
+func TestUpdateKeepsTheSrtDropin(t *testing.T) {
+	tb := retireBase(t)
+	srt := "[Service]\nEnvironment=MYCEL_DEV_ENV=1 MYCEL_DEV_ENV_RUNNER=srt\n"
+	unit, dropin := boxTrial(t, tb, srt)
+	arch, k := retireArchive(t, "0.2.0")
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
+	if code != 0 || !r.AppUpdated || fileExists(unit) || !fileExists(dropin) {
+		t.Fatalf("%d %+v %v", code, r, tb.calls())
+	}
+	if b, _ := os.ReadFile(dropin); string(b) != srt {
+		t.Fatalf("the srt drop-in changed: %q", b)
+	}
+	if strings.Contains(strings.Join(r.Notes, " "), "the dev environment is off") {
+		t.Fatalf("%+v", r.Notes)
+	}
 }
 
-// staleBoxd makes systemctl name a process, and the program of that process has this content.
-func staleBoxd(t *testing.T, tb *testBase, content string) {
-	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> '"+tb.sysCalls+"'\n[ \"$1\" = show ] && echo 4242\nexit 0\n"), 0o755))
-	exe := filepath.Join(t.TempDir(), "exe")
-	if content != "" {
-		must(t, os.WriteFile(exe, []byte(content), 0o755))
-	}
-	prev := boxdExe
-	boxdExe = func(pid string) string {
-		if pid != "4242" {
-			t.Errorf("pid %q", pid)
-		}
-		return exe
-	}
-	t.Cleanup(func() { boxdExe = prev })
-}
-
-// matchedBoxd installs the archive of a release with boxd as its helper, so a second update of it finds an empty diff.
-func matchedBoxd(t *testing.T, boxd string) (*testBase, string, string) {
-	tb := boxdBase(t)
-	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-	arch, k := boxdArchive(t, "0.2.0", boxd)
-	if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || !r.RootUpdated {
+// The first update to this release ran the older mycel-ctl, which has no retire step. The next run of the new one finds
+// the server at this version already: it retires the box runner and restarts the team server without the drop-in.
+func TestUpdateRetiresWhenAlreadyAtTheVersion(t *testing.T) {
+	tb := retireBase(t)
+	unit, dropin := boxTrial(t, tb, boxDropin)
+	arch, k := retireArchive(t, "0.2.0")
+	if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || !r.AppUpdated {
 		t.Fatalf("%d %+v", code, r)
 	}
+	// as after the older mycel-ctl: the box files are back, and the server runs 0.2.0
+	boxTrial(t, tb, boxDropin)
 	must(t, os.Remove(tb.sysCalls))
-	return tb, arch, k
-}
-
-// An install-linux.sh from before its restart step left an old process. The file is right, so no diff shows it.
-func TestUpdateRestartsStaleBoxd(t *testing.T) {
-	t.Run("root files match", func(t *testing.T) {
-		tb, arch, k := matchedBoxd(t, "new boxd")
-		staleBoxd(t, tb, "old boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		if code != 0 || r.RootUpdated || indexOf(tb.calls(), boxdRestart) < 0 || !strings.Contains(strings.Join(r.Notes, " "), "runs an old program") {
-			t.Fatalf("%d %+v %v", code, r, tb.calls())
-		}
-	})
-	t.Run("other root files change", func(t *testing.T) {
-		tb := boxdBase(t)
-		must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("same boxd"), 0o755))
-		boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-		staleBoxd(t, tb, "old boxd")
-		arch, k := boxdArchive(t, "0.2.0", "same boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		c := tb.calls()
-		if code != 0 || !r.RootUpdated || indexOf(c, boxdRestart) < 0 || indexOf(c, boxdRestart) > indexOf(c, "restart mycel-server.service") {
-			t.Fatalf("%d %+v %v", code, r, c)
-		}
-	})
-}
-
-// A restart stops the boxes, so only a process with other content restarts.
-func TestUpdateLeavesCurrentBoxd(t *testing.T) {
-	for name, exe := range map[string]string{
-		"same content":       "new boxd", // a file replaced with the same content: the path of the process says "(deleted)"
-		"unreadable process": "",
-	} {
-		t.Run(name, func(t *testing.T) {
-			tb, arch, k := matchedBoxd(t, "new boxd")
-			staleBoxd(t, tb, exe)
-			code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-			if code != 0 || indexOf(tb.calls(), boxdRestart) >= 0 || strings.Contains(strings.Join(r.Notes, " "), "old program") {
-				t.Fatalf("%d %+v %v", code, r, tb.calls())
-			}
-		})
-	}
-	t.Run("a service that runs another program", func(t *testing.T) {
-		tb, arch, k := matchedBoxd(t, "new boxd")
-		boxdUnitFile(t, "/usr/local/sbin/mycel-boxd")
-		staleBoxd(t, tb, "old boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-		if code != 0 || indexOf(tb.calls(), boxdRestart) >= 0 {
-			t.Fatalf("%d %+v %v", code, r, tb.calls())
-		}
-	})
-	t.Run("no process", func(t *testing.T) {
-		tb, arch, k := matchedBoxd(t, "new boxd")
-		code, r := tb.update(t, "--bundle", arch, "--pubkey", k) // the default fake systemctl prints no pid
-		if code != 0 || indexOf(tb.calls(), boxdRestart) >= 0 {
-			t.Fatalf("%d %+v %v", code, r, tb.calls())
-		}
-	})
-}
-
-// boxdRestartScript runs the restart step of scripts/install-linux.sh with a fake systemctl. systemctl is the shell
-// text of the fake after its log line, status the answer of boxd. It gives the output of the step and the systemctl calls.
-func boxdRestartScript(t *testing.T, unit, before, systemctl, status string) (string, string) {
-	for _, tool := range []string{"bash", "python3", "sha256sum"} {
-		if _, err := exec.LookPath(tool); err != nil {
-			t.Skip(err)
-		}
-	}
-	src, err := os.ReadFile("../../../scripts/install-linux.sh")
-	must(t, err)
-	_, part, ok := strings.Cut(string(src), "# BEGIN boxd restart")
-	part, _, ok2 := strings.Cut(part, "# END boxd restart")
-	if !ok || !ok2 {
-		t.Fatal("no boxd restart part in install-linux.sh")
-	}
-	w := t.TempDir()
-	base, units, bin := filepath.Join(w, "base"), filepath.Join(w, "units"), filepath.Join(w, "bin")
-	must(t, os.MkdirAll(filepath.Join(base, "root"), 0o755))
-	must(t, os.Mkdir(units, 0o755))
-	must(t, os.Mkdir(bin, 0o755))
-	must(t, os.WriteFile(filepath.Join(base, "root/mycel-boxd"), []byte("new boxd"), 0o755))
-	if unit != "" {
-		must(t, os.WriteFile(filepath.Join(units, boxdUnit), []byte("[Service]\nExecStart="+strings.ReplaceAll(unit, "@BASE@", base)+" --server-uid 1\n"), 0o644))
-	}
-	must(t, os.WriteFile(filepath.Join(bin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> '"+w+"/calls'\n"+systemctl+"\n"), 0o755))
-	fakeBoxd(t, status)
-	script := "set -euo pipefail\nBASE='" + base + "' UNIT_DIR='" + units + "' SYSTEMD=1 PATH='" + bin + "':\"$PATH\"\n" +
-		"warn() { echo \"warning: $*\"; }\nsay() { echo \"say: $*\"; }\nhave_systemd() { return 0; }\n" + part +
-		"\nBOXD_SOCK='" + boxdSock + "'\nB=" + before + "\nboxd_restart \"$B\"\necho end\n"
-	out, err := exec.Command("bash", "-c", script).CombinedOutput()
-	if err != nil || !strings.HasSuffix(string(out), "end\n") {
-		t.Fatalf("%v %s", err, out)
-	}
-	calls, _ := os.ReadFile(filepath.Join(w, "calls"))
-	return string(out), string(calls)
-}
-
-func TestInstallScriptRestartsBoxd(t *testing.T) {
-	const runsRoot, active, changed, same = "@BASE@/root/mycel-boxd", "echo active", "old-sum", `$(boxd_sum)`
-	restart := "restart mycel-boxd.service\n"
-	for name, c := range map[string]struct {
-		unit, before, fake string
-		restarts           bool
-		out                string
-	}{
-		"changed":           {runsRoot, changed, active, true, "say: mycel-boxd changed"},
-		"first time":        {runsRoot, `""`, active, true, "say: mycel-boxd changed"},
-		"a failed service":  {runsRoot, changed, "echo failed", true, "say: mycel-boxd changed"},
-		"same file":         {runsRoot, same, active, false, ""},
-		"no unit":           {"", changed, active, false, ""},
-		"another program":   {"/usr/local/sbin/mycel-boxd", changed, active, false, "warning: mycel-boxd.service does not run"},
-		"a longer name":     {runsRoot + ".old", changed, active, false, "warning: mycel-boxd.service does not run"},
-		"a stopped service": {runsRoot, changed, `[ "$1" = is-active ] && { echo inactive; exit 3; }`, false, "say: mycel-boxd.service is stopped"},
-		"a failed restart":  {runsRoot, changed, `[ "$1" = restart ] && { echo nope; exit 1; }; exit 0`, true, "warning: restart of mycel-boxd.service failed"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			out, calls := boxdRestartScript(t, c.unit, c.before, c.fake, `{"ev":"status","available":true,"boxes":[]}`)
-			if strings.Contains(calls, restart) != c.restarts || !strings.Contains(out, c.out) {
-				t.Fatalf("%q\n%s", calls, out)
-			}
-		})
-	}
-}
-
-func TestInstallScriptAsksBoxdAfterRestart(t *testing.T) {
-	out, _ := boxdRestartScript(t, "@BASE@/root/mycel-boxd", "old-sum", "echo active", `{"ev":"status","available":false,"reason":"no podman"}`)
-	if !strings.Contains(out, "warning: mycel-boxd.service restarted, but boxes may not work: boxes are not available: no podman") {
-		t.Fatal(out)
-	}
-}
-
-// A failed restart is a note: the update of the server goes on. The note shows without --json too (the timer's journal,
-// an administrator's terminal).
-func TestUpdateBoxdRestartFails(t *testing.T) {
-	tb := boxdBase(t)
-	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> '"+tb.sysCalls+"'\n[ \"$*\" = '"+boxdRestart+"' ] && { echo 'unit failed'; exit 1; }\nexit 0\n"), 0o755))
-	arch, k := boxdArchive(t, "0.2.0", "new boxd")
-	code, out, errs := tb.ctl("", "update", "--bundle", arch, "--pubkey", k)
-	if code != 0 || !strings.HasPrefix(out, "ok: 0.1.0 -> 0.2.0") || !strings.Contains(out, "\nnote: restart of mycel-boxd.service failed") || !strings.Contains(out, "unit failed") {
-		t.Fatalf("%d %q %s", code, out, errs)
-	}
-	if c := tb.calls(); indexOf(c, "restart mycel-server.service") < 0 || currentVersion(tb.base) != "0.2.0" {
-		t.Fatalf("the app did not update: %v", c)
-	}
-}
-
-// `systemctl restart` of a Type=simple unit says ok when the process starts. So the update asks the helper, and a helper
-// that does not work is a note. The update goes on, and the note does not say that the restart went well.
-func TestUpdateAsksBoxdAfterRestart(t *testing.T) {
-	cases := map[string]struct {
-		setup func(t *testing.T)
-		note  string
-	}{
-		"boxes not available": {func(t *testing.T) {
-			fakeBoxd(t, `{"ev":"status","available":false,"reason":"box image x is missing"}`)
-		}, "boxes are not available: box image x is missing"},
-		"no answer": {func(t *testing.T) {
-			prevSock, prevWait := boxdSock, boxdWait
-			boxdSock, boxdWait = filepath.Join(t.TempDir(), "none"), time.Millisecond
-			t.Cleanup(func() { boxdSock, boxdWait = prevSock, prevWait })
-		}, "no answer on"},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			tb := boxdBase(t)
-			c.setup(t)
-			boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-			arch, k := boxdArchive(t, "0.2.0", "new boxd")
-			code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-			notes := strings.Join(r.Notes, " ")
-			if code != 0 || !r.AppUpdated || !strings.Contains(notes, c.note) || strings.Contains(notes, "boxes that ran have stopped") {
-				t.Fatalf("%d %+v", code, r)
-			}
-		})
-	}
-	t.Run("a boxd that does not take status from root", func(t *testing.T) { // it answers, so it runs
-		tb := boxdBase(t)
-		fakeBoxd(t, `{"ev":"error","message":"only the server may use boxd"}`)
-		boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-		arch, k := boxdArchive(t, "0.2.0", "new boxd")
-		if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || !strings.Contains(strings.Join(r.Notes, " "), "boxes that ran have stopped") {
-			t.Fatalf("%d %+v", code, r)
-		}
-	})
-}
-
-// An administrator stopped the helper (a small VM needs the memory). `systemctl restart` would start it again.
-func TestUpdateLeavesStoppedBoxdStopped(t *testing.T) {
-	tb := boxdBase(t)
-	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> '"+tb.sysCalls+"'\n[ \"$1\" = is-active ] && { echo inactive; exit 3; }\nexit 0\n"), 0o755))
-	arch, k := boxdArchive(t, "0.2.0", "new boxd")
 	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-	if code != 0 || indexOf(tb.calls(), boxdRestart) >= 0 || tb.file("root/mycel-boxd") != "new boxd" || !strings.Contains(strings.Join(r.Notes, " "), "stays stopped") {
+	c := tb.calls()
+	if code != 0 || r.AppUpdated || indexOf(c, "disable --now mycel-boxd.service") < 0 || indexOf(c, "restart mycel-server.service") < indexOf(c, "daemon-reload") || fileExists(unit) || fileExists(dropin) {
+		t.Fatalf("%d %+v %v", code, r, c)
+	}
+	if !strings.Contains(strings.Join(r.Notes, " "), "restarted without the box drop-in") {
+		t.Fatalf("%+v", r.Notes)
+	}
+	// once more: nothing left to do, no restart
+	must(t, os.Remove(tb.sysCalls))
+	if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || indexOf(tb.calls(), "restart mycel-server.service") >= 0 {
 		t.Fatalf("%d %+v %v", code, r, tb.calls())
 	}
 }
 
-// A failed service restarts: the new program can be the repair.
-func TestUpdateRestartsFailedBoxd(t *testing.T) {
-	tb := boxdBase(t)
-	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> '"+tb.sysCalls+"'\n[ \"$1\" = is-active ] && { echo failed; exit 3; }\nexit 0\n"), 0o755))
-	arch, k := boxdArchive(t, "0.2.0", "new boxd")
-	if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || indexOf(tb.calls(), boxdRestart) < 0 {
-		t.Fatalf("%d %+v %v", code, r, tb.calls())
+// The box mounts below the box folders, deepest first; other mounts and look-alike names are not.
+func TestMountsUnder(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "mountinfo")
+	must(t, os.WriteFile(f, []byte(strings.Join([]string{
+		"36 35 98:0 / / rw - ext4 /dev/root rw",
+		"40 36 98:0 /p /var/lib/mycel/boxd/b1/work rw - ext4 /dev/root rw",
+		"41 40 98:0 /q /var/lib/mycel/boxd/b1/work/deep\\040x rw - ext4 /dev/root rw",
+		"42 36 98:0 /r /var/lib/mycel/boxd-other rw - ext4 /dev/root rw",
+		"43 36 0:5 / /run/mycel-boxd rw - tmpfs tmpfs rw",
+	}, "\n")), 0o644))
+	prev := mountInfo
+	mountInfo = f
+	t.Cleanup(func() { mountInfo = prev })
+	got := strings.Join(mountsUnder([]string{"/var/lib/mycel/boxd", "/run/mycel-boxd"}), "|")
+	if got != "/var/lib/mycel/boxd/b1/work/deep x|/var/lib/mycel/boxd/b1/work|/run/mycel-boxd" {
+		t.Fatal(got)
 	}
 }
 
-// The firewall fails after the new helper is in place. The next run finds the same file and sees no change, so this run
-// restarts the helper.
-func TestUpdateRestartsBoxdWhenALaterStepFails(t *testing.T) {
-	tb := boxdBase(t)
-	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "nft-fail"), nil, 0o644))
-	arch, k := boxdArchive(t, "0.2.0", "new boxd")
+// Almost every server: no service, no drop-in. Nothing in systemctl and no note; the kit's old root/mycel-boxd goes.
+func TestUpdateWithoutTheBoxTrial(t *testing.T) {
+	tb := retireBase(t)
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("kit boxd"), 0o755))
+	arch, k := retireArchive(t, "0.2.0")
 	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
-	if code == 0 || !strings.Contains(r.Detail, "firewall") || indexOf(tb.calls(), boxdRestart) < 0 {
+	c := strings.Join(tb.calls(), "\n")
+	if code != 0 || !r.AppUpdated || strings.Contains(c, "mycel-boxd") || strings.Contains(c, "daemon-reload") || strings.Contains(strings.Join(r.Notes, " "), "box") {
+		t.Fatalf("%d %+v %s", code, r, c)
+	}
+	if fileExists(filepath.Join(tb.base, "root/mycel-boxd")) {
+		t.Fatal("root/mycel-boxd is still there")
+	}
+}
+
+// A service that does not stop is a note: the update of the server goes on.
+func TestUpdateRetireFailsIsANote(t *testing.T) {
+	tb := retireBase(t)
+	boxTrial(t, tb, boxDropin)
+	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> '"+tb.sysCalls+"'\n[ \"$1\" = disable ] && { echo 'unit busy'; exit 1; }\nexit 0\n"), 0o755))
+	arch, k := retireArchive(t, "0.2.0")
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
+	if code != 0 || !r.AppUpdated || !strings.Contains(strings.Join(r.Notes, " "), "mycel-boxd.service did not stop") || indexOf(tb.calls(), "restart mycel-server.service") < 0 {
 		t.Fatalf("%d %+v %v", code, r, tb.calls())
 	}
 }
@@ -877,10 +627,8 @@ func TestUpdateSaysWhenRootFilesAreHalfReplaced(t *testing.T) {
 // are stopped for the update by the launcher itself (a confirmed end the server can name) right before its restart,
 // never cut by the restart.
 func TestUpdateWaitsVisiblyAndTellsTheLauncher(t *testing.T) {
-	tb := boxdBase(t)
-	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("same boxd"), 0o755))
-	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-	arch, k := boxdArchive(t, "0.2.0", "same boxd")
+	tb := retireBase(t)
+	arch, k := retireArchive(t, "0.2.0")
 	prev := updateTestHook
 	updateTestHook = func(u *updater) {
 		prev(u)
@@ -914,10 +662,8 @@ func TestUpdateWaitsVisiblyAndTellsTheLauncher(t *testing.T) {
 // An update of root files only (the app keeps its version, so the server is not restarted after the launcher) says
 // "update-root": the server's queue then goes on as soon as the launcher is back.
 func TestUpdateRootOnlyTellsTheLauncher(t *testing.T) {
-	tb := boxdBase(t)
-	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("same boxd"), 0o755))
-	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
-	arch, k := boxdArchive(t, "0.1.0", "same boxd")
+	tb := retireBase(t)
+	arch, k := retireArchive(t, "0.1.0")
 	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
 	c := tb.calls()
 	if code != 0 || !r.RootUpdated || r.AppUpdated {
@@ -926,4 +672,73 @@ func TestUpdateRootOnlyTellsTheLauncher(t *testing.T) {
 	if p, l := indexOf(c, "prepare-stop update-root"), indexOf(c, "restart mycel-launcher.service"); p < 0 || l != p+1 {
 		t.Fatalf("calls: %v", c)
 	}
+}
+
+// retireScript runs the box runner step of scripts/install-linux.sh with a fake systemctl. dropin is the text of the
+// team server's dev-env.conf ("" = none); unit: the box service is there. It gives the output, the systemctl calls and
+// the folder of the test.
+func retireScript(t *testing.T, unit bool, dropin string) (string, string, string) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip(err)
+	}
+	src, err := os.ReadFile("../../../scripts/install-linux.sh")
+	must(t, err)
+	_, part, ok := strings.Cut(string(src), "# BEGIN box runner retire")
+	part, _, ok2 := strings.Cut(part, "# END box runner retire")
+	if !ok || !ok2 {
+		t.Fatal("no box runner retire part in install-linux.sh")
+	}
+	w := t.TempDir()
+	base, units, bin := filepath.Join(w, "base"), filepath.Join(w, "units"), filepath.Join(w, "bin")
+	must(t, os.MkdirAll(filepath.Join(base, "root"), 0o755))
+	must(t, os.MkdirAll(filepath.Join(base, "boxd"), 0o755))
+	must(t, os.Mkdir(units, 0o755))
+	must(t, os.Mkdir(bin, 0o755))
+	must(t, os.WriteFile(filepath.Join(base, "root/mycel-boxd"), []byte("old boxd"), 0o755))
+	if unit {
+		must(t, os.WriteFile(filepath.Join(units, retiredBoxUnit), []byte("[Service]\nExecStart="+base+"/root/mycel-boxd\n"), 0o644))
+	}
+	if dropin != "" {
+		must(t, os.MkdirAll(filepath.Join(units, "mycel-server.service.d"), 0o755))
+		must(t, os.WriteFile(filepath.Join(units, "mycel-server.service.d", "dev-env.conf"), []byte(dropin), 0o644))
+	}
+	must(t, os.WriteFile(filepath.Join(bin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> '"+w+"/calls'\n"), 0o755))
+	script := "set -euo pipefail\nID=mycel BASE='" + base + "' UNIT_DIR='" + units + "' SYSTEMD=1 PATH='" + bin + "':\"$PATH\"\n" +
+		"warn() { echo \"warning: $*\"; }\nsay() { echo \"say: $*\"; }\nhave_systemd() { return 0; }\n" + part + "\nretire_box_runner\necho end\n"
+	out, err := exec.Command("bash", "-c", script).CombinedOutput()
+	if err != nil || !strings.HasSuffix(string(out), "end\n") {
+		t.Fatalf("%v %s", err, out)
+	}
+	calls, _ := os.ReadFile(filepath.Join(w, "calls"))
+	if fileExists(filepath.Join(base, "root/mycel-boxd")) || !fileExists(filepath.Join(base, "boxd")) {
+		t.Fatalf("root/mycel-boxd stays, or the box state went: %s", out)
+	}
+	return string(out), string(calls), w
+}
+
+func TestInstallScriptRetiresBoxRunner(t *testing.T) {
+	t.Run("the box trial", func(t *testing.T) {
+		out, calls, w := retireScript(t, true, boxDropin)
+		if !strings.Contains(calls, "disable --now mycel-boxd.service") || fileExists(filepath.Join(w, "units", retiredBoxUnit)) || fileExists(filepath.Join(w, "units", "mycel-server.service.d")) {
+			t.Fatalf("%q\n%s", calls, out)
+		}
+		for _, want := range []string{"say: the box runner of the dev environment is removed", "warning: the dev environment is off", "warning: the box state stays: " + filepath.Join(w, "base", "boxd")} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("no %q in\n%s", want, out)
+			}
+		}
+	})
+	t.Run("srt's drop-in stays", func(t *testing.T) {
+		srt := "[Service]\nEnvironment=MYCEL_DEV_ENV=1 MYCEL_DEV_ENV_RUNNER=srt\n"
+		out, _, w := retireScript(t, true, srt)
+		if b, _ := os.ReadFile(filepath.Join(w, "units", "mycel-server.service.d", "dev-env.conf")); string(b) != srt || strings.Contains(out, "the dev environment is off") {
+			t.Fatalf("%q\n%s", b, out)
+		}
+	})
+	t.Run("no box trial", func(t *testing.T) {
+		out, calls, _ := retireScript(t, false, "")
+		if calls != "" || strings.TrimSpace(out) != "end" {
+			t.Fatalf("%q\n%s", calls, out)
+		}
+	})
 }

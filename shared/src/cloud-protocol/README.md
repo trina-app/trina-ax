@@ -34,7 +34,7 @@ Rules:
 - Additive changes only once a field is in use (new optional fields, new commands). A removed or renamed field needs a
   new version (`v: 2` / `format: 2`).
 - **plan.json: a new optional field is not free.** The Go reader (`native/internal/plan`, used by mycel-ctl apply-plan,
-  the launcher and mycel-boxd) refuses a key it does not know, even with a `null` value, and a refused plan fails
+  the launcher) refuses a key it does not know, even with a `null` value, and a refused plan fails
   `apply-plan` (the previous plan stays) and, in an enroll answer, the whole enroll. So a new plan.json field has no
   zod default (parsing must not add it), and the control plane writes it only to a tenant whose kit knows it:
   `TenantStatus.rootVersion` for apply-plan, `EnrollRequest.kitVersion` for an enroll (`""`/unknown = older). Fields
