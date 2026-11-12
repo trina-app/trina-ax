@@ -109,7 +109,9 @@ type Check = (r: Res) => string | null
 const failsQuietly: Check = (r) => (r.code === 0 ? `exit code 0: ${r.out.slice(0, 200)}` : null)
 const ok: Check = (r) => (r.code === 0 ? null : `exit code ${r.code}: ${r.out.slice(0, 300)}`)
 const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" in: ${r.out.slice(0, 300)}`)
-const not = (re: RegExp, why: string): Check => (r) => (re.test(r.out) ? `${why}: ${r.out.slice(0, 300)}` : null)
+/** the output without the refusals (a refused cat or ls names the path it was refused) */
+const shown = (out: string) => out.split('\n').filter((l) => !/Operation not permitted|Permission denied|No such file or directory/.test(l)).join('\n')
+const not = (re: RegExp, why: string): Check => (r) => (re.test(shown(r.out)) ? `${why}: ${shown(r.out).slice(0, 300)}` : null)
 const both = (...cs: Check[]): Check => (r) => cs.map((c) => c(r)).find((x) => x) ?? null
 const noCanary: Check = (r) => (r.out.includes(CANARY) ? `a canary came back: ${r.out.slice(r.out.indexOf(CANARY) - 80, r.out.indexOf(CANARY) + 60)}` : null)
 

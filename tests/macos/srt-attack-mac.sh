@@ -30,7 +30,16 @@ LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/nul
 U_HOME=$(dscl . -read "/Users/$SUDO_USER" NFSHomeDirectory | awk '{print $2}')
 
 OUT=$(mktemp -d /private/tmp/srt-attack.XXXXXX); chmod 755 "$OUT"
-trap 'rm -rf "$OUT"; launchctl bootout "system/$LABEL.attackrestart" >/dev/null 2>&1 || true; rm -f "/Library/LaunchDaemons/$LABEL.attackrestart.plist"' EXIT
+# at the end, whatever happened: no process of a slot account is left (pkill -u names one uid: never kill -1 as root,
+# which would stop every process on the Mac)
+end_slots() {
+  local a u
+  for a in $(envv MYCEL_DEV_ENV_SLOTS | tr ',' ' '); do
+    u=$(id -u "$a" 2>/dev/null) || continue
+    pkill -STOP -u "$u" 2>/dev/null || true; pkill -KILL -u "$u" 2>/dev/null || true
+  done
+}
+trap 'end_slots; rm -rf "$OUT"; launchctl bootout "system/$LABEL.attackrestart" >/dev/null 2>&1 || true; rm -f "/Library/LaunchDaemons/$LABEL.attackrestart.plist"' EXIT
 # the driver: built here with the invoking user's bun, or given prebuilt (ATTACK_JS: a Mac with no bun of its own)
 if [ -n "${ATTACK_JS:-}" ]; then cp "$ATTACK_JS" "$OUT/attack.js"
 else sudo -u "$SUDO_USER" "$U_HOME/.bun/bin/bun" build "$REPO/tests/macos/srt-attack-mac.ts" --target bun --outfile "$OUT/attack.js" >/dev/null; fi

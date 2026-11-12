@@ -23,6 +23,9 @@
 # except the sender. A run's process that leaves the process group or the session (setsid) is still in it. The srt
 # sandbox allows signals only within the same sandbox, so a run cannot kill this script or its watchdog.
 set -u
+# the run's own PATH (runEnv: node, Python, the Command Line Tools) goes back for the command; this script uses the
+# system's only
+RUN_PATH=${PATH:-/usr/bin:/bin}
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 die() { echo "run-wrap-mac: $*" >&2; exit 2; }
 ME=$(id -un)
@@ -36,23 +39,28 @@ ME=$(id -un)
 # keep each one a single line.
 slot_ps() { ps -x -U "$(id -u)" -o pid=,ppid=,stat=,rss=; }
 pool_ps() { ps -x -G "$(id -g)" -o uid=,rss=; }
-slot_kill() { kill -KILL -1 2>/dev/null; }
+slot_kill() { kill -STOP -1 2>/dev/null; kill -KILL -1 2>/dev/null; }
 slot_term() { kill -TERM -1 2>/dev/null; }
 
 # Is there a process of this slot other than this shell ($$; bash 3.2 has no BASHPID, so the watchdog is its own
-# invocation of this file) and the processes up to two levels below it? Those are the helpers of this check (the
-# pipeline's subshell and its ps and awk) and, in a run, srt and the command's shell; zombies do not count.
+# invocation of this file) and the processes up to three levels below it? Those are the helpers of this check (a
+# $(...) subshell, the pipeline's subshell and its ps and awk) and, in a run, srt and the command's shell (every
+# process of the slot got the signal anyway); zombies do not count.
 others() {
   slot_ps | awk -v me="$$" '{ pp[$1] = $2; st[$1] = $3 }
-    END { for (p in pp) { if (p == me || st[p] ~ /^Z/) continue; q = pp[p]; if (q == me || pp[q] == me) continue; found = 1 } exit !found }'
+    END { for (p in pp) { if (p == me || st[p] ~ /^Z/) continue; q = pp[p]; if (q == me || pp[q] == me || pp[pp[q]] == me) continue; found = 1 } exit !found }'
 }
-# SIGKILL to every process of the slot except the caller; again while something is left (a fork bomb forks meanwhile)
+# "none" when others finds nothing. At the process limit (a fork bomb) the check itself cannot fork and prints nothing,
+# which is not "none": the caller goes on killing
+others_state() { if others; then echo some; else echo none; fi; }
+# SIGSTOP, then SIGKILL, to every process of the slot except the caller (a stopped process cannot fork, so a fork bomb
+# cannot make new ones between the two); again until the slot is empty. kill is a builtin: it works at the limit too
 kill_slot() {
   local i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     slot_kill
-    others || return 0
-    sleep 0.2
+    [ "$(others_state 2>/dev/null)" = none ] && return 0
+    sleep 0.2 2>/dev/null
   done
 }
 
@@ -60,7 +68,7 @@ case "${1:-}" in
   check) echo "ok $ME"; exit 0 ;;
   stop)
     slot_term
-    for i in 1 2 3 4 5 6; do others || exit 0; sleep 0.5; done
+    for i in 1 2 3 4 5 6; do [ "$(others_state 2>/dev/null)" = none ] && exit 0; sleep 0.5 2>/dev/null; done
     kill_slot; exit 0 ;;
   run) shift ;;
   _watch)
@@ -102,10 +110,10 @@ ulimit -f 4194304   # bash counts 1024-byte blocks: 4 GiB
 ulimit -c 0
 renice -n 10 -p $$ >/dev/null 2>&1
 
-"$@"
+PATH=$RUN_PATH "$@"
 code=$?
 # the watchdog and everything the command left behind, first: a fork bomb at the limit would block the mv below
 kill_slot
 # the server reads this file; the sandbox can read that folder but not write it
-printf '%s\n' "$code" > "$EXIT_FILE.tmp" && mv -f "$EXIT_FILE.tmp" "$EXIT_FILE"
+printf '%s\n' "$code" > "$EXIT_FILE.tmp" && mv -f "$EXIT_FILE.tmp" "$EXIT_FILE" || printf '%s\n' "$code" > "$EXIT_FILE"
 exit "$code"

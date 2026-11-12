@@ -163,6 +163,7 @@ cat > "$TMP/sudoers" <<EOF
 # The server account starts and stops runs as a dev slot account: only run-wrap-mac, only these accounts, with the
 # run's environment (SETENV). No password, no terminal.
 Defaults:$SRV_USER !lecture, !requiretty
+Defaults!$OPT/devenv/run-wrap-mac !use_pty
 $SRV_USER ALL=($RUNAS) NOPASSWD:SETENV: $OPT/devenv/run-wrap-mac
 EOF
 visudo -cf "$TMP/sudoers" >/dev/null || die "the sudoers rule does not parse"
