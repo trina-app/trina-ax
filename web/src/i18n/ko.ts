@@ -3095,6 +3095,7 @@ export const ko = {
   'integrations.signIn.badUrl': '서비스가 보낸 로그인 주소가 안전하지 않아서 열지 않았어요.',
   'integrations.signIn.phone': '로그인은 컴퓨터의 브라우저나 데스크톱 앱에서 해 주세요.',
   "integrations.onComputer": "{name} 연결은 컴퓨터에서 해요.",
+  "integrations.reconnectOnComputer": "{name} 다시 연결은 컴퓨터에서 해요.",
   "integrations.onComputerNew": "새 서비스 연결은 컴퓨터에서 해요.",
   "integrations.onComputerHint": "컴퓨터의 브라우저나 데스크톱 앱에서 연결하면 휴대폰에서도 바로 쓸 수 있어요.",
   'integrations.signIn.next': '저장하면 새 창에서 서비스에 로그인해요.',

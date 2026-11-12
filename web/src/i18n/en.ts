@@ -3096,6 +3096,7 @@ export const en: Record<MessageKey, string> = {
   'integrations.signIn.badUrl': 'The sign-in address the service sent is not safe, so it was not opened.',
   'integrations.signIn.phone': 'Sign in from a computer, in a browser or the desktop app.',
   "integrations.onComputer": "Connect {name} on a computer.",
+  "integrations.reconnectOnComputer": "Reconnect {name} on a computer.",
   "integrations.onComputerNew": "Connect new services on a computer.",
   "integrations.onComputerHint": "Once it is connected in a browser or the desktop app, you can use it on your phone too.",
   'integrations.signIn.next': 'After you save, a new window opens to sign in at the service.',

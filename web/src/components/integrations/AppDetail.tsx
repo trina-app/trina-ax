@@ -126,9 +126,10 @@ function Detail({ label: name, children }: { label: string; children: ReactNode 
   )
 }
 
+/** a phone: a 44 px tap, still a text link (QA TC-262) */
 function ExtLink({ href, testId, children }: { href: string; testId: string; children: ReactNode }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline" data-testid={testId}>
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline max-md:min-h-11 max-md:min-w-11" data-testid={testId}>
       {children} <ExternalLink size={12} aria-hidden />
     </a>
   )

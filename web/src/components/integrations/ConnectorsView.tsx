@@ -145,7 +145,8 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
           <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums" data-testid="connector-count">{hits.count}</span>
         </h4>
         {more.length > 0 && (
-          <button type="button" className="ml-auto flex items-center gap-1 text-sm text-muted hover:text-ink" aria-expanded={all} aria-controls={moreId} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
+          // a text link; on a phone 44 px tall (QA TC-262)
+          <button type="button" className="ml-auto flex items-center gap-1 text-sm text-muted hover:text-ink max-md:min-h-11" aria-expanded={all} aria-controls={moreId} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
             {all ? t('connectors.showLess') : t('connectors.showAll')} <ArrowRight size={14} aria-hidden className={all ? '-rotate-90' : ''} />
           </button>
         )}
@@ -317,8 +318,9 @@ export function ConnectorRow({ id, logo, name, team, status, onOpen, onConnect, 
 }) {
   const t = useT()
   return (
-    <li className="flex items-center gap-3 border-b border-line py-2.5 last:border-b-0" data-testid={testId} data-id={id} data-state={status}>
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2" onClick={onOpen} data-testid="connector-row-open">
+    // a phone: the row's open button and its status link are 44 px tall, the row as tall as before
+    <li className="flex items-center gap-3 border-b border-line py-2.5 last:border-b-0 max-md:py-2" data-testid={testId} data-id={id} data-state={status}>
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2 max-md:min-h-11" onClick={onOpen} data-testid="connector-row-open">
         {logo ? <LogoTile src={logo} className="size-10 rounded-xl p-2" /> : <InitialTile name={name} />}
         <span className="min-w-0 truncate text-sm font-medium">{name}</span>
         {team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
@@ -328,11 +330,11 @@ export function ConnectorRow({ id, logo, name, team, status, onOpen, onConnect, 
           <Check size={14} className="text-ok" aria-hidden /> {t('drive.status.connected')}
         </span>
       ) : status === 'signin' ? (
-        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
       ) : status === 'reconnect' ? (
-        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('drive.reconnect')}: ${name}`} data-testid="connector-row-status">{t('drive.reconnect')}</button>
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('drive.reconnect')}: ${name}`} data-testid="connector-row-status">{t('drive.reconnect')}</button>
       ) : status === 'attention' ? (
-        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover" onClick={onOpen} aria-label={`${t('connectors.state.attention')}: ${name}`} data-testid="connector-row-status">{t('connectors.state.attention')}</button>
+        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('connectors.state.attention')}: ${name}`} data-testid="connector-row-status">{t('connectors.state.attention')}</button>
       ) : (
         <Button size="sm" variant="primary" className="shrink-0" onClick={onConnect ?? onOpen} aria-label={`${t('aiApps.connect')}: ${name}`} data-testid="template-connect">{t('aiApps.connect')}</Button>
       )}
