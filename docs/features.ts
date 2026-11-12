@@ -107,6 +107,7 @@ export const FEATURES: Feature[] = [
   { id: 'skills.share', name: 'Bring my own skills to the team', area: 'Skills', endpoints: ['*SkillShare*', 'startSkillMerge'], screens: ['/skills/share/:id'] },
   { id: 'skills.packs', name: 'Ready-made skills catalog', area: 'Skills', endpoints: ['listSkillPacks', 'installSkillPack'] },
   { id: 'skills.draft', name: 'Make a team skill from a chat', area: 'Skills', endpoints: ['startSkillDraft', 'getSkillDraft', 'saveSkillDraft'] },
+  { id: 'skills.draft-from-form', name: 'Make a team skill from a form file', area: 'Skills', endpoints: ['startFormSkillDraft'] },
 
   // ---------------- Scheduled tasks ----------------
   { id: 'schedules.tasks', name: 'Scheduled tasks: list, edit, run now, delete', area: 'Scheduled tasks', endpoints: ['listSchedules', 'updateSchedule', 'runScheduleNow', 'scheduleEditCard', 'editSchedule', 'deleteSchedule'], screens: ['/scheduled', '/scheduled/:id'] },
@@ -130,6 +131,7 @@ export const FEATURES: Feature[] = [
   { id: 'onboarding.welcome', name: 'Getting started steps (owner)', area: 'Onboarding', endpoints: ['getWelcome', 'updateWelcome', 'setupWelcomeTeam', 'welcomeBrand'], screens: ['/welcome'] },
   { id: 'onboarding.company-profile', name: 'Company profile', area: 'Onboarding', endpoints: ['getCompanyProfile', 'saveCompanyProfile', 'startProfileDraft', 'getProfileDraft'], screens: ['/admin/settings/company'] },
   { id: 'onboarding.team-files', name: 'Team files picked by the AI', area: 'Onboarding', endpoints: ['rankTeamFiles', 'teamFilesLanded'] },
+  { id: 'onboarding.organize-files', name: 'Folder plan for the files uploaded at setup', area: 'Onboarding', endpoints: ['startOrganize', 'organizeStatus', 'applyOrganize'] },
   { id: 'onboarding.goal', name: '7-day team goal', area: 'Onboarding', endpoints: ['getTeamGoal'] },
   { id: 'onboarding.suggestion', name: 'Suggestion under an answer', area: 'Onboarding', endpoints: ['getResultSuggestion', 'dismissSuggestion'] },
   { id: 'onboarding.member-welcome', name: 'Welcome card for an invited member', area: 'Onboarding', endpoints: ['getMemberWelcome', 'updateMemberWelcome'] },
@@ -171,7 +173,6 @@ export const FEATURES: Feature[] = [
   { id: 'app.desktop-mac', name: 'Mac desktop app (window, menu bar, sign-in)', area: 'Apps & hosting', manual: true },
   { id: 'app.desktop-windows', name: 'Windows desktop app', area: 'Apps & hosting', manual: true },
   { id: 'app.desktop-updates', name: 'Desktop app updates', area: 'Apps & hosting', manual: true },
-  { id: 'app.pc-runner', name: 'PC runner: code runs on my computer', area: 'Apps & hosting', manual: true },
   { id: 'app.phone-ios', name: 'iPhone app', area: 'Apps & hosting', manual: true },
   { id: 'app.phone-android', name: 'Android app', area: 'Apps & hosting', manual: true },
   { id: 'app.store-listings', name: 'App Store, Play Store and Mac App Store listings', area: 'Apps & hosting', manual: true },
