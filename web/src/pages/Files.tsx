@@ -1085,7 +1085,7 @@ function BulkBar({ count, readOnly, fixed, canMove, canShare, running, onMove, o
 function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }: { checked: boolean; disabled?: boolean; label: string; title?: string; onCheck: (shift: boolean) => void; inputRef?: React.Ref<HTMLInputElement>; testId: string }) {
   return (
     <label
-      className={clsx('touch-hit flex items-center justify-center rounded p-1.5 max-sm:p-2.5', disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-hover')}
+      className={clsx('touch-hit max-md:isolate flex items-center justify-center rounded p-1.5 max-sm:p-2.5', disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-hover')}
       title={title}
       onMouseDown={(ev) => {
         if (!ev.shiftKey) return
@@ -1096,7 +1096,8 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
       <input
         ref={inputRef}
         type="checkbox"
-        className="h-4 w-4 accent-[var(--c-accent)] disabled:opacity-40 dark:[color-scheme:dark]"
+        // above the label's 44 px tap box (touch-hit's ::after), so a tap on the box itself lands on it
+        className="h-4 w-4 accent-[var(--c-accent)] disabled:opacity-40 dark:[color-scheme:dark] max-md:relative max-md:z-10"
         checked={checked}
         disabled={disabled}
         aria-label={label}
