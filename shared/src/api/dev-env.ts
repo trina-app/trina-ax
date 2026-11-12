@@ -30,9 +30,9 @@ export type DevEnvConsent = z.infer<typeof DevEnvConsent>
 export const DevEnvNetwork = z.enum(['open', 'offline'])
 export type DevEnvNetwork = z.infer<typeof DevEnvNetwork>
 
-/** Per-run limits. Defaults from the P0 spike (docs/research/dev-env-p0-spike.md section 4). diskGiB and idleStopMin
- * are fields of the removed box runner: they stay in the schema so that stored settings still parse. Runs stop when the
- * server disk comes under its floor (srt/runner.ts). */
+/** Per-run limits. Defaults from the P0 spike (docs/research/dev-env-p0-spike.md section 4). idleStopMin: an idle dev
+ * server stops after it. diskGiB is a field of the removed box runner: it stays in the schema so that stored settings
+ * still parse. Runs stop when the server disk comes under its floor (srt/runner.ts). */
 export const DevEnvLimits = z.object({
   cpus: z.number().min(0.25).max(4).default(1),
   memoryMiB: z.number().int().min(256).max(8192).default(2560),

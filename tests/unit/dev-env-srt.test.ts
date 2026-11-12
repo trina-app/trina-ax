@@ -993,6 +993,32 @@ describe('a command follows the person, not the project', () => {
   })
 })
 
+describe('the storage rule before each command', () => {
+  afterAll(() => configureStorageGuard({ root: h.team, enforce: () => false }))
+  const GiB = 1 << 30
+  const lastCommand = () => JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'dev_env.command' ORDER BY id DESC LIMIT 1").get() as { detail: string }).detail)
+  test('near a full disk the command does not run, and the text says how to free space', async () => {
+    // 100 GiB disk, 1 GiB free: under the reserve of 2 GiB
+    configureStorageGuard({ root: h.team, enforce: () => true, statfs: () => ({ bsize: 4096, blocks: (100 * GiB) / 4096, bfree: GiB / 4096, bavail: GiB / 4096 }) })
+    const r = await alice().call({ command: 'echo hi' })
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain("the team's storage is full")
+    expect(out(r)).toContain('empty the trash or delete files')
+    expect(runs.size).toBe(0)
+    expect(lastCommand()).toMatchObject({ result: { error: 'storage_full' } })
+  })
+  test('with room the command runs', async () => {
+    configureStorageGuard({ root: h.team, enforce: () => true, statfs: () => ({ bsize: 4096, blocks: (100 * GiB) / 4096, bfree: (50 * GiB) / 4096, bavail: (50 * GiB) / 4096 }) })
+    const r = await alice().call({ command: 'echo hi' })
+    expect(r.isError).toBeUndefined()
+    expect(runs.size).toBe(1)
+  })
+  test('where the rule is not enforced the command runs', async () => {
+    configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: 100, bfree: 0, bavail: 0 }) })
+    expect((await alice().call({ command: 'echo hi' })).isError).toBeUndefined()
+  })
+})
+
 describe('jobs and the queue (per team)', () => {
   test('a job starts at once when a slot is free; the row is the person\'s and the chat\'s', async () => {
     const r = await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'render' })

@@ -111,10 +111,14 @@ export const MISC_SPECS: Record<string, Spec> = {
       if ((who === 'memberIn') !== (own.status === 200)) throw new Error(`${who}: alice's personal project's dev environment answered ${own.status}`)
     } },
   devEnvActivity: { build: (c, w) => devEnvOn(() => c.get(`/api/projects/${w.ids.projFalcon}/dev-env/activity`)), scope: 'falcon-read' },
-  // stop every run of the project's chats: people who may use the dev environment and see the project, and admins.
-  // No run is there, so nothing stops; the check is who reaches it (on projects/falcon the owner and admins are not
-  // members: 404, docs/DECISIONS.md "Project contents only for members")
-  devEnvStop: { build: (c, w) => devEnvOn(() => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/stop`)), scope: 'falcon-read' },
+  // stop every run of the project's chats: people who may use the dev environment and see the project, and admins. The
+  // team setting is off here, so nobody may use it: alice and bob see the project and are refused (403), the others do
+  // not see it (404; on projects/falcon the owner and admins are not members, docs/DECISIONS.md "Project contents only
+  // for members")
+  devEnvStop: { build: (c, w) => devEnvOn(() => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/stop`)), scope: 'falcon-read',
+    check: (r, _w, who) => {
+      if ((who === 'memberIn' || who === 'memberOut') && r.status !== 403) throw new Error(`${who}: stopping the runs of a project with the dev environment off answered ${r.status}, not 403`)
+    } },
   // a run of this project nobody has (who started a run, who may use it, admins: tests/unit/dev-env-queue.test.ts)
   devEnvRunStop: { build: (c, w) => devEnvOn(() => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/runs/${NO_RUN}/stop`)), scope: 'nobody' },
   devEnvTeam: { build: (c) => devEnvOn(() => c.get('/api/admin/dev-env')), scope: 'byLevel' },

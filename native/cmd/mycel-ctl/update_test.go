@@ -348,9 +348,11 @@ func retireBase(t *testing.T) *testBase {
 			return err
 		}
 	}
-	prevState := retiredBoxState
+	prevState, prevMounts, prevInfo := retiredBoxState, retiredBoxMounts, mountInfo
 	retiredBoxState = func(base string) []string { return []string{filepath.Join(base, "boxd"), filepath.Join(base, "boxd-storage")} }
-	t.Cleanup(func() { retiredBoxState = prevState })
+	retiredBoxMounts = func(base string) []string { return []string{filepath.Join(base, "boxd")} }
+	mountInfo = filepath.Join(t.TempDir(), "none")
+	t.Cleanup(func() { retiredBoxState, retiredBoxMounts, mountInfo = prevState, prevMounts, prevInfo })
 	return tb
 }
 
@@ -412,7 +414,7 @@ func TestUpdateRetiresBoxRunner(t *testing.T) {
 		t.Fatal("the box state was deleted")
 	}
 	notes := strings.Join(r.Notes, " ")
-	for _, want := range []string{"mycel-boxd.service is stopped", "the dev environment is off", "install-srt.sh", "the box state stays: " + filepath.Join(tb.base, "boxd") + " ", "Removed: the box runner"} {
+	for _, want := range []string{"mycel-boxd.service and its boxes are stopped", "the dev environment is off", "install-srt.sh", "the box state stays: " + filepath.Join(tb.base, "boxd") + " ", "Removed: the box runner"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("no %q in %s", want, notes)
 		}
@@ -434,6 +436,52 @@ func TestUpdateKeepsTheSrtDropin(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(r.Notes, " "), "the dev environment is off") {
 		t.Fatalf("%+v", r.Notes)
+	}
+}
+
+// The first update to this release ran the older mycel-ctl, which has no retire step. The next run of the new one finds
+// the server at this version already: it retires the box runner and restarts the team server without the drop-in.
+func TestUpdateRetiresWhenAlreadyAtTheVersion(t *testing.T) {
+	tb := retireBase(t)
+	unit, dropin := boxTrial(t, tb, boxDropin)
+	arch, k := retireArchive(t, "0.2.0")
+	if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || !r.AppUpdated {
+		t.Fatalf("%d %+v", code, r)
+	}
+	// as after the older mycel-ctl: the box files are back, and the server runs 0.2.0
+	boxTrial(t, tb, boxDropin)
+	must(t, os.Remove(tb.sysCalls))
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
+	c := tb.calls()
+	if code != 0 || r.AppUpdated || indexOf(c, "disable --now mycel-boxd.service") < 0 || indexOf(c, "restart mycel-server.service") < indexOf(c, "daemon-reload") || fileExists(unit) || fileExists(dropin) {
+		t.Fatalf("%d %+v %v", code, r, c)
+	}
+	if !strings.Contains(strings.Join(r.Notes, " "), "restarted without the box drop-in") {
+		t.Fatalf("%+v", r.Notes)
+	}
+	// once more: nothing left to do, no restart
+	must(t, os.Remove(tb.sysCalls))
+	if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || indexOf(tb.calls(), "restart mycel-server.service") >= 0 {
+		t.Fatalf("%d %+v %v", code, r, tb.calls())
+	}
+}
+
+// The box mounts below the box folders, deepest first; other mounts and look-alike names are not.
+func TestMountsUnder(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "mountinfo")
+	must(t, os.WriteFile(f, []byte(strings.Join([]string{
+		"36 35 98:0 / / rw - ext4 /dev/root rw",
+		"40 36 98:0 /p /var/lib/mycel/boxd/b1/work rw - ext4 /dev/root rw",
+		"41 40 98:0 /q /var/lib/mycel/boxd/b1/work/deep\\040x rw - ext4 /dev/root rw",
+		"42 36 98:0 /r /var/lib/mycel/boxd-other rw - ext4 /dev/root rw",
+		"43 36 0:5 / /run/mycel-boxd rw - tmpfs tmpfs rw",
+	}, "\n")), 0o644))
+	prev := mountInfo
+	mountInfo = f
+	t.Cleanup(func() { mountInfo = prev })
+	got := strings.Join(mountsUnder([]string{"/var/lib/mycel/boxd", "/run/mycel-boxd"}), "|")
+	if got != "/var/lib/mycel/boxd/b1/work/deep x|/var/lib/mycel/boxd/b1/work|/run/mycel-boxd" {
+		t.Fatal(got)
 	}
 }
 

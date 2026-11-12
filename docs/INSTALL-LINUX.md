@@ -251,20 +251,24 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 - **Removed: the box runner** (`docs/DECISIONS.md` "Dev environment: box runner removed, srt only"). The dev
   environment runs only in srt (`scripts/dev-env/srt/install-srt.sh`). Up to v0.5.0-beta.1 every kit had
   `root/mycel-boxd`, and `scripts/dev-env/install-trial.sh` could add the box runner to a server. On a server where it
-  ran, the update to this release (`sudo mycel-ctl update`, or `install-linux.sh update`) does this before the team
-  server starts again:
-  - it stops and disables `mycel-boxd.service` and deletes its unit file;
+  ran, `install-linux.sh update` and `sudo mycel-ctl update` do this before the team server starts again. The first
+  `sudo mycel-ctl update` to this release runs the `mycel-ctl` of the older version, which does not know this step: run
+  `sudo mycel-ctl update` once more after it. That run finds the server at this version, does the step and restarts the
+  team server.
+  - it stops and disables `mycel-boxd.service`, ends the boxes of the account `mycel-devbox` (`podman rm -af`), unmounts
+    the box mounts and deletes the unit file;
   - it deletes the drop-in `/etc/systemd/system/<id>-server.service.d/dev-env.conf` when the drop-in names
     `MYCEL_BOXD_SOCK` and not `MYCEL_DEV_ENV_RUNNER=srt`. The dev environment is then off. To use it again, run
     `install-srt.sh`. A drop-in that `install-srt.sh` wrote stays;
-  - it deletes `<base>/root/mycel-boxd` (also on a server where the trial never ran);
+  - it deletes `<base>/root/mycel-boxd` (on every server with systemd);
   - it does not delete the box state, and the result has a note that names it. Box folders were mounts of project
     folders, so a delete through a mount that is still there deletes team files.
 
   The box state is the account `mycel-devbox`, `<base>/boxd` (box volumes), `<base>/boxd-storage` (the podman storage),
   `/var/lib/mycel-boxd` (an older trial), `/var/lib/mycel-boxd-trial` (the trial's own record) and the packages that the
   trial added. `install-trial.sh` also turned off `<id>-update.timer`. To remove all of it and turn the timer back on,
-  run the uninstall script of the last release that has it, as root:
+  run the uninstall script of the last release that has it, as root, **before** `install-srt.sh`: it deletes `dev-env.conf`
+  whatever is in it, also the file of srt.
 
   ```bash
   git -C /path/to/trina-ax show v0.5.0-beta.1:scripts/dev-env/uninstall-trial.sh > /root/uninstall-trial.sh
@@ -272,7 +276,9 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   ```
 
   It unmounts every box folder first and stops if a mount stays, then deletes the state and the account. It also
-  restarts the team server. `--keep-packages` keeps the packages.
+  restarts the team server. It purges the packages that the trial added (`python3` among them on some servers): add
+  `--keep-packages` when srt is used or will be, because srt needs `python3`. Then install srt if the team wants the dev
+  environment.
 - **더 오래된 릴리스로 내려가지 않음**: `mycel-update.timer`와 `--version` 없는 `sudo mycel-ctl update`는 피드의 버전이 지금 돌고 있는 앱보다 새로울 때만 설치한다(서버의 앱 업데이트와 같은 버전 순서. 0.2.18-pre.1 같은 사전 릴리스가 돌면 0.2.17 피드는 건너뛰고 그렇게 적는다). 일부러 되돌리려면 버전을 준다: `sudo mycel-ctl update --version <버전>`(더 새 root 부분은 그대로 둔다). 업데이트 전 버전으로 팀을 되돌리는 순서는 10장 "업데이트 전 버전으로 되돌리기"를 따른다(그냥 다시 시작하면 새 버전이 떠서 되돌린 DB를 다시 바꾼다). 업데이트 도중 리셋·정전으로 root 프로그램이 반만 바뀌었으면 `sudo mycel-ctl status`가 "AN UPDATE DID NOT FINISH"라고 알린다. 실행했던 명령을 그대로 다시 실행한다: 키트로 업데이트했으면 그 키트 폴더에서 `sudo ./install-linux.sh update --from .`, 아니면 `sudo mycel-ctl update`(키트가 피드보다 새 버전이었으면 `mycel-ctl update`만으로는 끝내지 못하고 그 이유를 말한다). 이 릴리스의 설치 스크립트는 바로, `mycel-ctl update`는 이 릴리스의 `mycel-ctl`부터 `mycel-ctl`을 먼저 바꾸므로 그때부터는 무엇이든 바뀌었으면 이 확인이 있다. 0.4.x에서 `mycel-ctl update`나 업데이트 타이머로 올리는 업데이트는 아직 0.4의 `mycel-ctl`과 그 순서로 돈다. 그것이 중간에 멈추면 피드의 릴리스가 더 새로우므로 `sudo mycel-ctl update`가 마저 끝낸다.
 - **단계적 배포**: 새 stable 릴리스는 모든 서버에 같은 밤 가지 않는다. 피드가 게시된 뒤 첫날 약 10%, 둘째 날 약 50%, 셋째
   날부터 모든 서버가 자동 업데이트로 받는다. 나쁜 릴리스가 닿는 팀이 적어진다. 서버마다 설치 id(`MYCEL_INSTALL_ID`, 없으면

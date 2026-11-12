@@ -1021,13 +1021,21 @@ fi
 # the same file) and root/mycel-boxd go. The team server is stopped here (stop_units) and starts after the
 # daemon-reload below. The box state stays: box folders were mounts of project folders, and a delete through a mount
 # deletes team files (docs/INSTALL-LINUX.md "Removed: the box runner"). Every step is a warning, never a stop.
+box_mounts() { findmnt -rn -o TARGET 2>/dev/null | grep -E "^($BASE/boxd|$BASE/boxd-storage|/var/lib/mycel-boxd|/run/mycel-boxd)(/|\$)" | sort -r || true; }
 retire_box_runner() {
-  local unit="$UNIT_DIR/mycel-boxd.service" dropin="$UNIT_DIR/$ID-server.service.d/dev-env.conf" done=0 p left=""
+  local unit="$UNIT_DIR/mycel-boxd.service" dropin="$UNIT_DIR/$ID-server.service.d/dev-env.conf" done=0 p m left=""
   if [ "$SYSTEMD" = 1 ] && have_systemd && [ -f "$unit" ]; then
     systemctl disable --now mycel-boxd.service >/dev/null 2>&1 || warn "mycel-boxd.service did not stop"
-    rm -f "$unit" && done=1
+    # the boxes run in the box account's own systemd session, not in the service; their mounts are host mounts
+    if id mycel-devbox >/dev/null 2>&1; then
+      runuser -u mycel-devbox -- env XDG_RUNTIME_DIR="/run/user/$(id -u mycel-devbox)" podman rm -af -t 5 >/dev/null 2>&1 \
+        || warn "the boxes of mycel-devbox did not stop"
+    fi
+    for m in $(box_mounts); do umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || true; done
+    [ -z "$(box_mounts)" ] || warn "box mounts are still there: $(box_mounts | tr '\n' ' '). Do not delete below them; reboot, then remove the box state"
+    rm -f "$unit" /usr/local/sbin/mycel-boxd && done=1
     systemctl reset-failed mycel-boxd.service >/dev/null 2>&1 || true
-    say "the box runner of the dev environment is removed: mycel-boxd.service is stopped and its unit file is gone"
+    say "the box runner of the dev environment is removed: mycel-boxd.service and its boxes are stopped and its unit file is gone"
   fi
   if [ -f "$dropin" ] && grep -qs MYCEL_BOXD_SOCK "$dropin" && ! grep -qs MYCEL_DEV_ENV_RUNNER=srt "$dropin"; then
     rm -f "$dropin"; rmdir "$(dirname "$dropin")" 2>/dev/null || true; done=1

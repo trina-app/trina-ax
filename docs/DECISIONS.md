@@ -5879,23 +5879,30 @@ VM). The team runs srt since "Dev environment on srt, behind a flag".
   settings rows stay. Nothing writes them; the purge deletes old `dev_env_jobs` and `dev_env_stops` rows after 30 days
   (also a job row that never ended). An old box notice shows the generic text of its event, with no project, log or
   link. Warning version 1 (the box's) no longer counts.
-- **Upgrade of a server of the box trial.** `mycel-ctl update` (`retireBoxRunner`, before the team server restarts on
-  the new version) and `install-linux.sh` (`retire_box_runner`) stop and disable `mycel-boxd.service`, delete its unit,
-  delete the team server's `dev-env.conf` when it names `MYCEL_BOXD_SOCK` and not the srt line (the dev environment is
-  then off until `install-srt.sh`), and delete `root/mycel-boxd`. They do not delete the box state (the account
+- **Upgrade of a server of the box trial.** `mycel-ctl update` (`retireBoxRunner`) and `install-linux.sh`
+  (`retire_box_runner`) stop and disable `mycel-boxd.service`, end the boxes of `mycel-devbox` (`podman rm -af`: they run
+  in that account's own systemd session, not in the service), unmount the box mounts, delete the unit, delete the team
+  server's `dev-env.conf` when it names `MYCEL_BOXD_SOCK` and not the srt line (the dev environment is then off until
+  `install-srt.sh`), and delete `root/mycel-boxd`. `mycel-ctl update` does not run the new `mycel-ctl`: the first update
+  to this release runs the older one, which has no such step. So the step runs in two places: before the team server
+  restarts on the new version, and when an update finds the server at this version already (`retireNow`, which then
+  restarts the team server without the drop-in). A trial server needs `sudo mycel-ctl update` twice (its update timer is
+  off since the trial); `install-linux.sh update` needs one run. Until the second run the new server runs with
+  `MYCEL_DEV_ENV=1` and no srt: the dev environment says it is not available, and nobody can use it. They do not delete the box state (the account
   `mycel-devbox`, `<base>/boxd`, `<base>/boxd-storage`, `/var/lib/mycel-boxd`, `/var/lib/mycel-boxd-trial`): box
   folders were mounts of project folders, and a delete through a mount deletes team files. A note names what stays, and
   `docs/INSTALL-LINUX.md` "Removed: the box runner" points to `uninstall-trial.sh` of v0.5.0-beta.1, which unmounts
   first. Every step is a note: the update never fails or waits for it. A server where the trial never ran has no step,
-  except that `root/mycel-boxd` goes. A roll-back to an older version after this has no box helper; that version's
+  except that `root/mycel-boxd` goes (with systemd). A roll-back to an older version after this has no box helper; that version's
   dev environment says it is not available.
 - **Kept.** The tool name `box_shell` (steps and transcripts name it), the audit action `dev_env.box_stopped` and the
   notice code `dev_env_box_stopped` (srt's disk stop uses them), the `dev-env.json` plan file and its parser
   (`srt/plan.ts`, hosted files have `diskGiB`), and `diskGiB` and `idleStopMin` in the limits schema.
 - **QA.** TC-307 (box runner folder isolation) is not needed any more.
-- **Tests.** `tests/unit/dev-env.test.ts` (the parts with no runner, the purge), the login-card and conflict-copy cases
+- **Tests.** `tests/unit/dev-env.test.ts` (the parts with no runner, the purge), the login-card, conflict-copy and storage-rule cases
   moved to `tests/unit/dev-env-srt.test.ts`, `native/cmd/mycel-ctl/update_test.go` (`TestUpdateRetiresBoxRunner`,
   `TestUpdateKeepsTheSrtDropin`, `TestUpdateWithoutTheBoxTrial`, `TestUpdateRetireFailsIsANote`,
+  `TestUpdateRetiresWhenAlreadyAtTheVersion`, `TestMountsUnder`,
   `TestInstallScriptRetiresBoxRunner`).
 
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)

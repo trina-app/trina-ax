@@ -20,6 +20,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -471,6 +472,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 			return skip("release " + feed.Version + " does not change root files")
 		}
 		if feed.Version == u.res.From && rootVersion(u.e) == feed.Version {
+			u.retireNow()
 			return skip("already at " + feed.Version)
 		}
 		// the publisher paused the release (rollout.go hold; the held head also names it as its own minFrom, which holds
@@ -507,6 +509,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		return nil
 	}
 	if m.Version == u.res.From {
+		u.retireNow()
 		u.res.Result = "ok"
 		return nil
 	}
@@ -1001,35 +1004,98 @@ func (u *updater) updateRoot(dir, v string) error {
 }
 
 // The box runner of the dev environment is gone (docs/DECISIONS.md "Dev environment: box runner removed, srt only"). A
-// server where scripts/dev-env/install-trial.sh ran (up to v0.5.0-beta.1) still has its root service, the drop-in that
-// turned the box on for the team server, and root/mycel-boxd from the kit. The update takes those three away before the
-// new server starts, so it does not start with MYCEL_DEV_ENV=1 and no srt. The box state (the mycel-devbox account, the
-// box volumes, the podman storage) stays: box folders were mounts of project folders, and a delete through a mount
-// deletes team files, so the note says where it is and how to remove it. Every step is a note, never a failure.
+// server where scripts/dev-env/install-trial.sh ran (up to v0.5.0-beta.1) still has its root service, the boxes it
+// started (rootless podman as mycel-devbox, with mounts of project folders), the drop-in that turned the box on for the
+// team server, and root/mycel-boxd from the kit. This step stops the service and the boxes, takes away the mounts, the
+// unit, the drop-in and the program, so the server does not run with MYCEL_DEV_ENV=1 and no srt and no box keeps
+// writing project folders. The box state (the mycel-devbox account, the box volumes, the podman storage) stays: a
+// delete through a mount that is still there deletes team files, so the note says where it is and how to remove it.
+// Every step is a note, never a failure.
+//
+// It runs in two places: before the server restarts on the new version (updateApp), and when the server already runs
+// this version (retireNow). The second one is for the first update to this release: the mycel-ctl that runs it is the
+// one of the older version, which has no such step.
 const (
 	retiredBoxProgram = "mycel-boxd"
 	retiredBoxUnit    = "mycel-boxd.service"
+	retiredBoxUser    = "mycel-devbox"
 )
 
-// retiredBoxState: the folders and the account that install-trial.sh made, for the note
-var retiredBoxState = func(base string) []string {
-	return []string{filepath.Join(base, "boxd"), filepath.Join(base, "boxd-storage"), "/var/lib/mycel-boxd", "/var/lib/mycel-boxd-trial", "/home/mycel-devbox"}
+// retiredBoxState: the folders that install-trial.sh made, for the note. retiredBoxMounts: where its mounts were.
+// Variables for the tests.
+var (
+	retiredBoxState = func(base string) []string {
+		return []string{filepath.Join(base, "boxd"), filepath.Join(base, "boxd-storage"), "/var/lib/mycel-boxd", "/var/lib/mycel-boxd-trial", "/home/" + retiredBoxUser}
+	}
+	retiredBoxMounts = func(base string) []string {
+		return []string{filepath.Join(base, "boxd"), filepath.Join(base, "boxd-storage"), "/var/lib/mycel-boxd", "/run/mycel-boxd"}
+	}
+	mountInfo = "/proc/self/mountinfo"
+)
+
+// mountsUnder lists the mount points below (or at) these folders, deepest first. mountinfo escapes space, tab, newline
+// and backslash as octal.
+func mountsUnder(roots []string) []string {
+	b, err := os.ReadFile(mountInfo)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) < 5 {
+			continue
+		}
+		mp := f[4]
+		for _, esc := range []struct{ from, to string }{{`\040`, " "}, {`\011`, "\t"}, {`\012`, "\n"}, {`\134`, `\`}} {
+			mp = strings.ReplaceAll(mp, esc.from, esc.to)
+		}
+		for _, r := range roots {
+			if mp == r || strings.HasPrefix(mp, r+"/") {
+				out = append(out, mp)
+				break
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
+	return out
 }
 
-// retireBoxRunner runs before the server restarts on the new version (updateApp). Nothing to do on a server where
+// stopBoxes ends the boxes of the box account (they run in its own systemd session, not in the service) and takes
+// away the box mounts. A mount that stays is a note: nothing is deleted below it.
+func (u *updater) stopBoxes() {
+	if acct, err := lookupAccount(retiredBoxUser); err == nil {
+		rundir := fmt.Sprintf("/run/user/%d", acct.uid)
+		if out, err := exec.Command("runuser", "-u", retiredBoxUser, "--", "env", "XDG_RUNTIME_DIR="+rundir, "podman", "rm", "-af", "-t", "5").CombinedOutput(); err != nil {
+			u.res.Notes = append(u.res.Notes, fmt.Sprintf("the boxes of %s did not stop: %v %s", retiredBoxUser, err, strings.TrimSpace(string(out))))
+		}
+	}
+	roots := retiredBoxMounts(u.e.base)
+	for _, m := range mountsUnder(roots) {
+		if err := unix.Unmount(m, 0); err != nil {
+			_ = unix.Unmount(m, unix.MNT_DETACH)
+		}
+	}
+	if left := mountsUnder(roots); len(left) > 0 {
+		u.res.Notes = append(u.res.Notes, "box mounts are still there: "+strings.Join(left, ", ")+". Do not delete below them; reboot, then remove the box state")
+	}
+}
+
+// retireBoxRunner says whether the team server must restart (its drop-in went). Nothing to do on a server where
 // install-trial.sh never ran, which is almost every server.
-func (u *updater) retireBoxRunner(systemd bool) {
-	reload := false
+func (u *updater) retireBoxRunner(systemd bool) bool {
+	reload, restart := false, false
 	unit := filepath.Join(systemdUnitDir, retiredBoxUnit)
 	if systemd && fileExists(unit) {
 		if out, err := exec.Command(u.e.systemctl, "disable", "--now", retiredBoxUnit).CombinedOutput(); err != nil {
 			u.res.Notes = append(u.res.Notes, fmt.Sprintf("%s did not stop: %v %s", retiredBoxUnit, err, strings.TrimSpace(string(out))))
 		}
+		u.stopBoxes()
 		if err := os.Remove(unit); err != nil {
 			u.res.Notes = append(u.res.Notes, "cannot remove "+unit+": "+err.Error())
 		} else {
 			reload = true
-			u.res.Notes = append(u.res.Notes, "the box runner of the dev environment is removed: "+retiredBoxUnit+" is stopped and its unit file is gone")
+			u.res.Notes = append(u.res.Notes, "the box runner of the dev environment is removed: "+retiredBoxUnit+" and its boxes are stopped and its unit file is gone")
 		}
 	}
 	// the drop-in is the box trial's when it names the box socket and not the srt runner (install-srt.sh writes the
@@ -1039,7 +1105,7 @@ func (u *updater) retireBoxRunner(systemd bool) {
 		if err := os.Remove(dropin); err != nil {
 			u.res.Notes = append(u.res.Notes, "cannot remove "+dropin+": "+err.Error())
 		} else {
-			reload = true
+			reload, restart = true, true
 			_ = os.Remove(filepath.Dir(dropin)) // only when empty
 			u.res.Notes = append(u.res.Notes, "the dev environment is off: "+dropin+" turned on the removed box runner. To use the dev environment, install srt: scripts/dev-env/srt/install-srt.sh")
 		}
@@ -1050,13 +1116,16 @@ func (u *updater) retireBoxRunner(systemd bool) {
 		}
 		_ = exec.Command(u.e.systemctl, "reset-failed", retiredBoxUnit).Run()
 	}
-	if prog := u.e.root(retiredBoxProgram); fileExists(prog) {
-		if err := os.Remove(prog); err != nil {
-			u.res.Notes = append(u.res.Notes, "cannot remove "+prog+": "+err.Error())
+	// /usr/local/sbin: only an older install-trial.sh put the program there
+	for _, prog := range []string{u.e.root(retiredBoxProgram), "/usr/local/sbin/" + retiredBoxProgram} {
+		if fileExists(prog) && (reload || prog == u.e.root(retiredBoxProgram)) {
+			if err := os.Remove(prog); err != nil {
+				u.res.Notes = append(u.res.Notes, "cannot remove "+prog+": "+err.Error())
+			}
 		}
 	}
 	if !reload {
-		return
+		return restart
 	}
 	var left []string
 	for _, p := range retiredBoxState(u.e.base) {
@@ -1065,8 +1134,27 @@ func (u *updater) retireBoxRunner(systemd bool) {
 		}
 	}
 	if len(left) > 0 {
-		u.res.Notes = append(u.res.Notes, "the box state stays: "+strings.Join(left, ", ")+" (and the account mycel-devbox). docs/INSTALL-LINUX.md \"Removed: the box runner\" says how to remove it")
+		u.res.Notes = append(u.res.Notes, "the box state stays: "+strings.Join(left, ", ")+" (and the account "+retiredBoxUser+"). docs/INSTALL-LINUX.md \"Removed: the box runner\" says how to remove it")
 	}
+	return restart
+}
+
+// retireNow: the server runs this version already (the first update to it ran an older mycel-ctl). The retire step,
+// and a restart of the team server when its drop-in went. The update timer waits for a quiet moment first; an
+// administrator's run does not.
+func (u *updater) retireNow() {
+	if !u.in.Systemd || !fileExists(systemdRunDir) || !u.retireBoxRunner(true) {
+		return
+	}
+	if u.scheduled && !u.waitForTurns() {
+		u.res.Notes = append(u.res.Notes, "the team server restarts at the next quiet check: until then it runs with the old drop-in")
+		return
+	}
+	if err := u.restartSrv(); err != nil {
+		u.res.Notes = append(u.res.Notes, "the team server did not restart: "+err.Error()+". Run `sudo systemctl restart "+u.in.ID+"-server`")
+		return
+	}
+	u.res.Notes = append(u.res.Notes, "the team server restarted without the box drop-in")
 }
 
 // syncUnits renders the units from root/systemd and root/install.json on every update (not only when a template
@@ -1333,7 +1421,7 @@ func (u *updater) updateApp(dir, v string) error {
 		return fmt.Errorf("switch: %v %s", err, strings.TrimSpace(out))
 	}
 	if systemd {
-		u.retireBoxRunner(systemd)
+		_ = u.retireBoxRunner(systemd)
 		if err := u.restartSrv(); err != nil {
 			return err
 		}
