@@ -23940,3 +23940,26 @@ and **supersedes** two earlier decisions:
   activity in the last 14 days and reads the group heads from the server; until then the grouping is of the loaded
   chats.
 - Version impact: patch (web only; no API, no migration).
+
+## Navigation lists as reusable parts (feat/nav-lists, 2026-11-13, navigation redesign P0b)
+
+넣을 곳: Team AX core (`web/src/components/nav/`), 이유: the navigation redesign (`docs/AGENTS/plan/20261112-1839-nav-rail.md`,
+approved by the owner 2026-11-13) draws the same lists in new places (the rail's Trina and 대화 panels) behind the
+`navRail` flag while today's sidebar stays the default. One copy of each list means a fix lands in both layouts.
+
+- **What moved, unchanged:** out of `Sidebar.tsx` into `components/nav/`: `MenuRows` / `PhoneMenuRows` (the labeled rows
+  on a computer, the drawer's rows on a phone), `HistoryList` (Trina history: title, filter and sort menu, the list, the
+  move dialog), `ChatItem` with the hover peek (`useChatPeek`), `AccountMenu`. Out of `rooms/SidebarRooms.tsx` into
+  `nav/RoomsList.tsx`: the rooms list body, its rows and helpers (`sidebarRows`, `roomSections`, `hiddenUnread`,
+  `UnreadBadge`, `RoomPinIcon`). `SidebarRooms.tsx` keeps the section around it (title, fold, "+") and re-exports the
+  helpers, so no importer changed. `history/HistoryGroups.tsx` (P0a) stays where it is: it was already a list with its
+  caps as parameters.
+- **Caps are props:** `HistoryList caps` (`SIDEBAR_HISTORY_CAPS`: 10 pins, 5 latest, 5 projects × 3 rows; none = the whole
+  history, the phone's drawer) and `RoomsList caps` (`SIDEBAR_ROOM_CAPS`: 10 pins, 5 latest). Today's values are the
+  defaults, so nothing on screen changes.
+- Two small structural differences, invisible: the move dialog now renders inside the sidebar's scroll box (it is a
+  fixed overlay, so nothing clips it), and after a move the keyboard looks for the moved row inside the history list
+  instead of the whole sidebar.
+- Tests: `web/test/unit/nav-lists.test.tsx` (caps from the caller); `sidebar.test.tsx`, `room-pins.test.tsx`,
+  `room-hide.test.tsx` and the sidebar e2e suites pass unchanged.
+- Version impact: none (no visible change; no changelog fragment, per `changes/README.md`).
