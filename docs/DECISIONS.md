@@ -17612,7 +17612,8 @@ Slack's sections, that only they see. This entry is the server half: tables, rul
   of my ids: those first in that order, the rest after in their order, unknown ids ignored, the full list returned. Two
   devices that reorder at once both succeed and the last wins (no 400 for a folder made on the other device meanwhile).
   Items have no order of their own: they follow the list (latest activity first). 30 folders per person and kind
-  (`nav_folders_full`), 500 items per folder (`nav_folder_full`; rows that fail the check are deleted first). Names:
+  (`nav_folders_full`), 500 items per folder (`nav_folder_full`; rows that can never show again are deleted first: a chat's that fail the
+  check, a room left, archived or filed before rejoining; a hidden room's row stays and counts). Names:
   NFC, trimmed, 1–40 characters as people see them (graphemes), none invisible or a control character, unique per
   person and kind in any letter case (`name_key`, `nav_folder_name_taken`).
 - **Deleting a folder** deletes only the folder; its chats and rooms go back to their usual place and my windows get
@@ -17626,6 +17627,10 @@ Slack's sections, that only they see. This entry is the server half: tables, rul
   archived, left and rejoined, a route matrix for the folder's owner, another member, an admin, the owner, a person
   who lost access and a deleted account), the security permission matrix (`tests/security/lib/nav-folders-cases.ts`,
   every route), `web/test/unit/realtime.test.ts` (the new event).
+- **Independent security review (2026-11-13).** Nothing revealed; fixed: a full room folder pruned a hidden room's row
+  (now only rows that can never show again), `?folderId` had its own copy of the rule (now the one check), and the
+  tests that claimed a removal by someone else, the folder page in the matrix, 404-only renames and an untouched order.
+  Left as is: names are unique by NFC + lower case, not NFKC (as the plan says).
 - Version impact: **minor** (new endpoints, additive fields and an additive migration).
 
 ## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)

@@ -313,6 +313,30 @@ test('rooms: members only, each their own folder; hidden 409 and kept while hidd
   expect((await fileRoom(mia.client, dm.id, f)).status).toBe(404)
 })
 
+test(`a full room folder keeps a hidden room's row (it comes back) and drops rows of rooms that are gone`, async () => {
+  const { mia, nora, otto, make, fileRoom, db } = await setup()
+  const f = (await make(mia.client, 'rooms', 'full')).body.id
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const other = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: otto.id })
+  await fileRoom(mia.client, dm.id, f)
+  await mia.client.call('PUT', `/api/rooms/${dm.id}/hidden`, { hidden: true })
+  // fill it up with rows of archived rooms she was in
+  const now = new Date().toISOString()
+  db.transaction(() => {
+    for (let i = 0; i < NAV_FOLDER_ITEMS_MAX - 1; i++) {
+      const id = newId()
+      db.query("INSERT INTO rooms (id, kind, created_at, activity_at, archived_at) VALUES (?, 'group', ?, ?, ?)").run(id, now, now, now)
+      db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq, history_from_seq) VALUES (?, ?, ?, 0, 0, 0)').run(id, mia.id, now)
+      db.query("INSERT INTO nav_folder_items (folder_id, user_id, kind, chat_id, room_id, added_at) VALUES (?, ?, 'rooms', NULL, ?, ?)").run(f, mia.id, id, now)
+    }
+  })()
+  expect((await fileRoom(mia.client, other.id, f)).status).toBe(200)
+  // the archived rooms' rows went, the hidden DM's stayed
+  expect(db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE folder_id = ?').get(f)).toEqual({ n: 2 })
+  await mia.client.call('PUT', `/api/rooms/${dm.id}/hidden`, { hidden: false })
+  expect((await mia.client.call('GET', `/api/rooms/${dm.id}`)).folderId).toBe(f)
+})
+
 test('a room row from before I joined again never shows (a stale row)', async () => {
   const { mia, nora, otto, make, folders, db } = await setup()
   const f = (await make(mia.client, 'rooms', 'f')).body.id
@@ -380,9 +404,15 @@ test('route matrix: the folder\'s owner, another member, an admin, the owner, a 
   expect(db.query('SELECT name FROM nav_folders WHERE id = ?').get(fc)).toEqual({ name: 'MIA-FOLDER-CANARY' })
   // the folder's owner: everything works
   expect((await folders(mia.client)).map((f) => [f.name, f.count])).toEqual([['MIA-FOLDER-CANARY', 1], ['MIA-ROOMS-CANARY', 1]])
-  // a person who lost access: taken out of the group chat, it leaves their folder; anything after is 404
-  await mia.client.call('DELETE', `/api/rooms/${group.id}/members/${otto.id}`)
+  // a person who lost access: otto filed the group chat, mia takes him out; his row goes, his windows hear it, and
+  // anything after is 404
   const ottoF = (await make(otto.client, 'rooms', 'otto')).body.id
+  expect((await fileRoom(otto.client, group.id, ottoF)).status).toBe(200)
+  h.hub.events = []
+  await mia.client.call('DELETE', `/api/rooms/${group.id}/members/${otto.id}`)
+  expect(db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE user_id = ?').get(otto.id)).toEqual({ n: 0 })
+  expect(h.hub.events.some((e) => e.target === otto.id && (e.data as any).type === 'navFolders.changed')).toBe(true)
+  expect((await folders(otto.client)).find((x) => x.id === ottoF).count).toBe(0)
   expect((await fileRoom(otto.client, group.id, ottoF)).status).toBe(404)
   // a deleted account: its folders and rows go (the users row stays as a tombstone)
   expect(rows(mia.id)).toBe(2)

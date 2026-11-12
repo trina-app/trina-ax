@@ -57,10 +57,6 @@ function visibleCounts(db: Database, userId: string): Map<string, number> {
   for (const r of db.query(`SELECT i.folder_id f, COUNT(*) n FROM ${VISIBLE_ROOM_ITEMS} GROUP BY i.folder_id`).all(userId) as { f: string; n: number }[]) out.set(r.f, r.n)
   return out
 }
-function visibleCount(db: Database, userId: string, folder: FolderRow): number {
-  const from = folder.kind === 'chats' ? visibleChatItems(db) : VISIBLE_ROOM_ITEMS
-  return (db.query(`SELECT COUNT(*) n FROM ${from} AND i.folder_id = ?2`).get(userId, folder.id) as { n: number }).n
-}
 
 // ---------------- folders ----------------
 function folderOut(f: FolderRow, count: number, top: Chat[]): NavFolder {
@@ -179,12 +175,17 @@ export function orderNavFolders(rt: ChatRuntime, userId: string, kind: NavFolder
 }
 
 // ---------------- items ----------------
-/** Room for one more in the folder: rows of things I can no longer open go first, then the limit is checked. */
+/** Room for one more in the folder: rows that can never show again go first, then the limit is checked against every
+ * row left. Chats: rows that fail visibleChatItems (the trash, a project, someone else's, a draft). Rooms: rows of rooms
+ * I left or that are archived, or filed before I joined again; a hidden room's row stays (it comes back) and counts. */
 function makeRoom(db: Database, userId: string, f: FolderRow, locale: Locale) {
-  if ((db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE folder_id = ? AND user_id = ?').get(f.id, userId) as { n: number }).n < NAV_FOLDER_ITEMS_MAX) return
-  const from = f.kind === 'chats' ? visibleChatItems(db) : VISIBLE_ROOM_ITEMS
-  db.query(`DELETE FROM nav_folder_items WHERE folder_id = ?2 AND user_id = ?1 AND rowid NOT IN (SELECT i.rowid FROM ${from} AND i.folder_id = ?2)`).run(userId, f.id)
-  if (visibleCount(db, userId, f) >= NAV_FOLDER_ITEMS_MAX) fail('conflict', tr('navFolderFull', locale, { n: String(NAV_FOLDER_ITEMS_MAX) }), { params: { reason: 'nav_folder_full' } })
+  const total = () => (db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE folder_id = ? AND user_id = ?').get(f.id, userId) as { n: number }).n
+  if (total() < NAV_FOLDER_ITEMS_MAX) return
+  if (f.kind === 'chats') db.query(`DELETE FROM nav_folder_items WHERE folder_id = ?2 AND user_id = ?1 AND rowid NOT IN (SELECT i.rowid FROM ${visibleChatItems(db)} AND i.folder_id = ?2)`).run(userId, f.id)
+  else db.query(`DELETE FROM nav_folder_items WHERE folder_id = ?2 AND user_id = ?1 AND rowid NOT IN (SELECT i.rowid FROM nav_folder_items i
+      JOIN room_members m ON m.room_id = i.room_id AND m.user_id = i.user_id JOIN rooms r ON r.id = i.room_id
+      WHERE i.user_id = ?1 AND i.folder_id = ?2 AND r.archived_at IS NULL AND i.added_at >= m.joined_at)`).run(userId, f.id)
+  if (total() >= NAV_FOLDER_ITEMS_MAX) fail('conflict', tr('navFolderFull', locale, { n: String(NAV_FOLDER_ITEMS_MAX) }), { params: { reason: 'nav_folder_full' } })
 }
 
 function chatChanged(rt: ChatRuntime, userId: string, chatId: string): Chat | null {
@@ -262,8 +263,10 @@ export function chatFoldersChanged(ctx: AppContext, who: Iterable<string>): void
   for (const u of who) changed(ctx, u, 'chats')
 }
 
-/** My rows of chats in one of my folders, for GET /api/chats?folderId= (the folder must be mine: 404 otherwise). */
+/** My chats in one of my folders, for GET /api/chats?folderId= (the folder must be mine: 404 otherwise), by the same
+ * check as the folder list (visibleChatItems). */
 export function folderChatFilter(db: Database, userId: string, folderId: string): { where: string; args: string[] } {
   mine(db, userId, folderId, 'chats')
-  return { where: "id IN (SELECT chat_id FROM nav_folder_items WHERE folder_id = ? AND user_id = ? AND kind = 'chats') AND user_id = ? AND project_id IS NULL AND shared_at IS NULL", args: [folderId, userId, userId] }
+  // plain `?` (the list's query binds its arguments by position): the fragment's one ?1 becomes the first of these
+  return { where: `id IN (SELECT i.chat_id FROM ${visibleChatItems(db).replace('?1', '?')} AND i.folder_id = ?)`, args: [userId, folderId] }
 }

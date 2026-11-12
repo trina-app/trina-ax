@@ -28,7 +28,13 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
   // my own folders only: the list never names alice's to anyone else
   listNavFolders: {
     build: async (c, w) => { await aliceFolder(w, 'chats'); return c.get('/api/nav-folders') }, scope: 'self',
-    check: (r, _w, who) => noCanary(r.text, who, 'the folder list'),
+    check: async (r, w, who) => {
+      noCanary(r.text, who, 'the folder list')
+      // and her folder's own chat page (GET /api/chats?folderId=) is hers alone
+      if (r.status !== 200) return
+      const page = await w.as[who].req('GET', `/api/chats?folderId=${await aliceFolder(w, 'chats')}`)
+      if (who === 'memberIn' ? page.status !== 200 : page.status !== 404) throw new Error(`${who}: alice's folder page answered ${page.status}`)
+    },
   },
   // anyone makes their own; a body that names a person is refused (strict), and the folder is deleted again
   createNavFolder: {
@@ -45,7 +51,7 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
     build: async (c, w) => c.patch(`/api/nav-folders/${await aliceFolder(w, 'chats')}`, { name: `${NAV_FOLDER_CANARY} chats` }), scope: 'own-alice',
     check: (r, _w, who) => {
       noCanary(r.text, who, 'a rename')
-      if (who !== 'memberIn' && r.status !== 401 && r.status !== 404 && r.status !== 403) throw new Error(`${who}: renaming alice's folder answered ${r.status}, not 404`)
+      if (who !== 'memberIn' && r.status !== 401 && r.status !== 404) throw new Error(`${who}: renaming alice's folder answered ${r.status}, not 404`)
     },
   },
   // deleting: alice's own only (a new folder of hers each time, so each persona aims at one that is there)
@@ -56,7 +62,16 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
   // ordering names my own ids; alice's id in someone else's request is ignored (and never echoed back)
   orderNavFolders: {
     build: async (c, w) => c.put('/api/nav-folders/order', { kind: 'chats', ids: [await aliceFolder(w, 'chats')] }), scope: 'self',
-    check: (r, _w, who) => noCanary(r.text, who, 'ordering'),
+    check: async (r, w, who) => {
+      noCanary(r.text, who, 'ordering')
+      if (who === 'memberIn' || r.status !== 200) return
+      // alice's folders keep her order: her first folder is still at its place
+      const id = await aliceFolder(w, 'chats')
+      const before = (await w.as.memberIn.ok('GET', '/api/nav-folders')).items.find((f: any) => f.id === id)?.position
+      await w.as[who].req('PUT', '/api/nav-folders/order', { kind: 'chats', ids: [id] })
+      const after = (await w.as.memberIn.ok('GET', '/api/nav-folders')).items.find((f: any) => f.id === id)?.position
+      if (before !== after) throw new Error(`${who}: reordering moved alice's folder`)
+    },
   },
   // taking a chat out of my folder: the chat's person only (alice's chat in her project). Then: her own chat with no
   // project goes into her folder, her project chat is refused (409), and anyone else's own chat cannot go into hers (404)
