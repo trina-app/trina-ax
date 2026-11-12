@@ -267,7 +267,7 @@ test('appearance-v1: only a boolean look (and whether it follows the phone), onl
 test('share-text-v1: the phone\'s share sheet with a bounded text, only with the capability and the same checks (QA TC-271)', async () => {
   const shared: string[] = []
   const app = (capabilities: readonly string[], share?: (text: string) => Promise<void>) => {
-    const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, share)
+    const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, undefined, share)
     return (over: object, source = 'https://team.example/welcome?step=invite') => receiver.receive(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'share-text-1', type: 'share-text', ...over }), source)
   }
   const text = 'Acme에 초대해요\nhttps://team.example/join#t=abc'
@@ -515,7 +515,7 @@ test('the reinstall sign-out is injected only after the bridge went on this team
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
   expect(app).toContain('async function loaded(url: string): Promise<boolean>')
   expect(app).toContain('ready.current = installed && !loadFailed.current')
-  expect(app).toContain('ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current) : null')
+  expect(app).toContain('ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current, address.origin + address.entryPath) : null')
   expect(app).toContain('if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return')
   // one object for the launch (not a flag per team page); a team left without a confirmed sign-out gets its own
   expect(app).toContain('signOut={owed.current?.origin === team.origin ? owed.current : signOut.current}')
@@ -564,12 +564,16 @@ test('App leave(): owed first, the page asked, the cookies cleared with or witho
   for (let i = 1; i < order.length; i++) expect(leave.indexOf(order[i])).toBeGreaterThan(leave.indexOf(order[i - 1]))
   expect(leave.indexOf(order[0])).toBeGreaterThan(-1)
   // the old team is left before the new team's page mounts (its cookies must not be cleared)
-  const connect = app.slice(app.indexOf('async function connect('), app.indexOf('// Android: the status bar icons', app.indexOf('async function connect(')))
+  const connect = app.slice(app.indexOf('function connect('), app.indexOf('// Android: the status bar icons', app.indexOf('function connect(')))
   expect(connect.indexOf('if (old) await leave(old)')).toBeLessThan(connect.indexOf('setTeam(address)'))
   // owed before the new team is saved (an app stopped in between), taken back when the save fails; one switch at a time
-  expect(connect.indexOf('if (old) await oweSignOut(leftSessions, old)')).toBeLessThan(connect.indexOf('await saveTeamUrl(address.origin)'))
-  expect(connect).toContain('catch (e) { if (old) await signedOut(leftSessions, old).catch(() => {}); throw e }')
-  expect(connect).toContain('if (connecting.current) return')
+  expect(connect.indexOf('await oweForSwitch(leftSessions, old)')).toBeLessThan(connect.indexOf('await saveTeamUrl(address.origin)'))
+  expect(connect).toContain('catch (e) { await undo?.().catch(() => {}); throw e }')
+  expect(connect).toContain('return switching.current.run(async () => {')
+  // a switch that was busy: the link question and the box stay open and say so; a link that came meanwhile stays
+  expect(app).toContain('const ok = await connect(address); if (ok) setLink(l => l?.id === link.id ? null : l); return ok')
+  expect(app.match(/setError\(t\.stillSwitching\)/g)?.length).toBe(4)
+  expect(app).toContain('gate.clear(offer.id)')
   // the answer is checked before the bridge sees the message, only from this team's page
   expect(app).toContain("if (sameTeam(address.origin, event.nativeEvent.url) && leaveAsk.current.answer(event.nativeEvent.data)) return")
   // while the switch waits for the sign-out, [Cancel], [Back to …] and Android back cancel nothing, so they are off
@@ -666,15 +670,23 @@ test('the session check: the page answers GET /api/me with the check number; any
   expect(app).toContain('if (!waitTimer.current) waitTimer.current = setTimeout(() => setWaited(true), 300)')
 })
 
-/** Runs a page script against a stand-in page: what it cleared, fetched, posted and where it went. */
-async function runPage(script: string, status: number) {
+/** Runs a page script against a stand-in page: what it cleared, fetched, posted and where it went. `at`: the page's
+ * address, `session`: its session storage (what is left of it is in there afterwards). */
+async function runPage(script: string, status: number, at = 'https://a.example/join#t=abc', session = new Map<string, string>()) {
   const log: string[] = []
+  let url = new URL(at)
+  const location = {
+    get href() { return url.href }, get pathname() { return url.pathname }, get search() { return url.search },
+    replace: (u: string) => log.push(`replace ${u}`), reload: () => log.push(`reload ${url.href}`),
+  }
   const page = {
-    localStorage: { clear: () => log.push('localStorage') }, sessionStorage: { clear: () => log.push('sessionStorage') },
+    localStorage: { clear: () => log.push('localStorage') },
+    sessionStorage: { clear: () => { log.push('sessionStorage'); session.clear() }, getItem: (k: string) => session.get(k) ?? null, setItem: (k: string, v: string) => { session.set(k, v) } },
     document: { cookie: '' }, caches: undefined, indexedDB: undefined, navigator: {},
-    fetch: async (url: string) => { log.push(`fetch ${url}`); if (!status) throw new Error('offline'); return { status } },
+    fetch: async (u: string) => { log.push(`fetch ${u}`); if (!status) throw new Error('offline'); return { status } },
     ReactNativeWebView: { postMessage: (m: string) => log.push(`post ${m}`) },
-    location: { href: 'https://a.example/join#t=abc', replace: (u: string) => log.push(`replace ${u}`), reload: () => log.push('reload') },
+    history: { state: { idx: 0 }, replaceState: (_s: unknown, _t: string, u: string) => { url = new URL(u, url); log.push(`address ${url.href}`) } },
+    location, URL,
   }
   const g = { ...page, window: page } as Record<string, unknown>
   new Function(...Object.keys(g), script)(...Object.values(g))
@@ -687,7 +699,7 @@ test('the sign-out owed to a team left keeps the invite page the person opened (
   const a = 'https://a.example'
   // owed (wipe): 204 reloads the same page (/join#t=… or /invite/<token> stays), 401 leaves it as it is
   const ok = await runPage(signOutScript(a, 't', true), 204)
-  expect(ok).toEqual(['localStorage', 'sessionStorage', `fetch ${a}/api/auth/logout`, 'post {"signOut":"t","status":204}', 'reload'])
+  expect(ok).toEqual(['localStorage', 'sessionStorage', `fetch ${a}/api/auth/logout`, 'post {"signOut":"t","status":204}', `reload ${a}/join#t=abc`])
   const none = await runPage(signOutScript(a, 't', true), 401)
   expect(none.some(l => l.startsWith('replace') || l === 'reload')).toBe(false)
   const offline = await runPage(signOutScript(a, 't', true), 0)
@@ -698,6 +710,71 @@ test('the sign-out owed to a team left keeps the invite page the person opened (
   // the leave script never navigates
   const { leaveScript } = await import('../../mobile/src/leave')
   expect((await runPage(leaveScript(a, 'x'), 204)).at(-1)).toBe('post {"mycelLeave":"x","status":204}')
+})
+
+test('the owed sign-out on a team link (/join#t=…) keeps the person on the join page: token kept, the link opened again after a 204', async () => {
+  const { signOutScript, ReinstallSignOut } = await import('../../mobile/src/install')
+  const { JOIN_TOKEN_KEY } = await import('../../mobile/src/leave')
+  const web = await import('../../web/src/lib/team-link')
+  expect(JOIN_TOKEN_KEY).toBe(web.JOIN_TOKEN_KEY)
+  const a = 'https://a.example', entry = `${a}/join#t=tok123`
+  // signed out: the join page took #t= out of the address into session storage; the wipe keeps that one key
+  const session = new Map([[JOIN_TOKEN_KEY, 'tok123'], ['mycel.window', 'w1']])
+  const joinPage = await runPage(signOutScript(a, 't', true, entry), 204, `${a}/join`, session)
+  expect([...session]).toEqual([[JOIN_TOKEN_KEY, 'tok123']])
+  // same page, only the #fragment differs: the address is set back first, then reloaded (a fragment change would not load)
+  expect(joinPage.slice(-2)).toEqual([`address ${entry}`, `reload ${entry}`])
+  // signed in, /join had sent the person Home: the link's page is opened again
+  expect((await runPage(signOutScript(a, 't', true, entry), 204, `${a}/`)).at(-1)).toBe(`replace ${entry}`)
+  expect((await runPage(signOutScript(a, 't', true, `${a}/invite/abc`), 204, `${a}/rooms`)).at(-1)).toBe(`replace ${a}/invite/abc`)
+  // no session (401): the page stays as it is, with the token still kept
+  const kept = new Map([[JOIN_TOKEN_KEY, 'tok123']])
+  const none = await runPage(signOutScript(a, 't', true, entry), 401, `${a}/join`, kept)
+  expect(none.some(l => l.startsWith('replace') || l.startsWith('reload') || l.startsWith('address'))).toBe(false)
+  expect(kept.get(JOIN_TOKEN_KEY)).toBe('tok123')
+  // the reinstall sign-out and the leave script still empty all of session storage
+  const { leaveScript } = await import('../../mobile/src/leave')
+  const all = new Map([[JOIN_TOKEN_KEY, 'x']])
+  await runPage(leaveScript(a, 'x'), 204, `${a}/`, all)
+  expect(all.size).toBe(0)
+  // the entry goes in only for the same team
+  const owed = new ReinstallSignOut(a, async () => {}, () => 't', true)
+  expect(owed.script(a, `${a}/join`, entry)).toContain(JSON.stringify(entry))
+  const other = new ReinstallSignOut(a, async () => {}, () => 't', true)
+  expect(other.script(a, `${a}/join`, 'https://evil.example/join#t=x')).not.toContain('evil.example')
+})
+
+test('one switch at a time: a second one answers false at once and runs nothing; the next one after it runs', async () => {
+  const { OneSwitch } = await import('../../mobile/src/leave')
+  const one = new OneSwitch(), ran: string[] = []
+  let finish = () => {}
+  const first = one.run(() => new Promise<void>(r => { ran.push('b'); finish = r }))
+  expect(one.busy).toBe(true)
+  expect(await one.run(async () => { ran.push('c') })).toBe(false)
+  finish()
+  expect(await first).toBe(true)
+  expect(await one.run(async () => { ran.push('c') })).toBe(true)
+  expect(ran).toEqual(['b', 'c'])
+  // a failed switch lets the next one run
+  await expect(one.run(async () => { throw new Error('save') })).rejects.toThrow('save')
+  expect(one.busy).toBe(false)
+})
+
+test('a failed save takes back only the sign-out this switch owed, never an older one', async () => {
+  const { oweForSwitch, owesSignOut, oweSignOut } = await import('../../mobile/src/leave')
+  const a = 'https://a.example', b = 'https://b.example'
+  const store = new Map<string, string>()
+  const slot = { get: async () => store.get('s') ?? null, set: async (v: string | null) => { if (v === null) store.delete('s'); else store.set('s', v) } }
+  // new: the undo removes it
+  await (await oweForSwitch(slot, a))()
+  expect(await owesSignOut(slot, a)).toBe(false)
+  // owed by an earlier switch (its server never answered): the undo keeps it, and the other entries too
+  await oweSignOut(slot, a); await oweSignOut(slot, b)
+  const undo = await oweForSwitch(slot, a)
+  expect(await owesSignOut(slot, a)).toBe(true)
+  await undo()
+  expect(await owesSignOut(slot, a)).toBe(true)
+  expect(await owesSignOut(slot, b)).toBe(true)
 })
 
 test('a leave sign-out always resolves: its answer, the wait running out, a newer one, the page going, a failed inject', async () => {

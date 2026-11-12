@@ -127,6 +127,10 @@ export const CHAT_ERROR_MESSAGES = {
   // the server's disk is full (ENOSPC, SQLite full; server/src/chat/turn.ts): not the engine's fault, and only an admin
   // can free the space (QA TC-209: it read as an engine crash)
   storage_full: { code: 'storage_full', ko: "서버 저장 공간이 가득 차서 답하지 못했어요. 관리자가 공간을 비워야 해요.", en: "The server's storage is full, so the AI couldn't answer. An admin has to free up space.", id: "Penyimpanan server penuh, jadi AI tidak bisa menjawab. Admin perlu mengosongkan ruang.", ja: "サーバーの保存容量がいっぱいのため、回答できませんでした。管理者が空き容量を確保する必要があります。", es: "El almacenamiento del servidor está lleno, así que la IA no pudo responder. Un administrador tiene que liberar espacio." },
+  // the Linux launcher refused the turn because the engine's firewall is not in effect (a flushed nftables table, or a
+  // status file the firewall timer stopped writing; QA TC-310): the AI must not run without it. The timer puts the
+  // rules back within 30 seconds, so a try a minute later usually works.
+  network_protection_off: { code: 'engine_unavailable', ko: "서버의 네트워크 보호가 꺼져 있어서 지금은 AI가 답할 수 없어요. 1분 뒤 다시 해 보고, 계속되면 관리자에게 트리나 서버를 확인해 달라고 해 주세요.", en: "The server's network protection is off, so the AI can't answer right now. Try again in a minute; if it keeps happening, ask your admin to check Trina's server.", id: "Perlindungan jaringan server sedang mati, jadi AI tidak bisa menjawab sekarang. Coba lagi dalam semenit; jika terus terjadi, minta admin Anda memeriksa server Trina.", ja: "サーバーのネットワーク保護がオフのため、今はAIが回答できません。1分ほどしてからもう一度お試しください。続く場合は、管理者にトリナのサーバーを確認してもらってください。", es: "La protección de red del servidor está desactivada, así que la IA no puede responder ahora. Vuelva a intentarlo en un minuto; si persiste, pida a su administrador que revise el servidor de Trina." },
 } as const satisfies Record<string, { code: ErrorCode } & Record<Locale, string>>
 
 /** Any request that failed because the server's disk is full (ENOSPC, SQLite full: server/src/app.ts), sign-in and

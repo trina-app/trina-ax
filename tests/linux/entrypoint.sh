@@ -76,10 +76,13 @@ for d in launcher:axagent server:axserver; do
   chown "${d#*:}:${d#*:}" "$dir" "$dir/cgroup.procs" "$dir/cgroup.subtree_control" "$dir/cgroup.threads"
 done
 
-# test control: the driver (server account) asks root to take the firewall status away and back (fail-closed check)
+# test control: the driver (server account) asks root to take the firewall status away and back, or to flush the
+# ruleset behind the status file's back (fail-closed checks)
 install -d -o axserver -g axserver -m 755 /run/test-ctl
 ( while true; do
     if [[ -e /run/test-ctl/fw-off ]]; then mv $BASE/run/firewall.json $BASE/run/firewall.json.off; rm -f /run/test-ctl/fw-off; touch /run/test-ctl/fw-off.done; fi
+    # another tool wipes every table (QA TC-310): the status file stays fresh and "loaded"
+    if [[ -e /run/test-ctl/fw-flush ]]; then nft flush ruleset; rm -f /run/test-ctl/fw-flush; touch /run/test-ctl/fw-flush.done; fi
     if [[ -e /run/test-ctl/fw-on ]]; then $BASE/root/mycel-ctl firewall apply --base $BASE >/dev/null 2>&1; rm -f /run/test-ctl/fw-on; touch /run/test-ctl/fw-on.done; fi
     sleep 0.2
   done ) &

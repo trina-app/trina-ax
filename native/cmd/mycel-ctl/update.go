@@ -416,6 +416,9 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	needsRoot := true
 	if bundleFile != "" {
 		u.attempted = true
+		if err := u.checkSpace("", 0); err != nil {
+			return err
+		}
 		if err := extractBundle(bundleFile, dir); err != nil {
 			u.res.Result = "verify_failed"
 			return err
@@ -696,6 +699,9 @@ func (u *updater) download(f *ReleaseFeed, dir string) error {
 		if err := allowedURL(b.URL); err != nil {
 			return err
 		}
+		if err := u.checkSpace(f.Version, b.Size); err != nil {
+			return err
+		}
 		file := filepath.Join(u.work, "bundle.tar.zst")
 		out, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
@@ -729,6 +735,69 @@ func (u *updater) download(f *ReleaseFeed, dir string) error {
 		return nil
 	}
 	return fmt.Errorf("release %s has no bundle for linux-%s", f.Version, u.arch)
+}
+
+// ---------- free space (QA TC-339) ----------
+
+// spaceMargin is left free after an update: the server, the database and the team folder go on writing.
+const spaceMargin = 256 << 20
+
+// spaceNeeded is about what an update writes on the install's disk: the archive it downloads (0 for --bundle, which
+// is on disk already), the archive unpacked in .install-tmp and that copy in app/versions (each about the size of the
+// version that runs now, or three times the archive when that is larger), the copy of the database the new version
+// makes before it migrates (db: the size of data/app.db, as install-linux.sh counts it), and a margin.
+func spaceNeeded(archive, current, db int64) uint64 {
+	unpacked := current
+	if 3*archive > unpacked {
+		unpacked = 3 * archive
+	}
+	return uint64(archive + 2*unpacked + db + spaceMargin)
+}
+
+// treeSize: the bytes of the regular files under dir (links are not followed); 0 when it cannot be read.
+func treeSize(dir string) int64 {
+	var n int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if i, e := d.Info(); e == nil {
+				n += i.Size()
+			}
+		}
+		return nil
+	})
+	return n
+}
+
+func gib(b uint64) string { return fmt.Sprintf("%.1f GB", float64(b)/(1<<30)) }
+
+// checkSpace refuses an update that would not fit before anything is downloaded or changed, saying how much it needs:
+// a full disk used to end in a bare "no space left on device" from the download or the copy.
+func (u *updater) checkSpace(version string, archive int64) error {
+	_, free, _, err := diskUsage(u.e.base)
+	if err != nil {
+		return nil // unknown: the update says what failed, as before
+	}
+	cur := int64(0)
+	if v := currentVersion(u.e.base); v != "" {
+		cur = treeSize(filepath.Join(u.e.base, "app", "versions", v))
+	}
+	var db int64
+	if st, err := os.Lstat(filepath.Join(u.e.base, "data", "app.db")); err == nil && st.Mode().IsRegular() {
+		db = st.Size()
+	}
+	need := spaceNeeded(archive, cur, db)
+	if free >= need {
+		return nil
+	}
+	return spaceError(u.e.base, version, need, free)
+}
+
+func spaceError(base, version string, need, free uint64) error {
+	what := "the update"
+	if version != "" {
+		what = version
+	}
+	return fmt.Errorf("not enough free space for %s on the disk of %s: it needs about %s free, it has %s; nothing was changed. Free some space (old backups in Admin > System > Backups, apt's cache: sudo apt-get clean) and run it again", what, base, gib(need), gib(free))
 }
 
 // ---------- root files ----------

@@ -296,8 +296,10 @@ export class LinkGate {
     const { shownAt: _s, ...offer } = this.offer
     return offer
   }
-  /** the link waits no more (the person went elsewhere) */
-  clear() {
+  /** the link waits no more (the person went elsewhere). With `id`: only while that offer is the last one put (a link
+   * that came during its switch keeps waiting) */
+  clear(id?: number) {
+    if (id !== undefined && id !== this.next - 1) return
     this.offer = null
     this.confirmed = null
   }

@@ -18,7 +18,8 @@ export function readJoinToken(loc: { pathname: string; search: string; hash: str
   return { token: /^[A-Za-z0-9_-]{16,200}$/.test(raw) ? raw : null, cleanUrl: `${loc.pathname}${loc.search}${rest ? `#${rest}` : ''}` }
 }
 
-const JOIN_TOKEN_KEY = 'mycel.joinToken'
+/** also the phone's owed sign-out keeps it (mobile/src/leave.ts) */
+export const JOIN_TOKEN_KEY = 'mycel.joinToken'
 
 /**
  * The team link of this tab: the address's #t= (which the page then takes out of the address bar), else the token this

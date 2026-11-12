@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText } from '../../src/lib/mobile'
+import { initMobile, mobileApp, sendFileToApp, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText } from '../../src/lib/mobile'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../src/lib/share'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, OFF_HERE_PREFIX, phonePushView, registerMobilePush, setMobilePushSession, turnOffPhonePush, usePhonePush } from '../../src/lib/mobile-push'
 import { clearLocalData } from '../../src/lib/localData'
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
+import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
+import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
+import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -286,6 +289,71 @@ test('appearance-v1: the page tells the app its look when the bridge is ready an
     win.dispatchEvent(new Event('mycel:theme')); await settle()
     expect(messages).toHaveLength(0)
   } finally { Reflect.deleteProperty(doc, 'documentElement') }
+})
+
+test('nav-v1: the page tells the app where Back goes when it changes, once per bridge, and again after a reset', async () => {
+  const navs = () => messages.filter(m => m.type === 'nav').map(m => ({ canGoBack: (m as { canGoBack: boolean }).canGoBack, home: (m as { home?: boolean }).home }))
+  // an app without nav-v1 hears nothing (an older build would never answer)
+  setAppNav({ canGoBack: true, home: true }); await settle()
+  expect(navs()).toEqual([])
+  win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, NAV_CAPABILITY] }
+  // the bridge comes: the latest the page worked out
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => navs().length > 0)
+  expect(navs()).toEqual([{ canGoBack: true, home: true }])
+  expect(messages.at(-1)).toMatchObject({ v: 1, nonce: config.nonce, generation: config.generation })
+  // the same again is not sent; a change is
+  setAppNav({ canGoBack: true, home: true }); await settle()
+  setAppNav({ canGoBack: false, home: false }); await settle(() => navs().length > 1)
+  expect(navs()).toEqual([{ canGoBack: true, home: true }, { canGoBack: false, home: false }])
+  // a reset (a sign-in) fences the old generation: sent again after it, with the new one
+  messages = []
+  setMobileSession('user:nav-after-reset')
+  await settle(() => navs().length > 0)
+  expect(messages.map(m => m.type)).toEqual(['session-reset', 'nav'])
+  expect(messages[1]!.generation).toBe(messages[0]!.generation + 1)
+  // a new bridge (another nonce: the app installed it again) hears it again
+  messages = []
+  win.mycelMobile = { ...win.mycelMobile, nonce: 'd'.repeat(64) }
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => navs().length > 0)
+  expect(navs()).toEqual([{ canGoBack: false, home: false }])
+  // the app did not take it: the same is sent again next time (not skipped as heard)
+  handler = m => reply(m, m.type === 'nav' ? { ok: false, error: 'mobile_operation_failed' } : {})
+  setAppNav({ canGoBack: true, home: false }); await settle(() => navs().length > 1)
+  handler = m => reply(m)
+  await tick()
+  setAppNav({ canGoBack: true, home: false }); await settle(() => navs().length > 2)
+  expect(navs().slice(1)).toEqual([{ canGoBack: true, home: false }, { canGoBack: true, home: false }])
+})
+
+test('nav-v1: the page works out where Back goes from its history, and sends it after Back, an overlay or a step', async () => {
+  const state: { current: unknown } = { current: null }
+  const extra = { history: { get state() { return state.current } }, location: { pathname: '/rooms' }, matchMedia: (q: string) => ({ matches: q.includes('max-width'), addEventListener() {} }) }
+  Object.assign(win, extra)
+  try {
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, NAV_CAPABILITY] }
+    resetAppNavForTest(); initAppNav()
+    const last = () => messages.filter(m => m.type === 'nav').at(-1) as { canGoBack: boolean; home: boolean } | undefined
+    // the 대화 tab's root: nothing under it, not the start tab
+    state.current = { idx: 2, key: 'a', scr: { tab: 'chats', sid: 's', base: 2, root: { k: 'a', p: '/rooms' }, trail: [{ k: 'a', p: '/rooms' }] } }
+    win.dispatchEvent(new Event('popstate'))
+    await settle(() => !!last())
+    expect(last()).toMatchObject({ canGoBack: false, home: false })
+    // a sheet opened over it: Back closes it
+    state.current = { ...(state.current as object), mycelOverlay: 7, mycelOverlayDepth: 1 }
+    win.dispatchEvent(new Event(OVERLAY_ENTRY_EVENT))
+    await settle(() => last()?.canGoBack === true)
+    expect(last()).toMatchObject({ canGoBack: true, home: false })
+    // a room above the list (the end of a step of the history)
+    state.current = { idx: 3, key: 'b', scr: { tab: 'chats', sid: 's', base: 2, root: { k: 'a', p: '/rooms' }, trail: [{ k: 'a', p: '/rooms' }, { k: 'b', p: '/rooms/r1' }] } }
+    win.dispatchEvent(new CustomEvent(HISTORY_STEPS_EVENT, { detail: { stepping: false } }))
+    await settle(() => last()?.canGoBack === true && messages.filter(m => m.type === 'nav').length > 2)
+    expect(last()).toMatchObject({ canGoBack: true, home: false })
+  } finally {
+    for (const k of Object.keys(extra)) Reflect.deleteProperty(win, k)
+    resetAppNavForTest()
+  }
 })
 
 test("Settings' switch off for this phone is one person's: not registered again for them by itself, another person on the phone is, and signing out forgets it", async () => {

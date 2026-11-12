@@ -186,7 +186,7 @@ describe.skipIf(!mac)('managed mode (same user): engine -> fd token -> model pro
     const { done } = await ask(h, alice, 'alice', chat.id, fake({ model: 'revoked' }), { ms: 30_000 })
     expect(done.status).toBe('error')
     expect(done.error?.code).toBe('engine_unavailable')
-    expect(done.error?.message).toContain('AI connection')
+    expect(done.error?.message).toContain("The AI account can't be used") // plain words since #348
     await carol.next('notice', (f) => f.data.code === 'credential_rejected', 5000)
     const cred = listRows(h.ctx.db)[0]!
     expect(cred.status).toBe('invalid')
@@ -221,7 +221,7 @@ describe.skipIf(!mac)('managed mode (same user): engine -> fd token -> model pro
       const n = auths.length
       const r = await ask(h, alice, 'alice', (await newChat()).id, fake({ model: 'x' }), { ms: 30_000 })
       expect(r.done.error?.code).toBe('engine_unavailable')
-      expect(r.done.error?.message).toMatch(/no AI connection/i)
+      expect(r.done.error?.message).toMatch(/no AI account/i)
       expect(auths.length).toBe(n)
     } finally { h.ctx.db.query('UPDATE engine_credentials SET disabled = 0').run() }
   })

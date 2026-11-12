@@ -159,3 +159,32 @@ describe('a turn stopped at the Linux launcher\'s limits', () => {
     expect(ok.done.status).toBe('done')
   })
 })
+
+describe('a turn the Linux launcher refuses because the engine firewall is off (QA TC-310)', () => {
+  /** the launcher answers the request with its refusal before the engine starts */
+  async function refusing<T>(message: string, fn: () => Promise<T>): Promise<{ r: T; launches: number }> {
+    const core = await h.rt().core()
+    const launcher = core.launcher!
+    const orig = launcher.launch.bind(launcher)
+    let launches = 0
+    launcher.launch = (): LaunchHandle => {
+      launches++
+      return { kill: () => {}, events: (async function* () { yield { ev: 'error', message } as LaunchEvent })() }
+    }
+    try { return { r: await fn(), launches } } finally { launcher.launch = orig }
+  }
+
+  test('plain words instead of "stopped partway", not retried, for both engines and both checks', async () => {
+    for (const [engine, message] of [
+      ['claude', 'firewall_off: a loopback connection to a port other than the model proxy went through'],
+      ['codex', 'firewall_not_loaded: status is 10m10s old (the firewall timer stopped?)'],
+    ] as const) {
+      const chat = await h.api('alice').call(API.createChat, { body: engine === 'codex' ? { engine } : {} })
+      const { r, launches } = await refusing(message, () => ask(h, alice, 'alice', chat.id, fake({ say: 'x' })))
+      expect(r.done.status).toBe('error')
+      expect(r.done.error).toMatchObject({ code: 'engine_unavailable', params: { reason: 'network_protection_off' } })
+      expect(r.done.error?.message).toBe("The server's network protection is off, so the AI can't answer right now. Try again in a minute; if it keeps happening, ask your admin to check Trina's server.")
+      expect(launches).toBe(1)
+    }
+  })
+})

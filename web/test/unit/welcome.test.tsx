@@ -1231,7 +1231,7 @@ describe('the later steps and the end', () => {
     }
   })
 
-  test('도구 연결 (docs/DECISIONS.md "W6"): no Drive on this server: the MCP line alone, its dialog opens and closes with nothing changed; 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
+  test('도구 연결 (docs/DECISIONS.md "W6", QA TC-136): no Drive on this server: its card says so, the listed services are cards, the address form last; its dialog opens and closes with nothing changed; 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: false, teamShares: [] })
@@ -1244,7 +1244,16 @@ describe('the later steps and the end', () => {
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('자주 쓰는 도구를 연결해 둘까요?')
       expect(m.get('welcome-tools').textContent).toContain('나중에 커넥터에서')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
-      expect(m.find('welcome-tools-drive')).toBeNull()
+      // Drive is not on this server: its card says so, never a hidden row (TC sheet TC-145)
+      const drive = await m.until(() => m.find('welcome-tools-drive'), 'the Drive card')
+      expect(drive.getAttribute('data-state')).toBe('not-set-up')
+      expect(m.get('welcome-tools-drive-off').textContent).toBe('아직 설정 안 됨')
+      expect(m.find('welcome-tools-drive-connect')).toBeNull()
+      // the listed services as Discover's cards: logo, name, one line, 연결
+      const services = await m.until(() => { const x = m.container.querySelectorAll('[data-testid="welcome-tools-service"]'); return x.length ? x : null }, 'the service cards')
+      expect([...services].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'linear', 'atlassian', 'canva', 'figma'])
+      expect(services[0]!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe(translate('ko', 'integrations.catalog.notion'))
+      expect(services[0]!.querySelector('[data-testid="connector-logo"]')!.getAttribute('src')).toBe('/icons/connectors/notion.svg')
       expect(m.get('welcome-tools-mcp-add').textContent?.trim()).toBe('다른 도구 연결하기')
       // no primary until something is connected: 나중에 하기 alone
       expect(m.find('welcome-tools-next')).toBeNull()
@@ -1268,6 +1277,42 @@ describe('the later steps and the end', () => {
       await m.unmount()
       delete routes['GET /api/integrations/google-drive']
       delete routes['GET /api/admin/users']
+    }
+  })
+
+  test('도구 연결 (QA TC-136): Notion in one click: the owner\'s own connection from the list (nothing typed), its sign-in in the window reserved during the click, then 연결됨 and the primary', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
+    const NOTION = { id: 'int-notion', scope: 'personal', kind: 'mcp', name: 'Notion', slug: 'notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', authHeader: null, hasSecret: false, account: null, notes: null, writePolicy: 'ask', status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null, access: null, createdBy: null, createdAt: '2026-11-12T00:00:00.000Z', updatedAt: '2026-11-12T00:00:00.000Z', lastUsedAt: null, canManage: true }
+    let items: unknown[] = []
+    let opened = 0
+    routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
+    routes['GET /api/integrations'] = () => json(200, { items, personalAllowed: true })
+    routes['POST /api/integrations'] = () => { items = [NOTION]; return json(201, NOTION) }
+    routes['POST /api/integrations/int-notion/authorize'] = () => json(200, { flowId: 'flow-n', authorizationUrl: 'https://mcp.notion.com/authorize?state=x', expiresAt: '2099-01-01T00:00:00.000Z' })
+    routes['GET /api/integrations/flows/flow-n'] = () => { items = [{ ...NOTION, hasSecret: true, status: 'connected' }]; return json(200, { flowId: 'flow-n', state: 'completed', expiresAt: '2099-01-01T00:00:00.000Z', reason: null }) }
+    routes['GET /api/admin/users'] = () => json(200, { items: [] })
+    g.open = () => { opened++; return { opener: {}, close() {}, closed: false, location: { replace() {} } } }
+    withGroup()
+    const m = await app()
+    try {
+      await m.until(() => stepOf(m) === 'tools', '도구 연결')
+      const notion = () => m.container.querySelector('[data-testid="welcome-tools-service"][data-id="notion"]') as any
+      await m.until(() => notion(), 'the Notion card')
+      expect(notion()!.getAttribute('data-state')).toBe('available')
+      await m.click(notion()!.querySelector('[data-testid="welcome-tools-service-connect"]')!)
+      // one click: the window reserved, the connection made from the list (no name or address typed), the sign-in
+      expect(opened).toBe(1)
+      await m.until(() => called('POST /api/integrations/int-notion/authorize').length > 0, 'the sign-in started')
+      expect(called('POST /api/integrations').map((c) => c.body)).toEqual([{ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', writePolicy: 'ask' }])
+      expect(called('POST /api/admin/integrations')).toEqual([])
+      await m.until(() => notion()?.getAttribute('data-state') === 'connected', 'connected', 6000)
+      expect(notion()!.querySelector('[data-testid="welcome-tools-service-on"]')!.textContent).toContain('연결됨')
+      expect(m.get('welcome-tools-next').textContent).toBe('다음: 팀원 초대')
+    } finally {
+      await m.unmount()
+      for (const k of ['GET /api/integrations/google-drive', 'GET /api/integrations', 'POST /api/integrations', 'POST /api/integrations/int-notion/authorize', 'GET /api/integrations/flows/flow-n', 'GET /api/admin/users']) delete routes[k]
+      delete g.open
     }
   })
 

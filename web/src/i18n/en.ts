@@ -358,6 +358,7 @@ export const en: Record<MessageKey, string> = {
   "chat.error.admin.engine_missing": "Trina isn't ready yet. Connect an AI so it can answer.",
   "chat.error.admin.proxy_down": "The AI is still getting ready. Try again in a moment; if it keeps happening, {path} shows why.",
   "chat.error.admin.storage_full": "The server's storage is full, so the AI couldn't answer. {path} shows what uses the space; free some up.",
+  "chat.error.admin.network_protection_off": "The server's network protection is off, so the AI can't answer right now. It is usually back within a minute; if not, {path} shows why.",
 
   'chat.untitled': "Untitled",
   'chat.title': 'Title',
@@ -2412,6 +2413,7 @@ export const en: Record<MessageKey, string> = {
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.en,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.en,
+  'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.en,
   'audit.act.ai.hosted_trial_key': "Changed the hosted trial AI key",
   'trialCredit.active': "Trial credit: {used} of {cap} used · until {date} · An AI you connect is used first",
   'trialCredit.used': "The trial credit is used up ({used} of {cap}) · Connect your own AI to go on",

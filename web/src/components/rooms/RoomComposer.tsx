@@ -436,7 +436,15 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   }
                 }}
                 containerClassName="min-w-0 flex-1"
-                className="max-h-[200px] resize-none px-1.5 py-2 max-md:max-h-[min(200px,calc(var(--app-h,100dvh)*0.3))] text-reading leading-reading text-ink outline-none placeholder:text-faint"
+                // a phone: the whole box (the files' row, the text field, its buttons and padding) stays within about 35 % of
+                // what is in sight, so the messages keep the rest while the keyboard is up (QA TC-252); at least one line
+                className={clsx(
+                  'max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint',
+                  // the other rows: about 5rem, 6rem with the files' row (measured at 390 × 480)
+                  files.length > 0
+                    ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
+                    : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
+                )}
                 data-testid="room-input"
               />
               {/* the mic right before send, as in ChatGPT's box */}

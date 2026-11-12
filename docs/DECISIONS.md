@@ -22372,3 +22372,52 @@ task stayed on.
   unregistered or removed one stays off and lets the admin set a client of its own, which wins; an own client file or env client never calls the broker; no variable: as
   before; the CLI's output) and `tests/unit/c-google-apps-signin.test.ts` (a self-installed server's cards through the
   broker; a card's own client signs in directly).
+
+## Onboarding's Tools step on Connectors' cards (feat/connectors-simple, 2026-11-12, QA TC-136)
+
+- **Changes W6's "a Drive row where configured + one generic MCP line".** The step shows the same cards as
+  Connectors' Discover: logo, name, one line.
+  - **Google Drive** comes first, with its sign-in and confirm as before where the server has it. Where it does not,
+    the card says "아직 설정 안 됨" instead of being left out (TC sheet TC-145).
+  - **The first listed services** follow: Notion, Linear, Atlassian, Canva, Figma. One **연결** makes the owner's
+    **own** connection to it from the list's address and sign-in, so nothing is typed and nobody else uses it. Its
+    sign-in opens in the window reserved during the click, and the card shows how it goes, then "연결됨".
+  - **The address form** ("다른 도구 연결하기", a team connection) stays as the last, quiet choice; it is no longer
+    the only one.
+
+## The Linux launcher tests the live engine firewall before every turn (fix/firewall-live-check, 2026-11-12, QA TC-310)
+
+After `nft flush ruleset` as root (a ufw, firewalld or Docker reload can do the same), the engine account reached the
+LAN, the cloud metadata address and the internet until `run/firewall.json` was 10 minutes old: the launcher, `mycel-ctl
+status` and the diagnostics read only that file, which still said "loaded". The person then read "The answer stopped
+partway".
+- **The launcher tests what the rules do, as the engine account** (`native/internal/fwprobe`). It has no capabilities
+  and cannot list nftables, and it must not get any: the root firewall unit takes no input from it. Before every turn,
+  after the status-file check, three TCP connections must be refused at once by the table's `reject with tcp reset`:
+  to a listener of its own on 127.0.0.1 (never the model proxy's port), to 169.254.169.254:80 and to 192.0.2.1:443
+  (TEST-NET-1, never routed).
+  A connection that goes through or waits means the table is gone or changed: the turn is refused with
+  `firewall_off: …`. Nothing is kept, neither a pass nor a failure: every turn probes (well under 25 ms). A 3-second
+  pass let a turn started right after a good probe run with the table flushed (QA TC-310 retest).
+- **Repair: the timer every 30 seconds** (was 2 minutes; `supervise` too). A root watcher on nftables events would
+  re-apply at once, but it is a new unit that existing installs would not get from `mycel-ctl update`; left for later.
+- **Plain words.** The server maps `firewall_off` and `firewall_not_loaded` to the chat error `network_protection_off`
+  (`engine_unavailable`), never retried as a crash. The owner reads where to look (Admin › System › Health).
+- **`mycel-ctl status`** lists `table inet <id>` and runs `checkTable` (as `firewall apply` does). A missing or changed
+  table makes `firewallOk: false` with `firewallLive: false`, and status writes that failure into `run/firewall.json`,
+  so every reader agrees. A good table writes nothing (status must not hide a stopped timer by refreshing the file).
+- **Diagnostics**: the launcher's status report has `firewall.live` and `firewall.liveProblem`; the firewall line
+  fails with plain words when `live` is false. A launcher from before leaves them out, and the file decides as before.
+  nft's error is one plain line there and in `run/firewall.json` ("table inet <id> is not loaded", never the echoed
+  command and its `^^^^^` marker); `mycel-ctl` writes nft's whole answer to stderr (the firewall timer's journal).
+- **What the probe proves, and what it leaves to root.** It proves the table's TCP reset rule for the engine account
+  and catches a full flush (or a removed table). Partial root edits (an accept for UDP, a LAN range or IPv6 inserted
+  into the chain) are not caught per turn: `mycel-ctl status` reports them (`checkTable`) and the 30-second
+  `firewall apply` replaces the whole table. For the two remote targets, errors that a route answers with at once
+  (blackhole, prohibit or unreachable routes, often set to harden the metadata address: EINVAL, EACCES, EHOSTUNREACH,
+  ENETUNREACH, EPERM) also count as blocked: nothing left the machine. A failed probe is tried once more (200 ms
+  later) before the turn is refused (review of #543).
+- Not done: a turn already running when the table disappears keeps running; the next one is refused.
+
+Version impact: patch (security fix in the Linux launcher, its status and diagnostics; no API shape, data or migration
+change).
