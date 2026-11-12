@@ -261,6 +261,57 @@ describe('joining', () => {
   })
 })
 
+describe('changing the groups of the open link (QA TC-458)', () => {
+  test('admins replace the groups; same address, uses and expiry; only people who join afterwards get them; audited', async () => {
+    const leads = await owner.call('POST', '/api/admin/groups', { name: 'Leads' })
+    const sales = await owner.call('POST', '/api/admin/groups', { name: 'Field Team' })
+    const { link } = await admin.call('POST', '/api/admin/team-link', { groupIds: [leads.id] })
+    const early = await join(tokenOf(link.url))
+    expect(early.status).toBe(201)
+    expect(early.body.me.groups.map((x: any) => x.id)).toEqual([leads.id])
+    // a member cannot
+    const m = await addMember(h, owner, { username: 'mo' })
+    expect((await m.client.try('PATCH', '/api/admin/team-link', { groupIds: [sales.id] })).status).toBe(403)
+    // an admin replaces them
+    const r = await admin.call('PATCH', '/api/admin/team-link', { groupIds: [sales.id] })
+    expect(r.link).toMatchObject({ id: link.id, url: link.url, groupIds: [sales.id], uses: 1, maxUses: link.maxUses, expiresAt: link.expiresAt, state: 'active' })
+    const row = h.ctx.db.query('SELECT token_hash FROM team_links WHERE id = ?').get(link.id) as { token_hash: string }
+    expect(row.token_hash).toBe(crypto.createHash('sha256').update(tokenOf(link.url)).digest('hex'))
+    const a = audits(h, 'team_link.update').at(-1)!
+    expect(a).toMatchObject({ actor_id: adminId, target: link.id })
+    expect(JSON.parse(a.detail)).toMatchObject({ groupIds: [sales.id], from: [leads.id] })
+    // the next join gets the new groups; the one before keeps theirs
+    const late = await join(tokenOf(link.url))
+    expect(late.body.me.groups.map((x: any) => x.id)).toEqual([sales.id])
+    const earlyUser = (await owner.call('GET', '/api/admin/users')).items.find((u: any) => u.id === early.body.me.user.id)
+    expect(earlyUser.groupIds).toEqual([leads.id])
+    // no groups at all
+    expect((await owner.call('PATCH', '/api/admin/team-link', { groupIds: [] })).link.groupIds).toEqual([])
+    expect((await join(tokenOf(link.url))).body.me.groups).toEqual([])
+  })
+
+  test('unknown groups are refused; a group deleted since drops out; no change on an expired or revoked link', async () => {
+    const temp = await owner.call('POST', '/api/admin/groups', { name: 'Temp' })
+    const keep = await owner.call('POST', '/api/admin/groups', { name: 'Keep' })
+    await owner.call('POST', '/api/admin/team-link', { groupIds: [temp.id, keep.id], expiresInDays: 7 })
+    const bad = await owner.try('PATCH', '/api/admin/team-link', { groupIds: ['01890a5d-ac96-7000-8000-000000000000'] })
+    expect(bad.status).toBe(400)
+    expect((await owner.call('GET', '/api/admin/team-link')).link.groupIds).toEqual([temp.id, keep.id])
+    await owner.call('DELETE', `/api/admin/groups/${temp.id}`)
+    // a skill-only change keeps the groups (the deleted one gone)
+    expect((await owner.call('PATCH', '/api/admin/team-link', {})).link.groupIds).toEqual([keep.id])
+    h.advance(7 * 86_400_000 + 1000)
+    try {
+      const r = await owner.try('PATCH', '/api/admin/team-link', { groupIds: [] })
+      expect(r.status).toBe(410)
+      expect(r.body.error.params.reason).toBe('expired')
+    } finally { h.advance(-(7 * 86_400_000 + 1000)) }
+    expect((await owner.call('GET', '/api/admin/team-link')).link.groupIds).toEqual([keep.id])
+    await owner.call('DELETE', '/api/admin/team-link')
+    expect((await owner.try('PATCH', '/api/admin/team-link', { groupIds: [] })).status).toBe(404)
+  })
+})
+
 describe('seats', () => {
   test('default uses = seats left; never above the plan\'s limit; every join still takes a seat', async () => {
     await owner.call('DELETE', '/api/admin/team-link').catch(() => {})

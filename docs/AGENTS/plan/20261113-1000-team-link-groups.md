@@ -25,3 +25,8 @@ adds, and the groups could only change by making a new link (which breaks the li
   earlier joiners unchanged, audit row, unknown ids, deleted groups dropped, expired refused.
 - `web/test/unit/team-link.test.tsx`: the row text and the picker (change, save body, the Groups link).
 - `web/test/e2e/team-link.spec.ts` if the mock supports it.
+
+## Result
+Built as planned. GET also leaves deleted groups out of the link's `groupIds`. "Change groups" is hidden while the
+group list has not loaded (the checks would start empty). Server 26/26 (team links + starter), web unit 2912+ pass,
+e2e team-link, people-console, phone-invite-rows (TC-390) pass; screenshots 1440/390 light/dark checked by eye.

@@ -23798,3 +23798,21 @@ Version impact: **minor** (new route, migration 288).
   same everywhere); filling .xlsx/.docx with make_file (the look of the team's form is the point); a "try it in chat
   first" step (the owner: ask right away).
 - Tests: `tests/unit/b-form-skill.test.ts`, `web/test/unit/form-skills.test.tsx`, `web/test/e2e/welcome-form-skills.spec.ts`.
+
+## Team link: show and change the groups people join (feat/team-link-groups, 2026-11-13, QA TC-458)
+
+- **Problem.** A team link made with the group "leads" put everyone who joined into leads (so its room and a project
+  that group writes). The Invite links row did not say which groups the link adds, and changing them meant a new link,
+  which breaks the address already sent.
+- **Decided (owner).** The row says it in words: "Joins: Leads" / "Joins no groups" (also the phone row of TC-390 and
+  single-use invite rows; a lead invite keeps its own text). The team link popup has the same line with a quiet
+  "Change groups", which opens the same group checks as making a link, Save / Cancel and one line: people who already
+  joined keep their groups. The checks (making and changing) carry a small "Make a new group" link to Admin › Groups;
+  no inline group making, and none in the welcome steps' folded form (it would leave the wizard).
+- **Server.** `PATCH /api/admin/team-link` takes `groupIds` (replace) beside `addGroupIds` (add, the welcome steps).
+  Admin only; unknown ids → 400; groups deleted since drop out (also from what GET shows); refused (410, reason
+  `expired`/`stopped`) on a link that no longer works; no open link → 404. Token, uses and expiry stay. Audit
+  `team_link.update` with `groupIds` (after) and `from` (before). Nobody's groups change: only people who join later.
+- Tests: `tests/unit/a-team-links.test.ts` ("changing the groups of the open link"), `tests/unit/a-team-link-starter.test.ts`,
+  `web/test/unit/team-link.test.tsx`, `web/test/unit/onboarding-polish.test.tsx`, `web/test/e2e/team-link.spec.ts`;
+  screenshots `web/test/e2e/shots-team-link-groups.spec.ts` (`TEAM_LINK_GROUPS_SHOTS`).

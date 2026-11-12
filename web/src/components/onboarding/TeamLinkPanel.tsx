@@ -89,6 +89,14 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
     setBusy(false)
     if (r) state.setData(r)
   }
+  // the groups of the open link, for people who join from now on (same address; QA TC-458)
+  const changeGroups = async (groupIds: string[]) => {
+    setBusy(true)
+    const r = await act(() => api.call(API.updateTeamLink, { body: { groupIds } }))
+    setBusy(false)
+    if (r) state.setData(r)
+    return !!r
+  }
   const revoke = async () => {
     setBusy(true)
     const ok = await actOk(() => api.call(API.revokeTeamLink))
@@ -168,6 +176,7 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
           folded={folded}
           onCreate={(b) => void create(b)}
           onRevoke={() => void revoke()}
+          onGroups={changeGroups}
         />
       )}
     </Loadable>
@@ -196,6 +205,8 @@ export interface TeamLinkViewProps {
   folded?: boolean
   onCreate: (body: CreateTeamLinkBody) => void
   onRevoke: () => void
+  /** change the open link's groups (same address); resolves true when saved. Absent: no "Change groups" */
+  onGroups?: (groupIds: string[]) => Promise<boolean>
 }
 
 /** Why the open link cannot be shared now (the form to make a new one follows). */
@@ -208,11 +219,12 @@ const STALE = {
 } as const satisfies Record<TeamLinkState | 'unreadable', MessageKey | null>
 
 /** What the panel shows, without loading anything (tests render it as it is). */
-export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPath, made = false, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke }: TeamLinkViewProps) {
+export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPath, made = false, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke, onGroups }: TeamLinkViewProps) {
   const t = useT()
   const locale = useLocale()
   const [editing, setEditing] = useState(false)
   const [qr, setQr] = useState(false)
+  const [groupsOpen, setGroupsOpen] = useState(false)
   const link = data.link
   const left = data.seats.limit !== null ? Math.max(0, data.seats.limit - data.seats.used) : null
   const usable = link && link.state === 'active' && link.url
@@ -256,9 +268,9 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   const sharedHere = shared && link.skill && shared.options.some((o) => o.path === link.skill!.path) ? shared : null
   // one skill only (the one the link opens), and "본인 AI 계정이 필요해요" when people who join sign in to their own AI
   const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, ownAi: link.memberAi === 'connect_own' })
-  const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
-  // the groups line: always when the link puts people in groups; "그룹 없음" only on a team that has groups
-  const showGroups = link.groupIds.length > 0 || groups.length > 0
+  // "Joins: leads" / "Joins no groups": which groups everyone who joins is put in (QA TC-458: a link made with the
+  // wrong group put the whole team in it, and the card did not say so)
+  const joins = joinsText(t, link.groupIds, groups)
   // the link, its facts and its changes: in place on Admin › Members, under "링크 관리" in the invite step
   const details = (
     <>
@@ -283,14 +295,19 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
           {t('teamLink.usesLabel')} <span className="text-ink tabular-nums" data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</span>
           {' · '}{t('teamLink.expiresLabel')} <span className="text-ink" data-testid="team-link-expires">{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}</span>
         </p>
-        {(link.skill || showGroups) && (
+        {link.skill && <p>{t('teamLink.skill')} <span className="text-ink" data-testid="team-link-skill-name">{skillName ?? link.skill.path}</span></p>}
+        {!groupsOpen && (
           <p>
-            {link.skill && <>{t('teamLink.skill')} <span className="text-ink" data-testid="team-link-skill-name">{skillName ?? link.skill.path}</span></>}
-            {link.skill && showGroups && ' · '}
-            {showGroups && (link.groupIds.length
-              // the names once the groups loaded; until then (or when they did not load) how many
-              ? <>{t('admin.groups')} <span className="text-ink" data-testid="team-link-groups">{groupNames.length ? groupNames.join(', ') : link.groupIds.length}</span></>
-              : t('members.noGroups'))}
+            <span className="text-ink" data-testid="team-link-groups">{joins}</span>
+            {/* not while the link's groups are known only by count (the list did not load): the checks would start empty */}
+            {onGroups && (!link.groupIds.length || groups.some((g) => link.groupIds.includes(g.id))) && (
+              <>
+                {' · '}
+                <button type="button" className="font-medium text-ink underline decoration-line-strong underline-offset-4 disabled:opacity-50 max-sm:-my-3 max-sm:inline-block max-sm:py-3" disabled={busy} onClick={() => setGroupsOpen(true)} data-testid="team-link-groups-change">
+                  {t('teamLink.changeGroups')}
+                </button>
+              </>
+            )}
           </p>
         )}
         <p>
@@ -298,6 +315,16 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
           {left !== null && <> · {t('teamLink.seatsLeft', { n: left })}</>}
         </p>
       </div>
+      {groupsOpen && onGroups && (
+        <GroupsEditor
+          groups={groups}
+          initial={link.groupIds}
+          busy={busy}
+          newGroupLink={!folded}
+          onCancel={() => setGroupsOpen(false)}
+          onSave={async (ids) => { if (await onGroups(ids)) setGroupsOpen(false) }}
+        />
+      )}
       <div className="-ml-2.5 flex flex-wrap items-center gap-1">
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(true)} data-testid="team-link-replace">
           <RefreshCw size={14} aria-hidden /> {t('teamLink.replace')}
@@ -324,6 +351,33 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
         <CopyPrimary text={message} label={t('teamLink.copyMessage')} />
       </div>
       {folded ? <ManageFold>{details}</ManageFold> : details}
+    </div>
+  )
+}
+
+/** "Joins: leads, sales" / "Joins no groups": the groups everyone who joins with a link is put in. Groups deleted since
+ * (or not loaded yet) are left out; none known while the ids are there reads as how many. Also Admin › Members' rows. */
+export function joinsText(t: ReturnType<typeof useT>, groupIds: string[], groups: Group[]): string {
+  if (!groupIds.length) return t('teamLink.joinsNone')
+  const names = groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
+  return t('teamLink.joins', { groups: names.length ? names.join(', ') : String(groupIds.length) })
+}
+
+/** The open link's groups changed in place: the same checks as making a link, Save / Cancel, and one line saying
+ * people who already joined keep theirs (QA TC-458). */
+function GroupsEditor({ groups, initial, busy, newGroupLink, onCancel, onSave }: { groups: Group[]; initial: string[]; busy: boolean; newGroupLink: boolean; onCancel: () => void; onSave: (ids: string[]) => void }) {
+  const t = useT()
+  // a group deleted since the link was made is not shown, so it is not sent back either
+  const [ids, setIds] = useState(() => initial.filter((id) => groups.some((g) => g.id === id)))
+  return (
+    <div className="space-y-2" data-testid="team-link-groups-edit">
+      <p className="text-label font-medium">{t('teamLink.groups')}</p>
+      <GroupChecks groups={groups} value={ids} onChange={setIds} newGroupLink={newGroupLink} />
+      <p className="text-xs text-muted">{t('teamLink.groupsKeep')}</p>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onCancel}>{t('common.cancel')}</Button>
+        <Button size="sm" variant="primary" busy={busy} onClick={() => onSave(ids)} data-testid="team-link-groups-save">{t('common.save')}</Button>
+      </div>
     </div>
   )
 }
@@ -473,7 +527,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
       {groups.length > 0 && (
         <div>
           <p className="mb-1.5 text-label font-medium">{t('teamLink.groups')}</p>
-          <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
+          <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} newGroupLink={!folded} />
         </div>
       )}
       <div className="grid gap-3 sm:grid-cols-2">

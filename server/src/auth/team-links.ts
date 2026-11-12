@@ -59,7 +59,7 @@ const DAY_MS = 86_400_000
 const SEAL_KIND = 'team-link'
 const aadOf = (id: string) => `team-link:${id}`
 
-const KEYS = { expired: 'teamLinkExpired', used_up: 'teamLinkUsedUp', revoked: 'teamLinkRevoked', full: 'teamLinkFull', tooMany: 'teamLinkTooMany', overPlan: 'teamLinkOverPlan', skillNotForNew: 'teamLinkSkillNotForNew', noKey: 'teamLinkNoKey' } as const satisfies Record<string, MessageKey>
+const KEYS = { expired: 'teamLinkExpired', used_up: 'teamLinkUsedUp', revoked: 'teamLinkRevoked', full: 'teamLinkFull', tooMany: 'teamLinkTooMany', overPlan: 'teamLinkOverPlan', skillNotForNew: 'teamLinkSkillNotForNew', noKey: 'teamLinkNoKey', notOpen: 'teamLinkNotOpen' } as const satisfies Record<string, MessageKey>
 const say = (k: keyof typeof KEYS, locale: Locale, n?: number) => msg(KEYS[k], locale).replace('{n}', String(n ?? ''))
 const problemText = (p: TeamLinkProblem, locale: Locale) => say(p === 'stopped' ? 'revoked' : p, locale)
 
@@ -149,7 +149,8 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
     } catch { /* key file gone or changed: the admin makes a new link */ }
   }
   return {
-    id: r.id, url, groupIds: parseIds(r.group_ids),
+    // groups deleted since the link was made are not shown: nobody who joins gets them (insertUser takes existing ones)
+    id: r.id, url, groupIds: existingGroups(ctx.db, parseIds(r.group_ids)),
     skill: r.skill_path ? skillOf(viewer && teamSkill(ctx, viewer, r.skill_path), r.skill_path) : null,
     maxUses: r.max_uses, uses: r.uses, createdBy: userRef(ctx.db, r.created_by), createdAt: r.created_at, expiresAt: r.expires_at,
     state: stateOf(ctx.db, r, authOf(ctx).now()),
@@ -225,10 +226,12 @@ export function createTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
 }
 
 /**
- * PATCH /api/admin/team-link: what the open link leads to, keeping its address (a link already posted keeps working):
- * its skill, and groups added to it (never removed: people who joined keep theirs, and a narrower link would only be a
- * new link). The skill is checked against someone joining with the link's groups after the change. The welcome steps'
- * invite uses it when a link is already out, so people who join land on the skill the steps point at.
+ * PATCH /api/admin/team-link: what the open link leads to, keeping its address, uses and expiry (a link already posted
+ * keeps working): its skill, and its groups. `groupIds` replaces them (Admin › Members, QA TC-458: a link made with the
+ * wrong group put everyone who joined in it); `addGroupIds` adds (the welcome steps' invite). Either way only people
+ * who join after the change get the new groups: nobody's groups change here. Unknown group ids are refused; groups
+ * deleted since the link was made drop out. Groups are not changed on a link that has expired or stopped (a new link
+ * is the answer there). The skill is checked against someone joining with the link's groups after the change.
  */
 export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<typeof UpdateTeamLinkBody>): TeamLinkResponse {
   const auth = c.get('auth')!
@@ -236,10 +239,17 @@ export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
   const add = b.addGroupIds ?? []
   const added = existingGroups(ctx.db, add)
   if (added.length !== new Set(add).size) fail('validation', msg('unknownGroups', locale), { fields: { 'body.addGroupIds': 'unknown group' } })
+  const replace = b.groupIds ? existingGroups(ctx.db, b.groupIds) : null
+  if (replace && b.groupIds && replace.length !== new Set(b.groupIds).size) fail('validation', msg('unknownGroups', locale), { fields: { 'body.groupIds': 'unknown group' } })
   const done = ctx.db.transaction(() => {
     const r = openRow(ctx.db)
     if (!r) return false
-    const groups = [...new Set([...existingGroups(ctx.db, parseIds(r.group_ids)), ...added])]
+    const before = existingGroups(ctx.db, parseIds(r.group_ids))
+    if (replace) {
+      const s = stateOf(ctx.db, r, authOf(ctx).now())
+      if (s === 'expired' || s === 'stopped') fail('gone', say('notOpen', locale), { params: { reason: s } })
+    }
+    const groups = [...new Set([...(replace ?? before), ...added])]
     let skillPath = r.skill_path
     if (b.skillPath !== undefined) {
       if (b.skillPath === null) skillPath = null
@@ -250,7 +260,7 @@ export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
       }
     }
     ctx.db.query('UPDATE team_links SET group_ids = ?, skill_path = ? WHERE id = ? AND revoked_at IS NULL').run(JSON.stringify(groups), skillPath, r.id)
-    audit(ctx.db, { actor: auth.user.id, action: 'team_link.update', target: r.id, detail: { groupIds: groups, ...(added.length ? { added } : {}), skillPath } })
+    audit(ctx.db, { actor: auth.user.id, action: 'team_link.update', target: r.id, detail: { groupIds: groups, ...(replace ? { from: before } : {}), ...(added.length ? { added } : {}), skillPath } })
     return true
   }).immediate()
   if (!done) fail('not_found')

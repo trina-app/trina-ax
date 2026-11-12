@@ -3173,14 +3173,15 @@ export class MockServer {
       this.teamLink = { id: uuidv7(), token, groupIds: c.body.groupIds ?? [], skillPath: c.body.skillPath ?? null, maxUses: c.body.maxUses ?? 20, uses: 0, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInDays ?? 14) * 86_400_000).toISOString() }
       return { status: 201, body: this.teamLinkResponse(c.req, c.user) }
     },
-    // like the server: the open link's skill changes and groups are added; its address stays
+    // like the server: the open link's skill changes and groups are added or replaced (`groupIds`); its address stays
     updateTeamLink: (c) => {
       const l = this.teamLink
       if (!l || l.uses >= l.maxUses) fail('not_found', 404)
-      const b = c.body as { skillPath?: string | null; addGroupIds?: string[] }
+      const b = c.body as { skillPath?: string | null; addGroupIds?: string[]; groupIds?: string[] }
       if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
+      if ((b.groupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
       if (b.skillPath !== undefined) l!.skillPath = b.skillPath
-      l!.groupIds = [...new Set([...l!.groupIds, ...(b.addGroupIds ?? [])])]
+      l!.groupIds = [...new Set([...(b.groupIds ?? l!.groupIds), ...(b.addGroupIds ?? [])])]
       return this.teamLinkResponse(c.req, c.user)
     },
     revokeTeamLink: () => {
