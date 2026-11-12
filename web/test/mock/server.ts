@@ -1487,6 +1487,16 @@ export class MockServer {
       put({ ...save, status: 'error', endedAt: now() })
     }
     if (/devqueue/i.test(prompt)) await this.devQueueTurn(chatId, user, prompt, assistant, pub, step)
+    if (/devpreview/i.test(prompt)) {
+      // a dev server with a port (Step.devEnvRun kind server): the step's Preview button; "devpreviewgone": it stopped
+      this.devEnv ??= {}
+      const srt = (this.devEnv.srt ??= { running: [], waiting: [] })
+      const id = `dp-${assistant.id.slice(-8)}`
+      if (!/devpreviewgone/i.test(prompt)) srt.running = [...srt.running, { id, kind: 'server', name: 'web', by: { id: user.id, name: user.name }, startedAt: now(), runAt: now(), position: null, memoryMiB: 120, lastLine: '', chatId, projectId: null }]
+      const x = step({ id: 'p1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run dev', status: 'ok', endedAt: now(), devEnvRun: { id, kind: 'server', state: 'started', position: null, port: 5173 } })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } })
+    }
     if (/sub-agent/i.test(prompt)) {
       // a sub-agent (Claude Code's Agent tool): its sub-task step, then its own steps under it (Step.parentId)
       const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
@@ -2598,6 +2608,12 @@ export class MockServer {
       srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
       srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
       return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
+    },
+    // a preview link of the caller's running dev server ("devpreview" turns): about:blank stands in for the preview origin
+    previewMyDevEnvRun: (c) => {
+      const srt = this.devEnv?.srt
+      if (!srt || !srt.running.some((r) => r.id === c.params.runId && r.kind === 'server' && r.by?.id === c.user.id)) throw new Fail('not_found', 404, 'The dev server is not running. Ask the AI to start it again.', undefined, { reason: 'dev_env_preview_not_running' })
+      return { url: `about:blank#preview-${c.params.runId}-${(c.body as { port: number }).port}`, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() }
     },
     listMemories: () => ({ items: this.memories, nextCursor: null }),
     // like server/src/routes/rooms.ts (rooms/ai-grants.ts): the person's own; an unknown id is 404

@@ -30,7 +30,8 @@ import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from 
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import type { RunExit } from './srt/types'
-import { placeInLine, runProblem, startWaiting } from './srt/runner'
+import { placeInLine, previewPortProblem, previewSupported, runProblem, startWaiting } from './srt/runner'
+import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
 
 export const BOX_SHELL_TOOL = 'box_shell'
@@ -44,13 +45,21 @@ export const BoxShellInput = z.object({
   background: z.boolean().optional().describe('start a long-running process (a dev server, a watcher) and return at once; its output goes to the log <log_name>.log (the tool text says where)'),
   job: z.boolean().optional().describe('run a long command (a render, a large build) in the background as a job: it returns at once, it has an exit status and a log, and the person gets a notice when it ends'),
   log_name: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).optional().describe('name of the log file for a background command or a job'),
+  port: z.number().int().min(1).max(65535).optional().describe('with background=true: the port the dev server listens on (for example 3000 or 5173); the person gets a Preview button for it'),
   request_sites: z.array(z.string().min(1).max(300)).max(5).optional().describe('host names this command needs that are not allowed yet (for example ["api.example.com"]): the person is asked to allow each one before the command runs. Use it only after a command failed because a site was blocked'),
 })
 export type BoxShellInput = z.infer<typeof BoxShellInput>
 
+/** The dev server part of the tool text: with a preview gateway, the person opens the dev server with the Preview
+ * button (devenv/preview.ts); without one, only a test with curl in one command works. */
+const devServerText = (preview: boolean) => preview
+  ? 'For a dev server use background=true and set port to the port it listens on: the person gets a Preview button on this step and opens the app in their browser. Do not open the app yourself. '
+    + 'A later command cannot reach the dev server: to test it yourself, start a second copy, call it and stop it in one command, for example: npm run dev -- --port 3001 & sleep 5; curl -s localhost:3001; kill %1. '
+  : 'For a dev server use background=true. There is no preview link on this server, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
+
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
  * gets the folder access of the person of this chat. */
-export const SRT_SHELL_DESCRIPTION = 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
+export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
   + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To save a file in another team folder, use the file tools. '
   + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
@@ -61,11 +70,14 @@ export const SRT_SHELL_DESCRIPTION = 'Run a shell command in the dev environment
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
   + 'You cannot change .git/config or .git/hooks. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
-  + 'For a dev server use background=true. There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
+  + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
   + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
+export const SRT_SHELL_DESCRIPTION = srtShellDescription(false)
+/** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
+export const previewReady = () => !!previewBase() && previewSupported()
 
 /** commands that would use a person's login (hole 2: the person confirms after seeing who changed what) */
 export const CREDENTIAL_COMMAND = /(^|[\s;&|(])(git\s+(push|fetch|pull|clone|submodule|ls-remote)|npm\s+(publish|login|adduser|token)|yarn\s+(publish|npm\s+publish)|pnpm\s+publish|gh\s|ssh\s|scp\s|rsync\s.*:|docker\s+(login|push)|twine\s+upload|cargo\s+publish|aws\s|gcloud\s|az\s)/
@@ -183,7 +195,16 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
       : `Queued as job ${jobName}: other jobs of the team run now, so it waits (position ${out.r.position}) and starts by itself. Do not wait for it: when it ends the person gets a notice, and your next box_shell call in this chat gives you the result.`
     return answer(h, { notes, head, started, exit: empty, w, background: true, what })
   }
-  if (out.kind === 'server') return answer(h, { notes, head: `Started in the background (log: $TRINA_LOGS/${input.log_name ?? 'background'}.log). A later command cannot reach it; test it in one command with curl.`, started, exit: empty, w, background: true, what })
+  if (out.kind === 'server' && out.r.ok) {
+    const log = `$TRINA_LOGS/${input.log_name ?? 'background'}.log`
+    const preview = previewReady()
+    // the step shows the Preview button for the port the AI named (Step.devEnvRun kind server)
+    if (preview && input.port) h.queueStep?.({ id: out.r.rowId, kind: 'server', state: 'started', position: null, port: input.port })
+    const head = !preview ? `Started in the background (log: ${log}). A later command cannot reach it; test it in one command with curl.`
+      : input.port ? `Started in the background (log: ${log}). The person now has a Preview button for port ${input.port} on this step: tell them to press it. If the page does not open, read the log. A later command cannot reach the dev server.`
+      : `Started in the background (log: ${log}), with no port: the person has no Preview button. Stop it and start it again with port set to the port the dev server listens on.`
+    return answer(h, { notes, head, started, exit: empty, w, background: true, what })
+  }
   if (out.kind !== 'exit' || !out.r.ok) throw new Error('unreachable')
   const e = out.r.value
   const head = e.signal === 'timeout' ? `Stopped: the time limit (${timeoutMs / 1000} s) was reached.`
@@ -249,6 +270,11 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     if (!(e instanceof ToolError)) throw e
     audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: space.projectId, detail: { turnId: h.turnId, chatId: space.chatId, command: h.redact(data.command.slice(0, 2000)), cwd, background, runner: 'srt', result: { error: 'storage_full' } } })
     return { ...text([...await jobNotes(), `Error: ${e.message}. No command runs until then. Delete files with the file tools, or ask the person to do it. Do not try again before that.`].join('\n'), true), summary: `${what} -> storage full` }
+  }
+  if (data.port !== undefined) {
+    if (!data.background || data.job) return { ...text('Invalid input: port goes only with background=true (a dev server).', true), summary: `${what} -> bad port` }
+    const why = previewPortProblem(data.port)
+    if (why) return { ...text(`Invalid input: port ${data.port}: ${why}. Use the port of the dev server (for example 3000 or 5173).`, true), summary: `${what} -> bad port` }
   }
   const jobName = data.job ? (data.log_name ?? newJobName()) : null
   // the log is per person: a job or dev server with the same name would write over it
@@ -347,7 +373,7 @@ export function boxShellTool(h: BoxShellHost) {
   const denied = new Set<string>()
   return {
     name: BOX_SHELL_TOOL,
-    description: SRT_SHELL_DESCRIPTION,
+    description: srtShellDescription(previewReady()),
     inputSchema: (() => { const j = z.toJSONSchema(BoxShellInput, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j })(),
     async call(args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
       const a = BoxShellInput.safeParse(args)

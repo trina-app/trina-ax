@@ -128,6 +128,8 @@ export const MISC_SPECS: Record<string, Spec> = {
   myDevEnvRuns: { build: (c) => devEnvOn(() => c.get('/api/dev-env/runs')), scope: 'self',
     check: (r, _w, who) => { if (r.status === 200 && [...r.json.running, ...r.json.waiting].some((x: any) => x.by?.id !== USER_OF[who])) throw new Error(`${who} sees someone else's run`) } },
   stopMyDevEnvRun: { build: (c) => devEnvOn(() => c.post(`/api/dev-env/runs/${NO_RUN}/stop`)), scope: 'nobody' },
+  // a preview link to a dev server of nobody (only the person who started a run: tests/unit/dev-env-preview.test.ts)
+  previewMyDevEnvRun: { build: (c) => devEnvOn(() => c.post(`/api/dev-env/runs/${NO_RUN}/preview`, { port: 3000 })), scope: 'nobody' },
   myDevEnvSites: { build: (c) => devEnvOn(() => c.get('/api/dev-env/sites')), scope: 'self' },
   removeMyDevEnvSite: { build: (c) => devEnvOn(() => c.post('/api/dev-env/sites/remove', { host: 'example.com' })), scope: 'nobody' },
   // Full internet on: never without the network and the warning (409 for everyone signed in here)

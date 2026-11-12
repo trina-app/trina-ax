@@ -40,7 +40,7 @@ import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personN
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
-import { directSystem, systemdSystem, type SrtSystem } from './system'
+import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { END_NOTE, endRow, type EndReason } from './end'
 
 export const MAX_WAITING_PER_PERSON = 3
@@ -113,7 +113,11 @@ const active = new Map<string, Active>()
 const rootLocks = new Map<string, Promise<void>>()
 /** dev servers: CPU time at the last poll, and since when they are idle */
 const idleSince = new Map<string, { usec: number; at: number; since: number | null }>()
-function reset() { active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; _resetQueue() }
+/** the preview forwarders of this process: "<runId>:<port>" -> the start (a forwarder, or why it did not start) */
+const forwarders = new Map<string, Promise<Forwarder | { error: string }>>()
+/** the time of the last preview request of a run (a previewed dev server is not idle) */
+const lastPreview = new Map<string, number>()
+function reset() { for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; _resetQueue() }
 
 let planCache: { at: number; state: PlanState } | null = null
 let selfTest: { at: number; problem: string } | null = null
@@ -650,7 +654,7 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
     } else {
       out.set(r.id, { name: r.name, state: 'ended', code: s.code, seconds, tail: s.tail, lastLine: lastLine(s.tail), why: END_NOTE[s.reason], reason: s.reason })
       const runId = runIdOf(r.unit)
-      active.delete(runId); idleSince.delete(runId)
+      active.delete(runId); idleSince.delete(runId); closeForwarders(runId)
     }
   }
   return { rows: out, diskStopped }
@@ -664,9 +668,11 @@ async function idleCheck(ctx: AppContext, c: SrtConfig, r: RunRow) {
   const prev = idleSince.get(runId)
   if (!prev) { idleSince.set(runId, { usec, at: now, since: null }); return }
   const share = (usec - prev.usec) / 1000 / Math.max(1, now - prev.at)
-  const since = share < IDLE_CPU_SHARE ? (prev.since ?? prev.at) : null
-  idleSince.set(runId, { usec, at: now, since })
   const idleMin = teamSetting(ctx.db).limits.idleStopMin
+  // idle: under 2 % CPU and no preview request for idleStopMin
+  const previewed = (lastPreview.get(runId) ?? 0) > now - idleMin * 60_000
+  const since = share < IDLE_CPU_SHARE && !previewed ? (prev.since ?? prev.at) : null
+  idleSince.set(runId, { usec, at: now, since })
   if (since !== null && now - since >= idleMin * 60_000) await stopRow(ctx, r, 'idle')
 }
 
@@ -682,7 +688,7 @@ async function stopRow(ctx: AppContext, r: RunRow, reason: EndReason) {
   const tail = readTail(logFile(c, r.user_id, r.name), TAIL_BYTES)
   rm(path.join(personLogs(c.base, r.user_id), `${runId}.exit`))
   endRow(ctx, r.id, { code: null, reason, tail, lastLine: lastLine(tail) })
-  active.delete(runId); idleSince.delete(runId)
+  active.delete(runId); idleSince.delete(runId); closeForwarders(runId)
 }
 
 /** An open run by its row id or run id (a command of this process). */
@@ -722,6 +728,8 @@ export async function reconcile(ctx: AppContext): Promise<void> {
   const c = srtConfig()
   // the calls of waiting commands went with the old process
   endOrphanTickets(ctx.db)
+  // so did the preview forwarders (their stdin closed): their sockets stay as files
+  try { for (const f of fs.readdirSync(devenvPaths(c.base).run)) if (PREVIEW_SOCK_RE.test(f) && ![...forwarders.keys()].some((k) => f === sockName(k))) rm(path.join(devenvPaths(c.base).run, f)) } catch {}
   const known = new Set((ctx.db.query("SELECT unit FROM dev_env_runs WHERE ended_at IS NULL AND unit != ''").all() as { unit: string }[]).map((r) => r.unit))
   for (const a of active.values()) known.add(unitName(a.runId))
   for (const u of await c.system.units()) {
@@ -770,6 +778,64 @@ export function othersInProject(ctx: AppContext, projectId: string, userId: stri
   return rows.map((r) => ({ kind: tickets.has(r.id) ? 'command' : r.kind, name: tickets.has(r.id) ? 'a command' : r.name, by: names.get(r.user_id) ?? '?', position: r.state === 'waiting' ? order.indexOf(r.id) + 1 || waitingAll.findIndex((w) => w.id === r.id) + 1 : null }))
 }
 
+// ---------------- preview (docs/DECISIONS.md "Dev environment on srt: preview") ----------------
+
+/** the ports a preview never forwards: srt's proxy relays in the run's network namespace */
+export const SRT_RELAY_PORTS: readonly number[] = [3128, 1080]
+export const previewPortProblem = (port: number): string | null =>
+  !Number.isInteger(port) || port < 1 || port > 65535 ? 'not a port' : SRT_RELAY_PORTS.includes(port) ? 'this port is the sandbox proxy, not a dev server' : null
+const PREVIEW_SOCK_RE = /^[a-z0-9]{16}-\d{1,5}\.sock$/
+const sockName = (key: string) => key.replace(':', '-') + '.sock'
+
+/** this server can serve previews: a system with port-forward (systemd scopes and the sandbox helper) */
+export const previewSupported = () => !!srtConfig().system.forward
+
+/** The open dev server row of a preview link, or null: the row must be open, running, a dev server, of this person,
+ * and still the same run (its unit). */
+export function previewRow(ctx: AppContext, o: { rowId: string; runId?: string; userId: string }): RunRow | null {
+  const r = ctx.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE id = ? AND ended_at IS NULL`).get(o.rowId) as RunRow | null
+  if (!r || r.kind !== 'server' || r.state !== 'running' || r.user_id !== o.userId) return null
+  const runId = runIdOf(r.unit)
+  if (!runId || (o.runId !== undefined && runId !== o.runId)) return null
+  return r
+}
+
+/** The unix socket that reaches a port of a running dev server (row rowId), for the preview gateway. The run comes from
+ * the row, never from the request: a link of run A can only ever reach run A's namespace (attack A26). One forwarder
+ * per run and port; it ends with the run (stopRow, pollRuns) or with this process. */
+export async function previewSocket(ctx: AppContext, o: { rowId: string; runId: string; userId: string; port: number }): Promise<{ ok: true; socket: string } | { ok: false; message: string }> {
+  const c = srtConfig()
+  if (previewPortProblem(o.port)) return { ok: false, message: previewPortProblem(o.port)! }
+  if (!c.system.forward) return { ok: false, message: 'this server has no preview (no systemd scopes)' }
+  if (!previewRow(ctx, o)) return { ok: false, message: 'the dev server is not running' }
+  lastPreview.set(o.runId, Date.now())
+  const key = `${o.runId}:${o.port}`
+  let start = forwarders.get(key)
+  if (start) {
+    const f = await start
+    if ('error' in f) forwarders.delete(key)
+    else return { ok: true, socket: f.socket }
+  }
+  const socket = path.join(devenvPaths(c.base).run, sockName(key))
+  start = c.system.forward({ runId: o.runId, port: o.port, socket }).catch((e) => ({ error: String((e as Error).message ?? e).slice(0, 300) }))
+  forwarders.set(key, start)
+  const f = await start
+  if ('error' in f) { if (forwarders.get(key) === start) forwarders.delete(key); return { ok: false, message: f.error } }
+  void f.exited.then(() => { if (forwarders.get(key) === start) forwarders.delete(key); rm(socket) })
+  return { ok: true, socket: f.socket }
+}
+
+/** Stop the preview forwarders of a run (it ended or stopped). */
+export function closeForwarders(runId: string) {
+  if (!runId) return
+  lastPreview.delete(runId)
+  for (const [key, start] of forwarders) {
+    if (!key.startsWith(runId + ':')) continue
+    forwarders.delete(key)
+    void start.then((f) => { if ('stop' in f) { f.stop(); rm(f.socket) } })
+  }
+}
+
 /** The work folder of a chat goes with the chat (chat/forget.ts, after the purge). */
 export function forgetChatWork(chatId: string) {
   try { fs.rmSync(chatWork(srtConfig().base, chatId), { recursive: true, force: true }) } catch {}
@@ -777,3 +843,4 @@ export function forgetChatWork(chatId: string) {
 
 /** tests */
 export function _active() { return active }
+export function _forwarders() { return forwarders }

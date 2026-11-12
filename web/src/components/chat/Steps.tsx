@@ -15,13 +15,15 @@
 // files; it still opens the step list.
 // A dev environment command or job that waits in the team queue (Step.devEnvRun) shows "Waiting for the dev
 // environment… #2 in line" under its row, with the live place (lib/devEnvQueue.ts) and a Cancel button, until it
-// starts; a command that waited too long says the dev environment is full.
+// starts; a command that waited too long says the dev environment is full. A dev server the AI started with a port
+// (Step.devEnvRun kind server) shows a Preview button: it asks for a short-lived link on the separate preview origin
+// (docs/DECISIONS.md "Dev environment on srt: preview") and opens it in a new tab.
 // A post the AI made to a room (post_to_room, Step.posted) has 보기, like the button's sent line: the room at the message
 // or the thread at the reply. A side chat gives its own way there (StepPostView: its column, a phone's panel).
 import clsx from 'clsx'
 import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { createContext, useContext, useState } from 'react'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, ApiError, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
 import { toast } from '../../store/ui'
 import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, stepPlace, unansweredStep } from '@mycel/shared'
@@ -143,6 +145,42 @@ function QueueLine({ step }: { step: Step }) {
   )
 }
 
+/** The Preview button of a dev server step. The run may have ended since: then the button says so and goes. */
+function PreviewLine({ step }: { step: Step }) {
+  const t = useT()
+  const locale = useLocale()
+  const run = step.devEnvRun!
+  const [busy, setBusy] = useState(false)
+  const [ended, setEnded] = useState(false)
+  if (!run.port) return null
+  if (ended) return <p className="ml-6 px-1 text-xs text-muted" data-testid="devenv-preview-ended">{t('devEnvPreview.ended')}</p>
+  const open = async () => {
+    // open the tab now (a tab opened after a wait is blocked as a pop-up), then send it to the link
+    const tab = window.open('', '_blank')
+    if (tab) tab.opener = null
+    setBusy(true)
+    try {
+      const r = await api.call(API.previewMyDevEnvRun, { params: { runId: run.id }, body: { port: run.port! } })
+      if (tab) tab.location.href = r.url
+      else window.open(r.url, '_blank', 'noopener')
+    } catch (e) {
+      tab?.close()
+      const reason = e instanceof ApiError ? e.body.params?.reason : undefined
+      if (reason === 'dev_env_preview_not_running') setEnded(true)
+      else toast({ level: 'error', text: reason === 'dev_env_preview_not_configured' ? t('devEnvPreview.notSetUp') : errorText(e, locale, t('error.network')) })
+    } finally { setBusy(false) }
+  }
+  return (
+    <div className="ml-6 flex items-center gap-2 px-1 text-xs text-muted" data-testid="devenv-preview">
+      <Monitor size={12} className="shrink-0 text-faint" aria-hidden />
+      <span className="min-w-0 flex-1">{t('devEnvPreview.line', { port: run.port })}</span>
+      <button type="button" disabled={busy} onClick={() => void open()} className="touch-hit shrink-0 rounded px-1.5 py-0.5 text-xs text-accent-text hover:bg-hover disabled:opacity-50" data-testid="devenv-preview-open">
+        {t('devEnvPreview.open')}
+      </button>
+    </div>
+  )
+}
+
 function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; marks: Omit<MarkContext, 'live'>; kids?: Step[] }) {
   const t = useT()
   const locale = useLocale()
@@ -219,7 +257,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
       ) : (
         <div className={rowClass}>{head}</div>
       )}
-      {step.devEnvRun && <QueueLine step={step} />}
+      {step.devEnvRun && (step.devEnvRun.kind === 'server' ? <PreviewLine step={step} /> : <QueueLine step={step} />)}
       {latest && (
         <ul className="ml-6 border-l border-line pl-3" data-testid="subtask-latest">
           <StepRow key={latest.id} step={latest} live={live} marks={marks} />
