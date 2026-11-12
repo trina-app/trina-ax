@@ -25,17 +25,17 @@
 import clsx from 'clsx'
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Link, Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
-import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId, type CardState } from '../lib/googleApps'
+import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
 import { awaitingFirstSignIn, canonicalService, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
-import { Button, EmptyState, ErrorNote, IconButton, PageHeader, Skeleton, inputCls, pageColumn, useMediaQuery } from '../components/ui'
-import { ConnectorDetail, ConnectorRow, LogoTile } from '../components/integrations/ConnectorsView'
+import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, inputCls, pageColumn, useMediaQuery } from '../components/ui'
+import { ConnectorDetail, ConnectorRow, DiscoverCard, DISCOVER_FIRST, type DiscoverItem } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
 import { GoogleAppDetail, Note, useGoogleApps } from '../components/integrations/GoogleAppConnector'
@@ -51,8 +51,8 @@ import { mobileApp } from '../lib/mobile'
 
 const PHONE = '(max-width: 767.98px)'
 
-/** How many Discover cards show before "Show all": the five built-in ones and five well-known services. */
-export const POPULAR_FIRST = 10
+/** How many Discover cards show before "Show all" (ConnectorsView.tsx). */
+export const POPULAR_FIRST = DISCOVER_FIRST
 
 function useConnectorsState() {
   const admin = isAdmin(useMe())
@@ -117,7 +117,7 @@ export function ConnectorsLayout() {
 
 /** `setUp`: off because the team has not set it up yet, which an owner or admin does in Admin (a member asks an admin
  * from its page); `asked`: a member who asked an admin to add it */
-interface Card { id: string; name: string; line: string; logo: string; state: CardState; setUp?: boolean; asked?: boolean; onOpen: () => void; onAdd: () => void }
+type Card = DiscoverItem
 
 /** /connectors */
 export function ConnectorsHome() {
@@ -150,7 +150,7 @@ export function ConnectorsHome() {
   const q = query.trim()
 
   // the built-in cards: Google Drive (its own connection), then the Google apps this server knows (none on an older one)
-  const dState = driveCardState(drive.connection, admin)
+  const dState = driveCardState(drive.connection)
   const builtIns: Card[] = BUILT_IN_ORDER.flatMap((id): Card[] => {
     const name = builtInName(id)
     const open = () => navigate(`/connectors/${id}`)
@@ -289,32 +289,6 @@ export function ConnectorsHome() {
   )
 }
 
-/** One Discover card: logo, name, one line, and one + on the right (for one the team has not set up yet: an owner or
- * admin "Set up", a member "Not set up yet" or "Asked"). The card opens its page. */
-function DiscoverCard({ c, admin }: { c: Card; admin: boolean }) {
-  const t = useT()
-  return (
-    <li className="flex items-center gap-3 border-b border-line py-3" data-testid="connector-card" data-id={c.id} data-state={c.state}>
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2 max-md:min-h-11" onClick={c.onOpen} data-testid="connector-open">
-        <LogoTile src={c.logo} className="size-10 rounded-xl p-2" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{c.name}</span>
-          <span className="mt-0.5 line-clamp-1 text-xs text-muted">{c.line}</span>
-        </span>
-      </button>
-      {c.state === 'off' && !admin ? (
-        <span className="max-w-28 shrink-0 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
-      ) : c.state === 'off' ? (
-        <Link to="/admin/connectors" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
-      ) : (
-        <IconButton label={t('integrations.discover.add', { name: c.name })} className="shrink-0 rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
-          <Plus size={16} aria-hidden />
-        </IconButton>
-      )}
-    </li>
-  )
-}
-
 /** /connectors/:id: a built-in card's page, or a listed service's. */
 export function ConnectorPage() {
   const { id = '' } = useParams()
@@ -345,7 +319,7 @@ function DrivePage() {
   const p = useDriveParts(drive)
   const id: BuiltInId = 'google-drive'
   const name = builtInName(id)
-  const ready = p.linked && !p.reconnect && !p.off
+  const ready = p.linked && !p.reconnect
   // a member, the team has not set Google Drive up: "Ask admin to add it" in place of the Connect button that cannot
   // work and of "Your admin needs to turn this on"; once asked, when they will hear
   const ask = !admin && asks.ready && p.unavailable && !p.linked && !p.shares.length ? asks.stateOf(id) : null
@@ -356,7 +330,7 @@ function DrivePage() {
   // connect again) on a computer when that can be done there. A member's "Ask admin to add it" and an owner or admin's
   // "Set it up" stay: they work on a phone.
   const inApp = !!mobileApp() && !!drive.connection && !ask && !(p.unavailable && admin)
-  const onComputer = inApp && !p.unavailable && (p.turnOn || !p.off) && (!p.linked || p.reconnect)
+  const onComputer = inApp && !p.unavailable && (!p.linked || p.reconnect)
     ? t(p.linked ? 'integrations.reconnectOnComputer' : 'integrations.onComputer', { name }) : null
   const appActions = p.linked ? (
     <>
@@ -370,7 +344,7 @@ function DrivePage() {
         : inApp ? appActions
         : p.action}
       status={(line || onComputer || askError || p.busy || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
-        {line && <Note tone={p.reconnect || (p.off && p.linked) ? 'warn' : undefined} testId={ask ? 'service-asked-note' : 'drive-detail-line'}>{line}</Note>}
+        {line && <Note tone={p.reconnect ? 'warn' : undefined} testId={ask ? 'service-asked-note' : 'drive-detail-line'}>{line}</Note>}
         {onComputer && <Note testId="drive-on-computer">{onComputer}</Note>}
         {askError && <Note tone="warn" testId="service-ask-error">{askError}</Note>}
         <div className="empty:hidden">{p.steps}</div>

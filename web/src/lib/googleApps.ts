@@ -38,22 +38,21 @@ export function googleAppCardState(v: GoogleAppView): CardState {
 export function unavailableKeys(reason: GoogleAppView['reason'], admin: boolean): { short: MessageKey; long: MessageKey } | null {
   switch (reason) {
     case 'not_set_up': return { short: 'gapps.off.notSetUp', long: admin ? 'gapps.off.notSetUpAdmin' : 'gapps.off.notSetUpMember' }
-    case 'members_off': return { short: 'gapps.off.membersOff', long: 'gapps.off.membersOffLong' }
     case 'unsupported': return { short: 'gapps.off.unsupported', long: 'gapps.off.unsupportedLong' }
     case 'service_limited': return { short: 'gapps.off.serviceLimited', long: 'gapps.off.serviceLimitedLong' }
     default: return null
   }
 }
 
-/** Google Drive's card state, from its connection (DriveConnector.tsx keeps the details of its own flow). An admin may
- * connect their own while members may not (the confirm turns the switch on, docs/DECISIONS.md "W6"). */
-export function driveCardState(c: DriveConnection | null, admin: boolean): CardState {
+/** Google Drive's card state, from its connection (DriveConnector.tsx keeps the details of its own flow). Once it is
+ * set up everyone may connect their own (docs/DECISIONS.md "No members' switch for connectors"). */
+export function driveCardState(c: DriveConnection | null): CardState {
   if (!c) return 'available'
   const linked = c.configured && (c.status === 'connected' || c.status === 'needs_reconnect')
   if (linked) return c.status === 'needs_reconnect' ? 'reconnect' : 'added'
   if ((c.teamShares?.length ?? 0) > 0) return 'added'
   if (!c.configured) return 'off'
-  return c.personalAllowed !== false || admin ? 'available' : 'off'
+  return 'available'
 }
 
 /** The search box: a card fits by its name or its line (every card without a search). */

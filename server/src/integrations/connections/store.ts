@@ -11,7 +11,6 @@ import { audit } from '../../admin/audit'
 import { getTeamSettings } from '../../admin/settings'
 import type { RemoteTool } from './mcp'
 import { reasonText } from './text'
-import { membersOn } from '../google-apps/catalog'
 
 export interface Row {
   id: string; scope: 'personal' | 'team'; owner_user_id: string | null; created_by: string | null
@@ -177,7 +176,7 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
   // a Google app: its own team switch (Admin › Connectors), not the switch for members' own MCP connections
-  if (row.google_app) return row.scope === 'personal' && row.owner_user_id === userId && membersOn(db, row.google_app)
+  if (row.google_app) return row.scope === 'personal' && row.owner_user_id === userId
   if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))
   return !!db.query(`SELECT 1 FROM integration_access a WHERE a.integration_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
@@ -207,7 +206,7 @@ export function usable(db: Database, userId: string): Row[] {
   // a member's own connections while the team allows them; the ones made from an admin's template while it covers them
   const on = personalOn(db)
   const personal = (db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(userId) as Row[])
-    .filter((r) => (r.google_app ? membersOn(db, r.google_app) : r.template_id ? templateCovers(db, r.template_id, userId) : on))
+    .filter((r) => (r.google_app ? true : r.template_id ? templateCovers(db, r.template_id, userId) : on))
   const team = (db.query(`${selectRows(db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(db, r, userId))
   return [...personal, ...team]
 }

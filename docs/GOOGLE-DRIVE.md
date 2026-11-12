@@ -12,11 +12,11 @@ On a self-installed server with a public address (`tunnel.host`), an admin can s
 
 The page does not change: a hosted server (the hosting service owns its setup), a server without a public address, a client set through `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`, or a `client.json` the installer or the operator wrote (shown as "Set in the server's own setup"). Only a client set on this page can be replaced there. `GET /api/admin/google-drive` says which applies (`blocked`) and how many active members are connected with the current client.
 
-## What is on: the members' switch and team shares
+## What is on: everyone's own Drive and team shares
 
-A Google client only makes Drive available: Admin › Connected apps › Google Drive says **Ready to set up** until an admin turns something on, and **On** once members may connect their own Drive or a Drive is shared with the team (`GET /api/admin/google-drive`: `membersCanConnect`, `sharesOn`).
+Once Google Drive is set up, Admin › Connectors › Google Drive says **On**: everyone in the team may connect their own Drive, and an admin may share a Drive with the team (`GET /api/admin/google-drive`: `membersCanConnect` is always true, `sharesOn`).
 
-- **Members can connect their own Google Drive** (`PUT /api/admin/google-drive/members`, settings `integrations.driveMembers`, audited `drive.members_switch`). On for a new team (no stored value means on). Migration 341 wrote the explicit value "off" for every team that existed before it and had none, so a team made earlier keeps what it had; migration 337 sets it on for a team whose members had already connected their own Drive, so nothing they use stops working. Off: Connect is turned off on the Connected apps page, `authorize` and `complete` answer `drive_members_off`, and a connection made before is kept but not used (its row says the admin turned it off, Disconnect still works). The switch is for everyone's own Drive, admins included.
+- **No members' switch** (docs/DECISIONS.md "No members' switch for connectors", 2026-11-12). `PUT /api/admin/google-drive/members` stays for older apps and changes nothing; the stored `integrations.driveMembers` (migrations 337 and 341) is ignored, so a team that had it "off" now lets members connect their own.
 
 ## Sharing a Drive with the team
 
@@ -75,7 +75,7 @@ with its own client keeps the direct flow above, unchanged, even with the variab
 on only after the control plane answers that it serves this server (a signed `/status`, at start, then every 10
 minutes, every minute while it says no); until then the card says "Not available yet". Admin › Connected apps › Google
 Drive then shows `source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."),
-and the members' switch and team shares work as described above. The Set up dialog is the hosting service's
+and everyone's own Drive and team shares work as described above. The Set up dialog is the hosting service's
 (`blocked: "hosted"`, no upload form, no redirect address shown): always on a hosted server, and on a self-installed one
 while the hosting service serves it. While it does not (not registered yet, or removed), a self-installed server's page
 still lets an admin set a client of its own, which then wins.
@@ -168,6 +168,6 @@ Body limits are enforced while streaming even without Content-Length. Stop/disco
 
 ## Offline validation
 
-Focused tests are `tests/unit/c-drive-{api,oauth,store,tools,transport,registration,shares}.test.ts` with `tests/lib/fake-google-drive.ts`. `c-drive-shares` covers team shares: only admins create, change or stop one; a member outside the rule gets nothing; nothing outside the shared folders (search filtered, list and read refused, also through a shortcut and a file in two folders); tokens never returned; stop sharing revokes; a gone admin stops the share and the admins get a notice; the members' switch. They use synthetic users, PKCE exchanges, file bytes, rotated tokens, provider errors, cancellation, and revocation barriers entirely in process. They check account/session isolation and authorization-URL phishing, ciphertext/AAD and AI/Drive key-rotation separation, absence of secret canaries in DB/log/API output, shared-drive query escaping, bounded responses, private read scope/taint, spreadsheet multi-tab and Google document extraction, registration in MCP/turn tool paths, and generic reconnect notification deduplication.
+Focused tests are `tests/unit/c-drive-{api,oauth,store,tools,transport,registration,shares}.test.ts` with `tests/lib/fake-google-drive.ts`. `c-drive-shares` covers team shares: only admins create, change or stop one; a member outside the rule gets nothing; nothing outside the shared folders (search filtered, list and read refused, also through a shortcut and a file in two folders); tokens never returned; stop sharing revokes; a gone admin stops the share and the admins get a notice; a stored members' "off" is ignored. They use synthetic users, PKCE exchanges, file bytes, rotated tokens, provider errors, cancellation, and revocation barriers entirely in process. They check account/session isolation and authorization-URL phishing, ciphertext/AAD and AI/Drive key-rotation separation, absence of secret canaries in DB/log/API output, shared-drive query escaping, bounded responses, private read scope/taint, spreadsheet multi-tab and Google document extraction, registration in MCP/turn tool paths, and generic reconnect notification deduplication.
 
 No actual Google/provider request, OAuth registration, account consent, mobile device authorization, or production key operation is part of those tests. PDF/Office/OCR converter installation checks and whole-product browser/type/build validation are separate from these focused fake-provider checks. HWPX and XLSX fixtures exercise the in-process conversion path here.

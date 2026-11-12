@@ -28,7 +28,6 @@ import { audit } from '../admin/audit'
 import { admins } from '../credentials/store'
 import { NOTIFICATION_RETENTION_MS, notifyServiceReady, notifyServiceRequested, settleServiceRequestNotices, syncServiceRequestNotices } from '../notifications/service'
 import { googleDriveOf } from './google-drive/oauth'
-import { membersCanConnect } from './google-drive/shares'
 import { googleAppsOf } from './google-apps/service'
 import { setupOf } from './google-apps/config'
 import { isHosted } from '../system/deployment'
@@ -47,7 +46,7 @@ export function serviceState(ctx: AppContext, service: RequestableService): Serv
   if (service === 'google-drive') {
     const drive = googleDriveOf(ctx)
     if (!drive.enabled) return isHosted(ctx.config) || drive.clientFromEnv ? 'other' : 'not_set_up'
-    return membersCanConnect(ctx.db) ? 'available' : 'other'
+    return 'available'
   }
   const reason = googleAppsOf(ctx).reasonOf(service)
   if (reason === 'not_set_up') return isHosted(ctx.config) || setupOf(ctx, service).byOperator ? 'other' : 'not_set_up'

@@ -428,8 +428,8 @@ export class MockServer {
   apiEngineEnabled = false
   /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
   driveClient: 'none' | 'app' = 'none'
-  /** Admin › Connectors › Google Drive: "Members can connect their own Google Drive" (off for a new team, like the server) */
-  driveMembers = false
+  /** Members may connect their own Google Drive: always, once it is set up (no members' switch, like the server) */
+  readonly driveMembers = true
   /** Drives shared with the team (server/src/integrations/google-drive/shares.ts); never a token here either */
   driveShares: MockDriveShare[] = []
   /** a share sign-in under way: its flow id, and which share it signs in again for */
@@ -608,7 +608,6 @@ export class MockServer {
     this.codexSignedIn = false
     this.apiEngineEnabled = false
     this.driveClient = 'none'
-    this.driveMembers = false
     this.driveShares = []
     this.driveShareFlow = null
     this.credentials = []
@@ -3797,9 +3796,7 @@ export class MockServer {
       ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, teamShares: [] }
       : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers,
           teamShares: this.driveShares.filter((x) => x.status === 'connected' && this.driveShareCovers(x, c.user)).map((x) => ({ id: x.id, name: x.name, folders: x.folders, wholeDrive: x.wholeDrive })) }),
-    authorizeDrive: (c) => {
-      // an owner or admin may start their own while members may not (docs/DECISIONS.md "W6")
-      if (!this.driveMembers && c.user.role === 'member') fail('forbidden', 403, 'drive_members_off')
+    authorizeDrive: () => {
       return { flowId: 'personal-flow', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic', expiresAt: new Date(Date.now() + 600_000).toISOString() }
     },
     // the share sign-in (mock Google): pending once, then the synthetic account is back
@@ -3809,7 +3806,8 @@ export class MockServer {
       return { flowId: f!.id, state: f!.polls++ < 1 ? 'pending' : 'ready', account: { name: 'Admin Fixture', email: 'drive-admin@example.test' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), reason: null }
     },
     cancelDriveFlow: () => { this.driveShareFlow = null; return undefined },
-    setDriveMembers: (c) => { this.driveMembers = c.body.on; this.settleServiceRequests(); return this.driveAdminStatus() },
+    // the old members' switch: changes nothing (docs/DECISIONS.md "No members' switch for connectors")
+    setDriveMembers: () => this.driveAdminStatus(),
     listDriveShares: () => ({ items: this.driveShares.map((x) => ({ ...x, usedBy: this.driveShareUsers(x) })) }),
     authorizeDriveShare: (c) => {
       this.driveShareFlow = { id: 'share-flow-' + uuidv7(), shareId: c.body.shareId ?? null, polls: 0 }
@@ -3909,9 +3907,8 @@ export class MockServer {
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
     },
     setGoogleAppMembers: (c) => {
-      const app = this.googleApps.app(c.params.app) ?? fail('not_found', 404)
-      app.members = c.body.on
-      this.settleServiceRequests()
+      this.googleApps.app(c.params.app) ?? fail('not_found', 404)
+      // the old members' switch: changes nothing (docs/DECISIONS.md "No members' switch for connectors")
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
     },
     // a member asks the owner and the admins to add an app (like server/src/integrations/service-requests.ts)

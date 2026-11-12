@@ -203,7 +203,7 @@ the page says "Request sent", opened again "Already asked", and the app's card s
   row opens the app's setup in Admin › Connected apps. The names are read when the inbox is shown. The 30-second check
   keeps these notices with whoever is an owner or admin now: someone who no longer is loses them, someone who became one
   gets those of the apps asked for now.
-- Once members can connect the app (an admin set it up, or turned the members' switch on after that; also a setup made
+- Once members can connect the app (an admin set it up; also a setup made
   elsewhere, checked every 30 seconds; not while the hosting service's Google review lets only its test users in), the
   requests close, the admins' notice counts as read and says "Added", and each
   member who asked gets one notice that it is ready (`service.ready`), which opens its page. Inbox only, never an OS

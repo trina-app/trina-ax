@@ -22562,3 +22562,21 @@ runs `--landlock required`. TCP, UDP, IPv6, metadata and DNS were already refuse
 
 Version impact: patch (security fix in the Linux engine sandbox; the launcher status gains `net`; no API, data or
 migration change).
+
+## No members' switch for connectors (feat/admin-connectors-member-ui, 2026-11-12, product owner)
+
+- **Decision.** There is no team switch "Members can connect their own <app>" any more, for Google Drive, Gmail, Google
+  Calendar, Google Docs and Google Sheets. Once a connector is set up, everyone in the team may connect their own
+  account, and the AI uses only that person's own. This replaces the members' switch of "W6" (an owner or admin's
+  "turn on and connect" in the welcome steps and on Drive's card) and Admin › Connectors' switch per app.
+- **Old data.** No migration. The stored values (`integrations.driveMembers`, written "false" by migration 341 for
+  teams that existed then, and `integrations.googleApps.<app>.members`) stay in `settings` and nothing reads them. The
+  admin endpoints `PUT /api/admin/google-drive/members` and `PUT /api/admin/google-apps/:app/members` stay for older
+  apps, admin-only, and change nothing (no audit entry). `membersCanConnect` and `personalAllowed` are always true;
+  `members_off` is never sent. `completeDriveFlow`'s `membersOn` is ignored.
+- **Kept.** Each person's own ask-first or Always allow for their connection (their own choice, not an admin's
+  approval), Drive's team shares, and Team settings' "Members can add their own connections" for MCP connections (a
+  different setting on another page).
+- **Admin page.** A Google connector's page in Admin › Connectors has Team settings in the layout of Admin › Team
+  settings: who can use it (everyone, each with their own account, and how many connected), Drive's shares, and the
+  Google APIs a card with its own Google app needs.

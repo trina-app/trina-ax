@@ -5,7 +5,8 @@
 - Status: in progress
 - Where: `web/` (Admin › Connectors, `pages/admin/Integrations.tsx`, and the shared connector parts). Why: the web app's
   own screens; no server change (see docs/REPOSITORY-RULES.md).
-- Version impact: patch. Same admin features in a new layout; no API, setting or data change.
+- Version impact: patch. A new layout, and the members' switch is gone (its endpoints stay and change nothing); no
+  API shape, data or migration change.
 
 ## Goal
 
@@ -14,6 +15,16 @@ simple page per connector) and Admin › Connectors (big Discover tiles, grey bo
 bordered card). The owner decided: Admin › Connectors uses the member page's layout, with the admin-only parts inside
 it. On a server whose Google sign-in comes from the hosting service, each Google connector's admin page says so plainly
 and needs no setup, and the admin still sets who may use it.
+
+## Owner feedback (2026-11-12, decided)
+
+A. No members' switch: once a connector is set up everyone in the team may connect their own. Server: a stored "off"
+   is ignored (no migration; the highest migration on dev is 701), the switch endpoints stay for older apps and change
+   nothing, `members_off` is never sent. The "turn on and connect" variant (welcome steps, Drive's card) goes.
+B. Team settings on a connector's admin page in the layout of Admin › Team settings (`SettingsSection`, `SettingRow`):
+   a plain heading, rows with a hairline, no boxes, no "On" badge next to a switch.
+C. Sharing every connector with the team: Google apps have no shared (team) connection on the server (connections are
+   personal only), so this PR does not build it; a separate plan describes it (branch `plan/google-apps-team-shares`).
 
 ## Scope
 
@@ -34,7 +45,7 @@ What moves where:
 | Today | After |
 | --- | --- |
 | Drive/Gmail… page: grey box with state badge + Set up / Replace button | header: state on the right; Set up as the primary button, Change setup in ⋯ |
-| "Members can connect their own …" bordered card with switch | Team settings: one row with the switch |
+| "Members can connect their own …" bordered card with switch | removed (A); Team settings says "Who can use it: everyone, each with their own account" |
 | Drive's team shares (title, Share button, list) | Team settings, under the switch |
 | Gmail…: list of Google APIs to switch on | Team settings (only with its own Google client); still in the setup dialog |
 | "Same Google app as Drive" / "set on the server" / "from the hosting service" small notes | one line under the header |
@@ -42,7 +53,8 @@ What moves where:
 | Team connection: a row that opens in place (address, key, tools, buttons) | a one-line row that opens its page with that row |
 | Discover: tiles with "by …" and a count, "Top" / "More connectors" | the member page's rows, Show all |
 
-Removed: the grey boxed connector header for Google connectors (`DriveAdminDetail`, `GoogleAppAdminDetail`), Discover's
+Removed: the members' switch for Google Drive and each Google app (UI, its i18n keys, the welcome steps' "turn on and
+connect"), the grey boxed connector header for Google connectors (`DriveAdminDetail`, `GoogleAppAdminDetail`), Discover's
 tiles and its "Top connectors" / "More connectors" / count (`ConnectorDiscover` and its helpers), the old member
 `DriveDetail` (unused), and i18n keys left unused, in all five languages.
 
