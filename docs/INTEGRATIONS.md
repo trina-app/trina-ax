@@ -285,12 +285,15 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   engines' tool lists, the model proxy's names, the lockdown check), so the turn goes on in a new step
   (`chat/turn.ts`):
   - Claude: the tool's result tells the AI to end its step; when that attempt ends normally, the turn builds its tool
-    set again (`buildToolSet`, the same person and chat, so the same filters as at the start) and, only when it has
-    tools it did not have, resumes the same engine session with a server note as the message (`continueAfterConnect`:
-    the connection, its new tools, go on with the request in this answer). A new proxy token, lockdown and sub-agent
-    list come from the new set; the text goes on in the same answer message. At most `CONTINUE_MAX` (2) times per
-    answer; each continuation gets only the tool rounds the answer has left, and the budget, the answer's time and
-    Stop apply as to any attempt (`launch`). No stashed session, an error, a stop or a limit: no continuation.
+    set again (`buildToolSet`, the same person and chat, so the same filters as at the start) and resumes the same
+    engine session with the turn context (connections as they are now) and a server note as the message
+    (`continueAfterConnect`: the connection, its new tools or, when no name is new, `find_tools` / `call_tool` /
+    `api_request`, go on with the request in this answer). A new proxy token, lockdown and sub-agent list come from the
+    new set; the text goes on in the same answer message. At most `CONTINUE_MAX` (2) times per answer: a third card's
+    result says "from the next message". Each continuation gets only the tool rounds the answer has left; with fewer
+    than two the answer pauses at the round limit (`tool_limit`, "continue" goes on). The budget, the answer's time and
+    Stop apply as to any attempt (`launch`); an error, a stop or a refusal: no continuation. A retry that starts a
+    fresh session after a connect gets the new tool set from its start.
   - The API engine (in the server): the tool set is built again before its next round and listed again.
   - Codex (its runs start fresh, without the answer so far): unchanged, the tools come with the person's next message.
   - Google Drive's tools are always offered, so a Drive connect never needs this.

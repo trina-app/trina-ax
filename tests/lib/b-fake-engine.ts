@@ -473,8 +473,8 @@ let directives = message.split('\n').filter((l) => l.startsWith('@fake ')).map((
 // the server's note that continues an answer after a connect (chat/turn.ts continueAfterConnect): the person's message
 // in the session carries what this run does, {"afterContinue": [...]} (the n-th continuation runs the n-th such
 // directive). Ignored on any other run.
-if (!directives.length && resumed && message.startsWith('[The connect card is finished')) {
-  const asked = [...history].reverse().find((h) => h.role === 'user' && !h.text.startsWith('[The connect card is finished'))
+if (!directives.length && resumed && message.includes('\n[The connect card is finished')) {
+  const asked = [...history].reverse().find((h) => h.role === 'user' && !h.text.includes('\n[The connect card is finished'))
   const notes = history.slice(history.lastIndexOf(asked!) + 1).filter((h) => h.role === 'user').length
   const plan = (asked?.text ?? '').split('\n').filter((l) => l.startsWith('@fake ')).map((l) => { try { return JSON.parse(l.slice(6)) } catch { return {} } }).filter((d) => d.afterContinue)
   directives = plan[notes]?.afterContinue ?? []

@@ -190,13 +190,16 @@ export const CONTINUE_MAX = 2
 export const CONTINUE_NOTE_START = '[The connect card is finished'
 /** The message of the resumed session that goes on with the same answer after a service was connected on its card
  * (owner decision 2026-11-12, docs/INTEGRATIONS.md "Connecting from a chat"). The service names are what the card
- * showed (connect-service.ts refuses hidden characters); the tool names are the turn's own. `connected`: the turn
- * context's "Connected services" section as it is now. */
-export function continueAfterConnect(names: string[], added: string[], connected: string): string {
+ * showed (connect-service.ts refuses hidden characters); the tool names are the turn's own. The message puts the turn
+ * context (with "Connected services" as it is now, tags neutralized as for any resumed turn: buildTurnContext) before it. */
+export function continueAfterConnect(names: string[], added: string[]): string {
   const quoted = names.map((n) => `"${neutralizeTags(n).replace(/[\r\n]+/g, ' ').slice(0, 120)}"`).join(', ')
-  return `${CONTINUE_NOTE_START}: ${quoted} ${names.length === 1 ? 'is' : 'are'} connected now, and these tools are offered to you from here on: ${added.slice(0, 60).join(', ')}${added.length > 60 ? ', …' : ''}. ` +
+  const tools = added.length
+    ? `these tools are offered to you from here on: ${added.slice(0, 60).join(', ')}${added.length > 60 ? ', …' : ''}`
+    : 'its tools are reached as "Connected services" in the turn context above says (find_tools and call_tool, or api_request)'
+  return `${CONTINUE_NOTE_START}: ${quoted} ${names.length === 1 ? 'is' : 'are'} connected now, and ${tools}. ` +
     'Go on with the person\'s request from before the card, in this same answer: use the new tools now where the request needs them. ' +
-    'Do not ask the person to send the question again and do not repeat what you already wrote.]' + (connected ? `\n\n${connected}` : '')
+    'Do not ask the person to send the question again and do not repeat what you already wrote.]'
 }
 
 export class TurnExec {
@@ -888,11 +891,30 @@ export class TurnExec {
       // the same answer going on after a service was connected on its card (owner decision 2026-11-12): the server's
       // note is the resumed session's message, at most CONTINUE_MAX times per answer
       let continueNote: string | null = null
-      let continued = 0
+      let continuations = 0
       this.continueMode = 'step'
+      /** a continuation keeps what the answer's first attempt recorded about its history (prompt() sets it per attempt) */
+      const continuePrompt = (fresh: boolean, sessionId: string) => {
+        const trimmed = this.historyTrimmed
+        const sys = prompt(fresh, true, sessionId)
+        if (continueNote) this.historyTrimmed = trimmed
+        return sys
+      }
+      /** the tool lists of the attempts from the turn's tool set as it is now */
+      const toolsNow = () => {
+        extraTools = toolSet.list().map((t) => t.name)
+        turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
+        childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
+      }
       for (let attempt = 0; attempt < 4 && !this.stopReason; attempt++) {
-        // a retry that starts a fresh session answers the person's message again, never the note
-        if (!resume) continueNote = null
+        // a retry that starts a fresh session answers the person's message again, never the note; a service connected
+        // in the attempt it replaces is offered to it from the start
+        if (!resume) {
+          continueNote = null
+          if (this.connectedSince.length) { this.refreshTools(); toolsNow() }
+        }
+        // a third card in one answer: its tools come with the next message (connect-service.ts CONNECTED_NEXT)
+        this.continueMode = continuations < CONTINUE_MAX ? 'step' : null
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
@@ -920,7 +942,7 @@ export class TurnExec {
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
         this.files.subagents ||= subagents
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
-          turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume, true, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
+          turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
         }, claude)
@@ -961,23 +983,26 @@ export class TurnExec {
         else if (parser.refused) this.error = engineError('refused', spec.locale)
         if (!this.writtenText && !this.error && parser.text) this.appendText(parser.text)
         // a service connected on this answer's card: the same answer goes on in this session with the new tools
-        if (!err && !crashed && !parser.refused && !this.error && this.connectedSince.length && continued < CONTINUE_MAX && exit?.session?.b64 && !this.limitReason) {
+        // (the AI was told so only while continueMode was 'step': continuations < CONTINUE_MAX)
+        if (!err && !crashed && !parser.refused && !this.error && this.connectedSince.length && continuations < CONTINUE_MAX && !this.limitReason && !this.stopReason && !this.budgetHit) {
           const names = [...new Set(this.connectedSince)]
           const used = typeof parser.result?.num_turns === 'number' ? parser.result.num_turns : 1
+          // a call and an answer after it: at least two rounds left, else the answer pauses at the limit as at any
+          // other one (the person's "continue" goes on, continuationBlock)
+          if (turnsLeft - used < 2) { this.limitReason = 'tool_limit'; this.connectedSince = []; break }
+          if (!exit?.session?.b64) { this.connectedSince = []; break }
+          // built again even when no tool name is new: a connection reached through find_tools / call_tool or
+          // api_request is in the set's index and its "Connected services" section
           const added = this.refreshTools()
-          if (added.length && turnsLeft - used >= 1 && !this.stopReason && !this.budgetHit) {
-            continued++
-            turnsLeft -= used
-            extraTools = toolSet.list().map((t) => t.name)
-            turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
-            childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
-            continueNote = continueAfterConnect(names, added, toolSet.context.join('\n\n'))
-            resume = true
-            rt.log.info('answer goes on after a connect', { turn: this.id, tools: added.length, continued })
-            if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
-            attempt--
-            continue
-          }
+          continuations++
+          turnsLeft -= used
+          toolsNow()
+          continueNote = `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null })}\n\n${continueAfterConnect(names, added)}`
+          resume = true
+          rt.log.info('answer goes on after a connect', { turn: this.id, tools: added.length, continuations })
+          if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
+          attempt--
+          continue
         }
         break
       }
@@ -1250,7 +1275,7 @@ export class TurnExec {
   }
 
   /** the API engine's hook before each round: a service connected meanwhile is offered from this round on */
-  private toolsChanged(): boolean { return this.connectedSince.length > 0 && this.refreshTools().length > 0 }
+  private toolsChanged(): boolean { if (!this.connectedSince.length) return false; this.refreshTools(); return true }
 
   /**
    * The person's "block" budget during the answer (admin/budgets.ts budgetBlock, the check before a turn starts): used

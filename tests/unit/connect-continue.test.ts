@@ -11,7 +11,9 @@ import { API } from '@mycel/shared/api'
 import type { EngineEvent } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { FakeServices } from '../lib/fake-services'
+import { API_KEY, FakeServices } from '../lib/fake-services'
+import { sealSecret } from '../../web/src/lib/seal'
+import { credentialsOf } from '../../server/src/credentials/store'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { CONNECTED_NEXT } from '../../server/src/chat/connect-service'
 import { CONTINUE_NOTE_START } from '../../server/src/chat/turn'
@@ -149,24 +151,61 @@ describe('the same answer goes on after a connect', () => {
       const m = await doneOf(t.messageId)
       expect(resultOf(m.content)).toMatchObject({ connected: true })
       expect(m.content).not.toContain('CONTINUED')
+      // not a silent end: the answer pauses at the limit, and the person's "continue" goes on from there
+      expect(h.ctx.db.query('SELECT stop_reason FROM messages WHERE id = ?').get(t.messageId)).toEqual({ stop_reason: 'tool_limit' })
     } finally { rt.maxEngineTurns = before }
   })
 
-  test('two cards in one answer: it goes on after each, at most twice', async () => {
+  test('cards in one answer: it goes on after each, at most twice; the third is told "next message"', async () => {
     const t = await send('alice',
       { tool: 'connect_service', args: { name: 'First', kind: 'mcp', url: `${svc.base}/mcp-open?c=two1`, auth: 'none' } },
       { afterContinue: [{ say: 'ONE ' }, { tool: 'connect_service', args: { name: 'Second', kind: 'mcp', url: `${svc.base}/mcp-open?c=two2`, auth: 'none' } }] },
-      { afterContinue: [{ say: 'TWO ' }, { tool: 'my_second__search_tasks', args: { q: 'x' }, sayLength: true }] })
+      { afterContinue: [{ say: 'TWO ' }, { tool: 'my_second__search_tasks', args: { q: 'x' }, sayLength: true },
+        { tool: 'connect_service', args: { name: 'Third', kind: 'mcp', url: `${svc.base}/mcp-open?c=two3`, auth: 'none' }, sayResult: true }] },
+      { afterContinue: [{ say: 'THREE' }] })
     const first = await cardOf(t.turnId)
     expect((await post('alice', t.turnId, { action: 'connect', requestId: first.requestId })).body.state).toBe('connected')
     const second = await waitFor(() => published.filter((p) => p.ev.type === 'turn.request' && p.ev.data.turnId === t.turnId)[1]?.ev.data.request, { timeoutMs: 20_000, what: 'second card' })
     expect(second.name).toBe('Second')
     expect((await post('alice', t.turnId, { action: 'connect', requestId: second.requestId })).body.state).toBe('connected')
+    const third = await waitFor(() => published.filter((p) => p.ev.type === 'turn.request' && p.ev.data.turnId === t.turnId)[2]?.ev.data.request, { timeoutMs: 20_000, what: 'third card' })
+    expect((await post('alice', t.turnId, { action: 'connect', requestId: third.requestId })).body.state).toBe('connected')
     const m = await doneOf(t.messageId)
     expect(m.content).toContain('ONE ')
     expect(m.content).toContain('TWO ')
     expect(m.content).toMatch(/TWO \s*length=\d+/)
-    expect(events(t.turnId).map((e) => [e.tool, e.ok])).toEqual([['connect_service', 1], ['connect_service', 1], ['my_second__search_tasks', 1]])
+    // the third card: the AI is told the tools come with the next message, and the answer does not go on again
+    expect(m.content).toContain(JSON.stringify(CONNECTED_NEXT.next))
+    expect(m.content).not.toContain('THREE')
+    expect(events(t.turnId).map((e) => [e.tool, e.ok])).toEqual([['connect_service', 1], ['connect_service', 1], ['my_second__search_tasks', 1], ['connect_service', 1]])
+  })
+
+  test('no new tool name (a second HTTP API, reached through api_request): the answer still goes on', async () => {
+    await h.api('alice').call(API.createIntegration, { body: { kind: 'http', name: 'Old API', url: `${svc.base}/api?old=1`, auth: 'bearer', secret: API_KEY, writePolicy: 'ask' } })
+    const t = await send('alice', { tool: 'connect_service', args: { name: 'New API', kind: 'http', url: `${svc.base}/api?new=1`, auth: 'bearer' }, sayResult: true },
+      { afterContinue: [{ say: 'CONTINUED ' }, { echo: 'message' }] })
+    const card = await cardOf(t.turnId)
+    const sealed = await sealSecret(await credentialsOf(h.ctx).sealer.publicKey(), API_KEY, 'integration.secret')
+    expect((await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed })).body.state).toBe('connected')
+    const m = await doneOf(t.messageId)
+    expect(resultOf(m.content)).toMatchObject({ connected: true, next: CONNECTED_NEXT.step })
+    const after = m.content.slice(m.content.indexOf('CONTINUED '))
+    expect(after).toContain('"New API" is connected now')
+    expect(after).toContain('api_request')
+    // the turn context of a resumed turn goes first, with the connections as they are now
+    expect(after).toContain('<turn_context>')
+    expect(after).toContain('New API')
+  })
+
+  test('Stop during the continuation: the answer ends stopped, nothing goes on after it', async () => {
+    const t = await send('alice', ...connect('Stopped', `${svc.base}/mcp-open?c=stop`, [{ say: 'CONTINUED ' }, { sleep: 8000 }, { say: 'LATE' }]))
+    const card = await cardOf(t.turnId)
+    expect((await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })).body.state).toBe('connected')
+    await waitFor(() => published.some((p) => p.ev.type === 'message.delta' && p.ev.data.messageId === t.messageId && String(p.ev.data.text).includes('CONTI')), { timeoutMs: 20_000, what: 'the continuation started' })
+    await h.api('alice').call(API.stop, { params: { id: t.chatId } })
+    const m = await doneOf(t.messageId)
+    expect(m.content).not.toContain('LATE')
+    expect(h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(t.messageId)).toEqual({ status: 'stopped' })
   })
 
   test('an answer without a connect runs once (no note, no second run)', async () => {
