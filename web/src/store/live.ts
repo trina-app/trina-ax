@@ -41,6 +41,9 @@ export const notificationsChanged = new Emitter<void>()
 export const integrationsChanged = new Emitter<void>()
 /** this window changed a scheduled task (resumed one from its card): the "paused for review" banner recounts */
 export const schedulesChanged = new Emitter<void>()
+/** the team's AI connections or engine choice changed (engine_choice_changed): Admin › AI providers checks its engines
+ * again (a browser sign-in that finished turns "Sign-in needed" into "Connected" at once) */
+export const enginesChanged = new Emitter<void>()
 /** a ChatGPT sign-in this person started (Admin / Settings > AI providers): its address, code and result */
 export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */
@@ -164,6 +167,7 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         void useEngines.getState().load(true)
         // an AI connection was added or lost: the "no AI" banner follows
         void useAiAccess.getState().load(true)
+        enginesChanged.emit()
         return
       }
       if (ev.data.code === 'browser_policy_changed') {

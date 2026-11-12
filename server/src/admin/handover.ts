@@ -33,9 +33,8 @@ import { existingGroups, getUser } from '../auth/users'
 import { authOf } from '../auth/service'
 import { isHosted, runKindOf } from '../system/deployment'
 import { notificationsOf } from '../notifications/service'
-import { credentialsOf, getRow as getCredential, metaOf, SUBSCRIPTION } from '../credentials/store'
+import { connectionsChanged, credentialsOf, getRow as getCredential, metaOf, SUBSCRIPTION } from '../credentials/store'
 import { deleteCredential } from '../credentials/service'
-import { engineStatusCache } from './engines'
 import { maskEmail } from '../credentials/openai-oauth'
 import { currentOwnerId, leadHolds, shownName } from './handover-notices'
 import { signInOf } from '../auth/team-sign-ins'
@@ -249,13 +248,7 @@ export async function endConnections(ctx: AppContext, owner: string, refs: reado
     try { audit(ctx.db, { actor, action: 'owner.transfer.disconnect', target: ref.id, detail: { kind: e.kind, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}), ...(actor !== owner ? { of: owner } : {}), ...(o.retry ? { retry: true } : {}) } }) } catch (err) { ctx.log.warn('a handover disconnect was not audited', { err }) }
     out.push(e)
   }
-  if (aiChanged) {
-    try {
-      const cache = engineStatusCache(ctx)
-      cache.forget('claude-code'); cache.forget('codex')
-      ctx.services.realtime.publishEach(() => ({ type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } }))
-    } catch { /* the engines' status refreshes on its own */ }
-  }
+  if (aiChanged) connectionsChanged(credentialsOf(ctx))
   return out
 }
 
