@@ -111,6 +111,13 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await detail.getByTestId('connector-connect').click()
   await page.getByRole('dialog').getByTestId('integration-advanced').click()
   await expect(page.getByRole('dialog').getByTestId('integration-who-team')).toBeChecked()
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  // members may not add their own (Team settings): no "Just for me" either, the server would refuse it
+  expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { personalIntegrations: false } })).ok()).toBeTruthy()
+  await page.reload()
+  await page.getByTestId('connector-detail').getByTestId('integration-add-more').click()
+  await expect(page.getByTestId('connector-connect-template')).toBeVisible()
+  await expect(page.getByTestId('connector-connect-mine')).toHaveCount(0)
 })
 
 test('Connectors is in the sidebar, not in Settings; the old Settings address leads to it', async ({ page }) => {

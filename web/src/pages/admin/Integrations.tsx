@@ -56,6 +56,8 @@ export default function AdminIntegrations() {
   const [driveSetup, setDriveSetup] = useState(false)
   // Gmail, Google Calendar, Google Docs and Google Sheets on this server (an older server has none): set up per card
   const gapps = useLoad(async () => { try { return (await api.call(API.googleAppsAdminStatus)).apps } catch { return [] as GoogleAppAdminStatus[] } })
+  // Team settings' "Members can add their own connections": off, the admin's own ("Just for me") is refused too
+  const personal = useLoad(async () => { try { return (await api.call(API.listIntegrations)).personalAllowed } catch { return true } })
   // the admin's own view of them (Connectors'), for each page's tools
   const views = useLoad(async () => { try { return (await api.call(API.myGoogleApps)).apps } catch { return [] as GoogleAppView[] } })
   const [gappSetup, setGappSetup] = useState<GoogleAppId | null>(null)
@@ -148,7 +150,7 @@ export default function AdminIntegrations() {
                   <SplitAction label={t('connectors.connectTeam')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
                     items={[
                       { label: t('connectors.connectTemplate'), onSelect: () => setDialog({ connector: c, startAs: 'template', toList: true }), testId: 'connector-connect-template' },
-                      { label: t('connectors.justForMe'), onSelect: () => navigate(`/connectors/${c.id}`), testId: 'connector-connect-mine' },
+                      ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(`/connectors/${c.id}`), testId: 'connector-connect-mine' }] : []),
                     ]} />
                 )}
                 description={t('connectors.mcp.aboutForTeam', { name: c.name })} address={have ? undefined : c.url} tools={tools} />
