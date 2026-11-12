@@ -2424,6 +2424,20 @@ R4 integration review also found the separate System diagnostics/menubar lookup 
 uses the same resolver in development and only the configured executable for every production install,
 including same-account installs. Extend the same synthetic selection tests to cover this fourth caller.
 
+## Google Drive setup: the Google Cloud steps in the dialog (fix/drive-setup-steps, 2026-11-12, QA TC-197)
+
+- **Problem.** Admin › 연결한 서비스 › Google Drive › 한 번 설정하기 showed only the redirect URI with Copy and the client
+  file (or ID and secret): an admin had to know the Google Cloud part already (about five pages and eight actions).
+- **Decision (the simplest option that meets the row).** The dialog lists the Google Cloud steps first, numbered, each
+  with a link that opens its Google Cloud page in a new tab: a project (`/projectcreate`), the Drive API
+  (`/apis/library/drive.googleapis.com`), the consent screen (`/apis/credentials/consent`: app name and support email,
+  "Internal" for a company's own Workspace accounts, else "External" with the people as test users), a web client
+  (`/apis/credentials/oauthclient`: type "Web application", the shown address under "Authorized redirect URIs"), and its
+  JSON file to upload below. Google's own labels are quoted as Google shows them in each language; our field labels say
+  what they are for ("the address to put under 'Authorized redirect URIs'", "Upload the JSON file you downloaded").
+  The Google apps' dialogs share the field labels, not the Drive steps.
+- **Not done.** Doing the Google Cloud part for the admin.
+
 ## Linux installer: public host, app connectors and the Google Drive client (feat/installer-public-host, 2026-10-29)
 
 - **Problem.** The first real self-hosted test server (Lightsail, Cloudflare Tunnel) needed three manual root steps
@@ -4982,6 +4996,18 @@ Changed 2026-11-07: the hours depend on the plan (Starter 50, Team 100, Business
   correcting the AI's memory, another person's 404, audit lines without the text, no line for an unchanged text);
   `tests/security` (`createMemory` self, `updateMemory` only alice's own); `web/test/e2e/app.spec.ts` (add with the
   limit and the count, correct with Enter, Esc cancels, the first memory from the empty state).
+
+## Memories the AI does not get now are marked (fix/memories-in-use, 2026-11-12, QA TC-213)
+
+- **Problem.** Every memory was kept and listed, but a turn reads the newest 100 and the memory block holds only what
+  fits in 4,096 characters (with short memories about 85, with long ones fewer). The older ones were never given to the
+  AI and nothing said so: the AI forgot silently.
+- **Decision (the simplest option that meets the row).** Keep what the AI gets as it is, and say it where the memories
+  are: Settings › 메모리 shows "AI는 최근 메모리 N개만 써요. 그보다 오래된 M개는 지금 쓰지 않아요…" above the list and
+  marks each memory not used ("쓰지 않음", its text dimmed). `GET /api/memories` says it (`inUse`, `total` on the page,
+  `unused: true` on such items), worked out with the same function as the AI's block (`prompt.ts` `memoryLines`), so
+  the two never disagree.
+- **Not done.** A cap on how many can be kept, larger limits, and saying it in the chat when the AI remembers more.
 
 ## Scheduled tasks: run now, edit, pause (feat/small-batch-11-01, 2026-11-01)
 
@@ -11222,6 +11248,23 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   after its last change (at most 5 minutes after the first), one folder at a time below people's work, plus a check of
   every folder after the start and each night. The 2026-11-01 semantic-index lesson (1.9 GB, most cores) is why CodeGraph
   runs with two parse workers (~0.7 GB on 673 files) and pauses as long as each run between folders.
+
+## Google Drive without a public address: who does what next (fix/drive-no-public-address, 2026-11-12, QA TC-196)
+
+- **Problem.** On a self-installed server without a public https address (`tunnel.host`), Google Drive was a dead end:
+  Admin › 연결한 서비스 › Google Drive said only "먼저 이 서버의 공개 주소가 필요해요." with no button, link or who; and in
+  연결한 서비스 the owner read "관리자가 먼저 켜야 해요", although the owner is the one who has to act.
+- **Decision (the simplest option that meets the row).** No new setting: the public address stays where it is set
+  today, on the server computer by whoever installed it (`--public-host` of the Linux installer, `teamax public-address
+  set` on the office Mac); the app only says so, by role.
+  - Admin › 연결한 서비스 › Google Drive with `blocked: 'public_host'`: what the address is for, then for the owner who
+    turns it on (the person who installed the server, the owner if they did) and where it shows (a link to Admin ›
+    시스템, 연결 방식); for an admin, to ask the owner (System's connection settings are the owner's).
+  - 연결한 서비스, Drive not set up: an owner or admin reads "Google Drive를 아직 설정하지 않았어요…" with
+    **설정하러 가기** to Admin › 연결한 서비스 › Google Drive (`/admin/connectors?drive=1`); a member still reads that an
+    admin must turn it on.
+- **Not done.** Setting the public address from the app. Sign-in through the hosting service for registered
+  self-installed servers (feat/google-one-library) takes away the need on those servers.
 
 ## Google Drive on hosted teams: sign-in through the hosting service (feat/drive-broker, 2026-11-06)
 

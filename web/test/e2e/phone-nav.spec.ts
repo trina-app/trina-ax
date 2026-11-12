@@ -13,6 +13,8 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true
 const t = DICTS.ko
 const ai = PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName
 const historyLength = (page: Page) => page.evaluate(() => history.length)
+/** React Router's index of the entry on show: 0 is the document's first (lib/screenHistory.ts: a tab's root) */
+const historyIdx = (page: Page) => page.evaluate(() => (history.state as { idx?: number } | null)?.idx ?? null)
 
 test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action per tab', async ({ page }) => {
   await reset(page)
@@ -102,12 +104,15 @@ test('the drawer is the AI\'s history: no new chat, Inbox or Admin rows, 44 px r
   await page.getByTestId('topbar-back').click()
   await expect(page).toHaveURL(/\/$/)
   expect(await historyLength(page)).toBe(before)
-  // opened from outside (a link): ‹ replaces it with the tab's list
+  // opened from outside (a link): the tab's list is put under it (lib/screenHistory.ts), and ‹ goes back to it
   await page.goto('/scheduled')
+  await expect.poll(() => historyIdx(page)).toBe(1)
   const opened = await historyLength(page)
+  await expect(page.getByTestId('topbar-back-label')).toHaveText(ai)
   await page.getByTestId('topbar-back').click()
   await expect(page).toHaveURL(/\/$/)
   expect(await historyLength(page)).toBe(opened)
+  expect(await historyIdx(page)).toBe(0)
 })
 
 test('an AI chat\'s ‹ goes back where it came from; the browser\'s back then never returns to the chat', async ({ page }) => {
@@ -191,7 +196,7 @@ test('a room\'s ‹ goes back to the list; from a notice it replaces the room wi
   expect(await historyLength(page)).toBe(opened)
 })
 
-test('a thread on a phone: the phone\'s back goes thread → room → 대화 → Home, ‹ walks the same steps, and from a notice nothing loops', async ({ page }) => {
+test('a thread on a phone: the phone\'s back goes thread → room → 대화, the tab\'s first entry; ‹ walks the same steps, and from a notice nothing loops', async ({ page }) => {
   await reset(page)
   const id = uuidv7(), rootId = uuidv7()
   const now = new Date().toISOString()
@@ -223,16 +228,15 @@ test('a thread on a phone: the phone\'s back goes thread → room → 대화 →
     await expect(page.getByTestId('room-thread')).toBeVisible()
   }
 
-  // the phone's own back (Android: the WebView's history): thread → room → 대화 → Home, never the thread again
+  // the phone's own back (Android: the WebView's history): thread → room → 대화, never the thread again; 대화 is the
+  // tab's first entry (a tab tap adds none, so Back never walks into 트리나: lib/screenHistory.ts)
   await open()
   await page.goBack()
   await expect(page).toHaveURL(inRoom)
   await expect(page.getByTestId('room-thread')).toHaveCount(0)
   await page.goBack()
   await expect(page).toHaveURL(/\/rooms$/)
-  await page.goBack()
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('composer-input')).toBeVisible()
+  expect(await historyIdx(page)).toBe(0)
 
   // the app's own ‹ (the thread's, then the room's) walks the same steps without adding any
   await open()
@@ -242,12 +246,12 @@ test('a thread on a phone: the phone\'s back goes thread → room → 대화 →
   await page.getByTestId('room-back').click()
   await expect(page).toHaveURL(/\/rooms$/)
   expect(await historyLength(page)).toBe(before)
-  await page.goBack()
-  await expect(page).toHaveURL(/\/$/)
+  expect(await historyIdx(page)).toBe(0)
 
-  // a thread opened from a notice (a new page): ‹ puts the room in its place, then the list in the room's
+  // a thread opened from a notice (a new page): the room and the list are put under it, and ‹ walks back over them
   await page.goto(`/rooms/${id}/t/${rootId}`)
   await expect(page.getByTestId('room-thread')).toBeVisible()
+  await expect.poll(() => historyIdx(page)).toBe(2)
   const opened = await historyLength(page)
   await page.getByTestId('thread-back').click()
   await expect(page).toHaveURL(inRoom)

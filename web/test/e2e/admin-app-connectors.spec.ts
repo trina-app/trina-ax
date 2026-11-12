@@ -1,6 +1,7 @@
 // Admin › Connectors' Google Drive (pages/admin/Integrations.tsx, DriveConnector.tsx DriveAdminDetail): first in Discover;
 // its page says on or not and how many members are connected, with "Set up Google once": a small dialog takes the Google
-// OAuth client file (or its ID and secret), after which members can Connect. No setup guide or code. A client the
+// OAuth client file (or its ID and secret), after which members can Connect. The dialog lists what to do in Google Cloud,
+// in order, each step with its Google Cloud page (QA TC-197); no code blocks on the page. A client the
 // operator set, a hosted server or one without a public address: one line instead of Set up. The old
 // /admin/app-connectors opens this page. AI apps are their own page: ai-apps.spec.ts.
 import AxeBuilder from '@axe-core/playwright'
@@ -39,6 +40,11 @@ test('Connectors is in the Admin menu; Drive not set up yet: Set up takes the cl
   // a file without this server's redirect URI is refused, and says why
   const dialog = page.getByRole('dialog', { name: 'Google Drive 설정' })
   await expect(dialog.getByTestId('drive-setup-redirect')).toHaveText(REDIRECT)
+  // what to do in Google Cloud first, in order, each with its page (QA TC-197)
+  await expect(dialog.getByTestId('drive-setup-step')).toHaveCount(5)
+  await expect(dialog.getByTestId('drive-setup-step-link')).toHaveCount(4)
+  await expect(dialog.getByTestId('drive-setup-step-link').first()).toHaveAttribute('href', 'https://console.cloud.google.com/projectcreate')
+  if (process.env.SHOTS) await dialog.screenshot({ path: `${process.env.SHOTS_DIR ?? 'test-results/drive-setup'}/drive-setup-dialog.png` })
   await upload(page, webClient(['https://other.example/cb']))
   await dialog.getByTestId('drive-setup-save').click()
   await expect(dialog.getByTestId('drive-setup-error')).toContainText('리디렉션 URI')

@@ -13,8 +13,8 @@
 // "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
 // Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach inside it on the left, the mic and a round send
-// on the right; the row under it keeps only the engine picker, for people who may choose one, and only when there is more
-// than one choice (EngineMenu engineChoiceCount).
+// on the right; the row under it keeps only the engine picker, for people who may choose one, and only when two or more
+// engines are switched on (EngineMenu showsEnginePicker).
 // Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic in the box right before send (as in ChatGPT's
 // box), holding Space in the box on a computer, or a finger held on the mic; the words go to the end of the box, never
 // sent by themselves.
@@ -48,7 +48,7 @@ import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
-import { ENGINE_LABEL, engineChoiceCount, EngineOptions } from './EngineMenu'
+import { ENGINE_LABEL, EngineOptions, showsEnginePicker } from './EngineMenu'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { CalmNotice, useSaysConnection } from '../LoadError'
 import { useSkillMenu } from './SkillMenu'
@@ -352,8 +352,8 @@ export default function Composer({
 
   // the API engine has one model (the owner's): its name shows even when none was picked
   const shownModel = engine.engine && (engine.model ? models?.[engine.engine]?.find((m) => m.id === engine.model)?.label ?? engine.model : engine.engine === 'api' ? models?.api?.[0]?.label : undefined)
-  // the picker: for people who may choose, and only when there is something to choose between
-  const pick = onEngine && engineChoiceCount(engines ?? [], models) > 1 ? onEngine : undefined
+  // the picker: for people who may choose, and only with two or more engines (one engine: none, whatever its models)
+  const pick = onEngine && showsEnginePicker(engines ?? []) ? onEngine : undefined
   const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
 
   // attach (its menu and file inputs) and voice: under the box, or inside it on phones

@@ -12,8 +12,13 @@ export const MEMORY_TEXT_MAX = 300
 export const MemoryInput = z.object({ text: z.string().max(2000) }).strict()
 export type MemoryInput = z.infer<typeof MemoryInput>
 
+/** The own memories, newest first. `inUse`: how many of them the AI gets now (the newest that fit; server/src/chat/prompt.ts
+ * memoryLines), `total`: how many are kept; the items past them say `unused` (QA TC-213). */
+export const MemoryPage = page(Memory).extend({ inUse: z.number().int().nonnegative().optional(), total: z.number().int().nonnegative().optional() })
+export type MemoryPage = z.infer<typeof MemoryPage>
+
 export const MEMORIES = {
-  listMemories: endpoint({ method: 'GET', path: '/api/memories', auth: 'user', owner: 'B', query: PageQuery, response: page(Memory), summary: 'Own memories, newest first.' }),
+  listMemories: endpoint({ method: 'GET', path: '/api/memories', auth: 'user', owner: 'B', query: PageQuery, response: MemoryPage, summary: 'Own memories, newest first, with how many the AI gets now.' }),
   createMemory: endpoint({ method: 'POST', path: '/api/memories', auth: 'user', owner: 'B', body: MemoryInput, response: Memory, status: 201, summary: 'Add a memory of one\'s own (same limits as the AI\'s remember).' }),
   updateMemory: endpoint({ method: 'PATCH', path: '/api/memories/:id', auth: 'user', owner: 'B', body: MemoryInput, response: Memory, summary: 'Correct the text of one of the own memories.' }),
   deleteMemory: endpoint({ method: 'DELETE', path: '/api/memories/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Forget one memory.' }),
