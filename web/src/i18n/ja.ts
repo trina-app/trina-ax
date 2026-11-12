@@ -2877,6 +2877,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.setupToken.invalidFormat': "sk-ant-oat01-で始まるトークン全体を貼り付けてください。",
   'credentials.apiKey.paste': "APIキー",
   'credentials.apiKey.hint': "会社のコンソールでこのチーム専用のキーを作成し、そこで月間支出上限を設定してください。",
+  'credentials.apiKey.hintOwn': "ご自身のアカウントのコンソールでご自身のキーを作成し、そこで月間支出上限を設定してください。ご自身の質問にだけ使われます。",
   'credentials.apiKey.consoleAnthropic': "Anthropicコンソールでキーを作成",
   'credentials.apiKey.consoleOpenai': "OpenAIプラットフォームでキーを作成",
   'credentials.apiKey.invalidFormat': "この種類のAPIキーではありません。",
