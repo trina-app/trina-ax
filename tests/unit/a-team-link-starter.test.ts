@@ -65,7 +65,7 @@ test('PATCH changes the open link\'s skill and adds groups, keeping its address;
   const { link } = await owner.call('POST', '/api/admin/team-link', {})
   const r = await owner.call('PATCH', '/api/admin/team-link', { skillPath: DECK, addGroupIds: [team.id] })
   expect(r.link).toMatchObject({ id: link.id, url: link.url, groupIds: [team.id], skill: { path: DECK, title: '회사 소개서' } })
-  // adding the same group again keeps one; groups are never removed by PATCH
+  // adding the same group again keeps one; addGroupIds never removes (only `groupIds`, Admin › Members, replaces)
   const again = await owner.call('PATCH', '/api/admin/team-link', { addGroupIds: [team.id] })
   expect(again.link.groupIds).toEqual([team.id])
   const cleared = await owner.call('PATCH', '/api/admin/team-link', { skillPath: null })
@@ -77,9 +77,11 @@ test('PATCH changes the open link\'s skill and adds groups, keeping its address;
   expect((await owner.try('PATCH', '/api/admin/team-link', { starter: { kind: 'tasks', files: ['groups/Acme/회의록/11-03 주간회의.md'] } })).status).toBe(200)
   expect((h.ctx.db.query('SELECT starter FROM team_links WHERE id = ?').get(link.id) as { starter: string | null }).starter).toBeNull()
   expect((await owner.try('PATCH', '/api/admin/team-link', { addGroupIds: ['0190a0a0-0000-7000-8000-000000000000'] })).status).toBe(400)
-  expect((await owner.try('PATCH', '/api/admin/team-link', { groupIds: [] })).status).toBe(400)
+  // `groupIds` replaces them (QA TC-458; tests/unit/a-team-links.test.ts)
+  expect((await owner.call('PATCH', '/api/admin/team-link', { groupIds: [] })).link.groupIds).toEqual([])
   const audits = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'team_link.update' AND target = ?").all(link.id) as { detail: string }[]
-  expect(audits.length).toBe(5)
+  // a PATCH that changes nothing (the same group again, a starter alone) writes no row
+  expect(audits.length).toBe(4)
   for (const a of audits) expect(JSON.parse(a.detail).starter).toBeUndefined()
   const member = await addMember(h, owner, { username: 'mia' })
   expect((await member.client.try('PATCH', '/api/admin/team-link', { skillPath: null })).status).toBe(403)
