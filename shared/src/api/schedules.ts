@@ -37,6 +37,9 @@ export const Schedule = z.object({
   /** lastOutcome 'needs_key': the connection template whose own key the run needed (its owner has not connected it, or
    * its key stopped working); older servers omit it */
   lastNeed: z.object({ templateId: z.string(), name: z.string() }).nullable().optional(),
+  /** lastOutcome 'project_gone' for a team project that is still there but only its members use now (its owner, an owner
+   * or admin, is not one since the update from 0.4.0): Add me to it and the task starts again. Older servers omit it */
+  lastMembersOnly: z.boolean().optional(),
   /** a free-text task nobody confirmed on its card: paused, resumed only by confirming its card again ("다시 확인",
    * getScheduleReview / confirmScheduleReview); older servers omit it */
   needsReview: z.boolean().optional(),

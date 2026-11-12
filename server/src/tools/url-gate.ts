@@ -115,7 +115,13 @@ export function extractUrls(text: string, max = 10_000): string[] {
 }
 
 /** What a server card shows besides its question: what is about to go out, in full (ConfirmDetail). */
-export interface ConfirmExtra { details?: ConfirmDetail[] }
+export interface ConfirmExtra {
+  details?: ConfirmDetail[]
+  /** choose() with three answers shown as buttons (the first the main one, the last the quiet "no") */
+  buttons?: true
+  /** a line under the buttons: what the middle answer covers */
+  note?: string
+}
 
 /** The person behind a chat turn, as far as a tool needs them. */
 export interface TurnPerson {

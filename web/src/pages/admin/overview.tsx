@@ -16,6 +16,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { Button } from '../../components/ui'
 import { useAction } from './common'
 import { useUpdateInstall } from './jobs'
+import { releasePaused } from '../../lib/updateOutcome'
 import { homeCheck, technicalEngineState } from './plain'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only): Home's
@@ -50,7 +51,7 @@ function turnLine(t: (k: MessageKey, v?: Record<string, string | number>) => str
 /** What the Home item says about a new version: when it installs by itself, that the timer does it, or that nothing will. */
 function updateLine(t: (k: MessageKey, v?: Record<string, string | number>) => string, locale: Locale, u: UpdateStatus, version: string) {
   // the publisher paused this release (a bad one; server/src/system/rollout.ts hold): it does not install by itself
-  if (u.hold === 'paused') return t('adminHome.update.paused', { version })
+  if (releasePaused(u)) return t('adminHome.update.paused', { version })
   if (u.needsRoot) {
     if (u.hold === 'root_failed') return t('adminHome.update.rootFailed', { version })
     // the update timer keeps the staged roll-out too (turnAt): on this server's turn, or never by itself (null: the
@@ -195,7 +196,7 @@ export function useAdminOverview() {
   const install = useUpdateInstall({ version: newVersion, onDone: () => void update.reload() })
   // by hand it works when automatic updates are off or will not install it (a window that never opens, not this server's turn, on hold)
   // a paused release (the publisher holds it) offers no install button: the server says no to it
-  const canInstall = !!newVersion && !upd?.needsRoot && upd?.hold !== 'paused' && (!upd?.auto || upd.nextWindow === null || upd.hold === 'rollout' || upd.hold === 'failed')
+  const canInstall = !!newVersion && !upd?.needsRoot && !releasePaused(upd) && (!upd?.auto || upd.nextWindow === null || upd.hold === 'rollout' || upd.hold === 'failed')
 
   const attention: AttentionItem[] = [
     ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/providers' })),

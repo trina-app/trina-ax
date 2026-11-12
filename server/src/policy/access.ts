@@ -9,16 +9,28 @@ export type Role = 'owner' | 'admin' | 'member'
  * .system/, never inferred from a role (docs/DECISIONS.md "Project contents only for members"). */
 export interface Principal { id: string; name: string; role: Role; groups: string[]; system?: true }
 
+// Whether the team folder's disk ignores letter case (files/service.ts sets it from detectCaseInsensitive; one team
+// folder per server process). Until then it folds, which fails closed.
+let projectsFoldCase = true
+/** Set by the files service from the team folder's disk; tests of a case-sensitive team set and restore it. */
+export function setProjectsCaseInsensitive(ci: boolean): void { projectsFoldCase = ci }
+export const projectsCaseInsensitive = (): boolean => projectsFoldCase
+/**
+ * The top-level projects root by name (docs/DECISIONS.md "Only the lowercase projects/ folder on case-sensitive
+ * disks"): `projects` after NFC; in any letter case only on a disk that ignores case, where `Projects/` is the same
+ * folder. On a case-sensitive disk `Projects/` is an ordinary team folder.
+ */
+export const isProjectsName = (seg: string): boolean => { const n = seg.normalize('NFC'); return n === 'projects' || (projectsFoldCase && n.toLowerCase() === 'projects') }
 /**
  * The members-only zone (docs/DECISIONS.md "Project contents only for members"): every path at or below
- * projects/<name>/. Decided by the path alone, `projects` compared after NFC and lower-casing (fails closed on a
- * case-sensitive volume too), so every RuleSet, wherever it is built, has it. projects/ itself is outside.
+ * projects/<name>/. Decided by the path alone (isProjectsName), so every RuleSet, wherever it is built, has it.
+ * projects/ itself is outside.
  */
-export const inProjectZone = (segs: readonly string[]): boolean => segs.length >= 2 && segs[0]!.normalize('NFC').toLowerCase() === 'projects'
+export const inProjectZone = (segs: readonly string[]): boolean => segs.length >= 2 && isProjectsName(segs[0]!)
 /** The server's own principal: the system flag, not the role, gives it write (decide()). */
 export const SYSTEM_PRINCIPAL: Principal = Object.freeze({ id: '\u0000system', name: 'system', role: 'owner' as const, groups: [] as string[], system: true as const })
-/** The top folder of the zone (projects/ itself, any letter case or Unicode form). */
-export const isProjectsTop = (segs: readonly string[]): boolean => segs.length === 1 && segs[0]!.normalize('NFC').toLowerCase() === 'projects'
+/** The top folder of the zone (projects/ itself, by isProjectsName). */
+export const isProjectsTop = (segs: readonly string[]): boolean => segs.length === 1 && isProjectsName(segs[0]!)
 /** The owner or an admin (never the system principal). */
 export const isStaff = (p: Pick<Principal, 'role'> & { system?: true }): boolean => !p.system && (p.role === 'owner' || p.role === 'admin')
 /** Rules inside the zone start at projects/<name> for the owner and admins: rules on projects/ or the root never reach

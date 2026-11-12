@@ -44,6 +44,8 @@ export interface GatewayDeps {
   state: GatewayState
   /** provider origins, for tests and local runs (never from env vars) */
   endpoints?: { apnsProduction?: string; apnsSandbox?: string; fcm?: string }
+  /** tests: the FCM time limit (default FCM_TIMEOUT_MS) */
+  fcmTimeoutMs?: number
 }
 
 const HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }
@@ -106,7 +108,7 @@ export function createGateway(env: GatewayEnv, deps: GatewayDeps) {
   const apnsCfg = apnsConfig(env)
   const apns = apnsCfg ? createApns(apnsCfg, { fetch: deps.fetch, now: deps.now, production: deps.endpoints?.apnsProduction, sandbox: deps.endpoints?.apnsSandbox }) : null
   const fcmCfg = parseServiceAccount(env.FCM_SERVICE_ACCOUNT)
-  const fcm = fcmCfg ? createFcm(fcmCfg, { fetch: deps.fetch, now: deps.now, origin: deps.endpoints?.fcm }) : null
+  const fcm = fcmCfg ? createFcm(fcmCfg, { fetch: deps.fetch, now: deps.now, origin: deps.endpoints?.fcm, timeoutMs: deps.fcmTimeoutMs }) : null
   if (env.FCM_SERVICE_ACCOUNT && !fcmCfg) deps.log({ evt: 'config', outcome: 'fcm_invalid' })
 
   async function send(req: Request, client: string): Promise<Response> {

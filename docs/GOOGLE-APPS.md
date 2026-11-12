@@ -91,7 +91,8 @@ is refused, and connections made before are kept but not used (`PUT /api/admin/g
 - Reading is free. Anything that changes or sends (a mail, an event, a document edit) shows the confirm card with
   everything it sends, and **Always allow** on it: the person's own choice for that app, which Settings turns back.
   After the person's chat read their team chat rooms, and in a room, every change asks again (other people's words could
-  have asked for it). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
+  have asked for it). So does every change in a chat that read something from outside, a mail included
+  ([DECISIONS.md](DECISIONS.md) "Connector write cards: outside content asks"). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
   pinned, otherwise nothing is sent.
 - In a team chat room, @트리나 may use the asker's own Google apps (only the asker's). What it found goes through the
   room's private answer: only the asker sees it until they share it.

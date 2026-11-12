@@ -263,7 +263,9 @@ export class Integrations {
     const changed: string[] = []
     if (patch.name !== undefined && oneLine(patch.name) !== row.name) { next.name = oneLine(patch.name); changed.push('name') }
     if (patch.notes !== undefined && cleanNotes(patch.notes) !== row.notes) { next.notes = cleanNotes(patch.notes); changed.push('notes') }
-    if (patch.writePolicy === 'allow' && row.scope === 'personal') fieldError(L, 'writePolicy', 'allowTeamOnly')
+    // a person's own connection is set to send without asking only from a write card (Always allow, tools.ts
+    // keepAlwaysAllow); a form that keeps it as it is still saves, and "ask" or "never" turns it back
+    if (patch.writePolicy === 'allow' && row.scope === 'personal' && row.write_policy !== 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
     if (patch.writePolicy !== undefined && patch.writePolicy !== row.write_policy) { next.write_policy = patch.writePolicy; changed.push('writePolicy') }
     if (patch.url !== undefined && normUrl(patch.url) !== row.url) {
       next.url = normUrl(patch.url)
@@ -430,6 +432,19 @@ export class Integrations {
     const rows = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NOT NULL AND auth = 'oauth' AND secret_enc IS NOT NULL`).all(userId) as Row[]
     const olds = rows.map((r) => this.tryOpen(r)).filter((s): s is Secret => s?.type === 'oauth')
     return () => { for (const o of olds) void this.revokeTokens(o).catch(() => false) }
+  }
+
+  /** Ends the caller's own Always allow on a team connection (integration_user_allow, QA TC-130): their changes there ask
+   * again. Anyone who may use the connection; the team's rule is not touched. Audited when there was one. */
+  stopAlwaysAllow(viewer: Viewer, id: string, locale: Locale): Integration {
+    if (!activeUser(this.db, viewer.id)) return fail('not_found')
+    // their own row goes even when they may not use the connection now (a choice of theirs never waits to come back)
+    const n = this.db.query('DELETE FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').run(id, viewer.id).changes
+    if (n) audit(this.db, { actor: viewer.id, action: 'integration.always_allow', target: id, detail: { allow: false } })
+    const row = getRow(this.db, id)
+    // what they may not use is "not found" (the same for one that does not exist)
+    if (!row || row.scope !== 'team' || !mayUse(this.db, row, viewer.id)) return fail('not_found')
+    return view(this.db, row, viewer, locale)
   }
 
   async refresh(viewer: Viewer, id: string, locale: Locale): Promise<Integration> {
@@ -1015,8 +1030,13 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
   return null
 }
 
-/** where the person fixes a connection's sign-in: a Google app on its card under Connectors */
-const fixWhere = (row: Pick<Row, 'google_app'>) => (row.google_app ? `Connectors › ${APP_NAMES[row.google_app]} (Reconnect)` : 'Connectors in the sidebar')
+/** where a connection's sign-in or key is fixed: a Google app on its page under Connectors; the person's own on a card
+ * in the chat (connect_service, QA TC-127) or in Connectors; one made from a team template on the template's card; a
+ * team connection by an admin */
+const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app ? `Connectors › ${APP_NAMES[row.google_app]} (Reconnect)`
+  : row.scope === 'team' ? 'Admin › Connected apps (only an admin can: tell the user to ask one)'
+  : row.template_id ? `a card in this chat: call connect_service with template "${row.template_id}" (not in a scheduled run), or Connectors in the sidebar`
+  : `a card in this chat: call connect_service with connection "${row.id}" (not in a scheduled run), or Connectors in the sidebar`)
 
 /** the audit summary's word for a failed call */
 function kindOf(e: unknown): string {

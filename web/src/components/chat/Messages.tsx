@@ -29,7 +29,7 @@ import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
-import { useChats, useQueuePosition } from '../../store/chats'
+import { useChats, useProviderBusy, useQueuePosition } from '../../store/chats'
 import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
@@ -625,6 +625,7 @@ export function AssistantMessage({
   const locale = useLocale()
   const streaming = m.status === 'streaming'
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
+  const providerBusy = useProviderBusy(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
   // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them
   const waitingForYou = streaming && requests.length > 0
@@ -704,6 +705,9 @@ export function AssistantMessage({
           <StepPostView.Provider value={sendHere ? (p) => sendHere.onView({ to: p.threadRootId ? 'thread' : 'room', roomId: p.roomId, rootId: p.threadRootId ?? null, messageId: p.messageId, cut: false }) : null}>
             <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
           </StepPostView.Provider>
+        )}
+        {providerBusy && !waitingForYou && (queuePos === undefined || queuePos === 0) && (
+          <p className="mb-2 text-sm text-muted" role="status" data-testid="provider-busy">{t('chat.providerBusy')}</p>
         )}
         {thinking && (queuePos === undefined || queuePos === 0) && (
           <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">

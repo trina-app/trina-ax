@@ -173,7 +173,8 @@ describe('one folder: every active person, the folder and rule it comes from', (
     // nothing inside a team project (docs/DECISIONS.md "Project contents only for members"), any letter case, there or
     // not: one answer, which names nothing
     const answers = new Set<string>()
-    for (const inside of ['projects/apollo/drafts', 'projects/apollo/closed', 'PROJECTS/Apollo/drafts', 'projects/apollo/not-there-6b1', 'projects/no-such-8c3/x']) {
+    // (another letter case is projects/ only where the disk ignores case: docs/DECISIONS.md "Only the lowercase projects/")
+    for (const inside of ['projects/apollo/drafts', 'projects/apollo/closed', ...(h.ctx.files.fx.caseInsensitive ? ['PROJECTS/Apollo/drafts'] : []), 'projects/apollo/not-there-6b1', 'projects/no-such-8c3/x']) {
       const r = await admin.try('GET', `/api/admin/access/folder?path=${encodeURIComponent(inside)}`)
       expect(r.status, inside).toBe(400)
       expect(notTeam, inside).toContain(r.body.error.message)
@@ -320,7 +321,7 @@ describe('someone new with rules on the team root (the person view, stage 3)', (
     expect(h.ctx.db.query('SELECT 1 FROM folders WHERE path = ?').get(missing)).toBeNull()
     // a project's folder (gone or there) and anything in it: refused first, one answer, nothing made (its members are
     // changed on its page: docs/DECISIONS.md "Project contents only for members")
-    for (const p of ['projects/gone-9f2', 'projects/apollo', 'Projects/Apollo/drafts']) {
+    for (const p of ['projects/gone-9f2', 'projects/apollo', ...(h.ctx.files.fx.caseInsensitive ? ['Projects/Apollo/drafts'] : [])]) {
       const x = await admin.try('POST', '/api/admin/folders', { path: p, create: false, rules: [rule('everyone', null, 'read')] })
       expect(x.status, p).toBe(409)
       expect(x.body.error.params.reason, p).toBe('project_members_only')

@@ -89,6 +89,7 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'message.delta':
     case 'message.step':
     case 'message.done':
+    case 'turn.busy':
     case 'turn.request':
     case 'turn.request.closed':
     case 'artifact.updated':
