@@ -41,3 +41,19 @@ test('"Connect for the team" saved without opening Advanced: the whole team may 
     expect(posted[0]).toMatchObject({ name: 'Notion', url: notion.url, access: { everyone: true, groups: [], users: [] } })
   } finally { await m.unmount() }
 })
+
+test('who it is for shows without opening Advanced; Change opens the chooser', async () => {
+  const notion = CONNECTORS.find((c) => c.id === 'notion')!
+  const m = await mount(<MemoryRouter><IntegrationDialog scope="team" connector={notion} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+  try {
+    expect(m.get('integration-for').textContent).toContain('For: Everyone in the team')
+    expect(m.get('integration-advanced').getAttribute('aria-expanded')).toBe('false')
+    await m.click('integration-for-change')
+    expect(m.get('integration-advanced').getAttribute('aria-expanded')).toBe('true')
+  } finally { await m.unmount() }
+})
+
+test('a member\'s own connection has no such line', async () => {
+  const m = await mount(<MemoryRouter><IntegrationDialog scope="personal" onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+  try { expect(m.find('integration-for')).toBeNull() } finally { await m.unmount() }
+})

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 10:23
 - Branch: `fix/catalog-addresses-followups`
-- Status: in progress
+- Status: done
 - Where: `shared/src/service-catalog.ts` (the one list), `server/src/chat/connect-service.ts`, `web/` (Connectors and
   the add dialog). Why: the core's connectors (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. Atlassian's listed address moves to its current one and the old one stays official, so
@@ -59,4 +59,6 @@ unit tests, connector and connect-card e2e specs.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Checked on 2026-11-12 also by asking each address's OAuth metadata: Atlassian v2's authorization
+server publishes a registration endpoint; Canva's api.canva.com one (www.canva.com) does not, mcp.canva.com does. A
+DECISIONS entry ("A listed service can have more than one official address") adds to the connect card's trust rule.

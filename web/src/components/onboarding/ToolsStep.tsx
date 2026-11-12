@@ -17,9 +17,9 @@ import { Check, Plus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API, type DriveConnection, type Integration } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
-import { APP_CONNECTORS, connectorLogo, CONNECTORS, type Connector } from '../../lib/connectors'
+import { APP_CONNECTORS, connectorLogo, CONNECTORS, servesAt, type Connector } from '../../lib/connectors'
 import { builtInLogo } from '../../lib/googleApps'
-import { canonicalService, splitByScope } from '../../lib/integrations'
+import { splitByScope } from '../../lib/integrations'
 import { aiName } from '../../lib/tabs'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
@@ -185,7 +185,7 @@ function ListedTools({ onConnected }: { onConnected: (on: boolean) => void }) {
   useEffect(() => { void load() }, [load])
   const signIn = useSignIn(() => { void load() })
   const services: Connector[] = CONNECTORS.slice(0, WELCOME_SERVICES)
-  const own = (c: Connector) => mine?.find((i) => canonicalService(i.url) === canonicalService(c.url))
+  const own = (c: Connector) => mine?.find((i) => servesAt(c, i.url))
   const isOn = (i: Integration | undefined) => !!i && i.status === 'connected' && (i.auth !== 'oauth' || i.hasSecret)
   const anyOn = services.some((c) => isOn(own(c)))
   useEffect(() => { onConnected(anyOn) }, [anyOn]) // eslint-disable-line react-hooks/exhaustive-deps

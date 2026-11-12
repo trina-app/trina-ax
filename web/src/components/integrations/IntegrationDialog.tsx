@@ -93,6 +93,11 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
   const movesTemplate = !!template && (f.url.trim() !== template.url || authOf(f) !== template.auth || (authOf(f) === 'header' && f.headerName.trim() !== (template.authHeader ?? ''))
     || (authOf(f) === 'oauth' && appPatch(f, template.oauthClient, template.url) !== undefined))
   const methods = methodsFor(f.kind).filter((m) => !asTemplate || m !== 'none')
+  // who a new team connection or template is for, in words: everyone, or the groups and people chosen
+  const forWho = !f.access ? '' : f.access.everyone ? t('integrations.forEveryone') : [
+    ...f.access.groups.map((id) => groups.data?.find((g) => g.id === id)?.name),
+    ...f.access.users.map((id) => users.data?.find((u) => u.id === id)?.name),
+  ].filter(Boolean).join(', ') || t('integrations.forNobody')
   // what Advanced holds, in one line next to it
   const summary = [
     team && !existing && !template ? t(`integrations.who.${who}`) : null,
@@ -246,6 +251,16 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
                 <input className={inputCls} type="url" inputMode="url" autoComplete="off" spellCheck={false} value={f.url} placeholder={f.kind === 'mcp' ? 'https://mcp.example.com/mcp' : 'https://api.example.com/v1'} onChange={(e) => change({ url: e.target.value }, 'url')} onBlur={blur('url')} data-testid="integration-url" />
               </Field>
             </>
+          )}
+          {/* a new team connection or template: who it is for, without opening Advanced; Change opens the chooser */}
+          {team && f.access && !existing && !template && (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted" data-testid="integration-for">
+              <span className="min-w-0 break-words">{t('integrations.forLine', { who: forWho })}</span>
+              <button type="button" className="touch-hit font-medium text-accent-text hover:underline max-md:min-h-11" aria-label={t('integrations.forChangeLabel')}
+                onClick={() => { setAdvanced(true); requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[data-testid="integration-access"] input:checked')?.focus()) }} data-testid="integration-for-change">
+                {t('integrations.forChange')}
+              </button>
+            </p>
           )}
           {f.method === 'key' && (
             <KeySection f={f} existing={existing} change={change} errorOf={errorOf} blur={blur} noKey={asTemplate} fixedHeader={fromTeam} />
