@@ -23516,3 +23516,26 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
   `web/test/unit/folder-picker-suggestions.test.tsx`, `web/test/e2e/move-suggestions.spec.ts` (1360 and 390, light and
   dark, keyboard).
 - Version impact: **minor** (two endpoints, a new part of the Move picker).
+
+## Slack inside Admin › Connected apps, no menu item (fix/slack-in-connectors, 2026-11-12, the owner)
+
+Supersedes the Admin menu item "Slack" (c964122e3, 2026-11-05). The owner: "설정에 슬랙을 저따구로 넣으면 어카냐... 슬랙이
+뭐 그렇게 중요한 서비스냐". Slack is one service among many, so it sits where the others are.
+- **Where.** A row of Admin › Connected apps, like Google Drive: under **Connected** once it is added (its state on the
+  right: On, Off, Needs attention, Reconnect after the app was removed in Slack), else a card in **Discover** after the
+  Google ones. Its page is `/admin/connectors/slack`: the header of a connector's page (Connected apps › Slack, the
+  logo, the name, one line) over the same settings as before (Add to Slack, the own app's four steps, the status line,
+  Turn off, Replace tokens, Remove). The phone's Admin list loses its Slack row; Slack's page opens under Team connected
+  apps.
+- **Who.** The owner only, as before: the list asks for Slack's state only for the owner (the server refuses admins),
+  and an admin's `/admin/connectors/slack` leads to the list.
+- **Old addresses.** `/admin/slack` with its query (`?slack=installed` and the other outcomes of "Add to Slack") opens
+  `/admin/connectors/slack` with the same query, Connected apps marked in the menu; an admin who is not the owner gets
+  Admin's list, as before. The server now sends "Add to Slack" back to `/admin/connectors/slack?slack=…`.
+- **Docs.** "Admin › Slack" is "Admin › Connected apps › Slack" in the texts (ko "관리자 › 연결한 서비스 › Slack"). The Slack
+  guide's screenshots are taken by `scripts/docs/screenshots.ts --mock` against the web e2e mock server, whose test
+  control `POST /__test/slack` sets the states a development server cannot reach (Add to Slack offered, added through
+  the hosting service, removed in Slack); Slack's own consent page is described in words.
+- Tests: `web/test/unit/slack-screens.test.tsx`, `web/test/e2e/slack-in-connectors.spec.ts`, the admin menu lists in
+  `admin-home.spec.ts` and `settings-ia.spec.ts`, the phone specs that open Slack's page.
+- Version impact: **minor** (a visible move in Admin; no API change).
