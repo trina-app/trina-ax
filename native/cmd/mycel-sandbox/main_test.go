@@ -293,6 +293,11 @@ func TestProbe(t *testing.T) {
 // capability is left. Started through bwrap the way the launcher does (a user namespace with only CAP_SYS_ADMIN and
 // CAP_NET_ADMIN); skipped where this machine cannot run bwrap.
 func TestExecNetProxy(t *testing.T) {
+	if builtWithCgo {
+		// the test binary is the helper: a cgo build refuses --net-proxy (TestNetProxyRefusedWithCgo); native/build.sh
+		// and the Linux job's binaries are CGO_ENABLED=0
+		t.Skip("built with cgo: run with CGO_ENABLED=0 for this test")
+	}
 	bw, err := exec.LookPath("bwrap")
 	if err != nil {
 		t.Skip("no bwrap")
@@ -385,5 +390,16 @@ func TestExecNetProxy(t *testing.T) {
 	code, _, se = run(t, bw, append(noCaps, "exec", "--landlock", "off", "--net-proxy", strconv.Itoa(pp), "--", filepath.Join(l.a, "helper"), "exit")...)
 	if os.Getuid() != 0 && (code != ExitFailed || !strings.Contains(se, "mycel-sandbox: net: unshare")) {
 		t.Errorf("no capabilities: exit %d %q, want 70 and the unshare reason", code, se)
+	}
+}
+
+func TestNetProxyRefusedWithCgo(t *testing.T) {
+	if !builtWithCgo {
+		t.Skip("built without cgo")
+	}
+	l := setup(t)
+	code, _, se := run(t, l.sbx, "exec", "--landlock", "off", "--net-proxy", "47821", "--", filepath.Join(l.a, "helper"), "exit")
+	if code != ExitFailed || !strings.Contains(se, "cgo") {
+		t.Errorf("exit %d %q, want 70 and the cgo reason", code, se)
 	}
 }

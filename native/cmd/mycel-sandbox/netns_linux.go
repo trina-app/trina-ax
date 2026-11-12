@@ -55,6 +55,9 @@ type netSetup struct{ ctl, ln int }
 
 // privateNetStart runs steps 1-2 above on the main (locked) thread, before Landlock.
 func privateNetStart(port int) netSetup {
+	if builtWithCgo {
+		fail("net: this mycel-sandbox was built with cgo; --net-proxy needs CGO_ENABLED=0 (native/build.sh) to drop capabilities on every thread")
+	}
 	sp, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		fail("net: socketpair: %v", err)

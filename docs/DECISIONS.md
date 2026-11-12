@@ -22543,6 +22543,9 @@ runs `--landlock required`. TCP, UDP, IPv6, metadata and DNS were already refuse
   TOCTOU the kernel documentation warns about. bwrap `--unshare-net` with a relay outside the sandbox: the proxy would
   see the relay, not a turn process, and the tcp-peer check would need a second path. Landlock scope alone: kernels
   before 6.12 stay open (it still applies where available).
+- **cgo**: `syscall.AllThreadsSyscall` refuses in a cgo binary, so a cgo-built `mycel-sandbox` refuses `--net-proxy`
+  with a plain reason (exit 70); `native/build.sh` builds with `CGO_ENABLED=0`. The Go test of the namespace is
+  skipped under cgo (CI's `go test` on a runner with gcc) and a second test checks the refusal there.
 - **Installer**: `install-linux.sh` runs bwrap with the two `--cap-add` and `unshare -n` as `nobody`; when user
   namespaces work but that fails (a distribution profile that strips bwrap's namespace capabilities), it stops with a
   plain message instead of every turn failing with exit 70.
