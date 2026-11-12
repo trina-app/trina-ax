@@ -24285,3 +24285,15 @@ Activity cleared notices one click at a time.
 - Tests: `tests/unit/b-chat-answer-push.test.ts`, `web/test/unit/push-worker.test.ts`, `web/test/unit/room-notify.test.tsx`,
   `tests/unit/push-gateway.test.ts`, `tests/unit/push-locale.test.ts`.
 - Version impact: **minor**.
+
+## Docs-only pull requests run only the doc checks (ci/docs-only-fast, 2026-11-13, product owner)
+
+- **Why:** the owner: waiting ~10 minutes of builds and tests for a pull request that only edits DECISIONS or a changes
+  fragment is pointless; those files reach no build, no test and no app.
+- **How (`.github/workflows/ci.yml`):** a `scope` job diffs the pull request's merge commit against its base (first
+  parent). When every changed file is Markdown directly under `docs/` or `changes/`, the `docs` job runs
+  `features:check` and `check:docs` (onboarding doc contracts, tooltips, changelog), and `static`, `unit` and `other`
+  are skipped. The required check (`check`, "typecheck, native, unit, fast fuzz, web, relay") keeps its name: on that
+  path it passes when `scope` and `docs` passed; otherwise it needs `static`, `unit` and `other` as before.
+- **Not docs-only:** anything else, including `docs/features.ts`, `docs/api/`, `README.md` and the workflow itself; a
+  push to dev or main, a manual run and a run called by release.yml always run everything.

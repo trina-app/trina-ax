@@ -40,12 +40,57 @@ env:
   PANDOC_VERSION: 3.9.0.2
 
 jobs:
+  # A pull request that changes only Markdown under docs/ or changes/ (DECISIONS, plans, changelog fragments) runs the
+  # doc checks alone (docs job below), not the ~10 minutes of builds and tests: those files reach no build. Anything
+  # else, a push, a manual or a called run runs everything. The required check (check job) passes on either path.
+  scope:
+    name: what changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      docs_only: ${{ steps.diff.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
+        with:
+          # the pull request's merge commit and its first parent (the base): their difference is what the PR changes
+          fetch-depth: 2
+          persist-credentials: false
+      - id: diff
+        run: |
+          docs_only=false
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            files=$(git diff --name-only HEAD^1 HEAD)
+            echo "$files"
+            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -Ev '^(docs|changes)/[^/]+\.md$' > /dev/null; then docs_only=true; fi
+          fi
+          echo "docs_only=$docs_only" | tee -a "$GITHUB_OUTPUT"
+
+  docs:
+    name: docs only
+    needs: scope
+    if: needs.scope.outputs.docs_only == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run features:check
+      - run: bun run check:docs
+
   # The unit tests took ~30 of the ~35 minutes of one job. They now run as 5 jobs at once
   # (scripts/ci/unit-shard.ts spreads the files by their earlier times), beside the static checks and the
   # fuzz / web / relay job. Each job sets up the same tools as before. The last job keeps the old job's name, the
   # check the default branch's ruleset requires: it passes only when every job above it passed.
   static:
     name: typecheck, docs, native
+    needs: scope
+    if: needs.scope.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -130,6 +175,8 @@ jobs:
 
   unit:
     name: unit tests (${{ matrix.shard }}/5)
+    needs: scope
+    if: needs.scope.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -204,6 +251,8 @@ jobs:
 
   other:
     name: fast fuzz, web, relay
+    needs: scope
+    if: needs.scope.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -284,16 +333,22 @@ jobs:
   check:
     # the name the default branch's ruleset requires (and release.yml's test needs): every job above passed
     name: typecheck, native, unit, fast fuzz, web, relay
-    needs: [static, unit, other]
+    needs: [scope, docs, static, unit, other]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Every job passed
         env:
+          DOCS_ONLY: ${{ needs.scope.outputs.docs_only }}
+          SCOPE: ${{ needs.scope.result }}
+          DOCS: ${{ needs.docs.result }}
           RESULTS: ${{ needs.static.result }} ${{ needs.unit.result }} ${{ needs.other.result }}
         run: |
-          echo "static, unit, other: $RESULTS"
+          echo "scope: $SCOPE, docs only: $DOCS_ONLY, docs: $DOCS, static, unit, other: $RESULTS"
+          [ "$SCOPE" = success ] || exit 1
+          # a docs-only pull request: the doc checks passed (the build and test jobs were skipped on purpose)
+          if [ "$DOCS_ONLY" = true ]; then [ "$DOCS" = success ]; exit; fi
           for r in $RESULTS; do [ "$r" = success ] || exit 1; done
 
   mobile:
