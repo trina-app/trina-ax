@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 00:40
 - Branch: `fix/plain-words-connectors`
-- Status: in progress
+- Status: done
 - Where: `web/src/components/integrations/*`, `web/src/pages/admin/Audit.tsx`, `web/src/i18n/*`,
   `server/src/connectors/remote-mcp/oauth.ts`. Why: connectors and the activity log are core (see
   docs/REPOSITORY-RULES.md)
@@ -54,3 +54,14 @@ Settings already does. No migration. Five languages.
 
 ## Result
 
+Built as planned. Part 4 needed nothing: dev already says it without "token" in all five languages.
+
+Tests:
+- New: `web/test/unit/integration-advanced-summary.test.tsx` (the closed line is "로그인 · 매번 묻기"; with the old
+  dialog it was "MCP 서버 · 로그인(OAuth) · 매번 묻기"), the Drive words in `drive-not-set-up.test.tsx`, the activity
+  row in `activity.test.ts`.
+- The exact audit details in `remote-mcp-oauth` and `remote-mcp-groups` now include the app; a disconnection keeps it.
+- `bun run test:web` 2632 pass, remote connector tests 113 pass. Typecheck, check:i18n and check:docs pass.
+
+`git merge-tree` against #399's branch lists the same conflicts with and without this change (TemplatesView,
+SettingsDialog, Connectors, settingsTabs, from dev). `ConnectorsView.tsx` and the locale files merge cleanly.
