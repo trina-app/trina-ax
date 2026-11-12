@@ -523,9 +523,9 @@ function Security({ all = false }: { all?: boolean }) {
     const deviceRow = (s: Session, onSignOut?: () => void) => {
       const Icon = DEVICE_ICON[deviceKind(s.client, s.userAgent)]
       return (
+        // the row's name is what it shows (axe: label in name); what a tap does follows for screen readers
         <PhoneListRow key={s.id} icon={<Icon size={16} />} testId="device-row" onClick={onSignOut}
-          ariaLabel={onSignOut ? `${t('settings.signOutDevice')} · ${name(s)}` : undefined}
-          title={<span className="block min-w-0"><span className="block truncate" title={s.userAgent ?? undefined} data-testid="device-name">{name(s)}</span><span className="block truncate text-xs text-faint">{t('settings.lastSeen', { date: formatDateTime(s.lastSeenAt, locale) })}</span></span>}
+          title={<span className="block min-w-0"><span className="block truncate" title={s.userAgent ?? undefined} data-testid="device-name">{name(s)}</span><span className="block truncate text-xs text-faint">{t('settings.lastSeen', { date: formatDateTime(s.lastSeenAt, locale) })}</span>{onSignOut && <span className="sr-only"> · {t('settings.signOutDevice')}</span>}</span>}
           value={s.current ? t('settings.thisDevice') : undefined}
           end={onSignOut ? <LogOut size={16} className="shrink-0 text-faint" aria-hidden data-testid="device-sign-out" /> : undefined} />
       )
@@ -717,8 +717,9 @@ function Memories() {
           <PhoneSection className="-mt-2">
             <PhoneListGroup testId="memory-list">
               {items.map((m) => (
-                <PhoneListRow key={m.id} wrap testId="memory-item" onClick={() => setEditing(m.id)} chevron ariaLabel={`${t('memory.editLabel')}: ${m.text}`}
-                  title={<span className="block min-w-0"><span className="line-clamp-3 break-words" data-testid="memory-text">{m.text}</span><span className="mt-0.5 block text-xs text-faint">{formatDateTime(m.createdAt, locale)}{m.unused && <>{' · '}<span className="text-warn" data-testid="memory-unused">{t('memory.unused')}</span></>}</span></span>} />
+                // the row's name is what it shows (axe: label in name); what a tap does follows for screen readers
+                <PhoneListRow key={m.id} wrap testId="memory-item" onClick={() => setEditing(m.id)} chevron
+                  title={<span className="block min-w-0"><span className="line-clamp-3 break-words" data-testid="memory-text">{m.text}</span><span className="mt-0.5 block text-xs text-faint">{formatDateTime(m.createdAt, locale)}{m.unused && <>{' · '}<span className="text-warn" data-testid="memory-unused">{t('memory.unused')}</span></>}</span><span className="sr-only"> · {t('memory.editLabel')}</span></span>} />
               ))}
               {cursor && <PhoneListRow title={<span className="text-accent-text">{t('common.loadMore')}</span>} onClick={() => void load(true)} testId="memory-more" />}
             </PhoneListGroup>

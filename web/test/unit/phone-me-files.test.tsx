@@ -199,7 +199,9 @@ describe('보안·기기: signing another device out', () => {
       expect(rows[0]!.querySelector('[data-testid="device-sign-out"]')).toBeNull()
       const row = rows[1]!
       expect(row.tagName).toBe('BUTTON')
-      expect(row.getAttribute('aria-label')).toContain('로그아웃')
+      // its name is what it shows, then what a tap does (axe: label in name)
+      expect(row.getAttribute('aria-label')).toBeNull()
+      expect(row.textContent).toContain('로그아웃')
       // "No": nothing is signed out
       await m.click(row)
       await m.until(() => m.find('dialog-confirm'), 'the question')
