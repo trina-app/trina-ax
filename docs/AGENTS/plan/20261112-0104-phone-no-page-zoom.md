@@ -69,7 +69,7 @@ new phone specs on MOCK_PORT=19381, plus `image-viewer.spec.ts` (the phone case)
 
 ## Result
 
-Built as planned.
+Built as planned. PR: https://github.com/trina-app/trina-ax/pull/524
 
 - `web/src/lib/pageZoom.ts` (new): `shownIn(win)` (app: react-native-webview's `ReactNativeWebView`, which is there
   before the page's scripts and always beside the bridge `mycelMobile`; installed: display-mode standalone or
