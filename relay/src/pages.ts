@@ -164,7 +164,7 @@ const HEAD_TOO_BIG: Record<Lang, { title: string; body: string; button: string; 
   ko: {
     title: '브라우저가 쿠키를 너무 많이 보내서 페이지를 열 수 없어요',
     body: '같은 기본 주소를 쓰는 다른 사이트가 이 브라우저에 쿠키를 잔뜩 남겼어요. 아래 버튼을 누르면 지워져요. 로그인은 그대로 유지돼요.',
-    button: '남은 쿠키 지우고 다시 열기',
+    button: '불필요한 쿠키 지우고 다시 열기',
     after: '이 페이지가 또 나오면 브라우저 설정에서 %SITE%의 쿠키(사이트 데이터)를 삭제한 뒤 다시 로그인해 주세요. 시크릿 창에서 열어도 돼요.',
   },
   id: {
@@ -174,10 +174,10 @@ const HEAD_TOO_BIG: Record<Lang, { title: string; body: string; button: string; 
     after: 'Jika halaman ini muncul lagi, buka pengaturan browser, hapus cookie (data situs) untuk %SITE%, lalu masuk lagi. Jendela pribadi juga bisa dipakai.',
   },
   ja: {
-    title: 'ブラウザが送るCookieが多すぎるため、このページを開けません',
-    body: '同じメインアドレスの別のサイトが、このブラウザに大量のCookieを残しました。下のボタンを押すと削除されます。ログインはそのままです。',
+    title: 'ブラウザーが送るCookieが多すぎるため、このページを開けません',
+    body: '同じメインアドレスの別のサイトが、このブラウザーに大量のCookieを残しました。下のボタンを押すと削除されます。ログインはそのままです。',
     button: '余分なCookieを削除して再読み込み',
-    after: 'このページがまた表示される場合は、ブラウザの設定で%SITE%のCookie（サイトデータ）を削除し、もう一度ログインしてください。プライベートウィンドウでも開けます。',
+    after: 'このページがまた表示される場合は、ブラウザーの設定で%SITE%のCookie（サイトデータ）を削除し、もう一度ログインしてください。プライベートウィンドウでも開けます。',
   },
   es: {
     title: 'Esta página no se puede abrir: su navegador envía demasiadas cookies',
@@ -188,7 +188,9 @@ const HEAD_TOO_BIG: Record<Lang, { title: string; body: string; button: string; 
 }
 
 // Runs in the visitor's browser. Removes every cookie it can see from each parent domain of this address and each
-// path up to this page (the ones a page elsewhere can have set; host-only cookies are left alone), then reloads.
+// path up to this page, with and without a trailing slash (the ones a page elsewhere can have set; host-only cookies
+// are left alone), then reloads. On https each one is also removed as a Partitioned cookie (a partitioned cookie on
+// the parent is a separate cookie). A nameless cookie shows as its value only and is removed by writing that value.
 const HEAD_TOO_BIG_SCRIPT = `(function(){var T=${JSON.stringify(HEAD_TOO_BIG).replace(/</g, '\\u003c')};
 var m=/(?:^|;\\s*)${LOCALE_COOKIE}=(ko|en|id|ja|es)(?:;|$)/.exec(document.cookie);var l=m?m[1]:'en',t=T[l];
 var h=location.hostname.split('.'),ds=[];for(var i=1;i<h.length-1;i++)ds.push(h.slice(i).join('.'));
@@ -197,10 +199,10 @@ document.documentElement.lang=l;document.title=t.title;
 document.getElementById('t').textContent=t.title;document.getElementById('b').textContent=t.body;
 document.getElementById('a').textContent=t.after.replace('%SITE%',site);
 var btn=document.getElementById('x');btn.textContent=t.button;btn.hidden=!ds.length;
-btn.onclick=function(){var ps=['/'],p='';location.pathname.split('/').slice(1).forEach(function(s){p+='/'+s;ps.push(p)});
-var sec=location.protocol==='https:'?'; Secure':'';
-document.cookie.split(';').forEach(function(c){var n=c.split('=')[0].trim();if(!n||n.indexOf('__Host-')===0)return;
-ds.forEach(function(d){ps.forEach(function(q){document.cookie=n+'=; Domain='+d+'; Path='+q+'; Max-Age=0'+sec})})});
+btn.onclick=function(){var ps=['/'],p='';location.pathname.split('/').slice(1).forEach(function(s){if(!s)return;p+='/'+s;ps.push(p,p+'/')});
+var https=location.protocol==='https:',ends=https?['; Secure','; Secure; Partitioned']:[''];
+document.cookie.split(';').forEach(function(c){c=c.trim();if(!c||c.indexOf('__Host-')===0)return;var i=c.indexOf('='),k=i<0?c:c.slice(0,i)+'=';
+ds.forEach(function(d){ps.forEach(function(q){ends.forEach(function(e){document.cookie=k+'; Domain='+d+'; Path='+q+'; Max-Age=0'+e})})})});
 location.reload()}})()`
 
 /** before the script runs (or without scripts): the first sentence only, there is no button yet */
@@ -215,7 +217,7 @@ function headTooBigHtml(): string {
 }
 
 /** The whole raw HTTP/1.1 answer (written on the socket: the request was never parsed). 431, closes the connection. */
-export function headTooBigResponse(): string {
+export function headTooBigResponse(hsts = false): string {
   const body = headTooBigHtml()
   const hash = createHash('sha256').update(HEAD_TOO_BIG_SCRIPT).digest('base64')
   return 'HTTP/1.1 431 Request Header Fields Too Large\r\n'
@@ -224,6 +226,7 @@ export function headTooBigResponse(): string {
     + 'cache-control: no-store\r\n'
     + 'x-relay-error: request_too_big\r\n'
     + 'x-content-type-options: nosniff\r\n'
+    + (hsts ? 'strict-transport-security: max-age=31536000\r\n' : '')
     + `content-security-policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n`
     + 'connection: close\r\n\r\n'
     + body

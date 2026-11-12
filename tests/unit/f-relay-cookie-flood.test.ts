@@ -4,7 +4,8 @@
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { headTooBigResponse } from '../../relay/src/pages.ts'
-import { teamCookie, teamRequestHeaders } from '../../relay/src/relay.ts'
+import { DEV_SESSION_COOKIE as SHARED_DEV_COOKIE, SESSION_COOKIE } from '../../shared/src/api/common.ts'
+import { DEV_SESSION_COOKIE, teamCookie, teamRequestHeaders } from '../../relay/src/relay.ts'
 
 describe('teamCookie', () => {
   test('keeps __Host- cookies only and drops the rest (cookies another page can set on the parent domain)', () => {
@@ -12,6 +13,11 @@ describe('teamCookie', () => {
     expect(teamCookie(['a=1', '__Host-sid=x=y; b=2', '__Host-other=3'], 'https')).toBe('__Host-sid=x=y; __Host-other=3')
     expect(teamCookie(['f1=1; f2=2'], 'https')).toBeNull()
     expect(teamCookie([], 'https')).toBeNull()
+  })
+
+  test('the relay keeps the names the team server signs in with', () => {
+    expect(DEV_SESSION_COOKIE).toBe(SHARED_DEV_COOKIE)
+    expect(SESSION_COOKIE.startsWith('__Host-')).toBe(true)
   })
 
   test('the dev session cookie only on a plain-http relay', () => {
@@ -38,6 +44,8 @@ describe('headTooBigResponse', () => {
     expect(head).toContain('cache-control: no-store')
     expect(head).toContain('connection: close')
     expect(head).not.toMatch(/clear-site-data/i)
+    expect(head).not.toMatch(/strict-transport-security/i)
+    expect(headTooBigResponse(true)).toContain('strict-transport-security: max-age=31536000\r\n')
     expect(body).toContain('too many cookies')
   })
 
@@ -76,12 +84,15 @@ describe('headTooBigResponse', () => {
   })
 
   test('the button removes the cookies from the parent domain(s) on every path up to the page, never __Host- ones, then reloads', () => {
-    const r = run({ host: 'acme.teams.example.com', path: '/chat/1', cookies: ['flood1=a', '__Host-sid=s', 'flood2=b'] })
+    const r = run({ host: 'acme.teams.example.com', path: '/chat/1', cookies: ['flood1=a', '__Host-sid=s', 'flood2=b', 'nameless'] })
     expect(r.click()).toBe(true)
     expect(r.writes.some((w) => w.startsWith('__Host-'))).toBe(false)
-    for (const n of ['flood1', 'flood2']) {
+    for (const n of ['flood1=', 'flood2=', 'nameless']) {
       for (const d of ['teams.example.com', 'example.com']) {
-        for (const p of ['/', '/chat', '/chat/1']) expect(r.writes).toContain(`${n}=; Domain=${d}; Path=${p}; Max-Age=0; Secure`)
+        for (const p of ['/', '/chat', '/chat/', '/chat/1', '/chat/1/']) {
+          expect(r.writes).toContain(`${n}; Domain=${d}; Path=${p}; Max-Age=0; Secure`)
+          expect(r.writes).toContain(`${n}; Domain=${d}; Path=${p}; Max-Age=0; Secure; Partitioned`)
+        }
       }
     }
     // never the host itself (host-only cookies are this address's own) and never a bare top-level domain

@@ -21,6 +21,7 @@ const uploads = { rejected: 0 }
 
 async function app(req: Request): Promise<Response> {
   const u = new URL(req.url)
+  // Set-Cookie Domain stripping only: the relay never sends sid / lang back to a team server (only __Host- cookies)
   if (u.pathname === '/hello') {
     const h = new Headers({ 'content-type': 'text/plain' })
     h.append('set-cookie', 'sid=1; Path=/; Domain=localhost; HttpOnly')

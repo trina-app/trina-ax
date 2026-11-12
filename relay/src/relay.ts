@@ -53,7 +53,9 @@ const LIVE_INSTANCE_MS = 25_000
  * domain, so a page on one team address can leave cookies on the parent (Domain=<parent>) that the browser then sends
  * to every other team address; 16 KB of them took every team offline in that browser (QA TC-346). Room for that,
  * the cookies the relay then drops before the team server sees them (teamRequestHeaders); a head bigger than this
- * gets a page that says how to remove them (headTooBigResponse), never a bare 400.
+ * gets a page that says how to remove them (headTooBigResponse), never a bare 400 (a request line over this size gets
+ * the same page; browsers never send one). Memory: a connection still sending its head holds at most this much for
+ * headersTimeout (30 s); in production only Cloudflare reaches the listener (Authenticated Origin Pulls).
  */
 export const MAX_REQUEST_HEAD = 128 * 1024
 
@@ -185,9 +187,19 @@ export class RelayServer {
       })
     })
     this.server.on('clientError', (e: NodeJS.ErrnoException, socket) => {
-      if (e.code === 'ECONNRESET' || !socket.writable) { socket.destroy(); return }
+      // an answer to an earlier request on this connection is still going out: an error page now would be read as its
+      // answer (pipelining), so just close
+      if (e.code === 'ECONNRESET' || !socket.writable || (socket as Duplex & { _httpMessage?: unknown })._httpMessage) { socket.destroy(); return }
       try {
-        if (e.code === 'HPE_HEADER_OVERFLOW') { this.counters.headTooBig++; socket.end(headTooBigResponse()) }
+        if (e.code === 'HPE_HEADER_OVERFLOW') {
+          this.counters.headTooBig++
+          // the rest of the head is still on its way: closing with unread input resets the connection and the browser
+          // shows a connection error instead of the page. Read and drop it for a moment, then close.
+          socket.on('data', () => {})
+          socket.resume()
+          socket.end(headTooBigResponse(this.cfg.hsts))
+          setTimeout(() => socket.destroy(), 3000).unref()
+        }
         else socket.end('HTTP/1.1 400 Bad Request\r\nconnection: close\r\ncontent-length: 0\r\n\r\n')
       } catch { socket.destroy() }
     })
@@ -1070,7 +1082,8 @@ export function hostOnlyCookie(v: string): string {
  * Secure). Everything else in the Cookie header (cookies left on the parent domain by any page under it) is dropped:
  * the team server reads none of it, and a pile of it no longer pushes the request over the size the team server takes.
  */
-const DEV_SESSION_COOKIE = 'mycel-dev-sid'
+// a copy of DEV_SESSION_COOKIE in shared/src/api/common.ts (that module brings zod; a unit test keeps the two equal)
+export const DEV_SESSION_COOKIE = 'mycel-dev-sid'
 export function teamCookie(values: readonly string[], proto: 'http' | 'https'): string | null {
   const keep: string[] = []
   for (const v of values) {
