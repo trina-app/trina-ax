@@ -1848,8 +1848,8 @@ export class TurnExec {
    *   file, a copy, a move or rename into it) by an AI turn;
    * - a folder's name (a listing's sub-folder, a folder on the way to a file shown): its newest create, and the first
    *   event at or under it (a folder made on the way to a new file has no event of its own).
-   * `folders`: folders whose files' names were shown (TurnFiles.namePaths; a file there, a path a room call named, is a
-   * file's name); `subfolders`: folders shown by name
+   * `folders`: folders whose files' names were shown (TurnFiles.namePaths; a path a room call named that is a file counts
+   * as that file's name); `subfolders`: folders shown by name
    * (TurnFiles.listedNames); `files`: files shown (TurnFiles.readPaths). Each is looked at once per turn.
    */
   private noteOwnNames(folders: Iterable<string>, subfolders: Iterable<string>, files: Iterable<string>) {
