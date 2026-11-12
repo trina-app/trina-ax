@@ -3199,6 +3199,7 @@ export const en: Record<MessageKey, string> = {
   'admin.onComputerConnection': "Changing how the team connects is done in Admin on a computer.",
   'admin.onComputerUpdate': "This version is installed on the server computer. You can also wait for the automatic update.",
   'admin.onComputerNoFeed': "Updates are installed on the server computer with the installer.",
+  'admin.onComputerAiApps': "Turning on AI app access is done in the server setup on a computer.",
   'integrations.users': 'Used by: {who}',
   'integrations.users.nobody': 'Nobody can use it yet',
   'integrations.users.notMe': 'Not in your chats',
