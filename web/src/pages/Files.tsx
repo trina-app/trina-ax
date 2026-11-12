@@ -1555,7 +1555,7 @@ function OpenSavingChat({ chatId, onOpen }: { chatId: string; onOpen: () => void
   return (
     <>
       {' · '}
-      <Link to={`/c/${chatId}`} onClick={onOpen} className="text-accent-text underline underline-offset-2" data-testid="history-open-chat">
+      <Link to={`/c/${chatId}`} onClick={onOpen} className="whitespace-nowrap text-accent-text underline underline-offset-2" data-testid="history-open-chat">
         {t('files.openChat')}
       </Link>
     </>

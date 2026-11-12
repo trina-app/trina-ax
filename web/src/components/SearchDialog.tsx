@@ -861,11 +861,18 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
                         {r.attention && !r.marker && <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-accent" data-testid="search-attention-dot" />}
                       </span>
                     )}
-                    <span className="min-w-0 flex-1 truncate" data-testid="search-row-name">
-                      {r.match ? mark(r.title) : r.title}
-                      {r.sub && <span className={clsx('ml-2 text-xs', r.marker ? clsx('font-medium', MARKER_TEXT[r.marker.kind]) : r.attention ? 'text-accent-text' : 'text-faint')} data-testid={r.marker ? 'search-marker-reason' : undefined}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
-                    </span>
-                    {r.meta && <span className="max-w-[45%] shrink-0 truncate text-xs text-faint tabular-nums" data-testid="search-row-meta">{r.meta}</span>}
+                    {r.meta ? (
+                      // a History row: when and where, grey on the right; on a phone under the title, which keeps the width
+                      <span className="flex min-w-0 flex-1 items-center gap-3 max-md:flex-col max-md:items-stretch max-md:gap-0 max-md:py-1.5">
+                        <span className="min-w-0 truncate md:flex-1" data-testid="search-row-name">{r.match ? mark(r.title) : r.title}</span>
+                        <span className="min-w-0 shrink-0 truncate text-xs text-faint tabular-nums md:max-w-[45%]" data-testid="search-row-meta">{r.meta}</span>
+                      </span>
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate" data-testid="search-row-name">
+                        {r.match ? mark(r.title) : r.title}
+                        {r.sub && <span className={clsx('ml-2 text-xs', r.marker ? clsx('font-medium', MARKER_TEXT[r.marker.kind]) : r.attention ? 'text-accent-text' : 'text-faint')} data-testid={r.marker ? 'search-marker-reason' : undefined}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
+                      </span>
+                    )}
                     {/* the sidebar's own marker; its words are the row's second part already */}
                     {r.marker && (
                       <span aria-hidden className="flex shrink-0 items-center" data-testid="search-row-marker" data-marker={r.marker.kind}>
