@@ -16,14 +16,14 @@ func goldenParams() bwrapParams {
 		Ldso: "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
 		Libs: []libMount{{path: "/lib", link: "usr/lib", exists: true}, {path: "/lib64", link: "usr/lib64", exists: true},
 			{path: "/lib32"}, {path: "/libx32", isDir: true, exists: true}},
-		UsrLib64: true,
-		Args:     []string{"-p", "--mcp-config", "./.turn/mcp.json"},
+		UsrLib64: true, NetProxy: 47821,
+		Args: []string{"-p", "--mcp-config", "./.turn/mcp.json"},
 	}
 }
 
 // spec 3.3.3, exact argv (Claude turn on Debian 13 amd64)
 const goldenClaude = `--unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try --disable-userns --die-with-parent ` +
-	`--cap-drop ALL --hostname mycel-turn --ro-bind /usr/lib /usr/lib --ro-bind-try /usr/lib64 /usr/lib64 ` +
+	`--cap-drop ALL --cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN --hostname mycel-turn --ro-bind /usr/lib /usr/lib --ro-bind-try /usr/lib64 /usr/lib64 ` +
 	`--symlink usr/lib /lib --symlink usr/lib64 /lib64 --ro-bind-try /libx32 /libx32 ` +
 	`--ro-bind /etc/ld.so.cache /etc/ld.so.cache --ro-bind /var/lib/mycel/root/sandbox-etc/passwd /etc/passwd ` +
 	`--ro-bind /var/lib/mycel/root/sandbox-etc/group /etc/group --ro-bind /var/lib/mycel/root/sandbox-etc/hosts /etc/hosts ` +
@@ -39,7 +39,7 @@ const goldenClaude = `--unshare-user --unshare-pid --unshare-ipc --unshare-uts -
 	`--remount-ro / --chdir /var/lib/mycel/agent/c_1 -- ` +
 	`/.sbx/mycel-sandbox exec --landlock required-scoped --exec-allow /var/lib/mycel/app/engines/claude/3f2a ` +
 	`--exec-allow /var/lib/mycel/app/current/native/mycel-bridge --exec-allow /var/lib/mycel/app/versions/0.3.0/native/mycel-bridge ` +
-	`--exec-allow /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 ` +
+	`--exec-allow /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 --net-proxy 47821 ` +
 	`-- /var/lib/mycel/app/engines/claude/3f2a/claude -p --mcp-config ./.turn/mcp.json`
 
 func TestBwrapArgsClaudeGolden(t *testing.T) {
@@ -55,6 +55,31 @@ func TestBwrapArgsClaudeGolden(t *testing.T) {
 		if strings.Contains(" "+strings.Join(a, " ")+" ", bad) {
 			t.Errorf("argv contains %q", bad)
 		}
+	}
+}
+
+// QA TC-309: the turn's own network namespace comes from the helper (--net-proxy), which needs the two namespace
+// capabilities from bwrap; without a proxy port neither appears (nothing else in the argv changes)
+func TestBwrapArgsNetProxy(t *testing.T) {
+	p := goldenParams()
+	p.NetProxy = 0
+	a, err := buildBwrapArgs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := strings.Join(a, " ")
+	if strings.Contains(s, "--cap-add") || strings.Contains(s, "--net-proxy") {
+		t.Fatalf("no proxy port, still: %s", s)
+	}
+	want := strings.Replace(strings.Replace(goldenClaude, " --cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN", "", 1), " --net-proxy 47821", "", 1)
+	if s != want {
+		t.Fatalf("argv differs beyond the net options:\n got %s\nwant %s", s, want)
+	}
+	// the capabilities are added after the drop (bwrap applies them in order) and the flag is the helper's, before --
+	g := goldenClaude
+	if strings.Index(g, "--cap-drop ALL") > strings.Index(g, "--cap-add") || strings.Index(g, "--net-proxy") < strings.Index(g, "/.sbx/mycel-sandbox exec") ||
+		strings.Index(g, "--net-proxy") > strings.Index(g, "-- /var/lib/mycel/app/engines/claude") {
+		t.Error("net options out of order")
 	}
 }
 
@@ -98,7 +123,7 @@ func TestBwrapArgsCodex(t *testing.T) {
 	if strings.Index(s, ".codex/config.toml") < strings.Index(s, "--bind /var/lib/mycel/agent/c_1") || strings.Index(s, ".codex/prompts") > strings.Index(s, "--remount-ro") {
 		t.Error("lock binds out of order")
 	}
-	if !strings.Contains(s, "--allow-listen -- /var/lib/mycel/app/engines/codex/9b1c/codex") || strings.Contains(s, "ld-linux") {
+	if !strings.Contains(s, "--allow-listen --net-proxy 47821 -- /var/lib/mycel/app/engines/codex/9b1c/codex") || strings.Contains(s, "ld-linux") {
 		t.Errorf("static engine / allow-listen wrong: %s", s)
 	}
 }

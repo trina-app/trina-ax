@@ -51,14 +51,24 @@ if (Array.isArray(spec.probe)) {
       const s = dgram.createSocket(host.includes(':') ? 'udp6' : 'udp4')
       let done = false; const fin = (r: string) => { if (!done) { done = true; try { s.close() } catch {}; res(r) } }
       s.on('error', (e: any) => fin(errOf(e)))
-      s.send(Buffer.from('x'), port, host, (e: any) => fin(e ? errOf(e) : 'sent'))
-      setTimeout(() => fin('timeout'), 2000)
+      // 'sent' = the datagram left without an error; 'answered' = something replied (a turn with its own network
+      // namespace can send to its own loopback, so only an answer proves it reached a host service)
+      let sent = false
+      s.on('message', () => fin('answered'))
+      s.send(Buffer.from('x'), port, host, (e: any) => { if (e) fin(errOf(e)); else sent = true })
+      setTimeout(() => fin(sent ? 'sent' : 'timeout'), 2000)
     } else {
       const c = net.connect({ host, port })
       let done = false; const fin = (r: string) => { if (!done) { done = true; try { c.destroy() } catch {}; res(r) } }
       c.on('connect', () => fin('ok')); c.on('error', (e: any) => fin(errOf(e)))
       setTimeout(() => fin('timeout'), 2000)
     }
+  })
+  const unixConnect = (name: string) => new Promise<string>((res) => {
+    const c = net.connect(name.startsWith('@') ? '\0' + name.slice(1) : name)
+    let done = false; const fin = (r: string) => { if (!done) { done = true; try { c.destroy() } catch {}; res(r) } }
+    c.on('connect', () => fin('ok')); c.on('error', (e: any) => fin(errOf(e)))
+    setTimeout(() => fin('timeout'), 2000)
   })
   for (const p of spec.probe) {
     let result: unknown
@@ -68,6 +78,16 @@ if (Array.isArray(spec.probe)) {
       else if (p.kind === 'ls') result = { entries: await fsp.readdir(p.path) }
       else if (p.kind === 'write') { await fsp.writeFile(p.path, 'x'); result = 'wrote' }
       else if (p.kind === 'connect') result = await connect(p.host, p.port, p.proto ?? 'tcp')
+      // a unix socket by name ("@name" = abstract, Linux), or "unix-all": every @name of the HOST's network namespace
+      // (QA TC-309). /proc/net/unix shows the turn's own namespace; /proc/1/net/unix is bwrap's pid 1, which stays in
+      // the host's, so it lists the host services' names. The result lists the names that accepted.
+      else if (p.kind === 'unix') result = await unixConnect(p.path)
+      else if (p.kind === 'unix-all') {
+        const names = [...new Set((await fsp.readFile(p.path ?? '/proc/1/net/unix', 'utf8')).split('\n').slice(1).map((l) => l.trim().split(/\s+/)[7]).filter((n) => n?.startsWith('@')))]
+        const accepted: string[] = []
+        for (const n of names) if ((await unixConnect(n!)) === 'ok') accepted.push(n!)
+        result = { listed: names.length, hasHost: names.includes('@mycel-t1-host'), accepted }
+      }
       else if (p.kind === 'usetoken') {
         // assert a (handed-in, "stolen") turn token is refused on tools.sock from this session (the gate binds the
         // token to the turn's session id; another session, or a setsid escapee, is "not authorized")

@@ -7,6 +7,7 @@ import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { useJobs, waitForJob } from '../../store/jobs'
 import { toast } from '../../store/ui'
+import { updateOutcome } from '../../lib/updateOutcome'
 import { ReauthDialog, useReauthCall } from './common'
 
 /** Progress line of a running job. */
@@ -30,13 +31,13 @@ export function JobLine({ jobId }: { jobId: string }) {
 export function useJobRunner() {
   const t = useT()
   const [jobId, setJobId] = useState<string | null>(null)
-  const run = async (start: () => Promise<{ jobId: string } | undefined>, done: (j: Job) => void) => {
+  const run = async (start: () => Promise<{ jobId: string } | undefined>, done: (j: Job) => unknown) => {
     const r = await start()
     if (!r) return
     setJobId(r.jobId)
     try {
       const j = await waitForJob(r.jobId)
-      if (j.status === 'done') done(j)
+      if (j.status === 'done') await done(j)
       else toast({ level: 'error', text: j.error?.message ?? t('system.jobFailed') })
     } finally {
       setJobId(null)
@@ -66,8 +67,13 @@ export function useUpdateInstall(o: { version?: string; previous?: string | null
         if (!r) return
         await runner.run(
           async () => r.value,
-          () => {
-            toast({ level: 'success', text: t('system.updateDone') })
+          // "finished" only once the server answers with the new version; a version that did not stay (a Go back that
+          // bounced, QA TC-336) is said as such (lib/updateOutcome.ts)
+          async (job) => {
+            const out = await updateOutcome(job, { health: () => api.call(API.health), fetchJob: (id) => api.call(API.getJob, { params: { id } }) })
+            if (out.kind === 'ok') toast({ level: 'success', text: t('system.updateDone') })
+            else if (out.kind === 'not_kept') toast({ level: 'error', text: out.message ?? t('system.updateNotKept', { version: out.version, current: out.current }) })
+            else toast({ level: 'info', text: t('system.updateStillRestarting') })
             o.onDone()
           },
         )

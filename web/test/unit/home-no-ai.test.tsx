@@ -2,8 +2,8 @@
 // "W2 — AI connection first", "Y — Home shows one thing at a time", "W5 — Onboarding v5"): ONE card instead of the top
 // row, the suggestions and the line above the box. The owner who put the AI step off ("나중에 하기") gets the card, not
 // the setup row (which only led back to the AI step); once AI answers, the row comes back (on a phone Home's quiet
-// "설정 이어서 하기 · n/5" under the box; on a computer the sidebar's setup row stands for it), the AI step recorded
-// done, so it counts 1/5 and leads on to 회사 소개.
+// "설정 이어서 하기 · n/4" under the box, counting the steps a phone shows (no 도구 연결, QA TC-271); on a computer the
+// sidebar's setup row stands for it), the AI step recorded done, so it counts 1/5 on a phone and leads on to 회사 소개.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router-dom'
@@ -96,7 +96,7 @@ const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ sta
 const home = () => mount(<MemoryRouter><Routes><Route path="/" element={<Home />} /></Routes></MemoryRouter>)
 
 describe('Home without AI', () => {
-  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/6 (a phone)', async () => {
+  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/5 (a phone: its own five with the AI step)', async () => {
     signIn('owner')
     phoneWidth()
     progress = putOff()
@@ -120,13 +120,13 @@ describe('Home without AI', () => {
       await m.until(() => m.find('welcome-resume'), 'the row')
       expect(m.find('no-ai-card')).toBeNull()
       await m.until(() => progress!.steps.ai === 'done', 'the AI step done')
-      await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 6), 'the row at 1/6')
+      await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 5), 'the row at 1/5')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body)).toEqual([{ step: { id: 'ai', state: 'done' } }])
       await m.until(() => called('GET /api/skills/examples').length > 0, 'the suggestions')
     } finally { await m.unmount() }
   })
 
-  test('the owner with AI: on a phone the quiet row (회사 소개 saved counts as done without a deck: 1/5), nothing recorded; on a computer no row on Home', async () => {
+  test('the owner with AI: on a phone the quiet row (회사 소개 saved counts as done without a deck: 1/4, the phone\'s four), nothing recorded; on a computer no row on Home', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     progress = { ...putOff(), steps: { profile: 'done', result: null, invite: null } }
@@ -135,7 +135,7 @@ describe('Home without AI', () => {
     let m = await home()
     try {
       await m.until(() => m.find('welcome-resume'), 'the row')
-      expect(m.get('welcome-resume-link').textContent).toBe(rowText(1, 5))
+      expect(m.get('welcome-resume-link').textContent).toBe(rowText(1, 4))
       expect(m.get('welcome-resume-link').getAttribute('href')).toBe('/welcome')
       expect(m.find('no-ai-card')).toBeNull()
       expect(called('PATCH /api/onboarding/welcome')).toEqual([])

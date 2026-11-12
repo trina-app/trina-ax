@@ -28,6 +28,7 @@ import (
 	"golang.org/x/sys/unix"
 	"mycel/native/internal/bootflags"
 	"mycel/native/internal/bundle"
+	"mycel/native/internal/version"
 )
 
 // UpdateResult is `mycel-ctl update --json` (spec 3.6.5 step 6). Exit codes: ok 0, rolled_back 10, verify_failed 20,
@@ -186,6 +187,10 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	u.maintenance = u.serverMaintenance
 	if updateTestHook != nil {
 		updateTestHook(u)
+	}
+	// a hold of the release that runs here and answers is over (QA TC-334): neither the timer nor this run waits for it
+	if _, note := readHold(e, in); note != "" {
+		res.Notes = append(res.Notes, note)
 	}
 	if u.scheduled {
 		// the window and a quiet moment first, without the lock: an administrator's `mycel-ctl update` meanwhile is not
@@ -1611,89 +1616,4 @@ func (u *updater) restartServer() error {
 // a part of the main version is its leading digits (parseInt, none = 0), an identifier is numeric only when it is all
 // digits (/^\d+$/), and both become float64 like a JavaScript number. testdata/version-order.json is checked by both
 // sides (TestCompareVersionsMatchesServer here, tests/unit/g-update.test.ts there).
-func compareVersions(a, b string) int {
-	split := func(v string) ([]float64, []string) {
-		core := strings.SplitN(v, "+", 2)[0]
-		main, pre, hasPre := strings.Cut(core, "-")
-		var nums []float64
-		for _, x := range strings.Split(main, ".") {
-			n, _ := jsNumber(x[:len(x)-len(strings.TrimLeft(x, "0123456789"))])
-			nums = append(nums, n)
-		}
-		if !hasPre {
-			return nums, nil
-		}
-		return nums, strings.Split(pre, ".")
-	}
-	xn, xp := split(a)
-	yn, yp := split(b)
-	for i := 0; i < len(xn) || i < len(yn); i++ {
-		var p, q float64
-		if i < len(xn) {
-			p = xn[i]
-		}
-		if i < len(yn) {
-			q = yn[i]
-		}
-		if p != q {
-			if p < q {
-				return -1
-			}
-			return 1
-		}
-	}
-	if xp == nil || yp == nil {
-		switch {
-		case xp == nil && yp == nil:
-			return 0
-		case xp != nil:
-			return -1
-		default:
-			return 1
-		}
-	}
-	for i := 0; i < len(xp) || i < len(yp); i++ {
-		if i >= len(xp) {
-			return -1
-		}
-		if i >= len(yp) {
-			return 1
-		}
-		p, q := xp[i], yp[i]
-		if p == q {
-			continue
-		}
-		pn, pok := jsNumber(p)
-		qn, qok := jsNumber(q)
-		switch {
-		case pok && qok:
-			if pn < qn {
-				return -1
-			}
-			if pn > qn {
-				return 1
-			}
-		case pok != qok:
-			if pok {
-				return -1
-			}
-			return 1
-		default:
-			if p < q {
-				return -1
-			}
-			return 1
-		}
-	}
-	return 0
-}
-
-// jsNumber reads an all-digit string as JavaScript's Number() does (the nearest float64); ok is false for "" and
-// anything else.
-func jsNumber(s string) (float64, bool) {
-	if s == "" || strings.TrimLeft(s, "0123456789") != "" {
-		return 0, false
-	}
-	n, err := strconv.ParseFloat(s, 64)
-	return n, err == nil || errors.Is(err, strconv.ErrRange)
-}
+func compareVersions(a, b string) int { return version.Compare(a, b) }

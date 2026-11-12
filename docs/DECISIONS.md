@@ -22458,3 +22458,107 @@ change).
   "참고한 파일 · 올리는 답의 출처 목록에서 빠져요", no attach switch: sources are left out, never copied), with lines of its own
   under the provenance line: "올리면 대화방 모두가 이 내용을 봐요." when nothing is at stake, "웹이나 연결된 서비스의 내용",
   and the earlier-hidden-answer line. The app's own confirm with a row per reason is gone, and with it its strings.
+
+## Go back only where it can work; no false hold after going forward (fix/goback-and-false-hold, 2026-11-12, QA TC-334, TC-336)
+
+- **Why (TC-334).** 0.4.0's `mycel-ctl update` reports `rolled_back` as soon as `state.json` records the roll-back and
+  writes `root/update-failed.json` (20 hours), not knowing that the new bootstrap goes forward to 0.5.0 again. 0.5.0
+  then ran fine while `mycel-ctl status` said "HELD: release 0.5.0 was rolled back". 0.4.0's code cannot change.
+- **A hold of the version that runs is over.** `mycel-ctl` (status, update, the timer) drops a hold when all of these
+  are true: `app/current` is that version or newer, `root/VERSION` is that version or newer (a root update that failed
+  before its root files went in keeps its back-off), `state.json` has nothing pending and is not stopped (`blocked`),
+  and `/api/health` answers ok with the running version. The file is removed (as root; a reader without root only
+  ignores it) and one plain note line says so. The file is read again right before the removal: a hold another run
+  wrote meanwhile (this runs before the update lock) stays. `state.json` is not written from root: it is the server account's
+  file, and the bootstrap rewrites it; the bootstrap's own history line ("started again after 0.4.0 could not read
+  the database…") already tells the story. The server (`rootUpdateFailure`) ignores such a hold by the same version
+  rule.
+- **Why (TC-336).** Admin › System offered Go back to `state.previous` with no reader check. 0.4.0 (reader level 4)
+  then exited 75 on the database 0.5.0 had migrated (level 6), the bootstrap went back to 0.5.0, and the job said
+  `rolledBack` to 0.4.0.
+- **Reader level of a kept version** = the highest `min_compatible_reader` among its bundle's migrations
+  (`bundleReaderLevel`, the rule `publish-server.ts` already uses); the database needs the highest among its applied
+  migrations (`requiredReaderLevel`). Every raise of `SCHEMA_READER_LEVEL` comes with a migration that declares it, so
+  the two agree (0.4.0: 4 and 4). Lower: `UpdateStatus.previousNeedsRestore` (optional), no Go back button, a plain
+  line pointing to the QA-checked steps of #554, [BACKUP-RESTORE.md "Going back to the version before an update
+  (Linux)"](BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux) (automatic updates off, the
+  `pre-migrate` copy staged, `mycel-ctl update --version <older>` with its first-line check, cancel by removing
+  `restore-pending.json`). `POST /api/admin/update {rollback}` and `admin.js rollback` (it reads the level from
+  `app.db`, read-only) refuse it; `admin.js switch` stays an administrator's explicit choice. Docker: only a copy of the
+  whole volume from before the update, started with the older tag (`mycel-ctl update` is not used in the container,
+  and the newer image migrates again at its next start).
+- **Honest outcome.** The job is "done" before the restart, so it cannot know. At start, `settleUpdateJob` marks the
+  newest update job (finished within a day) failed when it started from the version that runs again, named another
+  one, and the bootstrap's history records sending that one back (`rolled_back <it> -> <running>` after the job
+  finished; a plain restart or an administrator's switch is not such a failure): "Could not go back to 0.4.0; still on 0.5.0" plus the reader reason or the bootstrap's line, in the starter's
+  language. The web says "Update finished" only after `/api/health` answers with the job's version; back on the
+  version it started from (uptime shorter than the wait, or a gap without uptime), it reads the job again and shows
+  its words; no answer in 4 minutes: "still restarting".
+- **Bootstrap**: a pending version older than `previous` (a Go back) that exits 75 is rolled back at once ("0.4.0 cannot read the database: 0.5.0 has
+  already updated it (exit 75)"), not after three starts with "exited 3 times". Diagnostics says a bounced Go back in
+  plain words (ok, not a failed update). A newer pending version that exits 75 keeps the usual tries
+  (`TestForwardedExit75StopsAtOnce`). The version order moved to `native/internal/version` so the bootstrap and
+  mycel-ctl share it.
+- **Docker / older kit**: the installer's "older kit" warning names the reader problem and the restore steps when the
+  kit's version is below the running one's level; docs/INSTALL-DOCKER.md no longer advises Roll back for that case.
+- Tests: ctl `TestStatusDropsHoldOfTheRunningVersion`, `TestScheduledUpdateDropsHoldOfTheRunningVersion`
+  (`TestScheduledUpdateShortHoldBeforeRootFiles` keeps the newer-hold rule with root files not yet in), bootstrap
+  `TestPendingOlderVersionExit75GoesBackAtOnce`, `tests/unit/g-update-goback.test.ts`, `g-prune.test.ts`,
+  `web/test/unit/update-outcome.test.ts`.
+- Version impact: **patch** (root update: bootstrap and mycel-ctl; one optional API field; no migration).
+
+## Linux turns get their own network namespace; the model proxy is forwarded (fix/engine-abstract-sockets, 2026-11-12, QA TC-309)
+
+On Ubuntu 24.04 (kernel 6.8) a turn could connect to host services' abstract unix sockets (storage daemons and other
+system services listen on them). bwrap ran without `--unshare-net` so the proxy's tcp-peer
+check and the nftables uid rule would see the engine itself; abstract sockets are not IP (nftables does not see them),
+not files (bwrap's mounts do not hide them), and Landlock scopes them only from ABI 6 (Linux 6.12), while a self-install
+runs `--landlock required`. TCP, UDP, IPv6, metadata and DNS were already refused.
+- **Every bwrap turn runs in a new network namespace with only loopback** (abstract sockets belong to a network
+  namespace). The helper does it, not bwrap: `mycel-sandbox exec --net-proxy <proxy port>` (`netns_linux.go`). bwrap gets
+  `--cap-add CAP_SYS_ADMIN --cap-add CAP_NET_ADMIN` after `--cap-drop ALL`; they are capabilities of the turn's own
+  (nested, `--disable-userns`) user namespace, never of the host. The helper clears the ambient set, starts the
+  forwarder, `unshare(CLONE_NEWNET)` on its locked thread, brings `lo` up, listens on 127.0.0.1:<port> there, hands the
+  listener over (after Landlock), waits for "ready", clears every capability set on every thread (`AllThreadsSyscall`) and checks each `/proc/self/task/*/status` (exit 70 if any
+  is left), then Landlock, seccomp and execve as before.
+- **The forwarder** (`mycel-sandbox forward`) stays in the host namespace (with bwrap's own pid 1, see below): it accepts in
+  the turn's namespace and connects to 127.0.0.1:<port> on the host. So the engines' URLs (`ANTHROPIC_BASE_URL`,
+  `HTTPS_PROXY`, Codex's provider) stay the same; the proxy's tcp-peer check finds the forwarder, a process of the
+  turn's session (same sid); the nftables rule still applies (engine account); it is in the turn cgroup and dies with
+  bwrap's pid namespace. It starts with no capabilities (ambient cleared before its execve). The engine is its parent
+  and the same uid, so its memory (`/proc/<pid>/mem`) must be out of reach: the helper hands the listener over only
+  after its own Landlock domain is in place, and Landlock refuses ptrace access from a domain to a process outside it.
+  A non-dumpable forwarder would also do it, but then `/proc/<pid>/fd` belongs to root and the launcher's tcp-peer
+  lookup cannot find the owner (the first run: managed turns failed). So it makes itself non-dumpable only when the
+  engine has no Landlock domain (`--landlock off`, or best-effort on a kernel without Landlock): then the proxy refuses
+  its connections and the turn cannot reach the model, but it never gets the host namespace (installs run
+  `--landlock required`). bwrap's pid 1 (the pid namespace's init; no `--as-pid-1`) is also in the host namespace and
+  the same uid. Landlock keeps the engine out of it too; without a domain the helper refuses the turn (exit 70) unless
+  Yama's `ptrace_scope` is 1 or more, since pid 1 is not the engine's descendant (review of #557). Its seccomp variant
+  (`seccomp.Options{Forwarder}`) refuses AF_UNIX `socket()`, `socketpair()`, `execve`/`execveat` on top of the engine
+  policy. It forwards only to that one port.
+- **Not chosen.** seccomp on connect()/sendto(): the filter sees only the pointer to the address, not `sun_path[0]`.
+  Refusing `socket(AF_UNIX)` for the engine: the bridge needs `tools.sock` (a path socket, which works across network
+  namespaces and still does). User-notify supervision: deciding on memory the engine can change after the check is the
+  TOCTOU the kernel documentation warns about. bwrap `--unshare-net` with a relay outside the sandbox: the proxy would
+  see the relay, not a turn process, and the tcp-peer check would need a second path. Landlock scope alone: kernels
+  before 6.12 stay open (it still applies where available).
+- **cgo**: `syscall.AllThreadsSyscall` refuses in a cgo binary, so a cgo-built `mycel-sandbox` refuses `--net-proxy`
+  with a plain reason (exit 70); `native/build.sh` builds with `CGO_ENABLED=0`. The Go test of the namespace is
+  skipped under cgo (CI's `go test` on a runner with gcc) and a second test checks the refusal there.
+- **Installer**: `install-linux.sh` runs bwrap with the two `--cap-add` and `unshare -n` as `nobody`; when user
+  namespaces work but that fails (a distribution profile that strips bwrap's namespace capabilities), it stops with a
+  plain message instead of every turn failing with exit 70.
+- **Side effects**: with the namespace a flushed ruleset (QA TC-310) no longer gives a running turn the network; only
+  the forwarder's one port is reachable. UDP to 127.0.0.1:53 now leaves the socket ("sent") into the turn's own
+  loopback instead of being rejected by nftables; the Linux job's DNS check now puts a root echo on the host's
+  127.0.0.1:53 and asserts that the turn gets no answer.
+- Tests: `mycel-sandbox` Go test through bwrap (proxy port answers; another host loopback port and a host abstract
+  socket are refused; capabilities zero; the forwarder's memory cannot be opened with and without Landlock; a control run
+  without the flag reaches all three); seccomp forwarder table;
+  bwrap argv golden; Linux job (`tests/linux`): a root-owned `@mycel-t1-host` listener answers the server account but
+  not a turn, no abstract name of the host (listed through `/proc/1/net/unix`, bwrap's pid 1) accepts, `status.net = "private"`, and the managed Claude / Codex turns
+  reach the real model proxy through the forwarder.
+
+Version impact: patch (security fix in the Linux engine sandbox; the launcher status gains `net`; no API, data or
+migration change).
