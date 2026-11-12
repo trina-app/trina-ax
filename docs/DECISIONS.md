@@ -22307,3 +22307,42 @@ confidential chat, a room or a shared chat, and only comes with the web-or-phone
 
 Version impact: patch (tests, and the invite page on a full team no longer names the inviter; no API shape or data
 change).
+
+## Projects made on 0.4.0: what the owner and admins keep after the update — 0.4.0 프로젝트, 업데이트 뒤 (fix/projects-kept-after-update, 2026-11-12, QA TC-360)
+
+넣을 곳: trina-ax core (`server/src/chat/schedules.ts`), 이유: scheduled tasks and project access are core. Plan:
+`docs/AGENTS/plan/20261112-0136-projects-kept-after-update.md`.
+
+QA updated a real 0.4.0 team to 0.5.0: an admin's team projects, the owner's own chat in one and her Daily file index
+task on its folder. The owner and another admin no longer opened those projects (404), while her chat stayed and her
+task stayed on.
+
+- **The rule stays "Project contents only for members"** (owner option B). The owner and admins find every team
+  project in Projects (`?manage=1`, `member: false`, "Only members can see what's inside", #474) and get in with
+  **Add me**, which its members are told. `GET /api/projects` without `manage` is "projects I read" for pickers, so it
+  is empty for them, as decided. No migration gives the owner or admins membership: that would undo the decision for
+  every project made before it.
+- **The owner's own chat** in a project she is not in stays hers and readable (H7, "권한 회수": a person's own
+  conversation is never taken away). A turn there no longer gets the project's name, folder or instructions
+  (`projectForChat`), she cannot start a new chat in it, and nobody else sees the chat. Unchanged; now tested for an
+  upgraded team.
+- **A template task** (Daily file index, Weekly summary) whose folder its owner cannot read now (the access check of
+  `validateTemplateFolders`, on that folder itself) and which is in a team project (`projects/<name>/…`) is treated
+  like a task whose project is gone ("Project skills"): its next
+  due run does not start, it is paused, `schedule_project_skips` records that project's id and its owner gets the
+  "project gone" inbox notice once (no project name, no folder); **Run now** answers 409 `schedule_project_gone`.
+  Before, `members-only-once` step 3 only took save folders, and the run only checked `project_id`, so the task stayed
+  on and every day started a turn that `validateTemplateTurn` refused at dispatch (an empty failed chat, no reason).
+  A member who reads only a folder inside a project (a 0.4.0 grant) keeps a working task on it. The project is the
+  one on that folder as the volume compares names, a live one first, then the oldest. A folder in `projects/` that no
+  project uses keeps the old behaviour (the skip row names a project).
+- **Open, for the owner:** (1) a one-time notice at the upgrade to the owner and admins ("N team projects are now for
+  members only; find them in Projects") — default 4 of "Project contents only for members" says none; the QA row
+  expected one. (2) An ordinary 0.4.0 team folder inside a `Projects/` folder (any letter case, possible on Linux next
+  to `projects/`) is now in the members-only zone: the owner and admins lose it while members keep it, until an admin
+  opens Projects and it is adopted as a project.
+- Tests: `tests/unit/b-projects-after-update.test.ts` (a 0.4.0-shaped team, the start steps, then the owner, another
+  admin, the creator, a member and someone not in it; the owner's chat; the template task on the project, a template
+  task on Shared that still runs, a project task; Add me).
+- Version impact: **patch** (a task that could no longer work is paused and its owner told; no API, data or permission
+  change).
