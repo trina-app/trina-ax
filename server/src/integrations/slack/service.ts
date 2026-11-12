@@ -14,6 +14,12 @@
 //                       answer that used places not everyone on the team can see is not posted at the first press: the
 //                       asker gets a notice naming them, with "Post anyway" and "Cancel" (post-check.ts).
 // Envelopes are acknowledged by the socket before any of this runs; an event id or a message seen before is ignored.
+//
+// Two ways to have the Slack app (slack_config.mode): 'own', the team's own app from our manifest, its tokens pasted in
+// Admin › Slack and its own Socket Mode connection; or 'official', the hosting service's one public app ("Add to
+// Slack", broker.ts): only the workspace's bot token is here (sealed, delivered sealed), the envelopes come from the
+// hosting service's long poll and go through the very same onEnvelope checks, "Sign in with Slack" goes through it,
+// and Remove takes the app off the workspace there. Everything else (links, turns, answers) is the same.
 import crypto from 'node:crypto'
 import path from 'node:path'
 import { DEFAULT_LOCALE, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
@@ -33,6 +39,8 @@ import { SlackApi, SlackApiError, type SlackDeps } from './api'
 import { AppMention, BlockActions, EventCallback, ImMessage, type Envelope } from './envelope'
 import { BOT_SCOPES, createAppUrl, slackManifest } from './manifest'
 import { SlackSocket, errorCode } from './socket'
+import { SlackBrokerClient, SlackBrokerError, SlackBrokerFeed, challengeOf, slackBrokerFor, type SlackBrokerOptions } from './broker'
+import type { SlackBrokerEvent, SlackBrokerInstallInfo } from '@mycel/shared/cloud-protocol'
 import { slackAnswer } from './rich-text'
 import { placesText, postCheck } from './post-check'
 import { confidentialChat } from '../../safe-ops/confidential'
@@ -61,10 +69,20 @@ export class SlackError extends Error {
 interface ConfigRow {
   enabled: number; team_id: string | null; team_name: string | null; team_url: string | null; enterprise_id: string | null
   bot_user_id: string | null; bot_name: string | null; app_id: string | null; client_id: string | null; secret_enc: string | null; key_version: number | null
-  link_origin: string | null; last_error: string | null
+  link_origin: string | null; last_error: string | null; mode: 'own' | 'official'; install_id: string | null
 }
-/** sealed together: the two tokens and, for Sign in with Slack, the app's client secret */
-interface Tokens { bot: string; app: string; clientSecret?: string }
+/** sealed together: the two tokens and, for Sign in with Slack, the app's client secret (own app); the bot token alone
+ * (the official app: the app-level token and the client secret stay at the hosting service) */
+interface Tokens { bot: string; app?: string; clientSecret?: string }
+interface SigninFlowRow { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string; via: 'own' | 'broker'; verifier_enc: string | null; verifier_key_version: number | null }
+interface InstallFlowRow { id: string; user_id: string; verifier_enc: string; key_version: number; link_origin: string | null; client: string; state: string; expires_at: string }
+/** test deps: also the hosting service's broker (null: none; left out: from the environment, broker.ts) */
+export interface SlackConnectorDeps extends SlackDeps { broker?: SlackBrokerOptions | null; pollWaitMs?: number }
+/** how often the hosting service is asked whether it serves this server: while it does, and while it does not */
+const BROKER_CHECK_MS = 10 * 60_000, BROKER_RETRY_MS = 60_000
+/** Slack's answers for a bot token that no longer works (the official app: removed, the same as Slack's own event) */
+const TOKEN_GONE = new Set(['invalid_auth', 'token_revoked', 'account_inactive', 'not_authed'])
+const HANDOFF = /^[A-Za-z0-9_-]{43}$/
 interface LinkRow { id: string; user_id: string; team_id: string; enterprise_id: string; slack_user_id: string; slack_name: string | null; created_at: string }
 interface RequestRow {
   id: string; turn_id: string; user_id: string; chat_id: string; message_id: string; team_id: string; channel_id: string
@@ -127,11 +145,28 @@ export class SlackConnector {
   private swept = 0
   private emailAuditSeen: number | null = null
   private closed = false
+  /** the hosting service's official app (broker.ts), or null: MYCEL_SLACK_BROKER_URL (or the Drive broker's) not set */
+  readonly broker: SlackBrokerClient | null
+  private feed: SlackBrokerFeed | null = null
+  /** the hosting service answered `status`: it serves this server (its app id) */
+  private brokerOk = false
+  private brokerAppId: string | null = null
+  private brokerCheckedAt = 0
+  private brokerSeq = 0
+  private brokerTimer: ReturnType<typeof setInterval> | null = null
+  private recovering = false
+  private recoveredAt = 0
 
-  constructor(readonly ctx: AppContext, readonly deps: SlackDeps = {}) {
+  constructor(readonly ctx: AppContext, readonly deps: SlackConnectorDeps = {}) {
     this.api = new SlackApi(deps)
     this.now = deps.now ?? Date.now
     this.box = new SecretBox(path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'slack'))
+    const b = deps.broker !== undefined ? deps.broker : slackBrokerFor(ctx)
+    this.broker = b ? new SlackBrokerClient({ now: this.now, ...b }) : null
+    if (this.broker) {
+      this.brokerTimer = setInterval(() => { if (this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : BROKER_RETRY_MS)) void this.checkBroker() }, 30_000)
+      ;(this.brokerTimer as { unref?: () => void }).unref?.()
+    }
     ctx.onClose(() => this.close())
   }
 
@@ -141,6 +176,9 @@ export class SlackConnector {
   close() {
     this.closed = true
     this.socket?.stop(); this.socket = null
+    this.feed?.stop(); this.feed = null
+    if (this.brokerTimer) clearInterval(this.brokerTimer)
+    this.brokerTimer = null
     if (this.poller) clearInterval(this.poller)
     this.poller = null
   }
@@ -153,12 +191,31 @@ export class SlackConnector {
     try { return this.box.open<Tokens>(AAD, cfg.secret_enc, cfg.key_version) } catch { return null }
   }
 
-  /** Start or stop the connection as the configuration says (turned on, tokens saved). */
+  /** Start or stop the connection as the configuration says (turned on, tokens saved): the own app's Socket Mode
+   * connection, or the official app's long poll at the hosting service. */
   refresh() {
     if (this.closed) return
     const cfg = this.config()
     const on = !!cfg?.enabled && !!cfg.secret_enc
-    if (!on) { this.socket?.stop(); this.socket = null; this.stopPoller(); return }
+    const official = cfg?.mode === 'official'
+    if (!on || official) { this.socket?.stop(); this.socket = null }
+    if (!on || !official) { this.feed?.stop(); this.feed = null }
+    if (!on) { this.stopPoller(); return }
+    if (official) {
+      // the variable was taken away: nothing comes in (the status line says not served)
+      if (!this.broker) { this.noteState('error', 'not_served'); this.stopPoller(); return }
+      if (!this.feed) {
+        this.feed = new SlackBrokerFeed({
+          client: this.broker, log: this.log, retryMs: this.deps.retryMs, ...(this.deps.pollWaitMs !== undefined ? { waitMs: this.deps.pollWaitMs } : {}),
+          onEvent: (e) => this.onBrokerEvent(e),
+          onInstall: (install) => this.noteInstall(install),
+          onState: (s, err) => this.noteState(s, err),
+        })
+        this.feed.start()
+      }
+      this.startPoller()
+      return
+    }
     if (!this.socket) {
       this.socket = new SlackSocket({
         api: this.api, log: this.log, retryMs: this.deps.retryMs, expectedAppId: cfg!.app_id,
@@ -172,6 +229,8 @@ export class SlackConnector {
   }
 
   private noteState(s: SlackState, err: SlackErrorCode | null) {
+    // the official app removed from the workspace: that stays the reason until it is added again
+    if (this.config()?.last_error === 'removed' && !this.config()?.secret_enc) return
     try { this.db.query('UPDATE slack_config SET last_error = ? WHERE id = 1 AND last_error IS NOT ?').run(err, err) } catch {}
     // each new connection reads the bot's name again: it may have been renamed in Slack's app settings
     if (s === 'connected') void this.readBotName()
@@ -209,15 +268,27 @@ export class SlackConnector {
     const redirect = this.redirectUri(cfg?.link_origin ?? origin)
     const manifest = slackManifest(undefined, redirect)
     const linked = (this.db.query('SELECT count(*) n FROM slack_links').get() as { n: number }).n
-    const state: SlackState = !cfg?.enabled || !cfg.secret_enc ? 'off' : this.socket?.state ?? 'connecting'
-    const lastError = (cfg?.enabled ? (this.socket?.lastError ?? cfg.last_error) : null) as SlackErrorCode | null
+    const official = cfg?.mode === 'official'
+    const live = official ? this.feed : this.socket
+    const state: SlackState = !cfg?.enabled || !cfg.secret_enc ? 'off' : live?.state ?? (official && !this.broker ? 'error' : 'connecting')
+    // the official app removed from the workspace: said whether it is on or off, until it is added again
+    const removed = official && !cfg?.secret_enc && cfg?.last_error === 'removed'
+    const lastError = (removed ? 'removed' : cfg?.enabled ? (live?.lastError ?? cfg.last_error) : null) as SlackErrorCode | null
     return {
+      mode: official ? 'official' : 'own', official: !!this.broker && this.brokerOk,
       enabled: !!cfg?.enabled, tokens: !!cfg?.secret_enc,
       workspace: cfg?.team_id ? { teamId: cfg.team_id, name: cfg.team_name ?? cfg.team_id, url: cfg.team_url } : null,
       botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state, lastError: state === 'connected' ? null : lastError,
       linkOrigin: cfg?.link_origin ?? null, linked, manifest: JSON.stringify(manifest, null, 2), createUrl: createAppUrl(manifest),
-      signIn: !!cfg?.client_id && !!this.tokens(cfg)?.clientSecret, redirectUrl: redirect,
+      signIn: official ? !!cfg?.secret_enc && !!this.broker : !!cfg?.client_id && !!this.tokens(cfg)?.clientSecret, redirectUrl: redirect,
     }
+  }
+
+  /** Admin › Slack: the hosting service asked again when its last answer is old (or never came), so the page says
+   * whether "Add to Slack" can be used now. */
+  async freshAdminView(origin: string | null = null): Promise<SlackAdmin> {
+    if (this.broker && this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : BROKER_RETRY_MS)) await this.checkBroker()
+    return this.adminView(origin)
   }
 
   /** Check both tokens with Slack, then keep them sealed. Another workspace than before drops every link. */
@@ -228,6 +299,8 @@ export class SlackConnector {
     if (!APP_TOKEN.test(app)) throw new SlackError('not_app_token', 'validation', { field: 'appToken' })
     if (!CLIENT_ID.test(clientId)) throw new SlackError('not_client_id', 'validation', { field: 'clientId' })
     if (!CLIENT_SECRET.test(clientSecret)) throw new SlackError('not_client_secret', 'validation', { field: 'clientSecret' })
+    // the official app is added here: Remove it first (its install is the hosting service's to take off the workspace)
+    { const c = this.config(); if (c?.mode === 'official' && c.secret_enc) throw new SlackError('official_saved', 'conflict') }
     let who: Record<string, unknown> & { scopes: string[] | null }
     try { who = await this.api.call('auth.test', bot) } catch (e) { throw new SlackError(errorCode(e), 'validation', { field: 'botToken' }) }
     if (who.is_enterprise_install === true) throw new SlackError('enterprise_install', 'validation', { field: 'botToken' })
@@ -264,11 +337,11 @@ export class SlackConnector {
     const enterprise = typeof who.enterprise_id === 'string' && ID.test(who.enterprise_id) ? who.enterprise_id : null
     this.db.transaction(() => {
       if (changed) this.forgetWorkspace()
-      this.db.query(`INSERT INTO slack_config (id, enabled, team_id, team_name, team_url, enterprise_id, bot_user_id, bot_name, app_id, client_id, secret_enc, key_version, link_origin, last_error, updated_by, updated_at)
-        VALUES (1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      this.db.query(`INSERT INTO slack_config (id, enabled, team_id, team_name, team_url, enterprise_id, bot_user_id, bot_name, app_id, client_id, secret_enc, key_version, link_origin, last_error, updated_by, updated_at, mode, install_id)
+        VALUES (1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'own', NULL)
         ON CONFLICT(id) DO UPDATE SET team_id = excluded.team_id, team_name = excluded.team_name, team_url = excluded.team_url, enterprise_id = excluded.enterprise_id,
           bot_user_id = excluded.bot_user_id, bot_name = excluded.bot_name, app_id = excluded.app_id, client_id = excluded.client_id, secret_enc = excluded.secret_enc, key_version = excluded.key_version,
-          link_origin = excluded.link_origin, last_error = NULL, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+          link_origin = excluded.link_origin, last_error = NULL, updated_by = excluded.updated_by, updated_at = excluded.updated_at, mode = 'own', install_id = NULL`)
         .run(team, cleanName(who.team) ?? team, url, enterprise, botUser, botName, appId, clientId, sealed.enc, sealed.keyVersion, origin, actor, now)
     })()
     audit(this.db, { actor, action: 'slack.tokens', target: team, detail: { workspaceChanged: changed } })
@@ -287,16 +360,23 @@ export class SlackConnector {
     return this.adminView()
   }
 
-  remove(actor: string): SlackAdmin {
+  /** Forget the tokens and every link. The official app: the hosting service takes it off the workspace first (best
+   * effort: unreachable, it is removed here anyway and its operator can remove the install there). */
+  async remove(actor: string): Promise<SlackAdmin> {
     const cfg = this.config()
+    let slack: 'removed' | 'unavailable' | null = null
+    if (cfg?.mode === 'official') {
+      this.feed?.stop(); this.feed = null
+      slack = this.broker ? await this.broker.uninstall() : 'unavailable'
+    }
     this.db.transaction(() => { this.forgetWorkspace(); this.db.query('DELETE FROM slack_config').run() })()
-    if (cfg) audit(this.db, { actor, action: 'slack.removed', target: cfg.team_id })
+    if (cfg) audit(this.db, { actor, action: 'slack.removed', target: cfg.team_id, ...(slack ? { detail: { via: 'official', slack } } : {}) })
     this.refresh()
     return this.adminView()
   }
 
   private forgetWorkspace() {
-    for (const t of ['slack_links', 'slack_link_tokens', 'slack_signin_flows', 'slack_threads', 'slack_requests', 'slack_events']) this.db.query(`DELETE FROM ${t}`).run()
+    for (const t of ['slack_links', 'slack_link_tokens', 'slack_signin_flows', 'slack_install_flows', 'slack_threads', 'slack_requests', 'slack_events']) this.db.query(`DELETE FROM ${t}`).run()
   }
 
   // ---------------------------------------------------------------- people (Settings, the link page)
@@ -313,8 +393,10 @@ export class SlackConnector {
     }
   }
 
-  /** "Sign in with Slack" can be offered: turned on, the app's client id and secret saved, an https address */
+  /** "Sign in with Slack" can be offered: turned on, the app's client id and secret saved, an https address; the
+   * official app: turned on (the hosting service's redirect URL is its own) */
   private signInReady(cfg = this.config()): boolean {
+    if (cfg?.mode === 'official') return this.available(cfg) && !!this.broker
     return this.available(cfg) && !!cfg!.client_id && !!this.tokens(cfg)?.clientSecret && !!this.redirectUri(cfg!.link_origin)
   }
 
@@ -483,8 +565,9 @@ export class SlackConnector {
    * stored hashed, bound to this person, 10 minutes. The person's browser goes to Slack: in the desktop app the system
    * browser, in the phone app an in-app browser, so it may come back without the app's session (then the person signs
    * in there and it goes on). `client`: where it started, for the page at the end. */
-  startSignIn(userId: string, sessionId: string, client: string = 'web'): { authorizationUrl: string } {
+  async startSignIn(userId: string, sessionId: string, client: string = 'web'): Promise<{ authorizationUrl: string }> {
     const cfg = this.config(), creds = this.tokens(cfg)
+    if (cfg?.mode === 'official') return this.startBrokerSignIn(userId, sessionId, client, cfg)
     if (!cfg || !this.available(cfg) || !cfg.client_id || !creds?.clientSecret) throw new SlackError('signin_off', 'conflict')
     const redirect = this.redirectUri(cfg.link_origin)
     if (!redirect) throw new SlackError('https_needed', 'conflict')
@@ -510,13 +593,15 @@ export class SlackConnector {
    * person's session refuses and ends it. The code is exchanged by the server (openid.connect.token, with the client
    * secret) and the id_token's claims checked (issuer, audience, time, nonce); the Slack user it names is the one who
    * signed in to Slack, so it is linked. `client`: where the flow started. */
-  async finishSignIn(input: { state?: string; code?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
+  async finishSignIn(input: { state?: string; code?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
     if (!input.state || !STATE.test(input.state)) return { result: 'signin_expired', client: 'web' }
-    const f = this.db.query('SELECT * FROM slack_signin_flows WHERE state_hash = ?').get(sha(input.state)) as { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string } | null
+    const f = this.db.query('SELECT * FROM slack_signin_flows WHERE state_hash = ?').get(sha(input.state)) as SigninFlowRow | null
     if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'signin_expired', client: f?.client ?? 'web' }
     const out = (result: string) => ({ result, client: f.client })
     const end = (reason: string) => { this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
     if (input.error) return end('signin_cancelled')
+    // through the hosting service: its one-time handoff instead of Slack's code
+    if (f.via === 'broker') return this.finishBrokerSignIn(f, input.handoff, browser, out, end)
     if (!input.code || !CODE.test(input.code)) return end('signin_failed')
     // no session in this browser (the desktop app's system browser, the phone app's in-app browser, another address):
     // sign in here first, then this same address again; the flow waits
@@ -540,9 +625,14 @@ export class SlackConnector {
     if (claims.iss !== 'https://slack.com' || claims.aud !== cfg.client_id || typeof claims.exp !== 'number' || claims.exp < nowS - 60 || typeof claims.nonce !== 'string' || sha(claims.nonce) !== f.nonce_hash) return fail('signin_failed')
     const slackUser = claims['https://slack.com/user_id']
     if (typeof slackUser !== 'string' || !ID.test(slackUser) || claims['https://slack.com/team_id'] !== cfg.team_id) return fail('outsider')
+    return this.linkSignedIn(f, cfg, creds.bot, me, slackUser, fail, out)
+  }
+
+  /** The end of every "Sign in with Slack": the Slack user who signed in is linked to the person who started it. */
+  private async linkSignedIn(f: SigninFlowRow, cfg: ConfigRow, bot: string, me: { name: string; username: string }, slackUser: string, fail: (r: string) => { result: string; client: string }, out: (r: string) => { result: string; client: string }) {
     const team = cfg.team_id!
     // Slack says now who this is: a person of this workspace (no bot, not deactivated), as for every link
-    const m = await this.slackMember(creds.bot, slackUser, cfg)
+    const m = await this.slackMember(bot, slackUser, cfg)
     if (!m) return fail('signin_failed')
     if (!m.ours) return fail('outsider')
     const now = iso(this.now())
@@ -557,15 +647,228 @@ export class SlackConnector {
     if (made) {
       audit(this.db, { actor: f.user_id, action: 'slack.linked', target: f.user_id, detail: { slackUser, team, via: 'slack_signin' } })
       // the Slack account is told which account it now asks as, and how to undo it
-      await this.dm(creds.bot, slackUser, say('mapped', this.localeOf(f.user_id), { name: plain(`${me.name} (@${me.username})`) }))
+      await this.dm(bot, slackUser, say('mapped', this.localeOf(f.user_id), { name: plain(`${me.name} (@${me.username})`) }))
     }
     return out('linked')
+  }
+
+  /** "Sign in with Slack" with the official app: the hosting service's redirect URL is the one Slack knows, so it
+   * exchanges the code (and checks Slack's id_token, and revokes the person's token) and sends the browser back here
+   * with a one-time handoff that only this flow's verifier redeems. The same binding to the person as the own app's. */
+  private async startBrokerSignIn(userId: string, sessionId: string, client: string, cfg: ConfigRow): Promise<{ authorizationUrl: string }> {
+    if (!this.available(cfg) || !this.broker || !this.person(userId)) throw new SlackError('signin_off', 'conflict')
+    const now = this.now()
+    const recent = (this.db.query('SELECT count(*) n FROM slack_signin_flows WHERE user_id = ? AND created_at > ?').get(userId, iso(now - 3600_000)) as { n: number }).n
+    if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
+    const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
+    let sealed: { enc: string; keyVersion: number }
+    try { sealed = this.box.seal(`slack:signin-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    this.db.transaction(() => {
+      this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'superseded' WHERE user_id = ? AND state = 'pending'").run(userId)
+      this.db.query(`INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, client, state, created_at, expires_at, via, verifier_enc, verifier_key_version)
+        VALUES (?, ?, ?, ?, '', ?, ?, 'pending', ?, ?, 'broker', ?, ?)`)
+        .run(id, userId, sessionId, sha(state), `${cfg.link_origin ?? ''}${SLACK_CALLBACK_PATH}`, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS), sealed.enc, sealed.keyVersion)
+    })()
+    try { return { authorizationUrl: await this.broker.startSignIn(state, challengeOf(verifier)) } } catch (e) {
+      this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'broker' WHERE id = ?").run(id)
+      throw brokerRefusal(e)
+    }
+  }
+
+  private async finishBrokerSignIn(f: SigninFlowRow, handoff: string | undefined, browser: { userId: string } | null, out: (r: string) => { result: string; client: string }, end: (r: string) => { result: string; client: string }) {
+    if (!handoff || !HANDOFF.test(handoff)) return end('signin_failed')
+    // no session in this browser: sign in here first, then this same address again; the flow waits
+    if (!browser) return out('signin_needed')
+    if (browser.userId !== f.user_id) return end('signin_other_user')
+    if (!this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'used' WHERE id = ? AND state = 'pending'").run(f.id).changes) return out('signin_expired')
+    const fail = (reason: string) => { this.db.query('UPDATE slack_signin_flows SET reason = ? WHERE id = ?').run(reason, f.id); return out(reason) }
+    const cfg = this.config(), creds = this.tokens(cfg), me = this.person(f.user_id)
+    if (!cfg || cfg.mode !== 'official' || !this.available(cfg) || !creds || !this.broker || !me) return fail('signin_off')
+    let verifier: string
+    try { verifier = this.box.open<{ verifier: string }>(`slack:signin-flow:${f.id}`, f.verifier_enc, f.verifier_key_version ?? 0).verifier } catch { return fail('signin_failed') }
+    let who: { slackUserId: string; slackTeamId: string }
+    try { who = await this.broker.redeemSignIn(handoff, verifier) } catch (e) {
+      const code = e instanceof SlackBrokerError ? e.code : 'unreachable'
+      this.log.warn('slack sign-in through the hosting service failed', { reason: code })
+      return fail(code === 'outsider' ? 'outsider' : code === 'invalid_handoff' ? 'signin_expired' : 'signin_failed')
+    }
+    // the hosting service checked Slack's answer; the workspace is checked here again
+    if (who.slackTeamId !== cfg.team_id) return fail('outsider')
+    return this.linkSignedIn(f, cfg, creds.bot, me, who.slackUserId, fail, out)
   }
 
   cancel(userId: string, token: string) {
     const { r } = this.tokenRow(token)
     if (!this.person(userId)) throw new SlackError('link_expired', 'not_found')
     this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL').run(iso(this.now()), r.token_hash)
+  }
+
+  // ---------------------------------------------------------------- the official app (the hosting service, broker.ts)
+  /** Ask the hosting service whether it serves this server (signed `status`). Until it says yes, "Add to Slack" is not
+   * offered; its answer also names this server's install, so an install it forgot (or a token lost here) shows. */
+  async checkBroker(): Promise<boolean> {
+    if (!this.broker) return false
+    this.brokerCheckedAt = this.now()
+    const seq = ++this.brokerSeq
+    // an answer from before an install finished here says nothing about it
+    const installedBefore = this.config()?.install_id ?? null
+    let answer: { appId: string; install: SlackBrokerInstallInfo | null } | null = null, reason = ''
+    try { answer = await this.broker.status() } catch (e) { reason = e instanceof SlackBrokerError ? e.code : 'unreachable' }
+    if (seq !== this.brokerSeq || this.closed) return !!answer
+    if (!!answer !== this.brokerOk) this.log.info(answer ? 'Slack through the hosting service is available' : 'Slack through the hosting service is not available', { reason })
+    this.brokerOk = !!answer
+    this.brokerAppId = answer?.appId ?? null
+    if (answer && (this.config()?.install_id ?? null) === installedBefore) this.noteInstall(answer.install)
+    return !!answer
+  }
+
+  /** The owner pressed "Add to Slack" (Admin › Slack): a flow bound to them (state hashed, its PKCE verifier sealed, 10
+   * minutes, used once, the newest only), and Slack's own install page from the hosting service. `origin`: the team's
+   * address the page is open at (where links in Slack will open). */
+  async startInstall(userId: string, sessionId: string, client: string, origin: string): Promise<{ authorizationUrl: string }> {
+    if (!this.broker) throw new SlackError('official_off', 'conflict')
+    const cfg = this.config()
+    if (cfg?.mode !== 'official' && cfg?.secret_enc) throw new SlackError('own_app_saved', 'conflict')
+    if (!this.brokerOk) await this.checkBroker()
+    if (!this.brokerOk) throw new SlackError('official_off', 'conflict')
+    const now = this.now()
+    const recent = (this.db.query('SELECT count(*) n FROM slack_install_flows WHERE user_id = ? AND created_at > ?').get(userId, iso(now - 3600_000)) as { n: number }).n
+    if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
+    const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
+    let sealed: { enc: string; keyVersion: number }
+    try { sealed = this.box.seal(`slack:install-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    this.db.transaction(() => {
+      this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'superseded' WHERE state = 'pending'").run()
+      this.db.query("INSERT INTO slack_install_flows (id, user_id, session_id, state_hash, verifier_enc, key_version, link_origin, client, state, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
+        .run(id, userId, sessionId, sha(state), sealed.enc, sealed.keyVersion, origin, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS))
+    })()
+    try { return { authorizationUrl: await this.broker.startInstall(state, challengeOf(verifier)) } } catch (e) {
+      this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'broker' WHERE id = ?").run(id)
+      throw brokerRefusal(e)
+    }
+  }
+
+  /** The hosting service sent the owner's browser back after Slack's "Add to Slack": only a browser signed in as the
+   * owner who started it finishes it (no session: sign in first, the flow waits; another person: refused and ended).
+   * The handoff is redeemed with this flow's verifier for the install and its bot token (sealed to a key made for
+   * that request), which Slack itself must confirm (auth.test) before it is kept. */
+  async finishInstall(input: { state?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
+    if (!input.state || !STATE.test(input.state)) return { result: 'install_expired', client: 'web' }
+    const f = this.db.query('SELECT * FROM slack_install_flows WHERE state_hash = ?').get(sha(input.state)) as InstallFlowRow | null
+    if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'install_expired', client: f?.client ?? 'web' }
+    const out = (result: string) => ({ result, client: f.client })
+    const end = (reason: string) => { this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
+    if (input.error) return end(input.error === 'consent_denied' ? 'install_cancelled' : 'install_failed')
+    if (!input.handoff || !HANDOFF.test(input.handoff)) return end('install_failed')
+    if (!browser) return out('signin_needed')
+    if (browser.userId !== f.user_id) return end('signin_other_user')
+    if (!this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'used' WHERE id = ? AND state = 'pending'").run(f.id).changes) return out('install_expired')
+    const fail = (reason: string) => { this.db.query('UPDATE slack_install_flows SET reason = ? WHERE id = ?').run(reason, f.id); return out(reason) }
+    // still the team's owner (a role can change in 10 minutes)
+    const owner = this.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(f.user_id)
+    if (!owner || !this.broker) return fail('install_failed')
+    let verifier: string
+    try { verifier = this.box.open<{ verifier: string }>(`slack:install-flow:${f.id}`, f.verifier_enc, f.key_version).verifier } catch { return fail('install_failed') }
+    let got: { install: SlackBrokerInstallInfo; botToken: string }
+    try { got = await this.broker.redeem(input.handoff, verifier) } catch (e) {
+      const code = e instanceof SlackBrokerError ? e.code : 'unreachable'
+      this.log.warn('slack install through the hosting service failed', { reason: code })
+      return fail(code === 'workspace_taken' || code === 'enterprise_install' || code === 'missing_scope' ? code : code === 'invalid_handoff' ? 'install_expired' : code === 'unreachable' ? 'broker_unreachable' : 'install_failed')
+    }
+    const before = this.config()
+    try { await this.saveInstall(f.user_id, got.install, got.botToken, f.link_origin) } catch (e) {
+      if (!(e instanceof SlackError)) throw e
+      // not kept here: not left added there either (unless it is this server's working install, added again)
+      if (!(before?.mode === 'official' && before.install_id === got.install.installId && before.secret_enc)) void this.broker.uninstall()
+      return fail(e.reason === 'unreachable' ? 'install_failed' : e.reason)
+    }
+    this.db.query("UPDATE slack_install_flows SET state = 'done', reason = NULL WHERE id = ?").run(f.id)
+    return out('installed')
+  }
+
+  /** Keep an install of the official app and its bot token (after "Add to Slack", or fetched again): Slack itself says
+   * the token is of that workspace and bot (auth.test), with every scope; the app is the one the hosting service
+   * serves. Another workspace than before drops every link; the same one keeps them. Turned on at once. */
+  private async saveInstall(actor: string | null, install: SlackBrokerInstallInfo, bot: string, origin: string | null) {
+    const before = this.config()
+    if (before?.mode !== 'official' && before?.secret_enc) throw new SlackError('own_app_saved', 'conflict')
+    if (this.brokerAppId && install.appId !== this.brokerAppId) throw new SlackError('install_failed')
+    let who: Record<string, unknown> & { scopes: string[] | null }
+    try { who = await this.api.call('auth.test', bot) } catch (e) { throw new SlackError(errorCode(e) === 'unreachable' ? 'unreachable' : 'install_failed', 'unavailable') }
+    if (who.is_enterprise_install === true) throw new SlackError('enterprise_install')
+    if (who.team_id !== install.teamId || who.user_id !== install.botUserId) {
+      this.log.warn('slack install does not match its bot token', { installId: install.installId })
+      throw new SlackError('install_failed')
+    }
+    if (who.scopes && BOT_SCOPES.some((sc) => !who.scopes!.includes(sc))) throw new SlackError('missing_scope')
+    const botName = await this.botNameOf(bot, install.botUserId)
+    let sealed: { enc: string; keyVersion: number }
+    try { sealed = this.box.seal(AAD, { bot } satisfies Tokens) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    const changed = !!before?.team_id && before.team_id !== install.teamId
+    const now = iso(this.now())
+    const url = typeof who.url === 'string' && /^https:\/\/[a-z0-9.-]+\/?$/i.test(who.url) ? who.url : null
+    this.db.transaction(() => {
+      if (changed) this.forgetWorkspace()
+      this.db.query(`INSERT INTO slack_config (id, enabled, team_id, team_name, team_url, enterprise_id, bot_user_id, bot_name, app_id, client_id, secret_enc, key_version, link_origin, last_error, updated_by, updated_at, mode, install_id)
+        VALUES (1, 1, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, ?, ?, 'official', ?)
+        ON CONFLICT(id) DO UPDATE SET enabled = 1, team_id = excluded.team_id, team_name = excluded.team_name, team_url = excluded.team_url, enterprise_id = excluded.enterprise_id,
+          bot_user_id = excluded.bot_user_id, bot_name = excluded.bot_name, app_id = excluded.app_id, client_id = NULL, secret_enc = excluded.secret_enc, key_version = excluded.key_version,
+          link_origin = excluded.link_origin, last_error = NULL, updated_by = COALESCE(excluded.updated_by, slack_config.updated_by), updated_at = excluded.updated_at, mode = 'official', install_id = excluded.install_id`)
+        .run(install.teamId, cleanName(install.teamName) ?? install.teamId, url, install.enterpriseId, install.botUserId, botName, install.appId, sealed.enc, sealed.keyVersion, origin ?? before?.link_origin ?? null, actor, now, install.installId)
+    })()
+    audit(this.db, { actor, action: 'slack.installed', target: install.teamId, detail: { via: 'official', installId: install.installId, workspaceChanged: changed, ...(actor ? {} : { restored: true }) } })
+    // a fresh feed with the new token
+    this.feed?.stop(); this.feed = null
+    this.refresh()
+  }
+
+  /** The install as the hosting service says it (each poll, each status): gone there (an operator removed it, or its
+   * lifecycle event was missed) = removed here too; another install, or a token that does not open here (a restore on
+   * a new machine): the token is fetched again. */
+  private noteInstall(install: SlackBrokerInstallInfo | null) {
+    const cfg = this.config()
+    if (!cfg || cfg.mode !== 'official' || !cfg.install_id || !cfg.secret_enc) return
+    if (!install) { this.removedInSlack('removed'); return }
+    if (install.installId !== cfg.install_id || install.teamId !== cfg.team_id || !this.tokens(cfg)) void this.recoverToken()
+  }
+
+  private async recoverToken() {
+    if (!this.broker || this.recovering || this.now() - this.recoveredAt < 5 * 60_000) return
+    this.recovering = true; this.recoveredAt = this.now()
+    try {
+      const got = await this.broker.token()
+      await this.saveInstall(null, got.install, got.botToken, null)
+      this.log.info('slack bot token fetched again from the hosting service', { installId: got.install.installId })
+    } catch (e) { this.log.warn('slack bot token could not be fetched again', { reason: e instanceof SlackBrokerError ? e.code : e instanceof SlackError ? e.reason : 'unknown' }) }
+    finally { this.recovering = false }
+  }
+
+  /** One envelope from the hosting service's long poll: Slack's own envelope, checked exactly as one from a socket of
+   * our own (onEnvelope: the workspace and the app id installed here); `lifecycle`: removed from the workspace. */
+  private async onBrokerEvent(e: SlackBrokerEvent) {
+    if (e.kind === 'lifecycle') {
+      const ev = (e.payload as { event?: unknown } | null)?.event
+      if (ev === 'uninstalled' || ev === 'tokens_revoked' || ev === 'removed') this.removedInSlack(ev)
+      return
+    }
+    await this.onEnvelope({ envelope_id: e.id, type: e.kind, payload: e.payload })
+  }
+
+  /** The official app was removed from the workspace (in Slack, by Slack revoking its token, or by the hosting
+   * service's operator): its token is forgotten; links stay (the same workspace when it is added again). */
+  private removedInSlack(reason: string) {
+    const cfg = this.config()
+    if (!cfg || cfg.mode !== 'official' || !cfg.secret_enc) return
+    this.db.query("UPDATE slack_config SET secret_enc = NULL, key_version = NULL, install_id = NULL, last_error = 'removed', updated_at = ? WHERE id = 1 AND mode = 'official'").run(iso(this.now()))
+    audit(this.db, { actor: null, action: 'slack.removed_in_slack', target: cfg.team_id, detail: { reason } })
+    this.log.info('slack app removed from the workspace', { reason })
+    this.refresh()
+  }
+
+  /** A post Slack refused because the bot token no longer works: with the official app that is the same as Slack's
+   * own "removed" event (the hosting service may not have heard yet). */
+  private tokenRefused(e: unknown) {
+    if (e instanceof SlackApiError && TOKEN_GONE.has(e.code) && this.config()?.mode === 'official') this.removedInSlack('tokens_revoked')
   }
 
   private localeOf(userId: string | null): Locale {
@@ -622,7 +925,7 @@ export class SlackConnector {
 
   private async ephemeral(bot: string, q: Pick<Question, 'channel' | 'user' | 'threadTs'>, text: string, blocks?: unknown[]) {
     try { await this.api.call('chat.postEphemeral', bot, { channel: q.channel, user: q.user, ...(q.threadTs ? { thread_ts: q.threadTs } : {}), text, ...(blocks ? { blocks } : {}) }) }
-    catch (e) { this.log.warn('slack ephemeral message failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
+    catch (e) { this.log.warn('slack ephemeral message failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); this.tokenRefused(e) }
   }
 
   private async question(cfg: ConfigRow, q: Question) {
@@ -842,6 +1145,7 @@ export class SlackConnector {
       }
       else this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id)
       this.log.warn('slack answer could not be delivered', { reason: code })
+      this.tokenRefused(e)
     }
   }
 
@@ -984,10 +1288,20 @@ async function refusedBlocksAgain(body: { blocks: unknown[]; plainBlocks: unknow
   }
 }
 
+/** A refusal of the hosting service (broker.ts) as the owner's or person's reason: not served here, its limit, or
+ * not reachable now. Never its message. */
+function brokerRefusal(e: unknown): SlackError {
+  const code = e instanceof SlackBrokerError ? e.code : 'unreachable'
+  if (code === 'not_hosted' || code === 'not_configured') return new SlackError('official_off', 'conflict')
+  if (code === 'not_installed') return new SlackError('signin_off', 'conflict')
+  if (code === 'rate_limited') return new SlackError('ratelimited', 'rate_limited')
+  return new SlackError('broker_unreachable', 'unavailable')
+}
+
 const instances = new WeakMap<AppContext, SlackConnector>()
-/** The connector of this server. `deps` only from offline tests (a fake Slack): it replaces the one made at start,
- * never from HTTP, a file or the environment. */
-export function slackOf(ctx: AppContext, deps?: SlackDeps): SlackConnector {
+/** The connector of this server. `deps` only from offline tests (a fake Slack, a fake hosting service): it replaces
+ * the one made at start, never from HTTP, a file or the environment. */
+export function slackOf(ctx: AppContext, deps?: SlackConnectorDeps): SlackConnector {
   let s = instances.get(ctx)
   if (!s || deps) { s?.close(); s = new SlackConnector(ctx, deps ?? {}); instances.set(ctx, s) }
   return s
