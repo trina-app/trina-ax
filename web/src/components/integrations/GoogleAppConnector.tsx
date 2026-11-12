@@ -1,16 +1,16 @@
 // Gmail, Google Calendar, Google Docs and Google Sheets for one person (docs/GOOGLE-APPS.md; the API is
 // shared/src/api/google-apps.ts): one Google sign-in per app, the same steps as Google Drive's (useSignInFlow): Connect
 // opens Google at once, back from it one line asks to confirm the account, then the app is connected. Its page
-// (GoogleAppDetail, AppDetail.tsx) then offers Try in chat, Settings (ask before each change, or Always allow) and ⋯
-// (Reconnect, Disconnect). An app that cannot be connected says why in plain words, an admin gets the way to set it up,
+// (GoogleAppDetail, AppDetail.tsx) then shows Connected and ⋯ (Settings: ask before each change, or Always allow;
+// Reconnect; Disconnect). An app that cannot be connected says why in plain words, an admin gets the way to set it up,
 // and a member whose team has not set it up asks an admin to add it (AskAdmin.tsx).
-import { Settings2 } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { API, type GoogleAppId, type GoogleAppView } from '@mycel/shared/api'
 import { api } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, exampleKeys, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, unavailableKeys, developerKey } from '../../lib/googleApps'
+import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, unavailableKeys, developerKey } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -127,27 +127,24 @@ export function SignInSteps({ d, testId, failed }: { d: GoogleAppFlowState; test
   )
 }
 
-/** "Try in chat" and the example prompts: a new chat with the text in its box (pages/Connectors.tsx). */
-export type StartChat = (text: string) => void
-
 /** What a member's page offers for an app the team has not set up: ask an admin to add it (AskAdmin.tsx). */
 export interface AskProps { state: AskState; busy: boolean; onAsk: () => void; error?: string | null }
 
 /** A Google app's page. `ask`: a member, and the team has not set it up: "Ask admin to add it" takes the place of the
  * Connect button and of the line that says it is not set up. */
-export function GoogleAppDetail({ v, g, onChat, ask }: { v: GoogleAppView; g: GoogleAppsState; onChat: StartChat; ask?: AskProps }) {
+export function GoogleAppDetail({ v, g, ask }: { v: GoogleAppView; g: GoogleAppsState; ask?: AskProps }) {
   const t = useT()
   const admin = isAdmin(useMe())
   const [settings, setSettings] = useState(false)
   const d = g.flows[v.id]
   const name = builtInName(v.id)
   const flow = d.inProgress ? d.flow : null
-  const examples = exampleKeys(v.id).map((k) => t(k))
   const why = !v.available ? unavailableKeys(v.reason, admin) : null
   const busy = g.busy === v.id || d.busy
   const linked = v.status !== 'disconnected'
   const menu = (
     <CardMenu label={t('appConnectors.more', { name })} testId="gapp-menu" items={[
+      ...(v.status === 'connected' ? [{ label: t('gapps.settings'), onSelect: () => setSettings(true), testId: 'gapp-settings' }] : []),
       ...(v.available && v.status === 'connected' ? [{ label: t('drive.reconnect'), onSelect: () => void d.start(), disabled: busy, testId: 'gapp-menu-reconnect' }] : []),
       { label: t('drive.disconnect'), onSelect: () => void g.disconnect(v.id), danger: true, disabled: busy, testId: 'gapp-menu-disconnect' },
     ]} />
@@ -156,8 +153,7 @@ export function GoogleAppDetail({ v, g, onChat, ask }: { v: GoogleAppView; g: Go
     : ask ? <AskAdminAction state={ask.state} busy={ask.busy} onAsk={ask.onAsk} />
     : v.status === 'connected' ? (
       <>
-        <Button variant="primary" onClick={() => onChat(examples[0]!)} data-testid="gapp-try">{t('gapps.tryInChat')}</Button>
-        <Button onClick={() => setSettings(true)} data-testid="gapp-settings"><Settings2 size={15} aria-hidden /> {t('gapps.settings')}</Button>
+        <span className="flex items-center gap-1 text-xs text-ok" data-testid="gapp-connected"><Check size={14} aria-hidden />{t('drive.status.connected')}</span>
         {menu}
       </>
     ) : v.status === 'needs_reconnect' ? (
@@ -191,11 +187,10 @@ export function GoogleAppDetail({ v, g, onChat, ask }: { v: GoogleAppView; g: Go
           )}
           <SignInSteps d={d} testId="gapp" failed={t(d.reason === 'scope_denied' ? 'gapps.scopeDenied' : 'drive.failed')} />
         </>}
-        examples={examples} onExample={onChat}
         about={t(aboutKey(v.id))}
         canChange={canChange(v.tools)} asks={v.writePolicy}
-        developer={t(developerKey(v.id))} category={t(categoryKey(v.id))}
-        links={{ privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
+        developer={t(developerKey(v.id))} category={t(categoryKey(v.id))} signIn={GOOGLE}
+        links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
         tools={v.tools} />
       {settings && <GoogleAppSettings v={v} busy={g.busy === v.id} onPolicy={(p) => void g.setPolicy(v.id, p)} onClose={() => setSettings(false)} />}
     </>

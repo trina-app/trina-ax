@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 04:24
 - Branch: `feat/connector-detail-simple`
-- Status: in progress
+- Status: done
 - Where: `web/` (the Connectors pages and the Google sign-in flow). Why: both are the web app's own screens and code
   (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. A fix in the desktop app's Connect and a lighter page; no API, setting or data change.
@@ -69,4 +69,13 @@ Playwright specs for connectors, Google apps and Drive.
 
 ## Result
 
-Filled in at the end.
+- Desktop: `reserveSignInWindow` / `openSignInWindow` / `signInPlace` in `web/src/lib/driveSignIn.ts`, used by
+  `useSignInFlow` and the Drive share sign-in. Unit tests for the helpers and a ConnectCard test in the desktop app.
+- `AppDetail.tsx` as planned. The details block shows Privacy with the provider's name and Terms next to it. Tool
+  chips show the plain tool title (not the code name); a chip that changes things has a pen marker; the description
+  shows as the shared tooltip (`Tooltip`, the repo's icon-tooltip check refuses a native `title`).
+- Google apps: Connected ✓ and ⋯; Settings is the first item of ⋯ while connected.
+- Removed i18n keys (all five languages): `gapps.tryTitle`, `about`, `canDo`, `readOnly`, `readChange`, `info`,
+  `privacyLink`, `termsLink`, `showTools`, `hideTools`, `tryInChat`, and `gapps.<app>.ex1-3`. New: `gapps.tools`,
+  `gapps.signIn`. Changed wording: `gapps.readOnlyLine`, `developer` (Made by), `privacy`, `terms`.
+- docs/GOOGLE-APPS.md "What members see" updated.
