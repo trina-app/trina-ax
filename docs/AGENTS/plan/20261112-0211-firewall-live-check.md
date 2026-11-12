@@ -64,4 +64,6 @@ for the diagnostics and chat errors, the Docker Linux attack suite (`tests/linux
 
 Built as planned. The two remote probes run at the same time (the worst case waits one timeout, not two). The Docker
 attack suite flushes the ruleset with a fresh status file: the next turn is refused with `firewall_off`, the launcher
-reports `firewall.live: false`, and after `firewall apply` turns run and `live` is true again.
+reports `firewall.live: false`, and after `firewall apply` turns run and `live` is true again. Review: route errors
+that come back at once count as blocked for the remote targets (metadata hardening), and a failed probe is tried
+once more before the turn is refused.

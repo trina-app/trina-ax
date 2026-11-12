@@ -22290,7 +22290,7 @@ partway".
   and cannot list nftables, and it must not get any: the root firewall unit takes no input from it. Before every turn,
   after the status-file check, three TCP connections must be refused at once by the table's `reject with tcp reset`:
   to a listener of its own on 127.0.0.1 (never the model proxy's port), to 169.254.169.254:80 and to 192.0.2.1:443
-  (TEST-NET-1, never routed). "Network unreachable" also counts for the two remote ones (no route: nothing can leave).
+  (TEST-NET-1, never routed).
   A connection that goes through or waits means the table is gone or changed: the turn is refused with
   `firewall_off: …`. A pass is kept for 3 seconds (a burst of turns probes once), a failure never.
 - **Repair: the timer every 30 seconds** (was 2 minutes; `supervise` too). A root watcher on nftables events would
@@ -22302,6 +22302,13 @@ partway".
   so every reader agrees. A good table writes nothing (status must not hide a stopped timer by refreshing the file).
 - **Diagnostics**: the launcher's status report has `firewall.live` and `firewall.liveProblem`; the firewall line
   fails with plain words when `live` is false. A launcher from before leaves them out, and the file decides as before.
+- **What the probe proves, and what it leaves to root.** It proves the table's TCP reset rule for the engine account
+  and catches a full flush (or a removed table). Partial root edits (an accept for UDP, a LAN range or IPv6 inserted
+  into the chain) are not caught per turn: `mycel-ctl status` reports them (`checkTable`) and the 30-second
+  `firewall apply` replaces the whole table. For the two remote targets, errors that a route answers with at once
+  (blackhole, prohibit or unreachable routes, often set to harden the metadata address: EINVAL, EACCES, EHOSTUNREACH,
+  ENETUNREACH, EPERM) also count as blocked: nothing left the machine. A failed probe is tried once more (200 ms
+  later) before the turn is refused (review of #543).
 - Not done: a turn already running when the table disappears keeps running; the next one is refused.
 
 Version impact: patch (security fix in the Linux launcher, its status and diagnostics; no API shape, data or migration

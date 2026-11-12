@@ -792,7 +792,7 @@ func platformStatus(ev map[string]any) {
 func isENOSYS(err error) bool { return errors.Is(err, syscall.ENOSYS) }
 
 // firewallLive checks that the engine firewall is in effect now (fwprobe, as the engine account). A pass is kept for
-// fwLiveFor so a burst of turns probes once; a failure is never kept (the next turn probes again, and the firewall
+// fwLiveFor so a burst of turns probes once; a failure is tried once more, then never kept (the next turn probes again, and the firewall
 // timer re-applies the table within 30 seconds). One probe at a time.
 func firewallLive() error {
 	fwLive.mu.Lock()
@@ -800,7 +800,13 @@ func firewallLive() error {
 	if !fwLive.okAt.IsZero() && time.Since(fwLive.okAt) < fwLiveFor {
 		return nil
 	}
-	if err := fwLiveProbe(*proxyPort, time.Second); err != nil {
+	err := fwLiveProbe(*proxyPort, time.Second)
+	if err != nil {
+		// one quick retry before refusing: a momentary hiccup (the 30 s apply swapping the table in one transaction)
+		time.Sleep(fwLiveRetry)
+		err = fwLiveProbe(*proxyPort, time.Second)
+	}
+	if err != nil {
 		fwLive.okAt = time.Time{}
 		return err
 	}
@@ -809,6 +815,8 @@ func firewallLive() error {
 }
 
 const fwLiveFor = 3 * time.Second
+
+var fwLiveRetry = 200 * time.Millisecond
 
 var (
 	fwLive struct {

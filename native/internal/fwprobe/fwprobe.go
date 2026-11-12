@@ -82,10 +82,13 @@ func listenLoopback(proxyPort int) (net.Listener, error) {
 	return nil, fmt.Errorf("the system keeps giving the model proxy's port")
 }
 
-// expectRefused: nil when the connection is refused (the table's reset). noRoute also accepts "network unreachable"
-// (no route to the address at all: nothing can leave for it, with or without the table, e.g. an offline server).
-func expectRefused(addr string, timeout time.Duration, noRoute bool) error {
-	c, err := net.DialTimeout("tcp", addr, timeout)
+// expectRefused: nil when the connection is refused (the table's reset). blockedOK (the remote targets) also accepts
+// the errors a route answers with before the output hook runs: a blackhole, prohibit or unreachable route (common
+// metadata hardening: EINVAL, EACCES, EHOSTUNREACH), no route at all (ENETUNREACH) or another tool's local drop
+// (EPERM). Nothing left the machine for it, and the loopback check already proves the table's reject rule; without
+// this a hardened server would refuse every turn although its table is loaded.
+func expectRefused(addr string, timeout time.Duration, blockedOK bool) error {
+	c, err := dial("tcp", addr, timeout)
 	if err == nil {
 		c.Close()
 		return errors.New("went through")
@@ -93,8 +96,12 @@ func expectRefused(addr string, timeout time.Duration, noRoute bool) error {
 	if errors.Is(err, syscall.ECONNREFUSED) {
 		return nil
 	}
-	if noRoute && errors.Is(err, syscall.ENETUNREACH) {
-		return nil
+	if blockedOK {
+		for _, e := range localBlock {
+			if errors.Is(err, e) {
+				return nil
+			}
+		}
 	}
 	var ne net.Error
 	if errors.As(err, &ne) && ne.Timeout() {
@@ -106,3 +113,8 @@ func expectRefused(addr string, timeout time.Duration, noRoute bool) error {
 	}
 	return fmt.Errorf("was not refused by the firewall (%v)", err)
 }
+
+// localBlock: errors that come back at once for a remote target that nothing can leave for (expectRefused).
+var localBlock = []syscall.Errno{syscall.ENETUNREACH, syscall.EHOSTUNREACH, syscall.EACCES, syscall.EPERM, syscall.EINVAL}
+
+var dial = net.DialTimeout
