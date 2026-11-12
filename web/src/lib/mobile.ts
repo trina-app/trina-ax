@@ -294,7 +294,10 @@ async function sendAppearance(): Promise<void> {
 /** Where Back goes in this page (nav-v1, lib/appNav.ts): the latest the page worked out. */
 export interface AppNav { canGoBack: boolean; home: boolean }
 let nav: AppNav | null = null
-/** what the app last heard, for this bridge (nonce and generation): a send of the same is skipped */
+/** what the app last heard, for this bridge (nonce and generation) and this history entry: a send of the same is
+ * skipped. The entry counts (its address and key), not only the answer: Android's app forgets what it heard when the
+ * WebView reports some same-document moves as a load start (mobile/App.tsx onLoadStart), so a move to a screen with
+ * the same answer (나's root → 프로젝트's root, both "no Back, not home") must tell it again (QA TC-404). */
 let navSent = ''
 /** Tells the app where Back goes (nav-v1: the iOS edge swipe, Android's Back): when it changes, when the bridge comes
  * and again after every session reset (a send the reset fenced off is not lost). Like the look, not tied to a session:
@@ -308,7 +311,10 @@ async function sendNav(): Promise<void> {
   const config = mobileApp()
   if (!nav || !config?.capabilities.includes(NAV_CAPABILITY)) return
   const { canGoBack, home } = nav
-  const sent = `${config.nonce}:${config.generation}:${canGoBack}:${home}`
+  const at = typeof location === 'undefined' ? '' : `${location.pathname ?? ''}${location.search ?? ''}`
+  const key = typeof history === 'undefined' ? '' : String((history.state as { key?: unknown } | null)?.key ?? '')
+  const entry = `${at}#${key}`
+  const sent = `${config.nonce}:${config.generation}:${canGoBack}:${home}:${entry}`
   if (sent === navSent) return
   navSent = sent
   try {

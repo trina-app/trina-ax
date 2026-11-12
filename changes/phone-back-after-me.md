@@ -1,0 +1,1 @@
+- Phones (Android): after opening 나, Back on another tab's first screen goes to 트리나 again instead of closing the app.
