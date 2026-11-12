@@ -3,14 +3,15 @@
 // client secret sealed in this browser for 'slack.token', never shown again, then turned on). Without the team's https
 // address one line says "Sign in with Slack" needs it. Set up: one status line with one button (turn on / off); a problem says the one
 // place to fix it. Replacing the tokens, and removing it, are behind "Replace tokens". A phone (below 768 px): the
-// cards without frames and 44 px targets (docs/DECISIONS.md "Admin and Settings on phones").
+// cards without frames and 44 px targets (docs/DECISIONS.md "Admin and Settings on phones"); the setup (Slack's pages,
+// keys to copy and paste) is a computer's job there: a status row and "Set this up on a computer" in its place.
 import { useState, type ReactNode } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { ApiError, SLACK, type SlackAdmin, type SlackErrorCode } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { Badge, Button, Field, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, Field, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Card, Loadable, useAction, useLoad } from './common'
 
 const STATE: Record<SlackAdmin['state'], { key: MessageKey; tone: 'neutral' | 'ok' | 'warn' | 'danger' }> = {
@@ -78,6 +79,7 @@ export default function AdminSlack() {
   const act = useAction()
   const [replacing, setReplacing] = useState(false)
   const set = (v: SlackAdmin | undefined) => { if (v) state.setData(v) }
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <>
       <AdminPageHeader title={t('slack.admin.title')} desc={t('slack.admin.desc')} testId="slack-admin" />
@@ -114,7 +116,17 @@ export default function AdminSlack() {
                   </p>
                 </Card>
               )}
-              {(!s.tokens || replacing) && (
+              {(!s.tokens || replacing) && phone ? (
+                <Card flat testId="slack-on-computer">
+                  {!s.tokens && (
+                    <p className="mb-2 flex items-center gap-2 text-sm" data-testid="slack-status">
+                      <Badge tone={STATE[s.state].tone}>{t(STATE[s.state].key)}</Badge>
+                    </p>
+                  )}
+                  <p className="text-sm font-medium text-ink">{t('admin.onComputer')}</p>
+                  <p className="mt-1 text-sm text-muted">{t('admin.onComputerSlack')}</p>
+                </Card>
+              ) : (!s.tokens || replacing) && (
                 <Card flat title={t('slack.admin.setupTitle')} testId="slack-setup">
                   <ol className="space-y-4 text-sm">
                     <Step n={1} title={t('slack.admin.create')} href={s.createUrl} testId="slack-create">{t('slack.admin.createHint')}</Step>

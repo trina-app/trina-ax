@@ -8,7 +8,7 @@
 // Parents: a page under a tab's ☰ or list → that tab's root (트리나 /, 대화 /rooms, 파일 /files, 나 /settings); one project →
 // /projects; one chat → its project when this window knows it, else /; a room's thread → the room; a folder → the folder
 // above it, a file → its folder, the Trash (a row of the team folder on phones) → the team folder; a Settings section → /settings (the account deletion page → the profile); Activity and
-// Admin → /settings; an Admin page → /admin; a group of Team settings → /admin/settings; a connector → /connectors.
+// Admin → /settings; an Admin page and what is under it: pages/admin/adminScreens.ts; a connector → /connectors.
 import { parsePath } from 'react-router-dom'
 import { useCallback } from 'react'
 import { useT, type MessageKey } from '../i18n'
@@ -19,6 +19,7 @@ import { useRooms } from '../store/rooms'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
 import { useFolderName } from './folderLabels'
 import { aiName, TAB_ROOT, type Tab } from './tabs'
+import { adminParent } from '../pages/admin/adminScreens'
 
 export interface Screen {
   /** the tab whose stack the address starts when it is opened from outside (null: none, e.g. the sign-in pages) */
@@ -103,8 +104,10 @@ export function screenOf(to: string): Screen {
     case 'activity':
       return s('me', '/settings')
     case 'admin':
-      if (b === 'settings' && c) return s('me', '/admin/settings')
-      return b ? s('me', '/admin') : s('me', '/settings')
+      // Admin's own table (pages/admin/adminScreens.ts): a page → /admin, a group of Team settings → /admin/settings,
+      // an item's page → its page (a connector, a plugin, an engine, a person, a group, a record), the rule editor →
+      // its folder → the tree, a person in By person → By person
+      return s('me', adminParent(`${pathname}${search}`))
     default:
       return s(null, null)
   }
