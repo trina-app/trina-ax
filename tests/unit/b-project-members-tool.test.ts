@@ -12,7 +12,9 @@
 // - the plan (M4): an older folder without the floor rule, or without the creator's rule, is refused and sent to the
 //   panel; the creator is never removed; a fixed person is refused;
 // - the card (S2, N1, N2, N4): kinds, a group's head count, "같은 이름", the counts, what opens, the future-group line,
-//   the removal and notice lines, an admin who removes themself keeps seeing it;
+//   the removal and notice lines, an admin who removes themself stops seeing it (a project's contents are its members'
+//   only: docs/DECISIONS.md "Project contents only for members"), someone removed who stays in by a group is told so,
+//   an admin who is not a member changes them from a chat outside the project (the project named);
 // - the yes: the fingerprint (a rename, a rule change or someone joining a group while the card waits refuses), the
 //   save via 'ai', one audit row per call; who may (the creator named only while able, an admin never).
 // Fixture (tests/lib/fixtures.ts): alice + erin = marketing, bob = finance, carol = admin, dana = owner.
@@ -294,7 +296,8 @@ describe('the card and the change', () => {
     expect(c.origin).toBe('server')
     expect(c.question.split('\n')).toEqual([
       "Change the members of the project '견적'?",
-      '1 person starts seeing this project and 1 person stops (4 → 4, owner and admins included).',
+      // its members only: carol (admin) and dana (owner) are not counted by their role
+      '1 person starts seeing this project and 1 person stops (2 → 2).',
       'What opens to the people who start seeing it: 1 file (1 put there by other people), 1 project skill (견적서).',
       MEMBERS_TEXT.removed.en,
       MEMBERS_TEXT.noticeBoth.en,
@@ -314,20 +317,26 @@ describe('the card and the change', () => {
     expect(audits(r.turnId).map((a) => [a.outcome, a.target, a.gained, a.lost])).toEqual([['done', p.id, 1, 1]])
   })
 
-  test('a group: its head count and the line that later members see it too; an admin removing themself keeps seeing it', async () => {
+  test('a group: its head count and the line that later members see it too; an admin removing themself stops seeing it', async () => {
     const p = await project('alice', 'Grouped', [user('carol')])
     const r = await turn('carol', `Marketing 부서 넣고 나(Carol Park) 빼줘\n${call({ add: [{ name: 'marketing' }], remove: [{ name: 'Carol Park' }] })}`, { projectId: p.id, answer: 'skip' })
     const c = r.cards[0]!
     expect(c.details![1]).toEqual({ label: '추가 (1)', text: 'Marketing · 부서 · 2명' })
-    expect(c.details![2]).toEqual({ label: '빼기 (1)', text: `Carol Park · 사람 · ${MEMBERS_TEXT.keepsAdmin.ko}` })
+    // carol is not in marketing: taken out, she no longer sees it (her role does not keep her in a project)
+    expect(c.details![2]).toEqual({ label: '빼기 (1)', text: 'Carol Park · 사람' })
     expect(c.question).toContain(MEMBERS_TEXT.futureGroup.ko)
-    // erin joins through marketing; carol keeps seeing it as an admin: nobody loses it
-    expect(c.question).not.toContain(MEMBERS_TEXT.removed.ko)
-    expect(c.question).toContain(MEMBERS_TEXT.noticeGain.ko)
+    // erin joins through marketing; carol loses it
+    expect(c.question).toContain(MEMBERS_TEXT.removed.ko)
+    expect(c.question).toContain(MEMBERS_TEXT.noticeBoth.ko)
     // "no": nothing changed, and no second card in that answer
     expect(members(p.folderPath)).toEqual(['alice', 'carol'])
     expect(r.content).toContain('did not allow it')
     expect(audits(r.turnId).map((a) => a.outcome)).toEqual(['declined'])
+    // someone taken out who stays in through a group still sees it, and an admin's card says so
+    const q = await project('alice', 'Grouped twice', [user('carol'), user('erin'), { subjectType: 'group', subjectId: marketing }])
+    const k = (await turn('carol', `Erin Yoo 빼줘\n${call({ remove: [{ name: 'Erin Yoo' }] })}`, { projectId: q.id, answer: 'skip' })).cards[0]!
+    expect(k.details![1]).toEqual({ label: '빼기 (1)', text: `Erin Yoo · 사람 · ${MEMBERS_TEXT.keepsAdmin.ko}` })
+    expect(k.question).not.toContain(MEMBERS_TEXT.removed.ko)
   })
 
   test('at most two cards per answer, none after a no; the creator is never removed; one who is not a member is one message', async () => {
@@ -412,11 +421,14 @@ describe('the attacks', () => {
     expect(member.cards).toEqual([])
     expect(member.content).toContain('another account or a group goes by this name too')
     expect(member.content).toContain(`/projects/${p.id}?members=1`)
-    // an admin (Korean app): the username beside the name; the invisible character shown
-    const ko = (await turn('carol', `김강현 넣어줘\n${call({ add: [{ name: '김강현', id: 'kang2' }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
+    // an admin (Korean app): the username beside the name; the invisible character shown. carol is not a member, so she
+    // asks from a chat outside the project and names it (she manages it without reading it: docs/DECISIONS.md "Project
+    // contents only for members"); her card says what the people added get instead of counting what is in it
+    const ko = (await turn('carol', `Lookalike 프로젝트에 김강현 넣어줘\n${call({ project: 'Lookalike', add: [{ name: '김강현', id: 'kang2' }] })}`, { answer: 'skip' })).cards[0]!
     expect(ko.details![1]).toEqual({ label: '추가 (1)', text: '김강[U+200B]현 · 사람 · @kang2 · 같은 이름 2명' })
+    expect(ko.question).toContain(MEMBERS_TEXT.opensAll.ko)
     // the Cyrillic look-alike picked by id: carol typed the Latin name, so it is red
-    const cy = (await turn('carol', `Kim Sora 넣어줘\n${call({ add: [{ name: 'Kim Sora', id: 'sora2' }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
+    const cy = (await turn('carol', `Lookalike 프로젝트에 Kim Sora 넣어줘\n${call({ project: 'Lookalike', add: [{ name: 'Kim Sora', id: 'sora2' }] })}`, { answer: 'skip' })).cards[0]!
     expect(cy.details![1]).toEqual({ label: '추가 (1)', text: 'Кim Sora · 사람 · @sora2 · 같은 이름 2명', alerts: [{ text: 'Кim Sora · 사람 · @sora2 · 같은 이름 2명', note: MEMBERS_TEXT.notSaid.ko }] })
     expect(members(p.folderPath)).toEqual(['alice'])
   })
@@ -439,8 +451,9 @@ describe('the attacks', () => {
       // the group by id: its line says group and its head count, which no person can take, and that the name is shared
       const group = (await turn('alice', `Marketing group 넣어줘\n${call({ add: [{ name: 'Marketing group', id: marketing }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
       expect(group.details![1]).toEqual({ label: 'Add (1)', text: 'Marketing · group · 2 people · 3 share this name' })
-      // an admin (Korean app), the person by id: the username beside the name
-      const admin = (await turn('carol', `Marketing 부서 넣어줘\n${call({ add: [{ name: 'Marketing 부서', id: 'mkt2' }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
+      // an admin (Korean app), the person by id: the username beside the name (not a member: from outside the project,
+      // naming it)
+      const admin = (await turn('carol', `Labels 프로젝트에 Marketing 부서 넣어줘\n${call({ project: 'Labels', add: [{ name: 'Marketing 부서', id: 'mkt2' }] })}`, { answer: 'skip' })).cards[0]!
       expect(admin.details![1]).toEqual({ label: '추가 (1)', text: 'Marketing 부서 · 사람 · @mkt2 · 같은 이름 2명' })
       expect(members(p.folderPath)).toEqual(['alice'])
     } finally { db.query("UPDATE users SET status = 'disabled' WHERE id IN ('mkt', 'mkt2')").run() }
@@ -495,11 +508,12 @@ describe('the attacks', () => {
     expect(r.content).toContain('"everyone else: no access" rule')
     expect(r.content).toContain(`/projects/${id}?members=1`)
     expect(rulesAt('projects/old-floor')).toEqual([{ t: 'user', s: 'alice', a: 'write' }])
-    // the creator's rule taken out by an admin: carol's change would put it back
+    // the creator's rule taken out by an admin (Admin › Folder permissions of an older build): carol's change would put
+    // it back. She is not a member, so she names the project from a chat outside it
     const q = await project('alice', 'No creator rule', [user('erin')])
     const qr = ensureFolderRow(h.ctx.db, q.folderPath)
     h.ctx.db.transaction(() => replaceRules(h.ctx.db, qr.id, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
-    const c = await turn('carol', `Bob Lee 넣어줘\n${call({ add: [{ name: 'Bob Lee' }] })}`, { projectId: q.id, answer: 'change' })
+    const c = await turn('carol', `No creator rule 프로젝트에 Bob Lee 넣어줘\n${call({ project: 'No creator rule', add: [{ name: 'Bob Lee' }] })}`, { answer: 'change' })
     expect(c.cards).toEqual([])
     expect(c.content).toContain('the creator\'s rule is missing')
     expect(members(q.folderPath)).toEqual(['erin'])
@@ -510,7 +524,7 @@ describe('the attacks', () => {
     const p = await project('alice', 'Raced', [user('erin')])
     const r = await turn('alice', `Bob Lee 넣어줘\n${call({ add: [{ name: 'Bob Lee' }] })}`, {
       projectId: p.id, answer: 'change',
-      // an admin adds a read rule in Admin › Folder permissions meanwhile
+      // a read rule is added meanwhile (as an older build's Admin › Folder permissions could)
       meanwhile: () => {
         const row = ensureFolderRow(h.ctx.db, p.folderPath)
         h.ctx.db.transaction(() => replaceRules(h.ctx.db, row.id, [...rulesAt(p.folderPath).map((x) => ({ subjectType: x.t, subjectId: x.s, access: x.a }) as never), { subjectType: 'user', subjectId: 'jun', access: 'read' }], 'carol'))()

@@ -13,7 +13,8 @@
 // "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
 // Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach inside it on the left, the mic and a round send
-// on the right; the row under it keeps only the engine picker, for people who may choose one.
+// on the right; the row under it keeps only the engine picker, for people who may choose one, and only when two or more
+// engines are switched on (EngineMenu showsEnginePicker).
 // Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic in the box right before send (as in ChatGPT's
 // box), holding Space in the box on a computer, or a finger held on the mic; the words go to the end of the box, never
 // sent by themselves.
@@ -47,7 +48,7 @@ import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
-import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
+import { ENGINE_LABEL, EngineOptions, showsEnginePicker } from './EngineMenu'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { CalmNotice, useSaysConnection } from '../LoadError'
 import { useSkillMenu } from './SkillMenu'
@@ -375,6 +376,8 @@ export default function Composer({
 
   // the API engine has one model (the owner's): its name shows even when none was picked
   const shownModel = engine.engine && (engine.model ? models?.[engine.engine]?.find((m) => m.id === engine.model)?.label ?? engine.model : engine.engine === 'api' ? models?.api?.[0]?.label : undefined)
+  // the picker: for people who may choose, and only with two or more engines (one engine: none, whatever its models)
+  const pick = onEngine && showsEnginePicker(engines ?? []) ? onEngine : undefined
   const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
 
   // attach: under the box with its small menu on a computer; inside the box on a phone, as the attach sheet every
@@ -405,7 +408,8 @@ export default function Composer({
               openMenu(true)
             }
           }}
-          className="touch-hit"
+          // its size in the box, taps from a 44 px box (as the room's)
+          compact
           data-testid="attach-button"
         >
           <Plus size={19} />
@@ -522,7 +526,7 @@ export default function Composer({
 
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were
-          <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2', phone ? 'pl-1.5' : 'pl-3')} />
+          <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2 max-md:pr-1', phone ? 'pl-1.5' : 'pl-3')} />
         ) : (
           <>
             {skillMenu.menu}
@@ -554,8 +558,9 @@ export default function Composer({
             <VoiceProgress voice={voice} text={text} className={clsx('pt-3', phone ? 'px-3' : 'px-5')} />
             {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
                 --spacing-composer-line: the text box's 8px bottom padding, its line and 8px above): one line, one
-                centre; more lines, the buttons stay on the last. The rest of the space under the text is the row's. */}
-            <div className={clsx('flex items-end gap-1 pr-2 pb-1', phone && 'pl-1.5')}>
+                centre; more lines, the buttons stay on the last. The rest of the space under the text is the row's. A
+                phone: 4 px on the right, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
+            <div className={clsx('flex items-end gap-1 pr-2 pb-1 max-md:pr-1', phone && 'pl-1.5')}>
               {phone && <div className="flex h-composer-line shrink-0 items-center">{attachControls}</div>}
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
@@ -647,7 +652,7 @@ export default function Composer({
       {/* under the box, like Claude's: attach on the left, the engine on the right, the note between (the mic is in the
           box, before send). Phones: attach sits inside the box, as in a room's box, and this row is only there for the
           engine. */}
-      {(!phone || onEngine) && (
+      {(!phone || pick) && (
       <div className="flex items-center gap-2 px-1 pt-1.5 max-md:pt-1" data-testid="composer-controls">
         <div className="flex flex-1 basis-0 items-center gap-0.5">
           {!phone && attachControls}
@@ -663,11 +668,11 @@ export default function Composer({
           </p>
         )}
         <div className="flex flex-1 basis-0 items-center justify-end">
-          {onEngine && (
+          {pick && (
             <div className="relative">
               {/* a phone: the choices as a sheet (a tap outside, Escape or Back closes it); a computer: the small list */}
               {phone ? (
-                <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={(p) => onEngine?.(p)} label={engineLabel} title={t('composer.engine')} testId="engine-picker" />
+                <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} title={t('composer.engine')} testId="engine-picker" />
               ) : (<>
               <button ref={engineButtonRef} type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
                 {engineLabel} <ChevronDown size={13} aria-hidden />
@@ -680,7 +685,7 @@ export default function Composer({
                     current={engine}
                     onPick={(p) => {
                       setEngineMenu(false)
-                      onEngine(p)
+                      pick(p)
                     }}
                   />
                 </ul>
@@ -706,6 +711,7 @@ export default function Composer({
       {error && (
         <p role="alert" className="mt-2 px-2 text-sm text-danger">
           {error}
+          {voice.settingsFor === error && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
         </p>
       )}
       {unsent && !error && (

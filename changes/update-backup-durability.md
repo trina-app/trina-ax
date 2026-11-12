@@ -1,0 +1,3 @@
+- A backup cut short by a restart or power loss no longer stays in the backups folder for ever: what it left is removed at the next backup and when the server starts. Finished backups are never touched, not even when the data folder was replaced or restored from an older copy.
+- An update (the installer's and the one in Admin) now writes the new version to the disk before switching to it, so a power loss right after an update can no longer leave the server stopped on a damaged version.
+- The server keeps answering while a backup checks its copy of a large database.

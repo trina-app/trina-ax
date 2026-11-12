@@ -17,6 +17,9 @@ interface JobsState {
   jobs: Record<string, JobView>
   progress: (jobId: string, kind: JobKind, progress: number | null, message: string | null) => void
   done: (job: Job) => void
+  /** a job read over REST while it waits or runs: its status (and its label and progress when the socket said nothing
+   * about it yet) */
+  seen: (job: Job) => void
   /** signed out, or another person signed in in this window: the last person's job cards go */
   reset: () => void
 }
@@ -37,6 +40,16 @@ export const useJobs = create<JobsState>((set) => ({
     const ws = waiters.get(job.id)
     waiters.delete(job.id)
     ws?.forEach((fn) => fn(job))
+  },
+  seen(job) {
+    set((s) => {
+      const cur = s.jobs[job.id]
+      if (cur?.job) return s // already finished
+      // a REST answer may be older than a socket event: it only adds what is not known yet, and a job that started never
+      // goes back to waiting
+      if (cur) return cur.status === 'running' || cur.status === job.status ? s : { jobs: { ...s.jobs, [job.id]: { ...cur, status: job.status } } }
+      return { jobs: { ...s.jobs, [job.id]: { id: job.id, kind: job.kind, status: job.status, progress: job.progress, message: job.message, job: null } } }
+    })
   },
   reset: () => set({ jobs: {} }),
 }))
@@ -69,10 +82,12 @@ export function waitForJob(jobId: string, o: { signal?: AbortSignal; pollMs?: nu
       try {
         const j = await fetchJob(jobId)
         if (FINISHED.has(j.status)) return finish(j)
+        if (!settled) useJobs.getState().seen(j)
       } catch { /* keep waiting; the event may still come */ }
       if (!settled) timer = setTimeout(poll, o.pollMs ?? 3000)
     }
-    timer = setTimeout(poll, o.pollMs ?? 3000)
+    // the first look right away: a job waiting for its turn says so at once, also while the socket is down
+    void poll()
     o.signal?.addEventListener('abort', () => {
       if (settled) return
       settled = true

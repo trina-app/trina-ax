@@ -541,7 +541,7 @@ describe('/welcome', () => {
       expect(called('PATCH /api/onboarding/welcome')[0]!.body).toEqual({ site: 'https://acme.example/' })
       // five steps on the bar, 도구 연결 and the invite counted, no first result
       expect(items(m)).toEqual(['profile', 'skills', 'files', 'tools', 'invite'])
-      for (const [n, label] of [[1, '회사 소개'], [2, '내 스킬'], [3, '팀 파일'], [4, '도구 연결'], [5, '팀원 초대']] as const) expect(m.get('welcome-progress').textContent).toContain(`${n}/5 ${label}`)
+      for (const [n, label] of [[1, '회사 소개'], [2, '스킬'], [3, '팀 파일'], [4, '도구 연결'], [5, '팀원 초대']] as const) expect(m.get('welcome-progress').textContent).toContain(`${n}/5 ${label}`)
       expect(m.html()).not.toContain('첫 결과')
       await m.until(() => m.find('profile-step-site'), 'the profile step (D)')
       expect(m.html()).not.toContain('마케팅팀이에요')
@@ -557,7 +557,7 @@ describe('/welcome', () => {
       expect(progress!.teamGroup).toEqual(TEAM)
       expect(progress!.steps.profile).toBe('skipped')
       expect(progress!.resultChatId).toBeNull()
-      expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/5 내 스킬')
+      expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/5 스킬')
       // nothing about a deck on the later steps
       expect(m.find('welcome-deck-status')).toBeNull()
       expect(m.html()).not.toContain('회사 소개서')
@@ -1027,6 +1027,36 @@ describe('the later steps and the end', () => {
       await m.click('welcome-done-home')
       await m.until(() => at(m) === '/', 'Home')
       expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body.doneShown)).toHaveLength(1)
+    } finally { await m.unmount() }
+  })
+
+  test('steps put off: the end screen names them, each with 지금 하기; one done from there comes back to the end screen without it (QA TC-206)', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', tools: 'skipped', invite: null } })
+    withGroup()
+    const m = await app()
+    const later = () => m.container.querySelectorAll('[data-testid="welcome-done-later-step"]').map((li) => li.getAttribute('data-step'))
+    try {
+      await m.until(() => stepOf(m) === 'invite', 'the invite')
+      await m.until(() => m.find('team-link-message'), 'the message')
+      // the invite put off too: the setup ends (W6: put off counts as answered), and the end screen says what is left
+      await m.click('invite-step-skip')
+      await m.click(await m.until(() => m.find('invite-step-later'), 'the ask'))
+      await m.until(() => m.find('welcome-done-later'), 'the end screen with what was put off')
+      expect(progress!.finishedAt).not.toBeNull()
+      expect(later()).toEqual(['skills', 'files', 'tools', 'invite'])
+      expect(m.get('welcome-done-later').textContent).toContain('나중에 하기로 남겨 둔 단계예요')
+      expect(primaries(m)).toBe(1)
+      // 지금 하기 on the invite: it opens here; done, back to the end screen, which lists what is still put off
+      const row = m.container.querySelectorAll('[data-testid="welcome-done-later-step"]').find((li) => li.getAttribute('data-step') === 'invite')!
+      await m.click(row.querySelector('button')!)
+      await m.until(() => stepOf(m) === 'invite', 'the invite again')
+      await m.until(() => m.find('team-link-message'), 'the message again')
+      await m.click('invite-step-done')
+      await m.until(() => stepOf(m) === 'done' && later().length === 3, 'back to the end screen')
+      expect(later()).toEqual(['skills', 'files', 'tools'])
+      expect(progress!.steps.invite).toBe('done')
+      expect(at(m)).not.toBe('/')
     } finally { await m.unmount() }
   })
 

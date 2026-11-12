@@ -12,7 +12,9 @@ import { markBusy } from './busy'
 import { RecorderError, useRecorder } from './recorder'
 import type { TextEdit } from './textTokens'
 import { uploadFile } from './upload'
-import { CAP_MS, jobLabel, VoiceInput, WARN_MS, type VoiceNote } from './voiceInput'
+import { micDeniedKey } from './appWording'
+import { canOpenAppSettings, mobileApp, openAppSettings } from './mobile'
+import { CAP_MS, jobLabel, jobWaiting, VoiceInput, WARN_MS, type VoiceNote } from './voiceInput'
 import { useLocale, useT } from '../i18n'
 import { useJobs, waitForJob } from '../store/jobs'
 
@@ -140,6 +142,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
   const focusWanted = useRef<{ at: number | null } | null>(null)
   const holdUsed = useSyncExternalStore(watchHoldUsed, holdUsedBefore, () => true)
   const [jobId, setJobId] = useState<string | null>(null)
+  /** the "mic blocked" note while the phone app can open its Settings page (the host shows the button beside it) */
+  const [settingsFor, setSettingsFor] = useState<string | null>(null)
   const holdCapable = useMatch(HOLD_QUERY)
   const self = useRef<VoiceInput | null>(null)
   /** a finger's listeners on the window, taken off when the finger lets go, the recording ends or the box goes away */
@@ -151,7 +155,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
     const { t, locale } = words.current
     if (n.kind === 'blocked') return t(opts.current.room ? 'voice.confidentialRoom' : 'voice.confidential')
     if (n.kind === 'empty') return t('voice.empty')
-    if (n.error instanceof RecorderError) return t(n.error.code === 'denied' ? 'voice.denied' : 'voice.unsupported')
+    // a blocked mic is allowed again in the browser's settings, or inside the phone app in the phone's Settings
+    if (n.error instanceof RecorderError) return t(n.error.code === 'denied' ? micDeniedKey(mobileApp()) : 'voice.unsupported')
     return errorText(n.error, locale, t('error.network'))
   }
 
@@ -205,7 +210,12 @@ export function useVoiceInput(o: VoiceInputOptions) {
         focusBox: (at) => {
           focusWanted.current = { at }
         },
-        note: (n) => opts.current.onError(n ? noteText(n) : null),
+        note: (n) => {
+          const text = n ? noteText(n) : null
+          // the phone app can open its own page in the phone's Settings: the box shows a button beside this note
+          setSettingsFor(n?.kind === 'error' && n.error instanceof RecorderError && n.error.code === 'denied' && canOpenAppSettings() ? text : null)
+          opts.current.onError(text)
+        },
         blocked: () => opts.current.blocked,
         canStart: () => !elsewhere(),
         granted: () => permission.current === 'granted',
@@ -310,8 +320,9 @@ export function useVoiceInput(o: VoiceInputOptions) {
   })
 
   const job = useJobs((s) => (jobId ? s.jobs[jobId] : undefined))
-  /** the job's own words while it runs (a model download, a conversion), with how far it is */
-  const progressText = phase === 'transcribing' ? jobLabel(job) : null
+  /** the job's own words while it runs (a model download, a conversion), with how far it is; while it waits for its
+   * turn, that it waits */
+  const progressText = phase !== 'transcribing' ? null : jobWaiting(job) ? t('voice.waiting') : jobLabel(job)
   const leftMs = CAP_MS - recorder.seconds * 1000
   const hint =
     phase !== 'recording'
@@ -335,6 +346,10 @@ export function useVoiceInput(o: VoiceInputOptions) {
     /** seconds left before the cap, in its last WARN_MS */
     left: phase === 'recording' && leftMs <= WARN_MS ? Math.max(0, Math.ceil(leftMs / 1000)) : null,
     hint,
+    /** the note text that gets an "Open Settings" button (inside the phone app, a blocked mic), else null: the host
+     * shows the button only while its note still says this */
+    settingsFor,
+    openSettings: () => void openAppSettings().catch(() => {}),
     holdCapable,
     /** another box (the room's, the thread's) records or transcribes now: this mic waits */
     busyElsewhere,

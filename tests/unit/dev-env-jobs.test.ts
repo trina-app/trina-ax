@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { oldProject } from '../lib/legacy-project'
+import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { setBoxdClient, type BoxdClient, type BoxdResult } from '../../server/src/devenv/boxd'
 import { JOB_MAX_AGE_MS, jobResultsForAI, jobRuns, pollJobs, pollStops, purgeOldJobs, runningJobs, startJob } from '../../server/src/devenv/jobs'
 import { newConsent, OFF_SETTING, saveDevEnvSetting } from '../../server/src/devenv/setting'
@@ -156,7 +156,14 @@ describe('the tracker', () => {
     expect(runningJobs(h.ctx.db, projectId)).toMatchObject([{ name: 'render', by: { id: 'alice', name: 'Alice Kim' }, lastLine: 'frame=99 fps=30' }])
     expect(jobNotices()).toEqual([])
     expect((await h.api('alice').call(API.devEnv, { params: { id: projectId } })).jobs).toMatchObject([{ name: 'render', lastLine: 'frame=99 fps=30' }])
-    expect((await h.api('carol').call(API.devEnv, { params: { id: projectId } })).jobs).toHaveLength(1)
+    // an admin who is not a member of the project does not open its page (docs/DECISIONS.md "Project contents only for
+    // members"); a member of it sees the box and its jobs
+    await expect(h.api('carol').call(API.devEnv, { params: { id: projectId } })).rejects.toThrow()
+    const before = h.ctx.files.rules().rulesAt(FOLDER)
+    legacyProjectFolder(h.ctx.db, h.team, FOLDER, [...before, { subjectType: 'user', subjectId: 'carol', access: 'read' }])
+    try {
+      expect((await h.api('carol').call(API.devEnv, { params: { id: projectId } })).jobs).toHaveLength(1)
+    } finally { legacyProjectFolder(h.ctx.db, h.team, FOLDER, before) }
     expect((await h.api('bob').call(API.devEnv, { params: { id: projectId } })).jobs).toEqual([]) // reads only
   })
   test('a job that ends: live notice with the exit code, the tail and the chat link, an inbox entry, one audit line, once', async () => {

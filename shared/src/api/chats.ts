@@ -91,7 +91,7 @@ export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
 
-// ---------------- an existing chat shared with its project's people ("프로젝트 사람들과 공유") ----------------
+// ---------------- an existing chat shared with its project's members ("프로젝트 멤버와 공유") ----------------
 export const ShareChatBody = z.object({
   /** the last "confirm"'s `confirmKey`: the person saw that state and said yes. Anything changed since (the project's
    * people, what they may read, a new message on any branch): "confirm" again with a new key */
@@ -156,11 +156,24 @@ export const ChatEngines = z.object({
 })
 export type ChatEngines = z.infer<typeof ChatEngines>
 export const DeletedChat = z.object({ id: Uuid7, deletedAt: IsoTime, purgeAt: IsoTime })
-export const FrequentQuestions = z.object({
-  items: z.array(z.object({ question: z.string().max(2000), count: z.number().int().min(2), lastUsedAt: IsoTime })).max(10),
-  days: z.literal(30), sampled: z.boolean(),
-})
-export type FrequentQuestions = z.infer<typeof FrequentQuestions>
+/** The longest sentence of "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"). */
+export const OFTEN_ASKED_TEXT_MAX = 80
+/** At most this many on Home (3 at first, More shows the rest). */
+export const OFTEN_ASKED_ITEMS_MAX = 10
+const OftenAskedItems = z.array(z.string().min(1).max(OFTEN_ASKED_TEXT_MAX)).max(OFTEN_ASKED_ITEMS_MAX)
+/**
+ * GET /api/questions/often-asked: one list for the caller, generic sentences only (never who asked, how many or
+ * when). `group`: the caller's one group with a list (its name); `groups`: several of their groups, taking turns;
+ * `team`: the whole team's list (no group of theirs has one); `none`: nothing to show (too little data, or the team
+ * turned it off).
+ */
+export const OftenAsked = z.discriminatedUnion('scope', [
+  z.object({ scope: z.literal('none'), items: z.array(z.string()).max(0) }).strict(),
+  z.object({ scope: z.literal('team'), items: OftenAskedItems }).strict(),
+  z.object({ scope: z.literal('groups'), items: OftenAskedItems }).strict(),
+  z.object({ scope: z.literal('group'), group: z.string().min(1).max(200), items: OftenAskedItems }).strict(),
+])
+export type OftenAsked = z.infer<typeof OftenAsked>
 
 // ---------------- messages ----------------
 /**
@@ -335,9 +348,13 @@ export const UpdateProjectBody = z.object({
   skillsOk: z.boolean().optional(),
 })
 export const DeleteProjectQuery = z.object({
-  /** also put its folder in the files trash (a team project in projects/<name> whose folder is in place) */
+  /** ignored since "Project contents only for members": a team project in projects/<name> whose folder is in place
+   * always goes to the trash with its folder (the project stays, `inTrash`, until Restore or a second DELETE) */
   trashFolder: QueryBool.optional(),
 })
+/** GET /api/projects and GET /api/projects/:id: `manage=1` (the owner and admins) also answers the team projects the
+ * caller manages without being a member (Project.member false, no contents). Without it: projects the caller reads. */
+export const ProjectsQuery = z.object({ manage: QueryBool.optional() })
 
 /** A participant as the project's edit screen shows it. `creator`: the project's creator, always kept. */
 export const ProjectMember = ProjectParticipant.extend({ name: z.string(), creator: z.boolean().optional() })
@@ -355,18 +372,26 @@ export const ProjectAccess = z.object({
   /** the folder's Folder.rulesHash now: PUT participants sends it back (409 rules_changed when someone changed them).
    * Empty for a member's answer about a project they may not change. */
   rulesHash: z.string(),
-  /** how many active people see the project now (owner and admins included) */
+  /** how many active people see the project now: its members (for a project in projects/ the owner and admins only when
+   * they are members; docs/DECISIONS.md "Project contents only for members") */
   people: z.number().int().nonnegative(),
+  /** folders inside the project with rules of their own that the caller cannot read (their rules are not listed in
+   * otherRules; only the folders are counted). Absent: 0 */
+  otherRulesHidden: z.number().int().positive().optional(),
 })
 export type ProjectAccess = z.infer<typeof ProjectAccess>
 /** A dry run: who would see a new project with these participants, or an existing one (projectId) after this change. */
-export const ProjectAccessPreviewBody = z.object({ projectId: Uuid7.optional(), participants: z.array(ProjectParticipant).max(200) })
+export const ProjectAccessPreviewBody = z.object({ projectId: Uuid7.optional(), participants: z.array(ProjectParticipant).max(200), removeRules: z.array(z.object({ subjectType: SubjectType, subjectId: z.string().nullable() })).max(50).optional() })
 export const ProjectAccessPreview = z.object({
-  /** active people who would see it (the creator, the owner and admins included; see adminsApart) */
+  /** active people who would see it: the creator and the people and groups chosen (a new team project in projects/ is
+   * members only: the owner and admins are counted only when chosen) */
   people: z.number().int().nonnegative(),
-  /** a new project, asked by someone who is not the owner or an admin: `people` counts only the caller and the people
-   * and groups chosen, as if nobody were an admin (the owner and admins see it too, uncounted unless chosen), so the
-   * count never tells a member whether a person is an admin. Absent: false */
+  /** an existing project the caller manages without reading it (the owner or an admin who is not a member): what the
+   * added people would see is not counted (files, othersFiles, sharedChats, skills are 0, no skillNames); the screen
+   * says that they will see its files and chats. Absent: false */
+  contentsHidden: z.boolean().optional(),
+  /** older servers: a new project's count left the owner and admins out for a member caller. Not sent any more (a new
+   * team project is members only, so nobody is counted by role). Absent: false */
   adminsApart: z.boolean().optional(),
   /** `people` apart (AudienceSplit), for the owner and admins only: a new project's caller and the people and groups
    * chosen (`direct`) and the other admins and the owner; an existing one's people by its rules after the change */
@@ -391,10 +416,14 @@ export const ProjectAccessPreview = z.object({
   restoresCreator: z.boolean().optional(),
 })
 export type ProjectAccessPreview = z.infer<typeof ProjectAccessPreview>
-export const PutProjectParticipantsBody = z.object({ participants: z.array(ProjectParticipant).max(200), expectedHash: z.string().min(1).max(64) })
+/** A rule on the project's own folder that the members screen does not set (a read-only person or group, a role rule, an
+ * everyone rule other than "everyone else: none"), taken out by whoever manages the members (docs/DECISIONS.md
+ * "Project contents only for members"). Taking one out only narrows who sees it: the floor stays or comes back. */
+export const ProjectRuleRef = z.object({ subjectType: SubjectType, subjectId: z.string().nullable() })
+export const PutProjectParticipantsBody = z.object({ participants: z.array(ProjectParticipant).max(200), expectedHash: z.string().min(1).max(64), removeRules: z.array(ProjectRuleRef).max(50).optional() })
 
 export const CHATS = {
-  frequentQuestions: endpoint({ method: 'GET', path: '/api/questions/frequent', auth: 'user', owner: 'B', response: FrequentQuestions, summary: 'Own repeated questions from current branches in the last 30 days; bounded sample, never other people’s prompts.' }),
+  oftenAsked: endpoint({ method: 'GET', path: '/api/questions/often-asked', auth: 'user', owner: 'B', response: OftenAsked, summary: 'Home’s "what my group often asks": generic sentences that 3 or more people of the caller’s group (else the team) asked in a similar way, rewritten once a day; never who asked, how many or when. Empty while the team setting is off or there is too little data.' }),
   listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1: my own and the shared chats I deleted, while I may restore them). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount). Without q and trash, the first page starts with my pinned chats of that list (pinnedAt, the most recently pinned first) and the pages after it leave them out.' }),
   createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project). In a project that shares its chats it is a shared chat (never in a personal project or while safe operations are on).' }),
   chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
@@ -410,7 +439,7 @@ export const CHATS = {
   sendMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', status: 202, body: SendMessageBody, response: TurnStarted, summary: 'Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat (a shared chat: only the person whose turn it is).' }),
   shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote), or as a reply in a message\'s thread there (threadRootId: a room\'s side chat). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. The AI\'s post_to_room tool (the person\'s own chat, after their yes on one server card) goes through the same checks and is audited with via ai.' }),
-  shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s people (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),
+  shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s members (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),
   messageSources: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files the AI read or saw passages of for this answer, each checked against the viewer\'s access now (no name or path for the others).' }),
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),
@@ -421,13 +450,14 @@ export const CHATS = {
   connectTurn: endpoint({ method: 'POST', path: '/api/turns/:id/connect', auth: 'user', owner: 'B', body: TurnConnectBody, response: TurnConnectResult, summary: 'Finish a connect_service card: add the connection with a sealed key, after a sign-in, or skip' }),
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
-  listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read.' }),
+  listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', query: ProjectsQuery, response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read; manage=1 (the owner and admins): also the team projects they manage without being a member, without their contents.' }),
   createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: a new team project folder projects/<name> with participants (members too, unless the team lets only admins), or a personal one in users/<me>/projects/<name>. Nowhere else.' }),
   previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants (for the owner and admins also apart: by its rules, by role only), or (projectId: its creator or an admin) who gains and loses an existing one, what the people who gain it would see, and whether saving also writes the floor rule or puts the creator\'s rule back (the screen asks first then). Nothing is saved.' }),
-  getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', response: Project, summary: 'One project.' }),
+  getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', query: ProjectsQuery, response: Project, summary: 'One project (manage=1: also one the owner or an admin manages without being a member, without its contents).' }),
+  restoreProject: endpoint({ method: 'POST', path: '/api/projects/:id/restore', auth: 'user', owner: 'B', response: Project, summary: 'Put a team project whose folder is in the trash back, with its folder (the owner or an admin; audited).' }),
   getProjectAccess: endpoint({ method: 'GET', path: '/api/projects/:id/access', auth: 'user', owner: 'B', response: ProjectAccess, summary: 'Who sees a team project: its participants, the rules the project screen does not change, the rules hash (its creator or an admin).' }),
   putProjectParticipants: endpoint({ method: 'PUT', path: '/api/projects/:id/participants', auth: 'user', owner: 'B', body: PutProjectParticipantsBody, response: ProjectAccess, summary: 'Change who sees a team project in projects/<name> (its creator or an admin): the folder rules, as Admin › Folder permissions saves them (409 rules_changed when they changed since expectedHash; audited; people who lose it lose its shared chats).' }),
   updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions / shareChats (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, for a project whose folder is in the trash or missing, to an existing projects/<name>.' }),
   shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Make a personal project a team project: a new projects/<name> with participants, the files copied into it, the project pointed at it (the personal folder stays).' }),
-  deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', query: DeleteProjectQuery, response: empty, status: 204, summary: 'Delete the project (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project). The folder stays, or with trashFolder=1 a projects/<name> folder goes to the files trash.' }),
+  deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', query: DeleteProjectQuery, response: empty, status: 204, summary: 'Delete the project. A team project in projects/<name> whose folder is in place goes to the trash with its folder first (it stays, inTrash, until restored); a second DELETE, or any other project: for good (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project).' }),
 } as const

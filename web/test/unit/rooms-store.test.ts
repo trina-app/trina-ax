@@ -4,9 +4,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Me } from '@mycel/shared/api'
 import { setNavigator } from '../../src/lib/nav'
-import { mergeMessages, placeKey, toggledReactions, withAiRun, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
+import { mergeMessages, placeKey, settledPending, toggledReactions, withAiRun, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
+import { readUpTo, roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadViews: {}, ...o })
@@ -410,6 +410,87 @@ describe('handleEvent', () => {
     expect(useRooms.getState().returned[placeKey(r.id, root)]).toMatchObject({ body: 'in the thread', threadRootId: root, alsoInRoom: true })
   })
 
+  describe('a send the server got while its answer was lost shows once (QA TC-236)', () => {
+    /** the sends' POSTs held until the test lets them fail (the connection dropped after the server got them) */
+    const holdSend = () => {
+      const held: (() => void)[] = []
+      const fetchBefore = globalThis.fetch
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'POST' && String(input).endsWith('/messages')) return new Promise<Response>((_, reject) => { held.push(() => reject(new TypeError('Failed to fetch'))) })
+        return fetchBefore(input, init)
+      }) as typeof fetch
+      return { fail: () => { for (const f of held.splice(0)) f() } }
+    }
+    const lastSend = (roomId: string) => useRooms.getState().pending[roomId]!.at(-1)!
+    const mine = (roomId: string, seq: number, clientMessageId: string, o: Partial<ReturnType<typeof message>> = {}) => message({ roomId, seq, author: ME, body: 'on the train', clientMessageId, ...o })
+
+    test('its message from the live event settles it; the lost answer then changes nothing', async () => {
+      const r = room()
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+      const post = holdSend()
+      useRooms.getState().send(r.id, { body: 'on the train', mentions: [], files: [] })
+      const p = lastSend(r.id)
+      useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: mine(r.id, 1, p.clientMessageId) } })
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+      post.fail()
+      await tick()
+      // no failed bubble beside the delivered message, nothing back in the box
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+      expect(useRooms.getState().returned[r.id]).toBeUndefined()
+      expect(useRooms.getState().timeline!.messages.map((m) => m.body)).toEqual(['on the train'])
+    })
+
+    test('failed first, then the replay after the reconnect brings it: the failed bubble goes', async () => {
+      const r = room()
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+      const post = holdSend()
+      useRooms.getState().send(r.id, { body: 'on the train', mentions: [], files: [] })
+      const p = lastSend(r.id)
+      post.fail()
+      await tick()
+      expect(useRooms.getState().pending[r.id]).toMatchObject([{ state: 'failed' }])
+      useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: mine(r.id, 1, p.clientMessageId) } })
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+      expect(useRooms.getState().timeline!.messages).toHaveLength(1)
+    })
+
+    test('a page read again after a reconnect settles it too; a thread reply settles when its thread shows it', async () => {
+      const r = room()
+      const root = message({ roomId: r.id, seq: 1 })
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [root]), threadViews: views({ roomId: r.id, rootId: root.id, root, replies: [] }) })
+      const post = holdSend()
+      useRooms.getState().send(r.id, { body: 'on the train', mentions: [], files: [] })
+      useRooms.getState().send(r.id, { body: 'in the thread', mentions: [], files: [], threadRootId: root.id })
+      const [inRoom, inThread] = useRooms.getState().pending[r.id]!
+      post.fail()
+      await tick()
+      expect(useRooms.getState().pending[r.id]!.map((x) => x.state)).toEqual(['failed', 'failed'])
+      // the reconnect could not resume: the room and the thread are read again (resync)
+      routes['/api/rooms'] = { items: [r] }
+      routes[`/api/rooms/${r.id}/messages`] = { items: [root, mine(r.id, 2, inRoom!.clientMessageId)], nextCursor: null }
+      routes[`/api/rooms/${r.id}/messages/${root.id}/thread`] = { root, items: [], nextCursor: null }
+      await useRooms.getState().resync()
+      expect(useRooms.getState().pending[r.id]!.map((x) => x.body)).toEqual(['in the thread'])
+      routes[`/api/rooms/${r.id}/messages/${root.id}/thread`] = { root, items: [mine(r.id, 3, inThread!.clientMessageId, { body: 'in the thread', threadRootId: root.id })], nextCursor: null }
+      await useRooms.getState().loadThread(r.id, root.id)
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+    })
+
+    test("only its own message settles it: someone else's, or mine with another id, leaves the failed bubble", async () => {
+      const r = room()
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+      const post = holdSend()
+      useRooms.getState().send(r.id, { body: 'on the train', mentions: [], files: [] })
+      post.fail()
+      await tick()
+      useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: message({ roomId: r.id, seq: 1, body: 'on the train' }) } })
+      useRooms.getState().handleEvent({ type: 'room.message', seq: 2, at: Date.now(), data: { roomId: r.id, message: mine(r.id, 2, uuidv7()) } })
+      expect(useRooms.getState().pending[r.id]).toMatchObject([{ body: 'on the train', state: 'failed' }])
+      const s = useRooms.getState()
+      expect(settledPending(s)).toBe(s.pending)
+    })
+  })
+
   test('a message for a room this window does not know yet reads that room', async () => {
     useRooms.setState({ rooms: [], loaded: true })
     const r = room({ unreadCount: 1, lastSeq: 1 })
@@ -463,6 +544,99 @@ describe('handleEvent', () => {
     expect(calls).toEqual(['GET /api/rooms'])
     expect(useRooms.getState().rooms[0]).toMatchObject({ unreadCount: 0, mentioned: false, lastReadSeq: 9, threadsUnread: 0 })
     expect(totalUnread(useRooms.getState().rooms)).toBe(0)
+  })
+
+  // 11-11 web audit row 71
+  test('back after a lost connection: no member list stays as it was (a members change missed meanwhile), the rooms on screen read theirs again', async () => {
+    const open = room({ name: 'open' }), beside = room({ name: 'beside a file' }), other = room({ name: 'other' })
+    const rootId = uuidv7()
+    const mem = (u: { id: string; name: string }) => ({ user: u, joinedAt: at(0) })
+    useRooms.setState({ rooms: [open, beside, other], loaded: true, openRoomId: open.id, timeline: tl(open.id), threadViews: views({ roomId: beside.id, rootId, root: null, replies: [] }),
+      members: { [open.id]: [mem(ME)], [beside.id]: [mem(ME)], [other.id]: [mem(ME)] } })
+    routes['/api/rooms'] = { items: [open, beside, other] }
+    routes[`/api/rooms/${open.id}/messages`] = { items: [], nextCursor: null }
+    routes[`/api/rooms/${open.id}/members`] = { items: [mem(ME), mem(BEN)] }
+    routes[`/api/rooms/${beside.id}/members`] = { items: [mem(ME), mem(CY)] }
+    routes[`/api/rooms/${other.id}/members`] = { items: [mem(ME), mem(BEN)] }
+    await useRooms.getState().resync()
+    const s = useRooms.getState()
+    expect(s.members[open.id]!.map((m) => m.user.id)).toEqual([ME.id, BEN.id])
+    expect(s.members[beside.id]!.map((m) => m.user.id)).toEqual([ME.id, CY.id])
+    // not on screen: gone, not read now
+    expect(s.members).not.toHaveProperty(other.id)
+    expect(calls).not.toContain(`GET /api/rooms/${other.id}/members`)
+    // opening it later reads the list (Bob added while away is there)
+    useRooms.getState().close(open.id)
+    useRooms.getState().open(other.id)
+    await tick(); await tick()
+    expect(useRooms.getState().members[other.id]!.map((m) => m.user.id)).toEqual([ME.id, BEN.id])
+  })
+
+  test("a member list read before a members change (or a resync) answering late does not put the old list back", async () => {
+    const r = room()
+    const mem = (u: { id: string; name: string }) => ({ user: u, joinedAt: at(0) })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id), members: { [r.id]: [mem(ME)] } })
+    // the first read waits; the one after the event answers at once
+    let release: (res: Response) => void = () => {}
+    const fake = globalThis.fetch
+    let first = true
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (first && String(input).includes('/members')) { first = false; return new Promise<Response>((res) => { release = res }) }
+      return fake(input, init)
+    }) as typeof fetch
+    const old = useRooms.getState().loadMembers(r.id, true)
+    routes[`/api/rooms/${r.id}/members`] = { items: [mem(ME), mem(BEN)] }
+    useRooms.getState().handleEvent({ type: 'room.updated', seq: 1, at: Date.now(), data: { roomId: r.id, change: 'members', room: r } })
+    await tick(); await tick()
+    expect(useRooms.getState().members[r.id]!.map((m) => m.user.id)).toEqual([ME.id, BEN.id])
+    release(new Response(JSON.stringify({ items: [mem(ME)] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    await old
+    expect(useRooms.getState().members[r.id]!.map((m) => m.user.id)).toEqual([ME.id, BEN.id])
+  })
+
+  // 11-11 web audit row 76
+  test('hiding the open room goes to the list only once the server has it; refused, the room stays on screen', async () => {
+    const went: string[] = []
+    setNavigator((to) => went.push(to))
+    try {
+      const r = room({ kind: 'dm' })
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+      // refused (offline, a 404 here): no navigation, shown again
+      await expect(useRooms.getState().setHidden(r.id, true)).rejects.toBeTruthy()
+      expect(went).toEqual([])
+      expect(useRooms.getState().rooms[0]!.hidden).toBeUndefined()
+      // the server has it: then to the list
+      routes[`/api/rooms/${r.id}/hidden`] = { ...r, hidden: true }
+      const p = useRooms.getState().setHidden(r.id, true)
+      expect(useRooms.getState().rooms[0]!.hidden).toBe(true)
+      expect(went).toEqual([])
+      await p
+      expect(went).toEqual(['/rooms'])
+    } finally { setNavigator(null) }
+  })
+
+  // 11-11 web audit row 77
+  test("a refused reaction undoes only my own tap: someone else's reaction that came meanwhile stays", async () => {
+    const r = room()
+    const m = message({ roomId: r.id, seq: 1, reactions: [{ emoji: '👍', count: 1, mine: true, users: [ME] }] })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [m]) })
+    const reactions = () => useRooms.getState().timeline!.messages[0]!.reactions
+    const others = (list: NonNullable<ReturnType<typeof reactions>>) => useRooms.getState().handleEvent({ type: 'room.reactions', seq: 2, at: Date.now(), data: { roomId: r.id, messageId: m.id, reactions: list } })
+    // on, refused: Ben's 🎉 and his 👍 (the server's list, without my refused 🔥) stay; my 🔥 goes
+    const p = useRooms.getState().react(r.id, m.id, '🔥', true)
+    others([{ emoji: '👍', count: 2, mine: true, users: [ME, BEN] }, { emoji: '🎉', count: 1, mine: false, users: [BEN] }])
+    await p
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, mine: true, users: [ME, BEN] }, { emoji: '🎉', count: 1, mine: false, users: [BEN] }])
+    // off, refused: mine comes back, Cy's 🎉 that came meanwhile stays
+    const q = useRooms.getState().react(r.id, m.id, '👍', false)
+    expect(reactions()![0]).toMatchObject({ emoji: '👍', count: 1, mine: false })
+    others([{ emoji: '👍', count: 1, mine: false, users: [BEN] }, { emoji: '🎉', count: 2, mine: false, users: [BEN, CY] }])
+    await q
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }, { emoji: '🎉', count: 2, mine: false, users: [BEN, CY] }])
+    // a tap that changed nothing (on where mine already) undoes nothing
+    others([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }])
+    await useRooms.getState().react(r.id, m.id, '👍', true)
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }])
   })
 })
 
@@ -582,6 +756,42 @@ describe('a page read while messages come in', () => {
     const t = useRooms.getState().timeline!
     expect(t.messages.map((m) => m.id)).toEqual([newest.id, mine.id])
     expect(t.newerCursor ?? null).toBeNull()
+  })
+
+  // how far the page would read it with every message in sight (pages/Room.tsx tryRead)
+  const readNow = (roomId: string) => readUpTo(useRooms.getState().timeline!, useRooms.getState().rooms.find((x) => x.id === roomId)!.lastReadSeq, () => true)
+
+  test('opened from a notification with the first page slow: a live message alone on screen reads nothing (QA TC-155)', async () => {
+    const r = room({ lastSeq: 30, lastReadSeq: 0, unreadCount: 30 })
+    const backlog = Array.from({ length: 30 }, (_, i) => message({ roomId: r.id, seq: i + 1 }))
+    useRooms.setState({ rooms: [r], loaded: true })
+    useRooms.getState().open(r.id)
+    await tick()
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: message({ roomId: r.id, seq: 31, body: 'live-001' }) } })
+    expect(seqs()).toEqual([31])
+    expect(readNow(r.id)).toBe(0)
+    held.find((h) => h.path.endsWith('/messages'))!.release({ items: backlog, nextCursor: null })
+    await tick()
+    await tick()
+    expect(readNow(r.id)).toBe(31)
+  })
+
+  test('more unread than one page: the newest page reads nothing until the older one is loaded (QA TC-155)', async () => {
+    const r = room({ lastSeq: 62, lastReadSeq: 0, unreadCount: 62 })
+    const all = Array.from({ length: 62 }, (_, i) => message({ roomId: r.id, seq: i + 1 }))
+    useRooms.setState({ rooms: [r], loaded: true })
+    useRooms.getState().open(r.id)
+    await tick()
+    held.find((h) => h.path.endsWith('/messages'))!.release({ items: all.slice(12), nextCursor: 'older' })
+    await tick()
+    await tick()
+    expect(seqs()).toHaveLength(50)
+    expect(readNow(r.id)).toBe(0)
+    const older = useRooms.getState().loadOlder(r.id)
+    await tick()
+    held.find((h) => h.path.endsWith('/messages') && h !== held[0])!.release({ items: all.slice(0, 12), nextCursor: null })
+    await older
+    expect(readNow(r.id)).toBe(62)
   })
 
   test('an edit made while a page loads shows on that page', async () => {

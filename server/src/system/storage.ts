@@ -63,6 +63,33 @@ export function levelOf(percent: number): StorageLevel {
 
 export function reserveBytes(total: number): number { return Math.max(RESERVE_MIN_BYTES, Math.floor(total * RESERVE_FRACTION)) }
 
+/** Where the Mac's rule decides (a Mac, dev, anything but a Linux production install: system/ops.ts): under this much
+ * free space answers, uploads and saves can fail and the disk check fails. The storage card uses it too, so the card
+ * never says "여유 있음" on a small disk the check below it calls almost full (QA TC-209). */
+export function absoluteFloor(total: number): number { return Math.max(10 * 1024 ** 3, total * 0.05) }
+
+/** An error from a full disk: ENOSPC / EDQUOT from the file system, SQLITE_FULL ("database or disk is full") from the
+ * database, also as the cause of another error. */
+export function isDiskFullError(e: unknown): boolean {
+  for (let x = e, depth = 0; x && typeof x === 'object' && depth < 4; x = (x as { cause?: unknown }).cause, depth++) {
+    const code = (x as { code?: unknown }).code
+    if (code === 'ENOSPC' || code === 'EDQUOT' || code === 'SQLITE_FULL') return true
+    if (DISK_FULL_TEXT.test(String((x as { message?: unknown }).message ?? ''))) return true
+  }
+  return false
+}
+/** what a process says when the disk is full (Node, libc, SQLite) */
+export const DISK_FULL_TEXT = /\bENOSPC\b|no space left on device|disk quota exceeded|database or disk is full/i
+
+/** Is one of these folders' disks (almost) out of space right now (fresh statfs)? For telling a crash apart from a
+ * full disk after the fact: under `floor` (64 MiB) nothing works reliably. */
+export function diskAlmostFull(paths: string[], floor = 64 * MIB, statfs: (p: string) => StatFs = (p) => fs.statfsSync(p)): boolean {
+  for (const p of paths) {
+    try { if (snapshotOf(statfs(p)).freeBytes < floor) return true } catch {}
+  }
+  return false
+}
+
 export function snapshotOf(s: StatFs): Snapshot {
   const b = Number(s.bsize)
   const total = Number(s.blocks) * b
@@ -248,6 +275,8 @@ export interface MonitorOptions {
   now?: () => number
   /** tell the owner and admins (realtime notice); returns how many were told */
   notify: (message: Record<Locale, string>) => void
+  /** the Mac's absolute rule decides the disk check here (not a Linux production install): the card follows it */
+  absoluteRule?: () => boolean
   /** storage.warn, or storage.grace when a grace period starts */
   audit: (detail: Record<string, unknown>, action?: 'storage.warn' | 'storage.grace') => void
 }
@@ -347,7 +376,9 @@ export class StorageMonitor {
     const s = cappedSnapshot() ?? { totalBytes: 0, freeBytes: 0, usedBytes: 0, percent: 0 }
     const disk = planDiskBytes()
     return {
-      totalBytes: s.totalBytes, usedBytes: s.usedBytes, freeBytes: s.freeBytes, percent: s.percent, level: levelOf(s.percent),
+      totalBytes: s.totalBytes, usedBytes: s.usedBytes, freeBytes: s.freeBytes, percent: s.percent,
+      // where the disk check uses the absolute floor, under it the card says what the check says (QA TC-209)
+      level: s.totalBytes > 0 && this.o.absoluteRule?.() && s.freeBytes < absoluteFloor(s.totalBytes) ? 'full' : levelOf(s.percent),
       reserveBytes: reserveBytes(s.totalBytes),
       writesRefused: state.writesRefused, graceEndsAt: state.graceEndsAt,
       breakdown: this.breakdown, measuredAt: this.measuredAt,

@@ -1,0 +1,1 @@
+- Message box: with only one AI engine switched on (for example only Claude), there is no AI picker under the box, however many models that engine has. The model for new chats is still chosen in Settings › "AI for new chats" (people who may pick) and Admin › Team settings › AI defaults.

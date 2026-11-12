@@ -1,0 +1,4 @@
+- Getting started: the invite step no longer has "This person will be the owner"; one team link invites many people, so ownership is handed over after people join (Admin › Members, a person's "…").
+- Home: no mic in the message box while voice input can't be used on this server (owners and admins included), and no AI picker when there is only one choice.
+- Home: the team goal card invites you to make documents with colleagues, naming a few of the team's own skills; the 0/3 count is smaller.
+- Chats started from a skill are called by the skill's name (e.g. "Promo cards"), not "/card-news".

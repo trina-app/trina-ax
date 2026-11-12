@@ -9,6 +9,7 @@ import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { MyUsage as MyUsageData, MyUsageLimit } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { limitResetText } from '@mycel/shared'
 import { formatDateTime, formatNumber, formatRelative, formatUsd } from '../../lib/format'
 import { usageShares } from '../../lib/usage-share'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -45,7 +46,8 @@ export default function MyUsage() {
   // the last answer stays on screen while a new period loads, so the page does not jump
   const d = state.data
   const tz = me.server.timeZone
-  const when = (iso: string) => formatDateTime(iso, locale, tz)
+  // when a limit is free again: 24-hour time, so its midnight never reads as noon (shared limitResetText)
+  const when = (iso: string) => limitResetText(new Date(iso), locale, tz)
   const limitName = (l: MyUsageLimit) =>
     t(`myUsage.limit.${l.scope}.${l.period}` as MessageKey, { name: l.name ?? t('myUsage.groupRemoved') })
   const top = d?.limits[0]
@@ -144,7 +146,7 @@ export default function MyUsage() {
           <p className="mt-1 text-xs text-muted" data-testid="my-usage-updated">{t('myUsage.updated', { when: formatRelative(new Date(state.at).toISOString(), locale) })}</p>
           {isAdmin(me) && (
             <p className="mt-3 text-sm">
-              <Link to="/admin/usage" className="text-accent-text underline-offset-2 hover:underline" data-testid="my-usage-team-link">
+              <Link to="/admin/usage" className="text-accent-text underline-offset-2 hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="my-usage-team-link">
                 {t('myUsage.teamLink')}
               </Link>
             </p>

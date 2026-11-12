@@ -81,13 +81,17 @@ export class ReaderLimit extends Error { name = 'ReaderLimit' }
 /** The AI cannot be used now (signed out, refused, missing): the run stops; status says no engine. */
 export class ReaderUnavailable extends Error { name = 'ReaderUnavailable' }
 
+/** Another task on the same reader (chat/often-asked-run.ts: Home's "what my group often asks"): its own instructions,
+ * its own turns.chat_id, and on a failure no engine output in the log (the message is other people's words). */
+export interface ReadOptions { system: string; chat: string; quiet?: boolean }
+
 /** One model call of the reader. Implementations: engine-reader.ts (Claude Code, Codex); tests pass a fake. */
 export interface Reader {
   readonly engine: 'claude-code' | 'codex' | 'fake'
   readonly model: string | null
   /** whether images can be sent (Codex here: text only) */
   readonly images: boolean
-  read(blocks: Block[], signal: AbortSignal): Promise<ReaderAnswer>
+  read(blocks: Block[], signal: AbortSignal, o?: ReadOptions): Promise<ReaderAnswer>
   /** whose AI sign-in a call would use now (Admin › Team settings shows it); null: not known (a fake) */
   signIn?(): FileListSignIn | null
 }

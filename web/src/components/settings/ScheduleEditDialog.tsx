@@ -167,7 +167,7 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
                 {(s.saveSources ?? []).filter((x) => kept.includes(x.key)).map((x) => (
                   <li key={x.key} className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-subtle py-0.5 pr-0.5 pl-2.5 text-sm" data-testid="schedule-edit-save-source">
                     <span className="truncate">{sourceName(x, t)}</span>
-                    <IconButton label={t('schedules.removeSource', { name: sourceName(x, t) })} className="p-0.5" onClick={() => { setKept((k) => k.filter((y) => y !== x.key)); setNote(null) }}><X size={13} /></IconButton>
+                    <IconButton label={t('schedules.removeSource', { name: sourceName(x, t) })} compact className="p-0.5" onClick={() => { setKept((k) => k.filter((y) => y !== x.key)); setNote(null) }}><X size={13} /></IconButton>
                   </li>
                 ))}
               </ul>

@@ -79,9 +79,12 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
     if (!devEnv) return
     api.call(API.myDevEnvSites).then((r) => setSites(r.state !== 'off'), () => setSites(false))
   }, [devEnv])
-  // Browser: inside a desktop app that offers its site setting (that value lives there), or wherever the team lets
-  // members turn on "Allow all websites" for the AI's web reads (Me.team.webAllowAll: that value lives on the server)
-  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll), Boolean(own), Boolean(sites))
+  // Browser: inside a desktop app that offers its site setting (that value lives there); elsewhere only while the
+  // person's "Allow all websites" for the AI's web reads is on (that value lives on the server), and still after they
+  // turn it off here, until the dialog closes (the section does not vanish under their hand)
+  const [webOn, setWebOn] = useState(me.user.webAllowAll === true)
+  useEffect(() => { if (me.user.webAllowAll) setWebOn(true) }, [me.user.webAllowAll])
+  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn), Boolean(own), Boolean(sites))
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()

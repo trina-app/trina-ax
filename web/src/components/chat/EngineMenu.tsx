@@ -9,6 +9,13 @@ export const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude',
 
 export interface EnginePick { engine: EngineId; model: string | null }
 
+/** Whether the composer shows its AI picker: only when two or more engines are switched on. With one engine there is
+ * no picker, however many models it has; new chats use the person's own default (Settings › "AI for new chats") or else the team's
+ * (Admin › Team settings › AI defaults) (owner 2026-11-12, supersedes 2026-11-11's "more than one choice"). */
+export function showsEnginePicker(engines: readonly EngineId[]): boolean {
+  return engines.length > 1
+}
+
 export function EngineOptions({
   engines,
   models,

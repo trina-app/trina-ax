@@ -74,12 +74,19 @@ export function writeLockedCatalog(src: string, dst: string): string[] {
   return j.models.map((m: any) => m.slug)
 }
 
+/** CODEX_HOME files and folders that change what Codex may do (scripts/macos/engine.sb denies writes; the Linux launcher
+ * binds the same names read-only, sandbox_linux.go codexLockFiles): .env sets the CLI's environment,
+ * AGENTS.override.md wins over AGENTS.md, rules/ holds command rules and prompts/ custom prompts */
+export const CODEX_LOCK_FILES = ['config.toml', 'models_cache.json', 'catalog.json', 'AGENTS.md', 'hooks.json', 'skills', 'plugins',
+  '.env', 'AGENTS.override.md', 'rules', 'prompts'] as const
+
 /** Stage 1 local-login: engine CODEX_HOME holds only a symlink to the real auth.json. If codex replaced the
  * symlink with a refreshed file, move it back so the user's main login keeps the newest refresh token. */
 export function prepareCodexHome(codexHome: string, auth: CodexConf['auth'], realAuth = path.join(os.homedir(), '.codex', 'auth.json')) {
   fs.mkdirSync(codexHome, { recursive: true, mode: 0o700 })
-  for (const f of ['config.toml', 'AGENTS.md']) fs.rmSync(path.join(codexHome, f), { force: true })
-  fs.rmSync(path.join(codexHome, 'skills'), { recursive: true, force: true })
+  // every file the engine sandbox keeps a turn from writing (engine.sb "Codex lockdown files"; the Linux launcher's
+  // codexLockFiles): one a turn still left (audit row 37) is gone before the next turn's CLI reads it
+  for (const f of CODEX_LOCK_FILES) fs.rmSync(path.join(codexHome, f), { recursive: true, force: true })
   if (auth === 'agent-own' || auth === 'managed') return
   const link = path.join(codexHome, 'auth.json')
   let st: fs.Stats | null = null

@@ -14,6 +14,7 @@ async function setup(name: string, people = 3) {
   fakeRun = spyOn(TurnExec.prototype, 'run').mockImplementation(async function(this: TurnExec) { starts.push(this) })
   h = await harness(`fair-${name}`); const owner = await withOwner(h)
   rt = getChatRuntime(h.ctx)
+  rt.startSpreadMs = 0 // these tests finish and launch turns in one synchronous go; the start gate: start-gate.test.ts
   for (let i = 1; i < people; i++) h.ctx.db.query("INSERT INTO users(id,username,name,role) VALUES(?,?,?,'member')").run(`u${i}`, `u${i}`, `U${i}`)
   return owner
 }

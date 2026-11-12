@@ -1,7 +1,8 @@
 // The phone's ‹ (a room, an AI chat, a page under a tab): back in the real history when the entry before this one is
-// the app's own, so the phone's own back (Android, the WebView's history) and ‹ walk the same way and never loop. Opened
-// from outside (a notice, a link, a reload of the first page) there is nothing of ours to go back to: the tab's list
-// instead, in place of this entry (replace), never pushed on top of it.
+// the app's own, so the phone's own back (Android, the WebView's history) and ‹ walk the same way and never loop. On a
+// phone the entries before are the tab's stack, the screen's parents (lib/screenHistory.ts). With nothing of ours to go
+// back to (a stack's first entry): the fallback, the screen's parent or the tab's list, in place of this entry
+// (replace), never pushed on top of it.
 import type { MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 

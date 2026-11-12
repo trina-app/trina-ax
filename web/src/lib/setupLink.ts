@@ -48,3 +48,21 @@ export function rememberSetupSite(site: string | null): void {
 export function setupSite(): string | null {
   try { const v = sessionStorage.getItem(SITE_KEY); return v ? normalizeWebsite(v) : null } catch { return null }
 }
+
+const TOKEN_KEY = 'mycel.setupToken'
+
+/** Keep the setup link's token for this tab, so a reload of /setup (the token is gone from the address by then) still
+ * opens the setup page through the relay, which says setup is needed only to a visitor with the token
+ * (store/session.ts). sessionStorage: this tab only, gone when it closes; forgotten once the team is made. */
+export function rememberSetupToken(token: string | null): void {
+  try { if (token) sessionStorage.setItem(TOKEN_KEY, token) } catch { /* storage blocked: a reload asks for the token */ }
+}
+
+/** The setup token this tab's setup link carried, or null. */
+export function keptSetupToken(): string | null {
+  try { return clip(sessionStorage.getItem(TOKEN_KEY), 256) } catch { return null }
+}
+
+export function forgetSetupToken(): void {
+  try { sessionStorage.removeItem(TOKEN_KEY) } catch { /* nothing kept */ }
+}

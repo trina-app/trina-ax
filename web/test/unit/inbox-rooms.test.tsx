@@ -150,7 +150,7 @@ test('Activity\'s tabs never move the page: the scroll bar\'s room is kept, a ta
       expect(tab.className).toContain('focus-visible:-outline-offset-2')
       expect(tab.className).not.toMatch(/(^|\s)(focus:|outline-offset-2)/)
       // the label and an invisible bold copy in one cell: the selected tab is as wide as before
-      const cell = [...tab.children].find((c) => c.getAttribute('class') === 'grid')!
+      const cell = [...tab.children].find((c) => (c.getAttribute('class') ?? '').split(' ').includes('grid'))!
       expect(cell.children).toHaveLength(2)
       expect(cell.children[1]!.getAttribute('aria-hidden')).toBe('true')
       expect(cell.children[1]!.className).toContain('invisible')

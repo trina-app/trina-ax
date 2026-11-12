@@ -2,13 +2,14 @@
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
 import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { useBackCloses } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
+import { useImageViewer } from '../lib/imageViewer'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -41,6 +42,8 @@ export default function Layout() {
   const panel = useSidePanel()
   // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the sidebar; the page stays mounted, hidden
   const big = usePanelExpanded() && expandable(panel)
+  // the image and file viewer (components/ImageViewer.tsx, over the whole window): the app under it is out of reach
+  const viewerOpen = !!useImageViewer()
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
@@ -112,6 +115,18 @@ export default function Layout() {
   // phones: Android's Back closes the drawer, then a full-screen side panel (file preview, artifact, browser), and only
   // then leaves the page (QA TC-141). A panel kept across a move (open in folder) holds a new entry on the new page
   const phone = !useMediaQuery('(min-width: 768px)')
+  // a phone's panel makes the page inert, which takes the focus from what opened it: it goes back there when the panel
+  // closes (when nothing else took it meanwhile). The last focus inside the page is kept as it moves.
+  const covered = phone && !!panel
+  const lastFocus = useRef<HTMLElement | null>(null)
+  const wasCovered = useRef(false)
+  useLayoutEffect(() => {
+    const was = wasCovered.current
+    wasCovered.current = covered
+    if (covered || !was) return
+    const back = lastFocus.current
+    if (back?.isConnected && (document.activeElement === document.body || !document.activeElement)) back.focus({ preventScroll: true })
+  }, [covered])
   useBackCloses(drawer, () => setDrawer(false), phone)
   useBackCloses(!!panel, closeSidePanel, phone, location.key)
   // any move (the sidebar's Files, a folder link, a link to the page already open): side by side again, so the page
@@ -125,7 +140,7 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" inert={viewerOpen || undefined} aria-hidden={viewerOpen || undefined} data-testid="app-layout">
       {/* a big side panel hides the page: the panel is what there is to skip to */}
       <a href={big ? '#side-panel' : '#main'} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
@@ -149,7 +164,9 @@ export default function Layout() {
             </div>
           </div>
         )}
-        <main id="main" tabIndex={-1} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
+        {/* phones: a side panel (a file's preview, an artifact, the browser) is a full-screen sheet over the page, and the
+            page behind it is out of reach (no tap, scroll or focus goes there) until it closes */}
+        <main id="main" tabIndex={-1} onFocus={(e) => { if (e.target instanceof HTMLElement) lastFocus.current = e.target }} inert={covered || undefined} aria-hidden={covered || undefined} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
           {/* a web browser not asked about notifications yet: one line, here on a computer (components/WebPushAsk.tsx) */}
           <WebPushAsk at="top" />
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}

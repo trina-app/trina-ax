@@ -130,6 +130,30 @@ describe('the base to compare with', () => {
     expect(base).toBe(LOG)
     expect(newUnreleasedLines(base!, fs.readFileSync(path.join(clone, 'CHANGELOG.md'), 'utf8'))).toEqual(['- My new note.'])
   })
+  test('the release PR (dev into main) is compared with dev: the notes dev gathered are not new', () => {
+    const clone = pr()
+    const origin = path.join(path.dirname(clone), 'origin')
+    // main: the last release, without the notes dev gathered since; dev: those notes (merged PR by PR)
+    git(origin, 'branch', 'main')
+    const gathered = LOG.replace('- Older note A.\n', '- Merged into dev 1.\n- Merged into dev 2.\n- Older note A.\n')
+    fs.writeFileSync(path.join(origin, 'CHANGELOG.md'), gathered)
+    git(origin, 'commit', '-q', '-am', 'notes on dev')
+    fs.writeFileSync(path.join(clone, 'CHANGELOG.md'), gathered)
+    const head = fs.readFileSync(path.join(clone, 'CHANGELOG.md'), 'utf8')
+    const env = { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'dev' }
+    const base = baseChangelog(clone, env)
+    expect(base).toBe(gathered)
+    expect(newUnreleasedLines(base!, head)).toEqual([])
+    // against main itself every note of dev would read as new (the release PR's old failure)
+    expect(newUnreleasedLines(LOG, head)).toEqual(['- Merged into dev 1.', '- Merged into dev 2.'])
+    // a note that is not on dev still fails the release PR
+    const added = gathered.replace('- Older note A.\n', '- Only in this PR.\n- Older note A.\n')
+    expect(newUnreleasedLines(baseChangelog(clone, env)!, added)).toEqual(['- Only in this PR.'])
+    // any other PR into main (a hotfix branch from main) still compares with main, so its new line fails
+    expect(baseChangelog(clone, { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'fix/hotfix' })).toBe(LOG)
+    const hotfix = LOG.replace('- Older note A.\n', '- Hotfix note.\n- Older note A.\n')
+    expect(newUnreleasedLines(baseChangelog(clone, { GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'fix/hotfix' })!, hotfix)).toEqual(['- Hotfix note.'])
+  })
   test('CHANGELOG_BASE names a ref for a local check', () => {
     expect(baseChangelog(pr(), { CHANGELOG_BASE: 'origin/dev' })).toBe(LOG)
   })

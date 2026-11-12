@@ -235,8 +235,13 @@ test('the label key is the app\'s: registering again with it changes nothing; wi
   p.registerDevice(w.nora.id, sessionOf(w.nora.id), iosDevice(undefined, w.token))
   expect(stored()).toBeNull()
   expect(w.ask(id, next)).toEqual({})
-  // the same phone signed in as someone else: the token moves, nora's row and its key go
+  // someone else with the same token while nora is still signed in there: refused (QA TC-201)
   const otherKey = newKey()
+  expect(() => p.registerDevice(w.otto.id, sessionOf(w.otto.id), iosDevice(hashOf(otherKey), w.token))).toThrow()
+  expect(stored()).toBeNull()
+  // the same phone signed in as someone else after nora signed out: nora's row and its key went with her session
+  const held = (h.ctx.db.query('SELECT session_id FROM push_subscriptions WHERE id=?').get(w.device.id) as { session_id: string }).session_id
+  h.auth.revokeSession(held)
   const moved = p.registerDevice(w.otto.id, sessionOf(w.otto.id), iosDevice(hashOf(otherKey), w.token))
   expect(h.ctx.db.query('SELECT id FROM push_subscriptions WHERE id=?').get(w.device.id)).toBeNull()
   expect(h.ctx.db.query('SELECT user_id,label_hash FROM push_subscriptions WHERE id=?').get(moved.id)).toEqual({ user_id: w.otto.id, label_hash: hashOf(otherKey) })

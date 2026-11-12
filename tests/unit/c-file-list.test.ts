@@ -65,8 +65,13 @@ describe('a first run', () => {
       ...(fs.readdirSync(A.team).includes('Groups') ? ['Groups/_FILES.md'] : []),
       ...(fs.readdirSync(path.join(A.team, 'groups')).includes('Marketing') ? ['groups/Marketing/_FILES.md'] : []),
     ]
-    expect(glob.text.split('\n').sort()).toEqual([...caseExtras, 'groups/finance/_FILES.md', 'groups/marketing/_FILES.md', 'groups/marketing/salaries/_FILES.md', 'projects/atlas/_FILES.md',
-      'projects/falcon/_FILES.md', 'projects/falcon/public/_FILES.md', 'shared/_FILES.md'].sort())
+    // the owner reads no team project she is not a member of (docs/DECISIONS.md "Project contents only for members"):
+    // no list there for her; the projects' lists show to their members (bob: finance reads falcon and writes atlas)
+    expect(glob.text.split('\n').sort()).toEqual([...caseExtras, 'groups/finance/_FILES.md', 'groups/marketing/_FILES.md', 'groups/marketing/salaries/_FILES.md', 'shared/_FILES.md'].sort())
+    const bobs = (await call('bob', 'glob', { pattern: '**/_FILES.md' })).text.split('\n')
+    for (const l of ['projects/atlas/_FILES.md', 'projects/falcon/_FILES.md', 'projects/falcon/public/_FILES.md']) expect(bobs).toContain(l)
+    expect(named(await readList('dana', 'projects/falcon/_FILES.md'))).toEqual([])
+    expect(named(await readList('bob', 'projects/falcon/_FILES.md'))).toContain('projects/falcon/plan.md')
     // skills/, personal folders and the team root are not read
     expect(reader.paths().some((p) => p.startsWith('skills/') || p.startsWith('users/'))).toBe(false)
     expect(named(await readList('alice', 'shared/_FILES.md'))).toContain('shared/glossary.md')
@@ -132,7 +137,8 @@ describe('only what changed is read; a line shows only for the file as it was re
     fs.renameSync(path.join(A.team, from), path.join(A.team, to))
     await run()
     expect(reader.paths().sort()).toEqual([...changed, ...added].sort())
-    const all = (await Promise.all(['shared/_FILES.md', 'groups/marketing/_FILES.md', 'groups/finance/_FILES.md', 'projects/falcon/_FILES.md'].map((l) => readList('dana', l)))).flatMap(named)
+    // projects/falcon's list as one of its members (bob, through finance): the owner is not one
+    const all = (await Promise.all([['dana', 'shared/_FILES.md'], ['dana', 'groups/marketing/_FILES.md'], ['dana', 'groups/finance/_FILES.md'], ['bob', 'projects/falcon/_FILES.md']].map(([who, l]) => readList(who!, l!)))).flatMap(named)
     for (const p of deleted) expect(all).not.toContain(p)
     expect(all).not.toContain(from)
     expect(all).toContain(to)

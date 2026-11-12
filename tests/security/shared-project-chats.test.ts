@@ -1,12 +1,14 @@
 // Shared project chats (docs/DECISIONS.md "Shared project chats"): roles x routes x states. Every route that takes a
 // chat id answers each person as the design says, for a shared chat of the project on projects/falcon (alice made
-// it and writes the folder; bob reads it through finance; carol is an admin, dana the owner; erin sees only its
-// public/ folder, so she is not in its audience). States: as it is, in the trash, while safe operations (1A) are on,
-// after bob lost the folder, and while the project's folder is in the trash (only admins and the owner see it then).
-// A person outside the audience gets the same 404 as for a chat that does not exist, and no response carries the
-// chat's canary to anyone who may not see it. An existing private chat shared later (POST /api/chats/:id/share,
-// chat/share-chat.ts): only its creator may ask, the check names nobody and nothing she may not look at, nothing is
-// shared without her yes on the confirm, and afterwards it follows the same rules (its earlier steps the words alone).
+// it and writes the folder; bob reads it through finance; carol is an admin who added herself as a member; dana is the
+// owner and not a member, so not in its audience: docs/DECISIONS.md "Project contents only for members"; erin sees
+// only its public/ folder, so she is not in its audience either). States: as it is, in the trash, while safe
+// operations (1A) are on, after bob lost the folder, and while the project's folder is in the trash (nobody sees it
+// then, the owner and admins included). A person outside the audience gets the same 404 as for a chat that does not
+// exist, and no response carries the chat's canary to anyone who may not see it. An existing private chat shared
+// later (POST /api/chats/:id/share, chat/share-chat.ts): only its creator may ask, the check names nobody and nothing
+// she may not look at, nothing is shared without her yes on the confirm, and afterwards it follows the same rules (its
+// earlier steps the words alone).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -28,6 +30,13 @@ beforeAll(async () => {
   h = await startHarness({ name: 'sec-shared-chats', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
   for (const u of PEOPLE) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
+  // the owner and an admin are not members of it: neither reads it; carol adds herself (Add me), dana stays out
+  for (const w of ['carol', 'dana'] as const) expect((await h.req(w, `/api/projects/${projectId}`)).status).toBe(404)
+  const acc = await h.api('carol').call(API.getProjectAccess, { params: { id: projectId } })
+  const parts = acc.participants.filter((x) => !x.creator).map((x) => ({ subjectType: x.subjectType, subjectId: x.subjectId }))
+  await h.api('carol').call(API.putProjectParticipants, { params: { id: projectId }, body: { participants: [...parts, { subjectType: 'user', subjectId: 'carol' }], expectedHash: acc.rulesHash } })
+  expect((await h.req('carol', `/api/projects/${projectId}`)).status).toBe(200)
+  expect((await h.req('dana', `/api/projects/${projectId}`)).status).toBe(404)
   otherProject = (await h.api('alice').call(API.createProject, { body: { name: 'Other', scope: 'personal', participants: [], instructions: '' } })).id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
   chatId = (await h.api('alice').call(API.createChat, { body: { projectId } })).id
@@ -50,29 +59,29 @@ const idle = () => waitFor(() => !h.rt().activeTurn(chatId), { timeoutMs: 30_000
 type Row = { route: string; run: (who: Who) => Promise<{ status: number; text: string }>; allow: Who[]; deny: Partial<Record<Who, number>> }
 /** the reading routes: everyone in the audience, nobody else */
 const reads = (): Row[] => [
-  { route: 'GET /api/chats/:id', run: (w) => hit(w, `/api/chats/${chatId}`), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'GET /api/chats/:id/messages', run: (w) => hit(w, `/api/chats/${chatId}/messages`), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'GET /api/chats/:id/queue', run: (w) => hit(w, `/api/chats/${chatId}/queue`), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'GET /api/chats/:id/requests', run: (w) => hit(w, `/api/chats/${chatId}/requests`), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'GET /api/chats/:id/artifacts', run: (w) => hit(w, `/api/chats/${chatId}/artifacts`), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'GET /api/chats/:id/messages/:messageId/sources', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/sources`), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'POST /api/chats/:id/seen', run: (w) => hit(w, `/api/chats/${chatId}/seen`, J({})), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'GET /api/chats (list)', run: async (w) => { const r = await hit(w, `/api/chats?projectId=${projectId}`); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
+  { route: 'GET /api/chats/:id', run: (w) => hit(w, `/api/chats/${chatId}`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'GET /api/chats/:id/messages', run: (w) => hit(w, `/api/chats/${chatId}/messages`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'GET /api/chats/:id/queue', run: (w) => hit(w, `/api/chats/${chatId}/queue`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'GET /api/chats/:id/requests', run: (w) => hit(w, `/api/chats/${chatId}/requests`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'GET /api/chats/:id/artifacts', run: (w) => hit(w, `/api/chats/${chatId}/artifacts`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'GET /api/chats/:id/messages/:messageId/sources', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/sources`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'POST /api/chats/:id/seen', run: (w) => hit(w, `/api/chats/${chatId}/seen`, J({})), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'GET /api/chats (list)', run: async (w) => { const r = await hit(w, `/api/chats?projectId=${projectId}`); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
 ]
 /** the writing routes, one person at a time */
 const writes = (): Row[] => [
-  { route: 'PATCH /api/chats/:id (title)', run: (w) => hit(w, `/api/chats/${chatId}`, PATCH({ title: `t-${w}` })), allow: ['alice'], deny: { bob: 403, carol: 403, dana: 403, erin: 404 } },
-  { route: 'PATCH /api/chats/:id (projectId)', run: (w) => hit(w, `/api/chats/${chatId}`, PATCH({ projectId: otherProject })), allow: [], deny: { alice: 409, bob: 403, carol: 403, dana: 403, erin: 404 } },
-  { route: 'POST /api/chats/:id/messages/:messageId/edit', run: (w) => hit(w, `/api/chats/${chatId}/messages/${questionId}/edit`, J({ content: 'x', clientMessageId: cm(), attachmentIds: [] })), allow: ['alice'], deny: { bob: 403, carol: 403, dana: 403, erin: 404 } },
-  { route: 'POST /api/chats/:id/messages/:messageId/regenerate', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/regenerate`, J({})), allow: ['alice'], deny: { bob: 403, carol: 403, dana: 403, erin: 404 } },
+  { route: 'PATCH /api/chats/:id (title)', run: (w) => hit(w, `/api/chats/${chatId}`, PATCH({ title: `t-${w}` })), allow: ['alice'], deny: { bob: 403, carol: 403, dana: 404, erin: 404 } },
+  { route: 'PATCH /api/chats/:id (projectId)', run: (w) => hit(w, `/api/chats/${chatId}`, PATCH({ projectId: otherProject })), allow: [], deny: { alice: 409, bob: 403, carol: 403, dana: 404, erin: 404 } },
+  { route: 'POST /api/chats/:id/messages/:messageId/edit', run: (w) => hit(w, `/api/chats/${chatId}/messages/${questionId}/edit`, J({ content: 'x', clientMessageId: cm(), attachmentIds: [] })), allow: ['alice'], deny: { bob: 403, carol: 403, dana: 404, erin: 404 } },
+  { route: 'POST /api/chats/:id/messages/:messageId/regenerate', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/regenerate`, J({})), allow: ['alice'], deny: { bob: 403, carol: 403, dana: 404, erin: 404 } },
   // alice's own answer goes on to the room's checks (no such room: refused there); everyone else is stopped before
   { route: 'POST /api/chats/:id/messages/:messageId/share-to-room', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/share-to-room`, J({ roomId: uuidv7(), note: '', clientMessageId: cm() })), allow: [], deny: { bob: 404, carol: 404, dana: 404, erin: 404 } },
-  { route: 'POST /api/attachments/team-file', run: (w) => hit(w, '/api/attachments/team-file', J({ chatId, path: 'projects/falcon/plan.md' })), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
+  { route: 'POST /api/attachments/team-file', run: (w) => hit(w, '/api/attachments/team-file', J({ chatId, path: 'projects/falcon/plan.md' })), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
   // into the project folder (uploads/shared-chat.ts): who may write it; bob only reads it (403 shared_upload_read_only)
-  { route: 'POST /api/uploads (computer file)', run: (w) => { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File(['x'], 'x.txt', { type: 'text/plain' })); return hit(w, '/api/uploads', { method: 'POST', headers: { [CSRF_HEADER]: '1' }, body: f }) }, allow: ['alice', 'carol', 'dana'], deny: { bob: 403, erin: 404 } },
-  { route: 'POST /api/chats/:id/branch', run: (w) => hit(w, `/api/chats/${chatId}/branch`, J({ messageId: answerId })), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'POST /api/chats/:id/stop (idle)', run: (w) => hit(w, `/api/chats/${chatId}/stop`, J({})), allow: ['alice', 'bob', 'carol', 'dana'], deny: { erin: 404 } },
-  { route: 'DELETE /api/chats/:id', run: async (w) => { const r = await hit(w, `/api/chats/${chatId}`, { method: 'DELETE', headers: { [CSRF_HEADER]: '1' } }); if (r.status < 300) await hit('alice', `/api/chats/${chatId}/restore`, J({})); return r }, allow: ['alice', 'carol', 'dana'], deny: { bob: 403, erin: 404 } },
+  { route: 'POST /api/uploads (computer file)', run: (w) => { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File(['x'], 'x.txt', { type: 'text/plain' })); return hit(w, '/api/uploads', { method: 'POST', headers: { [CSRF_HEADER]: '1' }, body: f }) }, allow: ['alice', 'carol'], deny: { bob: 403, dana: 404, erin: 404 } },
+  { route: 'POST /api/chats/:id/branch', run: (w) => hit(w, `/api/chats/${chatId}/branch`, J({ messageId: answerId })), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'POST /api/chats/:id/stop (idle)', run: (w) => hit(w, `/api/chats/${chatId}/stop`, J({})), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'DELETE /api/chats/:id', run: async (w) => { const r = await hit(w, `/api/chats/${chatId}`, { method: 'DELETE', headers: { [CSRF_HEADER]: '1' } }); if (r.status < 300) await hit('alice', `/api/chats/${chatId}/restore`, J({})); return r }, allow: ['alice', 'carol'], deny: { bob: 403, dana: 404, erin: 404 } },
 ]
 
 function judge(row: Row, who: Who, r: { status: number; text: string }) {
@@ -83,19 +92,19 @@ function judge(row: Row, who: Who, r: { status: number; text: string }) {
     expect({ route: row.route, who, status: r.status }).toEqual({ route: row.route, who, status: want ?? r.status })
     expect({ route: row.route, who, denied: r.status >= 400 }).toEqual({ route: row.route, who, denied: true })
   }
-  // nobody outside the audience ever gets the chat's words
-  if (who === 'erin') expect(r.text.includes(CANARY)).toBe(false)
+  // nobody outside the audience ever gets the chat's words (the owner who is not a member neither)
+  if (who === 'erin' || who === 'dana') expect(r.text.includes(CANARY)).toBe(false)
 }
 
 describe('a shared chat as it is', () => {
   for (const row of reads()) test(row.route, async () => { for (const w of PEOPLE) judge(row, w, await row.run(w)) })
   for (const row of writes()) test(row.route, async () => { for (const w of PEOPLE) { await idle(); judge(row, w, await row.run(w)) } })
 
-  test('POST /api/chats/:id/messages: everyone in the audience continues it, as themselves; erin gets 404', async () => {
+  test('POST /api/chats/:id/messages: everyone in the audience continues it, as themselves; erin and dana get 404', async () => {
     for (const w of PEOPLE) {
       await idle()
       const r = await hit(w, `/api/chats/${chatId}/messages`, J({ content: `from ${w}\n${fake({ say: `ok ${w}` })}`, clientMessageId: cm(), attachmentIds: [] }))
-      if (w === 'erin') { expect(r.status).toBe(404); continue }
+      if (w === 'erin' || w === 'dana') { expect({ w, status: r.status }).toEqual({ w, status: 404 }); expect(r.text.includes(CANARY)).toBe(false); continue }
       expect({ w, status: r.status }).toEqual({ w, status: 202 })
       const t = JSON.parse(r.text) as { turnId: string }
       expect(h.ctx.db.query('SELECT user_id FROM turns WHERE id = ?').get(t.turnId)).toEqual({ user_id: w })
@@ -107,13 +116,16 @@ describe('a shared chat as it is', () => {
     await idle()
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ sleep: 3000 }, { say: 'slow' }), clientMessageId: cm(), attachmentIds: [] } })
     await waitFor(() => h.rt().activeTurnUser(chatId) === 'alice')
-    for (const w of ['bob', 'carol', 'dana'] as const) {
+    for (const w of ['bob', 'carol'] as const) {
       const s = await hit(w, `/api/chats/${chatId}/messages`, J({ content: 'x', clientMessageId: cm(), attachmentIds: [] }))
       expect({ w, status: s.status, reason: JSON.parse(s.text).error?.params?.reason }).toEqual({ w, status: 409, reason: 'shared_chat_busy' })
       expect((await hit(w, `/api/chats/${chatId}/stop`, J({}))).status).toBe(403)
       expect(JSON.parse((await hit(w, `/api/chats/${chatId}/requests`)).text).items).toEqual([])
     }
-    expect((await hit('erin', `/api/chats/${chatId}/stop`, J({}))).status).toBe(404)
+    // the owner who is not a member: the chat does not exist for her, busy or not
+    expect((await hit('dana', `/api/chats/${chatId}/messages`, J({ content: 'x', clientMessageId: cm(), attachmentIds: [] }))).status).toBe(404)
+    expect((await hit('dana', `/api/chats/${chatId}/requests`)).status).toBe(404)
+    for (const w of ['erin', 'dana'] as const) expect({ w, status: (await hit(w, `/api/chats/${chatId}/stop`, J({}))).status }).toEqual({ w, status: 404 })
     expect((await hit('alice', `/api/chats/${chatId}/stop`, J({}))).status).toBe(200)
     await ws.alice!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
   })
@@ -132,7 +144,8 @@ describe('in the trash', () => {
     try {
       for (const w of PEOPLE) {
         const r = await hit(w, `/api/chats/${chatId}`)
-        expect({ w, status: r.status }).toEqual({ w, status: w === 'alice' || w === 'carol' || w === 'dana' ? 200 : 404 })
+        expect({ w, status: r.status }).toEqual({ w, status: w === 'alice' || w === 'carol' ? 200 : 404 })
+        if (r.status !== 200) expect(r.text.includes(CANARY)).toBe(false)
         const s = await hit(w, `/api/chats/${chatId}/messages`, J({ content: 'x', clientMessageId: cm(), attachmentIds: [] }))
         expect({ w, status: s.status }).toEqual({ w, status: 404 })
       }
@@ -142,14 +155,15 @@ describe('in the trash', () => {
 })
 
 describe('while safe operations (1A) are on', () => {
-  test('read-only for everyone in the audience (409 safe_ops); erin still 404', async () => {
+  test('read-only for everyone in the audience (409 safe_ops); erin and dana still 404', async () => {
     await idle()
     process.env.MYCEL_SAFE_OPS_1A = '1'
     try {
       for (const w of PEOPLE) {
-        expect({ w, status: (await hit(w, `/api/chats/${chatId}`)).status }).toEqual({ w, status: w === 'erin' ? 404 : 200 })
+        const out = w === 'erin' || w === 'dana'
+        expect({ w, status: (await hit(w, `/api/chats/${chatId}`)).status }).toEqual({ w, status: out ? 404 : 200 })
         const s = await hit(w, `/api/chats/${chatId}/messages`, J({ content: 'x', clientMessageId: cm(), attachmentIds: [] }))
-        expect({ w, status: s.status, reason: w === 'erin' ? undefined : JSON.parse(s.text).error?.params?.reason }).toEqual({ w, status: w === 'erin' ? 404 : 409, reason: w === 'erin' ? undefined : 'safe_ops' })
+        expect({ w, status: s.status, reason: out ? undefined : JSON.parse(s.text).error?.params?.reason }).toEqual({ w, status: out ? 404 : 409, reason: out ? undefined : 'safe_ops' })
       }
       // and a new chat in the project is not shared
       const c = JSON.parse((await hit('alice', '/api/chats', J({ projectId }))).text)
@@ -176,14 +190,17 @@ describe('after bob lost the folder', () => {
 })
 
 describe("while the project's folder is in the trash", () => {
-  test('only the owner and admins see it', async () => {
+  test('nobody sees it, the owner and admins included', async () => {
     await idle()
     h.ctx.db.query("UPDATE projects SET trashed_with = 'sec-trash' WHERE id = ?").run(projectId)
     try {
       for (const w of PEOPLE) {
         const r = await hit(w, `/api/chats/${chatId}`)
-        expect({ w, status: r.status }).toEqual({ w, status: w === 'carol' || w === 'dana' ? 200 : 404 })
-        if (r.status !== 200) expect(r.text.includes(CANARY)).toBe(false)
+        expect({ w, status: r.status }).toEqual({ w, status: 404 })
+        expect(r.text.includes(CANARY)).toBe(false)
+        const m = await hit(w, `/api/chats/${chatId}/messages`)
+        expect({ w, status: m.status }).toEqual({ w, status: 404 })
+        expect(m.text.includes(CANARY)).toBe(false)
       }
     } finally { h.ctx.db.query('UPDATE projects SET trashed_with = NULL WHERE id = ?').run(projectId) }
   })
@@ -192,7 +209,7 @@ describe("while the project's folder is in the trash", () => {
 describe('realtime', () => {
   test("erin's socket never carries the shared chat; bob's never carries alice's live answer or cards", async () => {
     await idle()
-    const at = { erin: ws.erin!.frames.length, bob: ws.bob!.frames.length }
+    const at = { erin: ws.erin!.frames.length, bob: ws.bob!.frames.length, dana: ws.dana!.frames.length }
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: `live ${CANARY}` }), clientMessageId: cm(), attachmentIds: [] } })
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === r.turnId, 15_000)
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
@@ -200,6 +217,10 @@ describe('realtime', () => {
     await Bun.sleep(300)
     const erin = JSON.stringify(ws.erin!.frames.slice(at.erin))
     expect(erin.includes(chatId)).toBe(false)
+    // the owner who is not a member: nothing of it on her socket either
+    const dana = JSON.stringify(ws.dana!.frames.slice(at.dana))
+    expect(dana.includes(chatId)).toBe(false)
+    expect(dana.includes(CANARY)).toBe(false)
     const bob = ws.bob!.frames.slice(at.bob)
     expect(bob.some((f) => f.type === 'message.delta' || f.type === 'message.step' || f.type === 'turn.request' || f.type === 'message.done' || f.type === 'queue.position')).toBe(false)
     expect(bob.some((f) => f.type === 'chat.updated' && f.data.chatId === chatId)).toBe(true)
@@ -210,17 +231,18 @@ describe('realtime', () => {
 describe('an existing private chat shared later', () => {
   const NAMES = ['bob', 'carol', 'dana', 'erin', 'Bob', 'Carol', 'Dana', 'Erin']
   const PRIVATE = 'SEC-PRIVATE-CANARY-8812'
-  test('POST /api/chats/:id/share on a shared chat: already shared for its audience, 404 for erin', async () => {
+  test('POST /api/chats/:id/share on a shared chat: already shared for its audience, 404 for erin and dana', async () => {
     await idle()
     for (const w of PEOPLE) {
+      const out = w === 'erin' || w === 'dana'
       const r = await hit(w, `/api/chats/${chatId}/share`, J({}))
       expect({ w, status: r.status, reason: r.status === 409 ? JSON.parse(r.text).error?.params?.reason : undefined })
-        .toEqual({ w, status: w === 'erin' ? 404 : 409, reason: w === 'erin' ? undefined : 'already_shared' })
+        .toEqual({ w, status: out ? 404 : 409, reason: out ? undefined : 'already_shared' })
       expect(r.text.includes(CANARY)).toBe(false)
     }
   })
 
-  test('only its creator may ask; the check names nobody; nothing is shared without the key; then the audience sees it, erin never', async () => {
+  test('only its creator may ask; the check names nobody; nothing is shared without the key; then the audience sees it, erin and dana never', async () => {
     // alice's private chat, moved into the project, that read her own folder
     const own = (await h.api('alice').call(API.createChat, { body: {} })).id
     await h.api('alice').call(API.updateChat, { params: { id: own }, body: { projectId } })
@@ -235,10 +257,10 @@ describe('an existing private chat shared later', () => {
       expect(x.text.includes(PRIVATE)).toBe(false)
       expect((await hit(w, `/api/chats/${own}/messages`)).status).toBe(404)
     }
-    // alice: a confirm that names her own folder and nobody
+    // alice: a confirm that names her own folder and nobody (its audience: bob and carol, not the owner who is no member)
     const ask = await hit('alice', `/api/chats/${own}/share`, J({}))
     const c = JSON.parse(ask.text)
-    expect(c).toMatchObject({ status: 'confirm', audience: 3, provenance: { people: 3, places: [{ kind: 'mine' }] } })
+    expect(c).toMatchObject({ status: 'confirm', audience: 2, provenance: { people: 2, places: [{ kind: 'mine' }] } })
     expect(NAMES.filter((n) => ask.text.includes(n))).toEqual([])
     expect(ask.text.includes(PRIVATE)).toBe(false)
     expect(ask.text.includes('todo.md')).toBe(false)
@@ -250,12 +272,13 @@ describe('an existing private chat shared later', () => {
     }
     // bob cannot use alice's key
     expect((await hit('bob', `/api/chats/${own}/share`, J({ confirmKey: c.confirmKey }))).status).toBe(404)
-    const at = { erin: ws.erin!.frames.length, bob: ws.bob!.frames.length }
+    const at = { erin: ws.erin!.frames.length, bob: ws.bob!.frames.length, dana: ws.dana!.frames.length }
     const done = JSON.parse((await hit('alice', `/api/chats/${own}/share`, J({ confirmKey: c.confirmKey }))).text)
     expect(done.status).toBe('shared')
     await Bun.sleep(300)
-    // the audience sees it; the step that read her folder is the words alone for them; erin: 404, nothing on her socket
-    for (const w of ['bob', 'carol', 'dana'] as const) {
+    // the audience sees it; the step that read her folder is the words alone for them; erin and dana: 404, nothing on
+    // their sockets
+    for (const w of ['bob', 'carol'] as const) {
       const msgs = await hit(w, `/api/chats/${own}/messages`)
       expect({ w, status: msgs.status }).toEqual({ w, status: 200 })
       expect(msgs.text.includes(PRIVATE)).toBe(true)
@@ -263,16 +286,19 @@ describe('an existing private chat shared later', () => {
       const answers = (JSON.parse(msgs.text).items as { role: string }[]).filter((m) => m.role === 'assistant')
       expect(JSON.stringify(answers).includes('users/alice')).toBe(false)
     }
-    for (const p of [`/api/chats/${own}`, `/api/chats/${own}/messages`, `/api/chats?projectId=${projectId}`]) {
-      const x = await hit('erin', p)
-      expect(x.text.includes(PRIVATE)).toBe(false)
-      expect(x.text.includes(own)).toBe(false)
+    for (const w of ['erin', 'dana'] as const) {
+      for (const p of [`/api/chats/${own}`, `/api/chats/${own}/messages`, `/api/chats?projectId=${projectId}`]) {
+        const x = await hit(w, p)
+        expect(x.text.includes(PRIVATE)).toBe(false)
+        expect(x.text.includes(own)).toBe(false)
+      }
+      expect((await hit(w, `/api/chats/${own}/messages`)).status).toBe(404)
+      expect(JSON.stringify(ws[w]!.frames.slice(at[w])).includes(own)).toBe(false)
     }
-    expect(JSON.stringify(ws.erin!.frames.slice(at.erin)).includes(own)).toBe(false)
     expect(ws.bob!.frames.slice(at.bob).some((f) => f.type === 'chat.updated' && f.data.chatId === own)).toBe(true)
     // the audit row: counts, no names
     const row = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'chat.share' AND target = ?").get(own) as { detail: string }
-    expect(JSON.parse(row.detail)).toEqual({ audience: 3, people: 3, unknown: false, memories: false, confirmed: true })
+    expect(JSON.parse(row.detail)).toEqual({ audience: 2, people: 2, unknown: false, memories: false, confirmed: true })
   })
 })
 

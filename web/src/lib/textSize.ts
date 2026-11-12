@@ -46,8 +46,12 @@ let unsaved: TextSize | null = null
  * reconnect, another save) carries the old size and must not put it back (store/session.ts applyMe). */
 export const unsavedTextSize = (): TextSize | null => unsaved
 
+/** The size in use before the picks not saved yet: what a failed save goes back to when the account has none. */
+let beforePicks: TextSize = 'default'
+
 /** The person picked a size: shown and kept on this device now, saved to the account by the caller. */
 export function pickTextSize(size: TextSize) {
+  if (unsaved === null) beforePicks = current
   unsaved = size
   storeTextSize(size)
   applyTextSize(size)
@@ -56,6 +60,17 @@ export function pickTextSize(size: TextSize) {
 /** The account's save of `size` came back (saved or failed). */
 export function textSizeSettled(size: TextSize) {
   if (unsaved === size) unsaved = null
+}
+
+/** The account's save of `size` failed. Unless the person picked another size since (that one's save decides), the size
+ * goes back to the account's (`account`), else to the one in use before the picks: left as it was, the screen would keep
+ * a size the account does not have and change back at the next reload or on another device, with no word. */
+export function textSizeFailed(size: TextSize, account: TextSize | undefined) {
+  if (unsaved !== size) return
+  unsaved = null
+  const back = account ?? beforePicks
+  storeTextSize(back)
+  applyTextSize(back)
 }
 
 /** The root font size of the step: none of its own at the default, so the page is exactly as without the setting. */

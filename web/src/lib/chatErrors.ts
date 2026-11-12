@@ -7,9 +7,9 @@ import type { MessageKey } from '../i18n'
 import { noAiErrorKey } from './aiAccess'
 
 type Role = 'owner' | 'admin' | 'member' | undefined
-/** where the owner or an admin fixes it: the AI accounts (Admin › AI accounts, `admin.providers`), or the server's health (Admin › System ›
- * Health, the owner's page only) */
-type Where = 'providers' | 'health'
+/** where the owner or an admin fixes it: the AI accounts (Admin › AI accounts, `admin.providers`), the server's health (Admin › System ›
+ * Health, the owner's page only), or the server page with its storage card (Admin › System, which admins see too) */
+type Where = 'providers' | 'health' | 'system'
 
 const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   auth: 'providers',
@@ -21,13 +21,14 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   lockdown: 'providers',
   trial_credit_used: 'providers',
   trial_ended: 'providers',
-  engine_missing: 'health',
   proxy_down: 'health',
+  // the server's disk is full: the storage card shows what uses the space
+  storage_full: 'system',
 }
 
 /** The admin menu's words for a place, in the language on screen: "관리자 › AI 계정". */
 export function adminPath(t: (key: MessageKey) => string, where: Where): string {
-  return (where === 'providers' ? [t('admin.title'), t('admin.providers')] : [t('admin.title'), t('admin.system'), t('system.health')]).join(' › ')
+  return (where === 'providers' ? [t('admin.title'), t('admin.providers')] : where === 'system' ? [t('admin.title'), t('admin.system')] : [t('admin.title'), t('admin.system'), t('system.health')]).join(' › ')
 }
 
 /**
@@ -39,6 +40,9 @@ export function adminPath(t: (key: MessageKey) => string, where: Where): string 
 export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean): { key: MessageKey; where: Where | null } {
   const noAiKey = noAiErrorKey(reason, role, noAi)
   if (noAiKey) return { key: noAiKey, where: reason === 'credential_unusable' ? 'providers' : null }
+  // the AI cannot start (owner decision 2026-11-11): "Trina isn't ready yet" for a member with [Tell an admin], the
+  // owner and admins' own words with [Connect AI] (components/chat/NotReadyButton.tsx); no menu path in either
+  if (reason === 'engine_missing') return { key: role === 'owner' || role === 'admin' ? 'chat.error.admin.engine_missing' : 'chat.error.engine_missing', where: null }
   const where = ADMIN_FIX[reason]
   const fixes = where === 'health' ? role === 'owner' : role === 'owner' || role === 'admin'
   if (where && fixes) return { key: `chat.error.admin.${reason}` as MessageKey, where }

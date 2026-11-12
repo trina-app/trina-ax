@@ -373,9 +373,11 @@ export const FolderEditPreview = z.object({
   /** with `latentMore`: who, so the panel can say it: whoever joins the team (`team`), people switched off (by name, at
    * most 50), whoever joins these groups. `edit`: for each of the three, whether one of them gets edit somewhere (here
    * or in a folder inside), not only view; the panel says "open or edit" then, else "open" (absent: an older server,
-   * said as "open or edit"). Null without latentMore. Admin only, like the rest of this answer */
+   * said as "open or edit"). A group's own `edit`: the same for whoever joins that group, so the panel says the groups
+   * that get edit apart from the ones that only open it (absent: an older server, said by `edit.groups`). Null without
+   * latentMore. Admin only, like the rest of this answer */
   latent: z.object({
-    team: z.boolean(), off: z.array(UserRef), groups: z.array(z.object({ id: z.string(), name: z.string() })),
+    team: z.boolean(), off: z.array(UserRef), groups: z.array(z.object({ id: z.string(), name: z.string(), edit: z.boolean().optional() })),
     edit: z.object({ team: z.boolean(), off: z.boolean(), groups: z.boolean() }).optional(),
   }).nullable().optional(),
   /** less first, then more */

@@ -17,16 +17,16 @@ export const introDeckRoutes: RouteModule = {
     kit.handle(API.deckBuildSlide, ({ params, auth, c }) => {
       const abs = buildSlideFile(ctx, auth.user.id, params.id, Number(params.n))
       if (!abs) throw new HttpError('not_found')
-      return streamFile({ abs, name: `slide-${params.n}.png`, req: c.req.raw, disposition: 'inline' })
+      return streamFile({ abs, name: `slide-${params.n}.png`, req: c.req.raw, disposition: 'inline', via: c.get('info')?.via })
     })
     kit.handle(API.getIntroDeck, ({ params, auth }) => introDeckInfo(ctx, auth.user.id, params.id))
     kit.handle(API.downloadIntroDeckPptx, async ({ params, auth, c }) => {
       const f = await introDeckPptx(ctx, auth.user.id, params.id)
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: 'attachment' })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
     })
     kit.handle(API.downloadIntroDeckPdf, async ({ params, auth, c }) => {
       const f = await introDeckPdf(ctx, auth.user.id, params.id)
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: 'attachment' })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
     })
   },
 }

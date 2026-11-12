@@ -1,7 +1,7 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { ApiError, errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
@@ -11,6 +11,7 @@ import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
+import { useMemberWelcome } from './store/memberWelcome'
 import { useHandover } from './store/handover'
 import { useRooms } from './store/rooms'
 import { usePeople } from './store/people'
@@ -23,6 +24,7 @@ import { setBeforePersonSwitch, useSession } from './store/session'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
+import { screenHistory } from './lib/screenHistory'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { StatusDialogHost } from './components/StatusMessage'
@@ -33,7 +35,8 @@ import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { noteLocation } from './lib/backStack'
 import { safeNext } from './lib/nav'
-import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
@@ -112,6 +115,7 @@ function dropPersonStores() {
   useProjects.getState().reset()
   useAiAccess.getState().reset()
   useWelcome.getState().reset()
+  useMemberWelcome.getState().reset()
   useHandover.getState().reset()
   useRooms.getState().reset()
   usePeople.getState().reset()
@@ -308,7 +312,8 @@ function Gate() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    // the browser's history as React Router keeps it; on a phone, each tab's stack of screens (lib/screenHistory.ts)
+    <HistoryRouter history={screenHistory()}>
       <AnnounceProvider>
         <Gate />
         <DialogHost />
@@ -316,14 +321,25 @@ export default function App() {
         <ImageViewerHost />
         <Toaster />
       </AnnounceProvider>
-    </BrowserRouter>
+    </HistoryRouter>
   )
 }
 
-/** Signed in while on /join: the page the team link sent the new member to (lib/team-link.ts), else Home. */
-function AfterJoin() {
-  useEffect(() => () => clearAfterJoin(), [])
-  return <Navigate to={afterJoinTarget()} replace />
+/** Signed in while on /join: the page the team link sent the new member to (lib/team-link.ts), else Home. A team link
+ * opened while already signed in (nothing was joined here): Home, saying "You're already in {team}" (docs/DECISIONS.md
+ * "A welcome for invited people"; single-use invites have their own page, InviteWhileSignedIn). */
+export function AfterJoin() {
+  const t = useT()
+  const team = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.team.name : ''))
+  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet() }))
+  const told = useRef(false)
+  useEffect(() => {
+    if (!target.joined && team && !told.current) { told.current = true; toast({ level: 'info', text: t('teamLink.alreadyIn', { team }) }) }
+    return () => clearAfterJoin()
+    // once, on arriving
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return <Navigate to={target.to} replace />
 }
 
 /** Signed in while on /setup: the welcome steps right after the team was made (lib/welcome.ts), else Home. */

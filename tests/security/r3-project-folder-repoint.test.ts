@@ -4,13 +4,14 @@
 // r2 (a folder a team project uses is managed through the projects table itself, not only a folders row); this locks
 // the audit's two paths in. Since "Projects live only in projects/" (docs/DECISIONS.md) an admin points only a project
 // whose folder is in the trash or missing, only at an existing projects/<name>: the first path is that now. Older
-// projects on shared/ are made as older builds made them (tests/lib/legacy-project.ts).
+// projects on shared/ are made as older builds made them (tests/lib/legacy-project.ts). Since "Project contents only for
+// members" the admin also needs write on the projects/<name> she points it at, as a member of it (no role there).
 // Fixture: alice, erin = marketing; bob = finance; carol = admin; dana = owner; shared/ everyone write.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
-import { legacyProject } from '../lib/legacy-project'
+import { legacyProject, legacyProjectFolder } from '../lib/legacy-project'
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('sec-r3-project-repoint') })
@@ -38,12 +39,19 @@ describe('a team project\'s folder never moves into a member\'s personal folder'
     expect([inPlace.status, inPlace.body.error.params.reason]).toEqual([409, 'project_location'])
     // its folder goes to the trash (an admin: it is a project folder)
     expect((await A.json('/api/files?path=' + encodeURIComponent('shared/launch-v1'), { as: 'carol', method: 'DELETE' })).status).toBe(200)
-    for (const folderPath of ['shared/launch-v2', 'shared', 'users/carol', 'projects', 'projects/falcon/public']) {
+    for (const folderPath of ['shared/launch-v2', 'shared', 'users/carol', 'projects']) {
       const r = await repoint('carol', id, folderPath)
       expect([folderPath, r.status, r.body.error.params.reason]).toEqual([folderPath, 400, 'project_location'])
     }
+    // inside a project she is not a member of she writes nothing (it was 400 project_location by her role's write)
+    const inside = await repoint('carol', id, 'projects/falcon/public')
+    expect(inside.status).toBe(403)
+    expect(folderPathOf(id)).toBe('shared/launch-v1')
+    // a projects/<name> she was given (an older build's folder row) that is not on disk
+    A.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_r3_launch', 'projects/launch')").run()
+    A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_r3_launch', 'f_r3_launch', 'user', 'carol', 'write')").run()
     expect((await repoint('carol', id, 'projects/launch')).body.error.params.reason).toBe('project_folder_missing')
-    expect((await repoint('alice', id, 'projects/falcon')).status).toBe(404) // only admins see it now
+    expect((await repoint('alice', id, 'projects/falcon')).status).toBe(404) // nobody reads it now; alice does not manage it
     fs.mkdirSync(path.join(A.team, 'projects/launch'), { recursive: true })
     expect((await repoint('carol', id, 'projects/launch')).status).toBe(200)
     expect(folderPathOf(id)).toBe('projects/launch')
@@ -51,8 +59,12 @@ describe('a team project\'s folder never moves into a member\'s personal folder'
     expect((await move('bob', 'projects/launch', 'users/bob/launch')).status).not.toBe(200)
     // a folder gone from disk another way (not the trash) counts as gone too
     fs.rmSync(path.join(A.team, 'projects/launch'), { recursive: true })
-    expect((await repoint('carol', id, 'projects/falcon')).status).toBe(200)
-    expect(folderPathOf(id)).toBe('projects/falcon')
+    // not at a project she is not a member of (it was allowed by her role): she does not write there
+    expect((await repoint('carol', id, 'projects/falcon')).status).toBe(403)
+    expect(folderPathOf(id)).toBe('projects/launch')
+    legacyProjectFolder(A.ctx.db, A.team, 'projects/launch-2', [{ subjectType: 'user', subjectId: 'carol', access: 'write' }])
+    expect((await repoint('carol', id, 'projects/launch-2')).status).toBe(200)
+    expect(folderPathOf(id)).toBe('projects/launch-2')
   })
 
   test('after an admin removes the folder\'s empty entry in Admin > Folders', async () => {

@@ -32,6 +32,8 @@ export const TEXT = {
   ask: t('보낼까요?', 'Send it?', 'Kirim?', "送信しますか？", "¿Enviarlo?"),
   checkBelow: t('보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.', 'Check everything it sends, and where it goes, below.', 'Periksa semua yang dikirim, dan tujuannya, di bawah.', "送信内容全体と送信先を下で確認してください。", "Revise abajo todo lo que envía y a dónde va."),
   sendsLabel: t('보낼 내용', 'What it sends', 'Yang dikirim', "送信内容", "Lo que envía"),
+  // the room card's request for a read (TurnTool.card): it sends nothing of the person's, it reads (QA TC-285)
+  readsLabel: t('읽어 올 내용', 'What it reads', 'Yang dibaca', "読み取る内容", "Lo que lee"),
   yes: t('보내기', 'Send', 'Kirim', "送信", "Enviar"),
   no: t('보내지 않기', 'Don’t send', 'Jangan kirim', "送信しない", "No enviar"),
   // a Google app's card (google-apps/): the person's own choice to stop asking for this app

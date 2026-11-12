@@ -8,6 +8,7 @@ import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { visiblePath, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { walk } from '../policy/resolve'
+import { projectZoneFolders } from '../policy/zone'
 import { BackgroundTurn, ConverterStopped, extractText, isOffice, OFFICE_EXT, officeWorkersRecheck, type Tools } from './extract'
 import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
@@ -29,13 +30,15 @@ const join = (s: string[]) => (s.length ? s.join('/') : '.')
 /** Allowed search roots under `base` for this user, plus the sub-folders inside them that must be skipped. */
 export function allowedRoots(fx: FsCtx, rules: RuleSet, user: Principal, base: string[]): { roots: string[]; excludes: string[] } {
   const acc = (s: string[]) => atLeast(rules.access(user, s), 'read')
-  // access can only change at a rule folder, at users/<x>, or at .system — collect those under base
+  // access can only change at a rule folder, at users/<x>, at .system, or (for the owner and admins) at each
+  // projects/<name> (the members-only zone, policy/zone.ts) — collect those under base
   const pts = new Map<string, string[]>()
   const add = (s: string[]) => { if (under(base, s)) pts.set(s.join('/'), s) }
   for (const f of rules.ruleFolders()) if (f !== '') add(f.split('/'))
   add(['users', user.id])
   add(['.system'])
   try { for (const n of fs.readdirSync(path.join(fx.root, 'users'))) add(['users', n]) } catch {}
+  for (const z of projectZoneFolders(fx.root)) add(z)
   const sorted = [...pts.values()].sort((a, b) => a.length - b.length)
   const nearest = (p: string[]) => { let best = base; for (const q of sorted) if (under(q, p) && q.length > best.length) best = q; return best }
   const exists = (s: string[]) => { const w = walk(fx.root, s, false); return !w.problem && w.missing.length === 0 && w.actual.every((n, i) => n === s[i]) }

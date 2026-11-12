@@ -47,6 +47,8 @@ function groupsOf(ctx: AppContext, userId: string): string[] {
 export function explainFolder(ctx: AppContext, q: { path?: string; cursor?: string; limit?: number }, locale: Locale): FolderAccessResponse {
   const input = folderInput(q.path)
   if ('refuse' in input) return fail('validation', msg(input.refuse === 'personal' ? 'accessPersonalFolder' : 'accessNotTeamFolder', locale), { fields: { 'query.path': input.detail } })
+  // inside a team project: one answer, before anything is read (its folder's own answer is the members list)
+  if (!shownSegs(input.segs.join('/'))) return fail('validation', msg('accessNotTeamFolder', locale), { fields: { 'query.path': 'not a team folder' } })
   // personal folders and .system/ were refused above, before this walk reads anything
   const w = walk(ctx.files.fx.root, input.segs, ctx.files.fx.caseInsensitive)
   const segs = [...w.actual, ...w.missing]
@@ -201,6 +203,8 @@ function subfolders(root: string, segs: readonly string[], realDir: (segs: reado
 export function explainTree(ctx: AppContext, q: { path?: string; cursor?: string; limit?: number; open?: boolean; rules?: boolean }, locale: Locale): AccessTreeResponse {
   const input = folderInput(q.path)
   if ('refuse' in input) return fail('validation', msg(input.refuse === 'personal' ? 'accessPersonalFolder' : 'accessNotTeamFolder', locale), { fields: { 'query.path': input.detail } })
+  // inside a team project: one answer, before anything is read
+  if (!shownSegs(input.segs.join('/'))) return fail('validation', msg('accessNotTeamFolder', locale), { fields: { 'query.path': 'not a team folder' } })
   // personal folders and .system/ were refused above, before anything is read
   const root = ctx.files.fx.root
   const w = walk(root, input.segs, ctx.files.fx.caseInsensitive)

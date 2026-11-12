@@ -24,9 +24,9 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 }, locale: 'ko-KR' } },
     // Safari / the iPhone app's engine, for what differs there: the artifact frame's connection rules, uploads through
-    // XMLHttpRequest, the message box's mention layer, and a phone's attach sheet (the file inputs iOS opens; WebKit
-    // grants no clipboard permissions, so none are asked for)
-    { name: 'webkit', testMatch: /(sandbox-exfil|upload-progress|room-mentions|room-mention-all|phone-attach-sheet)\.spec\.ts/, use: { ...devices['Desktop Safari'], viewport: { width: 1360, height: 860 }, locale: 'ko-KR', permissions: [] } },
+    // XMLHttpRequest, the message box's mention layer, the phone's Back over each tab's stack, and a phone's attach sheet
+    // (the file inputs iOS opens; WebKit grants no clipboard permissions, so none are asked for)
+    { name: 'webkit', testMatch: /(sandbox-exfil|upload-progress|room-mentions|room-mention-all|phone-back-parent|phone-attach-sheet)\.spec\.ts/, use: { ...devices['Desktop Safari'], viewport: { width: 1360, height: 860 }, locale: 'ko-KR', permissions: [] } },
   ],
   webServer: {
     command: `bun test/mock/serve.ts`,

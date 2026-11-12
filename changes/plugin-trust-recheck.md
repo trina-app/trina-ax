@@ -1,0 +1,2 @@
+- A plugin is trusted only while this server's settings still trust it: a package taken in while unsigned or test-signed packages were allowed, or signed with a key that was later removed, is turned off at start, its skills leave `skills/`, and Admin › Plugins says why. Turning it on or rolling back to it is refused.
+- Placing a skill pack's skills never follows a link in the team folder: a link at `skills/`, `skills/<plugin>` or below blocks install, turn on, update and roll back instead of writing outside the team folder.

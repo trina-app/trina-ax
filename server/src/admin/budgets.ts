@@ -5,6 +5,7 @@
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
 import type { Budget, BudgetBody, Locale, UsageQuery, UsageResponse } from '@mycel/shared/api'
+import { limitResetText } from '@mycel/shared'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
@@ -114,7 +115,8 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
   const tz = teamTimeZone(db)
-  const at = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : locale, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }).format(periodEnd(hit.budget.period, now, tz))
+  // 24-hour time: the limit ends at midnight, which "오전 12:00" / "12:00 AM" can read as noon (QA TC-215)
+  const at = limitResetText(periodEnd(hit.budget.period, now, tz), locale, tz)
   const p = PERIOD[hit.budget.period][locale] ?? PERIOD[hit.budget.period].en
   const message = {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,

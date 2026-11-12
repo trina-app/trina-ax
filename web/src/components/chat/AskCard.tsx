@@ -11,9 +11,9 @@
 // choices.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react'
 import { errorText } from '../../lib/api'
-import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
+import { BoxAnswers, forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
 import { useLocale, useT } from '../../i18n'
@@ -35,6 +35,8 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const answer = onAnswer ?? storeAnswer
   const [picked, setPicked] = useState<string[]>([])
   const [text, setText] = useState('')
+  /** typed in the card's own box once: it keeps that box (see inBox) */
+  const [typedHere, setTypedHere] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const name = useId()
@@ -42,6 +44,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const secret = useSecretHold(text)
   const textRef = useRef<HTMLTextAreaElement>(null)
   const r = req.request
+  const boxAnswers = useContext(BoxAnswers)
   useEffect(() => rememberPicks(r.requestId, picked), [r.requestId, picked])
   useEffect(() => () => forgetPicks(r.requestId), [r.requestId])
 
@@ -114,12 +117,17 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   if (r.kind === 'connect_service') return null
 
   const options = r.options ?? []
-  const allowText = r.allowText ?? options.length === 0
+  const fromServer = r.origin === 'server'
+  // the message box under the chat answers this question (lib/askAnswer.ts, docs/DECISIONS.md "The message box answers
+  // the AI's open question"): typing goes there only, so the card has no second text box and no second secrets line,
+  // just a line saying where to type (TRINA-24). Text already typed here (the card became the box's question later,
+  // when an older one closed) keeps its box.
+  const inBox = !fromServer && !onAnswer && boxAnswers === r.requestId && !typedHere
+  const allowText = (r.allowText ?? options.length === 0) && !inBox
   const value: string | string[] | null = r.multiple ? [...picked, ...(text.trim() ? [text.trim()] : [])] : (picked[0] ?? (text.trim() || null))
   const ready = Array.isArray(value) ? value.length > 0 : !!value
   const toggle = (v: string) => setPicked((p) => (r.multiple ? (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]) : [v]))
 
-  const fromServer = r.origin === 'server'
   // the server's yes/no (a change in a room, saving where more people see it, a team skill, an address, a send): two
   // buttons, "no" neutral and "yes" primary, like Claude Code's permission prompt. The first option is the yes. A
   // question with more choices keeps its radios and [답하기].
@@ -226,12 +234,19 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
               value={text}
               onChange={(e) => {
                 setText(e.target.value)
+                setTypedHere(true)
                 if (!r.multiple && e.target.value) setPicked([])
               }}
               data-testid="ask-text"
             />
           )}
-          {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always there under it */}
+          {inBox && (
+            <p className="text-xs text-muted" data-testid="ask-in-box">
+              {t(options.length ? 'ask.inBoxOr' : 'ask.inBox')}
+            </p>
+          )}
+          {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always under the box it is typed in (here, or
+              the message box's own when that answers: inBox) */}
           {allowText && (
             <p id={`${name}-secrets`} className="text-xs text-faint" data-testid="ask-no-secrets">
               {t('ask.noSecrets')}
@@ -258,9 +273,12 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'ask_user', answer: null })}>
           {t('ask.skip')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy} data-testid="ask-send">
-          {t('ask.send')}
-        </Button>
+        {/* nothing to pick and the typing is in the message box: its own button sends the answer */}
+        {(options.length > 0 || allowText) && (
+          <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy} data-testid="ask-send">
+            {t('ask.send')}
+          </Button>
+        )}
       </div>
     </form>
   )

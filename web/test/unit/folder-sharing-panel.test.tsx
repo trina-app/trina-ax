@@ -89,7 +89,15 @@ beforeEach(() => {
   postReply = null
   useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'olga', name: 'Olga', role: 'owner' }, groups: [], team: { name: 'Acme', defaultLocale: 'en', projectCreators: 'members' }, server: { version: '0', dev: false } } } } as never)
 })
-afterEach(() => { sent.length = 0; useSession.setState({ status: sessionBefore }) })
+// a test that failed before its unmount leaves its panel mounted: it goes first, so it does not render again signed out
+// (an error between tests that reads as the next test's)
+const live = new Set<Mounted>()
+afterEach(async () => {
+  for (const m of live) await m.unmount()
+  live.clear()
+  sent.length = 0
+  useSession.setState({ status: sessionBefore })
+})
 afterAll(() => {
   globalThis.fetch = realFetch
   removeDom()
@@ -109,10 +117,18 @@ function Host({ start }: { start: string }) {
     </MemoryRouter>
   )
 }
-const open = async (path = 'shared/Sales/Quotes') => {
+const mountHost = async (path: string) => {
   const m = await mount(<Host start={path} />)
+  live.add(m)
+  return m
+}
+/** the panel with the server's first answer in: the list is busy until then (the rows from the folders above come with
+ * it). Before, the list was busy only while a later answer was on its way, so under load this went on without the
+ * first one and the rows from above were not there yet */
+const open = async (path = 'shared/Sales/Quotes') => {
+  const m = await mountHost(path)
   await m.until(() => m.find('sharing-row') || m.find('sharing-empty'), 'the rows')
-  await m.until(() => !m.find('sharing-list')?.getAttribute('aria-busy'), 'the first answer')
+  await m.until(() => m.find('sharing-list')?.getAttribute('aria-busy') === null && calls('POST /api/admin/access/edit-preview').length > 0, 'the first answer')
   return m
 }
 const choose = async (el: FakeElement, value: string) => {
@@ -156,7 +172,8 @@ describe('a draft belongs to one folder', () => {
     expect(m.find('sharing-save')).not.toBeNull()
     // "Change there" to another folder: a new draft, nothing of Quotes'
     await act(async () => showPath('shared/Sales/Plans'))
-    await m.until(() => m.get('sharing').getAttribute('data-path') === 'shared/Sales/Plans' && rowsOf(m, 'sharing-row').length === 1, 'Plans')
+    // the new panel loads first (find, not get: nothing is there meanwhile)
+    await m.until(() => m.find('sharing')?.getAttribute('data-path') === 'shared/Sales/Plans' && rowsOf(m, 'sharing-row').length === 1, 'Plans')
     expect(m.find('sharing-save')).toBeNull()
     expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual(['user:erin'])
     await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
@@ -264,6 +281,109 @@ describe('after a save, and the other ways a save ends', () => {
     await m.unmount()
   })
 
+  test('Cancel › Discard, then a new change: Save saves it (QA TC-287)', async () => {
+    const m = await open()
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
+    await ready(m)
+    await m.click('sharing-cancel')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the discard question'))
+    await m.until(() => m.find('sharing-done'), 'the changes dropped')
+    // the draft is the saved rules again (Sales can edit)
+    expect(rowsOf(m, 'sharing-row')[0]!.getAttribute('data-access')).toBe('write')
+    // the panel is still open on Quotes: a new change saves
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
+    await ready(m)
+    await m.click('sharing-save')
+    const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)[0], 'the save')
+    expect(put.body.rules).toContainEqual({ subjectType: 'group', subjectId: SALES, access: 'read' })
+    await m.until(() => m.find('sharing-done'), 'saved, and Done')
+    await m.unmount()
+  })
+
+  test('Discard while a Save waits for its fresh answer: that Save stops, the next one saves', async () => {
+    const m = await open()
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
+    await ready(m)
+    // Save's fresh ask (the first ask from here on) is held until the admin dropped the changes and the panel has the
+    // answer for the saved rules again
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => { release = r })
+    let first = true
+    let answered = false
+    const before = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).includes('/api/admin/access/edit-preview') || !first) return before(input, init)
+      first = false
+      await held
+      const r = await before(input, init)
+      answered = true
+      return r
+    }) as typeof fetch
+    try {
+      await m.click('sharing-save')
+      await m.click('sharing-cancel')
+      await m.click(await m.until(() => m.find('dialog-confirm'), 'the discard question'))
+      await m.until(() => !m.find('sharing-save') && m.find('sharing-done'), 'the changes dropped')
+      await m.until(() => m.find('sharing-list')?.getAttribute('aria-busy') === null, 'the answer for the saved rules')
+      release()
+      // the dropped Save's fresh answer came last: that Save ended without writing, and its answer (for the dropped
+      // changes) does not take the place of the one for the list on screen
+      await m.until(() => answered, 'the fresh answer')
+      await m.settle(50)
+      expect(calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)).toHaveLength(0)
+      expect(m.get('sharing-list').getAttribute('aria-busy')).toBeNull()
+    } finally {
+      globalThis.fetch = before
+    }
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
+    await ready(m)
+    await m.click('sharing-save')
+    await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`).length, 'the save')
+    await m.unmount()
+  })
+
+  test('Cancel pressed while Save waits for its answer, then kept: Save does not cover the question, and saves after', async () => {
+    const m = await open()
+    // more access: Save asks first
+    await choose(m.get('sharing-general-select'), 'read')
+    await ready(m)
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => { release = r })
+    let answered = false
+    const before = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).includes('/api/admin/access/edit-preview')) return before(input, init)
+      await held
+      const r = await before(input, init)
+      answered = true
+      return r
+    }) as typeof fetch
+    try {
+      await m.click('sharing-save')
+      await m.click('sharing-cancel')
+      await m.until(() => m.html().includes(en('folderAccess.discardTitle')), 'the discard question')
+      release()
+      await m.until(() => answered, 'the fresh answer')
+      await m.settle()
+      // still the discard question: Save's "Give access?" did not take its place
+      expect(m.html()).toContain(en('folderAccess.discardTitle'))
+      expect(m.html()).not.toContain(en('folderAccess.giveAccess'))
+    } finally {
+      globalThis.fetch = before
+    }
+    // keep the changes (the question's other button), then Save: the confirm, Give access, saved
+    const discard = m.get('dialog-confirm')
+    await m.click((discard.parentNode as FakeElement).querySelectorAll('button')[0]!)
+    await m.until(() => !m.find('dialog-confirm'), 'the question closed')
+    expect(m.find('sharing-save')).not.toBeNull()
+    await m.click('sharing-save')
+    const confirm = await m.until(() => m.find('dialog-confirm'), 'the confirm')
+    expect(confirm.textContent).toBe(en('folderAccess.giveAccess'))
+    await m.click(confirm)
+    await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`).length, 'the save')
+    await m.unmount()
+  })
+
   test('Save pressed twice quickly: one save', async () => {
     const m = await open()
     await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
@@ -280,7 +400,7 @@ describe('after a save, and the other ways a save ends', () => {
 
   test('a folder without settings of its own, given some by another admin meanwhile: said once, then saved over with PUT', async () => {
     // on disk, no rule row: the folder list does not have it
-    const m = await mount(<Host start="shared/Sales/New" />)
+    const m = await mountHost('shared/Sales/New')
     await m.until(() => m.find('sharing-above'), 'the panel and the rows from above')
     await choose(m.get('sharing-general-select'), 'named')
     await ready(m)
@@ -293,7 +413,7 @@ describe('after a save, and the other ways a save ends', () => {
     await m.until(() => m.find('sharing-stale'), 'the "someone else changed this" note')
     expect(calls('POST /api/admin/folders')).toHaveLength(1)
     // the next Save goes over their row (PUT with their hash), never POST again
-    await m.until(() => !m.get('sharing-save').hasAttribute('disabled'), 'Save ready')
+    await m.until(() => m.find('sharing-save')?.hasAttribute('disabled') === false, 'Save ready')
     await m.click('sharing-save')
     const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/New')}/rules`)[0], 'the PUT')
     expect(put.body.expectedHash).toBe(rulesHash([{ subjectType: 'user', subjectId: 'erin', access: 'read' }]))

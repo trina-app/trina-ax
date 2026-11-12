@@ -143,7 +143,7 @@ describe('latent: who gains unseen, so the panel can name them', () => {
     const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'gina', 'none')]
     const run = (next: Parameters<typeof editPreview>[2]) => editPreview({ rules: new RuleSet(rows), people, uncounted: [gina], groupName: (id) => id.toUpperCase(), personName: (id) => id }, 'shared/x', next, { team: null })
     // a group of nobody yet, added with "can view": only its future members gain
-    expect(run([{ subjectType: 'group', subjectId: 'design', access: 'read' }]).latent).toEqual({ team: false, off: [], groups: [{ id: 'design', name: 'DESIGN' }], edit: { team: false, off: false, groups: false } })
+    expect(run([{ subjectType: 'group', subjectId: 'design', access: 'read' }]).latent).toEqual({ team: false, off: [], groups: [{ id: 'design', name: 'DESIGN', edit: false }], edit: { team: false, off: false, groups: false } })
     // everyone may view: whoever joins the team, and Gina when switched back on
     const all = run([{ subjectType: 'everyone', subjectId: null, access: 'read' }])
     expect(all.latent?.team).toBe(true)
@@ -160,10 +160,17 @@ describe('latent: who gains unseen, so the panel can name them', () => {
     expect(run([{ subjectType: 'everyone', subjectId: null, access: 'read' }])?.edit).toEqual({ team: false, off: false, groups: false })
     // everyone may edit: whoever joins the team and Gina get edit; no group is named
     expect(run([{ subjectType: 'everyone', subjectId: null, access: 'write' }])).toMatchObject({ team: true, groups: [], edit: { team: true, off: true, groups: false } })
-    // an empty group may edit, another may view: the groups' line says edit
+    // an empty group may edit, another may view: said group by group (QA TC-284: "open or edit" was said of both)
     const g = run([{ subjectType: 'group', subjectId: 'design', access: 'write' }, { subjectType: 'group', subjectId: 'ops', access: 'read' }])
-    expect(g?.groups.map((x) => x.id)).toEqual(['design', 'ops'])
+    expect(g?.groups).toEqual([{ id: 'design', name: 'design', edit: true }, { id: 'ops', name: 'ops', edit: false }])
     expect(g?.edit).toEqual({ team: false, off: false, groups: true })
+    // someone in both gets edit because of design: ops is not said to give edit, and a group that gives nothing alone
+    // is not named for another group's gain
+    const both = run([{ subjectType: 'group', subjectId: 'g2', access: 'none' }, { subjectType: 'group', subjectId: 'g1', access: 'read' }], 'shared/x', [row('shared/x', 'group', 'g2', 'none')])
+    expect(both?.groups).toEqual([{ id: 'g1', name: 'g1', edit: false }])
+    // only being in both gains (Leads keeps them out here, Sales edits above): said of both, as edit
+    const pair = run([], 'shared/x', [row('shared', 'group', 'sales2', 'write'), row('shared/x', 'group', 'leads2', 'none')])
+    expect(pair?.groups).toEqual([{ id: 'leads2', name: 'leads2', edit: true }, { id: 'sales2', name: 'sales2', edit: true }])
     // view only to someone who could view before is no gain; edit on top of view is
     const viewed = [row('shared/x', 'everyone', null, 'read')]
     expect(editPreview({ rules: new RuleSet([...rows, ...viewed]), people, uncounted: [gina], groupName: (id) => id, personName: (id) => id }, 'shared/x', [{ subjectType: 'everyone', subjectId: null, access: 'write' }], { team: null }).latent?.edit).toEqual({ team: true, off: true, groups: false })

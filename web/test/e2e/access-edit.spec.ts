@@ -38,7 +38,7 @@ async function openPanel(page: Page, path: string) {
 }
 
 /** Olga (owner, 재무팀), Bob, Carol (영업팀), Dan, Erin (disabled); shared: everyone writes; skills: everyone reads, admins
- * write (the default, an old role row); projects/apollo: Dan writes, 영업팀 reads, Erin reads, nobody else, and
+ * write (the default, an old role row); partners/apollo: Dan writes, 영업팀 reads, Erin reads, nobody else, and
  * apollo/drafts: Bob writes (a rule folder below); connected/nas: 영업팀 reads; docs/old: members read, everyone none. */
 async function team(page: Page) {
   const sales = await call(page, 'post', '/api/admin/groups', { name: '영업팀', memberIds: [] })
@@ -46,8 +46,8 @@ async function team(page: Page) {
   await call(page, 'patch', '/api/admin/users/erin', { status: 'disabled' })
   await call(page, 'post', '/api/admin/folders', { path: 'shared', create: true, rules: [everyone('write')] })
   await call(page, 'post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }] })
-  await call(page, 'post', '/api/admin/folders', { path: 'projects/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'dan', access: 'write' }, { subjectType: 'group', subjectId: sales.id, access: 'read' }, { subjectType: 'user', subjectId: 'erin', access: 'read' }, everyone('none')] })
-  await call(page, 'post', '/api/admin/folders', { path: 'projects/apollo/drafts', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'dan', access: 'write' }, { subjectType: 'group', subjectId: sales.id, access: 'read' }, { subjectType: 'user', subjectId: 'erin', access: 'read' }, everyone('none')] })
+  await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo/drafts', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
   await call(page, 'post', '/api/admin/folders', { path: 'connected/nas', create: true, rules: [{ subjectType: 'group', subjectId: sales.id, access: 'read' }] })
   await call(page, 'post', '/api/admin/folders', { path: 'docs/old', create: true, rules: [{ subjectType: 'role', subjectId: 'member', access: 'read' }, everyone('none')] })
   return sales as { id: string }
@@ -178,7 +178,7 @@ test('people and groups: one search adds either, each with read, write or no acc
   // a person switched off is named as such; the owner and admins are said to write anyway
   await page.getByTestId('edit-cancel').click()
   await page.getByTestId('dialog-confirm').click()
-  await openPanel(page, 'projects/apollo')
+  await openPanel(page, 'partners/apollo')
   await expect(named(page, 'user:erin').getByTestId('edit-named-off')).toHaveText(t['accessEdit.disabled'])
   await panel(page).getByTestId('edit-add').fill('olga')
   await page.keyboard.press('Enter')
@@ -395,7 +395,7 @@ test('a phone: the panel is the whole screen with a way back, the focus stays in
   const errors = watchConsole(page)
   await signIn(page)
   const sales = await team(page)
-  await openPanel(page, 'projects/apollo')
+  await openPanel(page, 'partners/apollo')
   await expect(panel(page)).toHaveAttribute('role', 'dialog')
   await expect(panel(page)).toHaveAttribute('aria-modal', 'true')
   const box = (await panel(page).boundingBox())!

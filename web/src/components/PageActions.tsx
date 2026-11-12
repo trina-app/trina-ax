@@ -31,8 +31,8 @@ export function SplitAction({ label, icon, onPrimary, items, testId, menuLabel, 
 }) {
   return (
     <div className="flex shrink-0 items-stretch" data-testid={`${testId}-group`}>
-      {/* a phone: 44 px, for a finger (a height: the Button's own max-sm:min-h-10 wins over a max-md min-height) */}
-      <Button variant="primary" className="rounded-r-none max-md:h-11" onClick={onPrimary} data-testid={testId}>{icon}{icon ? ' ' : ''}{label}</Button>
+      {/* a phone: 44 px, for a finger (the Button's own phone size) */}
+      <Button variant="primary" className="rounded-r-none" onClick={onPrimary} data-testid={testId}>{icon}{icon ? ' ' : ''}{label}</Button>
       <ActionMenu items={items} label={menuLabel} testId={menuTestId} />
     </div>
   )
@@ -76,7 +76,7 @@ export function ActionMenu({ items, label, testId }: { items: AddMenuItem[]; lab
           aria-expanded={open}
           aria-label={label}
           onClick={() => setOpen((v) => !v)}
-          className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-md:min-h-11 max-md:px-2.5"
+          className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-md:min-h-11 max-md:min-w-11 max-md:justify-center max-md:px-2.5"
           data-testid={testId}
         >
           <ChevronDown size={15} aria-hidden />

@@ -11,6 +11,7 @@ import { setMemberChoice } from '../../server/src/admin/engine-choice'
 import { setShareAccess, shareAccess } from '../../server/src/integrations/google-drive/shares'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { addCred } from '../lib/credentials'
+import { legacyProjectFolder } from '../lib/legacy-project'
 import { credentialsOf } from '../../server/src/credentials/store'
 
 const live: Harness[] = []
@@ -183,7 +184,11 @@ test('people_list and groups_list show people, members and the folders group rul
   expect(all.groups[0]).toEqual({ id: sales.id, name: 'Sales', description: null, folder: 'groups/Sales', members: [{ id: f.reader.id, name: 'READER', username: 'reader' }], memberCount: 1, rules: [{ path: 'groups/Sales', access: 'write' }], ruleCount: 1, also: { teamRoom: true } })
   expect(all).toMatchObject({ total: 1, offset: 0 }); expect(all.next).toBeUndefined(); expect(all.note).toBeUndefined()
   // another folder's rule naming the group shows too; one group by name in any case, or by id
-  await f.owner.call('POST', '/api/admin/folders', { path: 'projects/alpha', create: true, rules: [{ subjectType: 'group', subjectId: sales.id, access: 'read' }] })
+  // (inside projects/ Admin › Folder permissions writes nothing any more: such a rule is one an older build made, or a
+  // project's members set on its page; docs/DECISIONS.md "Project contents only for members")
+  const refused = await f.owner.try('POST', '/api/admin/folders', { path: 'projects/alpha', create: true, rules: [{ subjectType: 'group', subjectId: sales.id, access: 'read' }] })
+  expect(refused.status).toBe(409); expect(refused.body.error.params.reason).toBe('project_members_only')
+  legacyProjectFolder(f.h.ctx.db, f.h.ctx.config.teamRoot, 'projects/alpha', [{ subjectType: 'group', subjectId: sales.id, access: 'read' }], f.ownerId)
   for (const ref of ['sales', sales.id]) {
     const one = JSON.parse(text(await f.call(g.token, 'groups_list', { group: ref })))
     expect(one.groups.map((x: { name: string }) => x.name)).toEqual(['Sales'])
@@ -221,7 +226,8 @@ test('group_create works as Admin › Groups does: folder, rule, the same audit 
 
   // only an admin added: nobody's access changes, and the answer says why
   const admins = await f.call(g.token, 'group_create', { name: 'Admins only', members: ['helper'] })
-  expect(text(admins)).toContain('nobody opens or loses a folder. Owners and admins open every team folder whatever their groups ("HELPER" ("helper")).')
+  // …except team projects, which the owner and admins open only as members (docs/DECISIONS.md "Project contents only for members")
+  expect(text(admins)).toContain('nobody opens or loses a folder. Owners and admins open every team folder whatever their groups ("HELPER" ("helper")), except team projects (projects/<name>), which they open only as members.')
   // the web's refusals, in its words
   const taken = await f.call(g.token, 'group_create', { name: 'design' })
   expect(taken.isError).toBe(true); expect(text(taken)).toBe('A group with this name already exists.')

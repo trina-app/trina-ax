@@ -138,6 +138,29 @@ describe('picker listings', () => {
     expect((await h.req('alice', '/api/files/find?q=budget&path=groups%2Ffinance')).status).toBe(404)
   })
 
+  test('⌘K (folders=1) also finds folders by name, first, only those the file screen shows (QA TC-230)', async () => {
+    const find = async (user: string, q: string, folders = true) => {
+      const r = await h.req(user, `/api/files/find?q=${encodeURIComponent(q)}${folders ? '&folders=1' : ''}`)
+      expect(r.status).toBe(200)
+      return ((await r.json()) as { items: { path: string; type: string }[] }).items.map((i) => `${i.type}:${i.path}`)
+    }
+    fs.mkdirSync(path.join(h.team, 'shared/주간보고'), { recursive: true }) // an empty folder
+    write('shared/주간보고 모음/11월 주간보고.md', 'x')
+    const got = await find('alice', '주간')
+    expect(got.slice(0, 2).sort()).toEqual(['folder:shared/주간보고', 'folder:shared/주간보고 모음'])
+    expect(got.slice(2)).toEqual(['file:shared/주간보고 모음/11월 주간보고.md'])
+    // the composer's picker (no flag) gets files only, as before
+    expect(await find('alice', '주간', false)).toEqual(['file:shared/주간보고 모음/11월 주간보고.md'])
+    // a folder hidden from the caller is never named: salaries (a 'none' rule for marketing), another group, server folders
+    expect(await find('alice', 'salaries')).toEqual([])
+    expect(await find('carol', 'salaries')).toContain('folder:groups/marketing/salaries')
+    expect(await find('alice', 'finance')).toEqual([])
+    expect(await find('bob', 'finance')).toContain('folder:groups/finance')
+    expect((await find('dana', 'system')).filter((p) => p.includes('.system'))).toEqual([])
+    // NFD typed (a Mac) finds the NFC name
+    expect(await find('alice', '주간보고'.normalize('NFD'))).toContain('folder:shared/주간보고')
+  })
+
   test('recent files are filtered by who may read them now', async () => {
     await h.api('bob').call(API.saveContent, { body: { path: 'groups/finance/recent-fin.md', content: 'fin', baseSha256: null } })
     await h.api('alice').call(API.saveContent, { body: { path: 'shared/recent-shared.md', content: 'shared', baseSha256: null } })

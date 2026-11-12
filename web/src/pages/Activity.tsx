@@ -6,7 +6,7 @@
 // it; a notice with nowhere to open keeps its "Mark as read". The preferences stay in Settings › Notifications (the gear).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { AtSign, Bell, BellRing, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
+import { AtSign, Bell, BellRing, Check, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { InboxNotification } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -16,23 +16,27 @@ import { aiName } from '../lib/tabs'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { useRooms } from '../store/rooms'
-import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls } from '../components/ui'
+import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
+import { PhoneBarAction } from '../components/phone/PhoneBarAction'
 import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '../components/settings/RoomNoticeRow'
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
+import { builtInName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
 
 type T = ReturnType<typeof useT>
 type Filter = 'all' | 'dms' | 'mentions' | 'threads'
-const FILTERS: { id: Filter; label: MessageKey; icon?: typeof Bell }[] = [
+/** `short`: the word on a phone, where the four share the width */
+const FILTERS: { id: Filter; label: MessageKey; short?: MessageKey; icon?: typeof Bell }[] = [
   { id: 'all', label: 'feed.tab.all' },
-  { id: 'dms', label: 'feed.tab.dms', icon: MessageCircle },
+  { id: 'dms', label: 'feed.tab.dms', short: 'feed.tab.dmsShort', icon: MessageCircle },
   { id: 'mentions', label: 'feed.tab.mentions', icon: AtSign },
   { id: 'threads', label: 'feed.tab.threads', icon: MessagesSquare },
 ]
-/** A tab. The tab list scrolls sideways, which cuts anything drawn outside it: the focus ring is drawn inside the tab. */
-export const tabCls = 'inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition focus-visible:-outline-offset-2'
+/** A tab. The tab list scrolls sideways, which cuts anything drawn outside it: the focus ring is drawn inside the tab.
+ * A phone: the four share the width equally, 44px tall, words only (no icons), never scrolling sideways. */
+export const tabCls = 'inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition focus-visible:-outline-offset-2 max-md:h-11 max-md:min-w-0 max-md:justify-center max-md:px-1'
 const isFilter = (s: string | null): s is Filter => FILTERS.some((f) => f.id === s)
 
 /** Which tabs a notice shows under besides All: a direct or group chat's under DMs, an @mention (or @everyone) under
@@ -150,7 +154,11 @@ export default function Activity() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, locale])
 
-  const toolBtn = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink hover:bg-hover'
+  const toolBtn = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink hover:bg-hover max-md:h-11 max-md:rounded-full max-md:border-transparent'
+  // a phone: the tabs share the width; the search is in the top bar (phone/PhoneBarAction.tsx), its field opens here;
+  // "Unreads" is a filled pill, every control 44px
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const openSearch = () => { setSearching(true); requestAnimationFrame(() => searchRef.current?.focus()) }
   return (
     // the scroll bar's room is kept when a tab's list is short (Windows, a Mac with a mouse): a tab never moves the page
     <div className="flex h-full flex-col overflow-y-auto [scrollbar-gutter:stable]" data-testid="activity">
@@ -165,18 +173,19 @@ export default function Activity() {
               </Link>
             </Tooltip>
           </div>
-          <div role="tablist" aria-label={t('inbox.title')} className="scroll-thin -mb-px mt-2 flex max-md:mt-0 gap-1 overflow-x-auto" data-testid="activity-tabs">
-            {FILTERS.map(({ id, label, icon: Icon }) => {
+          <div role="tablist" aria-label={t('inbox.title')} className="scroll-thin -mb-px mt-2 flex gap-1 overflow-x-auto max-md:mt-0 max-md:grid max-md:auto-cols-[minmax(0,1fr)] max-md:grid-flow-col max-md:gap-0 max-md:overflow-visible" data-testid="activity-tabs">
+            {FILTERS.map(({ id, label, short, icon: Icon }) => {
               const on = filter === id
+              const word = phone && short ? t(short) : t(label)
               return (
                 <button key={id} type="button" role="tab" aria-selected={on} onClick={() => setFilter(id)}
                   className={clsx(tabCls, on ? 'border-ink font-semibold text-ink' : 'border-transparent text-muted hover:text-ink')}
                   data-testid={`activity-tab-${id}`}>
-                  {Icon && <Icon size={15} aria-hidden />}
+                  {Icon && <Icon size={15} aria-hidden className="max-md:hidden" />}
                   {/* as wide as when bold, so the selected tab does not push the others */}
-                  <span className="grid">
-                    <span className="col-start-1 row-start-1">{t(label)}</span>
-                    <span aria-hidden className="invisible col-start-1 row-start-1 font-semibold">{t(label)}</span>
+                  <span className="grid min-w-0">
+                    <span className="col-start-1 row-start-1 truncate">{word}</span>
+                    <span aria-hidden className="invisible col-start-1 row-start-1 truncate font-semibold">{word}</span>
                   </span>
                   {unreadIn(id) && <span className="size-1.5 rounded-full bg-accent" data-testid={`activity-tab-${id}-unread`}><span className="sr-only">{t('notifications.unreadMark')}</span></span>}
                 </button>
@@ -189,22 +198,29 @@ export default function Activity() {
       <div className={clsx(pageColumn, 'flex-1 px-4 pb-6 sm:px-6')}>
         {/* the tools: unread only, and a search of what is loaded */}
         <div className="flex flex-wrap items-center gap-2 py-3" data-testid="activity-tools">
-          <button type="button" aria-pressed={unreadOnly} onClick={() => setUnreadOnly((v) => !v)} className={clsx(toolBtn, unreadOnly && 'border-accent bg-accent-soft text-accent-text')} data-testid="activity-unreads">
+          <button type="button" aria-pressed={unreadOnly} onClick={() => setUnreadOnly((v) => !v)} className={clsx(toolBtn, unreadOnly ? 'border-accent bg-accent-soft text-accent-text max-md:bg-accent-soft' : 'max-md:bg-subtle')} data-testid="activity-unreads">
             <BellRing size={15} aria-hidden /> {t('feed.unreads')}
           </button>
           {searching
             ? <div className="relative min-w-0 flex-1 sm:max-w-xs">
                 <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
                 <input ref={searchRef} type="search" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearching(false) } }}
-                  placeholder={t('feed.search')} aria-label={t('feed.search')} className={`${inputCls} h-9 pr-9 pl-9`} data-testid="activity-search" data-own-clear autoFocus />
-                <IconButton label={t('picker.clearSearch')} className="absolute top-1/2 right-1 -translate-y-1/2" onClick={() => { setQuery(''); setSearching(false) }} data-testid="activity-search-clear">
+                  placeholder={t('feed.search')} aria-label={t('feed.search')} className={`${inputCls} h-9 pr-9 pl-9 max-md:h-11 max-md:pr-11`} data-testid="activity-search" data-own-clear autoFocus />
+                <IconButton label={t('picker.clearSearch')} className="absolute top-1/2 right-1 -translate-y-1/2 max-md:right-0 max-md:size-11" onClick={() => { setQuery(''); setSearching(false) }} data-testid="activity-search-clear">
                   <X size={14} aria-hidden />
                 </IconButton>
               </div>
-            : <IconButton label={t('feed.search')} className="size-9 border border-field-border" onClick={() => setSearching(true)} data-testid="activity-search-open"><Search size={16} aria-hidden /></IconButton>}
+            : !phone && <IconButton label={t('feed.search')} className="size-9 border border-field-border" onClick={() => setSearching(true)} data-testid="activity-search-open"><Search size={16} aria-hidden /></IconButton>}
+          {phone && !searching && (
+            <PhoneBarAction>
+              <IconButton label={t('feed.search')} className="size-11 text-muted" onClick={openSearch} data-testid="activity-search-open">
+                <Search size={20} aria-hidden />
+              </IconButton>
+            </PhoneBarAction>
+          )}
           {/* phones: the gear sits here (the title row is the top bar there) */}
           <Tooltip label={t('feed.settings')}>
-            <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink md:hidden" aria-label={t('feed.settings')} data-testid="activity-settings-phone">
+            <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink md:hidden max-md:size-11" aria-label={t('feed.settings')} data-testid="activity-settings-phone">
               <Settings size={18} aria-hidden />
             </Link>
           </Tooltip>
@@ -292,6 +308,12 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   const link = noticeLink(item)
   const d = item.devEnv
   const project = item.link === 'project' && d?.projectName && !(item.code === 'dev_env.box' && (d.stopCode === 'disk' || d.stopCode === 'busy_max')) ? d.projectName : null
+  // a member's ask to add an app (an owner or admin): what the row does while it waits, as a button inside the row's link
+  // (the row opens the app's setup), and "Added" once members can connect it
+  const sr = item.code === 'service.request' ? item.serviceRequest : undefined
+  const ask = sr?.open
+    ? <span className="mt-1 inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink" data-testid="notification-service-setup">{t('gapps.setUpLink', { name: builtInName(sr.service) })}</span>
+    : sr?.added ? <span className="flex items-center gap-1 text-ok" data-testid="notification-service-added"><Check size={13} aria-hidden />{t('notifications.serviceRequest.added')}</span> : null
   const below = item.handover || d?.job?.tail ? <>
     {item.handover && <HandoverNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {d?.job?.tail && <pre className="mt-1 max-h-40 overflow-auto font-mono text-xs break-words whitespace-pre-wrap text-faint" data-testid="notification-job-tail">{d.job.tail}</pre>}
@@ -302,12 +324,12 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
     iso={item.createdAt}
     unread={unread && !!link}
     line={<span data-testid="notification-text">{noticeText(item, t, locale)}</span>}
-    context={project || (d?.job?.exitCode === null && d.job.note)
+    context={ask ?? (project || (d?.job?.exitCode === null && d.job.note)
       ? <span className="min-w-0">
           {project && <span className="block truncate" data-testid="notification-project"><bdi>{project}</bdi></span>}
           {d?.job?.exitCode === null && d.job.note && <span className="block" data-testid="notification-job-note">{d.job.note}</span>}
         </span>
-      : null}
+      : null)}
     count={unread && link ? <span className="block size-2 rounded-full bg-accent" data-testid="notification-unread"><span className="sr-only">{t('notifications.unreadMark')}</span></span> : undefined}
   />
   if (!link) return (

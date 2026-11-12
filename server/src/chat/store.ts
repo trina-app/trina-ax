@@ -202,13 +202,15 @@ export class ChatStore {
   /** `answersOf`: whose answers the unseen marker and the last outcome come from (a shared chat: its creator's own
    * turns, for its creator; null for anyone else: no marker); absent: every answer (a chat of one person). `viewer`: whose
    * pin it shows (Chat.pinnedAt, chat/pins.ts). */
-  toChat(r: ChatRow, runState: ChatRunState, waiting = false, o: { answersOf?: string | null; viewer?: string } = {}): Chat {
+  toChat(r: ChatRow, runState: ChatRunState, waiting = false, o: { answersOf?: string | null; viewer?: string; ending?: boolean; waitingForPlace?: boolean } = {}): Chat {
     const pinned = o.viewer ? this.pinnedAt(o.viewer, r.id) : null
     return {
       id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
       ...(isConfidentialChat(this.db, r.id) ? { confidential: true as const } : {}),
       ...(waiting ? { waiting: true as const } : {}),
+      ...(o.ending ? { ending: true as const } : {}),
+      ...(o.waitingForPlace ? { waitingForPlace: true as const } : {}),
       ...(o.answersOf === null ? {} : this.answerState(r, o.answersOf)),
       ...(this.mergeWaiting(r.id) ? { mergeWaiting: true as const } : {}),
       ...(r.side_room_id ? { sideRoomId: r.side_room_id } : {}),

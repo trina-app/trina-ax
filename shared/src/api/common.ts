@@ -20,6 +20,10 @@ export const WINDOW_HEADER = 'x-mycel-window'
 /** The language the page shows before sign-in (the person picked it on the sign-in screen). The server uses it only
  * for requests without a session; signed-in requests use the person's language. */
 export const LOCALE_HEADER = 'x-mycel-locale'
+/** The first-run setup token from the setup link (/setup#token=…), sent with GET /api/setup: through the relay the
+ * answer says setup is still needed only to a visitor who has the token. A header, not a query, so no request line or
+ * access log holds it. */
+export const SETUP_TOKEN_HEADER = 'x-mycel-setup-token'
 /** WebSocket subprotocols. Clients that can't send cookies (mobile shells) add `mycel.bearer.<token>`. */
 export const WS_PROTOCOL = 'mycel.v1'
 export const WS_BEARER_PREFIX = 'mycel.bearer.'

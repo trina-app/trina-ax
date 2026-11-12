@@ -103,7 +103,7 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
  * `label`: the button's name for a screen reader (a row says which room); the tooltip says "더 보기". `title`: a row's
  * room name on top of a phone's sheet (the header's menu needs none: the name is right above it).
  */
-export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title, className, buttonClassName, testId = 'room-menu' }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; testId?: string }) {
+export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title, className, buttonClassName, compact, testId = 'room-menu' }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string }) {
   const t = useT()
   const [notify, setNotify] = useState(0)
   const more = useRef<HTMLButtonElement>(null)
@@ -117,6 +117,7 @@ export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title
         muted
         className={className}
         buttonClassName={buttonClassName}
+        compact={compact}
         openSignal={openSignal}
         openRequest={openRequest}
         testId={testId}

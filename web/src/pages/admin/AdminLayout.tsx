@@ -19,7 +19,7 @@
 // /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); computers keep it one page.
 import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useRef } from 'react'
-import { Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
+import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { teamIconUrl } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
@@ -102,6 +102,9 @@ function pageName(path: string, t: (key: MessageKey) => string, devEnv: boolean 
   return settingsPageName(path, t)
 }
 
+/** where Folder permissions is opened as a detour from (lib/backStack.ts useListUnderPage `inside`) */
+const DETOURS = ['/files', '/projects']
+
 /** The old addresses that open another page (see the top of this file), else null. */
 function redirectOf(section: string, search: string): string | null {
   const q = new URLSearchParams(search)
@@ -114,6 +117,23 @@ function redirectOf(section: string, search: string): string | null {
   if (section === 'integrations') return `/admin/connectors${search}`
   if (section === 'app-connectors') return '/admin/connectors?drive=1'
   return null
+}
+
+/** A member who opened an /admin link (a shared link, an old bookmark, a notice meant for an admin): say the page is
+ * for admins, with a way Home. Before, the link opened Home without a word (QA TC-272, ADM-28). The server refuses a
+ * member's admin calls either way; this is only what the person sees. */
+export function AdminOnly() {
+  const t = useT()
+  return (
+    // the layout already has the <main> landmark; the heading is an h1 like on other pages (App.tsx NotFound)
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center" data-testid="admin-only">
+      <h1 className="text-lg font-semibold text-balance text-ink">{t('admin.onlyAdmins.title')}</h1>
+      <p className="max-w-md text-sm text-balance text-muted">{t('admin.onlyAdmins.hint')}</p>
+      <Link to="/" replace className="mt-3 text-sm font-medium text-accent-text underline" data-testid="admin-only-home">
+        {t('notFound.home')}
+      </Link>
+    </div>
+  )
 }
 
 export default function AdminLayout() {
@@ -143,13 +163,14 @@ export default function AdminLayout() {
   const known = menu.some((g) => g.items.some((s) => s.id === section))
   // the page that stays (no redirect, allowed): only then may the list be put under it
   const final = admin && !redirect && known && section !== ''
-  // a group of Team settings has both lists under it: Back goes group → Team settings → Admin
-  useListUnderPage(group ? ['/admin', '/admin/settings'] : '/admin', phone, final)
+  // a group of Team settings has both lists under it: Back goes group → Team settings → Admin. Folder permissions
+  // opened from a folder (Files' "who can see it", a project's members) is a detour: Back goes straight back there
+  useListUnderPage(group ? ['/admin', '/admin/settings'] : '/admin', phone, final, section === 'folders' ? DETOURS : undefined)
   useKeptScroll(content, 'admin', phone && admin && !redirect && known)
   const up = group ? '/admin/settings' : section ? '/admin' : '/settings'
   const label = useBackLabel(up, (p) => pageName(p, t, devEnv))
   const back = useGoBack(up)
-  if (!admin) return <Navigate to="/" replace />
+  if (!admin) return <AdminOnly />
   if (redirect) return <Navigate to={redirect} replace state={resized ? { [BELOW]: entryBelow(location.key) ?? null } : undefined} />
   if (!known) return <Navigate to="/admin" replace />
   const current = menu.flatMap((g) => g.items).find((s) => s.id === section)!

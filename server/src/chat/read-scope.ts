@@ -34,7 +34,8 @@
 // list holds. "대화방에 보내기" (chat/answer-share.ts) goes by the source list's files for the others (each with its
 // sha256). A scope without v (written before) has every source counted as it is.
 import type { Database } from 'bun:sqlite'
-import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { atLeast, inProjectZone, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { newId } from '../db'
 import { getRow, usersOf } from '../integrations/connections/store'
 import { shareRow, shareUsers } from '../integrations/google-drive/shares'
 
@@ -51,11 +52,24 @@ export function sourceOf(db: Database, rules: RuleSet, rel: string): ReadSource 
   const segs = rel.split('/').filter(Boolean)
   if (segs[0] === 'users' && segs.length >= 2) return { type: 'user', id: segs[1]! }
   const ruled = new Set(rules.ruleFolders())
-  for (let len = segs.length; len >= 0; len--) {
+  // in the members-only zone the owner's and admins' access changes at projects/<name> too (docs/DECISIONS.md "Project
+  // contents only for members"): a read there is never keyed to projects/ or the root, where admins read everything
+  const zone = inProjectZone(segs)
+  for (let len = segs.length; len >= (zone ? 2 : 0); len--) {
     const p = segs.slice(0, len).join('/')
     if (!ruled.has(p)) continue
     const row = db.query('SELECT id FROM folders WHERE path = ?').get(p) as { id: string } | null
     if (row) return { type: 'folder', id: row.id }
+  }
+  if (zone) {
+    // the project's folder (a row with no rules: an older build made the folder without one)
+    const top = segs.slice(0, 2).join('/')
+    const row = db.query('SELECT id FROM folders WHERE path = ?').get(top) as { id: string } | null
+    if (row) return { type: 'folder', id: row.id }
+    const id = newId()
+    db.query('INSERT OR IGNORE INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(id, top, new Date().toISOString())
+    const made = db.query('SELECT id FROM folders WHERE path = ?').get(top) as { id: string } | null
+    return made ? { type: 'folder', id: made.id } : { type: 'folder', id }
   }
   return { type: 'root' }
 }

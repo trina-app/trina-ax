@@ -20,6 +20,7 @@ import {
 } from '@mycel/shared/cloud-protocol/relay-ops'
 import { teamAddress } from './config.ts'
 import { RegistryError, type TeamRow } from './registry.ts'
+import { ReplayCache } from './replay.ts'
 import type { RelayServer } from './relay.ts'
 
 export class OpsKeysError extends Error { name = 'OpsKeysError' }
@@ -30,15 +31,22 @@ export function parseOperatorKeys(text: string): OperatorKey[] {
   try { raw = JSON.parse(text) } catch { throw new OpsKeysError('operator-keys.json is not JSON') }
   if (!Array.isArray(raw)) throw new OpsKeysError('operator-keys.json must be an array')
   const seen = new Set<string>()
+  const seenKeys = new Map<string, string>()
   return raw.map((k, i) => {
     const o = k as Record<string, unknown>
     if (typeof o !== 'object' || o === null) throw new OpsKeysError(`key ${i}: not an object`)
     if (typeof o.keyId !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(o.keyId)) throw new OpsKeysError(`key ${i}: keyId`)
     if (seen.has(o.keyId)) throw new OpsKeysError(`key ${o.keyId}: listed twice`)
     seen.add(o.keyId)
-    if (typeof o.publicKey !== 'string' || !parsePublicKey(o.publicKey)) throw new OpsKeysError(`key ${o.keyId}: publicKey must be a base64 SPKI Ed25519 key`)
+    const pub = typeof o.publicKey === 'string' ? parsePublicKey(o.publicKey) : null
+    if (!pub) throw new OpsKeysError(`key ${o.keyId}: publicKey must be a base64 SPKI Ed25519 key`)
+    // one spelling per key: the replay cache is kept per public key, and a key under two ids would be two signers
+    const publicKey = pub.export({ format: 'der', type: 'spki' }).toString('base64')
+    const other = seenKeys.get(publicKey)
+    if (other !== undefined) throw new OpsKeysError(`key ${o.keyId}: the same publicKey is already listed as ${other}`)
+    seenKeys.set(publicKey, o.keyId)
     if (!Array.isArray(o.scopes) || !o.scopes.length || !o.scopes.every((s) => (OPS_SCOPES as readonly unknown[]).includes(s))) throw new OpsKeysError(`key ${o.keyId}: scopes must be some of ${OPS_SCOPES.join(', ')}`)
-    return { keyId: o.keyId, publicKey: o.publicKey, label: typeof o.label === 'string' ? o.label : '', scopes: o.scopes as OpsScope[] }
+    return { keyId: o.keyId, publicKey, label: typeof o.label === 'string' ? o.label : '', scopes: o.scopes as OpsScope[] }
   })
 }
 
@@ -55,8 +63,8 @@ export class OpsApi {
   private keys: OperatorKey[] = []
   private keysMtime = -1
   private keysError: string | null = null
-  /** signature -> time it may be used again (replay cache, memory only) */
-  private seen = new Map<string, number>()
+  /** signed requests seen within the whole clock window (memory only); OPS_REPLAY_MAX per operator public key */
+  private seen = new ReplayCache(Math.max(OPS_REPLAY_WINDOW_MS, 2 * OPS_SIG_MAX_SKEW_MS) + 1, OPS_REPLAY_MAX, 10 * OPS_REPLAY_MAX)
   readonly counters = { requests: 0, authFailures: 0, replays: 0, forbidden: 0 }
 
   private relay: RelayServer
@@ -124,12 +132,14 @@ export class OpsApi {
     if (!key) throw fail('unknown operator key')
     const now = this.now()
     if (Math.abs(now - auth.ts) > OPS_SIG_MAX_SKEW_MS) throw fail('request timestamp out of range (check the clock)')
-    if (!verifyB64(key.publicKey, opsSigningString(method, target, auth.ts, body), auth.sig)) throw fail('bad signature')
-    // replay: the same signed request again within the window (after the signature check: only real signatures are kept)
-    for (const [s, until] of this.seen) { if (until > now) break; this.seen.delete(s) }
-    if (this.seen.has(auth.sig)) { this.counters.replays++; throw new OpsFail(409, 'replayed', 'this signed request was already used; sign it again') }
-    if (this.seen.size >= OPS_REPLAY_MAX) { const first = this.seen.keys().next().value; if (first !== undefined) this.seen.delete(first) }
-    this.seen.set(auth.sig, now + OPS_REPLAY_WINDOW_MS)
+    const signed = opsSigningString(method, target, auth.ts, body)
+    if (!verifyB64(key.publicKey, signed, auth.sig)) throw fail('bad signature')
+    // replay: the same signed request again within the window, keyed on the signed message, not the base64 text (after
+    // the signature check: only real signatures are kept). Per public key (in one spelling, see parseOperatorKeys), not
+    // per keyId: the keyId is not signed, so the same key under another id must not make a copied call new again.
+    const verdict = this.seen.check(key.publicKey, signed, now)
+    if (verdict === 'replayed') { this.counters.replays++; throw new OpsFail(409, 'replayed', 'this signed request was already used; sign it again') }
+    if (verdict === 'full') throw new OpsFail(503, 'internal', 'too many signed requests just now, try again shortly')
     return key
   }
 

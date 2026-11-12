@@ -72,12 +72,13 @@ describe('tools made per person', () => {
     const card = a.tools.get('api_request')!.card!
     const read = card({ connection: 'my_aipm', method: 'get', path: '/tasks', query: { status: 'open' } }, 'en')!
     expect(read.what).toBe('Read from AI PM')
-    expect(read.details).toEqual([{ label: 'What it sends', text: `GET ${fake.base}/api/v1/tasks?status=open`, exact: true,
+    // a read is labelled as one (QA TC-285); a change keeps "What it sends"
+    expect(read.details).toEqual([{ label: 'What it reads', text: `GET ${fake.base}/api/v1/tasks?status=open`, exact: true,
       fields: [{ name: 'Action', value: 'Read from AI PM' }, { name: 'Address', value: `${fake.base}/api/v1/tasks?status=open` }] }])
     expect(card({ connection: 'my_aipm', method: 'GET', path: '/tasks' }, 'ko')!.details[0]!.fields![0]).toEqual({ name: '하는 일', value: 'AI PM에서 읽어 오기' })
     const change = card({ connection: 'my_aipm', method: 'PATCH', path: '/tasks/42', body: { title: 'Q3 plan' } }, 'en')!
     expect(change.what).toBe('Change something in AI PM')
-    expect(change.details[0]).toMatchObject({ text: `PATCH ${fake.base}/api/v1/tasks/42\n\n{"title":"Q3 plan"}`, exact: true })
+    expect(change.details[0]).toMatchObject({ label: 'What it sends', text: `PATCH ${fake.base}/api/v1/tasks/42\n\n{"title":"Q3 plan"}`, exact: true })
     expect(change.details[0]!.fields).toEqual([{ name: 'Action', value: 'Change something in AI PM' }, { name: 'Sends to', value: `${fake.base}/api/v1/tasks/42` }, { name: 'Title', value: 'Q3 plan' }])
     // a text body is not lines: the text stays open (no "exact")
     expect(card({ connection: 'my_aipm', method: 'POST', path: '/notes', body: 'plain text' }, 'en')!.details[0]!.exact).toBeUndefined()

@@ -82,6 +82,24 @@ test.describe('team address and window', () => {
       await close(app)
     }
   })
+  test('the artifact receiver opened as the whole page (an opaque origin at the team address) gets no bridge (QA TC-220)', async () => {
+    const app = await launch(newUserData())
+    try {
+      const page = await addTeam(app, 'acme.localhost:19151', ACME)
+      await expect(page.locator('#bridge')).toHaveText('desktop')
+      await page.goto(`${ACME}/sandbox/frame`)
+      await expect(page.locator('#frame')).toHaveText('frame')
+      expect(await page.evaluate(() => window.origin)).toBe('null')
+      expect(await page.evaluate(() => typeof (window as any).mycelDesktop)).toBe('undefined')
+      // the team page itself keeps it
+      await page.goto(`${ACME}/`)
+      await expect(page.locator('#bridge')).toHaveText('desktop')
+      expect(await page.evaluate(() => typeof (window as any).mycelDesktop.setBadgeCount)).toBe('function')
+    } finally {
+      await close(app)
+    }
+  })
+
   test('an unreachable team server shows the offline screen with retry and the team list', async () => {
     const userData = newUserData()
     let app = await launch(userData)

@@ -142,6 +142,9 @@ export const InviteInfo = z.object({
   expiresAt: IsoTime,
   /** false when expired, used or revoked (the page shows why instead of the form) */
   valid: z.boolean(),
+  /** who made the invite ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
+   * from an older server */
+  inviterName: z.string().nullable().optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({

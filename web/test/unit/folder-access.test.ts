@@ -4,9 +4,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, Project } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, headlineText } from '../../src/lib/folder-access'
+import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, headlineText, panelHeadline } from '../../src/lib/folder-access'
 import { editableHere } from '../../src/components/FolderAccess'
-import { byRoleLine, PROJECTS_BY_ROLE } from '../../src/lib/whoByRole'
+import { byRoleLine } from '../../src/lib/whoByRole'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
 const en = (key: MessageKey, p?: Params) => translate('en', key, p)
@@ -52,7 +52,9 @@ describe('what it says', () => {
     expect(chipOf('ask', { audience: { path: 'shared', access: 'write', people: 5, everyone: true } })).toEqual({ kind: 'team' })
     expect(chipOf('ask', { audience: { path: 'groups/m', access: 'write', people: 4, everyone: false } })).toEqual({ kind: 'people', n: 4 })
     expect(chipOf('ask', { audience: { path: 'groups/m', access: 'write', people: 2, everyone: false }, adminsOnly: true })).toEqual({ kind: 'adminsOnly' })
-    expect(chipOf('project', { project: project() })).toEqual({ kind: 'people', n: 7 })
+    expect(chipOf('project', { project: project() })).toEqual({ kind: 'people', n: 7, members: true })
+    // a project made before outside projects/: an ordinary folder's count
+    expect(chipOf('project', { project: project({ folderPath: 'shared/clients/acme' }) })).toEqual({ kind: 'people', n: 7 })
   })
   test('owner and admins only: no rule lets a member in, and there are members', () => {
     expect(adminsOnly(who([{ reason: 'owner-admin', access: 'write', count: 2 }, { reason: 'no-rule', access: 'none', count: 3 }]), 3)).toBe(true)
@@ -78,12 +80,12 @@ describe('the owner and admins\' chip says the count apart (docs/DECISIONS.md "W
   const split = { path: 'groups/m', access: 'write' as const, people: 5, everyone: false, split: { direct: 3, byRole: 2 } }
   test('the chip: the folder\'s own rules first; its accessible name adds the owner and admins who see it only by role', () => {
     const c = chipOf('ask', { audience: split, apart: true })!
-    expect(c).toEqual({ kind: 'people', n: 3, byRole: 2, where: 'folder' })
+    expect(c).toEqual({ kind: 'people', n: 3, byRole: 2 })
     expect(chipText(ko, c)).toBe('3명')
     expect(chipLabel(ko, c)).toBe('3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요')
     expect(chipText(en, c)).toBe('3 people')
     expect(chipLabel(en, c)).toBe('3 people see it · 2 more can see it as the owner and admins')
-    expect(chipLabel(en, { kind: 'people', n: 3, byRole: 1, where: 'folder' })).toBe('3 people see it · 1 more can see it as the owner or an admin')
+    expect(chipLabel(en, { kind: 'people', n: 3, byRole: 1 })).toBe('3 people see it · 1 more can see it as the owner or an admin')
   })
   test('the panel keeps its headline: the total, the owner and admins included (the panel is redesigned elsewhere)', () => {
     const c = chipOf('ask', { audience: split })!
@@ -92,27 +94,36 @@ describe('the owner and admins\' chip says the count apart (docs/DECISIONS.md "W
   })
   test('nobody by role: no role part; nobody by a rule: owner and admins only; everyone: the whole team', () => {
     const all = chipOf('ask', { audience: { ...split, people: 4, split: { direct: 4, byRole: 0 } }, apart: true })!
-    expect(all).toEqual({ kind: 'people', n: 4, byRole: 0, where: 'folder' })
+    expect(all).toEqual({ kind: 'people', n: 4, byRole: 0 })
     expect(chipLabel(ko, all)).toBe('4명이 봐요')
     expect(chipOf('ask', { audience: { ...split, people: 2, split: { direct: 0, byRole: 2 } }, apart: true })).toEqual({ kind: 'adminsOnly' })
     expect(chipOf('ask', { audience: { ...split, everyone: true, split: { direct: 5, byRole: 0 } }, apart: true })).toEqual({ kind: 'team' })
   })
-  test('a team project\'s folder: its own split, its role part from the project side (lib/whoByRole.ts)', () => {
-    const c = chipOf('project', { project: project({ audience: 5, audienceSplit: { direct: 3, byRole: 2 } }), apart: true })!
-    expect(c).toEqual({ kind: 'people', n: 3, byRole: 2, where: 'project' })
-    expect(chipLabel(ko, c)).toBe(PROJECTS_BY_ROLE ? '3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요' : '3명이 봐요')
-    expect(chipOf('project', { project: project({ audience: 5, audienceSplit: { direct: 3, byRole: 2 } }) })).toEqual({ kind: 'people', n: 5 })
+  test('a team project\'s folder in projects/ (docs/DECISIONS.md "Project contents only for members"): its members, no role part, no "(팀장·관리자 포함)", never "팀장과 관리자만"', () => {
+    const c = chipOf('project', { project: project({ audience: 3, audienceSplit: { direct: 3, byRole: 0 } }), apart: true })!
+    expect(c).toEqual({ kind: 'people', n: 3, members: true })
+    expect(chipText(ko, c)).toBe('3명이 봐요')
+    expect(chipLabel(ko, c)).toBe('3명이 봐요')
+    expect(headlineText(ko, c)).toBe('3명이 봐요')
+    expect(headlineText(en, c)).toBe('3 people see it')
+    // the panel's headline too (no split asked), in the "Who can open it" panel's verb, with no "(owner and admins included)"
+    expect(headlineText(ko, chipOf('project', { project: project({ audience: 3 }) })!)).toBe('3명이 봐요')
+    expect(panelHeadline(en, chipOf('project', { project: project({ audience: 3 }) })!, 'Acme')).toBe(en('folderAccess.openCountApart', { n: 3 }))
+    expect(panelHeadline(en, chipOf('project', { project: project({ audience: 3 }) })!, 'Acme')).not.toContain('admins')
+    // nobody by its rules: still a count of its members, never "owner and admins only"
+    expect(chipOf('project', { project: project({ audience: 0, audienceSplit: { direct: 0, byRole: 0 } }), apart: true })).toEqual({ kind: 'people', n: 0, members: true })
+    // a project made before outside projects/: an ordinary folder, its split as before
+    const legacy = chipOf('project', { project: project({ folderPath: 'shared/clients/acme', audience: 5, audienceSplit: { direct: 3, byRole: 2 } }), apart: true })!
+    expect(legacy).toEqual({ kind: 'people', n: 3, byRole: 2 })
+    expect(chipLabel(ko, legacy)).toBe('3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요')
   })
-  test('the role line: a number, the words alone for a member, nothing at 0; a project\'s only while projects are seen by role', () => {
-    expect(byRoleLine(ko, 2, 'folder')).toBe('팀장·관리자 2명도 볼 수 있어요')
-    expect(byRoleLine(ko, 'any', 'folder')).toBe('팀장·관리자도 볼 수 있어요')
-    expect(byRoleLine(ko, 0, 'folder')).toBeNull()
-    expect(byRoleLine(ko, undefined, 'folder')).toBeNull()
-    expect(byRoleLine(ko, 2, 'project')).toBe(PROJECTS_BY_ROLE ? '팀장·관리자 2명도 볼 수 있어요' : null)
-    // a folder's own words (es: la carpeta, el proyecto)
+  test('the role line (ordinary folders only): a number, nothing at 0', () => {
+    expect(byRoleLine(ko, 2)).toBe('팀장·관리자 2명도 볼 수 있어요')
+    expect(byRoleLine(ko, 0)).toBeNull()
+    expect(byRoleLine(ko, undefined)).toBeNull()
+    // a folder's own words (es: la carpeta)
     const es = (key: MessageKey, p?: Params) => translate('es', key, p)
-    expect(byRoleLine(es, 2, 'folder')).toContain('verla')
-    expect(byRoleLine(es, 2, 'project')).toBe(PROJECTS_BY_ROLE ? es('projects.whoByRole', { n: 2 }) : null)
+    expect(byRoleLine(es, 2)).toContain('verla')
   })
   test('a member (no split): the total, the owner and admins included, and no role part or number', () => {
     const c = chipOf('ask', { audience: { path: 'groups/m', access: 'write', people: 5, everyone: false }, apart: true })!
@@ -127,6 +138,8 @@ describe('where an admin changes who can open it in the panel', () => {
     expect(editableHere('shared/clients/acme', 'project')).toBe(true)
     // the owner chose members-only projects: the panel changes nothing in projects/ (their members do)
     expect(editableHere('projects/falcon/docs', 'ask')).toBe(false)
+    // the server folds the letter case of projects/ (docs/DECISIONS.md "Project contents only for members")
+    expect(editableHere('Projects/falcon/docs', 'ask')).toBe(false)
     expect(editableHere('projects/falcon', 'project')).toBe(false)
     // the project list did not load: still none on a folder of projects/ itself
     expect(editableHere('projects/falcon', 'ask')).toBe(false)

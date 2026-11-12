@@ -36,6 +36,44 @@ test('owner: every section in order, as plain sections without boxes', async ({ 
   expect(realErrors(errors)).toEqual([])
 })
 
+test('restore: a wrong password stays in the dialog under the field; the right one starts it (QA TC-221)', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.goto('/admin/system')
+  await page.getByTestId('backup-list').getByRole('button', { name: t['system.restore'] }).click()
+  const dialog = page.getByRole('dialog', { name: t['system.restoreTitle'] })
+  await dialog.getByTestId('reauth-password').fill('not my password')
+  await dialog.getByTestId('reauth-confirm').click()
+  // still open, the words under the field, the field ready for another try; no toast
+  await expect(dialog.getByRole('alert')).toContainText('비밀번호가 맞지 않아요')
+  await expect(dialog.getByTestId('reauth-password')).toHaveAttribute('aria-invalid', 'true')
+  await expect(dialog.getByTestId('reauth-password')).toBeFocused()
+  // typing again clears it
+  await dialog.getByTestId('reauth-password').fill('correct horse battery')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await dialog.getByTestId('reauth-confirm').click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText(t['system.restoreDone'])).toBeVisible()
+})
+
+test('after a restore, Backups says which backup was put back, when and by whom; a failed one says the data was kept (QA TC-208)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const line = page.getByTestId('last-restore')
+  await page.goto('/admin/system')
+  await expect(page.getByTestId('backup-list')).toBeVisible()
+  await expect(line).toHaveCount(0)
+  const last = { backupId: '20261110T030000Z-daily', backupCreatedAt: '2026-11-10T03:00:00.000Z', at: '2026-11-11T05:20:00.000Z', by: { id: 'olga', name: 'Olga' }, ok: true }
+  await page.request.post('/__test/last-restore', { data: { last } })
+  await page.reload()
+  await expect(line).toContainText('Olga님이')
+  await expect(line).toContainText('백업으로 되돌렸어요')
+  await expect(line).toContainText(/2026\. 11\. 10\./)
+  await page.request.post('/__test/last-restore', { data: { last: { ...last, ok: false } } })
+  await page.reload()
+  await expect(line).toContainText('되돌리지 못해서 데이터를 그대로 두었어요')
+})
+
 test('health: what needs attention first, the passed checks behind Show details', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)

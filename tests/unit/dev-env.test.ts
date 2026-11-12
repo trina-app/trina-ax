@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { oldProject } from '../lib/legacy-project'
+import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { setBoxdClient, type BoxdClient } from '../../server/src/devenv/boxd'
 import { devEnvFlag, devEnvSetting, mayUseBox, OFF_SETTING, saveDevEnvSetting, newConsent } from '../../server/src/devenv/setting'
 import { diffSnapshots, readInside, skipName, takeSnapshot, SnapshotStore } from '../../server/src/devenv/snapshot'
@@ -149,20 +149,30 @@ describe('the setting', () => {
   test('API: admins only, warning first, audited; 404 without the flag', async () => {
     const body = { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] } }
     await expect(h.api('alice').call(API.updateDevEnv, { params: { id: projectId }, body })).rejects.toMatchObject({ status: 403 })
-    await expect(h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body })).rejects.toMatchObject({ status: 409, body: { params: { reason: 'dev_env_warning' } } })
-    const on = await h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: { ...body, acceptWarning: DEV_ENV_WARNING_VERSION } })
-    expect(on.setting).toMatchObject({ enabled: true, consent: { by: { id: 'carol' } } })
-    const mine = await h.api('alice').call(API.devEnv, { params: { id: projectId } })
-    expect(mine).toMatchObject({ mayUse: true, mayManage: false, availability: { available: true }, box: { state: 'running', processes: [{ pid: 40 }] } })
-    expect((await h.api('bob').call(API.devEnv, { params: { id: projectId } })).mayUse).toBe(false)
-    await expect(h.api('erin').call(API.devEnv, { params: { id: projectId } })).rejects.toMatchObject({ status: 404 }) // cannot read the folder
-    const rows = h.ctx.db.query("SELECT actor_id, action FROM audit_log WHERE action LIKE 'dev_env.%' AND target = ? ORDER BY id").all(projectId)
-    expect(rows).toEqual([{ actor_id: 'carol', action: 'dev_env.consent' }, { actor_id: 'carol', action: 'dev_env.setting' }])
-    // a network change stops the box (it starts again with the new rules at the next command)
-    calls.length = 0
-    await h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: { ...body, network: 'offline' } })
-    expect(calls).toEqual([{ op: 'stop', req: projectId }])
-    await h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: { ...body, network: 'open' } })
+    // an admin who is not a member of the project does not find it (docs/DECISIONS.md "Project contents only for
+    // members"), with or without the warning accepted; nothing is saved
+    for (const b of [body, { ...body, acceptWarning: DEV_ENV_WARNING_VERSION }]) await expect(h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: b })).rejects.toMatchObject({ status: 404 })
+    await expect(h.api('carol').call(API.devEnv, { params: { id: projectId } })).rejects.toMatchObject({ status: 404 })
+    expect(devEnvSetting(h.ctx.db, projectId).enabled).toBe(false)
+    // a member of it, the admin manages it
+    const before = h.ctx.files.rules().rulesAt(FOLDER)
+    legacyProjectFolder(h.ctx.db, h.team, FOLDER, [...before, { subjectType: 'user', subjectId: 'carol', access: 'read' }])
+    try {
+      await expect(h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body })).rejects.toMatchObject({ status: 409, body: { params: { reason: 'dev_env_warning' } } })
+      const on = await h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: { ...body, acceptWarning: DEV_ENV_WARNING_VERSION } })
+      expect(on.setting).toMatchObject({ enabled: true, consent: { by: { id: 'carol' } } })
+      const mine = await h.api('alice').call(API.devEnv, { params: { id: projectId } })
+      expect(mine).toMatchObject({ mayUse: true, mayManage: false, availability: { available: true }, box: { state: 'running', processes: [{ pid: 40 }] } })
+      expect((await h.api('bob').call(API.devEnv, { params: { id: projectId } })).mayUse).toBe(false)
+      await expect(h.api('erin').call(API.devEnv, { params: { id: projectId } })).rejects.toMatchObject({ status: 404 }) // cannot read the folder
+      const rows = h.ctx.db.query("SELECT actor_id, action FROM audit_log WHERE action LIKE 'dev_env.%' AND target = ? ORDER BY id").all(projectId)
+      expect(rows).toEqual([{ actor_id: 'carol', action: 'dev_env.consent' }, { actor_id: 'carol', action: 'dev_env.setting' }])
+      // a network change stops the box (it starts again with the new rules at the next command)
+      calls.length = 0
+      await h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: { ...body, network: 'offline' } })
+      expect(calls).toEqual([{ op: 'stop', req: projectId }])
+      await h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: { ...body, network: 'open' } })
+    } finally { legacyProjectFolder(h.ctx.db, h.team, FOLDER, before) }
     delete process.env.MYCEL_DEV_ENV
     try { await expect(h.api('alice').call(API.devEnv, { params: { id: projectId } })).rejects.toMatchObject({ status: 404 }) } finally { process.env.MYCEL_DEV_ENV = '1' }
   })
@@ -186,8 +196,9 @@ describe('a project on the team root', () => {
     expect(r).toMatchObject({ needsFolder: false, setting: { enabled: true } })
     expect(h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'dev_env.folder' AND target = ?").all(id))
       .toEqual([{ actor_id: 'carol', detail: JSON.stringify({ before: '', after: 'projects/배너 영상-2' }) }])
-    // inherits the same access as the team root: no new rule
-    expect(h.ctx.db.query("SELECT 1 FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/배너 영상-2'").all()).toEqual([])
+    // made as the system; it inherits the team root's access for the team's members (no floor), and the admin who turned
+    // it on is a member of it by name (docs/DECISIONS.md "Project contents only for members")
+    expect(h.ctx.db.query("SELECT r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/배너 영상-2'").all()).toEqual([{ subject_type: 'user', subject_id: 'carol', access: 'write' }])
     // the second save keeps the folder
     await h.api('carol').call(API.updateDevEnv, { params: { id }, body })
     expect(folderOf(id)).toBe('projects/배너 영상-2')

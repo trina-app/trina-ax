@@ -7,7 +7,8 @@
 //   - a "> " quote in the person's own messages on this answer's branch: "Ask Trina about this" quotes another person's
 //     message there (up to 4,000 characters, web components/rooms/SideChatPanel.tsx withQuote) with no room tool run.
 //     Any quote counts, a pasted one too: its words are not the person's. An edit that takes the quote out leaves it
-//     on the old branch only.
+//     on the old branch only. A scheduled run's message does not count (messages.auto_sent): it is the instruction the
+//     person approved on the task's card, so a "> " line there is no one else's words.
 import type { Database } from 'bun:sqlite'
 import type { TurnExec } from './turn'
 
@@ -34,11 +35,12 @@ export function readRooms(exec: ReadRoomsExec): boolean {
   return seen
 }
 
-/** Does a user message on the branch up to `answerId` hold a line that starts with ">" (spaces before it allowed)? */
+/** Does a user message on the branch up to `answerId` hold a line that starts with ">" (spaces before it allowed)? Not
+ * a message the server sent for a scheduled run (auto_sent): its text is the task's instruction, approved on its card. */
 export function quotesOnBranch(db: Database, answerId: string): boolean {
   // only the messages with a ">" anywhere are read; the walk itself follows parent_id like the turn's history
   const rows = db.query(`WITH RECURSIVE up(id, parent_id, role, depth) AS (SELECT id, parent_id, role, 0 FROM messages WHERE id = ?
       UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < ${BRANCH_MAX})
-    SELECT m.content content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' AND instr(m.content, '>') > 0`).all(answerId) as { content: string | null }[]
+    SELECT m.content content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' AND m.auto_sent = 0 AND instr(m.content, '>') > 0`).all(answerId) as { content: string | null }[]
   return rows.some((r) => (r.content ?? '').split('\n').some((line) => /^\s*>/.test(line)))
 }

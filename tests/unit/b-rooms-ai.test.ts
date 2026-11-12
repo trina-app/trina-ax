@@ -263,6 +263,29 @@ describe('the AI in a room', () => {
     expect(ws.alice!.frames.some((f) => (f.type === 'message.delta' || f.type === 'message.step' || f.type === 'message.created' || f.type === 'chat.updated') && 'chatId' in f.data && f.data.chatId === sessionId)).toBe(false)
   })
 
+  test('an answer that ended in an error stays listed for its asker for a day (a restart cut it while nobody was connected, QA TC-241); stopped or older ones do not, nor for anyone else', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const { run } = await ask('alice', roomId, `@트리나 hello\n${fake({ say: 'hi' })}`)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    const db = h.ctx.db
+    const error = JSON.stringify({ code: 'unavailable', message: '서버가 다시 시작되어 답변이 중단됐어요.' })
+    // as the start-up's reconcile leaves a run whose turn ended while the server was down
+    db.query("UPDATE room_ai_turns SET status = 'error', error = ?, ended_at = ? WHERE turn_id = ?").run(error, new Date().toISOString(), run.turnId)
+    const listed = (await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine
+    expect(listed.map((x) => [x.turnId, x.state, x.error?.message])).toEqual([[run.turnId, 'error', '서버가 다시 시작되어 답변이 중단됐어요.']])
+    expect((await h.api('erin').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    // a day later, or stopped by the asker: not listed
+    db.query('UPDATE room_ai_turns SET ended_at = ? WHERE turn_id = ?').run(new Date(Date.now() - 25 * 3_600_000).toISOString(), run.turnId)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    db.query("UPDATE room_ai_turns SET status = 'stopped', error = NULL, ended_at = ? WHERE turn_id = ?").run(new Date().toISOString(), run.turnId)
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine).toEqual([])
+    // a run whose turn is gone at start-up (reconcile) is listed as failed
+    const gone = uuidv7()
+    db.query("UPDATE room_ai_turns SET turn_id = ?, status = 'active', error = NULL, ended_at = NULL WHERE turn_id = ?").run(gone, run.turnId)
+    roomAiOf(h.ctx).reconcile()
+    expect((await h.api('alice').call(API.getRoomAi, { params: { id: roomId } })).mine.map((x) => [x.turnId, x.state])).toEqual([[gone, 'error']])
+  })
+
   test('each person has one session per room: the next question continues it, and it is never one of their chats', async () => {
     const roomId = await room(['alice', 'erin'])
     h.ctx.db.query("INSERT INTO memories (id, user_id, text, source, created_at) VALUES ('mem-rooms-ai', 'alice', 'ALICE-ROOM-MEMORY likes tea', 'user', ?)").run(new Date().toISOString())
@@ -1325,7 +1348,12 @@ describe('what makes an answer private: what some member could not see, per ques
   const allRoom = async () => (await h.api('bob').call(API.listRooms)).items.find((r) => r.kind === 'all')!.id
 
   test('a member with no group asks a general question in the everyone room: it goes to the room, and so does the next', async () => {
-    await withoutGroup(async () => {
+    // bob's search reaches projects/falcon/public, which everyone reads by its rule; the owner and admins read inside a
+    // project only as its members (docs/DECISIONS.md "Project contents only for members"), so carol and dana are
+    // falcon's members here: else they could not see it, and the answer would rightly stay private
+    const joined = ['dana', 'carol'].map((u) => `rooms-nogroup-${u}`)
+    for (const [i, u] of ['dana', 'carol'].entries()) h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_projects_falcon', 'user', ?, 'read')").run(joined[i]!, u)
+    try { await withoutGroup(async () => {
       const roomId = await allRoom()
       // another member's answer from a group folder, posted: the room now names a file bob cannot open
       const a = await ask('alice', roomId, `@트리나 brief?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { say: `[brief](/files/view?path=${encodeURIComponent(BRIEF)}) says Autumn Upgrade` })}`)
@@ -1352,7 +1380,7 @@ describe('what makes an answer private: what some member could not see, per ques
       // the private preview, posted later, is decided on what its own question used
       const p = (await answerTo('bob', roomId, mine.q))!
       expect((await h.api('bob').call(API.shareRoomMessage, { params: { id: roomId, messageId: p.id } })).visibility).toBe('room')
-    })
+    }) } finally { for (const id of joined) h.ctx.db.query('DELETE FROM folder_rules WHERE id = ?').run(id) }
   })
 
   test('a question that reads a group folder another member cannot read stays private', async () => {

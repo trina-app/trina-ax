@@ -34,6 +34,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   roomAlwaysAllow: true,
   /** any member may make a team project (docs/DECISIONS.md "Projects live only in projects/") */
   projectCreators: 'members',
+  /** Home's "what my group often asks" (chat/often-asked.ts): on unless an admin turns it off (the owner's call, 2026-11-11) */
+  oftenAsked: true,
   /** tool rounds per answer (Claude Code --max-turns; chat/runtime.ts maxEngineTurns) */
   answerStepLimit: DEFAULT_ANSWER_STEP_LIMIT,
   /** the company intro deck's time budget (intro-deck/tiers.ts): 5 minutes until an owner or admin picks another */

@@ -2,7 +2,7 @@
 // hwp_render and schedule_create showed as "hwp_render" / "schedule_create"). The web app redraws a stored label in the
 // language on screen (localizeStep), so an answer run in Korean reads in English after a switch.
 import { describe, expect, test } from 'bun:test'
-import { COVER_STEP_KEYS, FILE_TOOLS, FILE_STEP_VERB, localizeStep, placeName, STEP_TEXT, stepLabel, stepPlace } from '@mycel/shared'
+import { COVER_STEP_KEYS, FILE_TOOLS, FILE_STEP_VERB, localizeStep, placeName, STEP_TEXT, stepLabel, stepPlace, unansweredStep } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { C_TOOL_NAMES } from '../../server/src/tools/index'
 import { FILE_MOVE_TOOL_NAMES } from '../../server/src/tools/file-moves'
@@ -144,6 +144,18 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
     // a file whose own name looks like the why is still a path; a memory's own words are not the why
     expect(shown('write', 'Save · shared/allowed once in this answer', 'en').label).toBe('Save · Company-wide › allowed once in this answer')
     expect(localizeStep({ kind: 'tool', tool: 'remember', label: `Remembered: lunch · ${STEP_TEXT.roomOnceStep.en}` }, 'ko').label).toBe(`기억함: lunch · ${STEP_TEXT.roomOnceStep.en}`)
+  })
+
+  test('remember while its card waits, in the language on screen; a card that ran out (QA TC-214)', () => {
+    expect(localizeStep({ kind: 'tool', tool: 'remember', label: 'Asking whether to remember: lunch at 12' }, 'ko').label).toBe('기억할지 묻는 중: lunch at 12')
+    expect(localizeStep({ kind: 'tool', tool: 'remember', label: '기억할지 묻는 중: lunch at 12' }, 'ja').label).toBe('記憶するか確認中：lunch at 12')
+    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      expect(unansweredStep({ tool: 'ask_user', detail: STEP_TEXT.notAnswered[l] })).toBe(true)
+      expect(unansweredStep({ tool: 'remember', detail: STEP_TEXT.notAnswered[l] })).toBe(true)
+    }
+    expect(unansweredStep({ tool: 'ask_user', detail: 'blue' })).toBe(false)
+    expect(unansweredStep({ tool: 'ask_user' })).toBe(false)
+    expect(unansweredStep({ tool: 'read', detail: STEP_TEXT.notAnswered.en })).toBe(false)
   })
 
   test('anything else stays as it is, without a path', () => {

@@ -250,11 +250,12 @@ describe('the top bar', () => {
     for (const p of ['/files', '/rooms/r1', '/c/abc']) expect(await html(p)).toBe('')
   })
 
-  test('a page below a tab: ‹ and its name, for the eye only (the page has its heading); no ☰', async () => {
-    for (const [p, key] of [['/skills', 'skills.title'], ['/projects', 'projects.title'], ['/scheduled/s1', 'settings.schedules'], ['/trash', 'trash.title']] as const) {
+  test('a page below a tab: ‹ named after where it goes (its parent, lib/screens.ts), and its name, for the eye only (the page has its heading); no ☰', async () => {
+    for (const [p, key, up] of [['/skills', 'skills.title', aiName(ko)], ['/projects', 'projects.title', aiName(ko)], ['/scheduled/s1', 'settings.schedules', ko('settings.schedules')], ['/trash', 'trash.title', aiName(ko)]] as const) {
       const h = await html(p)
       expect(h).toContain('data-testid="topbar-back"')
-      expect(h).toContain(`aria-label="${ko('tabs.back')}"`)
+      expect(h).toContain(`aria-label="${ko('tabs.backTo', { page: up })}"`)
+      expect(h).toContain(`data-testid="topbar-back-label">${up}<`)
       expect(h).toMatch(new RegExp(`aria-hidden="true"[^>]*data-testid="topbar-title">${ko(key)}<`))
       expect(h).not.toContain('menu-open')
     }
@@ -272,7 +273,8 @@ describe('the top bar', () => {
 
   test('the buttons are 44 px', async () => {
     for (const p of ['/', '/rooms', '/skills']) {
-      for (const m of (await html(p)).matchAll(/<button [^>]*class="([^"]*)"/g)) expect(m[1]).toContain('size-11')
+      // ‹ with its label: 44 px tall and at least as wide
+      for (const m of (await html(p)).matchAll(/<button [^>]*class="([^"]*)"/g)) expect(m[1]).toMatch(/size-11|h-11 [^"]*min-w-11/)
     }
   })
 })

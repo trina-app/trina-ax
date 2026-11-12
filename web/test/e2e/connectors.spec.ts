@@ -132,3 +132,39 @@ test('own connector settings show the address and revoke the selected connection
   await expect(pane.getByTestId('connector-item')).toHaveCount(0)
   expect(revoked).toBe(true)
 })
+
+// QA TC-168: the app shell does not scroll, and with the conversation choices the page is longer than a laptop window
+// or a phone; Allow / Deny stay in view and the rest of the page scrolls
+for (const size of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+  test(`connector consent at ${size.width}x${size.height}: Allow is in view and the page scrolls to its end`, async ({ page }) => {
+    await page.setViewportSize(size)
+    const decisions: unknown[] = []
+    await page.route('**/api/connectors/remote/requests/*', route => {
+      if (route.request().method() === 'POST') { decisions.push(route.request().postDataJSON()); return route.fulfill({ json: { redirectUrl: 'https://claude.ai/api/mcp/auth_callback?code=synthetic-code' } }) }
+      return route.fulfill({ json: { ...consent, admin: true, optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'] } })
+    })
+    await page.context().route('https://claude.ai/**', route => route.fulfill({ contentType: 'text/html', body: '<p>Synthetic callback only</p>' }))
+    await signIn(page)
+    await page.goto('/connectors/authorize?id=' + id)
+    const pane = page.getByTestId('connector-consent'), scroller = page.getByTestId('connector-consent-scroll')
+    await expect(pane.getByTestId('connector-rooms-write')).toBeVisible()
+    // the page is taller than the window (else this test proves nothing) and its own area scrolls
+    const box = await scroller.evaluate(el => ({ scroll: el.scrollHeight, client: el.clientHeight }))
+    expect(box.scroll).toBeGreaterThan(box.client)
+    // Allow and Deny are inside the window before any scrolling
+    await expect(pane.getByTestId('connector-allow')).toBeInViewport({ ratio: 1 })
+    await expect(pane.getByTestId('connector-deny')).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: `test-results/connector-consent-${size.width}x${size.height}.png` })
+    // a mouse wheel / finger scroll reaches the last line, and Allow stays in view
+    await scroller.hover()
+    await page.mouse.wheel(0, 3000)
+    await expect.poll(() => scroller.evaluate(el => Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight)).toBe(true)
+    await expect(pane.getByTestId('connector-admin')).toBeInViewport()
+    await expect(pane.getByTestId('connector-allow')).toBeInViewport({ ratio: 1 })
+    // a ticked choice near the bottom is not covered by the button row
+    await pane.getByTestId('connector-rooms-write-check').check()
+    await pane.getByTestId('connector-allow').click()
+    await expect(page).toHaveURL('https://claude.ai/api/mcp/auth_callback?code=synthetic-code')
+    expect(decisions).toEqual([{ allow: true, write: false, rooms: true, roomsWrite: true }])
+  })
+}

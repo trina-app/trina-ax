@@ -126,19 +126,19 @@ describe('the team server keeps the signed release next to the installer', () =>
     placeSignedManifest(dir, { channel: 'stable', text: stable })
     expect(fs.readFileSync(path.join(dir, 'stable.json'), 'utf8')).toBe(stable)
     expect(fs.statSync(path.join(dir, 'stable.json')).mode & 0o777).toBe(0o600)
-    const r = serveDownload(new Request('http://x/downloads/stable.json'), '/stable.json', dir)
+    const r = await serveDownload(new Request('http://x/downloads/stable.json'), '/stable.json', dir)
     expect(r.status).toBe(200)
     expect(await r.text()).toBe(stable)
     // the server moved to beta: beta.json in, stable.json out; no temporary file left
     const beta = signRelease(release({ channel: 'beta' }), pem)
     placeSignedManifest(dir, { channel: 'beta', text: beta })
     expect(fs.readdirSync(dir).sort()).toEqual(['beta.json'])
-    expect(serveDownload(new Request('http://x/downloads/stable.json'), '/stable.json', dir).status).toBe(404)
+    expect((await serveDownload(new Request('http://x/downloads/stable.json'), '/stable.json', dir)).status).toBe(404)
     // nothing to place: nothing changes
     placeSignedManifest(dir, undefined)
     expect(fs.readdirSync(dir)).toEqual(['beta.json'])
     // other json files are still not served
     fs.writeFileSync(path.join(dir, 'other.json'), '{}')
-    expect(serveDownload(new Request('http://x/downloads/other.json'), '/other.json', dir).status).toBe(404)
+    expect((await serveDownload(new Request('http://x/downloads/other.json'), '/other.json', dir)).status).toBe(404)
   })
 })

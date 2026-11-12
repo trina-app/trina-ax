@@ -3,10 +3,12 @@
 // - Signed-in people only, like every other page of the team's data: a session (cookie or bearer) is required and a
 //   temporary password must be replaced first. Before this the folder was public, so anyone who knew the internet
 //   address could fetch the office's kit build (it carries the team's address) and index.json.
-// - Installers are 110–200 MB and often come through the Cloudflare tunnel: whole files go out as Bun.file (sendfile,
-//   constant memory), a resumed download (Range: bytes=N- or N-<last byte>) as Bun.file().slice(N) to the end of the
-//   file (measured: Bun 1.3.12 ends that body correctly, direct and when the body is read; only slices that stop
-//   before the end lose their end), any other range from the bounded pull stream of team-files/download.ts.
+// - Installers are 110–200 MB and often come through the Cloudflare tunnel: whole files and a resumed download
+//   (Range: bytes=N- or N-<last byte>) go out as fileBody() of team-files/download.ts: on Linux Bun.file (sendfile,
+//   constant memory) and Bun.file().slice(N) to the end of the file (measured: Bun 1.3.12 ends that body correctly,
+//   direct and when the body is read; only slices that stop before the end lose their end); on the office Mac never
+//   sendfile, which can hold the whole server when a client reads slowly (QA TC-222): read whole (installers stay
+//   under its WHOLE_MAX, so they keep their Content-Length). Any other range comes from the bounded pull stream there.
 // - Only index.json, latest.yml (electron-updater's feed file the office updater puts next to the Windows installer,
 //   docs/OFFICE.md "자동 업데이트"), <channel>.json (the signed release that names that installer, which the Windows app
 //   checks before it installs) and the files index.json lists are served (one name, no folders), each opened like a team file
@@ -20,7 +22,7 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import type { AppEnv } from '../http/env'
 import type { AppContext } from '../context'
-import { contentDisposition, parseRange, rangeStream, RANGE_MAX } from '../team-files/download'
+import { contentDisposition, fileBody, parseRange, rangeStream, RANGE_MAX } from '../team-files/download'
 import { openChecked } from '../team-files/place'
 import { readIndex, SAFE_NAME } from '../office/desktop'
 import { PRODUCT } from '@mycel/shared'
@@ -44,11 +46,12 @@ export async function downloadRoute(c: Context<AppEnv>, ctx: AppContext, dir: st
   try { auth = await ctx.services.sessions.resolve(c.req.raw, c.get('info')) } catch (e) { c.get('log').error('session lookup failed', { err: e }) }
   if (!auth) return text(401, `Sign in to ${PRODUCT.displayName} first, then download the app from Settings → Apps.\n`)
   if (auth.user.mustChangePassword) return text(403, 'Change your temporary password first.\n')
-  return serveDownload(c.req.raw, c.req.path.slice('/downloads'.length), dir)
+  return serveDownload(c.req.raw, c.req.path.slice('/downloads'.length), dir, c.get('info')?.via)
 }
 
 /** The file part (no auth check): tests and the route above. */
-export function serveDownload(req: Request, sub: string, dir: string | null): Response {
+/** `via`: how the request came (through the team address: 'relay'; team-files/download.ts fileBody). */
+export async function serveDownload(req: Request, sub: string, dir: string | null, via?: string): Promise<Response> {
   if (!dir || !fs.existsSync(dir)) return text(404, 'Not found\n')
   let name: string
   try { name = decodeURIComponent(sub.replace(/^\//, '')) } catch { return text(404, 'Not found\n') }
@@ -86,12 +89,12 @@ export function serveDownload(req: Request, sub: string, dir: string | null): Re
   }
   if (!range) {
     headers.set('Content-Length', String(size))
-    return new Response(head || size === 0 ? null : Bun.file(file), { status: 200, headers })
+    return new Response(head || size === 0 ? null : await fileBody(file, 0, size, { relayed: via === 'relay', signal: req.signal }), { status: 200, headers })
   }
   if (range.end === size - 1) {
     headers.set('Content-Range', `bytes ${range.start}-${range.end}/${size}`)
     headers.set('Content-Length', String(size - range.start))
-    return new Response(head ? null : Bun.file(file).slice(range.start), { status: 206, headers })
+    return new Response(head ? null : await fileBody(file, range.start, size, { relayed: via === 'relay', signal: req.signal }), { status: 206, headers })
   }
   const end = Math.min(range.end, range.start + RANGE_MAX - 1)
   headers.set('Content-Range', `bytes ${range.start}-${end}/${size}`)

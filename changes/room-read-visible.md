@@ -1,0 +1,2 @@
+- Opening a team chat room no longer marks messages as read that you were never shown: not while the first messages are still loading (for example a room opened from a notification), and not when more messages are unread than the room loads at once. The room is read up to the newest message you scrolled into view.
+- A reply you send after jumping to an older message from search now lands at the newest messages with your reply in view, instead of out of sight with the "Jump to latest" button gone.

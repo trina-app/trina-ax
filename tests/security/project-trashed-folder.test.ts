@@ -3,8 +3,9 @@
 // trashed folder's rules go to the trash with it: the path then fell back to the rules above it, so after an admin
 // trashed the finance-only shared/secret every member saw its project's name and instructions in the list, could open
 // it, got its instructions in their AI, and the one-project-per-folder 409 named it. Now the project carries the trash
-// item that took its folder (projects.trashed_with): only admins and the owner see it until the folder comes back, and
-// it holds no path meanwhile, so whoever makes a new folder there may make their own project on it.
+// item that took its folder (projects.trashed_with): nobody reads it until the folder comes back, the owner and admins
+// included, who manage it without its contents (docs/DECISIONS.md "Project contents only for members"), and it holds no
+// path meanwhile, so whoever makes a new folder there may make their own project on it.
 // Fixture: alice = marketing; bob = finance; carol = admin; shared/ everyone write.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -30,7 +31,7 @@ const status = (p: Promise<unknown>) => p.then(() => 200, (e) => (e instanceof A
 const listed = async (who: string) => (await h.api(who).call(API.listProjects)).items.map((p) => p.name)
 
 describe('a project whose restricted folder is in the trash', () => {
-  test('members neither list, open nor use it; it holds no path; admins still see it; it follows its folder back', async () => {
+  test('members neither list, open nor use it; it holds no path; admins only manage it; it follows its folder back', async () => {
     // shared/secret: finance writes, everyone else nothing
     fs.mkdirSync(path.join(h.team, 'shared/secret'), { recursive: true })
     h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_shared_secret', 'shared/secret')").run()
@@ -54,10 +55,16 @@ describe('a project whose restricted folder is in the trash', () => {
     expect(turn.done.status).toBe('done')
     expect(turn.done.content).not.toContain(CANARY)
     expect(turn.done.content).not.toContain('Secret plan')
-    // the admin, who alone restores the folder, still sees and opens it (marked as in the trash), but no turn gets it,
-    // the admin's included: its path may be another folder's by now
-    expect(await listed('carol')).toContain('Secret plan')
-    expect(await h.api('carol').call(API.getProject, { params: { id: p.id } })).toMatchObject({ name: 'Secret plan', inTrash: true })
+    // the admin, who restores the folder, no longer opens it (it was listed and opened for her): only her manage list
+    // has it, marked as in the trash, without its instructions; no turn gets it, hers included: its path may be another
+    // folder's by now
+    expect(await listed('carol')).not.toContain('Secret plan')
+    expect(await status(h.api('carol').call(API.getProject, { params: { id: p.id } }))).toBe(404)
+    const managed = await h.api('carol').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } })
+    expect(managed).toMatchObject({ name: 'Secret plan', inTrash: true, member: false, instructions: '' })
+    expect(JSON.stringify(managed)).not.toContain(CANARY)
+    expect(JSON.stringify(await h.api('carol').call(API.listProjects, { query: { manage: '1' } }))).not.toContain(CANARY)
+    expect(await status(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'mine now' } }))).toBe(409) // project_in_trash: its instructions nobody's while there
     expect(h.rt().projectForChat(p.id, h.ctx.files.principal('carol'))).toBeNull()
 
     // it holds no path meanwhile: alice's own new project on a new shared/secret is hers, and names nothing of it

@@ -40,7 +40,7 @@
 // folderView with no run gives the person's access (what the person may open); with a run, the access of that run.
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
-import { atLeast, type Access, type Principal, type RuleSet } from '../../policy/access'
+import { atLeast, inProjectZone, type Access, type Principal, type RuleSet } from '../../policy/access'
 // the path rule of skill roots, from shared/ (this folder runs on its own in tests/linux/Dockerfile.srt)
 import { skillRootOf } from '@mycel/shared/skill-roots'
 
@@ -82,7 +82,7 @@ export const runMayWrite = (run: RunWrites, personId: string, folder: string) =>
 const audienceOf = (rules: Pick<RuleSet, 'access'>, people: readonly Principal[], folder: string) =>
   people.filter((q) => accessOf(rules, q, folder) !== 'none').map((q) => q.id)
 
-export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[]): FolderView {
+export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[], zoneFolders: readonly string[] = []): FolderView {
   // the team root as a starting folder would make every folder writable again: fail closed
   if (run && run.start !== null && (run.start === '' || run.start.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a starting folder: ${JSON.stringify(run.start)}`)
   const cands = new Set<string>(['', 'users', `users/${p.id}`, PRODUCT.systemDir])
@@ -95,7 +95,11 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Pr
     // rules under users/ are ignored by the rules themselves; a temp name never has rules that matter
     if (s[0] === 'users' || s[0] === PRODUCT.systemDir || s.some((x) => x.startsWith(PRODUCT.tmpPrefix))) continue
     cands.add(f)
+    // the owner's and admins' access also changes at projects/<name> (the members-only zone): its top folder too
+    if (inProjectZone(s)) cands.add(s.slice(0, 2).join('/'))
   }
+  // and at every projects/<name> on disk, also one with no rules of its own (policy/zone.ts; the runner passes them)
+  for (const z of zoneFolders) if (inProjectZone(segsOf(z))) cands.add(z)
   const sorted = [...cands].sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0))
   // a project run: the people who see the starting folder (the person included); a folder outside it is read only when
   // all of them read it too (see the note above folderView)

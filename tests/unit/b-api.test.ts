@@ -7,7 +7,8 @@ import { API, ApiError, uuidv7 } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { resetEngineSessions } from '../../server/src/chat/runtime'
-import { historyBlock, historyTrimmed, historyWindow, memoryBlock, HISTORY_MAX_CHARS } from '../../server/src/chat/prompt'
+import { historyBlock, historyTrimmed, historyWindow, memoryBlock, memoryLines, HISTORY_MAX_CHARS } from '../../server/src/chat/prompt'
+import { getChatRuntime } from '../../server/src/chat/runtime'
 import { searchSources, composeMessage } from '../../server/src/chat/turn'
 
 setDefaultTimeout(30_000)
@@ -158,14 +159,19 @@ describe('messages', () => {
 })
 
 describe('projects', () => {
-  test('a team project is a new projects/<name>, seen by its participants, edited by the creator or an admin', async () => {
+  test('a team project is a new projects/<name>, seen by its participants, edited by the creator or an admin who is a member', async () => {
     const p = await h.api('alice').call(API.createProject, { body: { name: 'Campaign Q4', instructions: 'Use the brief.', participants: [{ subjectType: 'group', subjectId: 'marketing' }] } })
     expect(p).toMatchObject({ name: 'Campaign Q4', folderPath: 'projects/Campaign Q4', canEdit: true, createdBy: { id: 'alice', name: 'Alice Kim' } })
     expect(fs.statSync(path.join(h.team, 'projects/Campaign Q4')).isDirectory()).toBe(true)
     // erin (marketing) sees it but did not create it: no editing (design tab 5: the creator and admins); bob (finance) can't see it
     expect((await h.api('erin').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(false)
     expect(await code(h.api('erin').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'Ignore the brief.' } }))).toBe('403 forbidden')
-    expect((await h.api('carol').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(true)
+    // carol (admin) is not a participant: she does not read it (docs/DECISIONS.md "Project contents only for members"); she
+    // manages it (manage=1: its name and member count, nothing of its contents) and may not edit what is in it
+    expect(await code(h.api('carol').call(API.getProject, { params: { id: p.id } }))).toBe('404 not_found')
+    expect(await h.api('carol').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } })).toMatchObject({ member: false, canManage: true, canEdit: false, instructions: '' })
+    expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'Admin rules.' } }))).toBe('403 forbidden')
+    expect((await h.api('bob').call(API.listProjects, { query: { manage: '1' } })).items.some((x) => x.id === p.id)).toBe(false)
     expect(await code(h.api('bob').call(API.getProject, { params: { id: p.id } }))).toBe('404 not_found')
     expect((await h.api('bob').call(API.listProjects, {})).items.some((x) => x.id === p.id)).toBe(false)
     // an older project on falcon: bob reads (finance has read) but can't edit
@@ -179,17 +185,31 @@ describe('projects', () => {
     expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'groups/marketing/new', instructions: '' } }))).toBe('400 validation')
     expect((await h.req('alice', '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', folderPath: '../outside' }) })).status).toBe(400)
     expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'shared/glossary.md', instructions: '' } }))).toBe('400 validation')
-    // its folder never changes while it is in place (admins point only a project whose folder is gone); delete: chats
-    // stay, without project; the folder stays unless asked
+    // its folder never changes while it is in place (admins point only a project whose folder is gone, and only one
+    // whose contents they read: carol, not a member, is refused before anything else is looked at)
     expect(await code(h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/falcon' } }))).toBe('403 forbidden')
+    expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/falcon' } }))).toBe('403 forbidden')
+    // alice makes carol a member: an admin who is one edits it like its creator
+    const access = await h.api('alice').call(API.getProjectAccess, { params: { id: p.id } })
+    await h.api('alice').call(API.putProjectParticipants, { params: { id: p.id }, body: { participants: [{ subjectType: 'group', subjectId: 'marketing' }, { subjectType: 'user', subjectId: 'carol' }], expectedHash: access.rulesHash } })
+    expect((await h.api('carol').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(true)
     expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/falcon' } }))).toBe('409 conflict')
     const moved = await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'New rules.' } })
     expect(moved).toMatchObject({ folderPath: 'projects/Campaign Q4', instructions: 'New rules.' })
     const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
     expect((await h.api('alice').call(API.listChats, { query: { projectId: p.id } })).items.map((c) => c.id)).toEqual([chat.id])
+    // delete: first to the trash with its folder (the project stays, In trash, read by nobody); then, by the owner or an
+    // admin (its creator no longer manages it there), for good: chats stay, without project, and the folder does not
+    // come back
     await h.api('alice').call(API.deleteProject, { params: { id: p.id } })
+    expect(fs.existsSync(path.join(h.team, 'projects/Campaign Q4'))).toBe(false)
+    expect(await code(h.api('alice').call(API.getProject, { params: { id: p.id } }))).toBe('404 not_found')
+    expect((await h.api('dana').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } })).inTrash).toBe(true)
+    expect(await code(h.api('alice').call(API.deleteProject, { params: { id: p.id } }))).toBe('404 not_found')
+    await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+    expect(await code(h.api('dana').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } }))).toBe('404 not_found')
     expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).projectId).toBeNull()
-    expect(fs.existsSync(path.join(h.team, 'projects/Campaign Q4'))).toBe(true)
+    expect(fs.existsSync(path.join(h.team, 'projects/Campaign Q4'))).toBe(false)
   })
 })
 
@@ -201,6 +221,38 @@ describe('memories paging and engine session reset', () => {
     const p2 = await h.api('carol').call(API.listMemories, { query: { limit: 2, cursor: p1.nextCursor! } })
     expect(p2.items.map((m) => m.text)).toEqual(['m0'])
     expect(await code(h.api('carol').call(API.deleteMemory, { params: { id: uuidv7() } }))).toBe('404 not_found')
+  })
+
+  test('the list says which memories the AI does not get now, from the same cut as its memory block (QA TC-213)', async () => {
+    const add = (user: string, n: number, text: (i: number) => string) => {
+      const t0 = Date.now() - 3_600_000
+      for (let i = 1; i <= n; i++) h.ctx.db.query("INSERT INTO memories (id, user_id, text, created_at) VALUES (?, ?, ?, ?)").run(uuidv7(), user, text(i), new Date(t0 + i * 1000).toISOString())
+    }
+    // 110 short ones (QA's case): the newest that fit the block are in use, the older ones are marked, on every page
+    add('dana', 110, (i) => `사실 ${String(i).padStart(3, '0')}`)
+    const fit = memoryLines(getChatRuntime(h.ctx).memoriesForPrompt('dana')).length
+    expect(fit).toBeGreaterThan(50)
+    expect(fit).toBeLessThan(110)
+    const p1 = await h.api('dana').call(API.listMemories, { query: { limit: 100 } })
+    expect([p1.inUse, p1.total]).toEqual([fit, 110])
+    expect(p1.items.map((m) => !m.unused)).toEqual(p1.items.map((_, i) => i < fit))
+    expect(p1.items[fit]!.text).toBe(`사실 ${String(110 - fit).padStart(3, '0')}`)
+    const p2 = await h.api('dana').call(API.listMemories, { query: { limit: 100, cursor: p1.nextCursor! } })
+    expect(p2.items.map((m) => [m.text, m.unused])).toEqual(Array.from({ length: 10 }, (_, i) => [`사실 ${String(10 - i).padStart(3, '0')}`, true]))
+    // long ones: the block's 4,096 characters end first; the list and the block agree to the memory
+    add('erin', 30, (i) => `${i} ` + '가'.repeat(290))
+    const page = await h.api('erin').call(API.listMemories, { query: { limit: 100 } })
+    const rows = getChatRuntime(h.ctx).memoriesForPrompt('erin')
+    const lines = memoryLines(rows)
+    expect(page.inUse).toBe(lines.length)
+    expect(page.inUse).toBeLessThan(30)
+    expect(page.items.map((m) => !m.unused)).toEqual(page.items.map((_, i) => i < lines.length))
+    const block = memoryBlock(rows)
+    for (const m of page.items) expect(block.includes(m.id)).toBe(!m.unused)
+    // nothing marked while everything fits
+    add('bob', 3, (i) => `m${i}`)
+    const few = await h.api('bob').call(API.listMemories, {})
+    expect([few.inUse, few.total, few.items.some((m) => m.unused)]).toEqual([3, 3, false])
   })
 
   test('the person adds and corrects memories with the AI\'s limits; own only; audited without the text; the AI sees the new text', async () => {
@@ -311,6 +363,17 @@ describe('usage limits (tab 5 "사용 한도 도달")', () => {
       expect(err?.code).toBe('budget_exceeded')
       expect(err?.message).toContain('오늘 AI 사용 한도를 다 썼어요')
       expect(err?.message).toContain('다시 쓸 수 있어요')
+      // the day ends at midnight, said so it cannot read as noon ("오전 12:00"; QA TC-215)
+      expect(err?.message).toMatch(/\d+월 \d+일 0시부터 다시 쓸 수 있어요/)
+      expect(err?.message).not.toContain('오전')
+      // no new chat either: a first question from Home leaves no empty chat behind, in the same words
+      const chats = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM chats WHERE user_id = 'carol'").get() as { n: number }).n
+      const before = chats()
+      const refusedNew = await h.api('carol').call(API.createChat, { body: {} }).then(() => null, (e: unknown) => e as ApiError)
+      expect(refusedNew?.status).toBe(429)
+      expect(refusedNew?.code).toBe('budget_exceeded')
+      expect(refusedNew?.message).toBe(err?.message)
+      expect(chats()).toBe(before)
       expect(await code(h.api('carol').call(API.regenerate, { params: { id: chat.id, messageId: first.started.assistantMessage.id }, body: {} }))).toBe('429 budget_exceeded')
       // nothing was queued for the refused sends
       expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM turns WHERE user_id = 'carol'").get()).toEqual({ n: 2 })

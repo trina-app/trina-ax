@@ -16,9 +16,6 @@ export interface AppRow {
   thisApp: boolean
   /** this row is for the device this page is open on */
   thisDevice: boolean
-  /** a second way, folded under the row: the team server's installers when the row offers the store listing first
-   * (the Mac row) */
-  more?: DownloadItem[]
 }
 /** where this page runs: a web browser, the desktop app or the phone app; `here` is the device; `store`: a Mac App Store
  * or Microsoft Store build of the desktop app (lib/desktop.ts storeApp) */
@@ -55,24 +52,25 @@ export function phoneApps(links: AppDownloads, c: AppClient): { rows: AppRow[]; 
 }
 
 /**
- * The desktop apps, Mac then Windows. The Mac row offers the edition's App Store listing first, with the team server's
- * installers folded under it (`more`): the App Store app opens without a security warning and updates by itself (owner,
- * 2026-11-11). Otherwise a row offers the team server's installers, else the edition's store listing, else its download
- * page. A store build offers no installer file at all (lib/downloads.ts offeredDownloads; the other computer's row is
- * the listing or the page) and its own row is "This app" with the store's line instead of an action. The desktop app
- * from the team server marks its own row "This app" and offers only the server's installers there (a store listing is
- * another build, with its own data). A browser on a Mac or a Windows PC, and the desktop app, keep this computer's row
- * even with nothing to get (it says the server has no such app). Other rows with nothing to offer are left out; with
- * nothing to get at all the page shows the empty state.
+ * The desktop apps, Mac then Windows. A Mac with the edition's App Store listing gets only the App Store, everywhere
+ * (also on the desktop app from the team server's own row): no installer file from the team server, which is unsigned,
+ * brings a macOS security warning and does not update by itself (owner, 2026-11-11). Otherwise a row offers the team
+ * server's installers, else the edition's store listing, else its download page. A store build offers no installer
+ * file at all (lib/downloads.ts offeredDownloads; the other computer's row is the listing or the page) and its own row
+ * is "This app" with the store's line instead of an action. Without a Mac App Store listing (another edition, a
+ * self-hosted build) the desktop app from the team server marks its own row "This app" and offers the server's
+ * installers there. A browser on a Mac or a Windows PC, and the desktop app, keep this computer's row even with nothing
+ * to get (it says the server has no such app). Other rows with nothing to offer are left out; with nothing to get at
+ * all the page shows the empty state.
  */
 export function computerApps(links: AppDownloads, c: AppClient, files: DownloadItem[]): AppRow[] {
   return (['mac', 'windows'] as const).flatMap((os): AppRow[] => {
     const thisDevice = c.kind !== 'mobile' && c.here === os
     const thisApp = thisDevice && c.kind === 'desktop'
+    const listing = c.store && thisApp ? null : linkFor(links, os, appleBuild(c))
+    if (os === 'mac' && listing?.kind === 'store') return [{ os, action: listing, thisApp, thisDevice }]
     const items = c.store ? [] : files.filter((d) => d.platform === os)
-    const listing = thisApp ? null : linkFor(links, os, appleBuild(c))
-    if (os === 'mac' && listing?.kind === 'store') return [{ os, action: listing, thisApp, thisDevice, ...(items.length ? { more: items } : {}) }]
-    const action: AppAction | null = items.length ? { kind: 'files', items } : listing
+    const action: AppAction | null = items.length ? { kind: 'files', items } : thisApp ? null : listing
     return action || thisDevice ? [{ os, action, thisApp, thisDevice }] : []
   })
 }

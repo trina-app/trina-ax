@@ -188,6 +188,43 @@ test('the app CSP blocks inline script even if markup got into the page', async 
   expect(ran).toBe(0)
 })
 
+/** The receiver's own load waits 1.5 s for a picture (the receiver of the team server, its CSP widened only for that
+ * picture), so the parent's document arrives before the receiver has loaded, as on a busy computer (QA TC-218). */
+async function slowReceiver(page: Page) {
+  await page.route('**/__slow.gif', async (route) => {
+    await new Promise((r) => setTimeout(r, 1500))
+    await route.fulfill({ contentType: 'image/gif', body: Buffer.from('R0lGODlhAQABAAAAACw=', 'base64') })
+  })
+  await page.route('**/sandbox/frame*', async (route) => {
+    const r = await route.fetch()
+    const headers = { ...r.headers(), 'content-security-policy': r.headers()['content-security-policy']!.replace(/img-src [^;]*/, "img-src 'self' data: blob:") }
+    await route.fulfill({ response: r, headers, body: (await r.text()).replace('</body>', '<img src="/__slow.gif"></body>') })
+  })
+}
+
+test('a document that arrives before the receiver has loaded is written after it: two loads, as the host counts', async ({ page }) => {
+  await reset(page)
+  await slowReceiver(page)
+  await page.goto('/')
+  const loads = await page.evaluate(async () => {
+    const f = document.createElement('iframe')
+    f.setAttribute('sandbox', 'allow-scripts')
+    f.src = '/sandbox/frame?v=slow'
+    let n = 0
+    f.addEventListener('load', () => { n += 1 })
+    window.addEventListener('message', (e) => {
+      if (e.source === f.contentWindow && (e.data as { type?: string })?.type === 'ready') {
+        f.contentWindow!.postMessage({ source: 'mycel-host', type: 'render', html: '<p>written</p>' }, '*')
+      }
+    })
+    document.body.appendChild(f)
+    await new Promise((r) => setTimeout(r, 3000))
+    return n
+  })
+  // the receiver, then the document written over it (one merged load let a later navigation go unnoticed)
+  expect(loads).toBe(2)
+})
+
 for (const [what, prompt] of [['another site', 'make a wander artifact'], ['this app', 'make a wander home artifact']] as const) {
   test(`an artifact that tries to navigate to ${what} is stopped`, async ({ page }) => {
     await reset(page)
@@ -201,3 +238,14 @@ for (const [what, prompt] of [['another site', 'make a wander artifact'], ['this
     await expect(page.getByTestId('composer-input')).toBeVisible()
   })
 }
+
+test('an artifact that navigates away is stopped with the notice also when its frame was slow to load (QA TC-218)', async ({ page }) => {
+  await reset(page)
+  await slowReceiver(page)
+  await signIn(page)
+  await ask(page, 'make a wander artifact')
+  const panel = page.getByTestId('artifact-panel')
+  await expect(page.frameLocator('[data-testid="artifact-panel"] iframe').locator('h1')).toHaveText('Wanderer')
+  await expect(panel.getByRole('alert')).toContainText('다른 페이지로 이동하려 해', { timeout: 10_000 })
+  await expect(panel.locator('iframe')).toHaveCount(0)
+})

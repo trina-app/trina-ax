@@ -1,0 +1,1 @@
+- On a phone an empty folder now says "No files yet. Tap Upload to add some" instead of "Drop files here", and the page shown when the team server can't be reached uses the phone's language when nothing else was chosen on it yet.

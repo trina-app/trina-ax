@@ -151,12 +151,14 @@ export function turnMemoryEstimateMiB(): number {
  * the memory left would not hold another answer. Never below the ones running (lowering never stops a turn), and one
  * always may run when none do, so a small machine still answers. Only where the resource limits apply (Linux or a
  * plan) and the available memory is known; elsewhere the limit as before. */
-export function memoryAdmission(running: number, limit: number): number {
+export function memoryAdmission(running: number, limit: number, live = running): number {
   if (!limitsActive()) return limit
   const avail = availableMemoryMiB()
   if (avail === null) return limit
   const more = Math.max(0, Math.floor((avail - MEMORY_HEADROOM_MIB) / turnMemoryEstimateMiB()))
-  return Math.min(limit, Math.max(running === 0 ? 1 : running, running + more))
+  // one answer may always start when no engine is up at all; with idle engines up (turns waiting for a person, `live`)
+  // only what memory has room for
+  return Math.min(limit, Math.max(live === 0 ? 1 : running, running + more))
 }
 
 /** CPU the server's own helpers may use: the plan's cores (a container may show the host's cores), else this machine's. */

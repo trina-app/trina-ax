@@ -541,13 +541,13 @@ describe('the Windows installer for the desks (data/downloads, latest.yml, index
     expect(await deliverWindows(home, r, { fetch: fakeFetch(new Map()), log: () => {} })).toBeNull()
     // /downloads/latest.yml is served (electron-updater asks for it), other unlisted files are not
     const { serveDownload } = await import('../../server/src/routes/downloads')
-    const y = serveDownload(new Request('http://x/downloads/latest.yml'), '/latest.yml', dir)
+    const y = await serveDownload(new Request('http://x/downloads/latest.yml'), '/latest.yml', dir)
     expect(y.status).toBe(200)
     expect(await y.text()).toBe(yml)
     expect(y.headers.get('content-type')).toContain('yaml')
     fs.writeFileSync(path.join(dir, 'other.yml'), 'x')
-    expect(serveDownload(new Request('http://x/downloads/other.yml'), '/other.yml', dir).status).toBe(404)
-    expect(serveDownload(new Request('http://x/downloads/' + name), '/' + name, dir).status).toBe(200)
+    expect((await serveDownload(new Request('http://x/downloads/other.yml'), '/other.yml', dir)).status).toBe(404)
+    expect((await serveDownload(new Request('http://x/downloads/' + name), '/' + name, dir)).status).toBe(200)
   })
 
   test('the signed manifest the release came from goes next to the installer (<channel>.json, served), also when the installer is already there', async () => {
@@ -563,7 +563,7 @@ describe('the Windows installer for the desks (data/downloads, latest.yml, index
     expect(await deliverWindows(home, r, { fetch: fakeFetch(files), log: () => {} })).toBe('0.3.0')
     expect(fs.readFileSync(path.join(dir, 'beta.json'), 'utf8')).toBe(signed)
     const { serveDownload } = await import('../../server/src/routes/downloads')
-    expect(await serveDownload(new Request('http://x/downloads/beta.json'), '/beta.json', dir).text()).toBe(signed)
+    expect(await (await serveDownload(new Request('http://x/downloads/beta.json'), '/beta.json', dir)).text()).toBe(signed)
     // an office that offered the installer before this change: the next run adds the manifest, nothing is downloaded
     fs.rmSync(path.join(dir, 'beta.json'))
     const seen: string[] = []

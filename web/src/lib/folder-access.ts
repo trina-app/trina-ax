@@ -4,6 +4,7 @@
 import type { Access, AccessTreeNode, AudienceSplit, FolderAudience, Project } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 import { byRoleLine } from './whoByRole'
+import { isProjectsFolder } from './projectFolders'
 
 type T = (key: MessageKey, params?: Record<string, string | number>) => string
 
@@ -30,23 +31,29 @@ export const adminsOnly = (self: Pick<AccessTreeNode, 'who'>, members: number) =
 
 /** `people`: how many see it. With `byRole` (the owner and admins only: the server's AudienceSplit), `n` is the people
  * by its rules and `byRole` the owner and admins who see it only by their role; without it, `n` is everyone who sees it,
- * the owner and admins included (a member's answer). */
-export type Chip = { kind: 'onlyYou' } | { kind: 'team' } | { kind: 'adminsOnly' } | { kind: 'people'; n: number; byRole?: number; where?: 'project' | 'folder' }
+ * the owner and admins included (a member's answer). `members`: a team project's folder in projects/, whose count is
+ * its members only, the owner and admins included only as members (docs/DECISIONS.md "Project contents only for
+ * members"): never a role part, never "(팀장·관리자 포함)", never "팀장과 관리자만". */
+export type Chip = { kind: 'onlyYou' } | { kind: 'team' } | { kind: 'adminsOnly' } | { kind: 'people'; n: number; byRole?: number; members?: true }
 
-/** A count as a chip: apart when the server split it (nobody by a rule: the owner and admins only). `where`: a team
- * project's own count or a folder's, for the role line (lib/whoByRole.ts). */
-const people = (n: number, split: AudienceSplit | undefined, where: 'project' | 'folder'): Chip =>
-  !split ? { kind: 'people', n } : split.direct === 0 ? { kind: 'adminsOnly' } : { kind: 'people', n: split.direct, byRole: split.byRole, where }
+/** A count as a chip: apart when the server split it (nobody by a rule: the owner and admins only). */
+const people = (n: number, split: AudienceSplit | undefined): Chip =>
+  !split ? { kind: 'people', n } : split.direct === 0 ? { kind: 'adminsOnly' } : { kind: 'people', n: split.direct, byRole: split.byRole }
 
 /** What the chip says, once the answers it needs are here; null while they are not (never a wrong number). `apart`: the
  * chip, which says the server's split when there is one; the panel's headline takes the total as before (the panel is
  * redesigned in its own branch). */
 export function chipOf(place: ChipPlace | null, o: { audience?: FolderAudience | null; project?: Project | null; adminsOnly?: boolean; apart?: boolean }): Chip | null {
   if (place === 'own') return { kind: 'onlyYou' }
-  if (place === 'project') return o.project?.audience !== undefined ? people(o.project.audience, o.apart ? o.project.audienceSplit : undefined, 'project') : null
+  if (place === 'project') {
+    if (o.project?.audience === undefined) return null
+    // projects/<name>: its members, nobody by role; a project made before outside projects/ is an ordinary folder
+    if (isProjectsFolder(o.project.folderPath)) return { kind: 'people', n: o.project.audience, members: true }
+    return people(o.project.audience, o.apart ? o.project.audienceSplit : undefined)
+  }
   if (place !== 'ask' || o.audience?.people === undefined) return null
   if (o.adminsOnly) return { kind: 'adminsOnly' }
-  return o.audience.everyone ? { kind: 'team' } : people(o.audience.people, o.apart ? o.audience.split : undefined, 'folder')
+  return o.audience.everyone ? { kind: 'team' } : people(o.audience.people, o.apart ? o.audience.split : undefined)
 }
 
 /** The chip's words: "나만 봐요", "팀 전체가 봐요", "팀장과 관리자만", "3명" (by its rules: the owner and admins apart),
@@ -58,24 +65,26 @@ export function chipText(t: T, c: Chip): string {
   return c.byRole !== undefined ? t('folderAccess.direct', { n: c.n }) : t('folderAccess.people', { n: c.n })
 }
 
-/** The panel's headline (a chip without the split): a count says the owner and admins are in it. */
+/** The panel's headline (a chip without the split): a count says the owner and admins are in it, except a team
+ * project's members (the owner and admins are in it only as members). */
 export function headlineText(t: T, c: Chip): string {
-  return c.kind === 'people' ? t('folderAccess.peopleAll', { n: c.n }) : chipText(t, c)
+  return c.kind === 'people' ? t(c.members ? 'folderAccess.people' : 'folderAccess.peopleAll', { n: c.n }) : chipText(t, c)
 }
 
 /** The "Who can open it" panel's headline, in its one verb: "6 people can open it (owner and admins included)" (a
- * member's total), "3 people can open it" (the owner and admins: the server's split; the role line follows), "Everyone
+ * member's total), "3 people can open it" (the owner and admins: the server's split; the role line follows; and a team
+ * project's members, who are everyone that opens it, docs/DECISIONS.md "Project contents only for members"), "Everyone
  * at {team} can open it", "Only you can open it", "Only the owner and admins can open it". */
 export function panelHeadline(t: T, c: Chip, team: string): string {
   if (c.kind === 'onlyYou') return t('folderAccess.onlyYouOpen')
   if (c.kind === 'team') return t('folderAccess.everyoneOpens', { team })
   if (c.kind === 'adminsOnly') return t('folderAccess.hintAdminsOnly')
-  return c.byRole !== undefined ? t('folderAccess.openCountApart', { n: c.n }) : t('folderAccess.openCount', { n: c.n })
+  return c.byRole !== undefined || c.members ? t('folderAccess.openCountApart', { n: c.n }) : t('folderAccess.openCount', { n: c.n })
 }
 
 /** The chip's accessible name. Apart: "3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요" (a number, never a name; no role part at
  * 0); otherwise the panel's headline. */
 export function chipLabel(t: T, c: Chip): string {
   if (c.kind !== 'people' || c.byRole === undefined) return headlineText(t, c)
-  return [t('folderAccess.people', { n: c.n }), byRoleLine(t, c.byRole, c.where ?? 'folder')].filter(Boolean).join(' · ')
+  return [t('folderAccess.people', { n: c.n }), byRoleLine(t, c.byRole)].filter(Boolean).join(' · ')
 }

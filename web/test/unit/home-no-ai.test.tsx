@@ -33,8 +33,9 @@ const putOff = (): WelcomeProgress => ({
 let access = { usable: false, action: 'connect_team', requested: false }
 let progress: WelcomeProgress | null = null
 let calls: { key: string; body: any }[] = []
-/** 「자주 쓰는 스킬」's two (it shows from two used skills on) and whether the person ran a team skill */
-let popular: unknown[] = []
+/** what the team often asks (docs/DECISIONS.md "Home: what my group often asks") and whether the person ran a team
+ * skill */
+let asked: unknown = { scope: 'none', items: [] }
 let ranTeamSkill = false
 const routes: Record<string, (body: any) => Response> = {
   'GET /api/me/ai-access': () => json(200, access),
@@ -46,8 +47,7 @@ const routes: Record<string, (body: any) => Response> = {
   },
   'GET /api/onboarding/goal': () => json(200, { goal: null }),
   'GET /api/skills': () => json(200, { items: [] }),
-  'GET /api/questions/frequent': () => json(200, { items: [] }),
-  'GET /api/skills/popular': () => json(200, { items: popular, days: 30 }),
+  'GET /api/questions/often-asked': () => json(200, asked),
   // "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): one kept skill and the team's files
   'GET /api/skills/examples': () => json(200, { skills: [{ path: 'skills/general/card-news/SKILL.md', name: 'card-news', title: '카드뉴스', summary: '회사 소개로 정사각형 카드 5장을 만들어요', source: { kind: 'team' } }], teamFolder: { path: 'groups/Acme', files: 4, more: false, without: ['브랜드', 'skills'] }, landing: null, ranTeamSkill, hasProfile: false }),
   'GET /api/files/tree': () => json(200, { path: '', access: 'read', entries: [], nextCursor: null }),
@@ -76,7 +76,7 @@ afterEach(() => {
   access = { usable: false, action: 'connect_team', requested: false }
   progress = null
   calls = []
-  popular = []
+  asked = { scope: 'none', items: [] }
   ranTeamSkill = false
   localStorage.clear()
   useChats.getState().reset()
@@ -100,6 +100,7 @@ describe('Home without AI', () => {
     signIn('owner')
     phoneWidth()
     progress = putOff()
+    useChats.setState({ chats: [], chatsLoaded: true })
     // the steps were on screen in this tab (put off there): Home stays Home
     markStepsSeen('olga')
     const m = await home()
@@ -111,8 +112,8 @@ describe('Home without AI', () => {
       expect(m.find('team-goal')).toBeNull()
       expect(m.find('ai-access-banner')).toBeNull()
       expect(m.find('composer-input')).not.toBeNull()
-      expect(called('GET /api/questions/frequent')).toEqual([])
-      expect(called('GET /api/skills/popular')).toEqual([])
+      expect(called('GET /api/questions/often-asked')).toEqual([])
+      expect(called('GET /api/skills/examples')).toEqual([])
       // connected (the card's dialog, a chat, Admin, another tab): the row comes back, the AI step recorded done
       access = { usable: true, action: 'connect_team', requested: false }
       await act(async () => { await useAiAccess.getState().load(true) })
@@ -121,7 +122,7 @@ describe('Home without AI', () => {
       await m.until(() => progress!.steps.ai === 'done', 'the AI step done')
       await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 6), 'the row at 1/6')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body)).toEqual([{ step: { id: 'ai', state: 'done' } }])
-      await m.until(() => called('GET /api/questions/frequent').length > 0, 'the suggestions')
+      await m.until(() => called('GET /api/skills/examples').length > 0, 'the suggestions')
     } finally { await m.unmount() }
   })
 
@@ -161,7 +162,7 @@ describe('Home without AI', () => {
         expect(!!m.find('no-ai-own')).toBe(action === 'connect_own')
         expect(m.find('ai-access-banner')).toBeNull()
         expect(m.find('team-goal')).toBeNull()
-        expect(called('GET /api/questions/frequent')).toEqual([])
+        expect(called('GET /api/questions/often-asked')).toEqual([])
       } finally { await m.unmount() }
       calls = []
       useAiAccess.getState().reset()
@@ -199,21 +200,33 @@ describe('"팀에 준비된 것" without AI (docs/DECISIONS.md "W6.3")', () => {
     }
   })
 
-  test('「자주 쓰는 스킬」 stays out while the block lists skills; once the person ran a team skill it is back', async () => {
+  // one block under the box at a time: "팀에 준비된 것" while it shows anything, else what the team often asks; the skill
+  // rows end once the person ran a team skill or has 5 chats
+  test('what the team often asks stays out while the block shows; after a team skill run or 5 chats it takes the place', async () => {
+    const chat = (n: number) => ({ id: `01900000-0000-7000-8000-0000000000${String(n).padStart(2, '0')}`, projectId: null, title: `채팅 ${n}`, engine: 'claude-code' as const, model: null, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: `2026-11-0${n}T00:00:00.000Z`, deletedAt: null, runState: 'idle' as const })
     signIn('member')
-    useChats.setState({ chats: [], chatsLoaded: true })
+    useChats.setState({ chats: [chat(1)], chatsLoaded: true })
     access = { usable: true, action: 'ask_owner', requested: false }
-    popular = ['card-news', 'promo-video'].map((n) => ({ path: `skills/general/${n}/SKILL.md`, name: n, description: n, uses: 3, users: 2 }))
+    asked = { scope: 'team', items: ['회의록을 요약해 줘', '주간 보고서 초안 써 줘', '메일 답장 써 줘'] }
     let m = await home()
     try {
       await m.until(() => m.find('team-prepared-skill'), 'the skill rows')
       await m.settle(60)
-      expect(m.find('popular-skills')).toBeNull()
+      expect(m.find('often-asked')).toBeNull()
     } finally { await m.unmount() }
     ranTeamSkill = true
     m = await home()
     try {
-      await m.until(() => m.find('popular-skills'), 'the popular skills')
+      await m.until(() => m.find('often-asked'), 'what the team often asks')
+      expect(m.find('team-prepared')).toBeNull()
+      expect(m.get('often-asked').textContent).toContain(ko('home.oftenAsked.team'))
+    } finally { await m.unmount() }
+    // never ran a team skill, but 5 chats: the skill rows end too
+    ranTeamSkill = false
+    useChats.setState({ chats: [1, 2, 3, 4, 5].map(chat), chatsLoaded: true })
+    m = await home()
+    try {
+      await m.until(() => m.find('often-asked'), 'what the team often asks after 5 chats')
       expect(m.find('team-prepared-skill')).toBeNull()
     } finally { await m.unmount() }
   })

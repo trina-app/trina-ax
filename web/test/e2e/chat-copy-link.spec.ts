@@ -1,5 +1,5 @@
 // 링크 복사 on an AI chat (docs/AGENTS/plan: chat-copy-link): in a shared project chat the header's "⋯" copies the chat's
-// address (<origin>/c/<id>, nothing else) and the toast says how many project people can open it. Someone who reads the
+// address (<origin>/c/<id>, nothing else) and the toast says how many project members can open it. Someone who reads the
 // project folder opens the link and sees the chat; someone who does not gets the same "not found" page as for an address
 // that was never a chat (no word on whether it exists); a signed-out person signs in and lands on the chat.
 import { expect, test, type Browser, type Page } from '@playwright/test'
@@ -10,7 +10,7 @@ const BOB = { username: 'bob', password: 'bob password 1' }
 const DANA = { username: 'dana', password: 'dana password 1' }
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
 const patch = (page: Page, path: string, data: object) => page.request.patch(path, { headers: { [CSRF_HEADER]: '1' }, data })
-const KO = { shared: /링크를 복사했어요 · 프로젝트 사람 \d+명이 열 수 있어요/, private: '링크를 복사했어요 · 나만 열 수 있어요', notFound: '이 기록을 찾을 수 없어요.', copy: '링크 복사' }
+const KO = { shared: /링크를 복사했어요 · 멤버 \d+명이 열 수 있어요/, private: '링크를 복사했어요 · 나만 열 수 있어요', notFound: '이 기록을 찾을 수 없어요.', copy: '링크 복사' }
 
 async function windowOf(browser: Browser, who?: typeof BOB) {
   const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL, locale: 'ko-KR', viewport: { width: 1360, height: 860 } })

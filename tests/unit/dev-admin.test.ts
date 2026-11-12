@@ -2,6 +2,7 @@
 // ~/.team-ax-dev). Plain `bun run admin` looks at <repo>/.dev, so an owner of the `bun run dev` team who forgot the
 // password got "no account yet" there instead of a reset link.
 import { describe, expect, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import { WORK } from '../lib/env'
@@ -26,5 +27,8 @@ describe('bun run dev admin', () => {
     const link = dev(['reset-link'])
     expect(link.code).toBe(0)
     expect(link.out).toMatch(/reset-password\/[A-Za-z0-9_-]+/)
+    // the owner is told in Activity that a link was made for them on the server (QA TC-202)
+    const db = new Database(path.join(HOME, 'data', 'app.db'), { readonly: true })
+    try { expect(db.query("SELECT user_id FROM reset_link_notices WHERE event_type = 'account.reset_link'").all()).toEqual([{ user_id: 'olga' }]) } finally { db.close() }
   }, 60_000)
 })

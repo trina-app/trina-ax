@@ -25,7 +25,7 @@ export default function Home() {
   const {
     owner, users, engines, credentials, services, plugins, usage, audit, storage, diagnostics,
     active, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
-    attention, ready, unchecked, defaultEngine, latest, install,
+    allChecksOk, attention, ready, unchecked, defaultEngine, latest, install,
   } = useAdminOverview()
 
   return (
@@ -87,7 +87,7 @@ export default function Home() {
           />
           <Area id="system" to="/admin/system" icon={Activity} title={t('admin.system')} state={storage} problems={(storageBad ? 1 : 0) + checksToLook.length}
             line={storage.data ? t('adminHome.storage', { percent: Math.round(storage.data.percent) }) : ''}
-            meta={owner && diagnostics.data ? (checksToLook.length ? names(checksToLook.map((c) => c.label)) : t('adminHome.checksOk')) : ''}
+            meta={owner && diagnostics.data ? (checksToLook.length ? names(checksToLook.map((c) => c.label)) : allChecksOk ? t('adminHome.checksOk') : '') : ''}
           />
         </div>
       </section>

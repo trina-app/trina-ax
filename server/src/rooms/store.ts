@@ -325,6 +325,8 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       ...(r.thread_root_id ? { threadRootId: r.thread_root_id, ...(r.also_in_room ? { alsoInRoom: true as const } : {}), ...(followed.has(r.thread_root_id) ? { following: true as const } : {}) } : {}),
       ...(thread ? { thread } : {}),
       ...(reacted?.length ? { reactions: reacted } : {}),
+      // the id the author's app sent it with, to the author only: a send whose answer was lost is matched to it
+      ...(r.author_kind === 'user' && r.client_id && r.author_id === viewer.user_id ? { clientMessageId: r.client_id } : {}),
     }
   })
 }

@@ -9,9 +9,9 @@ type T = (key: MessageKey, params?: Record<string, string | number>) => string
 const RANK: Record<Access, number> = { none: 0, read: 1, write: 2 }
 
 /** A team project's folder in `projects/`, or anything inside it: the panel shows it and changes nothing there (its
- * people follow the project's members), and asks no admin endpoint about it. By its path, so a project list that failed
- * to load changes nothing. */
-export const inProjects = (path: string) => /^projects\/[^/]+(\/|$)/.test(path)
+ * people follow the project's members), and asks no admin endpoint about it. By its path (`projects` in any letter case,
+ * as the server folds it), so a project list that failed to load changes nothing. */
+export const inProjects = (path: string) => /^projects\/[^/]+(\/|$)/i.test(path)
 
 /** The top folders that only hold folders with their own settings, and the team root: they have no panel. */
 const NO_PANEL = new Set(['', 'users', 'groups', 'projects', 'connected'])
@@ -100,13 +100,21 @@ export function outcomeLines(t: T, locale: string, data: Pick<FolderEditPreview,
 
 /** Who gains that no head count can see, by name, a line each (the confirm before Save): people switched off, whoever
  * joins these groups, whoever joins the team. "Can open it" when they only get view, "open or edit" when one of them
- * gets edit somewhere (QA TC-232), or when the answer does not say (an older server). */
+ * gets edit somewhere (QA TC-232), or when the answer does not say (an older server). The groups group by group: the
+ * ones whose new people get edit in one line, the ones whose new people only open it in another (QA TC-284); an answer
+ * without a group's own `edit` (an older server) says them in one line, as before. */
 export function latentLines(t: T, locale: string, latent: FolderEditPreview['latent'], team: string): string[] {
   if (!latent) return []
   const edit = latent.edit ?? { team: true, off: true, groups: true }
   const out: string[] = []
   if (latent.off.length) out.push(t(edit.off ? 'folderAccess.latentOff' : 'folderAccess.latentOffView', { names: namesText(t, locale, latent.off.map((u) => u.name), latent.off.length) }))
-  if (latent.groups.length) out.push(t(edit.groups ? 'folderAccess.latentGroups' : 'folderAccess.latentGroupsView', { groups: namesText(t, locale, latent.groups.map((g) => g.name), latent.groups.length) }))
+  const groupsLine = (gs: { name: string }[], canEdit: boolean) => {
+    if (gs.length) out.push(t(canEdit ? 'folderAccess.latentGroups' : 'folderAccess.latentGroupsView', { groups: namesText(t, locale, gs.map((g) => g.name), gs.length) }))
+  }
+  if (latent.groups.some((g) => g.edit !== undefined)) {
+    groupsLine(latent.groups.filter((g) => g.edit !== false), true)
+    groupsLine(latent.groups.filter((g) => g.edit === false), false)
+  } else groupsLine(latent.groups, edit.groups)
   if (latent.team) out.push(t(edit.team ? 'folderAccess.latentTeam' : 'folderAccess.latentTeamView', { team }))
   return out
 }

@@ -5,6 +5,7 @@ import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
 import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
+import { conflictText, toldHere } from '../lib/conflictNotice'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
@@ -56,6 +57,15 @@ let relay: BrowserRelay | null = null
 /** this window's own activity for the team's online status (lib/presence.ts) */
 let activity: ReturnType<typeof startActivity> | null = null
 let firstServerVersion: string | null = null
+
+/** A hello from the server: the first one sets the version this page runs with; a later one with another version says
+ * once that a new version is ready. Reconnects that say it again add no second notice (QA TC-273: four were stacked). */
+export function serverHello(serverVersion: string) {
+  if (firstServerVersion === null) { firstServerVersion = serverVersion; return }
+  if (serverVersion === firstServerVersion || useUi.getState().updateReady) return
+  useUi.getState().setUpdateReady(true)
+  toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => { keepUnsentAsDrafts(); location.reload() } } })
+}
 
 /** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
 export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: false }) {
@@ -113,9 +123,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       useRooms.getState().handleEvent(ev)
       return
     case 'files.conflict': {
-      // a save met a newer version (mine or someone else's): both people hear about the conflict copy
+      // a save met a newer version (mine or someone else's): both people hear about the conflict copy, once each
+      // (lib/conflictNotice.ts: a save from this window already said it)
       const copy = ev.data.copyPath
-      toast({ level: 'warn', text: t('files.conflictNotice', { path: ev.data.path, copy, by: ev.data.by?.name ?? '' }), sticky: true, action: { label: t('files.openCopy'), run: () => openTeamFile(copy) } })
+      if (toldHere(ev.data.path)) return
+      toast({ level: 'warn', text: conflictText(ev.data.path, ev.data.by), sticky: true, action: { label: t('files.openCopy'), run: () => openTeamFile(copy) } })
       return
     }
     case 'job.progress':
@@ -270,11 +282,7 @@ export function startLive() {
     onHello: ({ serverVersion }) => {
       // the server takes a window that has just connected as in use: say how this one is
       activity?.connected()
-      if (firstServerVersion === null) firstServerVersion = serverVersion
-      else if (serverVersion !== firstServerVersion) {
-        useUi.getState().setUpdateReady(true)
-        toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => { keepUnsentAsDrafts(); location.reload() } } })
-      }
+      serverHello(serverVersion)
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))

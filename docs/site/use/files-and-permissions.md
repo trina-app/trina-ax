@@ -35,10 +35,10 @@ Admins use **Admin › Folder permissions**.
 ![Admin › Folder permissions › By folder: the team folder as a tree, each folder with who can open it](../images/files/folder-permissions.webp "Folder permissions, by folder")
 
 #### Choose the basic access
-Follow the folder above, only the people named, everyone reads, or everyone reads and writes.
+Follow the folder above, only the people named, everyone can view, or everyone can edit.
 
 #### Add people and groups
-Give each read, read and write, or no access. So "everyone reads, but not Bob" is possible.
+Give each **Can view**, **Can edit** or **No access**, the same words as the Files page's **Who can open it**. So "everyone can view, but not Bob" is possible.
 
 #### Check before saving
 The server works out who loses or gains access, and the Save button says it. Nothing changes until you save.

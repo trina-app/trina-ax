@@ -117,6 +117,12 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     for (const id of admins(ctx.db)) n.onboardingAiRequest(id, person.id)
     return { requested: true as const, already: false }
   })
+  // "Trina isn't ready yet" (chat error engine_missing): a member tells the owner(s) and admins, once an hour at most;
+  // the owner and admins connect the AI themselves ([Connect AI])
+  kit.handle(API.tellAiNotReady, ({ c, auth }) => {
+    if (auth.user.role === 'owner' || auth.user.role === 'admin') fail('forbidden', ct('aiRequestNotNeeded', loc(c)))
+    return { told: true as const, already: !notificationsOf(ctx).aiNotReady(auth.user.id) }
+  })
   kit.handle(API.createMyCredential, async ({ c, body, auth }) => {
     ownAllowed(loc(c))
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.create', loc(c))

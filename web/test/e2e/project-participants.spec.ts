@@ -1,9 +1,11 @@
 // Projects live only in projects/ (docs/DECISIONS.md "Projects live only in projects/", "Project members in one
 // panel"): a member makes a team project with the people they choose and reads how many see it; the creator adds
 // someone later from the 멤버 line of the project page and a confirm says what they will see first; taking someone out
-// saves at once; deleting it may take its folder to the trash. Someone who cannot change the members reads who does;
+// saves at once; deleting it takes it to the trash with its folder. Someone who cannot change the members reads who does;
 // the list card's ⋯ 멤버 and /projects/:id?members=1 open the same dialog. The team setting can keep team projects to
-// admins.
+// admins. Members only (docs/DECISIONS.md "Project contents only for members"): every count is its members, the owner
+// and admins only when they are members; other settings of its folder have × in the dialog, those inside the caller
+// may not read are counted; someone who manages it without being a member reads no numbers of what is in it.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -26,7 +28,7 @@ async function asBob(browser: Browser): Promise<Page> {
   return b
 }
 
-test('the owner\'s case: an admin reads the members first and the owner and admins apart; a member the total, as before', async ({ page, browser }) => {
+test('the owner\'s case: every count is the members, the owner and admins only when chosen; the owner sees it without being in it', async ({ page, browser }) => {
   // the owner, another admin (Eve) and Dana, who makes the project with a group of three she is in
   await reset(page, { withAdmin: true })
   await signIn(page)
@@ -40,32 +42,34 @@ test('the owner\'s case: an admin reads the members first and the owner and admi
   await d.goto('/projects')
   await d.getByTestId('project-new').click()
   await d.getByTestId('project-name').fill('견적서 제작')
-  // only Dana yet: the owner and Eve see it by role
-  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 1명 · 팀장·관리자 2명도 볼 수 있어요')
+  // only Dana yet: nobody by role
+  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 1명')
   await d.getByTestId('project-participants-search').fill('리드')
   await d.getByTestId(`participant-add-group-${lead}`).click()
-  // Dana, who is in the group too, counts once: 3 members, and the owner and Eve apart
-  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명 · 팀장·관리자 2명도 볼 수 있어요')
+  // Dana, who is in the group too, counts once: 3 members, and nothing about the owner and Eve
+  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명')
   await d.getByTestId('project-save').click()
   await expect(d.getByRole('heading', { level: 1, name: '견적서 제작' })).toBeVisible()
   const id = d.url().split('/').pop()!
-  // the 멤버 row: the members only ("멤버 3명"), not the 5 who can see it
   await expect(d.getByTestId('project-members')).toContainText('멤버3명')
-  await expect(d.getByTestId('project-members')).not.toContainText('5')
-  // the dialog: both parts, no names of the owner or admins
   await d.getByTestId('project-members-manage').click()
-  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명 · 팀장·관리자 2명도 볼 수 있어요')
-  for (const name of ['Olga', 'Eve']) await expect(d.getByTestId('project-access-summary')).not.toContainText(name)
+  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명')
+  await expect(d.getByTestId('project-access-summary-role')).toHaveCount(0)
   await ctx.close()
 
-  // Bob, a member in the group (not its creator): the row says the total, as before, and nothing apart
+  // Bob, a member in the group (not its creator): the same 3
   const b = await asBob(browser)
   await b.goto(`/projects/${id}`)
-  await expect(b.getByTestId('project-members')).toContainText('5명이 봐요')
+  await expect(b.getByTestId('project-members')).toContainText('3명')
   const seen = (await (await b.request.get(`/api/projects/${id}`)).json()) as Record<string, unknown>
-  expect(seen.audience).toBe(5)
+  expect(seen.audience).toBe(3)
   expect(seen).not.toHaveProperty('audienceSplit')
   await b.context().close()
+
+  // the owner: not in it. Without manage it is not hers to read; with it, its name and count, nothing of its contents
+  expect((await page.request.get(`/api/projects/${id}`)).status()).toBe(404)
+  const managed = (await (await page.request.get(`/api/projects/${id}?manage=1`)).json()) as Record<string, unknown>
+  expect(managed).toMatchObject({ member: false, canManage: true, instructions: '', audience: 3, membersEditable: true })
 })
 
 test('a member makes a team project with a person, then adds one more: the confirm says what they will see', async ({ page, browser }) => {
@@ -80,9 +84,8 @@ test('a member makes a team project with a person, then adds one more: the confi
   // a team project by default, no folder to choose; how many see it is always said
   await expect(b.getByTestId('project-kind-team')).toBeChecked()
   await expect(dialog.getByTestId('project-folder')).toHaveCount(0)
-  // a member's new project: the count is me and the people I choose, then the owner and admins without a number (it
-  // would say who the admins are)
-  await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 1명 · 팀장·관리자도 볼 수 있어요')
+  // a new project: the count is me and the people I choose (members only)
+  await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 1명')
   // I am always in it (no × to take me out)
   await expect(b.getByTestId('participant-user-bob')).toContainText('나')
   await expect(b.getByTestId('participant-remove-user-bob')).toHaveCount(0)
@@ -94,13 +97,13 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b.getByTestId('participant-add-user-jiwoo')).toHaveCount(0)
   await b.getByTestId('participant-add-user-sora').click()
   await expect(b.getByTestId('participant-user-sora')).toBeVisible()
-  await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 2명 · 팀장·관리자도 볼 수 있어요')
+  await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 2명')
   await b.getByTestId('project-save').click()
   await expect(b.getByRole('heading', { level: 1, name: '주간 보고' })).toBeVisible()
   const id = b.url().split('/').pop()!
 
-  // the 멤버 line says how many see it; the edit dialog no longer holds the members
-  await expect(b.getByTestId('project-members')).toContainText('3명이 봐요')
+  // the 멤버 line says how many see it (Bob and Sora: the owner is no member); the edit dialog no longer holds the members
+  await expect(b.getByTestId('project-members')).toContainText('2명')
   await b.getByTestId('project-menu').click()
   await b.getByTestId('project-edit').click()
   await expect(b.getByRole('dialog').getByTestId('project-participants')).toHaveCount(0)
@@ -126,7 +129,7 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b.getByRole('dialog')).toHaveCount(0)
   const access = await (await b.request.get(`/api/projects/${id}/access`)).json() as { participants: { subjectId: string }[] }
   expect(access.participants.map((x) => x.subjectId)).toEqual(['bob', 'sora', 'jiwoo'])
-  await expect(b.getByTestId('project-members')).toContainText('4명이 봐요')
+  await expect(b.getByTestId('project-members')).toContainText('3명')
 
   // taking someone out: struck through until the save, then saved at once (no confirm)
   await b.getByTestId('project-members-manage').click()
@@ -135,12 +138,14 @@ test('a member makes a team project with a person, then adds one more: the confi
   await b.getByTestId('project-members-save').click()
   await expect(b.getByRole('dialog')).toHaveCount(0)
   expect(((await (await b.request.get(`/api/projects/${id}/access`)).json()) as { participants: { subjectId: string }[] }).participants.map((x) => x.subjectId)).toEqual(['bob', 'jiwoo'])
-  await expect(b.getByTestId('project-members')).toContainText('3명이 봐요')
+  await expect(b.getByTestId('project-members')).toContainText('2명')
 
-  // deleting it offers to put its folder in the trash
+  // deleting it moves it to the trash with its folder (no box to tick); its creator does not see it there
   await b.getByTestId('project-menu').click()
   await b.getByTestId('project-delete').click()
-  await b.getByTestId('project-delete-trash-folder').check()
+  await expect(b.getByRole('dialog')).toContainText("'주간 보고'을(를) 휴지통으로 옮길까요?")
+  await expect(b.getByRole('dialog')).toContainText('팀장이나 관리자가 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
+  await expect(b.getByTestId('project-delete-trash-folder')).toHaveCount(0)
   await b.getByTestId('dialog-confirm').click()
   await expect(b).toHaveURL(/\/projects$/)
   expect((await page.request.get(`/api/files/tree?path=${encodeURIComponent('projects/주간 보고')}`)).status()).toBe(404)
@@ -155,7 +160,7 @@ test('who cannot change the members reads who does; the list card\'s ⋯ 멤버 
   // Bob is in it but did not make it: the line opens to say who changes the members, by name; no 관리, no ⋯ 멤버
   const b = await asBob(browser)
   await b.goto(`/projects/${id}`)
-  await expect(b.getByTestId('project-members')).toContainText('2명이 봐요')
+  await expect(b.getByTestId('project-members')).toContainText('2명')
   await expect(b.getByTestId('project-members-manage')).toHaveCount(0)
   await b.getByTestId('project-members-toggle').click()
   await expect(b.getByTestId('project-members-hint')).toHaveText('멤버는 Olga님(만든 사람)이나 관리자가 바꿔요.')
@@ -214,4 +219,39 @@ test('Files: a folder that is a project opens it; no other folder becomes one th
   await expect(page.getByRole('menu')).toBeVisible()
   await expect(page.getByTestId('make-project')).toHaveCount(0)
   await expect(page.getByTestId('open-project')).toHaveCount(0)
+})
+
+test('members only: another setting of the folder goes with ×, those inside the owner may not read are counted, and adding someone tells no numbers', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await seed(page)
+  // Bob's project: Jiwoo reads by another setting of its folder; a folder inside has two settings of its own
+  const made = await page.request.post('/__test/project', { data: { name: '견적', by: 'bob', files: { 'plan.md': 'plan' } } })
+  const { id } = (await made.json()) as { id: string }
+  expect((await page.request.post('/__test/project-rules', { data: { folder: 'projects/견적', others: [{ path: 'projects/견적', subjectType: 'user', subjectId: 'jiwoo', access: 'read' }, { path: 'projects/견적/계약', subjectType: 'user', subjectId: 'sora', access: 'write' }], hidden: 1 } })).ok()).toBeTruthy()
+  await page.goto(`/projects/${id}?members=1`)
+  const d = page.getByTestId('project-members-dialog')
+  await expect(d).toBeVisible()
+  // the one on the folder itself: × ; inside: counted only (the owner is no member), never named
+  await expect(page.getByTestId('project-other-rule-user-jiwoo')).toContainText('이지우')
+  await expect(page.getByTestId('project-other-rules-hidden')).toHaveText('안쪽 폴더 2개는 볼 수 있는 사람이 따로 정해져 있어요')
+  await expect(d).not.toContainText('계약')
+  await expect(d).not.toContainText('여기서는 바꿀 수 없어요.')
+  await expect(d).not.toContainText('폴더 권한에서 보기')
+  await expect(page.getByTestId('project-access-summary')).toHaveText('멤버 2명')
+  await page.getByTestId('project-other-rule-remove-user-jiwoo').click()
+  await expect(page.getByTestId('project-other-rule-user-jiwoo')).toHaveAttribute('data-state', 'removed')
+  await expect(page.getByTestId('project-access-summary')).toHaveText('멤버 1명')
+  // Sora added: what she will see is not counted for someone who does not read it
+  await page.getByTestId('project-participants-search').fill('소라')
+  await page.getByTestId('participant-add-user-sora').click()
+  await page.getByTestId('project-members-save').click()
+  const confirm = page.getByTestId('project-widen-confirm')
+  await expect(confirm).toContainText('이 사람들은 파일과 채팅을 보게 돼요.')
+  await expect(confirm).not.toContainText('파일 1개')
+  await page.getByTestId('dialog-confirm').click()
+  await expect(d).toHaveCount(0)
+  const access = (await (await page.request.get(`/api/projects/${id}/access`)).json()) as { participants: { subjectId: string }[]; otherRules: { subjectId: string }[] }
+  expect(access.participants.map((x) => x.subjectId)).toEqual(['bob', 'sora'])
+  expect(access.otherRules.map((x) => x.subjectId)).toEqual([])
 })

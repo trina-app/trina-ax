@@ -7,7 +7,7 @@
 import { app, shell, type Session, type WebContents } from 'electron'
 import { realpath, stat } from 'node:fs/promises'
 import { originOf } from '../common/address'
-import { FolderGrants, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type FolderCheck, type FolderRequest, type FolderSystem } from '../common/folder-access'
+import { FolderGrants, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, restrictedFolderAction, type FolderCheck, type FolderRequest, type FolderSystem } from '../common/folder-access'
 import { isOwnUiUrl } from '../common/trust'
 
 /** Permissions the team page may ask for (voice input, notifications, copy button, fullscreen video). The folder
@@ -75,9 +75,11 @@ export function openExternal(url: string) {
  * the person picks is readable by the team page, never writable (common/folder-access.ts); without this the pick ended
  * as the page's AbortError (Cancel), and a pick of the home folder, Desktop, Documents or Downloads never answered.
  * Desktop, Documents and Downloads are allowed now, unless one of them is home or holds it; the home folder and the
- * rest of Chromium's blocklist are refused.
+ * rest of Chromium's blocklist are refused. `refused`: the team window says why a folder of the team page's own pick was
+ * refused and asks whether to pick another (QA TC-219: a refusal read as Cancel and nothing was said); 'tryAgain' opens
+ * the folder window again.
  */
-export function hardenAppSession(ses: Session, allowedOrigins: () => readonly string[]): FolderGrants {
+export function hardenAppSession(ses: Session, allowedOrigins: () => readonly string[], refused?: (why: 'home' | 'blocked') => Promise<'tryAgain' | 'deny'>): FolderGrants {
   const folders = new FolderGrants(process.platform, FOLDER_SYSTEM)
   ses.setPermissionRequestHandler((_wc, permission, done, details) => {
     if (permission === 'fileSystem') {
@@ -94,10 +96,16 @@ export function hardenAppSession(ses: Session, allowedOrigins: () => readonly st
   ses.setDevicePermissionHandler(() => false)
   // a folder Chromium's blocklist refuses: the page's pick settles only when the callback is called, so it always is
   ses.on('file-system-access-restricted', (_e, d, callback) => {
-    let decided: Promise<'allow' | 'deny'>
+    let decided: Promise<'allow' | 'deny' | 'tryAgain'>
     try {
       const isTopFrame = !!d.frame && d.frame.parent === null
-      decided = restrictedFolderAction({ origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }, allowedOrigins(), folderRoots(), process.platform, FOLDER_SYSTEM)
+      const folder = { origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }
+      decided = restrictedFolderAction(folder, allowedOrigins(), folderRoots(), process.platform, FOLDER_SYSTEM).then(async (a) => {
+        if (a === 'allow' || !refused) return a
+        // a refusal of the team page's own pick is said, with the choice to pick another folder; any other stays silent
+        const why = await refusedFolderReason(folder, allowedOrigins(), process.platform, FOLDER_SYSTEM)
+        return why ? refused(why) : 'deny'
+      })
     } catch {
       decided = Promise.resolve('deny') // the frame went away meanwhile, or anything else unexpected
     }

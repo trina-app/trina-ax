@@ -14,12 +14,11 @@ import { fail } from '../http/errors'
 import { newId } from '../db'
 import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/runtime'
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
-import { frequentQuestions } from '../chat/frequent-questions'
 import { hideTitle } from '../chat/title'
 import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
-import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, lookupFolder, mayEditProject, projectFolderName, projectPaths } from '../chat/projects'
+import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
 import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
 import { badSegment } from '../policy/names'
 import { componentC } from '../team-files/component'
@@ -43,6 +42,7 @@ import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
+import { adoptLeftoverFolders } from '../chat/members-only-once'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
@@ -74,6 +74,9 @@ const isPersonalPath = (folder: string) => folder === 'users' || folder.startsWi
  * project under users/<me>/ is only ever reachable by its owner.
  */
 const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayEditProject(ctx.files, p, r)
+/** Manage without reading (docs/DECISIONS.md "Project contents only for members"): see it, its members, rename,
+ * delete, restore. The owner and admins for every team project; its creator while they may edit it. */
+const mayManage = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayManageProject(ctx.files, p, r)
 /** a folder made for a request goes again when a later step of it fails: nothing half-made stays behind */
 const removeMade = (top: string | null) => { if (top) try { fs.rmSync(top, { recursive: true, force: true }) } catch {} }
 
@@ -148,9 +151,16 @@ function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
  * (the composer keeps the text; Chat.shared.answering shows the same line). */
 function busyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
   if (!rt.activeTurn(a.row.id)) return
+  // the earlier answer ended, but the end of its engine is not confirmed yet (Chat.ending): say so, plainly
+  if (rt.endingUnconfirmed(a.row.id)) fail('conflict', tr('earlierAnswerEnding', locale), { params: { reason: 'earlier_answer_ending' } })
   const runner = rt.activeTurnUser(a.row.id)
   if (a.shared && runner && runner !== me) fail('conflict', tr('sharedChatBusy', locale, { name: rt.store.userRef(runner)?.name ?? '' }), { params: { reason: 'shared_chat_busy' } })
   fail('conflict', tr('turnInProgress', locale))
+}
+
+/** Switching versions (selectBranch) waits for the chat's answer, whoever asked: one plain 409 for everyone. */
+function branchBusyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale) {
+  if (rt.activeTurn(a.row.id)) fail('conflict', tr('branchWhileAnswering', locale), { params: { reason: 'branch_while_answering' } })
 }
 
 const isClientIdClash = (e: unknown) => /UNIQUE constraint failed: messages\.chat_id, messages\.client_message_id/.test(String((e as Error)?.message ?? e))
@@ -166,13 +176,25 @@ export const chatsRoutes: RouteModule = {
   register(kit, ctx) {
     const rt = getChatRuntime(ctx)
     const busy = (a: ChatAccess, locale: Locale, me: string) => busyCheck(rt, a, locale, me)
+    const branchBusy = (a: ChatAccess, locale: Locale) => branchBusyCheck(rt, a, locale)
     /** a project as the API shows it to `p`, with its shared chats (chat/shared.ts projectShare, `viewer`'s upload right)
      * and who changes its members (chat/project-access.ts membersView) */
-    const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string) => {
-      const aud = new Audiences(ctx.db, ctx.files)
-      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), ...membersView(ctx, r, p, canEdit, undefined, aud) }
+    const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string, creators?: Map<string, Principal | null>, aud: Audiences = new Audiences(ctx.db, ctx.files)) => {
+      const canManage = mayManage(ctx, p, r)
+      // a team project the caller manages without reading it (the owner or an admin who is not a member, or one whose
+      // folder is in the trash): its name, creator, member count and state, nothing of its contents
+      if (!canSeeProject(ctx.files, p, r)) {
+        const out = rt.store.toProject(r, false, { audience: aud.of(r).length })
+        return { ...out, instructions: '', member: false as const, canManage, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
+      }
+      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, ...membersView(ctx, r, p, canManage, creators, aud) }
     }
-    kit.handle(API.frequentQuestions, ({ auth }) => frequentQuestions(ctx.db, auth.user.id))
+    /** A project the caller reads, or with `manage` one they manage: else 404 (the same answer as no project). */
+    const projectFor = (p: Principal, id: string, manage: boolean): ProjectRowT => {
+      const r = rt.store.projectRow(id)
+      if (!r || !(canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r)))) return fail('not_found')
+      return r
+    }
 
     // ---------------- chats ----------------
     kit.handle(API.listChats, ({ query, auth }) => {
@@ -325,6 +347,9 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))
 
     kit.handle(API.createChat, ({ c, body, auth }) => {
+      // a used-up block limit: no new chat either, so a refused first question (Home) leaves no empty chat behind;
+      // the composer keeps the text and shows the refusal (QA TC-215)
+      checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))
       // a chat made in a project that shares its chats is a shared chat, from its first moment and for good (never a
       // personal project, never while safe operations are on: chat/shared.ts sharesNewChats)
@@ -486,7 +511,7 @@ export const chatsRoutes: RouteModule = {
       return shareAnswerToRoom(ctx, auth.user.id, a.row, m, body, c.get('locale'))
     })
 
-    // "프로젝트 사람들과 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check
+    // "프로젝트 멤버와 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check
     // of what it contains, every branch (chat/share-chat.ts); a shared chat answers 409 already_shared to whoever sees it
     kit.handle(API.shareChat, ({ c, params, body, auth }) => shareChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
 
@@ -563,8 +588,12 @@ export const chatsRoutes: RouteModule = {
     })
 
     kit.handle(API.selectBranch, ({ c, params, body, auth }) => {
-      const chat = chatOf(rt, c, auth, params.id, 'continue').row
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      const chat = a.row
       messageInChat(rt, chat.id, body.messageId)
+      // not while an answer runs or waits (anyone's, in a shared chat): the live answer would drop off the branch on
+      // screen and the next message would continue from the other one
+      branchBusy(a, c.get('locale'))
       const leaf = rt.store.newestLeafUnder(chat.id, body.messageId)
       ctx.db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(leaf, chat.id)
       return messagesPage(rt, { ...chat, active_leaf_id: leaf }, undefined, 50, auth.user.id, c.get('locale'))
@@ -604,15 +633,16 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.connectTurn, ({ c, params, body, auth }) => finishCard(ctx, ownTurn(params.id, auth), auth, body, c.get('locale')))
 
     // ---------------- projects ----------------
-    kit.handle(API.listProjects, ({ auth }) => {
+    kit.handle(API.listProjects, ({ query, auth }) => {
       const p = principal(ctx, auth)
+      // without `manage`: the projects the caller reads (pickers, older apps); with it, also those they only manage, and
+      // for the owner and admins a folder in projects/ that no project uses becomes one first (chat/members-only-once.ts)
+      const manage = !!query.manage
+      if (manage && isAdmin(p)) { try { adoptLeftoverFolders(ctx, p.id) } catch (e) { ctx.log.warn('leftover project folders not adopted', { err: e }) } }
       const rows = ctx.db.query(`SELECT ${PROJECT_COLS} FROM projects ORDER BY name COLLATE NOCASE, id`).all() as Parameters<typeof rt.store.toProject>[0][]
       const aud = new Audiences(ctx.db, ctx.files)
       const creators = new Map<string, Principal | null>()
-      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => {
-        const canEdit = mayEdit(ctx, p, r)
-        return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, auth.user.id)), ...membersView(ctx, r, p, canEdit, creators, aud) }
-      }) }
+      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r))).map((r) => projectOut(r, p, mayEdit(ctx, p, r), auth.user.id, creators, aud)) }
     })
 
     kit.handle(API.createProject, ({ c, body, auth }) => {
@@ -682,45 +712,73 @@ export const chatsRoutes: RouteModule = {
         assertMayCreateTeamProject(ctx.db, p, locale)
         return previewAccess(ctx, p, body, null, locale)
       }
-      const r = rt.store.projectRow(body.projectId)
-      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
-      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', locale))
-      return previewAccess(ctx, p, body, r!, locale)
+      const r = projectFor(p, body.projectId, true)
+      if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
+      return previewAccess(ctx, p, body, r, locale)
     })
 
     // who sees a team project, for its edit screen (its creator and admins)
     kit.handle(API.getProjectAccess, ({ c, params, auth }) => {
       const p = principal(ctx, auth)
-      const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
-      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
-      if (isPersonalPath(r!.folder_path)) fail('conflict', tr('sharedProjectPersonal', c.get('locale')), { params: { reason: 'project_personal' } })
-      return projectAccess(ctx, r!, p)
+      const r = projectFor(p, params.id, true)
+      if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
+      if (isPersonalPath(r.folder_path)) fail('conflict', tr('sharedProjectPersonal', c.get('locale')), { params: { reason: 'project_personal' } })
+      return projectAccess(ctx, r, p)
     })
 
     // change who sees it: the project folder's rules, saved as Admin › Folder permissions saves them
     kit.handle(API.putProjectParticipants, ({ c, params, body, auth }) => {
       const p = principal(ctx, auth)
-      const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
-      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
-      return saveParticipants(ctx, r!, p, { id: auth.user.id, name: auth.user.name }, body, c.get('locale'))
+      const r = projectFor(p, params.id, true)
+      if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
+      return saveParticipants(ctx, r, p, { id: auth.user.id, name: auth.user.name }, body, c.get('locale'))
     })
 
-    kit.handle(API.getProject, ({ params, auth }) => {
+    kit.handle(API.getProject, ({ params, query, auth }) => {
       const p = principal(ctx, auth)
-      const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
-      return projectOut(r!, p, mayEdit(ctx, p, r!), auth.user.id)
+      const r = projectFor(p, params.id, !!query.manage)
+      return projectOut(r, p, mayEdit(ctx, p, r), auth.user.id)
+    })
+
+    // a team project whose folder is in the trash comes back with it (the owner or an admin: they manage it without
+    // reading it; docs/DECISIONS.md "Project contents only for members"). Its folder's rules come back with the folder.
+    kit.handle(API.restoreProject, ({ c, params, auth }) => {
+      const locale = c.get('locale')
+      const p = principal(ctx, auth)
+      const r = projectFor(p, params.id, true)
+      if (!isTeamProject(r) || !(p.role === 'owner' || p.role === 'admin')) fail('forbidden', tr('projectCreatorOnly', locale))
+      const t = r.trashed_with ? ctx.db.query('SELECT id FROM trash_items WHERE id = ? AND restored_at IS NULL').get(r.trashed_with) as { id: string } | null : null
+      if (!t) fail('conflict', tr('projectRestoreGone', locale), { params: { reason: 'project_folder_purged' } })
+      mapErrors(locale, () => componentC(ctx).files.restoreTrash(auth.user.id, t!.id, { manager: true }), 'params.id')
+      audit(ctx.db, { actor: auth.user.id, action: 'project.restore', target: r.id, detail: { name: r.name } })
+      const after = rt.store.projectRow(r.id)!
+      return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
 
     kit.handle(API.updateProject, ({ c, params, body, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
-      const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
-      if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', locale))
-      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', locale))
+      const r = projectFor(p, params.id, true)
+      // docs/DECISIONS.md "Project contents only for members": a new name is management (the owner and admins, also
+      // without reading it); its instructions and chat sharing are its contents (members who may edit it); its folder
+      // (an admin, for a project whose folder is in the trash or gone) only by an admin who reads what it held, judged
+      // by its folder's own rules as if it were back (a member of it): else an admin who is not one would get its
+      // instructions and shared chats by pointing it at a folder they hold (security review M4)
+      const onDisk = (rel: string) => { try { return fs.lstatSync(path.join(ctx.files.fx.root, ...rel.split('/'))).isDirectory() } catch { return false } }
+      const nameOnly = body.instructions === undefined && body.shareChats === undefined && body.folderPath === undefined
+      const repointAsked = body.folderPath !== undefined && (body.folderPath !== r.folder_path || r.trashed_with !== null)
+      if (nameOnly) {
+        if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
+      } else if (repointAsked) {
+        if (!isAdmin(p)) fail('forbidden', tr('projectFolderAdminOnly', locale))
+        if (!accountSeesProject(ctx.db, rulesInPlace(ctx.db, ctx.files, r), r, p.id)) fail('forbidden', tr('projectRepointMember', locale), { params: { reason: 'project_not_member' } })
+      } else {
+        // (in the trash: said as such; someone who manages it without being a member: that members change what is in it)
+        if (r.trashed_with !== null) fail('conflict', tr('projectInTrashEdit', locale), { params: { reason: 'project_in_trash' } })
+        if (!canSeeProject(ctx.files, p, r)) fail('forbidden', tr('projectMembersOnlyEdit', locale), { params: { reason: 'project_members_only' } })
+        if (!canWrite(ctx.files, p, r.folder_path)) fail('forbidden', tr('projectFolderNoWrite', locale))
+        if (!mayEdit(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
+      }
       // sharing its chats (docs/DECISIONS.md "Shared project chats"): team projects only; turning it on is refused while
       // safe operations are on (every chat would be confidential) or while its folder is in the trash. Off keeps the
       // chats already shared
@@ -738,13 +796,15 @@ export const chatsRoutes: RouteModule = {
       const repoint = body.folderPath !== undefined && (body.folderPath !== r!.folder_path || r!.trashed_with !== null)
       if (repoint && body.folderPath !== undefined) {
         if (!isAdmin(p)) fail('forbidden', tr('projectFolderAdminOnly', locale))
-        const detached = r!.trashed_with !== null || !lookupFolder(ctx.files, p, r!.folder_path, locale).exists
+        const detached = r!.trashed_with !== null || !onDisk(r!.folder_path)
         if (!detached) fail('conflict', tr('projectRepointPlace', locale), { fields: { 'body.folderPath': 'project_location' }, params: { reason: 'project_location' } })
         const look = lookupFolder(ctx.files, p, body.folderPath, locale)
         if (!isProjectsFolder(look.path)) fail('validation', tr('projectRepointPlace', locale), { fields: { 'body.folderPath': 'project_location' }, params: { reason: 'project_location' } })
         if (!look.exists) fail('conflict', tr('projectFolderMissing', locale), { fields: { 'body.folderPath': 'project_folder_missing' }, params: { reason: 'project_folder_missing' } })
         folder = look.path
       }
+      // one project per folder, before anything about the folder is read (again in the transaction below)
+      if (repoint) assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, folder, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
       // pointed at a projects/<name> that holds skills: they switch on in this project's chats (asked first: skills/switch-on.ts)
       const skillsOn = repoint ? skillsUnder(ctx.files.fx.root, folder) : null
       askSkillsOn(skillsOn?.names ?? [], body.skillsOk, locale)
@@ -832,17 +892,32 @@ export const chatsRoutes: RouteModule = {
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
 
-    kit.handle(API.deleteProject, async ({ c, params, query, auth }) => {
+    kit.handle(API.deleteProject, async ({ c, params, auth }) => {
+      const locale = c.get('locale')
       const p = principal(ctx, auth)
-      const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
-      if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', c.get('locale')))
-      // other people's chats lose the project context: the creator and admins only, like editing it
-      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
-      // its folder to the files trash too (asked): a team project's own projects/<name> in place only. A member's project
-      // folder carries rules, so without this only an admin could trash it (team-files/service.ts remove)
-      const trashFolder = !!query.trashFolder
-      if (trashFolder && !accessEditable(r!, ctx.files, p)) fail('conflict', tr('projectTrashFolderNot', c.get('locale')), { params: { reason: 'project_folder_stays' } })
+      const r = projectFor(p, params.id, true)
+      // other people's chats lose the project context: whoever manages it (the creator while they may edit it, the owner
+      // and admins also without reading it: docs/DECISIONS.md "Project contents only for members")
+      if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
+      // a team project in projects/<name> whose folder is in place goes to the trash with its folder first (default,
+      // the owner may change it): it stays, In trash, for the owner and admins to restore or delete for good, and no
+      // folder of a deleted project is left for anyone to open (security review M3). `trashFolder` is not read any more.
+      const onDisk = (rel: string) => { try { return fs.lstatSync(path.join(ctx.files.fx.root, ...rel.split('/'))).isDirectory() } catch { return false } }
+      if (isProjectsFolder(r.folder_path) && r.trashed_with === null && onDisk(r.folder_path)) {
+        // a member's older project on a folder an admin made (folder_made 0: its rules are the admins'): not theirs to
+        // take to the trash, and deleting the project alone would leave that folder with no project to manage it
+        if (!isAdmin(p) && !accessEditable(r, ctx.files, p)) fail('conflict', tr('projectTrashFolderNot', locale), { params: { reason: 'project_folder_stays' } })
+        const shared = ctx.db.query('SELECT id FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').all(r.id) as { id: string }[]
+        const audience = new Audiences(ctx.db, ctx.files).of(r)
+        for (const x of shared) rt.stopChat(x.id)
+        // the owner or an admin (they may not read it) put it there as the system, in their name; its creator as themselves
+        await mapErrors(locale, () => componentC(ctx).files.remove(auth.user.id, r.folder_path, null, { projectFolder: true, ...(isAdmin(p) ? { manager: true as const } : {}) }), 'params.id')
+        audit(ctx.db, { actor: auth.user.id, action: 'project.trash', target: r.id, detail: { name: r.name, folderPath: r.folder_path } })
+        // its shared chats leave everyone's lists until it comes back
+        for (const x of shared) for (const uid of audience) rt.hub.publish(uid, { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: null } })
+        return
+      }
+      const trashFolder = false
       // the private chats stay, without project. Its shared chats (those in the trash too) go to their creators' trash,
       // as a single delete does (docs/DECISIONS.md "Shared project chats: the trash and live lists"): each stops being
       // shared and, restored, is its creator's chat without project, keeping the several-authors rules (chat/turn.ts
@@ -857,7 +932,9 @@ export const chatsRoutes: RouteModule = {
       const purged = shared.filter((x) => !kept.includes(x))
       // the folder first: when it cannot go (a folder inside it the caller cannot write or may not trash), the project
       // and its chats stay as they are
-      if (trashFolder) await mapErrors(c.get('locale'), () => componentC(ctx).files.remove(auth.user.id, r!.folder_path, null, { projectFolder: true }), 'params.id')
+      // for good: its folder's item in the trash goes for good too (only the project's own folder, as it went there)
+      const item = r.trashed_with ? ctx.db.query("SELECT id FROM trash_items WHERE id = ? AND restored_at IS NULL AND kind = 'folder' AND original_path = ?").get(r.trashed_with, r.folder_path) as { id: string } | null : null
+      if (item) mapErrors(locale, () => componentC(ctx).files.purgeTrash(item.id, auth.user.id, { manager: true }), 'params.id')
       for (const x of shared) rt.stopChat(x.id)
       const now = new Date().toISOString()
       ctx.db.transaction(() => {

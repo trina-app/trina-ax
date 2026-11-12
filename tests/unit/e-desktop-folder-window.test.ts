@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { folderKey, FolderGrants, isUncPath, opensHome, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
+import { folderKey, FolderGrants, isUncPath, opensHome, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
 
 /**
  * A made-up computer: every path is a string, nothing is read. realpath answers from `links` (else the path itself);
@@ -165,6 +165,24 @@ describe('a folder Chromium refuses (file-system-access-restricted)', () => {
     // a case that only matches on Windows
     expect(await restrictedFolderAction(blocked('/users/alex/documents'), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
     expect(await restrictedFolderAction(blocked('C:\\Windows'), ALLOWED, ['C:\\Users\\Alex'], 'win32', WIN)).toBe('deny')
+  })
+
+  test('a refusal of the team page\'s own pick says why: the home folder, or a folder with system files (QA TC-219)', async () => {
+    // the page only gets an AbortError, like Cancel: the app says it (main/app-window.ts folderRefused)
+    for (const path of ['/Users/alex', '/Users/alex/', '/Users', '/']) expect(await refusedFolderReason(blocked(path), ALLOWED, 'darwin', MAC)).toBe('home')
+    expect(await refusedFolderReason(blocked('C:\\Users\\Alex'), ALLOWED, 'win32', WIN)).toBe('home')
+    for (const path of ['/Users/alex/Library', '/Users/alex/.ssh', '/Applications']) expect(await refusedFolderReason(blocked(path), ALLOWED, 'darwin', MAC)).toBe('blocked')
+    // a Desktop that is a link to home is refused as home
+    const linked = fakeSystem('/Users/alex', 'darwin', { links: { '/Users/alex/Desktop': '/Users/alex' } })
+    expect(await restrictedFolderAction(blocked('/Users/alex/Desktop'), ALLOWED, ROOTS, 'darwin', linked)).toBe('deny')
+    expect(await refusedFolderReason(blocked('/Users/alex/Desktop'), ALLOWED, 'darwin', linked)).toBe('home')
+    // nothing to say to another page, a frame or a file: those refusals stay silent
+    const home = '/Users/alex'
+    expect(await refusedFolderReason(blocked(home, { origin: 'https://evil.example/' }), ALLOWED, 'darwin', MAC)).toBeNull()
+    expect(await refusedFolderReason(blocked(home, { origin: 'null' }), ALLOWED, 'darwin', MAC)).toBeNull()
+    expect(await refusedFolderReason(blocked(home, { isTopFrame: false }), ALLOWED, 'darwin', MAC)).toBeNull()
+    expect(await refusedFolderReason(blocked(home, { isDirectory: false }), ALLOWED, 'darwin', MAC)).toBeNull()
+    expect(await refusedFolderReason(blocked(home), [], 'darwin', MAC)).toBeNull()
   })
 
   test('only for a folder picked by the team page\'s top frame at an allowed origin', async () => {
@@ -332,7 +350,7 @@ describe('the picks belong to the person who made them', () => {
 
   test('the app tells the team session who is signed in, with every /api/me read', async () => {
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    expect(win).toContain('this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins()))')
+    expect(win).toContain('this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins(), (why) => this.folderRefused(why)))')
     const fetch = win.slice(win.indexOf('private async fetchTeamInfo()'), win.indexOf('private async fetchTeamInfo()') + 1500)
     expect(fetch).toContain('this.folderPerson({ signedIn: false })')
     expect(fetch).toContain('this.folderPerson({ signedIn: true, userId: me.data.user.id })')
@@ -375,6 +393,15 @@ describe('the team session wiring (desktop/src/main/security.ts)', () => {
     expect(listener.indexOf('try {')).toBeLessThan(listener.indexOf('const isTopFrame'))
     expect(listener.indexOf('} catch {')).toBeLessThan(listener.indexOf('void decided.then('))
     expect(listener.indexOf('} catch {')).toBeGreaterThan(listener.indexOf('decided = restrictedFolderAction('))
+    // a refusal of the team page's own pick asks the window (QA TC-219); any other refusal stays a silent deny
+    expect(listener).toContain("if (a === 'allow' || !refused) return a")
+    expect(listener).toContain('const why = await refusedFolderReason(folder, allowedOrigins(), process.platform, FOLDER_SYSTEM)')
+    expect(listener).toContain("return why ? refused(why) : 'deny'")
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const box = win.slice(win.indexOf('private async folderRefused('), win.indexOf('/** Origins the bridge and navigation accept'))
+    expect(box).toContain("buttons: [t(L, 'folderPick.again'), t(L, 'folderPick.cancel')]")
+    expect(box).toContain('cancelId: 1')
+    expect(box).toContain("return r.response === 0 && !this.win.isDestroyed() ? 'tryAgain' : 'deny'")
     expect(security).toContain('return PICKABLE_BLOCKED_ROOTS.map((name) => {')
     // home is no root (it is only what the roots are checked against)
     expect(security.slice(security.indexOf('function folderRoots('), security.indexOf('\n}\n', security.indexOf('function folderRoots(')))).not.toContain('home')

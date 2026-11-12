@@ -85,6 +85,9 @@ is refused, and connections made before are kept but not used (`PUT /api/admin/g
 - The card says what the AI can do and lists every tool ("Show all tools"). **Connect** goes straight to Google; back
   in Trina the person confirms the Google account shown.
 - Connected: **Try in chat**, **Settings** (Ask before each change, or Always allow), ⋯ (Reconnect, Disconnect).
+- Not set up on the team yet: **Ask admin to add it** in place of Connect. The owner and the admins get one notice per
+  app in Activity that opens its setup; once members can connect it, each member who asked hears that it is ready
+  ([INTEGRATIONS.md](INTEGRATIONS.md) "A member asks for an app"). The same for Google Drive.
 - Reading is free. Anything that changes or sends (a mail, an event, a document edit) shows the confirm card with
   everything it sends, and **Always allow** on it: the person's own choice for that app, which Settings turns back.
   After the person's chat read their team chat rooms, and in a room, every change asks again (other people's words could

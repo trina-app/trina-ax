@@ -3,20 +3,25 @@
 //   대화 (/rooms):   its name · ⊕ a new conversation (the people list)
 //   파일:            none (the Files page's own header is the bar)
 //   a page under a tab (팀 스킬, 프로젝트, …): ‹ back · the page's name (the page keeps its heading for screen readers
-//                    only, so the name is not said twice), in the bar every phone page uses (phone/PhonePageBar.tsx)
+//                    only, so the name is not said twice), in the bar every phone page uses (phone/PhonePageBar.tsx);
+//                    the page's one action on the right ("+", "Edit": phone/PhoneBarAction.tsx)
 //   관리자 (/admin):  none here: Admin draws the same bar itself, with "‹ Admin" over its pages (admin/AdminLayout.tsx)
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
-// the tab's list in place of this entry (lib/back.ts), so the phone's own back never loops. Every button is 44 px.
+// the page's parent (lib/screens.ts) in place of this entry (lib/back.ts), so the phone's own back never loops; it is
+// named after where it goes ("‹ 트리나", "‹ 설정": lib/backStack.ts useBackLabel). Every button is 44 px.
 import clsx from 'clsx'
 import { ChevronLeft, Menu, MessageCirclePlus } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useT } from '../i18n'
 import { useGoBack } from '../lib/back'
+import { useBackLabel } from '../lib/backStack'
+import { parentOf } from '../lib/screens'
 import { aiName, hidesTabs, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../lib/tabs'
 import { useAttention } from '../store/sessionMarkers'
 import { useUi } from '../store/ui'
 import { IconButton } from './ui'
 import { PhonePageBar } from './phone/PhonePageBar'
+import { PhoneBarSlot } from './phone/PhoneBarAction'
 
 const icon = 'size-11 shrink-0'
 
@@ -27,7 +32,9 @@ export function PhoneTopBar() {
   const setDrawer = useUi((s) => s.setDrawer)
   const attention = useAttention()
   const tab = tabOf(path)
-  const back = useGoBack(TAB_ROOT[tab ?? START_TAB])
+  const up = parentOf(`${path}${search}`) ?? TAB_ROOT[tab ?? START_TAB]
+  const back = useGoBack(up)
+  const backLabel = useBackLabel(up, () => null)
   if (hidesTabs(path) || tab === 'files' || path === '/admin' || path.startsWith('/admin/')) return null
   // a project's new chat ("/?project=") is reached from the project: a way back there, not the history drawer
   const home = path === '/' && !new URLSearchParams(search).has('project')
@@ -35,7 +42,7 @@ export function PhoneTopBar() {
   const titleKey = pageTitleKey(path)
   const title = path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
   if (!home && !rooms)
-    return <PhonePageBar onBack={back} title={title} titleHidden={!!titleKey} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
+    return <PhonePageBar onBack={back} backLabel={backLabel} title={title} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
       {home ? (

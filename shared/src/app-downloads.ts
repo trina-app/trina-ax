@@ -11,8 +11,9 @@ export const APP_DOWNLOADS: AppDownloads = {
   page: 'https://ax.trina.app/download',
   /** the phone app's App Store listing */
   iphone: 'https://apps.apple.com/app/trina-ax/id6829192435?platform=iphone',
-  /** the phone app's Google Play listing */
-  android: '',
+  /** the phone app's Google Play listing (also where the join pages' "Get the app" and Android's "Open in the app"
+   * fallback lead: web/src/lib/team-link.ts getAppHref) */
+  android: 'https://play.google.com/store/apps/details?id=app.trina.ax',
   /** the desktop app's Mac App Store listing */
   mac: 'https://apps.apple.com/app/trina-ax/id6829192435?platform=mac',
   /** the desktop app's Microsoft Store listing */

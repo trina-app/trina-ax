@@ -247,36 +247,44 @@ function latentOf(src: EditSource, before: RuleSet, after: RuleSet, path: string
   }
   const member = (id: string, gs: string[]): Principal => ({ id: `\u0000${id}`, name: '', role: 'member', groups: gs })
   // who: whoever joins the team, people switched off by name, whoever joins these groups; and whether each of the three
-  // gains edit somewhere (the panel says "open or edit" then, else "open": QA TC-232)
+  // gains edit somewhere (the panel says "open or edit" then, else "open": QA TC-232), for the groups group by group
+  // (one group's edit is not said of the others: QA TC-284)
   const teamGain = gain(NOBODY)
   const team = teamGain > 0
   const offGains = (src.uncounted ?? []).map((p) => [p, gain(p)] as const).filter(([, g]) => g > 0)
   const off = offGains.map(([p]) => p)
-  const named = new Set<string>()
-  let groupsEdit = false
-  const groupGain = (p: Principal, gs: readonly string[]) => {
-    const g = gain(p)
-    if (g <= 0) return
-    for (const id of gs) named.add(id)
-    if (g === 2) groupsEdit = true
+  /** each group named, with the most whoever joins it gains: alone, or together with other groups named on the way when
+   * that gains more than any of them alone (then it is said of each of them: the confirm says more, never less) */
+  const named = new Map<string, number>()
+  const alone = new Map<string, number>()
+  for (const g of groups) {
+    const v = gain(member(`group:${g}`, [g]))
+    alone.set(g, v)
+    if (v > 0) named.set(g, v)
   }
-  for (const g of groups) groupGain(member(`group:${g}`, [g]), [g])
+  const together = (p: Principal, gs: readonly string[]) => {
+    const v = gain(p)
+    // what one of them gives alone is said of that one only: Sales can edit, Leads can view, someone in both edits
+    // because of Sales (QA TC-284)
+    if (v <= Math.max(0, ...gs.map((id) => alone.get(id) ?? 0))) return
+    for (const id of gs) named.set(id, Math.max(named.get(id) ?? 0, v))
+  }
   const list = [...near]
   // pairs while they stay few (30 groups: 435); and always everyone in all of them. Known limit: with more than 30
   // groups named on the way, pairs are not tried, and the one member in all of them can miss a pair that gains when
   // being in all of them already gave more before the change
   if (list.length <= 30) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-    groupGain(member(`pair:${list[i]}:${list[j]}`, [list[i]!, list[j]!]), [list[i]!, list[j]!])
+    together(member(`pair:${list[i]}:${list[j]}`, [list[i]!, list[j]!]), [list[i]!, list[j]!])
   }
-  if (list.length > 2 && !named.size) groupGain(member('all-groups', list), list)
+  if (list.length > 2 && !named.size) together(member('all-groups', list), list)
   const more = team || off.length > 0 || named.size > 0
   return {
     latentMore: more,
     latent: more ? {
       team,
       off: [...off].sort(byPerson).slice(0, EDIT_PEOPLE).map((u) => ({ id: u.id, name: u.name })),
-      groups: [...named].map((id) => ({ id, name: src.groupName(id) ?? id })).sort((a, b) => cmp(a.name, b.name)),
-      edit: { team: teamGain === 2, off: offGains.some(([, g]) => g === 2), groups: groupsEdit },
+      groups: [...named].map(([id, g]) => ({ id, name: src.groupName(id) ?? id, edit: g === 2 })).sort((a, b) => cmp(a.name, b.name)),
+      edit: { team: teamGain === 2, off: offGains.some(([, g]) => g === 2), groups: [...named.values()].some((g) => g === 2) },
     } : null,
   }
 }

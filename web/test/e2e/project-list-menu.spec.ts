@@ -260,3 +260,83 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
     })
   })
 }
+
+// docs/DECISIONS.md "Project contents only for members": the owner's card of a team project she is not in has Rename,
+// Members and Delete; deleting moves it to the trash (the card stays and says so), deleting again is for good; a team
+// project nobody active is in says "남은 멤버 없음"; its instructions do not come, so the card says "멤버만 내용을 볼 수
+// 있어요." with a lock, never "지침이 없어요.". SHOTS_DIR set: the list as an admin who is not in it, as a picture.
+for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }, { name: '390', phone: true, use: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' as const } }]) {
+  test.describe(`a project the owner is not in, on the list at ${vp.name}`, () => {
+    test.use(vp.use)
+
+    test('Rename, Members, Delete to the trash and then for good; no active members said on the card', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      const falcon = ((await (await post(page, '/__test/project', { name: 'Falcon', by: 'bob' })).json()) as { id: string }).id
+      // Bob's account switched off: nobody active is in Kite any more
+      await post(page, '/__test/project', { name: 'Kite', by: 'bob', participants: [] })
+      await page.goto('/projects')
+      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      expect((await patch(page, '/api/admin/users/bob', { status: 'disabled' })).ok()).toBeTruthy()
+      await page.reload()
+      await expect(card(page, 'Kite').getByTestId('project-card-who')).toHaveText(t['projects.noMembers'])
+      await expect(card(page, 'Falcon')).not.toContainText('멤버가 아니')
+      expect((await patch(page, '/api/admin/users/bob', { status: 'active' })).ok()).toBeTruthy()
+      await page.reload()
+      await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveCount(0)
+      let menu = await openCard(page, 'Falcon', vp.phone)
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['projects.participants'], t['rooms.menu.copyLink'], t['common.delete']])
+      await audit(page, 'card menu of a project the owner is not in')
+      // Members: the dialog over the list
+      await menu.getByRole('menuitem', { name: t['projects.participants'] }).click()
+      await expect(page.getByTestId('project-members-dialog')).toBeVisible()
+      await expect(page.getByTestId('project-access-summary')).toHaveText(translate('ko', 'projects.whoMembers', { n: 1 }))
+      await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
+      // Delete: to the trash with its files and chats; the card stays and says so
+      menu = await openCard(page, 'Falcon', vp.phone)
+      await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
+      let dialog = page.getByRole('dialog')
+      await expect(dialog.getByRole('heading')).toHaveText(translate('ko', 'projects.trashTitle', { name: 'Falcon' }))
+      await expect(dialog).toContainText(t['projects.trashBody'])
+      await expect(dialog.getByTestId('project-delete-trash-folder')).toHaveCount(0)
+      await audit(page, 'move to the trash confirm')
+      await dialog.getByTestId('dialog-confirm').click()
+      await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveText(` · ${t['chat.project.inTrash']}`)
+      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      // again: for good, the card goes
+      menu = await openCard(page, 'Falcon', vp.phone)
+      await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
+      dialog = page.getByRole('dialog')
+      await expect(dialog.getByRole('heading')).toHaveText(translate('ko', 'projects.deleteForGoodTitle', { name: 'Falcon' }))
+      await expect(dialog.getByTestId('dialog-confirm')).toHaveText(t['projects.deleteForGood'])
+      await dialog.getByTestId('dialog-confirm').click()
+      await expect(card(page, 'Falcon')).toHaveCount(0)
+      expect((await page.request.get(`/api/projects/${falcon}?manage=1`)).status()).toBe(404)
+    })
+
+    test('an admin who is not in it: a lock and "멤버만 내용을 볼 수 있어요." in place of its instructions, as tall as the others', async ({ page }) => {
+      await reset(page, { withAdmin: true })
+      await signIn(page, { username: 'dana', password: 'dana password 1' })
+      // Bob's project with instructions Dana does not get, and her own one without any
+      await post(page, '/__test/project', { name: 'Falcon', by: 'bob', instructions: 'Falcon: answer in short bullet points.' })
+      expect((await post(page, '/api/projects', { name: 'Launch', scope: 'team', instructions: '' })).status()).toBe(201)
+      await page.goto('/projects')
+      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      const about = (name: string) => card(page, name).getByTestId('project-card-about')
+      await expect(about('Falcon')).toHaveText(t['projects.cardMembersOnly'])
+      await expect(about('Falcon').locator('svg')).toHaveCount(1)
+      await expect(card(page, 'Falcon')).not.toContainText(t['projects.noInstructions'])
+      await expect(card(page, 'Falcon')).not.toContainText('short bullet points')
+      // her own project without instructions still says so
+      await expect(about('Launch')).toHaveText(t['projects.noInstructions'])
+      const box = async (name: string) => (await card(page, name).getByRole('link').boundingBox())!
+      expect(Math.round((await box('Falcon')).height)).toBe(Math.round((await box('Launch')).height))
+      // the lock on the line's first line, not on a line of its own
+      const lock = (await about('Falcon').locator('svg').boundingBox())!
+      const line = (await about('Falcon').boundingBox())!
+      expect(lock.y - line.y).toBeLessThan(line.height / 2)
+      await audit(page, 'cards of a project the admin is not in')
+      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/projects-not-a-member-${vp.name}-light.png` })
+    })
+  })
+}

@@ -5,6 +5,8 @@
 //  - anything the tree does not already tell for the same path (a pass-through folder answers like a hidden one);
 //  - a name, an id, a group, a role, how many can write, where a rule is.
 // The count it gives, where the caller can write, is the copy dry run's viewersAdded + 1, which they already get.
+// A project folder counts its members only, and the owner and admins who are not members get no count there
+// (docs/DECISIONS.md "Project contents only for members").
 // Fixture: alice, erin = marketing; bob = finance; carol = admin; dana = owner; shared/ everyone write; skills/ read.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
@@ -73,16 +75,23 @@ describe('what a member learns', () => {
       const r = await audience('alice', folder)
       expect({ folder, people: r.body.people }).toEqual({ folder, people: (await dryRun('alice', folder)) + 1 })
     }
-    for (const folder of ['shared', 'groups/marketing', 'groups/finance', 'projects/falcon', 'projects/atlas', 'skills']) {
+    for (const folder of ['shared', 'groups/marketing', 'groups/finance', 'skills']) {
       const r = await audience('carol', folder)
       const admin = await A.json('/api/admin/access/folder' + q(folder), { as: 'carol' })
       expect({ folder, people: r.body.people }).toEqual({ folder, people: admin.body.summary.access.read + admin.body.summary.access.write })
+    }
+    // a project's folder: the admin, no member of it, gets the answer of a folder she cannot open (nothing inside a
+    // project she is not in is hers, its everyone-read public/ neither), never a count
+    for (const folder of ['projects/falcon', 'projects/atlas']) {
+      const r = await audience('carol', folder)
+      expect({ folder, status: r.status, people: r.body.people }).toEqual({ folder, status: 404, people: undefined })
+      expect(bare(r.body)).toEqual(bare((await audience('carol', 'groups/nope')).body))
     }
   })
 
   test('the same folder gives every caller who gets a count the same number: members with write, an admin, the owner', async () => {
     // the count is everyone who can open the folder, whoever asks; only whether it is given depends on the caller
-    for (const folder of ['shared', 'shared/meetings', 'groups/marketing', 'groups/marketing/campaigns', 'projects/falcon']) {
+    for (const folder of ['shared', 'shared/meetings', 'groups/marketing', 'groups/marketing/campaigns']) {
       const answers: Record<string, unknown> = {}
       for (const who of ['alice', 'erin', 'bob', 'carol', 'dana'] as const) {
         const r = await audience(who, folder)
@@ -98,14 +107,24 @@ describe('what a member learns', () => {
       const admin = await A.json('/api/admin/access/folder' + q(folder), { as: 'carol' })
       expect((first as { people: number }).people).toBe(admin.body.summary.access.read + admin.body.summary.access.write)
     }
+    // a project's folder: only its members who write there get a count, its members only (alice and bob); the owner
+    // and the admin, no members, none (they used to write there by their role and were counted)
+    const answers: Record<string, unknown> = {}
+    for (const who of ['alice', 'erin', 'bob', 'carol', 'dana'] as const) {
+      const r = await audience(who, 'projects/falcon')
+      if (r.status === 200 && r.body.people !== undefined) answers[who] = { people: r.body.people, everyone: r.body.everyone }
+    }
+    expect(answers).toEqual({ alice: { people: 2, everyone: false } })
+    const admin = await A.json('/api/admin/access/folder' + q('projects/falcon'), { as: 'carol' })
+    expect(admin.body.summary.access.read + admin.body.summary.access.write).toBe(2)
   })
 
   test('a team project: the same number as Project.audience', async () => {
     const made = await A.json('/api/projects', { as: 'alice', ...jsonBody({ name: 'Kite audience', participants: [{ subjectType: 'user', subjectId: 'erin' }] }) })
     expect(made.status).toBe(201)
     const r = await audience('alice', made.body.folderPath)
-    // alice (creator), erin, carol, dana
-    expect(r.body.people).toBe(4)
+    // alice (creator), erin: its members only (the owner and admins are not counted by their role)
+    expect(r.body.people).toBe(2)
     const list = await A.json('/api/projects', { as: 'alice' })
     expect(list.body.items.find((p: { id: string }) => p.id === made.body.id).audience).toBe(r.body.people)
   })

@@ -5,14 +5,13 @@
 // where the server offers it; the realtime notices.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import type { ReactNode } from 'react'
-import { MemoryRouter } from 'react-router-dom'
 import { ApiError, type HandoverConnection, type HandoverState, type Me, type ServerEvent, type User } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
 import { connectionLine, HandoverView, transferRefusal } from '../../src/components/handover/HandoverDialog'
 import { HandoverCard, joinedText, useLeadCard } from '../../src/components/handover/HandoverCard'
 import { handoverNoticeLines, handoverNoticeNode, handoverNoticeText, type HandoverNote } from '../../src/components/handover/HandoverNotice'
 import { isolate } from '../../src/components/handover/isolate'
-import { LeadInvite, leadMessage } from '../../src/components/handover/LeadInvite'
+import { LeadFlag, leadMessage } from '../../src/components/handover/LeadInvite'
 import { handoverTarget } from '../../src/pages/admin/Members'
 import { useSession } from '../../src/store/session'
 import { markTransferredHere, transferredHere, useHandover } from '../../src/store/handover'
@@ -221,26 +220,12 @@ describe('names beside the join time are isolated (<bdi>)', () => {
   })
 })
 
-describe('the lead flag on the invite step', () => {
-  const step = () => html(<MemoryRouter><LeadInvite><p data-testid="team-link-panel">panel</p></LeadInvite></MemoryRouter>)
-  test('the owner, where the server offers it: the checkbox row above the team link panel', async () => {
-    useHandover.setState({ loaded: true, state: state() })
-    const h = await step()
-    expect(h).toContain('data-testid="lead-flag"')
-    expect(text(h)).toContain('이 사람이 팀장이에요 · 들어오면 팀장을 넘길지 물어볼게요')
-    expect(h).toContain('data-testid="team-link-panel"')
-  })
-  test('not for an admin, nor where the server does not offer it (a hosted team without its safety switch)', async () => {
-    useHandover.setState({ loaded: true, state: state({ flag: false }) })
-    expect(await step()).not.toContain('lead-flag')
-    useSession.setState({ status: { kind: 'signed-in', me: me('admin') } })
-    useHandover.setState({ loaded: true, state: state() })
-    expect(await step()).not.toContain('lead-flag')
-    expect(await step()).toContain('team-link-panel')
-  })
-  test('a lead link made earlier is one quiet line', async () => {
-    useHandover.setState({ loaded: true, state: state({ openLead: { inviteId: '01900000-0000-7000-8000-000000000002', leadFor: '김팀장 대표님', expiresAt: '2026-11-11T06:00:00.000Z' } }) })
-    expect(text(await step())).toContain('김팀장 대표님에게 보낸 팀장 링크가 ')
+describe('the lead flag (Admin › Members\' invite dialog only, never the welcome steps\' invite step)', () => {
+  test('the checkbox row; ticked, "누구에게 보내나요?"', async () => {
+    const row = (checked: boolean) => html(<LeadFlag checked={checked} onChecked={() => {}} label="" onLabel={() => {}} />)
+    expect(text(await row(false))).toContain('이 사람이 팀장이에요 · 들어오면 팀장을 넘길지 물어볼게요')
+    expect(await row(false)).not.toContain('lead-for')
+    expect(await row(true)).toContain('data-testid="lead-for"')
   })
   test('the one-person message names who set the team up and the product, with no particle after a label', async () => {
     expect(leadMessage(T, { name: '지수', url: 'https://acme.example/invite/x' })).toBe('지수님이 Trina AX에 팀을 만들어 두었어요. 들어오면 지수님이 팀장을 넘겨 드려요: https://acme.example/invite/x · 한 사람만 쓸 수 있는 링크예요')

@@ -23,6 +23,7 @@ import type { InviteShared } from './InviteStep'
 import { Button, Field, Modal, Skeleton, confirmDialog, inputCls, useCopy } from '../ui'
 import { GroupChecks } from '../../pages/admin/people-choices'
 import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
+import { LocalLinkNote } from '../LocalLinkNote'
 
 /** the skill the link should lead to, and the team group it should carry */
 type Want = { skillPath: string; groupId: string | null }
@@ -263,6 +264,7 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
       <div>
         <p className="text-xs font-medium text-muted">{t('teamLink.link')}</p>
         <p className="mt-1 font-mono text-label leading-5 break-all text-ink select-all" data-testid="team-link-url">{url}</p>
+        <LocalLinkNote url={url} className="mt-1" />
         <div className="mt-1 -ml-2.5 flex flex-wrap items-center gap-1">
           <CopyQuiet text={url} label={t('teamLink.copyLink')} />
           <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">

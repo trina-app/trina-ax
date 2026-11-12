@@ -483,8 +483,10 @@ const frameAttrs = (attrs: string): boolean => {
  * `prose`: only the page's own content, for a company intro (onboarding/brand-assets.ts introText): the site's frame is
  * left out (nav, footer, aside, buttons, a header outside main or article, menus by role, class or id), and
  * the markup's own line breaks and a <br> are spaces (a heading broken for the screen is one line).
+ * `plain`: the text only, as a reader sees it (a line of an HTML file in the Files search, team-files/content-search.ts):
+ * a link is its label, and headings, list items and table cells get no marks (#, -, |), only a space.
  */
-export function htmlToText(html: string, base: URL, o: { prose?: boolean } = {}): { title?: string; text: string } {
+export function htmlToText(html: string, base: URL, o: { prose?: boolean; plain?: boolean } = {}): { title?: string; text: string } {
   const out: string[] = []
   let title: string | undefined
   let hidden: { name: string; depth: number } | null = null
@@ -492,16 +494,18 @@ export function htmlToText(html: string, base: URL, o: { prose?: boolean } = {})
   /** prose: inside main or article (a header there is the content's own) */
   let content = 0
   const prose = !!o.prose
+  const plain = !!o.plain
   const emit = (s: string) => { if (!hidden) out.push(s) }
   /** the page's text between tags (prose: its own line breaks and runs of spaces are one space) */
   const text = (s: string) => emit(prose ? decodeEntities(s).replace(/\s+/g, ' ') : decodeEntities(s))
   /** structure (newlines, list marks) inside a link label is just a space */
-  const mark = (s: string) => emit(anchor ? ' ' : s)
+  const mark = (s: string) => emit(anchor || plain ? ' ' : s)
   const closeAnchor = () => {
     if (!anchor) return
     const a = anchor
     anchor = null
     const label = out.splice(a.at).join('').replace(/\s+/g, ' ').trim()
+    if (plain) { out.push(label); return }
     let href = decodeEntities(a.href)
     try { href = new URL(href, base).href } catch { out.push(label); return }
     out.push(!/^https?:/i.test(href) || !label ? label : `[${label}](${href})`)

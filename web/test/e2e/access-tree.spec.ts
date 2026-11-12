@@ -29,7 +29,8 @@ async function everyoneReads(page: Page) {
 }
 
 /** Olga (owner, 재무팀), Bob, Carol (영업팀), Dan; shared: everyone writes; skills: everyone reads, admins write;
- * skills/영업: everyone writes; projects/apollo: Dan writes, 영업팀 reads, nobody else; connected/nas: 영업팀 reads. */
+ * skills/영업: everyone writes; partners/apollo (a project made before outside projects/): Dan writes, 영업팀 reads, nobody
+ * else; connected/nas: 영업팀 reads. */
 async function team(page: Page) {
   const sales = await call(page, 'post', '/api/admin/groups', { name: '영업팀', memberIds: [] })
   await call(page, 'post', '/api/admin/users', { username: 'carol', name: 'Carol', role: 'member', groupIds: [sales.id], temporaryPassword: 'tiger4271x' })
@@ -37,9 +38,9 @@ async function team(page: Page) {
   await call(page, 'post', '/api/admin/folders', { path: 'shared', create: true, rules: [everyone('write')] })
   await call(page, 'post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }] })
   await call(page, 'post', '/api/admin/folders', { path: 'skills/영업', create: true, rules: [everyone('write')] })
-  await call(page, 'post', '/api/admin/folders', { path: 'projects/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'dan', access: 'write' }, { subjectType: 'group', subjectId: sales.id, access: 'read' }, everyone('none')] })
+  await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'dan', access: 'write' }, { subjectType: 'group', subjectId: sales.id, access: 'read' }, everyone('none')] })
   await call(page, 'post', '/api/admin/folders', { path: 'connected/nas', create: true, rules: [{ subjectType: 'group', subjectId: sales.id, access: 'read' }] })
-  await call(page, 'post', '/api/projects', { name: 'Apollo', folderPath: 'projects/apollo' })
+  await call(page, 'post', '/api/projects', { name: 'Apollo', folderPath: 'partners/apollo' })
   return sales
 }
 
@@ -51,12 +52,12 @@ test('the tree: who sees each folder and from where, the way down to marked fold
   await page.goto('/admin/folders')
   await expect(tree(page)).toHaveAttribute('aria-label', t['accessTree.label'])
   // open: the top, and the way to rule, group, project and connected folders
-  for (const p of ['', 'groups', 'projects', 'connected', 'skills']) await expect(item(page, p)).toHaveAttribute('aria-expanded', 'true')
-  for (const p of ['groups/영업팀', 'projects/apollo', 'connected/nas', 'skills/영업', 'shared', 'docs', 'finance', 'users']) await expect(item(page, p)).toBeVisible()
+  for (const p of ['', 'groups', 'partners', 'connected', 'skills']) await expect(item(page, p)).toHaveAttribute('aria-expanded', 'true')
+  for (const p of ['groups/영업팀', 'partners/apollo', 'connected/nas', 'skills/영업', 'shared', 'docs', 'finance', 'users']) await expect(item(page, p)).toBeVisible()
   await expect(item(page, 'finance')).toHaveAttribute('aria-expanded', 'false')
   await expect(item(page, 'finance/2026')).toHaveCount(0)
   await expect(item(page, 'docs')).not.toHaveAttribute('aria-expanded', /.*/)
-  await expect(item(page, 'projects/apollo')).toHaveAttribute('aria-level', '3')
+  await expect(item(page, 'partners/apollo')).toHaveAttribute('aria-level', '3')
 
   // the root has no rule: only the owner and admins, and it says so; a lock where only part of the team sees
   await expect(item(page, '').getByTestId('tree-who')).toHaveText(t['accessTree.who.adminsOnly'])
@@ -77,7 +78,7 @@ test('the tree: who sees each folder and from where, the way down to marked fold
   await expect(item(page, 'skills/영업').getByTestId('tree-risk')).toHaveText(t['accessTree.risk.skills'])
   await expect(item(page, 'skills/영업')).toContainText(t['accessTree.kind.skills'])
   // a project: by whom, the kind with its name, a lock (Bob cannot open it)
-  const apollo = item(page, 'projects/apollo')
+  const apollo = item(page, 'partners/apollo')
   await expect(apollo.getByTestId('tree-who')).toHaveText(`${translate('ko', 'accessView.who.person', { name: 'Dan' })} · ${t['access.write']}, ${translate('ko', 'accessTree.who.group', { name: '영업팀', n: 1 })} · ${t['access.read']}`)
   await expect(apollo).toContainText(translate('ko', 'accessView.projectOf', { name: 'Apollo' }))
   await expect(apollo).toContainText(t['accessTree.restricted'])
@@ -112,10 +113,10 @@ test('a chosen folder: its rules, each person and why; rules change from there; 
   await team(page)
   await page.goto('/admin/folders')
   await expect(page.getByTestId('folder-detail-box')).toContainText(t['accessTree.pick'])
-  await item(page, 'projects/apollo').click()
-  await expect(item(page, 'projects/apollo')).toHaveAttribute('aria-selected', 'true')
-  await expect(page).toHaveURL(/folder=projects%2Fapollo/)
-  await expect(detail(page).getByRole('heading', { name: 'projects/apollo' })).toBeVisible()
+  await item(page, 'partners/apollo').click()
+  await expect(item(page, 'partners/apollo')).toHaveAttribute('aria-selected', 'true')
+  await expect(page).toHaveURL(/folder=partners%2Fapollo/)
+  await expect(detail(page).getByRole('heading', { name: 'partners/apollo' })).toBeVisible()
   await expect(detail(page).getByTestId('folder-rules')).toContainText(`Dan: ${t['access.write']}`)
   await expect(detail(page).getByTestId('folder-rules')).toContainText(`${t['rules.everyone']}: ${t['access.none']}`)
   // the stage 3 reasons, at this folder
@@ -130,9 +131,9 @@ test('a chosen folder: its rules, each person and why; rules change from there; 
   // change the rules from here (the edit panel): everyone reads; the row and the people follow, and the lock goes
   await everyoneReads(page)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
-  await expect(item(page, 'projects/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
-  await expect(item(page, 'projects/apollo')).not.toContainText(t['accessTree.restricted'])
-  await expect(item(page, 'projects/apollo')).toHaveAttribute('aria-selected', 'true')
+  await expect(item(page, 'partners/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
+  await expect(item(page, 'partners/apollo')).not.toContainText(t['accessTree.restricted'])
+  await expect(item(page, 'partners/apollo')).toHaveAttribute('aria-selected', 'true')
 
   // users/: what it is, and nothing asked of the server about it
   const asked: string[] = []
@@ -149,7 +150,7 @@ test('the keyboard: one Tab stop, arrows move, open and close, typing jumps, Ent
   await signIn(page)
   await team(page)
   await page.goto('/admin/folders')
-  await expect(item(page, 'projects/apollo')).toBeVisible()
+  await expect(item(page, 'partners/apollo')).toBeVisible()
   await expect(tree(page).locator('[role="treeitem"][tabindex="0"]')).toHaveCount(1)
   // the header: Add folder, then By folder / By person, then the switch; then "How this works", then the tree
   await page.getByTestId('folder-rule-new').focus()
@@ -347,14 +348,14 @@ test('375px: the folder replaces the tree and Back returns to its row; deep and 
   await expect(item(page, `shared/${long}`)).toBeVisible()
   expect(await fits()).toBe(true)
 
-  await item(page, 'projects/apollo').click()
+  await item(page, 'partners/apollo').click()
   await expect(tree(page)).toBeHidden()
-  await expect(detail(page).getByRole('heading', { name: 'projects/apollo' })).toBeFocused()
+  await expect(detail(page).getByRole('heading', { name: 'partners/apollo' })).toBeFocused()
   await expect(person(page, 'dan')).toBeVisible()
   expect(await fits()).toBe(true)
   await page.getByTestId('folder-detail-back').click()
   await expect(tree(page)).toBeVisible()
-  await expect(item(page, 'projects/apollo')).toBeFocused()
+  await expect(item(page, 'partners/apollo')).toBeFocused()
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -469,11 +470,11 @@ test('rule folders only: the folders with rules and the way to them, open; pages
   await page.request.post('/__test/file', { data: { path: 'docs/deep1/deep2/x.md', text: 'x' } })
   await call(page, 'post', '/api/admin/folders', { path: 'docs/deep1/deep2', create: true, rules: [everyone('read')] })
   await page.goto('/admin/folders')
-  await expect(item(page, 'projects/apollo')).toBeVisible()
+  await expect(item(page, 'partners/apollo')).toBeVisible()
   await expect(item(page, 'marketing')).toBeVisible()
   await page.getByTestId('tree-ruled-only').check({ force: true })
   await expect(tree(page)).toHaveAttribute('data-mode', 'ruled')
-  for (const p of ['docs/deep1/deep2', 'projects/apollo', 'skills/영업', 'shared', 'finance', 'groups/영업팀', 'connected/nas']) await expect(item(page, p)).toBeVisible()
+  for (const p of ['docs/deep1/deep2', 'partners/apollo', 'skills/영업', 'shared', 'finance', 'groups/영업팀', 'connected/nas']) await expect(item(page, p)).toBeVisible()
   // the folders on the way show, open; folders with no rule below them do not
   await expect(item(page, 'docs/deep1')).toHaveAttribute('aria-expanded', 'true')
   await expect(item(page, 'docs/deep1')).toHaveAttribute('data-rules', '0')
@@ -534,7 +535,7 @@ test('a refresh that fails says so with a way to try again; the people already s
   await reset(page)
   await signIn(page)
   await team(page)
-  await page.goto('/admin/folders?folder=projects%2Fapollo')
+  await page.goto('/admin/folders?folder=partners%2Fapollo')
   await expect(page.getByTestId('folder-people')).toBeVisible()
   // the rules change (the edit panel works its result out first), and the answers that would show it fail
   const panel = page.getByTestId('edit-panel')
@@ -549,7 +550,7 @@ test('a refresh that fails says so with a way to try again; the people already s
   await page.unroute(/\/api\/admin\/access\/(tree|folder)/)
   await page.getByTestId('tree-stale').getByRole('button', { name: t['common.retry'], exact: true }).click()
   await expect(page.getByTestId('tree-stale')).toHaveCount(0)
-  await expect(item(page, 'projects/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
+  await expect(item(page, 'partners/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
   await page.getByTestId('folder-people-stale').getByRole('button', { name: t['common.retry'], exact: true }).click()
   await expect(page.getByTestId('folder-people-stale')).toHaveCount(0)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
@@ -604,7 +605,7 @@ test('a slow "Load more" of the people that comes after a rule change is dropped
     if (u.searchParams.has('cursor')) await new Promise((done) => setTimeout(done, 2500))
     await r.continue({ url: u.toString() }).catch(() => {})
   })
-  await page.goto('/admin/folders?folder=projects%2Fapollo')
+  await page.goto('/admin/folders?folder=partners%2Fapollo')
   await expect(page.getByTestId('folder-person')).toHaveCount(1)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'none')
   await page.getByTestId('folder-people-more').click()
@@ -700,7 +701,7 @@ test('the header stays at the top while the tree scrolls: title, Add folder, the
   await team(page)
   await page.setViewportSize({ width: 1360, height: 520 })
   await page.goto('/admin/folders')
-  await expect(item(page, 'projects/apollo')).toBeVisible()
+  await expect(item(page, 'partners/apollo')).toBeVisible()
   const content = page.getByTestId('admin-content')
   await content.evaluate((el) => el.scrollTo(0, el.scrollHeight))
   await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
@@ -715,3 +716,49 @@ test('the header stays at the top while the tree scrolls: title, Add folder, the
   // no card around the tree
   await expect(page.getByTestId('access-tree').locator('section.rounded-2xl')).toHaveCount(0)
 })
+
+// docs/DECISIONS.md "Project contents only for members": a team project's folder in projects/ is its members'. The
+// tree shows it as one row ("멤버만" and its count, never "팀장과 관리자만"), nothing inside it, no rules to change here,
+// and the way to its members ("멤버 관리", the project's page with its members dialog open). Writes there are refused.
+for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: '390', size: { width: 390, height: 844 } }]) {
+  test(`a team project's folder: members only, nothing inside, no editor, the way to its members (${vp.name})`, async ({ page }) => {
+    await page.setViewportSize(vp.size)
+    await reset(page)
+    const errors = watchConsole(page)
+    await signIn(page)
+    await team(page)
+    // Bob's project: Bob and Dan; a folder inside it; the owner is not in it
+    const made = await page.request.post('/__test/project', { data: { name: 'falcon', by: 'bob', participants: [{ subjectType: 'user', subjectId: 'dan' }], files: { 'plan.md': 'plan', 'drafts/a.md': 'a' } } })
+    const { id } = (await made.json()) as { id: string }
+    await page.request.post('/__test/file', { data: { path: 'projects/falcon/drafts/b.md', text: 'b' } })
+    await page.goto('/admin/folders')
+    const falcon = item(page, 'projects/falcon')
+    await expect(falcon).toBeVisible()
+    await expect(falcon.getByTestId('tree-who')).toHaveText(`${t['accessTree.membersOnly']} · ${translate('ko', 'folderAccess.people', { n: 2 })}`)
+    await expect(falcon).not.toContainText(t['accessTree.who.adminsOnly'])
+    await expect(falcon.getByTestId('tree-source')).toHaveCount(0)
+    // nothing below it: no way to open it
+    await expect(falcon).not.toHaveAttribute('aria-expanded', /.*/)
+    await expect(item(page, 'projects/falcon/drafts')).toHaveCount(0)
+    await falcon.click()
+    await expect(detail(page)).toHaveAttribute('data-path', 'projects/falcon')
+    await expect(detail(page).getByTestId('folder-detail-members-only')).toHaveText(t['accessTree.membersOnly'])
+    await expect(detail(page).getByTestId('folder-detail-edit')).toHaveCount(0)
+    await expect(detail(page).getByTestId('folder-detail-delete')).toHaveCount(0)
+    // the owner is no member: by the rule there, like anyone else
+    await expect(person(page, 'olga')).toHaveAttribute('data-level', 'none')
+    await expect(person(page, 'dan')).toHaveAttribute('data-level', 'write')
+    const manage = detail(page).getByTestId('folder-detail-manage-members')
+    await expect(manage).toHaveText(t['accessTree.manageMembers'])
+    await expect(manage).toHaveAttribute('href', `/projects/${id}?members=1`)
+    // the edit panel by its address: the server's refusal, in its words
+    await page.goto(`/admin/folders?edit=${encodeURIComponent('projects/falcon')}`)
+    await expect(page.getByTestId('edit-panel')).toContainText('프로젝트 멤버는 프로젝트 페이지에서 바꿔요.')
+    // and "멤버 관리": the project's page with its members dialog
+    await page.goto(`/admin/folders?folder=${encodeURIComponent('projects/falcon')}`)
+    await detail(page).getByTestId('folder-detail-manage-members').click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${id}`))
+    await expect(page.getByTestId('project-members-dialog')).toBeVisible()
+    expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])
+  })
+}

@@ -200,3 +200,41 @@ describe('under an answer (AssistantMessage)', () => {
     } finally { await m.unmount() }
   })
 })
+
+// QA TC-214: a card that ran out without an answer is no success: a quiet mark with "답하지 않음" beside the line
+describe('a card nobody answered', () => {
+  const before = useLocaleStore.getState().locale
+  beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'ko' }) })
+  afterAll(() => { removeDom(); useLocaleStore.setState({ locale: before }) })
+  const question = (detail?: string) => step({ id: 'q1', kind: 'ask_user', tool: 'ask_user', label: 'Question: Which color?', ...(detail !== undefined ? { detail } : {}) })
+  const remember = (detail?: string) => step({ id: 'm1', tool: 'remember', label: 'Not remembered: likes durian', ...(detail !== undefined ? { detail } : {}) })
+  const none = ctx([])
+
+  test('its mark: unanswered in any language; an answer or a "no" stays done', () => {
+    expect(stepMark(question('Not answered'), none)).toBe('unanswered')
+    expect(stepMark(question('답하지 않음'), none)).toBe('unanswered')
+    expect(stepMark(remember('Sin respuesta'), none)).toBe('unanswered')
+    expect(stepMark(question('blue'), none)).toBe('done')
+    expect(stepMark(remember(), none)).toBe('done')
+    // a read whose detail happens to say it is no card
+    expect(stepMark(step({ id: 'r1', label: '파일 읽기 · a.md', detail: 'Not answered' }), none)).toBe('done')
+    expect(stepMark({ ...question('Not answered'), status: 'running' }, { ...none, live: true })).toBe('running')
+  })
+
+  test('on screen: the quiet mark and the words beside the line, no success check, nothing to open', async () => {
+    const m = await mount(
+      <MemoryRouter>
+        <AssistantMessage m={msg({ role: 'assistant', content: '알겠어요.', steps: [question('Not answered')], status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} />
+      </MemoryRouter>,
+    )
+    try {
+      await m.click(m.get('steps').querySelector('button')!)
+      const row = m.get('step-unanswered').closest('li')!
+      expect(row.textContent).toContain('질문: Which color?')
+      expect(m.get('step-cut').textContent).toBe('답하지 않음')
+      expect(row.querySelector(`[aria-label="${translate('ko', 'steps.done')}"]`)).toBeNull()
+      expect(row.querySelector('button')).toBeNull()
+      expect(m.find('steps-failed')).toBeNull()
+    } finally { await m.unmount() }
+  })
+})

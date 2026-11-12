@@ -93,7 +93,7 @@ Return decisions, an action table and open questions. Cite the source paths.
 
 ## Bring your skills from Claude Code or Codex
 
-Owners and admins can bring the skills they already use to the team: in the setup steps (under the ready-made skills), with **Bring my skills** under the list on **Available skills**, or from a proposal link. On a phone the page says this is done on a computer.
+Owners and admins can bring the skills they already use to the team with **Bring my skills** under the list on **Available skills**, or from a proposal link. The setup steps offer only the ready-made skills. On a phone the page says this is done on a computer.
 
 | From | Pick or drop | What is read |
 |---|---|---|
@@ -106,7 +106,7 @@ Or, once Claude Code or Codex is connected to the team ([the MCP connector](../a
 - The server checks every skill again and suggests the ones the whole team can use. If that check takes longer than 30 seconds, the list shows with nothing ticked and you pick yourself. Nothing reaches the team before you press the button that adds it.
 - The rule file becomes one team rule. Remote MCP servers become connection templates without keys: each member connects with their own.
 - A skill with the same name as a team skill is merged in a chat that can only read the two and save the team skill, after you confirm.
-- **To one of your groups instead.** On the proposal's page, **Share with** picks the whole team (the default) or one of your groups; Claude Code and Codex can name the group too. A proposal to a group adds skills only (no team rule, no connections) and never changes a team skill: a skill named like one of the group's is merged into it or kept beside it, and one named like a team skill becomes the group's own copy. The group's members see it under **Team skills › Review** (only what goes to the group) and any of them can add it to the group. The setup steps always share with the team.
+- **To one of your groups instead.** On the proposal's page, **Share with** picks the whole team (the default) or one of your groups; Claude Code and Codex can name the group too. A proposal to a group adds skills only (no team rule, no connections) and never changes a team skill: a skill named like one of the group's is merged into it or kept beside it, and one named like a team skill becomes the group's own copy. The group's members see it under **Team skills › Review** (only what goes to the group) and any of them can add it to the group.
 
 ## Who can change skills
 

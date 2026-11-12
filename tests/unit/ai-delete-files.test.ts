@@ -29,6 +29,7 @@ import { teamTimeZone, updateTeamSettings } from '../../server/src/admin/setting
 import { TurnFiles } from '../../server/src/files/service'
 import { createGrant } from '../../server/src/rooms/ai-grants'
 import { Denied } from '../../server/src/policy/errors'
+import { legacyProjectFolder, type OldFolderRule } from '../lib/legacy-project'
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -75,6 +76,16 @@ beforeAll(async () => {
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
 /** One answer in the person's own chat; each card answered by `answer` (null: left until it closes by itself). */
+/** `fn` with carol (admin) and dana (owner) as members of projects/falcon (person rules on its folder, as its members
+ * dialog adds them): outside a project's members they read nothing in it (docs/DECISIONS.md "Project contents only for
+ * members"). The folder's rules are put back after. */
+async function asFalconMembers<T>(fn: () => Promise<T> | T): Promise<T> {
+  const id = (h.ctx.db.query("SELECT id FROM folders WHERE path = 'projects/falcon'").get() as { id: string }).id
+  const before = h.ctx.db.query('SELECT subject_type AS subjectType, subject_id AS subjectId, access FROM folder_rules WHERE folder_id = ? ORDER BY subject_type, subject_id').all(id) as OldFolderRule[]
+  legacyProjectFolder(h.ctx.db, h.team, 'projects/falcon', [...before, { subjectType: 'user', subjectId: 'carol', access: 'write' }, { subjectType: 'user', subjectId: 'dana', access: 'write' }])
+  try { return await fn() } finally { legacyProjectFolder(h.ctx.db, h.team, 'projects/falcon', before) }
+}
+
 async function turn(user: string, content: string, answer: (c: Ask, i: number) => string | null | Promise<string | null> = () => null, o: { chatId?: string; meanwhile?: (c: Ask) => void | Promise<void> } = {}) {
   const chatId = o.chatId ?? (await h.api(user).call(API.createChat, { body: {} })).id
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
@@ -136,7 +147,8 @@ describe('what the AI may never put in the trash, admins and the owner included'
           ['shared', /top-level folder/], ['skills', /top-level folder/], ['groups', /top-level folder/], ['users', /top-level folder|read-only/],
           // a group's, a project's and the person's own folder say what they are, even with skills in them (QA TC-016)
           ['skills/team-rules.md', /skill folder/], ['groups/marketing', /a group's folder/], ['groups/marketing/skills', /skill folder/],
-          ['groups/marketing/skills/brief/SKILL.md', /skill folder/], ['projects/falcon', /a project's folder/], ['projects/falcon/skills/launch', /skill folder/],
+          // projects/falcon: the owner and admins are no members, so it is not there for them (its members: below)
+          ['groups/marketing/skills/brief/SKILL.md', /skill folder/], ['projects/falcon', /not found or no access/], ['projects/falcon/skills/launch', /not found or no access/],
           [`users/${who}/skills`, /skill folder/], [`users/${who}/skills/mine/SKILL.md`, /skill folder/], [`users/${who}`, /own personal folder/],
           ['groups/marketing/salaries', /its own permissions/], ['shared/holds-rule', /its own permissions/], ['shared/proj-elsewhere', /a project's folder/],
           [`users/${who}/.attachments/c1/pic.png`, /chat attachments/], ['shared/.hidden-notes.md', /hidden item/],
@@ -155,6 +167,12 @@ describe('what the AI may never put in the trash, admins and the owner included'
         expect(mixed?.map((x) => x.path)).toEqual(['groups/marketing/salaries'])
         // an expired upload link holds nothing back; an ordinary file is fine
         expect(planOf(who, ['shared/upload-done']).items.map((i) => i.rel)).toEqual(['shared/upload-done'])
+      }
+      // a member who writes the project: its folder is a project's folder (QA TC-016), its skills are skill folders
+      for (const p of ['projects/falcon', 'projects/falcon/skills', 'projects/falcon/skills/launch', 'projects/falcon/skills/launch/SKILL.md']) {
+        const r = refusedOf('alice', [p])
+        const want = p === 'projects/falcon' ? /a project's folder/ : /skill folder/
+        expect({ p, error: r && want.test(r[0]!.error) ? 'ok' : r?.[0]?.error ?? null }).toEqual({ p, error: 'ok' })
       }
     } finally { fx.managed = before }
     for (const p of ['shared/holds-rule/locked/a.md', 'skills/team-rules.md', 'groups/marketing/skills/brief/SKILL.md', 'shared/upload-here/old.pdf', 'users/carol/.attachments/c1/pic.png']) expect(has(p)).toBe(true)
@@ -199,11 +217,19 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
   }
   const project = (name: string, folder: string, by = 'carol') =>
     h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(uuidv7(), name, folder, by, new Date().toISOString())
+  /** The owner and an admin as members of a team project's folder in projects/: they read it only so (docs/DECISIONS.md
+   * "Project contents only for members") */
+  const members = (folder: string) => {
+    const id = uuidv7()
+    h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(id, folder)
+    for (const u of ['carol', 'dana']) h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', ?, 'write')").run(uuidv7(), id, u)
+  }
   const R = AI_TRASH_FOLDER_REFUSAL
 
   test('a project: where a project is deleted (the Projects screen) and by whom, not the skill reason, with no skills in it or with some', () => {
     put('projects/Acme Launch/brief.md')
     project('Acme Launch', 'projects/Acme Launch')
+    members('projects/Acme Launch')
     // the owner and an admin delete it themselves
     stays('projects/Acme Launch', R.project(true), { guard: true })
     expect(R.project(true)).toBe('a project\'s folder, or a folder that holds one: it does not go to the trash from a chat. The user deletes the project on the Projects screen, where a team project\'s own folder can go to the trash with it')
@@ -278,6 +304,7 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
     put(`${nfc}/brief.md`)
     // the project's row keeps the name decomposed (as macOS may hand it in): still the project's folder
     project('견적 2026', nfc.normalize('NFD'))
+    members(nfc)
     stays(nfc, R.project(true), { guard: true })
     for (const [asked, onDisk, why] of [['GROUPS/marketing', 'groups/marketing', R.group(true)], ['groups/MARKETING', 'groups/marketing', R.group(true)], [nfc.normalize('NFD'), nfc, R.project(true)], ['Projects/견적 2026'.normalize('NFD'), nfc, R.project(true)]] as const) {
       for (const who of ['carol', 'dana']) {
@@ -298,14 +325,20 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_del_rule2', 'f_del_rule2', 'user', 'carol', 'write')").run()
     stays('shared/locked-plan', R.rule(true))
     expect(R.rule(true)).toBe('a folder with its own permissions, or a folder that holds one: it does not go to the trash from a chat. The user deletes it on the Files screen')
-    // no project, no group, no skills in it: what the place is
+    // no project, no group, no skills in it: what the place is, to a member of the team who reads it; the owner and
+    // admins read a folder right in projects/ only as its members (docs/DECISIONS.md "Project contents only for members")
     put('projects/old-launch/notes.md')
-    stays('projects/old-launch', R.projectsPlace(true), { guard: true })
+    for (const who of ['carol', 'dana', 'alice']) expect(refusedOf(who, ['projects/old-launch'])?.[0]?.error).toMatch(/not found or no access/)
+    // alice writes it through a rule on projects/ (which never reaches in for the owner and admins)
+    if (!h.ctx.db.query("SELECT 1 FROM folders WHERE path = 'projects'").get()) h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_del_projects', 'projects')").run()
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_del_projects_alice', (SELECT id FROM folders WHERE path = 'projects'), 'user', 'alice', 'write')").run()
+    stays('projects/old-launch', R.projectsPlace(false), { who: ['alice'], guard: true })
     put('groups/old-team/notes.md')
     stays('groups/old-team', R.groupsPlace(true), { guard: true })
     // a skills folder in it now (any letter case): the skill reason, as before
     put('projects/old-launch/Skills/x/SKILL.md', '---\nname: x\ndescription: x\n---\nx\n')
-    stays('projects/old-launch', AI_SKILL_TRASH_REFUSAL, { guard: true })
+    stays('projects/old-launch', AI_SKILL_TRASH_REFUSAL, { who: ['alice'], guard: true })
+    h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_del_projects_alice'").run()
     // a top-level folder: the owner and an admin delete it themselves, a member is told an admin does
     expect(refusedOf('carol', ['shared'])?.[0]?.error).toBe('a top-level folder never goes to the trash from a chat; the user deletes it on the Files screen')
     expect(refusedOf('alice', ['shared'])?.[0]?.error).toBe('a top-level folder never goes to the trash from a chat; an admin deletes it on the Files screen')
@@ -762,32 +795,41 @@ describe('the card, the answer, the audit and the restore', () => {
 
   test('readers who cannot write it are told they cannot restore it, and indeed do not see it in the trash; every language', async () => {
     put('projects/falcon/old-draft.md', 'draft\n')
-    // projects/falcon: alice writes, finance (bob) reads, admins write; erin cannot see it
-    const plan = planOf('alice', ['projects/falcon/old-draft.md'])
-    expect([plan.lost, plan.noRestore, plan.writersShown]).toEqual([3, 1, false])
-    const ko = deleteCard(plan, 'ko', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z'))
-    // a member: the rule, not how many of them (that would say how many people can write the folder)
-    expect(ko.question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
-    // the owner and admins see who can write it in Admin › Folder permissions: their card keeps the number
-    expect(deleteCard({ ...plan, writersShown: true }, 'ko', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z')).question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 그중 1명은 쓰기 권한이 없어 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
-    expect(ko.details).toEqual([{ label: '휴지통으로 옮길 항목', text: 'projects/falcon/old-draft.md', noSize: true }])
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const writersShown of [false, true]) {
-      const c = deleteCard({ ...plan, writersShown }, L, 'Asia/Seoul')
-      expect({ L, leftover: /[{}#]/.test(c.question + c.details.map((d) => d.label + d.text).join('')) }).toEqual({ L, leftover: false })
-      for (const k of Object.keys(DELETE_TEXT) as (keyof typeof DELETE_TEXT)[]) expect({ L, k, empty: !DELETE_TEXT[k][L].trim() }).toEqual({ L, k, empty: false })
-    }
-    // never folded behind "전체 보기", however long: the AI picks the order of the list
-    const long = { ...plan, items: Array.from({ length: 200 }, (_, i) => ({ ...plan.items[0]!, rel: `users/alice/${'long-name-'.repeat(8)}${i}.md` })) }
-    const listed = deleteCard(long, 'en', 'UTC').details[0]!
-    expect(listed.collapsedAt).toBeUndefined()
-    expect(listed.text.split('\n')).toHaveLength(200)
-    expect(deleteCard(plan, 'en', 'UTC').question).toContain('The AI wants to move 1 item to the trash. 3 other people who can see it now will no longer be able to. People without write access cannot see it in the trash or restore it.')
-    expect(deleteCard({ ...plan, writersShown: true }, 'en', 'UTC').question).toContain('The AI wants to move 1 item to the trash. 3 other people who can see it now will no longer be able to. 1 of them has no write access, so cannot see it in the trash or restore it.')
-    const r = await turn('alice', fake(del('projects/falcon/old-draft.md')), () => 'trash')
-    expect(r.cards).toHaveLength(1)
-    expect(has('projects/falcon/old-draft.md')).toBe(false)
-    expect((await h.api('bob').call(API.trash, { query: {} })).items.some((x) => x.originalPath === 'projects/falcon/old-draft.md')).toBe(false)
-    expect((await h.api('carol').call(API.trash, { query: {} })).items.some((x) => x.originalPath === 'projects/falcon/old-draft.md')).toBe(true)
+    // projects/falcon: alice writes, finance (bob) reads; the owner and admins are no members; erin cannot see it
+    const alone = planOf('alice', ['projects/falcon/old-draft.md'])
+    expect([alone.lost, alone.noRestore, alone.writersShown]).toEqual([1, 1, false])
+    await asFalconMembers(async () => {
+      // with carol (admin) and dana (owner) as members who write it
+      const plan = planOf('alice', ['projects/falcon/old-draft.md'])
+      expect([plan.lost, plan.noRestore, plan.writersShown]).toEqual([3, 1, false])
+      const ko = deleteCard(plan, 'ko', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z'))
+      // a member: the rule, not how many of them (that would say how many people can write the folder)
+      expect(ko.question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
+      // the owner and admins see who can write it in Admin › Folder permissions: their card keeps the number
+      expect(deleteCard({ ...plan, writersShown: true }, 'ko', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z')).question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 그중 1명은 쓰기 권한이 없어 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
+      expect(ko.details).toEqual([{ label: '휴지통으로 옮길 항목', text: 'projects/falcon/old-draft.md', noSize: true }])
+      for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const writersShown of [false, true]) {
+        const c = deleteCard({ ...plan, writersShown }, L, 'Asia/Seoul')
+        expect({ L, leftover: /[{}#]/.test(c.question + c.details.map((d) => d.label + d.text).join('')) }).toEqual({ L, leftover: false })
+        for (const k of Object.keys(DELETE_TEXT) as (keyof typeof DELETE_TEXT)[]) expect({ L, k, empty: !DELETE_TEXT[k][L].trim() }).toEqual({ L, k, empty: false })
+      }
+      // never folded behind "전체 보기", however long: the AI picks the order of the list
+      const long = { ...plan, items: Array.from({ length: 200 }, (_, i) => ({ ...plan.items[0]!, rel: `users/alice/${'long-name-'.repeat(8)}${i}.md` })) }
+      const listed = deleteCard(long, 'en', 'UTC').details[0]!
+      expect(listed.collapsedAt).toBeUndefined()
+      expect(listed.text.split('\n')).toHaveLength(200)
+      expect(deleteCard(plan, 'en', 'UTC').question).toContain('The AI wants to move 1 item to the trash. 3 other people who can see it now will no longer be able to. People without write access cannot see it in the trash or restore it.')
+      expect(deleteCard({ ...plan, writersShown: true }, 'en', 'UTC').question).toContain('The AI wants to move 1 item to the trash. 3 other people who can see it now will no longer be able to. 1 of them has no write access, so cannot see it in the trash or restore it.')
+      const r = await turn('alice', fake(del('projects/falcon/old-draft.md')), () => 'trash')
+      expect(r.cards).toHaveLength(1)
+      expect(has('projects/falcon/old-draft.md')).toBe(false)
+      expect((await h.api('bob').call(API.trash, { query: {} })).items.some((x) => x.originalPath === 'projects/falcon/old-draft.md')).toBe(false)
+      expect((await h.api('carol').call(API.trash, { query: {} })).items.some((x) => x.originalPath === 'projects/falcon/old-draft.md')).toBe(true)
+    })
+    // no longer a member: an admin does not see it in the trash either; its writer does
+    expect((await h.api('carol').call(API.trash, { query: {} })).items.some((x) => x.originalPath === 'projects/falcon/old-draft.md')).toBe(false)
+    expect((await h.api('dana').call(API.trash, { query: {} })).items.some((x) => x.originalPath === 'projects/falcon/old-draft.md')).toBe(false)
+    expect((await h.api('alice').call(API.trash, { query: {} })).items.some((x) => x.originalPath === 'projects/falcon/old-draft.md')).toBe(true)
   })
 
   test('a "no" moves nothing and ends deletes for the answer; a call it refuses up front asks nobody', async () => {
@@ -821,32 +863,38 @@ describe('the card, the answer, the audit and the restore', () => {
     // of them cannot restore it would add how many people can write the folder, which only admins see
     put('projects/falcon/count-draft.md', 'draft\n')
     put('shared/count-draft.md', 'draft\n')
-    // projects/falcon: bob reads, carol and dana write; shared/: bob, carol, dana and erin all write
-    const falcon = planOf('alice', ['projects/falcon/count-draft.md'])
-    const shared = planOf('alice', ['shared/count-draft.md'])
-    expect([falcon.lost, falcon.noRestore, falcon.writersShown, shared.noRestore, shared.writersShown]).toEqual([3, 1, false, 0, false])
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      // the same card whether one, none or all of them can write it: only how many lose it differs
-      const card = (p: AiTrashPlan) => deleteCard(p, L, 'UTC', Date.parse('2026-11-10T03:00:00Z')).question
-      expect({ L, same: card(falcon) === card({ ...falcon, noRestore: 0 }) && card(falcon) === card({ ...falcon, noRestore: 3 }) }).toEqual({ L, same: true })
-      expect({ L, same: card({ ...shared, lost: 3 }) === card(falcon) }).toEqual({ L, same: true })
-      // an admin's card for the same plan does change with it
-      expect({ L, admin: card({ ...falcon, writersShown: true }) !== card({ ...falcon, writersShown: true, noRestore: 2 }) && card({ ...falcon, writersShown: true }) !== card(falcon) }).toEqual({ L, admin: true })
-    }
-    // nobody else loses it: no line about restoring at all, as before
-    put('users/alice/count-draft.md', 'draft\n')
-    expect(deleteCard(planOf('alice', ['users/alice/count-draft.md']), 'en', 'UTC').question).not.toContain('write access')
-    // an admin's card for the same file: the number, as before (alice and dana write, bob only reads)
-    const admin = planOf('carol', ['projects/falcon/count-draft.md'])
-    expect([admin.lost, admin.noRestore, admin.writersShown]).toEqual([3, 1, true])
-    expect(deleteCard(admin, 'en', 'UTC').question).toContain('3 other people who can see it now will no longer be able to. 1 of them has no write access, so cannot see it in the trash or restore it.')
-    expect(planOf('dana', ['projects/falcon/count-draft.md']).writersShown).toBe(true)
-    // the member's card in a real turn says no number; the audit row keeps both for admins
-    const r = await turn('alice', fake(del('projects/falcon/count-draft.md')), () => 'skip')
-    expect(r.cards).toHaveLength(1)
-    expect(r.cards[0]!.question).toContain('People without write access cannot see it in the trash or restore it.')
-    expect(r.cards[0]!.question).not.toContain('of them')
-    expect(audits(r.turnId)[0]!.detail).toMatchObject({ outcome: 'declined', lost: 3, noRestore: 1 })
+    // the owner and admins are no members of projects/falcon: only bob loses it, and they may not put it in the trash
+    const alone = planOf('alice', ['projects/falcon/count-draft.md'])
+    expect([alone.lost, alone.noRestore, alone.writersShown]).toEqual([1, 1, false])
+    for (const who of ['carol', 'dana']) expect(refusedOf(who, ['projects/falcon/count-draft.md'])?.[0]?.error ?? null).toMatch(/not found or no access/)
+    await asFalconMembers(async () => {
+      // projects/falcon with carol and dana as members: bob reads, carol and dana write; shared/: bob, carol, dana and erin all write
+      const falcon = planOf('alice', ['projects/falcon/count-draft.md'])
+      const shared = planOf('alice', ['shared/count-draft.md'])
+      expect([falcon.lost, falcon.noRestore, falcon.writersShown, shared.noRestore, shared.writersShown]).toEqual([3, 1, false, 0, false])
+      for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+        // the same card whether one, none or all of them can write it: only how many lose it differs
+        const card = (p: AiTrashPlan) => deleteCard(p, L, 'UTC', Date.parse('2026-11-10T03:00:00Z')).question
+        expect({ L, same: card(falcon) === card({ ...falcon, noRestore: 0 }) && card(falcon) === card({ ...falcon, noRestore: 3 }) }).toEqual({ L, same: true })
+        expect({ L, same: card({ ...shared, lost: 3 }) === card(falcon) }).toEqual({ L, same: true })
+        // an admin's card for the same plan does change with it
+        expect({ L, admin: card({ ...falcon, writersShown: true }) !== card({ ...falcon, writersShown: true, noRestore: 2 }) && card({ ...falcon, writersShown: true }) !== card(falcon) }).toEqual({ L, admin: true })
+      }
+      // nobody else loses it: no line about restoring at all, as before
+      put('users/alice/count-draft.md', 'draft\n')
+      expect(deleteCard(planOf('alice', ['users/alice/count-draft.md']), 'en', 'UTC').question).not.toContain('write access')
+      // an admin's card for the same file: the number, as before (alice and dana write, bob only reads)
+      const admin = planOf('carol', ['projects/falcon/count-draft.md'])
+      expect([admin.lost, admin.noRestore, admin.writersShown]).toEqual([3, 1, true])
+      expect(deleteCard(admin, 'en', 'UTC').question).toContain('3 other people who can see it now will no longer be able to. 1 of them has no write access, so cannot see it in the trash or restore it.')
+      expect(planOf('dana', ['projects/falcon/count-draft.md']).writersShown).toBe(true)
+      // the member's card in a real turn says no number; the audit row keeps both for admins
+      const r = await turn('alice', fake(del('projects/falcon/count-draft.md')), () => 'skip')
+      expect(r.cards).toHaveLength(1)
+      expect(r.cards[0]!.question).toContain('People without write access cannot see it in the trash or restore it.')
+      expect(r.cards[0]!.question).not.toContain('of them')
+      expect(audits(r.turnId)[0]!.detail).toMatchObject({ outcome: 'declined', lost: 3, noRestore: 1 })
+    })
   })
 
   test(`at most ${MAX_DELETE_CARDS} delete cards in one answer; the third call is refused without a card`, async () => {

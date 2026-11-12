@@ -371,6 +371,10 @@ export const roomDraftMentions = new Map<string, PickedMention[]>()
 const asked = new Map<string, number>()
 /** rooms I am leaving from this window: their "removed" event is no news here */
 const leaving = new Set<string>()
+/** The member list read last per room: an answer to an older read, or to one from before the list was dropped (a members
+ * change, a resync), does not put an old list back. */
+const memberReads = new Map<string, number>()
+let memberReadSeq = 0
 /** a newer read of the same room's messages wins over an older one still on its way */
 let timelineGen = 0
 /** the same for each thread on screen (by placeKey; one counter for all, so a thread that went and came back never
@@ -423,6 +427,54 @@ export function roomFileGone(s: RoomsData, roomId: string, messageId: string, fi
   return !!m && (!!m.deletedAt || !m.files.some((f) => f.id === fileId))
 }
 
+/** The sends still on their way (or failed) without the ones whose message is on screen (the room's timeline, a thread
+ * on screen), matched by the id my app sent it with (RoomMessage.clientMessageId, only ever on my own messages). Such a
+ * send is done whichever way its message came: its own answer, the live event, a replay or a page read again after a
+ * reconnect. Otherwise a send whose answer was lost shows twice: delivered, and failed with 다시 시도 / 지우기. The same
+ * object when nothing is done. */
+export function settledPending(s: Pick<RoomsData, 'timeline' | 'threadViews'> & { pending: Record<string, PendingSend[]> }): Record<string, PendingSend[]> {
+  if (!Object.keys(s.pending).length) return s.pending
+  // by room: the ids of my messages on screen
+  const sent = new Map<string, Set<string>>()
+  const note = (roomId: string, list: readonly (RoomMessage | null)[]) => {
+    if (!s.pending[roomId]) return
+    for (const m of list) {
+      if (!m?.clientMessageId) continue
+      const ids = sent.get(roomId) ?? new Set<string>()
+      ids.add(m.clientMessageId)
+      sent.set(roomId, ids)
+    }
+  }
+  if (s.timeline) note(s.timeline.roomId, s.timeline.messages)
+  for (const tv of Object.values(s.threadViews)) note(tv.roomId, [tv.root, ...tv.replies])
+  let pending = s.pending
+  for (const [roomId, ids] of sent) {
+    const list = pending[roomId]!
+    const left = list.filter((p) => !ids.has(p.clientMessageId))
+    if (left.length < list.length) pending = left.length ? { ...pending, [roomId]: left } : omit(pending, roomId)
+  }
+  return pending
+}
+
+/** The runs of my questions that ended and whose line I closed (EndedRun's X), in this browser, per person: the server
+ * lists a failed one for a day (rooms/ai.ts state), and a reload must not bring a closed line back. The last 200. */
+const CLOSED_RUNS_MAX = 200
+const closedKey = (userId: string) => `mycel.roomAiClosed:${userId}`
+export function closedRuns(userId: string | null): Set<string> {
+  if (!userId) return new Set()
+  try {
+    const v = JSON.parse(localStorage.getItem(closedKey(userId)) ?? '[]') as unknown
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  } catch { return new Set() }
+}
+function closeRun(userId: string | null, turnId: string) {
+  if (!userId) return
+  try {
+    const list = [...closedRuns(userId)].filter((x) => x !== turnId)
+    localStorage.setItem(closedKey(userId), JSON.stringify([...list, turnId].slice(-CLOSED_RUNS_MAX)))
+  } catch { /* storage full or blocked: closed for this page only */ }
+}
+
 export const useRooms = create<RoomsState>((set, get) => {
   const setPending = (roomId: string, f: (list: PendingSend[]) => PendingSend[]) =>
     set((s) => {
@@ -442,6 +494,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       patchMessages((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
     } catch (e) {
+      // its message came another way while the answer was lost (settledPending), or it was let go: nothing to show
+      if (!get().pending[roomId]?.some((x) => x.clientMessageId === p.clientMessageId)) return
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
       // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
@@ -671,8 +725,11 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async loadMembers(roomId, force) {
       if (get().members[roomId] && !force) return
+      const read = ++memberReadSeq
+      memberReads.set(roomId, read)
       try {
         const r = await api.call(API.listRoomMembers, { params: { id: roomId } })
+        if (memberReads.get(roomId) !== read) return
         set((s) => ({ members: { ...s.members, [roomId]: r.items } }))
       } catch {
         /* the header and the @ list do without; the next open asks again */
@@ -732,7 +789,15 @@ export const useRooms = create<RoomsState>((set, get) => {
         const r = await api.call(API.reactRoomMessage, { params: { id: roomId, messageId }, body: { emoji, on } })
         patchMessages((s) => withReactions(s, roomId, messageId, r.reactions))
       } catch (e) {
-        patchMessages((s) => withReactions(s, roomId, messageId, before))
+        // only my own tap undone, on the list as it is now: a room.reactions that came meanwhile (someone else's) stays.
+        // A tap that changed nothing (on where it was mine already) has nothing to undo.
+        const wasMine = !!before.find((x) => x.emoji === emoji)?.mine
+        if (wasMine !== on) {
+          patchMessages((s) => {
+            const now = findMessage(s, roomId, messageId)
+            return now ? withReactions(s, roomId, messageId, toggledReactions(now.reactions ?? [], emoji, !on, me)) : s
+          })
+        }
         toast({ level: 'warn', text: errorText(e, currentLocale(), t('error.network')) })
       }
     },
@@ -779,6 +844,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async invite(roomId, userIds) {
       const room = await api.call(API.inviteRoomMembers, { params: { id: roomId }, body: { userIds } })
+      memberReads.delete(roomId)
       set((s) => ({ ...withRoom(s, room), members: omit(s.members, roomId) }))
       void get().loadMembers(roomId, true)
     },
@@ -801,11 +867,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       const was = get().rooms.find((r) => r.id === roomId)
       if (!was) return
       set((s) => withHidden(s, roomId, hidden))
-      // in place of the room: Back does not open it again (which would show it again)
-      if (hidden && get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
       try {
         const room = await api.call(API.setRoomHidden, { params: { id: roomId }, body: { hidden } })
         set((s) => withRoom(s, room))
+        // only once the server has it (refused, the room stays on screen with the error): to the list in place of the
+        // room, so Back does not open it again (which would show it again)
+        if (hidden && get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
       } catch (e) {
         // as it was: shown or hidden, and its pin (hiding took it off)
         set((s) => {
@@ -848,10 +915,14 @@ export const useRooms = create<RoomsState>((set, get) => {
       // either way the card goes with the turn's turn.request.closed (the end of a turn closes its cards first; one
       // closed before the merge stays out, mergeOpenRequests)
       const turns = new Set([...(get().ai[roomId]?.runs ?? []), ...r.mine].map((x) => x.turnId))
+      // the server lists the working ones and my recent failed ones (one a restart cut while this window was away, QA
+      // TC-241), not one I closed in this browser
+      const closed = closedRuns(who)
+      const mine = r.mine.filter((x) => !closed.has(x.turnId))
       set((s) => {
-        // runs that ended here (stopped, failed) stay until closed; the server lists the working ones
+        // runs that ended here (stopped, failed) stay until closed
         const ended = (s.ai[roomId]?.runs ?? []).filter((x) => x.state === 'stopped' || x.state === 'error')
-        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...r.mine, ...ended.filter((x) => !r.mine.some((m) => m.turnId === x.turnId))] } } }
+        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...mine, ...ended.filter((x) => !mine.some((m) => m.turnId === x.turnId))] } } }
       })
       if (open) useChats.setState((s) => ({ requests: mergeOpenRequests(s.requests, (q) => turns.has(q.turnId), open.items, before) }))
     },
@@ -861,6 +932,8 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     dismissAi(roomId, turnId) {
+      // closed here stays closed after a reload (the server lists a failed run for a day)
+      closeRun(myId(), turnId)
       set((s) => (s.ai[roomId] ? { ai: { ...s.ai, [roomId]: { ...s.ai[roomId]!, runs: s.ai[roomId]!.runs.filter((r) => r.turnId !== turnId) } } } : {}))
     },
 
@@ -882,12 +955,18 @@ export const useRooms = create<RoomsState>((set, get) => {
     async resync() {
       await get().loadRooms()
       const open = get().openRoomId
+      // the member lists: a members change missed while away is in none of them, so all go (the next open of a room reads
+      // its list again) and the rooms on screen (the open one, one beside a file in the viewer) read theirs now
+      const onScreen = new Set([...(open ? [open] : []), ...Object.values(get().threadViews).map((tv) => tv.roomId)])
+      memberReads.clear()
+      set((s) => ({ members: Object.fromEntries(Object.entries(s.members).filter(([id]) => onScreen.has(id))) }))
+      const members = [...onScreen].map((id) => get().loadMembers(id, true))
       // every thread on screen reads again, the room's and one beside a file of it
       const threads = Object.values(get().threadViews).map((tv) => get().loadThread(tv.roomId, tv.rootId))
       if (open) {
         asked.delete(open)
-        await Promise.all([get().loadNewest(open), get().loadMembers(open, true), get().loadAi(open), ...threads])
-      } else await Promise.all(threads)
+        await Promise.all([get().loadNewest(open), get().loadAi(open), ...members, ...threads])
+      } else await Promise.all([...members, ...threads])
     },
 
     handleEvent(ev) {
@@ -946,6 +1025,7 @@ export const useRooms = create<RoomsState>((set, get) => {
           }
           set((s) => withRoom(s, room))
           if (change === 'members') {
+            memberReads.delete(roomId)
             set((s) => ({ members: omit(s.members, roomId) }))
             // someone joined or left: the member list, and the reactions they took with them (in place: the reader keeps
             // their place)
@@ -963,6 +1043,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     reset() {
       asked.clear()
       leaving.clear()
+      memberReads.clear()
       roomDrafts.clear()
       roomDraftMentions.clear()
       useSideChats.getState().reset()
@@ -972,4 +1053,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       set({ ...EMPTY })
     },
   }
+})
+
+// A send whose message is on screen is done (settledPending), checked whenever what is on screen or the sends change:
+// one place for every way the message can come, so a send whose answer was lost never stays failed beside it
+useRooms.subscribe((s, prev) => {
+  if (s.timeline === prev.timeline && s.threadViews === prev.threadViews && s.pending === prev.pending) return
+  const pending = settledPending(s)
+  if (pending !== s.pending) useRooms.setState({ pending })
 })

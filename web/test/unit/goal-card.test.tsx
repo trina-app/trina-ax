@@ -13,7 +13,7 @@ import type { Me, TeamGoal, TeamLinkResponse, WelcomeProgress } from '@mycel/sha
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
 import { GoalCard, INVITE_STEP_STATE } from '../../src/components/onboarding/GoalCard'
 import { HomeTop } from '../../src/pages/Home'
-import { firstRunText, goalNext, goalNextText, goalProgressText, NOBODY_AFTER_DAYS, objectParticle, quotedSkill, resendText, runnerNames, skillRunUrl, skillTopic, topicParticle } from '../../src/lib/teamGoal'
+import { firstRunText, goalNext, goalNextText, goalProgressText, goalTitleSkills, goalTitleText, NOBODY_AFTER_DAYS, objectParticle, quotedSkill, resendText, runnerNames, skillRunUrl, skillTopic, topicParticle } from '../../src/lib/teamGoal'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { useWelcome } from '../../src/store/welcome'
@@ -54,6 +54,15 @@ describe('text helpers', () => {
     expect(skillTopic('ko', null, '팀 스킬')).toBe('팀 스킬은')
     expect(skillTopic('ja', '広告コピー', 'x')).toBe('「広告コピー」')
     expect(skillTopic('en', null, 'a team skill')).toBe('a team skill')
+  })
+  test('the title: up to three skill names, the first given first, each once, never a skipped path; joined per language', () => {
+    const list = [{ path: 'a', name: '신청서' }, { path: 'deck', name: '회사 소개서' }, { path: 'b', name: '광고 문구' }, { path: 'c', name: '견적' }, { path: 'd', name: '카드뉴스' }]
+    expect(goalTitleSkills('광고 문구', list, ['deck'])).toEqual(['광고 문구', '신청서', '견적'])
+    expect(goalTitleSkills(null, [], [])).toEqual([])
+    expect(goalTitleText(ko, 'ko', ['광고 문구', '견적'])).toBe("동료와 함께 문서 만들어 보기: '광고 문구', '견적'")
+    expect(goalTitleText(en, 'en', ['Ad copy', 'Quotes', 'Promo cards'])).toBe("Make documents together with your colleagues: 'Ad copy', 'Quotes', and 'Promo cards'")
+    expect(goalTitleText(en, 'en', [])).toBe('Make documents together with your colleagues')
+    expect(goalTitleText((k, p) => translate('ja', k, p), 'ja', ['広告', '見積'])).toBe('同僚と一緒に資料を作ってみる：「広告」「見積」')
   })
   test('progress up to the target, then a count; three names with "·", then +N (deleted people counted, never named)', () => {
     expect(goalProgressText(ko, 2, 3)).toBe('2/3')
@@ -135,9 +144,8 @@ describe('the card: a title, one line, one button', () => {
     const m = await card(goal({ joined: 1, waiting: { first: '민지', more: 0 } }), LINK)
     try {
       const h = m.html()
-      // the title names the skill
-      expect(h).toContain("7일 안에 3명이 '광고 문구' 써 보기")
-      expect(h).not.toContain('같은 스킬')
+      // the title invites people to make documents with the team's skill
+      expect(h).toContain("동료와 함께 문서 만들어 보기: '광고 문구'")
       expect(h).toContain(' · 1/3 · 5일 남음')
       expect(m.get('team-goal-next').textContent).toBe("민지님이 들어왔어요. '광고 문구'는 아직 써 보기 전이에요.")
       expect(buttons(h)).toBe(1)
@@ -164,7 +172,7 @@ describe('the card: a title, one line, one button', () => {
     const m = await card(goal({ skill: null, joined: 3, waiting: { first: '민지', more: 2 } }), deck)
     try {
       expect(m.html()).not.toContain('회사 소개서')
-      expect(m.html()).toContain('같은 스킬')
+      expect(m.html()).toContain('동료와 함께 문서 만들어 보기')
       await m.click('team-goal-resend')
       expect(copied[0]).not.toContain('회사 소개서')
       expect(copied[0]).not.toContain('intro-deck')
@@ -198,8 +206,8 @@ describe('the card: a title, one line, one button', () => {
     m = await card(goal({ skill: null, joined: 1, waiting: { first: '민지', more: 0 } }), NO_LINK)
     try {
       expect(m.get('team-goal-next').textContent).toBe('민지님이 들어왔어요. 팀 스킬은 아직 써 보기 전이에요.')
-      // no skill to name: the title says "같은 스킬"
-      expect(m.html()).toContain('7일 안에 3명이 같은 스킬 써 보기')
+      // no skill to name: the plain invitation
+      expect(m.html()).toContain('>동료와 함께 문서 만들어 보기<')
       await m.click('team-goal-resend')
       expect(copied[0]).toMatch(/^민지님, 팀 스킬 한 번 눌러 보세요: .*\/skills$/)
     } finally { await m.unmount() }
@@ -272,6 +280,25 @@ describe('the card: a title, one line, one button', () => {
       } finally { await m.unmount() }
     } finally { globalThis.fetch = realFetch }
   })
+  test("the title names a few of this team's own skills (GET /api/skills/examples): the goal's one first, then the others, never the intro deck; the count small", async () => {
+    const realFetch = globalThis.fetch
+    const s = (path: string, name: string, title: string) => ({ path, name, title, summary: '' })
+    const skills = [s('skills/general/intro-deck/SKILL.md', 'intro-deck', '회사 소개서'), s('skills/forms/SKILL.md', 'forms', '신청서'), s(AD, 'ad-copy', '광고 문구'), s('skills/quote-maker/SKILL.md', 'quote-maker', 'quote-maker'), s('skills/card-news/SKILL.md', 'card-news', '카드뉴스')]
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://x')
+      if (url.pathname === '/api/skills/examples') return new Response(JSON.stringify({ skills, teamFolder: null, landing: null, ranTeamSkill: false, hasProfile: false }), { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ error: { code: 'internal', message: 'down' } }), { status: 500, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    try {
+      const m = await card(goal({ joined: 1, waiting: { first: '민지', more: 0 } }), LINK)
+      try {
+        const title = () => m.get('team-goal').querySelectorAll('h2')[0]!.textContent
+        await m.until(() => title()!.includes('신청서') || null, 'the team\'s skills in the title')
+        expect(title()).toBe("동료와 함께 문서 만들어 보기: '광고 문구', '신청서', 'quote maker' · 1/3 · 5일 남음")
+        expect(m.get('team-goal-progress').className).toContain('text-xs')
+      } finally { await m.unmount() }
+    } finally { globalThis.fetch = realFetch }
+  })
   test('day 0, nobody joined: how many more, not "아직 아무도 안 들어왔어요" (that waits for the third day)', async () => {
     const m = await card(goal({ joined: 0, startedAt: new Date().toISOString(), endsAt: new Date(Date.now() + 7 * 86_400_000).toISOString(), daysLeft: 7 }), LINK)
     try {
@@ -286,7 +313,7 @@ describe('the card: a title, one line, one button', () => {
     const link: TeamLinkResponse = { ...LINK, link: { ...LINK.link!, skill: { path: QUOTE, name: 'quote-maker', title: 'quote-maker' } } }
     const m = await card(goal({ skill: null, joined: 0 }), link)
     try {
-      expect(m.html()).toContain("7일 안에 3명이 'quote maker' 써 보기")
+      expect(m.html()).toContain("동료와 함께 문서 만들어 보기: 'quote maker'")
       await m.click('team-goal-copy-invite')
       expect(copied[0]).toContain("'quote maker'")
       expect(m.html() + copied[0]).not.toContain('quote-maker')
@@ -352,7 +379,7 @@ describe('the card: a title, one line, one button', () => {
       try {
         const toggle = m.get('team-goal-toggle')
         // the title, and the counts as its second line
-        expect(toggle.textContent).toBe("7일 안에 3명이 '광고 문구' 써 보기1/3 · 5일 남음")
+        expect(toggle.textContent).toBe("동료와 함께 문서 만들어 보기: '광고 문구'1/3 · 5일 남음")
         expect(m.get('team-goal-progress').textContent).toBe('1/3 · 5일 남음')
         expect(toggle.getAttribute('aria-expanded')).toBe('false')
         // no frame, no rule under it
@@ -387,7 +414,7 @@ describe('the card: a title, one line, one button', () => {
   })
   test('English (the static renderer reads English)', () => {
     const h = renderToStaticMarkup(<MemoryRouter><GoalCard goal={goal({ daysLeft: 1, joined: 1, waiting: { first: 'Minji', more: 0 } })} onDismiss={() => {}} link={LINK} /></MemoryRouter>)
-    expect(h).toContain('Get 3 people using &#x27;광고 문구&#x27; in 7 days')
+    expect(h).toContain('Make documents together with your colleagues: &#x27;광고 문구&#x27;')
     expect(h).toContain(' · 1/3 · 1 day left')
     expect(h).toContain('Minji joined. Not tried yet: &#x27;광고 문구&#x27;.')
     expect(h).toContain('Send again')

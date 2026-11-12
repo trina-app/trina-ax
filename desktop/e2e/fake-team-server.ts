@@ -134,6 +134,9 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
   }
   if (p === '/') return new Response(teamPage(t), { headers: { 'content-type': 'text/html; charset=utf-8' } })
   if (p === '/app.js') return new Response(appJs, { headers: { 'content-type': 'text/javascript' } })
+  // the artifact receiver as the real server sends it (server/src/routes/web-static.ts): an opaque origin even when it
+  // is opened as the whole page, so the desktop bridge must not be there (QA TC-220)
+  if (p === '/sandbox/frame') return new Response('<!doctype html><title>frame</title><p id="frame">frame</p>', { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': 'sandbox allow-scripts' } })
   if (p === '/api/health') return json({ ok: true, version: '0.0.0-test', schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: new Date(Date.now() + t.skewMs).toISOString() })
   if (p === '/test/skew' && req.method === 'POST') {
     t.skewMs = Number(((await req.json()) as { ms?: number }).ms ?? 0)

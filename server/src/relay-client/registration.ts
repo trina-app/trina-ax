@@ -261,9 +261,13 @@ export async function recoverWithCode(o: { db: Database; relayApi: string; key: 
   return reg
 }
 
+// The relay refuses the same signed call twice (replay), and Ed25519 signs the same call in the same ms identically:
+// timestamps only go up, so two identical calls in one ms are still two different signed calls.
+let lastSignedTs = 0
+
 async function signed<T>(o: { relayApi: string; teamId: string; key: KeyObject }, method: string, p: string, body: unknown): Promise<T> {
   const text = body === undefined ? '' : JSON.stringify(body)
-  const ts = Date.now()
+  const ts = lastSignedTs = Math.max(Date.now(), lastSignedTs + 1)
   const sig = signB64(o.key, apiSigningString(method, p, ts, text))
   return call<T>(`${o.relayApi}${p}`, { method, headers: { authorization: authorizationHeader(o.teamId, ts, sig), ...(text ? { 'content-type': 'application/json' } : {}) }, body: text || undefined })
 }
