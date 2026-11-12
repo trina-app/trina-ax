@@ -4,17 +4,17 @@
 // grouped by folder ("전사 공유 › 양식 (3)", Google Drive's "Organize my files"): per row another folder (the plan's and
 // the existing ones, or a new one) or ✕ (the file stays where it went up), a new folder's name typed inline, one
 // [이대로 정리] and "나중에" (on to the next step, the files where they are). [이대로 정리] moves them on the server as
-// the caller; the result says what went where, holds PR B's forms card (`FormsSlot`, empty for now: the plan already
-// marks each form), asks once "이 n개는 'A사 리뉴얼' 프로젝트로 묶을까요?" when the AI saw such a group (a team project
+// the caller; the result says what went where, asks owners and admins whether the forms it moved become team skills
+// (FormSkills.tsx: "견적서 양식 … 스킬로 만들어둘까요?"), asks once "이 n개는 'A사 리뉴얼' 프로젝트로 묶을까요?" when the AI saw such a group (a team project
 // with the setup's team group as participant, its files moved into its folder; "나중에" drops the question) and goes on
 // with the step's next button. Nothing to sort, no answer: the run's own end screen (TeamFilesStep RunView) as before.
 // The state lives in this tab (another page and back: no second plan), keyed by the run; sign-out forgets it.
 import clsx from 'clsx'
 import { Check, ChevronRight, FolderPlus, Loader2, X } from 'lucide-react'
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { create } from 'zustand'
-import { ORGANIZE_LIMITS, SHARED_HOME, cleanFolderName, type OrganizeApplied, type OrganizePlan } from '@mycel/shared/api'
+import { ORGANIZE_LIMITS, SHARED_HOME, cleanFolderName, formSkillPaths, type OrganizeApplied, type OrganizePlan } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { onFolderUploadsForgotten, type Run } from '../../lib/folderRuns'
 import { useFolderWords } from '../../lib/folderLabels'
@@ -23,6 +23,7 @@ import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { Button, ErrorNote } from '../ui'
 import { Tooltip } from '../Tooltip'
+import { FormSkills } from './FormSkills'
 
 /** how often the page asks how far the plan is */
 const POLL_MS = 600
@@ -235,10 +236,6 @@ function FolderNameField({ name, id, disabled, onRename }: { name: string; id: s
   )
 }
 
-/** PR B's place: "견적서 양식 … 스킬로 만들어둘까요?" for the forms the plan moved (`forms`: their paths now). Nothing until
- * that lands. */
-export function FormsSlot(_: { forms: string[] }): ReactNode { return null }
-
 function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: OrganizeViewProps & { org: Extract<Org, { s: 'result' }> }) {
   const t = useT()
   const locale = useLocale()
@@ -250,8 +247,8 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
   const now = applied.moved.map((m) => org.where?.[m.to] ?? m.to)
   const inFolders = now.filter((p) => p.startsWith(`${SHARED_HOME}/`) && p.split('/').length === 3)
   const folders = [...new Set(inFolders.map((p) => p.split('/')[1]!))]
-  const moved = new Map(applied.moved.map((m) => [m.from, org.where?.[m.to] ?? m.to]))
-  const forms = plan.rows.filter((r) => r.form && moved.has(r.path)).map((r) => moved.get(r.path)!)
+  // the forms offered as skills (formSkillPaths), where they are now (a project may have taken one)
+  const forms = formSkillPaths(plan, applied).map((p) => org.where?.[p] ?? p)
   const project = plan.project
   const makeProject = async () => {
     if (!project) return
@@ -294,7 +291,7 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
         {folders.length > 0 && <p className="text-sm text-muted" data-testid="organize-result-folders">{shared} › {folders.join(', ')}</p>}
       </div>
       {applied.failed.length > 0 && <p className="text-sm text-warn" role="status" data-testid="organize-result-failed">{t('welcome.organize.failed', { n: applied.failed.length })}</p>}
-      <FormsSlot forms={forms} />
+      <FormSkills forms={forms} phone={phone} />
       {project && org.project !== 'later' && (
         <div className={clsx('space-y-2', phone ? 'border-y border-line py-3' : 'rounded-xl border border-line bg-surface p-4')} data-testid="organize-project" data-state={org.project}>
           {org.project === 'done' ? (

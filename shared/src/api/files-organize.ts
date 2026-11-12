@@ -9,6 +9,7 @@ import { RelPath, type Locale } from './common'
 import { BRAND_FOLDER, NOTES_FOLDER } from './onboarding-packs'
 import { endpoint } from './endpoint'
 import { TeamFileReason } from './onboarding-files'
+import { FORM_SKILLS_MAX, formSkillType } from './onboarding-skill'
 
 export const ORGANIZE_LIMITS = {
   /** at most this many uploaded files in one plan */
@@ -35,7 +36,9 @@ export const ORGANIZE_LIMITS = {
 export const FolderName = z.string().trim().min(1).max(ORGANIZE_LIMITS.folderChars).refine((s) => cleanFolderName(s) === s.normalize('NFC'), 'not a folder name')
 
 /** One uploaded file in the plan. `folder`: where it goes under shared/ (null: it stays where it is); `reason`: the kind
- * of document (the list's word); `form`: a reusable form or template (PR B offers it as a skill). */
+ * of document (the list's word); `form`: a reusable form or template, offered as a team skill once it moved
+ * (formSkillPaths). The server takes the mark off a file whose name holds a customer's or company's name (a filled-in
+ * copy, not the team's form). */
 export const OrganizeRow = z.object({ path: RelPath, folder: z.string().nullable(), reason: TeamFileReason.nullable(), form: z.boolean() })
 export type OrganizeRow = z.infer<typeof OrganizeRow>
 
@@ -176,6 +179,22 @@ export function organizePlan(o: { paths: readonly string[]; existing: readonly s
   const pp = o.ai?.project ? [...new Set(o.ai.project.paths)].filter((p) => known.has(p)) : []
   const project = o.ai?.project && pp.length >= ORGANIZE_LIMITS.projectMin ? { name: o.ai.project.name, paths: pp } : null
   return { folders, rows, project }
+}
+
+/**
+ * The forms the result screen offers as team skills ("견적서 양식, 주간보고 양식을 스킬로 만들어둘까요?"): rows the plan
+ * marked as a form that moved into the folder the plan proposed for them (a form the person sent elsewhere is no form to
+ * them), of a kind a skill can fill (FORM_SKILL_TYPES), each once, where they are now; at most FORM_SKILLS_MAX.
+ */
+export function formSkillPaths(plan: Pick<OrganizePlan, 'rows'>, applied: OrganizeApplied): string[] {
+  const out: string[] = []
+  for (const r of plan.rows) {
+    if (!r.form || !r.folder || out.length >= FORM_SKILLS_MAX) continue
+    const to = applied.moved.find((m) => m.from === r.path)?.to
+    if (!to || sharedFolderOf(to) === null || fold(sharedFolderOf(to)!) !== fold(r.folder) || !formSkillType(to) || out.includes(to)) continue
+    out.push(to)
+  }
+  return out
 }
 
 export const FILES_ORGANIZE = {

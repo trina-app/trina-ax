@@ -23691,3 +23691,64 @@ setup, folder suggestions come from the Move picker (PR C), never from an AI cal
   (propose → change → remove → rename → apply → project question → 나중에 → next; a project with the team group; no AI;
   nothing to sort; 390 px light and dark), `web/test/e2e/welcome-team-files.spec.ts` (the plan after the upload).
 - Version impact: **minor** (three API routes, new screens in the setup step; no migration).
+
+## Setup 팀 파일: forms become skills (feat/setup-forms-skills, 2026-11-12)
+
+넣을 곳: trina-ax core (`server/src/onboarding/form-skill.ts`, `skill-draft.ts`, `files-organize.ts`,
+`shared/src/api/onboarding-skill.ts`, `files-organize.ts`, `web/src/components/onboarding/FormSkills.tsx`,
+`SkillShareCard.tsx`, `scripts/system/packages.json`), 이유: the owner's locked plan "Files onboarding — final plan", PR
+B: a form uploaded at setup gets "이걸 스킬로 만들어둘까요?" at once (no "try it in chat first"). Built on "Setup 팀 파일:
+the AI proposes folders".
+
+- **Which forms.** On the 팀 파일 result screen, `formSkillPaths(plan, applied)`: rows the folder plan marked
+  `form: true` that moved into the folder the plan proposed for them (a form the person sent elsewhere is no form to
+  them), of a kind a skill can fill (`FORM_SKILL_TYPES`: .hwp, .hwpx, .xlsx, .docx; a Markdown or PDF "form" is not
+  offered), each once, at most `FORM_SKILLS_MAX` = 3. The server takes the form mark off a file whose name holds a
+  specific (`formNameSpecifics`, S's `specificsOf` over the name: a company with a suffix such as ㈜/주식회사, a person,
+  a date): "견적서_㈜에이스상사.xlsx" is a filled-in copy, not the team's form. A company name without a suffix
+  ("견적서_에이스상사.xlsx") is not caught: the heuristic's known gap, as in S. The start route checks the same again.
+- **The question** (owners and admins only, members never see it): "{forms}(을)를 스킬로 만들어둘까요?" with the forms'
+  names without extension, date or version (`formStem`), and "팀원이 '{kind} 만들어줘' 하면 이 양식대로 채워요." (`formKind`:
+  the first name without the words for a form). [만들기] / 나중에. One box, like the project question under it.
+- **The draft is S's draft from a file.** `POST /api/onboarding/skill-draft/from-form {path}` (owners and admins): the
+  file must be one the caller can open, a team file (`isTeamFilePath`), one the people a team skill is shared with can
+  open (S's stand-in; 409 `private` otherwise), and not a named copy (409 `named`). The form's text (extract.ts, text
+  layer, at most 8,000 characters; an unreadable form still drafts from its name) and path are the material; a new
+  chat of the caller marked in `onboarding_skill_drafts` like S's, with `source_path` (migration 288, additive) and no
+  source chat or message ('' in the NOT NULL columns: a table is never rebuilt). Every turn runs restricted like S's
+  (no tool, its own instructions: `formSkillSystemPrompt`, the text inside `<material>`). The same form again: the
+  unsaved draft, its one rewrite, or a new draft after a failed one (as S). Read with S's `GET …/skill-draft/:chatId`,
+  shared with S's `POST …/save`.
+- **The AI only names it.** The answer is `{title, description, inputs}`: the form's blanks that change every time, at
+  most 8, three visible (the rest folded as in S). It writes no steps (any it writes are ignored). A value written in the
+  form (a sample customer, a date, an amount, a phone) in the title, the line, a label or a placeholder is a specific:
+  one rewrite, then no card. The card's files are the form's folder and "the newest file named like it" (`like` = the
+  stem), shown as "양식 폴더의 가장 최근 견적서 양식".
+- **The fixed procedure** (`formSteps`, in the team's language, the same for every team; the AI must not invent
+  business steps): 1. the inputs; a missing must-have asked once, in one line; nothing invented. 2. the form: the newest
+  file of its folder whose name has the stem; none → ask the person for it. 3. never the form itself, always a copy:
+  .hwp/.hwpx with `edit_hwp` and always an `output` (without it the form would get a new version); .xlsx/.docx in
+  box_shell, python3 with openpyxl / python-docx, opening the form under `$TRINA_TEAM/`, keeping formatting, merged cells
+  and formulas, written in the folder the command starts in (a venv there when the import fails). 4. a new file named
+  from the form's kind, the inputs and today's date, "(2)" when taken. 5. the person's own folder (copied by box_shell
+  into `$TRINA_TEAM/users/<id>/`, the one team folder a command may write besides its start folder), or `move_files` to
+  a folder they name. 6. the link and what was filled. 7. only when filling fails (no dev environment, no HWP plugin, a
+  failed run): `make_file` with the same fields, saying the look may differ (.hwp falls back to .hwpx, else .docx). The
+  rules section is S's without "save only when asked" (saving is the skill's work) and with "never change the form".
+- **Sharing** is S's: re-read from the answer, the people it is shared with must open the form's folder, a free name,
+  the caller's `humanSave` of `skills/general/<slug>/SKILL.md`, audited (`onboarding.skill_share`, `sourcePath`).
+  Fixed on the way: a team without `skills/general/` yet could not share any draft (the name check under a missing
+  folder read every name as taken and ended in a 409).
+- **The card** is S's `SkillShareCard`, now also for a `formPath`: one per form; [팀에 공유] leaves "'견적서 만들기' 스킬을
+  팀에 공유했어요", its 나중에 drops that form. The state lives in the tab with the plan's (another step and back: the same).
+- **Dev environment packages.** `python3-openpyxl` and `python3-docx` (Debian 12/13, Ubuntu 24.04) join the `devenv`
+  group of `scripts/system/packages.json`, so the hosted image, install-linux.sh and install-srt.sh have them; a Mac's
+  own python3 has neither, so the procedure says to install them in a venv when the import fails (PyPI is an allowed
+  site).
+- **DS3 — origin.** A skill made here is the team's own: its origin is the team's own form plus the owner's (or an
+  admin's) OK on the card (owner decision 2026-11-12). DS3's "known origin" rule is about skills we ship; nothing here
+  ships, and the AI adds no work steps of its own.
+- Rejected: letting the AI write the steps (it invented business steps in S's acceptance runs; a form's procedure is the
+  same everywhere); filling .xlsx/.docx with make_file (the look of the team's form is the point); a "try it in chat
+  first" step (the owner: ask right away).
+- Tests: `tests/unit/b-form-skill.test.ts`, `web/test/unit/form-skills.test.tsx`, `web/test/e2e/welcome-form-skills.spec.ts`.

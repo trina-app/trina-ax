@@ -30,6 +30,8 @@ import { fail } from '../http/errors'
 import { componentC } from '../team-files/component'
 import { companyLines, runFilesTurn, sweepFileRanks } from './file-rank'
 import { parseOrganize, type OrganizeMaterial } from './files-organize-ai'
+import { formNameSpecifics } from './form-skill'
+import { namesOf } from './skill-draft'
 
 export const ORGANIZED_SETTING = 'onboarding.filesOrganized'
 /** a job is forgotten this long after it started */
@@ -136,7 +138,12 @@ export function startOrganize(ctx: AppContext, rt: ChatRuntime, who: OrganizeCal
     const existing = sharedFolders(ctx, who.id)
     const offered = sharedFolders(ctx, who.id, files)
     const finish = (ai: OrganizePlan['ai'], parsed: Parameters<typeof organizePlan>[0]['ai']): OrganizePlan => {
-      const plan: OrganizePlan = { ai, existing, ...organizePlan({ paths: files, existing, locale: teamLocale, ai: parsed }) }
+      const made = organizePlan({ paths: files, existing, locale: teamLocale, ai: parsed })
+      // a form whose name holds a customer's or company's name is a filled-in copy: no skill is offered for it
+      // (docs/DECISIONS.md "Setup 팀 파일: forms become skills")
+      const names = made.rows.some((r) => r.form) ? namesOf(ctx, who.id) : null
+      const rows = names ? made.rows.map((r) => (r.form && formNameSpecifics(r.path, names).length ? { ...r, form: false } : r)) : made.rows
+      const plan: OrganizePlan = { ai, existing, ...made, rows }
       job.status = { state: 'done', read: job.status.read, total: job.status.total, plan }
       return plan
     }
