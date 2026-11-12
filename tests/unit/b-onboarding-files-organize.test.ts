@@ -199,7 +199,8 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     expect(plan.rows).toEqual([{ path: 'shared/t/주간 회의록.md', folder: 'Meeting notes', reason: 'minutes', form: false }])
     expect(Date.now() - t0).toBeLessThan(8_000)
     expect(await gone()).toBe(true)
-    expect(h.ctx.db.query("SELECT COUNT(*) n FROM turns WHERE user_id = 'dana' AND status IN ('queued','running')").get()).toEqual({ n: 0 })
+    // the stop is asked at the timeout; the turn closes a moment later (slower on CI runners)
+    expect(await waitFor(() => (h.ctx.db.query("SELECT COUNT(*) n FROM turns WHERE user_id = 'dana' AND status IN ('queued','running')").get() as { n: number }).n === 0, { timeoutMs: 10_000 })).toBe(true)
   })
 
   test('applying: folders made, files of the plan moved as the caller, the emptied upload folder gone (never a default folder), a taken name renamed, the record; again: the first result', async () => {
