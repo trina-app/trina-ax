@@ -1,54 +1,43 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="72" alt="Trina AX Logo">
+<img src="web/public/favicon.svg" width="64" alt="Trina AX Logo">
 
-# Trina AX
+<h1>全队共用的 AI。</h1>
 
-**全队共用的 AI。**
+Trina AX 把团队的文件、技能和工具放在一台服务器上。每个人的 AI 都从这里开始，<br>AI 打开的每个文件，都会按提问者本人的权限检查。
 
-团队的文件、技能和工具，都放在一台服务器上。每个人的 AI 都从这里开始。
+<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="在 App Store 下载"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="在 Google Play 下载"></a>
 
-[官网](https://ax.trina.app) · [下载](https://ax.trina.app/download) · [文档](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
-
-<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="在 App Store 下载"></a>&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="在 Google Play 下载"></a>
+[官网](https://ax.trina.app) · [下载 Mac 和 Windows 版](https://ax.trina.app/download) · [文档](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文
 
-</div>
-
 <br>
 
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="观看 97 秒的故事：团队负责人 Alex 只写一句话，就拿到一份 7 页的提案；入职第一天的 Mina 问了同样的问题，她的 AI 却回答“Trina Logistics? Who are they?”"></a>
+<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="观看 97 秒的故事。同一个 Claude、同一个请求，结果却不一样：团队负责人 Alex 拿到一份 7 页的提案；入职第一天、文件夹还是空的 Mina，得到的却是“Trina Logistics? Who are they?”。有了 Trina，Mina 的 AI 也从团队的文件和技能开始。"></a>
 
-<p align="center"><sub>新同事的 AI 从一个空文件夹开始。Trina 把团队的文件夹交给它。</sub></p>
-
-## 工作原理
-
-<img src="docs/images/readme/v3/how.png" width="100%" alt="1 放入文件和技能：文件窗口里能看到每个文件夹谁能打开，还有 Customer quote 技能的四个步骤。2 连接你的工具：Higgsfield、Notion、Linear、GitHub 和公司 API 都经过你的 Trina 服务器，按人检查权限；一份用 Higgsfield 照片做的幻灯片。3 邀请团队成员：Mina、Alex 和 Sam 在各自的设备上提问，都连到同一台 Trina 服务器，各用各的权限。">
+</div>
 
 ## 团队能得到什么
 
-<img src="docs/images/readme/v3/room.png" width="100%" alt="在任何对话旁边提问，一键发出：在 Expo booth crew 对话里，Mina 在只有她能看到的侧边聊天里问 Trina，再把回答发到对话里。">
+**在任何对话旁边提问，一键发出。** 侧边聊天只有你能看到；点一下，Trina 的回答就发到对话里。
 
-<p>
-<img src="docs/images/readme/v3/access.png" width="49%" alt="每个人只看到自己能打开的内容：每个文件夹旁显示能打开它的人的头像；Mina 打不开 shared/Finance。">
-<img src="docs/images/readme/v3/handoff.png" width="49%" alt="接着同事的 AI 聊天做：Sam 用自己的权限继续 Mina 的项目聊天。">
-</p>
+<img src="docs/images/readme/v3/room.gif" width="100%" alt="在 Expo booth crew 对话里，Mina 在只有她能看到的侧边聊天里问 Trina 11 月 17 日进场的事，点一下按钮，就把回答发到对话里。">
 
-<p>
-<img src="docs/images/readme/v3/skills.png" width="32%" alt="把团队的做法写下来：团队负责人的 Customer quote 技能，Mina、Sam 和 Jordan 都在用。">
-<img src="docs/images/readme/v3/tools.png" width="32%" alt="连接你们在用的工具：任何 MCP 服务器、Google Drive、Slack、公司 API。">
-<img src="docs/images/readme/v3/versions.png" width="32%" alt="每次改动都会保留：Alex、Mina 和 Sam 保存的 Price sheet.xlsx 各个版本，其中一个是在 AI 回答时保存的，都可以恢复。">
-</p>
+**每个人只看到自己能打开的内容。** Mina 打不开 Finance，她的 AI 也打不开。[权限如何运作](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-answers.png" width="100%" alt="Alex 和 Mina 都问“What was our revenue last quarter?”。Alex 能打开 Finance，得到 $498,000；Mina 打不开，所以她的 AI 说，在她能打开的文件里没有找到营收数据。">
+<img src="docs/images/readme/v3/access-band.png" width="100%" alt="每个文件夹旁显示能打开它的人的头像；Mina 打不开 shared/Finance。">
 
-AI 打开的每个文件，都会以提问者本人的身份检查权限。[权限如何运作](docs/PERMISSIONS.md)
+- 🤝 **接着同事的 AI 聊天做。** 继续同事的项目聊天，你的提问按你自己的权限处理。
+- 📋 **团队技能。** 把团队的做法写下来一次，每个人的 AI 都照着做。
+- 🔌 **你们在用的工具。** 任何 MCP 服务器、Google Drive、Slack 和公司 API，按人检查权限。
+- 🕘 **每次改动都会保留。** 不管是人改的还是 AI 改的，任何版本都能恢复。
+- 📱 **任何设备。** Mac、iPhone、Android、Windows，以及任何浏览器。
 
 ## 开始使用
 
-- **Trina 托管：** 不用自己运维服务器。14 天免费试用，之后按月订阅。[套餐](https://ax.trina.app/#pricing)
-- **应用：** Mac、iPhone、Android 和 Windows，或任何浏览器。[下载](https://ax.trina.app/download)
+- **Trina 托管：** 不用自己运维服务器。14 天免费试用，之后按月订阅。[套餐](https://ax.trina.app/pricing)
+- **应用：** [Mac、iPhone、Android 和 Windows](https://ax.trina.app/download)，或任何浏览器。
 - **自托管：** 你们自己的 Linux 服务器、Docker 或办公室 Mac。免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md)
 
 <details>

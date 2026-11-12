@@ -1,54 +1,43 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="72" alt="Logotipo de Trina AX">
+<img src="web/public/favicon.svg" width="64" alt="Logotipo de Trina AX">
 
-# Trina AX
+<h1>La IA que comparte todo tu equipo.</h1>
 
-**La IA que comparte todo tu equipo.**
+Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un solo servidor. La IA de cada persona empieza desde ahí,<br>y cada archivo que abre se comprueba con los permisos de quien preguntó.
 
-Los archivos, las skills y las herramientas de tu equipo en un solo servidor. La IA de cada persona empieza desde ahí.
+<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Descargar en el App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponible en Google Play"></a>
 
-[Sitio web](https://ax.trina.app) · [Descargar](https://ax.trina.app/download) · [Documentación](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
-
-<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Descargar en el App Store"></a>&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponible en Google Play"></a>
+[Sitio web](https://ax.trina.app) · [Descargar para Mac y Windows](https://ax.trina.app/download) · [Documentación](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
-</div>
-
 <br>
 
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="Mira la historia de 97 segundos: Alex, responsable de equipo, consigue una propuesta de 7 páginas con una sola línea; Mina, en su primer día, pide lo mismo y su IA responde 'Trina Logistics? Who are they?'"></a>
+<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="Mira la historia de 97 segundos. El mismo Claude y la misma petición, con resultados distintos: Alex, responsable de equipo, recibe una propuesta de 7 páginas; Mina, en su primer día y con la carpeta vacía, recibe 'Trina Logistics? Who are they?'. Con Trina, la IA de Mina empieza desde los archivos y las skills del equipo."></a>
 
-<p align="center"><sub>La IA de una persona nueva empieza en una carpeta vacía. Trina le da la del equipo.</sub></p>
-
-## Cómo funciona
-
-<img src="docs/images/readme/v3/how.png" width="100%" alt="1 Añade tus archivos y skills: una ventana de Archivos que muestra quién puede abrir cada carpeta y los cuatro pasos de la skill Customer quote. 2 Conecta tus herramientas: Higgsfield, Notion, Linear, GitHub y la API de tu empresa pasan por tu servidor de Trina, que comprueba a cada persona; una presentación hecha con fotos de Higgsfield. 3 Invita a tu equipo: Mina, Alex y Sam preguntan desde sus propios dispositivos, todos al mismo servidor de Trina y cada uno con sus propios accesos.">
+</div>
 
 ## Lo que recibe tu equipo
 
-<img src="docs/images/readme/v3/room.png" width="100%" alt="Pregunta junto a cualquier conversación y envía con un clic: en la conversación Expo booth crew, Mina le pregunta a Trina en un chat lateral que solo ve ella y luego envía la respuesta a la conversación.">
+**Pregunta junto a cualquier conversación y envía con un clic.** Un chat lateral que solo ves tú; con un clic, la respuesta de Trina llega a la conversación.
 
-<p>
-<img src="docs/images/readme/v3/access.png" width="49%" alt="Cada persona ve solo lo que puede abrir: carpetas con las caras de quienes pueden abrirlas; Mina no puede abrir shared/Finance.">
-<img src="docs/images/readme/v3/handoff.png" width="49%" alt="Retoma el chat de IA de un compañero: Sam continúa el chat de proyecto de Mina, con sus propios accesos.">
-</p>
+<img src="docs/images/readme/v3/room.gif" width="100%" alt="En la conversación Expo booth crew, Mina le pregunta a Trina en un chat lateral que solo ve ella por el montaje del 17 de noviembre, y con un botón envía la respuesta a la conversación.">
 
-<p>
-<img src="docs/images/readme/v3/skills.png" width="32%" alt="Escribe cómo trabaja tu equipo: la skill Customer quote de quien lidera el equipo, que usan Mina, Sam y Jordan.">
-<img src="docs/images/readme/v3/tools.png" width="32%" alt="Conecta las herramientas que ya usas: cualquier servidor MCP, Google Drive, Slack o la API de tu empresa.">
-<img src="docs/images/readme/v3/versions.png" width="32%" alt="Se guarda cada cambio: versiones de Price sheet.xlsx de Alex, Mina y Sam, incluida una guardada durante una respuesta de la IA, con la opción Restaurar.">
-</p>
+**Cada persona ve solo lo que puede abrir.** Si Mina no puede abrir Finance, su IA tampoco. [Cómo funcionan los permisos](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-answers.png" width="100%" alt="Alex y Mina preguntan 'What was our revenue last quarter?'. Alex puede abrir Finance y obtiene $498,000; Mina no puede, así que su IA responde que no encontró cifras de ingresos en los archivos que ella puede abrir.">
+<img src="docs/images/readme/v3/access-band.png" width="100%" alt="Carpetas con las caras de quienes pueden abrirlas; Mina no puede abrir shared/Finance.">
 
-Cada archivo que abre la IA se comprueba con los permisos de quien preguntó. [Cómo funcionan los permisos](docs/PERMISSIONS.md)
+- 🤝 **Retoma el chat de IA de un compañero.** Sigue su chat de proyecto; lo que tú pidas se hace con tus permisos.
+- 📋 **Skills del equipo.** Escribe una vez cómo trabaja tu equipo y la IA de todos lo sigue.
+- 🔌 **Tus herramientas.** Cualquier servidor MCP, Google Drive, Slack y la API de tu empresa, con permisos para cada persona.
+- 🕘 **Se guarda cada cambio.** Lo haga una persona o su IA, puedes recuperar cualquier versión.
+- 📱 **En cualquier dispositivo.** Mac, iPhone, Android, Windows y cualquier navegador.
 
 ## Cómo empezar
 
-- **Hosting de Trina:** sin servidor que gestionar. Prueba gratis de 14 días y luego un plan mensual. [Planes](https://ax.trina.app/#pricing)
-- **Apps:** Mac, iPhone, Android y Windows, o cualquier navegador. [Descargar](https://ax.trina.app/download)
+- **Hosting de Trina:** sin servidor que gestionar. Prueba gratis de 14 días y luego un plan mensual. [Planes](https://ax.trina.app/pricing)
+- **Apps:** [Mac, iPhone, Android y Windows](https://ax.trina.app/download), o cualquier navegador.
 - **Autoalojamiento:** en tu propio servidor Linux, con Docker o en un Mac de la oficina. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac de oficina](docs/OFFICE.en.md)
 
 <details>
