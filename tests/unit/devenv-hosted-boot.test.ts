@@ -1,6 +1,6 @@
 // The hosted boot of the dev environment on srt (docs/research/srt-hosted-boot.md): scripts/image/files/mycel-devenv-boot
-// maps the control plane's plan.json to dev-env.json. Its output must pass the server's own parser (parsePlan, the same
-// rules as mycel-boxd). The boot itself (files, drop-in, slice, restart rules) is tested in Docker by
+// maps the control plane's plan.json to dev-env.json. Its output must pass the server's own parser (parsePlan in
+// server/src/devenv/srt/plan.ts). The boot itself (files, drop-in, slice, restart rules) is tested in Docker by
 // scripts/image/test-customize.sh.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'

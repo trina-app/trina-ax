@@ -2,8 +2,8 @@
 // "Projects: a folder with instructions"), not by looking up its path in the trash. Review round 2 found three ways the
 // path lookup went wrong: a purge deleted the trash row and the finance-only project showed to every member again; a
 // restore under a " (restored)" name left the project on its old path, now someone else's folder; and an old, unrelated
-// trash row at a path hid a new project there from its own maker. Also: the dev environment (who may use the box, who
-// hears that it stopped, who may open its preview), moves, one project per folder through a restore, and the backfill.
+// trash row at a path hid a new project there from its own maker. Also: the dev environment's inbox entries, moves, one
+// project per folder through a restore, and the backfill.
 // While its folder is in the trash or purged nobody reads a project, the owner and admins included; they manage it
 // (list it with manage=1, rename, delete, restore), and repoint it only as members of what it held (docs/DECISIONS.md
 // "Project contents only for members").
@@ -13,10 +13,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiError } from '@mycel/shared/api'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
-import { setBoxdClient, type BoxdClient } from '../../server/src/devenv/boxd'
-import { pollJobs, pollStops } from '../../server/src/devenv/jobs'
-import { issuePreview, previewFetch } from '../../server/src/devenv/preview'
-import { mayUseBox, newConsent, OFF_SETTING, saveDevEnvSetting } from '../../server/src/devenv/setting'
 import { notificationsOf, notifyDevEnv } from '../../server/src/notifications/service'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
@@ -359,57 +355,19 @@ describe('an admin edits a project whose folder is in the trash (review round 4)
 })
 
 describe('the dev environment of a project whose folder is in the trash', () => {
-  const boxes: { box: string; state: 'stopped'; startedAt: null; lastActiveAt: null; memoryMiB: null; stopCode: string; stopReason: string; stoppedAt: string }[] = []
-  const fake: BoxdClient = {
-    async status() { return { ok: true, value: { ev: 'status', available: true, boxes } } },
-    async ensure() { return { ok: true, value: { ev: 'ok' } } },
-    async stop() { return { ok: true, value: { ev: 'ok' } } },
-    async ps() { return { ok: true, value: { ev: 'ps', processes: [] } } },
-    async preview() { return { ok: true, value: { ev: 'preview', socket: '/nonexistent/preview.sock' } } },
-    async exec() { return { ok: true, value: { ev: 'exit', code: 0, signal: '', stdout: '', stderr: '', truncated: false, ms: 1 } } },
-  } as BoxdClient
-  beforeAll(() => { process.env.MYCEL_DEV_ENV = '1'; process.env.MYCEL_DEV_PREVIEW_ORIGIN = 'https://*.preview.example.net'; setBoxdClient(fake) })
-  afterAll(() => { delete process.env.MYCEL_DEV_ENV; delete process.env.MYCEL_DEV_PREVIEW_ORIGIN; setBoxdClient(null) })
-
-  test('nobody uses the box, only admins hear that it stopped, and an open preview stops working for members', async () => {
+  test('an inbox entry of the removed box runner (a stop, a job) names no project and links nothing', async () => {
     financeOnly('shared/s4', 's4')
     const p = await project('bob', 'shared/s4', 'Box plan')
-    saveDevEnvSetting(h.ctx.db, p.id, { ...OFF_SETTING, enabled: true, consent: newConsent({ id: 'carol', name: 'Carol Park' }) })
-    const ref = { id: p.id, folderPath: 'shared/s4' }
-    expect(mayUseBox(h.ctx.db, h.ctx.files, ref, 'bob')).toBe(true)
-    // bob opens a preview while he may
-    const link = issuePreview(h.ctx, { projectId: p.id, folderPath: 'shared/s4', port: 5173, userId: 'bob' }) as { url: string }
-    const u = new URL(link.url)
-    const upstream = async () => new Response('<h1>dev</h1>')
-    const open = (p2: string, cookie?: string) => previewFetch(h.ctx, new Request(`https://${u.host}${p2}`, { headers: { host: u.host, ...(cookie ? { cookie } : {}) } }), upstream)
-    const cookie = (await open(u.pathname + u.search)).headers.get('set-cookie')!.split(';')[0]!
-    expect((await open('/', cookie)).status).toBe(200)
-
-    await trash('carol', 'shared/s4')
-    // shared/s4 now falls back to shared/ (everyone writes): before, alice and bob could use the box and hear of it
-    for (const who of ['alice', 'bob', 'carol']) expect(mayUseBox(h.ctx.db, h.ctx.files, ref, who)).toBe(false)
-    expect((await open('/', cookie)).status).toBe(403)
-    const told: string[] = []
-    const real = h.ctx.services.realtime.publish.bind(h.ctx.services.realtime)
-    h.ctx.services.realtime.publish = ((user: string, frame: never) => { if ((frame as { data?: { code?: string } }).data?.code === 'dev_env_box_stopped') told.push(user); return real(user, frame) }) as typeof h.ctx.services.realtime.publish
-    try {
-      boxes.splice(0, boxes.length, { box: p.id, state: 'stopped', startedAt: null, lastActiveAt: null, memoryMiB: null, stopCode: 'disk', stopReason: 'disk', stoppedAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z') })
-      await pollStops(h.ctx)
-    } finally { h.ctx.services.realtime.publish = real }
-    expect(told.sort()).toEqual(['carol', 'dana'])
-
-    // a job of bob's that ends now: no notice for him (its log stays out)
-    h.ctx.db.query("INSERT INTO dev_env_jobs (id, project_id, name, user_id, started_at) VALUES ('job-s4', ?, 'build', 'bob', '2020-01-01T00:00:00.000Z')").run(p.id)
-    expect(await noticesDuring('dev_env_job', () => pollJobs(h.ctx, p.id))).toEqual([])
-    expect(h.ctx.db.query("SELECT ended_at IS NOT NULL AS ended FROM dev_env_jobs WHERE id = 'job-s4'").get()).toEqual({ ended: 1 })
-    // bob's inbox entry for a stop of this box does not name the project, also once a folder is made at its old path
-    fs.mkdirSync(path.join(h.team, 'shared/s4'), { recursive: true })
+    h.ctx.db.query("INSERT INTO dev_env_jobs (id, project_id, name, user_id, started_at, ended_at, exit_code) VALUES ('job-s4', ?, 'build', 'bob', '2020-01-01T00:00:00.000Z', '2020-01-01T00:01:00.000Z', 0)").run(p.id)
     h.ctx.db.query("INSERT INTO dev_env_stops (id, project_id, code, reason, stopped_at) VALUES ('stop-s4', ?, 'disk', '', '2026-11-02T10:00:00Z')").run(p.id)
-    notifyDevEnv(h.ctx, 'bob', 'dev_env.box', 'stop-s4')
-    const entry = notificationsOf(h.ctx).list('bob', {}).items.find((i) => i.sourceId === 'stop-s4')!
-    expect(entry).toBeDefined()
-    expect(entry.devEnv).toBeUndefined()
-    expect(entry.link).toBeNull()
+    notifyDevEnv(h.ctx, 'bob', 'dev_env.job', 'job-s4')
+    notifyDevEnv(h.ctx, 'carol', 'dev_env.box', 'stop-s4')
+    for (const [who, id] of [['bob', 'job-s4'], ['carol', 'stop-s4']] as const) {
+      const entry = notificationsOf(h.ctx).list(who, {}).items.find((i) => i.sourceId === id)!
+      expect(entry).toBeDefined()
+      expect(entry.devEnv).toBeUndefined()
+      expect(entry.link).toBeNull()
+    }
   })
 
   test('the inbox entry of a scheduled run in a chat of that project does not link the chat', async () => {

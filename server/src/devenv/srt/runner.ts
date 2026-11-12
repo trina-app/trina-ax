@@ -1,7 +1,7 @@
-// The srt runner of the dev environment (docs/research/srt-dev-env.md). On with MYCEL_DEV_ENV_RUNNER=srt; the box
-// (mycel-boxd) stays the default until a later PR removes it. The AI's commands run on the team server as the server
-// account, inside Anthropic's sandbox runtime srt (bwrap, a proxy with a domain allowlist), in a `systemd-run --scope`
-// unit with memory, CPU and pids limits. Each command, job or dev server is one srt process in its own scope.
+// The srt runner of the dev environment (docs/research/srt-dev-env.md), the only runner (docs/DECISIONS.md "Dev
+// environment: box runner removed, srt only"). The AI's commands run on the team server as the server account, inside
+// Anthropic's sandbox runtime srt (bwrap, a proxy with a domain allowlist), in a `systemd-run --scope` unit with
+// memory, CPU and pids limits. Each command, job or dev server is one srt process in its own scope.
 //
 // A run is not locked to a project. It belongs to the person who owns the chat: it may read and write exactly the team
 // folders that person may open now (srt/access.ts, built from the folder rules for every command and every job start),
@@ -26,7 +26,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { DevEnvRun, DevEnvRuns } from '@mycel/shared/api'
-import type { BoxdExit, BoxdJob } from '@mycel/shared'
+import type { RunExit, RunJob } from './types'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { storageRoom } from '../../system/storage'
@@ -378,9 +378,8 @@ export function runProblem(ctx: AppContext): string | null {
   return lim.ok ? null : lim.message
 }
 
-/** A foreground command: the call waits for it. The answer has the shape of boxd's exec answer, so tool.ts reads both
- * runners the same way. */
-export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[] }): Promise<{ ok: true; value: BoxdExit } | { ok: false; message: string }> {
+/** A foreground command: the call waits for it. The answer is a RunExit (srt/types.ts), which tool.ts reads. */
+export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[] }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
   const c = srtConfig()
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
@@ -445,7 +444,7 @@ export const runNameInUse = (db: Database, userId: string, name: string) =>
 export type SubmitResult = { ok: true; state: 'running' | 'waiting'; position: number | null; rowId: string } | { ok: false; message: string }
 
 /** The command of a row that has not started: a file in the run folder (0600, hidden from the sandbox). The row keeps
- * only the text with secrets hidden (`shown`), as for the box. */
+ * only the text with secrets hidden (`shown`). */
 const commandFile = (c: SrtConfig, rowId: string) => path.join(devenvPaths(c.base).run, `${rowId}.cmd`)
 function keepCommand(rowId: string, command: string) {
   const c = srtConfig()
@@ -619,11 +618,11 @@ async function rowStatus(c: SrtConfig, r: RunRow): Promise<{ running: true; tail
 const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
 
 /** The tracker's step for the srt runner: end rows whose run ended, stop runs whose person's access changed, stop idle
- * dev servers, stop everything at the disk floor. Returns the BoxdJob view of each row it read, for jobs.ts, and the
+ * dev servers, stop everything at the disk floor. Returns the RunJob view of each row it read, for jobs.ts, and the
  * people whose runs stopped at the disk floor. */
-export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; userId?: string }): Promise<{ rows: Map<string, BoxdJob & { reason?: EndReason }>; diskStopped: string[] }> {
+export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; userId?: string }): Promise<{ rows: Map<string, RunJob & { reason?: EndReason }>; diskStopped: string[] }> {
   const c = srtConfig()
-  const out = new Map<string, BoxdJob & { reason?: EndReason }>()
+  const out = new Map<string, RunJob & { reason?: EndReason }>()
   const room = storageRoom(0)
   const diskStopped = room && !room.ok ? await stopAll(ctx, 'disk') : []
   // the access of a run depends on the person and on its starting folder (only that folder is writable)
