@@ -441,6 +441,7 @@ export const es: Record<MessageKey, string> = {
   'composer.stop': "Detener respuesta",
   'composer.engine': "Elegir IA",
   'composer.defaultEngine': "IA predeterminada",
+  'composer.engineNow': "Elegir IA, ahora: {engine}",
   'composer.defaultModel': "Modelo predeterminado",
   'composer.fromComputer': "Subir desde el equipo",
   'composer.fromTeam': "Añadir desde archivos del equipo",
