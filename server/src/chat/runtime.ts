@@ -1287,16 +1287,6 @@ export class ChatRuntime {
   }
   resume() { this.closing = false; this.schedule() }
 
-  /** Turns that never ran (TurnExec.neverRan) and ended at shutdown: queued again with their place (queue_seq), their
-   * answer waiting as it did; recoverState runs them after the restart. */
-  private requeueForRestart(execs: TurnExec[]) {
-    this.db.transaction(() => { for (const e of execs) {
-      const r = this.db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL WHERE id=? AND status IN ('interrupted','error','stopped')").run(e.id)
-      if (r.changes) this.db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(e.spec.assistantId)
-    } })()
-    this.log.info('answers queued again for the restart', { n: execs.length })
-  }
-
   private shutdownP: Promise<void> | null = null
   shutdown(): Promise<void> {
     if (this.shutdownP) return this.shutdownP
@@ -1319,11 +1309,10 @@ export class ChatRuntime {
         if (cause === 'update') { try { setSetting(this.db, STOPPED_FOR_UPDATE, new Date().toISOString()) } catch (e) { this.log.warn('noting the update stop failed', { err: e }) } }
         this.log.info('stopping the running answers', { n: execs.length, cause })
       }
-      // answers that only waited for a stopping launcher never ran: back to the queue, the next start runs them in order
-      const waiting = execs.filter((e) => e.neverRan)
-      for (const e of execs) e.interrupt(cause)
+      // answers that only waited for a stopping launcher never ran: their end puts them back in the queue, and the next
+      // start runs them in order (TurnExec.interruptForRequeue)
+      for (const e of execs) e.interruptForRequeue(cause)
       await Promise.race([Promise.all(execs.map((e) => e.done)), Bun.sleep(6000)])
-      if (waiting.length) { try { this.requeueForRestart(waiting.filter((e) => e.status === 'finished')) } catch (e) { this.log.warn('queueing answers for the restart failed', { err: e }) } }
       this.relay.close()
       this.hub.close()
     })()

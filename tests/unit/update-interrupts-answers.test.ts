@@ -20,11 +20,13 @@ const spies: { mockRestore(): void }[] = []
 /** what each turn's engine does, by the chat's id (default: ends at once, normally) */
 const engines = new Map<string, (exec: TurnExec) => Promise<void>>()
 const execs: TurnExec[] = []
+/** the engine of chats not in `engines` (a scheduled run's new chat) */
+const fallback: { engine: ((exec: TurnExec) => Promise<void>) | null } = { engine: null }
 
 async function setup(name: string, o: { reuse?: boolean } = {}) {
   spies.push(spyOn(TurnExec.prototype as any, 'execute').mockImplementation(async function (this: TurnExec) {
     execs.push(this)
-    await engines.get(this.spec.chatId)?.(this)
+    await (engines.get(this.spec.chatId) ?? fallback.engine)?.(this)
   }))
   h = await harness(`upd-${name}`, {}, o)
   if (!o.reuse) await withOwner(h)
@@ -40,7 +42,7 @@ async function setup(name: string, o: { reuse?: boolean } = {}) {
 }
 afterEach(async () => {
   for (const s of spies.splice(0)) s.mockRestore()
-  engines.clear(); execs.length = 0
+  engines.clear(); execs.length = 0; fallback.engine = null
   if (h) await h.close()
 })
 
@@ -259,4 +261,27 @@ test('an answer that only waited for the stopping launcher when the server stopp
   await setup('requeue', { reuse: true })
   expect(await waitFor(() => turnStatus(t.turnId) === 'done' && turnStatus(q.turnId) === 'done')).toBe(true)
   expect(execs.map((e) => e.id)).toEqual([t.turnId, q.turnId])
+}, 60_000)
+
+test('a scheduled run that only waited for the launcher at the server stop: no outcome, no inbox notice; it runs after the restart', async () => {
+  await setup('requeue-schedule')
+  rt.launcherBack = async () => false
+  const launches = { n: 0 }
+  fallback.engine = launcherRefuses(1, launches)
+  const s = rt.schedules.create('olga', { title: 'Synthetic', prompt: 'synthetic task', repeat: 'once', date: '2099-10-27', time: '09:00' }, new Date('2099-10-26T00:00:00Z'), CONFIRMED)
+  expect(rt.schedules.runDue(new Date('2099-10-27T09:01:00Z'))).toEqual([s.id])
+  expect(await waitFor(() => rt.launcherHeld && launches.n === 1)).toBe(true)
+  const run = h.ctx.db.query('SELECT id, message_id FROM turns WHERE schedule_id=?').get(s.id) as { id: string; message_id: string }
+  rt.shutdownCause = () => 'update'
+  await rt.shutdown()
+  expect(h.ctx.db.query('SELECT status, run_outcome, ended_at FROM turns WHERE id=?').get(run.id)).toEqual({ status: 'queued', run_outcome: null, ended_at: null })
+  expect(message(run.message_id)).toEqual({ status: 'streaming', error: null })
+  const notices = () => (h.ctx.db.query("SELECT COUNT(*) n FROM notification_inbox WHERE source_id=?").get(run.id) as { n: number }).n
+  expect(notices()).toBe(0)
+  for (const x of spies.splice(0)) x.mockRestore()
+  execs.length = 0; fallback.engine = null
+  await h.close()
+  await setup('requeue-schedule', { reuse: true })
+  expect(await waitFor(() => turnStatus(run.id) === 'done')).toBe(true)
+  expect((h.ctx.db.query('SELECT COUNT(*) n FROM turns WHERE schedule_id=?').get(s.id) as { n: number }).n).toBe(1)
 }, 60_000)

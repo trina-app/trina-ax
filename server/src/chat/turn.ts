@@ -327,6 +327,15 @@ export class TurnExec {
   /** The turn never ran: it waits for the launcher and no engine of it started. A server stop puts it back in the queue
    * (ChatRuntime.shutdown) instead of failing it. */
   get neverRan(): boolean { return this.waitingLauncher && !this.engineStarted && !this.producedOutput }
+  /** set by the server's stop for a turn that never ran: its end puts it back in the queue instead of ending it */
+  private requeueOnEnd = false
+  /** The server stops (ChatRuntime.shutdown) while this turn never ran: stop it and end it back in the queue, with its
+   * place, for the next start (no error, no answer end announced, nothing delivered to a room, Slack or the inbox). */
+  interruptForRequeue(cause: 'update' | 'restart') {
+    if (!this.neverRan) return this.interrupt(cause)
+    this.requeueOnEnd = true
+    this.interrupt(cause)
+  }
   /** why a stop for 'shutdown' happened: an update (the answer says so) or another restart */
   private interruptedFor: 'update' | 'restart' | null = null
   private quarantined = false
@@ -3459,6 +3468,16 @@ export class TurnExec {
     if (this.clock) clearInterval(this.clock)
     if (this.wallClock) clearTimeout(this.wallClock)
     if (this.stopGrace) clearTimeout(this.stopGrace)
+    if (this.requeueOnEnd && !this.engineStarted && !this.producedOutput && !this.terminationUnconfirmed) {
+      let back = false
+      try { back = this.endBackInQueue() } catch (e) { this.rt.log.error('queueing the turn for the restart failed', { err: e, turn: this.id }) }
+      if (back) {
+        this.status = 'finished'
+        try { this.rt.turnFinished(this) } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
+        this.resolveDone()
+        return
+      }
+    }
     let status: MessageStatus = 'error'
     try { status = this.finishState() } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
@@ -3471,6 +3490,26 @@ export class TurnExec {
     } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
     try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
     finally { this.resolveDone() }
+  }
+
+  /** The end of a turn that never ran, at the server's stop (interruptForRequeue): queued again with its place
+   * (queue_seq, started_at), its answer waiting as before; recoverState runs it after the restart. True if it is. */
+  private endBackInQueue(): boolean {
+    this.finishStep('held answers', () => this.dropHeldAnswers())
+    for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
+    this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('proxy', () => this.proxyUnsubscribe?.())
+    try { revokeProxyTokens(this.rt.db, this.id) } catch {}
+    try { if (this.registered) this.activeCore?.turns.revoke(this.id, 'interrupted') } catch {}
+    const db = this.rt.db
+    const ok = db.transaction(() => {
+      const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL WHERE id=? AND status='running'").run(this.id)
+      if (!r.changes) return false
+      db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(this.spec.assistantId)
+      return true
+    })()
+    if (ok) this.rt.log.info('turn queued again for the restart (it never ran)', { turn: this.id })
+    return ok
   }
 
   /** An engine that stopped, or a turn that threw: on a full disk say so (the error is ENOSPC / SQLite full, the engine's

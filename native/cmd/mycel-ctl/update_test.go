@@ -910,3 +910,20 @@ func TestUpdateWaitsVisiblyAndTellsTheLauncher(t *testing.T) {
 		t.Fatalf("the launcher is told right before its restart: %v", c)
 	}
 }
+
+// An update of root files only (the app keeps its version, so the server is not restarted after the launcher) says
+// "update-root": the server's queue then goes on as soon as the launcher is back.
+func TestUpdateRootOnlyTellsTheLauncher(t *testing.T) {
+	tb := boxdBase(t)
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-boxd"), []byte("same boxd"), 0o755))
+	boxdUnitFile(t, tb.base+"/root/mycel-boxd")
+	arch, k := boxdArchive(t, "0.1.0", "same boxd")
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
+	c := tb.calls()
+	if code != 0 || !r.RootUpdated || r.AppUpdated {
+		t.Fatalf("%d %+v %v", code, r, c)
+	}
+	if p, l := indexOf(c, "prepare-stop update-root"), indexOf(c, "restart mycel-launcher.service"); p < 0 || l != p+1 {
+		t.Fatalf("calls: %v", c)
+	}
+}
