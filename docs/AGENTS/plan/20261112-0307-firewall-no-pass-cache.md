@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 03:07
 - Branch: `fix/firewall-no-pass-cache`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`native/cmd/mycel-launcher`, `native/cmd/mycel-ctl`, `server/src/system/ops.ts`). Why: the
   Linux run base is core (docs/REPOSITORY-RULES.md).
 - Version impact: patch (security follow-up to the live firewall check of #543; no API shape, data or migration change).
@@ -41,4 +41,7 @@ Security: removing the cache only adds probes. Load: one probe (three local TCP 
 
 ## Result
 
-Filled in at the end.
+Built as planned. The launcher probes before every turn (no \`fwLiveFor\`, no \`okAt\`; the mutex alone). \`mycel-ctl\`
+writes nft's first line (\`nftReason\`) to the status file and the whole answer to stderr; the server's \`oneLineReason\`
+cuts older status files to one line. Tests: \`TestFirewallLiveProbesEveryTurn\`, \`TestStatusChecksTheLiveTable\` (nft's
+multi-line answer, one-line reason, full text on stderr), the diagnostics unit test (an older ctl's raw nft text).

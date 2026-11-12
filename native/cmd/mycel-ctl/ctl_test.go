@@ -582,6 +582,7 @@ func TestStatusChecksTheLiveTable(t *testing.T) {
 	if code, out, errs := tb.ctl("", "firewall", "apply"); code != 0 {
 		t.Fatalf("apply: %d %s %s", code, out, errs)
 	}
+	stderr := ""
 	read := func() Status {
 		t.Helper()
 		code, out, errs := tb.ctl("", "status", "--detail", "--json")
@@ -589,16 +590,24 @@ func TestStatusChecksTheLiveTable(t *testing.T) {
 		if code != 0 || json.Unmarshal([]byte(out), &s) != nil {
 			t.Fatalf("status: %d %s %s", code, out, errs)
 		}
+		stderr = errs
 		return s
 	}
 	if s := read(); !s.FirewallOK || s.FirewallLive == nil || !*s.FirewallLive {
 		t.Fatalf("loaded table: %+v", s)
 	}
-	// the table is gone: nft list answers "No such file or directory"
-	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "nft"), []byte("#!/bin/sh\nif [ \"$1\" = -j ]; then echo 'Error: No such file or directory' >&2; exit 1; fi\nexit 0\n"), 0o755))
+	// the table is gone: nft list answers "No such file or directory", echoes the command and marks it with ^^^^^
+	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "nft"), []byte("#!/bin/sh\nif [ \"$1\" = -j ]; then printf 'Error: No such file or directory\\nlist table inet mycel\\n                ^^^^^\\n' >&2; exit 1; fi\nexit 0\n"), 0o755))
 	s := read()
 	if s.FirewallOK || s.FirewallLive == nil || *s.FirewallLive || !strings.Contains(s.FirewallErr, "not loaded") || s.Firewall == nil || s.Firewall.Loaded {
 		t.Fatalf("flushed table: %+v", s)
+	}
+	// one plain line for Admin › Diagnostics; nft's whole answer goes to stderr (the timer's journal)
+	if s.FirewallErr != "the table is not in effect now: table inet mycel is not loaded" || *s.Firewall.Error != s.FirewallErr {
+		t.Fatalf("reason: %q", s.FirewallErr)
+	}
+	if !strings.Contains(stderr, "^^^^^") {
+		t.Fatalf("stderr: %q", stderr)
 	}
 	st, err := fwstatus.Read(filepath.Join(tb.base, "run/firewall.json"), os.Getuid())
 	must(t, err)
