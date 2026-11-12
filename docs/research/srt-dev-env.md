@@ -489,6 +489,13 @@ CREATE INDEX dev_env_jobs_waiting ON dev_env_jobs(started_at) WHERE state = 'wai
   rules.
 - Fallback (one line): v1 ships with no preview, and the AI tests with curl in one command (Q2).
 
+  **Built 2026-11-12** (feat/srt-preview, `docs/DECISIONS.md` "Dev environment on srt: preview"). What differs: Go cannot
+  setns into a user namespace (more than one thread), so `port-forward` does the checks, opens the namespaces and hands
+  them to util-linux `nsenter`, which execs `port-forward-inner`. The user namespace is the owner of the network namespace
+  (`NS_GET_USERNS`), not the command's own (srt's seccomp helper nests one). The target is the namespace of the run's scope
+  cgroup where the port listens. Ports 3128 and 1080 (srt's relays) are refused. A link belongs to the person who started
+  the dev server. S2 and A26 are checked by `scripts/dev-env/srt/vm-check.sh REPO preview`.
+
 ## 6. Output, logs and the jobs list
 
 - Run folder: `<base>/devenv/logs/<userId>/`. The server owns it. The sandbox of that person's runs can only read it.
@@ -763,12 +770,12 @@ project folder (srt makes the parents of an allowed path).
 
 Not done:
 
-- Preview (S2, `port-forward`).
+- Preview (S2, `port-forward`): built 2026-11-12, see section 5.
 - UI after the scope change: no page lists or stops the runs of a chat with no project (the API is there:
   `GET /api/dev-env/runs`); the team setting is turned on only from a project page's modal (no admin settings block
   yet), so a team with no project cannot turn it on in the UI.
 - The tool rename; Ubuntu 24.04 (S6); the public IPv6 of the VM (IMDS gives only IPv4 here).
-- Not verified on systemd: A23 (the disk floor) and A26 (preview). The rest of the VM list passed (see above).
+- Not verified on systemd: A23 (the disk floor). A26 (preview): see section 5 (2026-11-12). The rest of the VM list passed (see above).
 - The devenv slice is a child of `<ID>.slice`: when 1A limits are on, the runs share that ceiling with the server.
 
 
