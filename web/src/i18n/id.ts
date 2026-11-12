@@ -3905,6 +3905,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.uploading": "Mengunggah {name}…",
   "rooms.tooBig": "{name} lebih besar dari {max} dan tidak bisa dikirim.",
   "rooms.teamFileWiden": "Jika berkas tim dikirim, {n} orang lagi bisa melihatnya",
+  "rooms.teamFileWidenAtLeast": "Jika berkas tim dikirim, setidaknya {n} orang lagi bisa melihatnya",
   "rooms.tooMany": "Kamu bisa mengirim hingga {n} file sekaligus.",
   "rooms.sending": "Mengirim…",
   "rooms.sendFailed": "Tidak terkirim",

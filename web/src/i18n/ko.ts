@@ -3904,6 +3904,7 @@ export const ko = {
   "rooms.uploading": "{name} 올리는 중…",
   "rooms.tooBig": "{name}은(는) {max}보다 커서 보낼 수 없어요.",
   "rooms.teamFileWiden": "팀 파일을 보내면 {n}명이 더 보게 돼요",
+  "rooms.teamFileWidenAtLeast": "팀 파일을 보내면 {n}명 이상이 더 보게 돼요",
   "rooms.tooMany": "파일은 한 번에 {n}개까지 보낼 수 있어요.",
   "rooms.sending": "보내는 중…",
   "rooms.sendFailed": "보내지 못했어요",

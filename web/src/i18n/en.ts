@@ -3905,6 +3905,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.uploading": "Uploading {name}…",
   "rooms.tooBig": "{name} is larger than {max} and can't be sent.",
   "rooms.teamFileWiden": "Sending the team file lets {n, plural, one {# more person} other {# more people}} see it",
+  "rooms.teamFileWidenAtLeast": "Sending the team files lets at least {n, plural, one {# more person} other {# more people}} see them",
   "rooms.tooMany": "{n, plural, one {You can send # file at a time.} other {You can send up to # files at a time.}}",
   "rooms.sending": "Sending…",
   "rooms.sendFailed": "Couldn't send",

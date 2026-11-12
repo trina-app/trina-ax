@@ -3861,6 +3861,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.uploading": "{name}をアップロード中…",
   "rooms.tooBig": "{name}は{max}を超えているため送信できません。",
   "rooms.teamFileWiden": "チームのファイルを送ると、さらに{n, plural, one {#人} other {#人}}が見られるようになります",
+  "rooms.teamFileWidenAtLeast": "チームのファイルを送ると、少なくともさらに{n, plural, one {#人} other {#人}}が見られるようになります",
   "rooms.tooMany": "{n, plural, one {ファイルは一度に#件まで送信できます。} other {ファイルは一度に#件まで送信できます。}}",
   "rooms.sending": "送信中…",
   "rooms.sendFailed": "送信できませんでした",

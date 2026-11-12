@@ -63,6 +63,10 @@ interface Upload {
 
 let uploadKey = 0
 
+/** the team files copied in this tab (by the copy's id): their team path and how many more people they reach, so a send
+ * the server refused brings them back into the box with the line under the files */
+const teamCopies = new Map<string, { path: string; unable: number }>()
+
 /** It shows as a picture (a square, not a file chip): one from this computer, or a photo of a send the server gave back (its room thumbnail). */
 const picture = (u: Upload) => isLocalImage(u.file) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
 
@@ -156,7 +160,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     useRooms.getState().takeReturned(key)
     mention.putBack(back.body, back.mentions, !!back.mentionsAll)
     if (back.alsoInRoom) setAlsoInRoom(true)
-    if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController() })), ...list])
+    if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController(), ...(teamCopies.has(f.id) ? { teamPath: teamCopies.get(f.id)!.path, unable: teamCopies.get(f.id)!.unable } : {}) })), ...list])
     input.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [back])
@@ -214,6 +218,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const copyTeamFile = async (u: Upload) => {
     try {
       const r = await api.call(API.attachRoomTeamFile, { params: { id: roomId }, body: { path: u.teamPath! }, signal: u.abort.signal })
+      teamCopies.set(r.file.id, { path: u.teamPath!, unable: r.unable })
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, unable: r.unable, file: { name: r.file.name, size: r.file.size } as File } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
@@ -235,8 +240,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     setFiles((list) => [...list, ...added])
     for (const u of added) void copyTeamFile(u)
   }
-  // how many more people the team files reach once sent (the most of them: a count, never who)
-  const widens = Math.max(0, ...files.filter((f) => f.teamPath && f.status === 'done').map((f) => f.unable ?? 0))
+  // how many more people the team files reach once sent: one file's count, or with several the largest as "at least"
+  // (each count is of its own file; who they are is never told, so they cannot be added up)
+  const widening = files.filter((f) => f.teamPath && f.status === 'done' && (f.unable ?? 0) > 0)
+  const widens = Math.max(0, ...widening.map((f) => f.unable ?? 0))
 
   // files dropped on the column around the box (the room's, the thread's: FileDropZone) come here, with its checks: a box
   // with no room left for one more refuses the whole drop. Outside every column the box takes drops on itself.
@@ -348,7 +355,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         )}
         {widens > 0 && (
           <p className="px-3 pt-1.5 text-xs text-muted max-md:px-4" data-testid="room-team-file-widen">
-            {t('rooms.teamFileWiden', { n: widens })}
+            {t(widening.length > 1 ? 'rooms.teamFileWidenAtLeast' : 'rooms.teamFileWiden', { n: widens })}
           </p>
         )}
         {voice.recording ? (

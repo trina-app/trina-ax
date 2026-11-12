@@ -112,12 +112,15 @@ test.describe('Android', () => {
     await reset(page)
     await signIn(page)
     const room = await routeRoom(page, { members: [BEN, { id: 'cho', name: '초' }], messages: [{ id: ROOT, author: BEN, body: '이번 주 기획안 보내 주세요' }] })
-    // the copy (server/src/routes/rooms.ts attachRoomTeamFile): my upload in the room, two people could not open it
+    // the copy (server/src/routes/rooms.ts attachRoomTeamFile): my upload in the room; two people could not open the plan,
+    // three the notes
     const copied: string[] = []
+    const COPY = { 'marketing/plan.md': ['019a5f00-0000-7000-8000-00000000f001', 2], 'marketing/notes.txt': ['019a5f00-0000-7000-8000-00000000f002', 3] } as Record<string, [string, number]>
     await page.route(`**/api/rooms/${ROOM_ID}/team-file`, async (r) => {
       const { path: p } = r.request().postDataJSON() as { path: string }
       copied.push(p)
-      await r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ file: { id: '019a5f00-0000-7000-8000-00000000f001', name: p.slice(p.lastIndexOf('/') + 1), size: 24, mime: 'text/markdown', kind: 'document', thumb: false }, unable: 2 }) })
+      const [id, unable] = COPY[p]!
+      await r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ file: { id, name: p.slice(p.lastIndexOf('/') + 1), size: 24, mime: 'text/plain', kind: 'document', thumb: false }, unable }) })
     })
     await page.goto(`/rooms/${ROOM_ID}`)
     await page.getByTestId('room-attach').click()
@@ -135,9 +138,28 @@ test.describe('Android', () => {
     await expect(chip).toContainText('plan.md')
     expect(copied).toEqual(['marketing/plan.md'])
     await expect(page.getByTestId('room-team-file-widen')).toHaveText('팀 파일을 보내면 2명이 더 보게 돼요')
+    // a second team file: each count is its own file's, so the line says "at least" the larger one
+    await page.getByTestId('room-attach').click()
+    await page.getByTestId('attach-team').click()
+    await dialog.getByTestId('picker-search').fill('notes')
+    await dialog.getByTestId('picker-file').filter({ hasText: 'notes.txt' }).first().locator('input').check()
+    await dialog.getByTestId('picker-attach').click()
+    await expect(chip).toHaveCount(2)
+    await expect(page.getByTestId('room-team-file-widen')).toHaveText('팀 파일을 보내면 3명 이상이 더 보게 돼요')
+    // a send the server refuses comes back into the box with its files, and the line with them
+    let refused = false
+    await page.route(`**/api/rooms/${ROOM_ID}/messages`, async (r) => {
+      if (r.request().method() !== 'POST' || refused) return r.fallback()
+      refused = true
+      await r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'conflict', message: '잠시 뒤에 다시 보내 주세요.' } }) })
+    })
+    await page.getByTestId('room-send').click()
+    await expect.poll(() => refused).toBe(true)
+    await expect(chip).toHaveCount(2)
+    await expect(page.getByTestId('room-team-file-widen')).toHaveText('팀 파일을 보내면 3명 이상이 더 보게 돼요')
     await page.getByTestId('room-send').click()
     await expect.poll(() => room.sent.length).toBe(1)
-    expect((room.sent[0] as unknown as { fileIds: string[] }).fileIds).toEqual(['019a5f00-0000-7000-8000-00000000f001'])
+    expect([...(room.sent[0] as unknown as { fileIds: string[] }).fileIds].sort()).toEqual(['019a5f00-0000-7000-8000-00000000f001', '019a5f00-0000-7000-8000-00000000f002'])
     await expect(page.getByTestId('room-team-file-widen')).toHaveCount(0)
     // a thread's box: the same sheet
     await page.goto(`/rooms/${ROOM_ID}/t/${ROOT}`)
