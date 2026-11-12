@@ -83,18 +83,49 @@ export function officialService(url: string): CatalogService | undefined {
 /** The official host of a listed service ("mcp.notion.com"). */
 export const catalogHost = (c: CatalogService) => new URL(c.url).host
 
-/** Letters that look like Latin ones in other scripts (Cyrillic, Greek, IPA) and digits that pass for letters, mapped to
- * the Latin letter they imitate: a name is compared by its look ("Nоtion" with a Cyrillic о, "N0tion"), not its code
- * points. Not the whole Unicode confusables table: the letters service names are made of. */
+/** Letters that look like Latin ones in other scripts (Cyrillic, Greek, Armenian, IPA, small capitals) and digits that
+ * pass for letters, mapped to the Latin letter they imitate: a name is compared by its look ("Nоtion" with a Cyrillic
+ * о, "ΝOTION" with a Greek Ν, "N0tion"), not its code points. Capitals are mapped before lower case, since a Greek Ν
+ * becomes ν ("v") when lowered. Not the whole Unicode confusables table: the letters service names are made of;
+ * mixedScript catches the rest. */
 const LOOKALIKE: Record<string, string> = {
+  // Greek capitals that look like Latin capitals (before lower case)
+  Α: 'a', Β: 'b', Ε: 'e', Ζ: 'z', Η: 'h', Ι: 'i', Κ: 'k', Μ: 'm', Ν: 'n', Ο: 'o', Ρ: 'p', Τ: 't', Υ: 'y', Χ: 'x',
+  // Cyrillic capitals (lowered they map below too; listed so the first pass already reads them)
+  А: 'a', В: 'b', С: 'c', Е: 'e', Н: 'h', І: 'i', Ј: 'j', К: 'k', М: 'm', О: 'o', Р: 'p', Ѕ: 's', Т: 't', Х: 'x', Ү: 'y',
   а: 'a', в: 'b', с: 'c', ԁ: 'd', е: 'e', ё: 'e', һ: 'h', н: 'h', і: 'i', ї: 'i', ј: 'j', к: 'k', ӏ: 'l', м: 'm', о: 'o',
   р: 'p', ԛ: 'q', ѕ: 's', т: 't', у: 'y', ү: 'y', х: 'x', ԝ: 'w', ɡ: 'g', ɑ: 'a', ɩ: 'i', ο: 'o', α: 'a', β: 'b',
-  ε: 'e', η: 'n', ι: 'i', κ: 'k', ν: 'v', ρ: 'p', τ: 't', υ: 'u', χ: 'x', γ: 'y', '0': 'o', '1': 'l',
+  ε: 'e', η: 'n', ι: 'i', κ: 'k', ν: 'v', ρ: 'p', τ: 't', υ: 'u', χ: 'x', γ: 'y', σ: 'o',
+  // Armenian, dotless i
+  օ: 'o', ո: 'n', ս: 'u', ı: 'i',
+  // small capitals (Latin letters in the phonetic blocks)
+  ᴀ: 'a', ʙ: 'b', ᴄ: 'c', ᴅ: 'd', ᴇ: 'e', ꜰ: 'f', ɢ: 'g', ʜ: 'h', ɪ: 'i', ᴊ: 'j', ᴋ: 'k', ʟ: 'l', ᴍ: 'm', ɴ: 'n',
+  ᴏ: 'o', ᴘ: 'p', ʀ: 'r', ꜱ: 's', ᴛ: 't', ᴜ: 'u', ᴠ: 'v', ᴡ: 'w', ʏ: 'y', ᴢ: 'z',
+  '0': 'o', '1': 'l',
 }
+const lookalikes = (s: string) => [...s].map((ch) => LOOKALIKE[ch] ?? ch).join('')
 /** a name as it looks: compatibility forms folded (full-width, ligatures), accents dropped, look-alike letters and
- * digits made Latin, lower case */
+ * digits made Latin (before and after lower case), lower case */
 export function nameSkeleton(s: string): string {
-  return [...s.normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase()].map((ch) => LOOKALIKE[ch] ?? ch).join('')
+  return lookalikes(lookalikes(s.normalize('NFKD').replace(/\p{M}+/gu, '')).toLowerCase())
+}
+
+/** A word of the name mixes Latin letters with letters of an alphabet that has Latin look-alikes (Cyrillic, Greek,
+ * Armenian, Cherokee): "Nоtion" with a Cyrillic о. Whatever the table above knows, such a name is never shown as a
+ * listed service's (posesAsListed). A name in one script ("Нотион", "노션") or words in separate scripts ("Acme Нотион")
+ * are not mixed. */
+export function mixedScript(name: string): boolean {
+  for (const w of name.normalize('NFKD').replace(/\p{M}+/gu, '').match(/\p{L}+/gu) ?? []) {
+    if (/\p{Script=Latin}/u.test(w) && /[\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Cherokee}]/u.test(w)) return true
+  }
+  return false
+}
+
+/** The name a card may show for a connection at `url`: the name itself, unless the address is not exactly a listed
+ * service's official one and the name is (or looks like, or holds) a listed service's, or mixes alphabets in a word;
+ * then the address's host, so the card never reads as that service. A template's name is the admin's and keeps it. */
+export function posesAsListed(name: string, url: string): boolean {
+  return !officialService(url) && (!!catalogNamed(name) || mixedScript(name))
 }
 
 /** words a name can carry around a service's own name and still mean that service ("Notion MCP", "the Notion app") */

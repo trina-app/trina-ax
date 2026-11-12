@@ -4,7 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { catalogAt, catalogNamed, officialService, SERVICE_CATALOG } from '@mycel/shared'
+import { catalogAt, catalogNamed, mixedScript, nameSkeleton, officialService, posesAsListed, SERVICE_CATALOG } from '@mycel/shared'
 import { IntegrationInput } from '@mycel/shared/api'
 import { AI_APPS, BUILT_IN, connectorFor, CONNECTORS, isConnected } from '../../src/lib/connectors'
 import { canonicalService, emptyForm, toInput, validate } from '../../src/lib/integrations'
@@ -25,6 +25,21 @@ describe('the shared list of services (shared/src/service-catalog.ts)', () => {
     for (const n of ['N\u043etion', 'N\u03bftion', 'Not\u00edon', 'Notio\u0301n', 'N0tion', '노션', 'ノーション', '노션 MCP']) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'notion' } })
     for (const [n, id] of [['피그마', 'figma'], ['フィグマ', 'figma'], ['리니어', 'linear'], ['Jira', 'atlassian'], ['지라', 'atlassian'], ['깃랩', 'gitlab'], ['\u0421anva', 'canva']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id } })
     expect(catalogNamed('Acme N\u043etion wiki')).toMatchObject({ exact: false, service: { id: 'notion' } })
+  })
+  test('capitals and more look-alikes: Greek capitals read before lower case, Armenian, dotless i, small capitals, Greek sigma', () => {
+    // ΝΟΤΙΟΝ in Greek capitals: lowered first it would read "votiov"
+    for (const n of ['\u039d\u039f\u03a4\u0399\u039f\u039d', '\u039dotion', 'NOT\u0399ON', 'N\u0585tion', 'Not\u0131on', '\u0274\u1d0f\u1d1b\u026a\u1d0f\u0274', 'N\u03c3tion'])
+      expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'notion' } })
+    expect(nameSkeleton('\u039c\u0399\u03a7')).toBe('mix')
+    for (const [n, id] of [['\u0392rex', 'brex'], ['\u03a3', undefined], ['\u0396apier', undefined]] as const) expect(catalogNamed(n)?.service.id, n).toBe(id)
+  })
+  test('a word that mixes Latin with Cyrillic, Greek, Armenian or Cherokee letters is mixed; one script per word is not', () => {
+    for (const n of ['N\u043etion', 'Acme N\u043etion', '\u039dotion', 'N\u0585tion', 'Sl\u13aack']) expect(mixedScript(n), n).toBe(true)
+    for (const n of ['Notion', 'Нотион', 'Acme Нотион', '노션 MCP', '노션MCP', 'Notíon', '\u0274\u1d0f\u1d1b\u026a\u1d0f\u0274']) expect(mixedScript(n), n).toBe(false)
+    expect(posesAsListed('Notion', 'https://mcp.notion.com/mcp')).toBe(false)
+    expect(posesAsListed('Notion', 'https://notion-mcp.example.com/mcp')).toBe(true)
+    expect(posesAsListed('Acme Tools', 'https://x.example.com/mcp')).toBe(false)
+    expect(posesAsListed('Ac\u043ce Tools', 'https://x.example.com/mcp')).toBe(true)
   })
   test('a service named by an ordinary word matches only its exact name', () => {
     for (const n of ['Square Feet API', 'Linear Regression API', 'Monday Reports', 'Neon Signs', 'Sanity Check', 'Railway Timetable', 'Resend Mail Queue', 'Indeed Jobs Mirror', 'Stripe Pattern Maker'])
