@@ -23,7 +23,7 @@ import { reinstallDeps } from './src/files'
 import type { TeamAddress } from './src/address'
 import { hostLineNow } from './src/team-link'
 import { readSessionCheck, sessionCheckScript } from './src/session-check'
-import { LeaveAsk, ended, oweSignOut, owesSignOut, signedOut } from './src/leave'
+import { LeaveAsk, OneSwitch, ended, oweForSwitch, owesSignOut, signedOut } from './src/leave'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
 /** the hosted team domain (bare names) and the install guide link of ③, from the edition (app.config.ts) */
@@ -177,23 +177,23 @@ export default function App() {
   }
   // one function for the box's [{old}(으)로 돌아가기]: Android back's handler is registered once, not on every render
   const closeAdding = useCallback(() => setAdding(false), [])
-  // one switch at a time: the sign-out of the team left can take seconds
-  const connecting = useRef(false)
-  async function connect(address: TeamAddress) {
-    if (connecting.current) return
-    connecting.current = true
-    try {
+  // one switch at a time: the sign-out of the team left can take seconds. false: another switch is still running (the
+  // screen that asked stays open and says so; nothing was saved or left)
+  const switching = useRef(new OneSwitch())
+  function connect(address: TeamAddress): Promise<boolean> {
+    return switching.current.run(async () => {
       const old = team && team.origin !== address.origin ? team.origin : null
       // the sign-out is owed before the new team is saved: an app stopped in between still signs out at the next visit
-      if (old) await oweSignOut(leftSessions, old).catch(() => {})
+      const undo = old ? await oweForSwitch(leftSessions, old).catch(() => null) : null
       // the new team is saved first: if that fails (an address the store refuses), the phone is still in the old team
-      try { await saveTeamUrl(address.origin) } catch (e) { if (old) await signedOut(leftSessions, old).catch(() => {}); throw e }
+      // and only what this switch owed is taken back (an earlier switch's owed sign-out stays)
+      try { await saveTeamUrl(address.origin) } catch (e) { await undo?.().catch(() => {}); throw e }
       since.current = Date.now(); hasTeam.current = true
       if (old) await leave(old)
       await owedSignOut(address.origin)
       // the new team's page starts at the link's page (TeamWeb's first address)
       setOpened(null); setPage(null); setAdding(false); setTeam(address)
-    } finally { connecting.current = false }
+    })
   }
   // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
   // once, from the phone's look at launch)
@@ -209,10 +209,11 @@ export default function App() {
           onDone={connect} /></View>}
       </>}
     {team !== undefined && link && <View style={StyleSheet.absoluteFill}><LinkAsk key={link.id} offer={link} gate={gate.current} current={team?.origin ?? null}
-      // an answer counts only while its link is still the one on screen (a newer link replaced it otherwise)
+      // an answer counts only while its link is still the one on screen (a newer link replaced it otherwise; a link that
+      // came while this one's switch waited stays open after it)
       onClose={() => { if (linkRef.current?.id === link.id) setLink(null) }}
       onSame={path => { if (linkRef.current?.id !== link.id) return; setLink(null); setAdding(false); setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) }}
-      onDone={async address => { if (linkRef.current?.id !== link.id) return; await connect(address); setLink(null) }} /></View>}
+      onDone={async address => { if (linkRef.current?.id !== link.id) return false; const ok = await connect(address); if (ok) setLink(l => l?.id === link.id ? null : l); return ok }} /></View>}
   </Look.Provider></SafeAreaProvider>
 }
 // Insets as explicit padding on every native screen: with edge-to-edge (Android, targetSdk 36) the app draws under the
@@ -229,7 +230,7 @@ type Ask = { kind: 'outside' | 'renamed' | 'switch'; address: TeamAddress; host:
  * team yet (docs/DECISIONS.md "First run: one box"). `current`: the team this phone is in, while another is being added
  * over it ([{team}(으)로 돌아가기]); it is left only when the new address answered and the person said yes.
  */
-function Setup({ current, onDone, onBack, onSame }: { current: string | null; onDone: (address: TeamAddress) => Promise<void>; onBack?: () => void; onSame?: (address: TeamAddress) => void }) {
+function Setup({ current, onDone, onBack, onSame }: { current: string | null; onDone: (address: TeamAddress) => Promise<boolean>; onBack?: () => void; onSame?: (address: TeamAddress) => void }) {
   const [value, setValue] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('')
   const [view, setView] = useState<'main' | 'unknown' | 'none'>('main'), [ask, setAsk] = useState<Ask | null>(null)
   const cancelRef = useRef<ComponentRef<typeof Pressable>>(null)
@@ -253,13 +254,14 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
       if (current) setAsk({ kind: 'switch', address, host: hostOf(c.origin), hosted })
       else if (c.renamed) setAsk({ kind: 'renamed', address, host: hostOf(c.origin), hosted })
       else if (!hosted) setAsk({ kind: 'outside', address, host: hostOf(c.origin), hosted })
-      else await onDone(address)
+      else if (!await onDone(address)) setError(t.stillSwitching)
     } catch { setError(t.saveFailed) }
     finally { setBusy(false) }
   }
   async function yes(a: Ask) {
     setBusy(true)
-    try { await onDone(a.address) } catch { setError(t.saveFailed); setAsk(null) } finally { setBusy(false) }
+    // another switch still running: the question stays, so [Switch] can be tapped again
+    try { if (!await onDone(a.address)) setError(t.stillSwitching) } catch { setError(t.saveFailed); setAsk(null) } finally { setBusy(false) }
   }
   // screen readers start on [취소] (the safe answer)
   useEffect(() => {
@@ -335,7 +337,7 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
  * service does not run it, and when this phone is in another team the switch line. [취소] has the focus; [연결] (or
  * [바꾸기]) only then checks the address and connects: the same path as the box, leaving the old team only now.
  */
-function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<void> }) {
+function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<boolean> }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), busyRef = useRef(false)
   busyRef.current = busy
   // the connect the person said yes to could not reach the team (or not be saved): [다시 시도] goes again with that link
@@ -353,7 +355,10 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
     if (busy) return
     if (moved) {
       setBusy(true)
-      try { if (current === moved.origin) onSame(moved.entryPath); else await onDone(moved) } catch { setError(t.saveFailed) } finally { setBusy(false) }
+      try {
+        if (current === moved.origin) onSame(moved.entryPath)
+        else if (!await onDone(moved)) { setError(t.stillSwitching); setAgain(true) }
+      } catch { setError(t.saveFailed) } finally { setBusy(false) }
       return
     }
     // the yes counts for this host only, and not right after ④ appeared; [다시 시도] reuses the link that yes confirmed
@@ -369,8 +374,9 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       }
       if (r.renamed) { setMoved({ origin: r.origin, entryPath: o.entryPath }); return }
       if (current === r.origin) onSame(o.entryPath)
-      else await onDone({ origin: r.origin, entryPath: o.entryPath })
-      gate.clear()
+      // another switch is still running: ④ stays with [Try again] (the gate keeps the link this yes confirmed)
+      else if (!await onDone({ origin: r.origin, entryPath: o.entryPath })) { setError(t.stillSwitching); setAgain(true); return }
+      gate.clear(offer.id)
     } catch { setError(t.saveFailed); setAgain(true) } finally { setBusy(false) }
   }
   useEffect(() => {
@@ -522,7 +528,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
         if (!waitTimer.current) waitTimer.current = setTimeout(() => setWaited(true), 300)
       }
       // after a reinstall: only on this team's own page, the one on screen, whose bridge was just installed
-      const end = ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current) : null
+      const end = ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current, address.origin + address.entryPath) : null
       if (end) web.current?.injectJavaScript(end)
       const page = navigation.current
       setTimeout(() => {
