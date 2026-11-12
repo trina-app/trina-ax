@@ -24,8 +24,8 @@ BUN=/usr/local/bin/bun
 [ -x "$BUN" ] || { echo "no $BUN" >&2; exit 1; }
 
 command -v jq >/dev/null && command -v curl >/dev/null || { apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q jq curl; }
-# the bench's test server makes the fixture team folder with pandoc
-[ "$MODE" != bench ] || command -v pandoc >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends pandoc
+# the test server of the bench and the preview makes the fixture team folder with pandoc
+[ "$MODE" = checks ] || command -v pandoc >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends pandoc
 
 # ---- 1. the server account and its folders ----
 id "$ID" >/dev/null 2>&1 || useradd --system -U -d "$BASE/data" -s /usr/sbin/nologin "$ID"
