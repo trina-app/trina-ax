@@ -22355,12 +22355,37 @@ task stayed on.
   members only; find them in Projects") — default 4 of "Project contents only for members" says none; the QA row
   expected one. (2) An ordinary 0.4.0 team folder inside a `Projects/` folder (any letter case, possible on Linux next
   to `projects/`) is now in the members-only zone: the owner and admins lose it while members keep it, until an admin
-  opens Projects and it is adopted as a project.
+  opens Projects and it is adopted as a project. Decided: "Only the lowercase projects/ folder on case-sensitive disks".
 - Tests: `tests/unit/b-projects-after-update.test.ts` (a 0.4.0-shaped team, the start steps, then the owner, another
   admin, the creator, a member and someone not in it; the owner's chat; the template task on the project, a template
   task on Shared that still runs, a project task; Add me).
 - Version impact: **patch** (a task that could no longer work is paused and its owner told; no API, data or permission
   change).
+
+## Only the lowercase projects/ folder on case-sensitive disks — 대소문자 구분 디스크에서는 소문자 projects/만 (fix/projects-lowercase-only, 2026-11-12, QA TC-360, product owner)
+
+넣을 곳: trina-ax core (`server/src/policy/access.ts`, `policy/zone.ts`, `files/service.ts`, `admin/folders.ts`,
+`admin/audit.ts`, `chat/members-only-once.ts`), 이유: folder permissions and projects are core. Plan:
+`docs/AGENTS/plan/20261112-0708-projects-lowercase-only.md`. Amends "Project contents only for members" (`projects`
+compared after lower-casing) and closes open point (2) of "Projects made on 0.4.0".
+
+- **The rule.** The projects root is the top folder named `projects` after NFC. Any other letter case is the same folder
+  only on a disk that ignores case (macOS APFS by default), as before; on a case-sensitive disk `Projects/` is an
+  ordinary team folder with its normal folder rules, so a 0.4.0 folder like `Projects/ClientA` is the owner's and
+  admins' again. One check, `isProjectsName` (`policy/access.ts`), set from the team folder's disk when the files service
+  starts (`detectCaseInsensitive`; until then it folds, which fails closed); every "under the projects root" decision
+  uses it: the zone, `projects/` itself, `isProjectsFolder`, the folders on disk, the activity log's path check, and the
+  first-start steps (their SQL `LIKE` ignores ASCII case, so its rows are checked again; adopted folders compare by
+  `volumeKey`). `projectOnFolder` and `templateProjectGone` already compared by `volumeKey`.
+- **Not changed:** skill folders (`Projects/x/skills` stays protected), `groups/`, the activity log's text cut (errs on
+  hiding), the web app's own `isProjectsTop` (it does not know the disk: at the top of `Projects/` on a case-sensitive
+  disk the Files page still hides its add buttons; the server allows them).
+- Tests: `tests/unit/b-projects-lowercase-only.test.ts` (a case-sensitive disk: `Projects/ClientA` by the normal rules
+  for the owner, an admin and a member, `projects/ClientA` members-only, the helpers, the folders on disk, the first
+  start keeps admins' role rules on `Projects/`; a disk that ignores case: unchanged; the team folder on the test disk);
+  tests that sent `Projects/` or `PROJECTS/` as the zone now do so only where the disk ignores case.
+- Version impact: **patch** (on case-sensitive disks the owner and admins get back ordinary folders named `Projects/`;
+  nothing changes elsewhere).
 
 ## Self-installed servers sign in to Google through the hosting service (feat/google-one-library, 2026-11-11)
 

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 07:08
 - Branch: `fix/projects-lowercase-only`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/policy/`, `server/src/files/service.ts`, `server/src/chat/members-only-once.ts`,
   `server/src/admin/folders.ts`, `server/src/admin/audit.ts`). Why: folder permissions and projects are core (see
   docs/REPOSITORY-RULES.md)
@@ -47,4 +47,7 @@ on a case-insensitive disk set it and restore it. No migration, no API change, n
 
 ## Result
 
-(filled in at the end)
+Built as planned. `isProjectsName` in `policy/access.ts`, set by `files/service.ts`; used by the zone helpers,
+`isProjectsFolder`, the activity log's path check and `members-only-once.ts`. Not changed: the web app's
+`isProjectsTop` (it does not know the disk; noted in DECISIONS). Tests: `tests/unit/b-projects-lowercase-only.test.ts`;
+tests that used `Projects/` or `PROJECTS/` as the zone now do so only where the disk ignores case.
