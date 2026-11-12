@@ -62,6 +62,8 @@ phone specs: `phone-room-header` (Chromium, WebKit), `room-file-viewer`, `image-
 
 ## Result
 
+PR: https://github.com/trina-app/trina-ax/pull/533
+
 Built as planned, phones only; 1440 screenshots of the room, its ⋯ menu, a picture and a PDF in the viewer are
 pixel-identical to dev.
 
