@@ -22403,9 +22403,21 @@ task stayed on.
   or a restart answers "confirm" again with `reason: 'changed'`. The reasons check (409 `room_ai_reasons_changed`) and the
   refusals (409 `room_ai_hidden`, `room_ai_ask_again`) come first, as before. A preview from before migration 246 is
   judged by its stored reasons (counts only). `room.ai_share` gets `confirmed` and `people` when it was asked.
-- **Nothing private, no new step.** A preview that used only the web or a connection, or one whose material every
-  member can see now, posts at once, as before.
-- **The app.** A preview whose reasons name material (`previewMaterial`) asks the server first and shows its "confirm"
-  in the side chat's card (`ShareConfirm`, the same words; with `sources` its rows are "참고한 파일 · 올리는 답의 출처
-  목록에서 빠져요", no attach switch: sources are left out, never copied). The rest keep the app's own confirm, then post;
-  should the server ask anyway, the card follows.
+- **The app asks before every post, the server too** (after the PR review). The app sends `{ ask: true }` first, and the
+  server then always answers "confirm" (`ShareRoomMessageConfirm`: "대화방에 보내기"'s, with `people` 0 when nothing is at
+  stake, `outside` for the web or a connected service, `earlier` for an earlier hidden answer); nothing is posted
+  without the key of that card. A call without `ask` (any other client) is asked only when something private is at
+  stake and otherwise posts at once, as before.
+- **What came from elsewhere counts** (after the PR review). `decide()` used to mark another conversation, a team
+  connection, a shared Drive and a folder that is gone as `outside` and nothing more. Now another conversation that some
+  member here is not in (or not from where it was read) is `otherRooms` (stored with the reasons, so the preview's line
+  says "material some people here can't see", never "the web or a connected service") and its members who miss it count;
+  a connection or Drive counts the members who cannot use it (`missingReaders`, as "대화방에 보내기" does); a folder that
+  is gone counts everyone else. Their places are named by `chat/share-places.ts` (moved out of answer-share.ts, used by
+  both): a team room by its group, the everyone room, "1:1 and group conversations", a service by its name.
+- **Source files past the rows**: every one some member cannot open counts; past `ANSWER_SHARE_FILES_MAX` rows the rest
+  is one row with how many cannot open some of them.
+- **The app.** "Post to room…" opens the side chat's card (`ShareConfirm`, the same words; with `sources` its rows are
+  "참고한 파일 · 올리는 답의 출처 목록에서 빠져요", no attach switch: sources are left out, never copied), with lines of its own
+  under the provenance line: "올리면 대화방 모두가 이 내용을 봐요." when nothing is at stake, "웹이나 연결된 서비스의 내용",
+  and the earlier-hidden-answer line. The app's own confirm with a row per reason is gone, and with it its strings.

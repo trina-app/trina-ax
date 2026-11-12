@@ -9,7 +9,7 @@
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
-import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type ShareRoomMessageResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type ShareRoomMessageBody, type ShareRoomMessageResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { noteRecent } from '../lib/emoji'
 import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
@@ -351,8 +351,8 @@ interface RoomsState extends RoomsData {
   /** the message box took back a refused send (by placeKey) */
   takeReturned: (key: string) => void
   /** post my private preview of an AI answer to the room (shared/src/api/rooms.ts shareRoomMessage): "confirm" first when
-   * it used material some member cannot see; sent again with that `confirmKey`, it posts */
-  shareAi: (roomId: string, messageId: string, confirmKey?: string) => Promise<ShareRoomMessageResult>
+   * it used material some member cannot see (with `ask`: always); sent again with that `confirmKey`, it posts */
+  shareAi: (roomId: string, messageId: string, body?: ShareRoomMessageBody) => Promise<ShareRoomMessageResult>
   /** "대화방에 보내기": a finished answer of my own AI chat to a room I am in, as my message (shared/src/api/chats.ts
    * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
    * finds it there) */
@@ -1156,8 +1156,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       set((s) => ({ returned: omit(s.returned, key) }))
     },
 
-    async shareAi(roomId, messageId, confirmKey) {
-      const r = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId }, body: confirmKey ? { confirmKey } : {} })
+    async shareAi(roomId, messageId, body = {}) {
+      const r = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId }, body })
       if (r.status === 'sent') patchMessages((s) => withMessage(s, roomId, r.message, myId()))
       return r
     },

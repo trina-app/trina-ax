@@ -250,10 +250,12 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
  * 취소, ✕ and Esc are `onCancel`. `others`: the people of the room but me (a row's "nobody else can open it"). `returnTo`:
  * where the focus goes when it closes (default: where it was). `sources`: the rows are the files a room AI preview used
  * (components/rooms/RoomMessages.tsx PreviewLine), which leave the posted copy's list, not links of the answer. */
-export function ShareConfirm({ title, target, note, ask, others, attach, onAttach, busy, onSend, onCancel, returnTo, sources = false }: {
+export function ShareConfirm({ title, target, note, ask, others, attach, onAttach, busy, onSend, onCancel, returnTo, sources = false, extra }: {
   title: string; target: ReactNode; note?: string; ask: ConfirmAsk; others: number; attach: ReadonlySet<string>
   onAttach: (f: (cur: Set<string>) => Set<string>) => void; busy: boolean; onSend: (yes: { confirmKey: string; attach: string[] }) => void; onCancel: () => void; returnTo?: HTMLElement | null
   sources?: boolean
+  /** lines of the caller's own under the provenance line (a room AI preview: the web, an earlier hidden answer) */
+  extra?: ReactNode
 }) {
   const t = useT()
   const id = useId()
@@ -320,6 +322,7 @@ export function ShareConfirm({ title, target, note, ask, others, attach, onAttac
           </section>
         )}
         {ask.provenance && <Provenance p={ask.provenance} />}
+        {extra}
       </div>
     </Modal>
   )

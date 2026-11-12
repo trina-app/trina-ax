@@ -732,6 +732,41 @@ describe('an answer built on an old answer hidden from someone', () => {
   const mine = async (roomId: string, id: string, rootId?: string) => (rootId ? (await h.api('alice').call(API.listRoomThread, { params: { id: roomId, messageId: rootId }, query: {} })).items : await timeline('alice', roomId)).find((m) => m.id === id)
   const fromSeq = (roomId: string, id: string) => (h.ctx.db.query('SELECT seq FROM room_messages WHERE room_id = ? AND id = ?').get(roomId, id) as { seq: number }).seq
 
+  // QA TC-329 review: what came from elsewhere is asked about too, counting who here cannot see it
+  const shareWith = async (user: string, roomId: string, id: string, body: Record<string, unknown>) => (await h.req(user, `/api/rooms/${roomId}/messages/${id}/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json()
+  test('another conversation some people here are not in: "confirm" counting them, the place a conversation (never its people), not "the web"', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    const dm = await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'bob' } })
+    const p = preview(roomId, 'RECAP: DM-SECRET-7', { sources: [{ type: 'room', id: dm.id }] })
+    expect(p.decision).toMatchObject({ post: false, outside: false, otherRooms: true })
+    expect((await mine(roomId, p.id))!.preview).toMatchObject({ otherRooms: true, outside: false })
+    const c = await shareWith('alice', roomId, p.id, {})
+    expect(c).toMatchObject({ status: 'confirm', people: 1, provenance: { people: 1, places: [{ kind: 'conversation' }] } })
+    expect(c).not.toHaveProperty('outside')
+    expect(JSON.stringify(c)).not.toMatch(/bob|Bob|erin|Erin/)
+    expect(JSON.stringify(await timeline('erin', roomId))).not.toContain('DM-SECRET-7')
+    expect(await shareWith('alice', roomId, p.id, { confirmKey: c.confirmKey })).toMatchObject({ status: 'sent' })
+    expect(JSON.stringify(await timeline('erin', roomId))).toContain('DM-SECRET-7')
+  })
+
+  test('a connection some people here cannot use: asked, everyone who cannot counted, the web line on the card', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    const p = preview(roomId, 'RECAP: CRM-SECRET-3', { sources: [{ type: 'integration', id: uuidv7() }], outside: true })
+    const c = await shareWith('alice', roomId, p.id, {})
+    expect(c).toMatchObject({ status: 'confirm', people: 1, outside: true, provenance: { people: 1, otherPlaces: true } })
+    expect(JSON.stringify(await timeline('erin', roomId))).not.toContain('CRM-SECRET-3')
+  })
+
+  test('`ask`: "confirm" also when nothing private is at stake (people 0, the web alone); its key posts, without it nothing goes', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    const p = preview(roomId, 'RECAP: WEB-ONLY-5', { sources: [], outside: true })
+    const c = await shareWith('alice', roomId, p.id, { ask: true })
+    expect(c).toMatchObject({ status: 'confirm', people: 0, provenance: null, files: [], outside: true })
+    expect(JSON.stringify(await timeline('erin', roomId))).not.toContain('WEB-ONLY-5')
+    expect(await shareWith('alice', roomId, p.id, { confirmKey: c.confirmKey })).toMatchObject({ status: 'sent' })
+    expect(JSON.stringify(await timeline('erin', roomId))).toContain('WEB-ONLY-5')
+  })
+
   test('followed through the answers it was built on: the folders named with counts, posted only by the asker, after they say yes; audited', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
     // H1 read marketing; H2 (erin's) was built on H1 alone: both hidden from bob, who cannot open marketing

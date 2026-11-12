@@ -396,6 +396,8 @@ export const RoomMessage = z.object({
     /** such old answers were given and what they were built on is in `folders` / `personal`: postable like them
      * (docs/DECISIONS.md "방에 올리기…") */
     earlier: z.literal(true).optional(),
+    /** messages of another conversation (a 1:1, a group chat, another team room) that some member here is not in */
+    otherRooms: z.literal(true).optional(),
     /** for each folder of `folders`, how many members (not the person who asked) cannot see it; counts only, never
      * who. Absent: a preview decided before the counts */
     unable: z.record(z.string(), z.number().int().nonnegative()).optional() }).optional(),
@@ -756,11 +758,23 @@ export const AnswerShareConfirm = z.object({
 export type AnswerShareConfirm = z.infer<typeof AnswerShareConfirm>
 /** Posting my private preview of a room AI answer (shareRoomMessage): `confirmKey`, the last "confirm"'s key (I saw it
  * and said yes). Without it, a preview that used material some member cannot see answers "confirm" and posts nothing. */
-export const ShareRoomMessageBody = z.object({ confirmKey: z.string().min(1).max(200).optional() }).strict()
+export const ShareRoomMessageBody = z.object({
+  confirmKey: z.string().min(1).max(200).optional(),
+  /** always answer "confirm" first, also when nothing private is at stake (the app's one card before every post) */
+  ask: z.literal(true).optional(),
+}).strict()
 export type ShareRoomMessageBody = z.infer<typeof ShareRoomMessageBody>
+/** A room AI preview's "confirm": "대화방에 보내기"'s, and `people` may be 0 (asked with `ask`, nothing private at stake);
+ * `outside`: it used the web or a connected service; `earlier`: it went through an earlier answer hidden from someone */
+export const ShareRoomMessageConfirm = AnswerShareConfirm.extend({
+  people: z.number().int().nonnegative(),
+  outside: z.literal(true).optional(),
+  earlier: z.literal(true).optional(),
+})
+export type ShareRoomMessageConfirm = z.infer<typeof ShareRoomMessageConfirm>
 export const ShareRoomMessageResult = z.discriminatedUnion('status', [
   z.object({ status: z.literal('sent'), message: RoomMessage }),
-  AnswerShareConfirm,
+  ShareRoomMessageConfirm,
 ])
 export type ShareRoomMessageResult = z.infer<typeof ShareRoomMessageResult>
 
@@ -792,7 +806,7 @@ export const ROOMS = {
   roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
   getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),
   stopRoomAi: endpoint({ method: 'POST', path: '/api/rooms/:id/ai/:turnId/stop', auth: 'user', owner: 'B', response: z.object({ stopped: z.boolean() }), summary: 'Stop the AI answering my question (only the person who asked; anyone else gets 404).' }),
-  shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', body: ShareRoomMessageBody, response: ShareRoomMessageResult, summary: 'Post my private preview of an AI answer to the room. When it used material some member who will see it cannot see (folders, my own folder, messages from before someone joined) or a source file some cannot open, it first answers "confirm" as "대화방에 보내기" does (how many people, the places I may look myself, the source files, never who) with a confirmKey; sent again with that key it posts. Anything changed since asks again. Sources some member cannot read are left out; it notifies like a new message and is audited (room.ai_share, with confirmed).' }),
+  shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', body: ShareRoomMessageBody, response: ShareRoomMessageResult, summary: 'Post my private preview of an AI answer to the room. When it used material some member who will see it cannot see (folders, my own folder, messages from before someone joined, another conversation, a connection) or a source file some cannot open, or always with ask: true (the app asks before every post), it first answers "confirm" as "대화방에 보내기" does (how many people, the places I may look myself, the source files, never who) with a confirmKey; sent again with that key it posts. Anything changed since asks again. Sources some member cannot read are left out; it notifies like a new message and is audited (room.ai_share, with confirmed).' }),
   roomMessageSources: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files an AI answer in a room I am in used, each checked against my access now (no name or path for the others).' }),
 } as const
 

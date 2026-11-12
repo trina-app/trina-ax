@@ -1,13 +1,12 @@
-// Posting my private preview of a room AI answer (components/rooms/RoomMessages.tsx PreviewLine, QA TC-329): one that
-// used material some people here cannot see asks the server first, and its "confirm" opens the card of "대화방에 보내기"
-// (chat/ShareToRoom.tsx ShareConfirm, the same words: how many people cannot see it and where it came from, never who),
-// with the files it used as rows that leave the posted copy's list; its yes posts with the key. One that used only the
-// web keeps the app's own confirm and posts after it, with no card.
+// Posting my private preview of a room AI answer (components/rooms/RoomMessages.tsx PreviewLine, QA TC-329): it always
+// asks the server first (`ask`), and its "confirm" opens the card of "대화방에 보내기" (chat/ShareToRoom.tsx ShareConfirm,
+// the same words: how many people cannot see it and where it came from, never who), with the files it used as rows that
+// leave the posted copy's list, and lines of its own: everyone will see it when nothing is at stake, the web or a
+// connected service, an earlier hidden answer. Nothing is posted before its yes, which sends the key.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import { type Me } from '@mycel/shared/api'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
-import { DialogHost } from '../../src/components/ui'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
@@ -58,7 +57,6 @@ async function show(m: ReturnType<typeof preview>) {
   return mount(
     <MemoryRouter>
       <RoomMessages roomId={team.id} messages={[m]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />
-      <DialogHost />
     </MemoryRouter>,
   )
 }
@@ -75,9 +73,8 @@ test('material some people here cannot see: the server is asked first; its card 
   try {
     await m.click('room-ai-share')
     await m.until(() => card(m), 'the confirm card')
-    // no app confirm before it: the server's step is the only one
-    expect(byTest(m, 'room-ai-post-confirm')).toBeNull()
-    expect(calls).toEqual([{ body: {} }])
+    // the server's step is the only one
+    expect(calls).toEqual([{ body: { ask: true } }])
     // the side chat's words: where it came from and how many cannot see it, never who
     expect(byTest(m, 'share-room-provenance')!.textContent).toBe(en('shareRoom.provenance', { n: 1, places: 'projects/falcon/' }))
     expect(byTest(m, 'share-room-to')!.textContent).toContain('Design review')
@@ -113,19 +110,35 @@ test('cancel on the card posts nothing and leaves the preview private', async ()
   }
 })
 
-test('the web alone: the app\'s confirm first, then it posts at once, with no card', async () => {
+test('the web alone: still one card first (everyone will see it, and the web line); yes posts with the key', async () => {
   const p = preview({ folders: [], personal: false, outside: true, joinedLater: [] })
-  serve([posted(p.id)])
+  serve([{ status: 'confirm', people: 0, places: [], otherPlaces: false, files: [], provenance: null, confirmKey: 'k3', outside: true }, posted(p.id)])
   const m = await show(p)
   try {
     await m.click('room-ai-share')
-    await m.until(() => byTest(m, 'room-ai-post-confirm'), 'the app confirm')
-    expect(calls).toHaveLength(0)
-    await m.click(byTest(m, 'dialog-confirm') as never)
-    await m.until(() => calls.length === 1, 'the post')
-    expect(calls[0]).toEqual({ body: {} })
+    await m.until(() => card(m), 'the confirm card')
+    expect(byTest(m, 'room-ai-post-all')!.textContent).toBe(en('rooms.aiPrivateAll'))
+    expect(byTest(m, 'room-ai-post-outside')!.textContent).toBe(en('rooms.aiPostOutside'))
+    expect(byTest(m, 'share-room-provenance')).toBeNull()
+    expect(calls).toHaveLength(1)
+    await m.click(byTest(m, 'share-room-confirm-send') as never)
+    await m.until(() => !card(m), 'the card closed')
+    expect(calls[1]).toEqual({ body: { confirmKey: 'k3' } })
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('only an earlier hidden answer behind it: the card says so, and nothing goes before the yes', async () => {
+  const p = preview({ folders: [], personal: false, outside: false, joinedLater: [], earlier: true })
+  serve([{ status: 'confirm', people: 0, places: [], otherPlaces: false, files: [], provenance: null, confirmKey: 'k4', earlier: true }])
+  const m = await show(p)
+  try {
+    await m.click('room-ai-share')
+    await m.until(() => card(m), 'the confirm card')
+    expect(byTest(m, 'room-ai-post-earlier')!.textContent).toBe(en('rooms.aiPostEarlierNone'))
     await m.settle(20)
-    expect(card(m)).toBeNull()
+    expect(calls).toEqual([{ body: { ask: true } }])
   } finally {
     await m.unmount()
   }

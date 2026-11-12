@@ -64,19 +64,18 @@ import { fail } from '../http/errors'
 import { atLeast, loadPrincipal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { badSegment, hiddenEntry } from '../policy/names'
-import { getRow } from '../integrations/connections/store'
-import { shareRow } from '../integrations/google-drive/shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { confidentialChat } from '../safe-ops/confidential'
 import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
-import { groupName, messagesOut, MSG_COLS, roomRow, type MemberRow as RoomMemberRow, type MessageRow as RoomMessageRow, type RoomRow } from '../rooms/store'
+import { messagesOut, MSG_COLS, roomRow, type MemberRow as RoomMemberRow, type MessageRow as RoomMessageRow, type RoomRow } from '../rooms/store'
 import { historyKinds, openHistories } from '../rooms/history'
 import { DECIDE_HISTORY_MS } from '../rooms/ai'
 import { hashFile } from '../team-files/place'
 import { missingReaders, scopeWithListing, sourceKey, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
 import { confirmMac, confirmSecret } from './confirm-key'
 import { tr } from './i18n'
+import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
 
 /** Every this many linked files past the first take one more send from the budget (a row per file is a count per file). */
@@ -255,31 +254,7 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
     return p
   }
 
-  /** a team folder ('' = the top), named only when I may read it now myself (a rule changed since: not) */
-  const folderPlace = (p: string | undefined): AnswerSharePlace | null => (p !== undefined && me && atLeast(rules.access(me, p === '' ? [] : p.split('/')), 'read') ? { kind: 'folder', path: p } : null)
-  const placeOf = (s: ReadSource): AnswerSharePlace | null => {
-    switch (s.type) {
-      case 'root': return folderPlace('')
-      case 'folder': return folderPlace((db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null)?.path)
-      case 'user': return s.id === userId ? { kind: 'mine' } : null
-      case 'integration': { const name = getRow(db, s.id)?.name; return name ? { kind: 'service', name } : null }
-      case 'drive_share': { const name = shareRow(db, s.id)?.name; return name ? { kind: 'service', name } : null }
-      case 'room': {
-        const r = roomRow(db, s.id)
-        const team = r?.kind === 'team' ? groupName(db, r) : null
-        if (r?.kind === 'all') return { kind: 'room', name: '' }
-        if (team) return { kind: 'room', name: team }
-        // a 1:1 or group conversation: its name is people's names
-        return r?.kind === 'dm' || r?.kind === 'group' ? { kind: 'conversation' } : null
-      }
-      case 'name': {
-        const segs = s.path.split('/').filter(Boolean)
-        if (segs[0] === 'users') return segs[1] === userId ? { kind: 'mine' } : null
-        const at = sourceOf(db, rules, s.path)
-        return at.type === 'name' ? null : placeOf(at)
-      }
-    }
-  }
+  const placeOf = (s: ReadSource): AnswerSharePlace | null => sharePlaceOf(db, rules, userId, me, s)
 
   /** The provenance of what `uses` read, with `leftOut` (paths or links whose own row tells who sees them) not counted. */
   const of = async (uses: readonly BranchUse[], leftOut: ReadonlySet<string>): Promise<Provenance> => {

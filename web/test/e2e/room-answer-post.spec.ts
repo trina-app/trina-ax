@@ -61,11 +61,13 @@ const posted = () => {
 /** the server's "confirm" for the folder (how many people here cannot see it), and the key it binds */
 const confirmOf = (people: number) => ({
   status: 'confirm', people, places: [{ kind: 'folder', path: 'groups/영업/단가표' }], otherPlaces: false, files: [],
-  provenance: { people, places: [{ kind: 'folder', path: 'groups/영업/단가표' }], otherPlaces: false }, confirmKey: `key-${people}`,
+  provenance: { people, places: [{ kind: 'folder', path: 'groups/영업/단가표' }], otherPlaces: false }, confirmKey: `key-${people}`, earlier: true,
 })
-/** the server: "confirm" without the key, posted with it */
+/** the server: "confirm" when asked (the app always asks first), posted with the key */
 const asksFirst = (people: number) => (route: Route) => {
-  const key = (route.request().postDataJSON() as { confirmKey?: string } | null)?.confirmKey
+  const sent = route.request().postDataJSON() as { confirmKey?: string; ask?: boolean } | null
+  if (!sent?.confirmKey) expect(sent?.ask).toBe(true)
+  const key = sent?.confirmKey
   return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(key === `key-${people}` ? posted() : confirmOf(people)) })
 }
 
@@ -83,6 +85,7 @@ test('the private answer says why in one line; 방에 올리기… asks the serv
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('이 답을 방에 올릴까요?')
   await expect(dialog.getByTestId('share-room-provenance')).toHaveText('이 답에는 방 사람 2명이 볼 수 없는 자료의 내용이 들어 있어요: groups/영업/단가표/')
+  await expect(dialog.getByTestId('room-ai-post-earlier')).toBeVisible()
   await expect(dialog).not.toContainText('민준')
   await dialog.getByTestId('share-room-back').click()
   await expect(dialog).toHaveCount(0)
