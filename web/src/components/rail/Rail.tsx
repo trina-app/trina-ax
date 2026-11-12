@@ -7,12 +7,13 @@
 // the photo in order; Up/Down/Home/End move between them too. The rail takes no shortcut of its own.
 import clsx from 'clsx'
 import { Bell, FolderOpen, MessageCircle, PanelLeftOpen } from 'lucide-react'
-import type { KeyboardEvent, ReactNode } from 'react'
+import { useEffect, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { RAIL_ITEMS, railOf, railTarget, useRailMemory, type RailItem } from '../../lib/rail'
 import { aiName } from '../../lib/tabs'
 import { useNoticeUnread, useRoomNoticeUnread } from '../../store/inbox'
+import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
 import { useAttention } from '../../store/sessionMarkers'
 import { AiTabIcon } from '../BottomTabs'
@@ -29,6 +30,13 @@ export function Rail({ showList }: { showList: boolean }) {
   const current = railOf(pathname, search)
   const last = useRailMemory((s) => s.last)
   const attention = useAttention()
+  // 트리나's mark counts the AI chats of the chat list: read it here, whichever place opens first (대화, 파일, 활동), not
+  // only when 트리나's list mounts (QA: eight unseen answers showed no mark until 트리나 was visited)
+  const chatsLoaded = useChats((s) => s.chatsLoaded)
+  const loadChats = useChats((s) => s.loadChats)
+  useEffect(() => {
+    if (!chatsLoaded) void loadChats(true).catch(() => {})
+  }, [chatsLoaded, loadChats])
   const rooms = useRooms((s) => s.rooms)
   const roomNotices = useRoomNoticeUnread()
   const notices = useNoticeUnread()

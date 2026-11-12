@@ -13,7 +13,7 @@
 // that (remembered per person in this browser). A folded group keeps the strongest mark of all its chats.
 import clsx from 'clsx'
 import { ChevronDown, Folder, Pin, Plus, SquareKanban } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import type { Chat, ChatMark } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -80,7 +80,8 @@ function useGroupsRead() {
   const error = useChatGroups((s) => s.error)
   useEffect(() => {
     void readChatGroups({ minAgeMs: 5_000 })
-    const offs = [chatChanged.on(chatGroupsChanged), navFoldersChanged.on((k) => k === 'chats' && chatGroupsChanged()), reloadAsked.on(() => void readChatGroups()), accessChanged.on(chatGroupsChanged)]
+    // a change of a chat in my list (someone else's shared chat I never wrote in is not: its project's page has it)
+    const offs = [chatChanged.on((d) => { if (!d.chat?.shared || d.chat.shared.mine || d.change !== 'updated') chatGroupsChanged() }), navFoldersChanged.on((k) => k === 'chats' && chatGroupsChanged()), reloadAsked.on(() => void readChatGroups()), accessChanged.on(chatGroupsChanged)]
     const again = () => document.visibilityState !== 'hidden' && void readChatGroups({ minAgeMs: REFOCUS_READ_MS })
     window.addEventListener('focus', again)
     return () => {
@@ -113,20 +114,35 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   const markOf = useCallback((m: ChatMark): Marker | null => markerOf(byId.get(m.id) ?? m, { card: cards.has(m.id), here: m.id === here }), [byId, cards, here])
   const { folds, set: setFold } = useFolds()
   const [opened, setOpened] = useState<Record<string, Opened>>({})
+  const openedRef = useRef(opened)
+  openedRef.current = opened
   const [otherMore, setOtherMore] = useState<Opened | null>(null)
   const [moving, setMoving] = useState<Chat | null>(null)
   const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
 
-  const openMore = async (key: string, query: Record<string, string>, keep: (c: Chat) => boolean) => {
-    const was = opened[key]
-    setOpened((s) => ({ ...s, [key]: { items: was?.items ?? [], cursor: was?.cursor ?? null, loading: true } }))
+  // what each opened group reads (so a new read of the groups can read it again)
+  const asks = useRef(new Map<string, { query: Record<string, string>; keep: (c: Chat) => boolean }>())
+  /** "N개 더 보기": the group's next page (`fresh`: its first page again, replacing what was read) */
+  const openMore = async (key: string, query: Record<string, string>, keep: (c: Chat) => boolean, fresh = false) => {
+    asks.current.set(key, { query, keep })
+    const was = fresh ? undefined : opened[key]
+    setOpened((s) => ({ ...s, [key]: { items: fresh ? s[key]?.items ?? [] : was?.items ?? [], cursor: was?.cursor ?? null, loading: true } }))
     try {
       const r = await api.call(API.listChats, { query: { ...query, limit: String(PAGE), ...(was?.cursor ? { cursor: was.cursor } : {}) } })
-      setOpened((s) => ({ ...s, [key]: { items: [...(s[key]?.items ?? []), ...r.items.filter((c) => !c.pinnedAt && keep(c))], cursor: r.nextCursor, loading: false } }))
+      setOpened((s) => (key in s ? { ...s, [key]: { items: [...(fresh ? [] : s[key]?.items ?? []), ...r.items.filter((c) => !c.pinnedAt && keep(c))], cursor: r.nextCursor, loading: false } } : s))
     } catch {
-      setOpened((s) => ({ ...s, [key]: { items: s[key]?.items ?? [], cursor: s[key]?.cursor ?? null, loading: false } }))
+      setOpened((s) => (key in s ? { ...s, [key]: { items: s[key]?.items ?? [], cursor: s[key]?.cursor ?? null, loading: false } } : s))
     }
   }
+  // a new read of the groups: pages read against the old one may hold rows that moved, or skip some (page 1 shifted).
+  // An opened group reads its first page again; the other chats' extra pages close ("더 보기" reads on from the new heads)
+  useEffect(() => {
+    setOtherMore(null)
+    for (const key of Object.keys(openedRef.current)) {
+      const a = asks.current.get(key)
+      if (a) void openMore(key, a.query, a.keep, true)
+    }
+  }, [groups]) // eslint-disable-line react-hooks/exhaustive-deps
   const fold = (key: string, folded: boolean) => {
     setFold(key, folded ? 'open' : 'folded')
     // folding closes what "N more" opened
@@ -153,7 +169,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 
   // the chat on screen stays in sight in its group past the first three, as it did in the old list
   const onScreen = openChat ? byId.get(openChat) ?? null : null
-  const withOpen = (rows: Chat[], belongs: boolean) => (onScreen && belongs && !onScreen.pinnedAt && !rows.some((c) => c.id === onScreen.id) ? [...rows, onScreen] : rows)
+  const withOpen = (rows: Chat[], belongs: boolean) => (onScreen && belongs && (!onScreen.shared || onScreen.shared.mine) && !onScreen.pinnedAt && !rows.some((c) => c.id === onScreen.id) ? [...rows, onScreen] : rows)
 
   return (
     <div data-testid="trina-list">

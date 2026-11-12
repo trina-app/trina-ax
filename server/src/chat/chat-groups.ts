@@ -72,7 +72,10 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
   // each group's first rows, and the marks of all its rows (a row past `top` is read only for its marker)
   const head = (rows: ChatRow[]) => {
     const top = rows.slice(0, CHAT_GROUPS_TOP).map(view)
-    const marked = [...top, ...rows.slice(CHAT_GROUPS_TOP).map(view)].flatMap((c) => markOf(c))
+    // a row can mark only while it runs, waits, or has an answer newer than when it was last seen: the cheap checks
+    // first, the full view (whose answers count for me) only for those
+    const maybe = (r: ChatRow) => rt.runState(r.id) !== 'idle' || rt.waitsForPerson(r.id) || !!rt.store.answerState(r).unseen
+    const marked = [...top, ...rows.slice(CHAT_GROUPS_TOP).filter(maybe).map(view)].flatMap((c) => markOf(c))
     return { count: rows.length, top, marked }
   }
 

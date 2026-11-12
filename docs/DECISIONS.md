@@ -11653,7 +11653,15 @@ history by project" (five projects, the five latest, "모두 보기") and the P1
   the chats store's live copy when it has one.
 - **Filter**: the button sits in the panel's header (always visible). Anything not at the default shows the whole
   history filtered as before (the loaded chats and "더 보기") under one line naming the choices and a reset ✕.
+- **트리나's rail mark from the start** (QA on dev 85c5d1deb): the rail reads the chat list itself, so a window that
+  opens on 대화, 파일 or 활동 shows 트리나's "?" or dot for unseen answers at once; before, only 트리나's list read it.
 - **Removed** on this path: the five-latest cap and "모두 보기" / "접기", the 프로젝트 quiet row of P1.
+- My chats in a project outside the 8 are not repeated under 기타 기록: they are in that project, behind "모든
+  프로젝트" (the plan's rule). N counts the projects I can read; the owner or an admin may see more on that page (the
+  team projects they only manage).
+- Opening a group's "N개 더 보기" pages `GET /api/chats?projectId=` and keeps my list's chats; a page of only other
+  people's shared chats adds no row (the button stays, with the same count). A new read of the groups reads an opened
+  group's first page again and closes the other chats' extra pages, so no row is lost or shown twice.
 - Decided without the owner: "모든 프로젝트" hides when I can see no project; "+ 새 프로젝트" opens `/projects?new=1`
   (the existing form); "N개 더 보기" pages in place rather than opening the project.
 - Tests: `tests/unit/b-chat-groups.test.ts`, `tests/security/chat-groups.test.ts`, the permission matrix case

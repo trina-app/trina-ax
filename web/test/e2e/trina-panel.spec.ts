@@ -156,3 +156,23 @@ test('with the switch off the old sidebar shows its capped history, unchanged', 
   await expect(page.getByTestId('trina-list')).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: t['sidebar.label'] }).getByTestId('ai-chats-all')).toBeVisible()
 })
+
+test('opened on 대화 or 파일 first, 트리나 already shows its mark for unseen answers (QA: it waited for a visit to 트리나)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await reset(page)
+  await navRail(page)
+  await signIn(page)
+  for (const n of [1, 2, 3]) await chat(page, `Answered ${n}`)
+  // the answers ended while nobody looked
+  await page.route('**/api/chats?*', async (route) => {
+    const r = await route.fetch()
+    const body = (await r.json()) as { items: { title: string }[] }
+    body.items = body.items.map((c) => (c.title.startsWith('Answered') ? { ...c, unseen: true } : c))
+    await route.fulfill({ json: body })
+  })
+  for (const start of ['/rooms', '/files']) {
+    await page.goto(start)
+    await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+    await expect(page.getByTestId('rail-ai').locator('[data-mark="dot"]')).toBeVisible()
+  }
+})

@@ -84,3 +84,19 @@ describe('never shows what I cannot see', () => {
     expect((await groups('bob')).projects.find((p) => p.projectId === projectId)?.count).toBe(2)
   })
 })
+
+describe('never a chat in the trash or a room session', () => {
+  test('a chat in the trash is in no group and not in the next pages', async () => {
+    const gone = await chat('bob', 0, {}, 'BOB-TRASHED-CANARY')
+    await h.api('bob').call(API.deleteChat, { params: { id: gone.id } })
+    expect(await raw('bob')).not.toContain('BOB-TRASHED-CANARY')
+    expect(JSON.stringify(await h.api('bob').call(API.listChats, { query: { other: '1' } }))).not.toContain('BOB-TRASHED-CANARY')
+  })
+  test("a room's AI session is never listed", async () => {
+    const roomChat = await chat('bob', 0, {}, 'BOB-ROOM-SESSION-CANARY')
+    const room = db().query('SELECT id FROM rooms LIMIT 1').get() as { id: string } | null
+    expect(room).not.toBeNull()
+    db().query('UPDATE chats SET room_id = ? WHERE id = ?').run(room!.id, roomChat.id)
+    expect(await raw('bob')).not.toContain('BOB-ROOM-SESSION-CANARY')
+  })
+})
