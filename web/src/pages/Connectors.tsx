@@ -250,7 +250,7 @@ export function ConnectorsHome() {
                 <div className="mb-1 flex items-center gap-2">
                   <h2 id="connectors-discover" className="text-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h2>
                   {!q && cards.length > POPULAR_FIRST && (
-                    <button type="button" className="ml-auto text-sm text-muted hover:text-ink" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
+                    <button type="button" className="touch-hit ml-auto text-sm text-muted hover:text-ink" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
                       {all ? t('connectors.showLess') : t('connectorsPage.showAll', { count: cards.length })}
                     </button>
                   )}
@@ -290,7 +290,7 @@ function DiscoverCard({ c, admin }: { c: Card; admin: boolean }) {
       {c.state === 'off' && !admin ? (
         <span className="max-w-28 shrink-0 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
       ) : c.state === 'off' ? (
-        <Link to="/admin/connectors" className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
+        <Link to="/admin/connectors" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
       ) : (
         <IconButton label={t('integrations.discover.add', { name: c.name })} className="shrink-0 rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />
