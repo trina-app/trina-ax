@@ -5,6 +5,7 @@
 // template removes their connections. Phone width and accessibility in both themes.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn, adv } from './helpers'
 
 const KEY = 'member-own-' + 'k'.repeat(24)
@@ -334,4 +335,29 @@ test('R2 and R7: an inbox notice and a scheduled task that needed the key open t
   await expect(page.getByTestId('schedule-outcome-reason')).toContainText('Needs your own key for Tasks')
   await page.getByTestId('schedule-connect-template').click()
   await expect(modal(page).getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()
+})
+
+test('a sign-in template connected but never signed in says "Sign-in needed" on its line, not "Reconnect" (QA TC-205)', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  const made = await page.request.post('/api/admin/integration-templates', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Docs', url: 'https://mcp.docs.example/mcp', auth: 'oauth' } })
+  expect(made.status()).toBe(201)
+  const tpl = await made.json()
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  // connecting a sign-in template makes the connection for signing in next; Bob never finishes the sign-in
+  // the template's version as Bob sees it (what the Connect dialog sends)
+  const version = (await (await page.request.get('/api/integration-templates')).json()).items.find((x: { id: string }) => x.id === tpl.id).version
+  const joinedNow = await page.request.post(`/api/integration-templates/${tpl.id}/connect`, { headers: { [CSRF_HEADER]: '1' }, data: { writePolicy: 'ask', version } })
+  expect(joinedNow.ok()).toBe(true)
+  expect(await joinedNow.json()).toMatchObject({ auth: 'oauth', hasSecret: false, status: 'needs_auth' })
+  await page.goto('/connectors')
+  const line = joined(page).filter({ hasText: 'Docs' })
+  await expect(line).toHaveAttribute('data-state', 'signin')
+  await expect(line.getByTestId('connector-row-status')).toHaveText('Sign-in needed')
+  await expect(joined(page).filter({ hasText: 'Reconnect' })).toHaveCount(0)
+  // its page says the same
+  await line.getByTestId('connector-row-status').click()
+  await expect(page).toHaveURL(/\/connectors\/mcp\//)
+  await expect(page.getByTestId('integration-row').filter({ hasText: 'Docs' })).toHaveAttribute('data-status', 'needs_auth')
 })
