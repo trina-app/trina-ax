@@ -279,9 +279,24 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
 - **Where it is not offered.** Scheduled runs have nobody to finish a card: the tool answers "skipped" at once.
   Sub-agents never get the tool (`PARENT_ONLY_TOOLS`). Confidential chats (Safe operations) do not offer it: it is not a
   local tool, and connected services are not offered there either.
-- **A new connection's tools come with the next message.** A turn's tools are fixed when it starts (the engines'
-  tool lists and the model proxy's names for the turn), so the AI says it is connected and can use it from the
-  person's next message.
+- **The same answer goes on with the new connection** (owner decision 2026-11-12). A person asks "summarize my Notion
+  page about the launch" without Notion connected: the AI shows the card, the person connects it, and the AI goes on
+  with the same answer, using Notion, without the question being sent again. A running engine's tools are fixed (the
+  engines' tool lists, the model proxy's names, the lockdown check), so the turn goes on in a new step
+  (`chat/turn.ts`):
+  - Claude: the tool's result tells the AI to end its step; when that attempt ends normally, the turn builds its tool
+    set again (`buildToolSet`, the same person and chat, so the same filters as at the start) and, only when it has
+    tools it did not have, resumes the same engine session with a server note as the message (`continueAfterConnect`:
+    the connection, its new tools, go on with the request in this answer). A new proxy token, lockdown and sub-agent
+    list come from the new set; the text goes on in the same answer message. At most `CONTINUE_MAX` (2) times per
+    answer; each continuation gets only the tool rounds the answer has left, and the budget, the answer's time and
+    Stop apply as to any attempt (`launch`). No stashed session, an error, a stop or a limit: no continuation.
+  - The API engine (in the server): the tool set is built again before its next round and listed again.
+  - Codex (its runs start fresh, without the answer so far): unchanged, the tools come with the person's next message.
+  - Google Drive's tools are always offered, so a Drive connect never needs this.
+  The result says which (`next`); "Not now", a card whose time runs out or a stopped answer make no continuation. Only
+  the turn's person can finish the card (the route checks the owner), and the tools the answer goes on with are that
+  person's own: a room's answer (where `connect_service` is not offered) keeps only the asker's own Google apps.
 - If the person pastes a key into the chat anyway, the AI tells them not to, that it should be revoked and replaced
   at the service, and offers the card (the instructions' rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
   before sending text that almost surely holds a key, with "Send anyway" and "Edit" (`SecretWarning`), in every box
