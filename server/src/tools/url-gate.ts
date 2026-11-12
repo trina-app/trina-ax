@@ -2,7 +2,8 @@
 // address (https://attacker/?d=<secret>), and the AI that calls web_fetch may be following instructions hidden in a
 // team document. So the server, not the AI, decides when a person must confirm the full URL first:
 //   ① opened without asking: URLs that appear verbatim in what the person typed in this chat (user messages; not the
-//     messages a scheduled run sent for them, whose text the AI wrote: auto_sent), URLs the person allowed on a card
+//     messages a scheduled run sent for them, whose text the AI wrote: auto_sent; not the "> " lines of a quote, another
+//     person's words: chat/read-rooms.ts isQuoteLine), URLs the person allowed on a card
 //     (chat_seen_urls 'allowed', also those a scheduled task's card carried into its run), and learned links: web
 //     search results of this chat (this turn's and the saved steps of earlier answers) and links of an earlier
 //     web_fetch result of this chat. Learned links are within a budget: which link the AI picks can carry data out
@@ -47,6 +48,7 @@ import { ROOM_REF_RE, type ConfirmDetail, type Locale } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
 import type { CardOutcome } from '../policy/refusal'
+import { withoutQuoteLines } from '../chat/read-rooms'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
 import type { EchoCheck } from './connection-urls'
@@ -184,8 +186,10 @@ function typedUrls(db: Database, chatId: string, userId?: string | null): Set<st
   for (const r of db.query(`SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND auto_sent = 0
     AND id NOT IN (SELECT user_message_id FROM turns WHERE chat_id = ? AND client_kind = 'schedule' AND user_message_id IS NOT NULL)
     ${shared ? 'AND author_id = ?' : ''}`).all(...(shared ? [chatId, chatId, userId!] : [chatId, chatId])) as { content: string }[]) {
-    // a "#" room token's title is a room's name (any member of a group chat sets it), not the person's typing
-    for (const u of extractUrls(r.content.replace(ROOM_REF_RE, ' '))) seen.add(u)
+    // a "#" room token's title is a room's name (any member of a group chat sets it), not the person's typing; a quote
+    // line ("Ask Trina about this" quotes another person's room message, web components/rooms/SideChatPanel.tsx
+    // withQuote) is someone else's words (chat/read-rooms.ts isQuoteLine): its links ask like any the person did not type
+    for (const u of extractUrls(withoutQuoteLines(r.content).replace(ROOM_REF_RE, ' '))) seen.add(u)
   }
   return seen
 }
