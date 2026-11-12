@@ -456,7 +456,9 @@ describe('after the security review', () => {
     const t = await team('handover-names')
     try {
       const inv = await t.owner.call('POST', '/api/admin/invites', { leadFor: '박민준 대표님' })
-      await join(t.h, inv.token, 'rtl.name', '박\u202e민준\u200b')
+      // the API refuses such a name now (shared/src/name-chars.ts); one saved before that rule still loads
+      const joined = await join(t.h, inv.token, 'rtl.name', '박민준')
+      t.h.ctx.db.query('UPDATE users SET name = ? WHERE id = ?').run('박\u202e민준\u200b', joined.id)
       const s = await t.owner.call('GET', '/api/admin/handover')
       expect(s.card.user.name).toBe('박민준')
       expect((await handoverItems(t.owner))[0].handover.user.name).toBe('박민준')
