@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, base64Size, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, base64Size, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
 import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
@@ -63,6 +63,9 @@ export function setMobileSession(key: string | null, signedOut = false): void {
   // a new state of the page: the app has not heard it yet
   if (key !== sessionKey) signedOutTold = false
   sessionKey = key; pageSignedOut = out
+  // the app clears the icon itself at a sign-out: the last person's number is never sent again after the reset; another
+  // session (another person) starts at 0 until its page's count is worked out
+  if (out || switched) badge = 0
   resetMobileSession(switched || out)
 }
 export function resetMobileSession(signedOut = false): void {
@@ -77,6 +80,7 @@ export function resetMobileSession(signedOut = false): void {
     if (!mobileApp() || mobileApp()!.generation !== reply.nextGeneration) throw new Error('mobile_protocol_mismatch')
     void sendAppearance().catch(() => {})
     void sendNav().catch(() => {})
+    void sendBadge().catch(() => {})
   })
   void barrier.catch(reportMobileError)
 }
@@ -313,6 +317,32 @@ async function sendNav(): Promise<void> {
     throw error
   }
 }
+/** The app icon's number (badge-v1): the latest count the page worked out (store/sessionMarkers.ts), null before any. */
+let badge: number | null = null
+/** what the app last heard, for this bridge (nonce and generation): a send of the same is skipped */
+let badgeSent = ''
+/** Tells the phone app the number for its icon (badge-v1): the page's one count n, as the tab title and the Mac Dock
+ * show it. Sent when it changes, when the bridge comes, after a session reset and every time the app comes to the
+ * foreground (a push may have set another number meanwhile). A number only. An app without badge-v1 hears nothing. */
+export function setAppBadge(n: number): void {
+  badge = Number.isFinite(n) && n > 0 ? Math.min(MAX_BADGE, Math.floor(n)) : 0
+  void sendBadge().catch(() => {})
+}
+async function sendBadge(again = false): Promise<void> {
+  await barrier.catch(() => {})
+  const config = mobileApp()
+  if (badge === null || !config?.capabilities.includes(BADGE_CAPABILITY)) return
+  const count = badge, sent = `${config.nonce}:${config.generation}:${count}`
+  if (sent === badgeSent && !again) return
+  badgeSent = sent
+  try {
+    await request({ ...envelope(config), type: 'badge', count }, config, 10_000)
+  } catch (error) {
+    // not heard: the next change, bridge, reset or foreground sends it again
+    if (badgeSent === sent) badgeSent = ''
+    throw error
+  }
+}
 export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return
   initialized = true; onError = errorHandler ?? onError
@@ -325,8 +355,11 @@ export function initMobile(errorHandler?: (error: unknown) => void): void {
     else {
       void sendAppearance().catch(() => {})
       void sendNav().catch(() => {})
+      void sendBadge().catch(() => {})
     }
   })
+  // back on screen: the icon gets the page's number again (a push may have set the server's meanwhile)
+  window.addEventListener('mycel:mobile-foreground', () => void sendBadge(true).catch(() => {}))
   window.addEventListener('mycel:theme', () => void sendAppearance().catch(() => {}))
   window.addEventListener('pagehide', () => abortPending())
   window.addEventListener('mycel:download', (event) => {

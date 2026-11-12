@@ -1,5 +1,5 @@
 import { PhotoPicks, PhotoRefused } from './photos'
-import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPicks, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, base64Size, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPicks, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -115,11 +115,12 @@ export class PushRefused extends Error { constructor(readonly code: 'push_denied
 /** token: ask the OS (permission prompt) for the device token; registered: the page registered it with its team;
  * permission: what the OS says so far, never a prompt; openSettings: this app's page in the phone's Settings; labelHash
  * (push-label-v1): the hash of the label key the notification extension asks this team with; signedOut: no one is
- * signed in any more (notifications on screen and the label key go, before the reset is answered). */
+ * signed in any more (notifications on screen and the label key go, before the reset is answered); badge (badge-v1):
+ * the app icon's number. */
 export interface PushBridge {
   token(): Promise<PushToken>; registered(device: { deviceId: string; removeKey: string }): Promise<void>
   permission?(): Promise<PushPermission>; openSettings?(): Promise<void>
-  labelHash?(): Promise<string | null>; signedOut?(): Promise<void>
+  labelHash?(): Promise<string | null>; signedOut?(): Promise<void>; badge?(count: number): Promise<void>
 }
 
 /** Where Back goes in the page on screen (nav-v1): `home` is true unless the page said it is on another tab. */
@@ -171,6 +172,9 @@ export class MobileReceiver {
           if (!pushPermission(permission)) throw new PushRefused('push_unavailable')
           reply.permission = permission
         }
+      } else if (m.type === 'badge') {
+        if (!this.push?.badge || !current.capabilities.includes(BADGE_CAPABILITY)) throw new Error('unsupported')
+        await this.push.badge(m.count)
       } else if (m.type === 'appearance') {
         if (!this.appearance || !current.capabilities.includes(APPEARANCE_CAPABILITY)) throw new Error('unsupported')
         this.appearance({ dark: m.dark, system: m.system === true })

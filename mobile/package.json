@@ -7,7 +7,7 @@
   "scripts": {
     "start": "expo start",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ../tests/unit/mobile-bridge.test.ts ../tests/unit/mobile-security.test.ts"
+    "test": "bun test ../tests/unit/mobile-bridge.test.ts ../tests/unit/mobile-security.test.ts ../tests/unit/mobile-badge.test.ts"
   },
   "dependencies": {
     "expo": "58.0.17",

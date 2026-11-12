@@ -87,19 +87,20 @@ export const PUSH_CONNECT_TIMEOUT_MS=3000,PUSH_TIMEOUT_MS=10_000
  * alone is returned. prepare() runs after DNS; beforeSend() is checked again right before every socket opens.
  * The checked addresses are tried one after another (connectOrder), each with a short connect timeout, all within one
  * overall bound. Only a failure before the TCP connection is up moves to the next address; once it is up the request
- * may have been written, so any failure is final for this attempt and a push is never sent twice. */
+ * may have been written, so any failure is final for this attempt and a push is never sent twice. `readError` (the push
+ * gateway): a 400's answer is read, at most 512 bytes, for its JSON `error` code (the gateway's answers carry no data). */
 export async function postPinned(o:{url:URL;signal:AbortSignal;beforeSend:()=>boolean;lookup:PushLookup;request?:typeof https.request;
-  prepare?:()=>{headers:Record<string,string>;body:Buffer};headers?:Record<string,string>;body?:Buffer;connectTimeoutMs?:number;timeoutMs?:number}):Promise<{statusCode:number}>{
+  prepare?:()=>{headers:Record<string,string>;body:Buffer};headers?:Record<string,string>;body?:Buffer;connectTimeoutMs?:number;timeoutMs?:number;readError?:boolean}):Promise<{statusCode:number;error?:string}>{
   const u=o.url
   if(u.protocol!=='https:'||u.port||u.username||u.password)throw new PushSendError('push_address_refused')
   const addresses=await bounded(o.lookup(u.hostname).catch(e=>{throw new PushSendError('push_transport_failed',{phase:'dns',code:errorCode(e)})}),o.signal,3000)
   if(!addresses.length||addresses.some(a=>!isPublicAddress(a.address)||isLocalAddress(a.address)))throw new PushSendError('push_address_refused')
   const order=connectOrder(addresses)
   const prepared=o.prepare?o.prepare():{headers:o.headers??{},body:o.body??Buffer.alloc(0)}
-  return new Promise<{statusCode:number}>((resolve,reject)=>{
+  return new Promise<{statusCode:number;error?:string}>((resolve,reject)=>{
     let finished=false,req:ReturnType<typeof https.request>|undefined,connectTimer:ReturnType<typeof setTimeout>|undefined,next=0,phase:'connect'|'tls'|'request'='connect'
     const families:number[]=[],detail=(code?:string):PushFailureDetail=>({phase,...(code?{code}:{}),families:families.join(',')})
-    const finish=(error?:Error,statusCode?:number)=>{if(finished)return;finished=true;clearTimeout(timer);clearTimeout(connectTimer);o.signal.removeEventListener('abort',abort);req?.destroy();error?reject(error):resolve({statusCode:statusCode??0})}
+    const finish=(error?:Error,statusCode?:number,code?:string)=>{if(finished)return;finished=true;clearTimeout(timer);clearTimeout(connectTimer);o.signal.removeEventListener('abort',abort);req?.destroy();error?reject(error):resolve({statusCode:statusCode??0,...(code?{error:code}:{})})}
     const abort=()=>finish(new PushSendError('push_cancelled',detail()))
     const timer=setTimeout(()=>finish(new PushSendError('push_timeout',detail())),o.timeoutMs??PUSH_TIMEOUT_MS)
     o.signal.addEventListener('abort',abort,{once:true})
@@ -109,8 +110,10 @@ export async function postPinned(o:{url:URL;signal:AbortSignal;beforeSend:()=>bo
       // The last check occurs AFTER DNS/encryption and immediately before opening each socket/writing headers.
       if(o.signal.aborted||!o.beforeSend())return finish(new PushSendError('push_cancelled',detail()))
       families.push(a.family);phase='connect'
-      let over=false,socket:{connecting?:boolean}|undefined
+      let over=false,socket:{connecting?:boolean}|undefined,answered:(()=>void)|null=null
       const failed=(code:string)=>{
+        // the answer's status is known already (a 400 being read): that status is the outcome
+        if(answered){answered();return}
         if(over||finished)return;over=true;clearTimeout(connectTimer)
         if(phase==='connect'&&CONNECT_FAILURES.has(code)){const r=req;req=undefined;r?.destroy();attempt(code);return}
         finish(new PushSendError('push_transport_failed',detail(code)))
@@ -123,7 +126,16 @@ export async function postPinned(o:{url:URL;signal:AbortSignal;beforeSend:()=>bo
           // Pin this checked address, including when the runtime asks for all addresses. TLS still verifies the provider name.
           lookup:((_host:unknown,opts:any,cb:any)=>opts?.all?cb(null,[a]):cb(null,a.address,a.family)) as any},res=>{
           // No redirects, no provider body retained or logged. Status alone drives bounded retry/removal.
-          const statusCode=res.statusCode??0;res.destroy();if(!over){over=true;finish(undefined,statusCode)}
+          const statusCode=res.statusCode??0
+          if(o.readError&&statusCode===400){
+            let text=''
+            answered=()=>{if(over)return;over=true;res.destroy();finish(undefined,statusCode,answerError(text))}
+            res.setEncoding('utf8')
+            res.on('data',(c:string)=>{text+=c;if(text.length>512)answered!()})
+            res.on('end',()=>answered!());res.on('error',()=>answered!())
+            return
+          }
+          res.destroy();if(!over){over=true;finish(undefined,statusCode)}
         })
         r.on('socket',(s:any)=>{
           if(over||finished)return;socket=s
@@ -138,6 +150,10 @@ export async function postPinned(o:{url:URL;signal:AbortSignal;beforeSend:()=>bo
     if(o.signal.aborted){abort();return}
     attempt()
   })
+}
+/** The `error` code of a push gateway answer ({ ok: false, error }), or undefined. */
+export function answerError(text:string):string|undefined{
+  try{const e=(JSON.parse(text) as {error?:unknown}).error;return typeof e==='string'&&/^[a-z_]{1,40}$/.test(e)?e:undefined}catch{return undefined}
 }
 /** Reject timeout/abort even if an injected DNS/transport promise ignores AbortSignal; no late continuation sends.
  * A PushSendError passes through with its detail; any other failure becomes push_transport_failed. */
