@@ -112,13 +112,15 @@ export function DiscoverCard({ c, admin }: { c: DiscoverItem; admin: boolean }) 
 
 /** A connector's page inside the same window, like Claude's: back to the list, a big logo, the name and one line with the
  * main action on the right, a short description, and the tools the AI gets from it. */
-export function ConnectorDetail({ logo, name, line, official, action, description, tools, toolsNote, noTools, onBack, children, testId }: {
+export function ConnectorDetail({ logo, name, line, official, action, description, address, tools, toolsNote, noTools, onBack, children, testId }: {
   logo: string
   name: string
   line: string
   official?: boolean
   action?: ReactNode
   description: string
+  /** before it is connected: the address it signs in at (QA TC-132) */
+  address?: string
   /** the tool names (once connected, the service's own list) */
   tools?: string[]
   /** instead of tools: why there are none to show yet */
@@ -164,6 +166,7 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
         ) : (
           <p className="text-sm text-muted" data-testid="connector-tools-note">{toolsNote ?? t('connectors.toolsAfter')}</p>
         )}
+        {address && <p className="mt-2 text-xs break-all text-faint" data-testid="connector-address">{t('connectors.addressLine', { address })}</p>}
       </div>}
     </section>
   )

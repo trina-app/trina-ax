@@ -62,7 +62,8 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
             <LogoTile src={logo} className="size-14 rounded-2xl p-2.5" />
             <div className="min-w-0 flex-[1_1_12rem]">
-              <h1 id={titleId} className="truncate text-2xl font-semibold tracking-tight">{name}</h1>
+              {/* a phone: the name wraps, never cut (QA TC-266); the state and ⋯ go on their own line under it */}
+              <h1 id={titleId} className="text-2xl font-semibold tracking-tight break-words">{name}</h1>
               <p className="mt-0.5 text-sm text-muted" data-testid="app-by">{byLine}</p>
             </div>
             {actions && <div className="flex flex-wrap items-center gap-2 max-sm:w-full max-sm:[&>button:first-child]:flex-1" data-testid="app-actions">{actions}</div>}

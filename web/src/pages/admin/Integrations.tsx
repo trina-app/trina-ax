@@ -56,6 +56,8 @@ export default function AdminIntegrations() {
   const [driveSetup, setDriveSetup] = useState(false)
   // Gmail, Google Calendar, Google Docs and Google Sheets on this server (an older server has none): set up per card
   const gapps = useLoad(async () => { try { return (await api.call(API.googleAppsAdminStatus)).apps } catch { return [] as GoogleAppAdminStatus[] } })
+  // Team settings' "Members can add their own connections": off, the admin's own ("Just for me") is refused too
+  const personal = useLoad(async () => { try { return (await api.call(API.listIntegrations)).personalAllowed } catch { return true } })
   // the admin's own view of them (Connectors'), for each page's tools
   const views = useLoad(async () => { try { return (await api.call(API.myGoogleApps)).apps } catch { return [] as GoogleAppView[] } })
   const [gappSetup, setGappSetup] = useState<GoogleAppId | null>(null)
@@ -143,13 +145,15 @@ export default function AdminIntegrations() {
             return (
               <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={back}
                 action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span> : (
-                  <SplitAction label={t('aiApps.connect')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
+                  // QA TC-134: one click for the team (one shared key, the admin picks who), or a template each member
+                  // connects, or the admin's own connection (their Connectors page)
+                  <SplitAction label={t('connectors.connectTeam')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
                     items={[
-                      { label: t('connectors.connectTeam'), onSelect: () => setDialog({ connector: c, toList: true }), testId: 'connector-connect-team' },
                       { label: t('connectors.connectTemplate'), onSelect: () => setDialog({ connector: c, startAs: 'template', toList: true }), testId: 'connector-connect-template' },
+                      ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(`/connectors/${c.id}`), testId: 'connector-connect-mine' }] : []),
                     ]} />
                 )}
-                description={t('connectors.mcp.about', { name: c.name })} tools={tools} />
+                description={t('connectors.mcp.aboutForTeam', { name: c.name })} address={have ? undefined : c.url} tools={tools} />
             )
           }
           if (open?.kind === 'team') {
@@ -157,7 +161,7 @@ export default function AdminIntegrations() {
             const c = connectorFor(teamOpen.url)
             return (
               <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={teamOpen.name} line={c ? t(`integrations.catalog.${c.id}`) : teamOpen.url} official={!!c} onBack={back}
-                description={t('connectors.mcp.about', { name: teamOpen.name })} noTools>
+                description={t('connectors.mcp.aboutTeam', { name: teamOpen.name })} noTools>
                 <ul className="-mx-2 divide-y divide-line rounded-xl bg-surface" data-testid="team-integrations">
                   <IntegrationRow i={teamOpen} actions={actions} onEdit={() => setDialog({ existing: teamOpen })}
                     audience={<AudienceChip access={teamOpen.access ?? NOBODY} groups={groups.data} users={users.data} />}
