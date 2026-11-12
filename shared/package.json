@@ -19,6 +19,7 @@
     "./cloud-protocol": "./src/cloud-protocol/index.ts",
     "./cloud-protocol/relay-ops": "./src/cloud-protocol/relay-ops.ts",
     "./cloud-protocol/drive-broker": "./src/cloud-protocol/drive-broker.ts",
+    "./cloud-protocol/slack-broker": "./src/cloud-protocol/slack-broker.ts",
     "./plugins": "./src/plugins.ts",
     "./plural": "./src/plural.ts",
     "./honorific": "./src/honorific.ts",
