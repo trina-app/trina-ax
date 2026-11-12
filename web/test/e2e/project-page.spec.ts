@@ -186,8 +186,16 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(block).toHaveCount(0)
     await expect(page.getByTestId('project-summary')).toHaveText('Contracts only.')
-    await page.getByTestId('project-files-toggle').click()
-    await expect(page.getByTestId('project-files').getByRole('button', { name: 'plan.md' })).toBeVisible()
+    if (vp.size.width < 768) {
+      // a phone: the files row opens the project's files on a screen of its own (QA TC-254), Back comes here
+      await page.getByTestId('project-files-open').click()
+      await expect(page.getByTestId('project-file').filter({ hasText: 'plan.md' })).toBeVisible()
+      await page.goBack()
+      await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
+    } else {
+      await page.getByTestId('project-files-toggle').click()
+      await expect(page.getByTestId('project-files').getByRole('button', { name: 'plan.md' })).toBeVisible()
+    }
     await expect(page.getByTestId('project-members')).toContainText('2명')
     // in its members now, as anyone added is
     const bob = await page.request.get(`/api/projects/${id}/access`)

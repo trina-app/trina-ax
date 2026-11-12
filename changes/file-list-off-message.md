@@ -1,1 +1,0 @@
-- Admin › Team settings › File list: Run now on a screen from before the file list was turned off now says "The file list is turned off. Turn it on in Team settings to run it." instead of the generic conflict message, and the screen reads the status again so Run now goes away.

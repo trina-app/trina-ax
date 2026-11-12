@@ -77,6 +77,13 @@ export function screenOf(to: string): Screen {
       return s('ai', project ? `/projects/${project}` : '/', pathname)
     }
     case 'projects':
+      // a project's files (pages/Projects.tsx ProjectFiles; ?dir= is a folder in the project's folder): the folder above,
+      // then the project
+      if (b && c === 'files') {
+        const dir = (q(search).get('dir') ?? '').split('/').filter(Boolean).join('/')
+        const up = dirOf(dir)
+        return s('ai', dir ? `/projects/${b}/files${up ? `?dir=${encodeURIComponent(up)}` : ''}` : `/projects/${b}`, `project-files:${b}:${dir}`)
+      }
       return b ? s('ai', '/projects', pathname) : s('ai', '/', pathname)
     case 'scheduled':
       return b ? s('ai', '/scheduled', pathname) : s('ai', '/')
@@ -186,6 +193,10 @@ export function useScreenName(): (to: string) => string | null {
     if (seg[0] === 'c' && seg[1]) {
       const chat = chats.find((x) => x.id === seg[1])
       return chat ? chat.title || t('chat.untitled') : aiName(t)
+    }
+    if (seg[0] === 'projects' && seg[1] && seg[2] === 'files') {
+      const dir = q(search).get('dir') ?? ''
+      return dir.slice(dir.lastIndexOf('/') + 1) || t('files.title')
     }
     if (seg[0] === 'projects' && seg[1]) return projects[seg[1]]?.name ?? t('projects.title')
     if (seg[0] === 'rooms' && seg[1]) {

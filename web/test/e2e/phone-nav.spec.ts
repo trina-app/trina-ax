@@ -135,8 +135,8 @@ test('an AI chat\'s ‹ goes back where it came from; the browser\'s back then n
   await page.getByTestId('chat-back').click()
   await expect(page).toHaveURL(/\/$/)
   expect(await historyLength(page)).toBe(before)
-  // Home lists it under the box now
-  await expect(page.getByTestId('home-recent').first()).toContainText('hello from the phone')
+  // Home lists no chats: it is in the drawer (QA TC-253)
+  await expect(page.getByTestId('home-recent')).toHaveCount(0)
   // the entry after Home is still the chat (forward), so back was a real back and not a new Home on top of the chat
   await page.goForward()
   await expect(page).toHaveURL(chat)
