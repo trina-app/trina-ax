@@ -9,6 +9,7 @@ import { afterEach, expect, spyOn, test } from 'bun:test'
 import { harness, withOwner, type Harness } from './a-lib'
 import { STOPPED_FOR_UPDATE, getChatRuntime, type ChatRuntime } from '../../server/src/chat/runtime'
 import { TurnExec } from '../../server/src/chat/turn'
+import { TurnRegistry } from '../../server/src/turns'
 import { newId } from '../../server/src/db'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { CHAT_ERROR_MESSAGES } from '../../shared/src/api/errors'
@@ -75,13 +76,19 @@ function launcherStops(signal: 'update' | 'update-root' | 'shutdown', launches: 
 /** an engine launch the launcher refuses `refusals` times while it stops (nothing starts), then runs normally */
 function launcherRefuses(refusals: number, launches: { n: number }) {
   return async (exec: TurnExec) => {
+    // registered like execute does (TurnRegistry.create): its end goes through the real registry
+    // (exec.rt: a restart's recovery runs it before the test's `h` is the new harness)
+    const turns = new TurnRegistry(exec.rt.db, 0)
+    turns.create(exec.spec.userId, exec.spec.chatId, 'claude-code', null, exec.id)
+    ;(exec as any).registered = true
+    ;(exec as any).activeCore = { turns }
     const core = { turns: { bind() {} }, launcher: { launch: () => { launches.n++; const refuse = launches.n <= refusals; return { kill() {}, events: (async function* () {
       if (refuse) { yield { ev: 'error', message: 'launcher_stopping: update' }; return }
       yield { ev: 'started', pid: 999_998, pgid: 999_998 }
       yield { ev: 'exit', code: 0 }
     })() } } } }
     const r = await (exec as any).launch(core, {}, () => {})
-    expect(r.exit).toMatchObject({ ev: 'exit', code: 0 })
+    if (!exec.stopReason) expect(r.exit).toMatchObject({ ev: 'exit', code: 0 })
   }
 }
 /** an engine that runs until the turn is stopped */

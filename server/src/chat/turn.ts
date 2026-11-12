@@ -3500,7 +3500,8 @@ export class TurnExec {
     this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
     this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
-    try { if (this.registered) this.activeCore?.turns.revoke(this.id, 'interrupted') } catch {}
+    // the registry entry only: revoke would write the row's end (and the requeue below would find no running row)
+    try { if (this.registered) this.activeCore?.turns.release(this.id) } catch {}
     const db = this.rt.db
     const ok = db.transaction(() => {
       const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL WHERE id=? AND status='running'").run(this.id)
