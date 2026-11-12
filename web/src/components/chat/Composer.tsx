@@ -589,8 +589,20 @@ export default function Composer({
         {sharedUploads && <SharedUploadLine files={files} audience={sharedUploads.audience} className="px-4 pt-2" />}
 
         {voice.recording ? (
-          // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were
-          <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2 max-md:pr-1', phone ? 'pl-1.5' : 'pl-3')} />
+          stacked ? (
+            // a phone's card keeps its height: the text as it was on top (it cannot be typed in while recording), the
+            // bar in the tools' row, ✕ and ✓ where + and send were
+            <>
+              <p aria-hidden className={clsx('max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))] overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', fieldPad, text ? 'text-ink' : 'text-faint')} data-testid="composer-text-held">
+                {text || hint}
+              </p>
+              {/* as tall as the tools' row, with ✓ 40 px below 640 px (VoiceBar): 4 px less padding there */}
+              <VoiceBar voice={voice} className="box-content min-h-9 px-2.5 pt-1 pb-2.5 max-sm:pt-0.5 max-sm:pb-2" />
+            </>
+          ) : (
+            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were
+            <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2 max-md:pr-1', phone ? 'pl-1.5' : 'pl-3')} />
+          )
         ) : (
           <>
             {skillMenu.menu}

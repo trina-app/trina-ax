@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 09:16
 - Branch: `feat/phone-home-centered`
-- Status: in progress
+- Status: done
 - Where: trina-ax `web/` (common code). Why: the phone layout of Home and its message box is shared by every team, not
   Trina's sales or operations.
 - Version impact: patch. A phone layout change of one screen, no API or data change.
@@ -18,8 +18,8 @@ so the tab bar stays until the person taps the box.
 ## Scope
 
 In:
-- `pages/Home.tsx` (phones only): the Trina mark (`TrinaStar` where the product is named after its AI, else the app
-  icon) above the greeting; the mark and greeting centred in the space between the one thing at the top and the
+- `pages/Home.tsx` (phones only): the AI's mark (`TrinaStar` where the product is named after its AI, else the sparkle
+  AiFace uses) above the greeting; the mark and greeting centred in the space between the one thing at the top and the
   suggestions above the card; the box never focused by itself on a phone (load, a tab switch back).
 - `components/chat/Composer.tsx`: a `card` layout for phones: the text on top, one row under it inside the box with
   + · the engine picker (only with two or more engines, TC-182) · mic · send, each a 44 px target; no row under the
@@ -59,4 +59,12 @@ phone spec and the adjusted ones on MOCK_PORT 4579.
 
 ## Result
 
-Filled in at the end.
+- Built as planned. The mark is `TrinaStar` (the coordinator asked for the AI's own mark, as in rooms and the room
+  header), the sparkle in builds not named after their AI. It is left out under the welcome and lead cards (they fill
+  the top and the mark sat alone over the box) and while the keyboard is up (the suggestions keep their room).
+- While recording, the card keeps its height: the text stays on top (not editable), the bar takes the tools' row.
+- The chat page's box (`/c/:id`) and the project page's new-chat box keep their one-row box and the picker under it.
+- Tests: `phone-home-centered` (Chromium and WebKit, 390×844 and 360×780) 13 passed; `composer-align` now measures
+  the chat's box on the chat page and Home's card on its own; desktop 1440 screenshots before/after are identical.
+- `phone-targets` "the message box's ＋ menu" fails the same way on the base (it counts the sheet's rows below the tab
+  bar's line).
