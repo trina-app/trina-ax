@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:36
 - Branch: `fix/phone-admin-system`
-- Status: in progress
+- Status: done (PR #551)
 - Where: `web/` (pages/admin). Why: the phone app shows the web app; System's layout and its server forms are web code.
 - Version impact: patch, phone layout only; computers keep the one page
 
