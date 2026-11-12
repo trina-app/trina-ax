@@ -155,7 +155,8 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                   ) : s.enabled && s.botName ? (
                     <p className="mt-2 text-sm text-muted" data-testid="slack-invite"><CodeText text={t('slack.admin.invite', { bot: s.botName })} /></p>
                   ) : null}
-                  {!s.redirectUrl && !official && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
+                  {/* saving the own app's tokens again at the https address: the owner's (an admin cannot) */}
+                  {!s.redirectUrl && !official && owner && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
                   <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted max-md:items-center">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}

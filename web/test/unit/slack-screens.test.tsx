@@ -436,6 +436,12 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
     expect(m.get('slack-error').querySelector('button')).toBeNull()
     expect(m.find('slack-bot-token')).toBeNull()
     await m.unmount()
+    // no https address: the line that says to save the tokens there is the owner's
+    admin = on({ redirectUrl: null })
+    m = await page()
+    await m.until(() => m.find('slack-status'), 'the status')
+    expect(m.find('slack-https-needed')).toBeNull()
+    await m.unmount()
     // not set up and no "Add to Slack" here: no four steps, one line
     admin = base()
     m = await page()
