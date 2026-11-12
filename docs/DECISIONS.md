@@ -23646,3 +23646,155 @@ the Android QA app and the iPhone TestFlight build. Plan and evidence:
   wins), `web/test/unit/mobile.test.ts` (badge-v1: changes, bridge, foreground, sign-out), `web-badge.test.ts` (the
   phone app gets n).
 - Version impact: **patch**.
+
+## Setup 팀 파일: the AI proposes folders — 시작 설정의 팀 파일, AI가 폴더를 제안한다 (feat/setup-files-organize, 2026-11-12, product owner)
+
+넣을 곳: trina-ax core (`server/src/onboarding/files-organize.ts`, `files-organize-ai.ts`, `file-rank.ts`,
+`shared/src/api/files-organize.ts`, `web/src/components/onboarding/OrganizeFiles.tsx`, `web/src/lib/organize.ts`, the
+member welcome), 이유: onboarding, files and the AI are core. Plan: `docs/AGENTS/plan/20261112-1238-setup-files-organize.md`
+(PR A of the owner's locked "Files onboarding — final plan"; PR B forms → skills and PR C Move picker suggestions follow).
+
+The owner's decisions (2026-11-12, not to be re-opened): "AI judges folders ONLY during setup. At setup there is no
+folder structure, so the AI PROPOSES ONE." The owner "doesn't know whether files go in shared/ ('전사 공유') or
+elsewhere: the step must decide that for him." "Files and projects are SETUP STEPS (leading), not a Home line." After
+setup, folder suggestions come from the Move picker (PR C), never from an AI call per upload.
+
+- **The W6 privacy rule is reversed for this step.** W6 said no file content reaches the 팀 파일 endpoints and the AI
+  sees names and metadata only. That still holds for the pick before the upload. Once the files are up in 전사 공유,
+  the plan reads their text: at most 20 files (`ORGANIZE_LIMITS.read`), 3,000 characters each, the text layer only
+  (`extractText` with `textLayerOnly`, no OCR), within 8 s; only files in `shared/` that the caller can read and
+  uploaded themselves within the last 24 hours (an `upload` file event of theirs: the step's run); any other path the
+  page sends is left out. The start of the step says so in one line, "팀 전체가 보는 전사 공유에 정리해 드려요 · AI가
+  파일 내용을 읽고 정리해요", shown only while an AI answers the person (without AI nothing is read). The comment of
+  `shared/src/api/onboarding-files.ts` says where the rule ends.
+- **The same path as the picks** (review must-fix): the plan is one ordinary no-tools turn of the caller
+  (`file-rank.ts runFilesTurn`, extracted from `rankTeamFiles`): their AI access and budget, the chat marked in
+  `onboarding_file_ranks` (its material JSON now has `kind: 'organize'`; no migration), never listed, deleted after; its
+  own instructions (`organizeSystemPrompt`) with the files as data inside `<material>` (closing tag broken in names and
+  text). Not the file-list reader (team-wide accounts only). The answer is read defensively (`parseOrganize`: known ids
+  once, folder names cleaned to one level, known reasons, `form` only when true, a project only with a clean name and
+  2+ known files).
+- **The plan** (`organizePlan`, shared, so the server and the mock server propose the same): the AI's folder for a file
+  it read; every other file, and every file when no AI answers, the turn fails or runs 25 s, goes by name rules
+  (`nameReason`: the file-rank reason words in five languages) to the folder the AI used most for that kind, else an
+  existing folder named for that kind in any language, else the kind's folder in the team's language (양식, 회의록 and
+  브랜드 reuse the folders a new team has: "Team folder basics"). One level under `shared/`, at most 8 folders (the 9th
+  goes to its kind's folder when that one is in, else stays), existing folders reused whatever the letter case; the
+  upload's own folder (`shared/<picked folder>/`) is not offered to the AI as a place, but counts as existing (never
+  "새로 만들어요"). An existing folder whose name a plan cannot carry (over 40 characters) is not offered in the picker. A file already in its folder stays. Each
+  row carries `form: true|false` for PR B. At most one project group.
+- **A job the page polls**: `POST /api/onboarding/files/organize` answers at once with an id and N; `GET …/organize/:id`
+  gives "읽고 정리하는 중… n/N" and then the plan; only the one who started it reads it (404 otherwise); forgotten after
+  an hour. Owners and admins only.
+- **The screens** (after a step run into 전사 공유 that ended without a failure): reading; the proposal, a flat list
+  grouped by folder ("전사 공유 › 양식 (3)", Google Drive's "Organize my files"), each row with a folder picker (the
+  plan's and the existing folders, "새 폴더…") and ✕ (the file stays where it went up; "n개는 올린 자리에 그대로 둬요"), a
+  new folder's name typed in place (a name no folder can have goes back, with "폴더 이름으로 쓸 수 없어요"), [이대로 정리]
+  and "나중에" (on to the next step, the files where they are; F5 shows
+  when coming back). Without AI the list says "AI 없이 파일 이름으로 정리했어요". Nothing to sort: the run's own F5 as
+  before. No undo toast: the proposal is where the owner changes things.
+- **Applying** (`POST …/organize/apply {id, moves}`) is bound to the caller's plan: only that plan's files move (any
+  other path is answered as not moved), and the same plan applied again (a second tab, a retry after a lost answer)
+  answers the first result. Each file moves as the caller through the file service's move (rules, versions, events; a
+  taken name gets " (2)"), a missing folder is made first, at most 8 folders (400 otherwise), folder names checked as
+  one level. A folder under `shared/` the moves emptied goes to the trash only when it is truly empty on disk (no
+  hidden or temporary entry) and is neither a plan folder nor a default folder (양식, 회의록, 브랜드 in any language).
+  Anything moved records `onboarding.filesOrganized` (settings).
+- **The result**: what went where, the slot for PR B's forms card (`FormsSlot`, given the moved forms' paths; empty
+  now), the project question when the AI saw one group ("이 n개는 'A사 리뉴얼' 프로젝트로 묶을까요?" [프로젝트로 묶기] /
+  나중에), then the step's next button. The question shows only when the setup has a team group (without one the project
+  would be the owner's alone, while the question says the whole team works on it). [프로젝트로 묶기] makes a team project
+  (`POST /api/projects`, one folder `projects/<slug>`) with the team group as participant (`projectBody`; participants
+  default to [] and a project's contents are its members': without the group, people who join later would not see it)
+  and moves its files into the project's folder; files that do not move are counted ("n개는 프로젝트로 옮기지 못해서 그대로
+  있어요"); a 전사 공유 folder the plan made and the project emptied goes to the trash and leaves the result line. A
+  name that is taken (409) leaves only 나중에 (asking again would fail the same way).
+- **Admins**: the member welcome card gets `organizeFiles` (optional in the contract; older servers send nothing) for an
+  admin while nobody applied a plan and the team has its steps row; the row "팀 파일 정리하기" (not counted) opens the
+  same 팀 파일 step in a dialog. Hidden once any owner or admin applied a plan (the plan said "the owner": an admin's
+  plan counts too, or every later admin would keep the row).
+- Five languages, English first. Phone: the rows wrap with a full-width picker, 390 px without side scroll.
+- Tests: `tests/unit/b-onboarding-files-organize.test.ts` (name rules, the plan: cap 8, one level, reuse, stays, project;
+  the answer and the fence; on the fake engine: 20-file cap and text in the material, fallback on a failed answer and
+  on a timeout; apply; the routes' roles and the job's owner; the admins' row), `tests/security/lib/onboarding-files-cases.ts`,
+  `web/test/unit/organize.test.ts`, `web/test/unit/member-welcome.test.tsx`, `web/test/e2e/welcome-organize.spec.ts`
+  (propose → change → remove → rename → apply → project question → 나중에 → next; a project with the team group; no AI;
+  nothing to sort; 390 px light and dark), `web/test/e2e/welcome-team-files.spec.ts` (the plan after the upload).
+- Version impact: **minor** (three API routes, new screens in the setup step; no migration).
+
+## Setup 팀 파일: forms become skills (feat/setup-forms-skills, 2026-11-12)
+
+넣을 곳: trina-ax core (`server/src/onboarding/form-skill.ts`, `skill-draft.ts`, `files-organize.ts`,
+`shared/src/api/onboarding-skill.ts`, `files-organize.ts`, `web/src/components/onboarding/FormSkills.tsx`,
+`SkillShareCard.tsx`, `scripts/system/packages.json`), 이유: the owner's locked plan "Files onboarding — final plan", PR
+B: a form uploaded at setup gets "이걸 스킬로 만들어둘까요?" at once (no "try it in chat first"). Built on "Setup 팀 파일:
+the AI proposes folders".
+
+Version impact: **minor** (new route, migration 288).
+
+- **Which forms.** On the 팀 파일 result screen, `formSkillPaths(plan, applied)`: rows the folder plan marked
+  `form: true` that moved into the folder the plan proposed for them (a form the person sent elsewhere is no form to
+  them), of a kind a skill can fill (`FORM_SKILL_TYPES`: .hwp, .hwpx, .xlsx, .docx; a Markdown or PDF "form" is not
+  offered), each once, at most `FORM_SKILLS_MAX` = 3. The server takes the form mark off a file whose name holds a
+  specific (`formNameSpecifics`, S's `specificsOf` over the name: a company with a suffix such as ㈜/주식회사, a person,
+  a date): "견적서_㈜에이스상사.xlsx" is a filled-in copy, not the team's form. A company name without a suffix
+  ("견적서_에이스상사.xlsx") is not caught: the heuristic's known gap, as in S. The start route checks the same again.
+- **The question** (owners and admins only, members never see it): "{forms}(을)를 스킬로 만들어둘까요?" with the forms'
+  names without extension, date or version (`formStem`), and "팀원이 '{kind} 만들어줘' 하면 이 양식대로 채워요." (`formKind`:
+  the first name without the words for a form). [만들기] / 나중에. One box, like the project question under it.
+- **The draft is S's draft from a file.** `POST /api/onboarding/skill-draft/from-form {path}` (owners and admins): the
+  file must be one the caller can open, a team file (`isTeamFilePath`), one the people a team skill is shared with can
+  open (S's stand-in; 409 `private` otherwise), and not a named copy (409 `named`). The form's text (extract.ts, text
+  layer, at most 8,000 characters; an unreadable form still drafts from its name) and path are the material; a new
+  chat of the caller marked in `onboarding_skill_drafts` like S's, with `source_path` (migration 288, additive) and no
+  source chat or message ('' in the NOT NULL columns: a table is never rebuilt). Every turn runs restricted like S's
+  (no tool, its own instructions: `formSkillSystemPrompt`, the text inside `<material>`). The same form again: the
+  unsaved draft, its one rewrite, or a new draft after a failed one (as S). Read with S's `GET …/skill-draft/:chatId`,
+  shared with S's `POST …/save`.
+- **The AI only names it.** The answer is `{title, description, inputs}`: the form's blanks that change every time, at
+  most 8, three visible (the rest folded as in S). It writes no steps (any it writes are ignored). An input keeps only
+  what the card shows (name, label, required, a choice's options): `placeholder`, `prefill` and a choice's `default`
+  are dropped, because the card does not show them while every teammate's AI reads them in the SKILL.md (review,
+  2026-11-12: the form's text or words planted in it could reach teammates unseen). A value written in the
+  form (a sample customer, a date, an amount, a phone) in the title, the line, a label or a placeholder is a specific:
+  one rewrite, then no card. The card's files are the form's folder and "the newest file whose name has the words" (`like` = the
+  stem), shown as "양식 폴더의 가장 최근 견적서 양식".
+- **The fixed procedure** (`formSteps`, in the team's language, the same for every team; the AI must not invent
+  business steps): 1. the inputs; a missing must-have asked once, in one line; nothing invented. 2. the form: the newest
+  file of its folder whose name has the stem; none → ask the person for it. 3. never the form itself, always a copy:
+  .hwp/.hwpx with `edit_hwp` and always an `output` (without it the form would get a new version); .xlsx/.docx in
+  box_shell, python3 with openpyxl / python-docx, opening the form under `$TRINA_TEAM/`, keeping formatting, merged cells
+  and formulas, written in the folder the command starts in (a venv there when the import fails). 4. a new file named
+  from the form's kind, the inputs and today's date, "(2)" when taken. 5. the person's own folder (copied by box_shell
+  into `$TRINA_TEAM/users/<id>/`, the one team folder a command may write besides its start folder), or `move_files` to
+  a folder they name. 6. the link and what was filled. 7. only when filling fails (no dev environment, no HWP plugin, a
+  failed run): `make_file` with the same fields, saying the look may differ and why (a Hangul form: a .hwpx, or a .docx
+  when Hangul writing is off). The
+  rules section is S's without "save only when asked" (saving is the skill's work) and with "never change the form".
+- **Where the start is allowed.** Only a file directly in the forms folder (`shared/양식`, any of the five languages'
+  names) or a file the caller's own applied folder plan marked as a form and moved (still remembered by the server:
+  10 minutes), never `users/`, `skills/`, `.system` or another team file (400 `not_in_forms_folder`). Names quoted in
+  the steps are one line, with backticks and `<` replaced, as `files/locations.ts` cleanLabel.
+- **Where the real fill cannot run.** box_shell is not offered in rooms, scheduled runs or shared project chats
+  (`chat/turn.ts`), nor when the team's dev environment is off or the person is outside its scope
+  (`devenv/setting.ts`); edit_hwp exists only with the HWP plugin. There, step 7 runs: make_file with the same fields,
+  and the AI must say plainly that the form itself cannot be filled here, so it made a copy with the same fields, and
+  that opening it in their own chat (or asking an admin to turn on the dev environment) fills the real form. Who gets
+  box_shell is unchanged. **Open question for the owner:** should rooms (and scheduled runs) get the fill path?
+- **Sharing** is S's: re-read from the answer, the people it is shared with must open the form's folder, a free name,
+  the caller's `humanSave` of `skills/general/<slug>/SKILL.md`, audited (`onboarding.skill_share`, `sourcePath`).
+  Fixed on the way: a team without `skills/general/` yet could not share any draft (the name check under a missing
+  folder read every name as taken and ended in a 409).
+- **The card** is S's `SkillShareCard`, now also for a `formPath`: one per form; [팀에 공유] leaves "'견적서 만들기' 스킬을
+  팀에 공유했어요", its 나중에 drops that form. The state lives in the tab with the plan's (another step and back: the same).
+- **Dev environment packages.** `python3-openpyxl` and `python3-docx` (Debian 12/13, Ubuntu 24.04) join the `devenv`
+  group of `scripts/system/packages.json`, so the hosted image, install-linux.sh and install-srt.sh have them; a Mac's
+  own python3 has neither, so the procedure says to install them in a venv when the import fails (PyPI is an allowed
+  site).
+- **DS3 — origin.** A skill made here is the team's own: its origin is the team's own form plus the owner's (or an
+  admin's) OK on the card (owner decision 2026-11-12). DS3's "known origin" rule is about skills we ship; nothing here
+  ships, and the AI adds no work steps of its own.
+- Rejected: letting the AI write the steps (it invented business steps in S's acceptance runs; a form's procedure is the
+  same everywhere); filling .xlsx/.docx with make_file (the look of the team's form is the point); a "try it in chat
+  first" step (the owner: ask right away).
+- Tests: `tests/unit/b-form-skill.test.ts`, `web/test/unit/form-skills.test.tsx`, `web/test/e2e/welcome-form-skills.spec.ts`.

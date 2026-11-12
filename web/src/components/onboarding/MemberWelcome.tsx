@@ -11,17 +11,20 @@
 //   ran). While no AI answers them, row d is the no-AI way out instead (components/onboarding/ConnectAi.tsx): connect
 //   their own AI (or the team's, for an admin), or "Tell {owner}" once ("Told them" after), with the trial credit's line
 //   when that is why; it goes back to the question once AI answers.
+// - An admin also gets "팀 파일 정리하기" (not counted) while nobody applied the setup's folder plan: the 팀 파일 step in a
+//   dialog (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders").
 // - Every counted row done: "You're all set" with Close, then gone for good.
 // Phones (below 768px): the same card without a frame, under the box like Home's other "one thing"; every control is a
 // 44 px target and a row's button wraps under its words when they need the width.
 import clsx from 'clsx'
 import { Check } from 'lucide-react'
-import { useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { uuidv7, type MemberWelcome as Welcome } from '@mycel/shared/api'
+import { SHARED_HOME, uuidv7, type MemberWelcome as Welcome } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { squarePhoto } from '../../lib/avatar'
 import { trialLine } from '../../lib/aiAccess'
+import { useFolderWords } from '../../lib/folderLabels'
 import { aiName } from '../../lib/tabs'
 import { useLocale, useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
@@ -29,8 +32,10 @@ import { useChats } from '../../store/chats'
 import { useMemberWelcome } from '../../store/memberWelcome'
 import { useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, useMediaQuery } from '../ui'
+import { Button, Modal, useMediaQuery } from '../ui'
+import { useWelcome } from '../../store/welcome'
 import { ConnectAiButton } from './ConnectAi'
+import { TeamFilesStep } from './TeamFilesStep'
 
 /** The name to greet: the first word of a name with spaces in a script that writes given names first ("Mina Park" →
  * "Mina"); a name without spaces, or in Korean, Japanese or Chinese (family name first), stays whole. */
@@ -96,6 +101,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
         <HiRow welcome={welcome} name={name} />
         <PhotoRow done={welcome.steps.photo} />
         <AskRow welcome={welcome} />
+        {welcome.organizeFiles && <OrganizeRow />}
       </ul>
     </section>
   )
@@ -200,6 +206,28 @@ function PhotoRow({ done }: { done: boolean }) {
           <Button size="sm" className={tap} busy={busy} onClick={() => pick.current?.click()} data-testid="member-welcome-photo-button">{t('memberWelcome.photoButton')}</Button>
           <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="member-welcome-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
         </>
+      )}
+    </Row>
+  )
+}
+
+/** An admin's "팀 파일 정리하기" while nobody applied the setup's folder plan (docs/DECISIONS.md "Setup 팀 파일: the AI
+ * proposes folders"; not counted): the 팀 파일 step in a dialog, as on the Files screen; its plan applied, the card is
+ * read again and the row goes. */
+function OrganizeRow() {
+  const t = useT()
+  const words = useFolderWords()
+  const progress = useWelcome((s) => s.progress)
+  const [open, setOpen] = useState(false)
+  useEffect(() => { void useWelcome.getState().load().catch(() => {}) }, [])
+  const close = () => { setOpen(false); void useMemberWelcome.getState().load() }
+  return (
+    <Row id="organize" done={false} optional title={t('memberWelcome.organize')} hint={t('memberWelcome.organizeHint', { shared: words.name(SHARED_HOME, SHARED_HOME) })}>
+      <Button size="sm" className={tap} disabled={!progress} onClick={() => setOpen(true)} data-testid="member-welcome-organize-button">{t('memberWelcome.organizeButton')}</Button>
+      {progress && (
+        <Modal open={open} onClose={close} title={t('memberWelcome.organize')} width={640}>
+          <TeamFilesStep progress={progress} busy={false} nextLabel={t('common.close')} dialog onDone={close} onSkip={close} />
+        </Modal>
       )}
     </Row>
   )
