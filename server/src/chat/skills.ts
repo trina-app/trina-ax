@@ -395,7 +395,7 @@ export function skillFileKind(root: string, rel: string, text: string): 'skill' 
   // skills/ (a skill's extra file, even one saved before its SKILL.md, or a note in a folder), in a group's skills or in
   // a personal skills folder is just a file
   const parts = rel.split('/')
-  const topLevel = parts.length === 2 && parts[0] === 'skills'
+  const topLevel = parts.length === 2 && parts[0] === SKILLS_DIR
   return !topLevel || isSkillManifest(rel) || hasFrontmatter(text) ? 'other' : 'rule'
 }
 
