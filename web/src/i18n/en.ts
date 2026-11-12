@@ -4851,6 +4851,8 @@ export const en: Record<MessageKey, string> = {
   "gapps.category": "Category",
   "gapps.privacy": "Privacy",
   "gapps.terms": "Terms",
+  "gapps.privacyName": "{by} privacy policy",
+  "gapps.termsName": "{by} terms of service",
   "gapps.changesTag": "Changes",
   "gapps.tools": "Tools",
   "gapps.signIn": "Sign-in",

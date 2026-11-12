@@ -4807,6 +4807,8 @@ export const ja: Record<MessageKey, string> = {
   "gapps.category": "カテゴリ",
   "gapps.privacy": "プライバシー",
   "gapps.terms": "規約",
+  "gapps.privacyName": "{by} プライバシーポリシー",
+  "gapps.termsName": "{by} 利用規約",
   "gapps.changesTag": "変更あり",
   "gapps.tools": "ツール",
   "gapps.signIn": "サインイン",

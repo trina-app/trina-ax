@@ -4851,6 +4851,8 @@ export const ko = {
   "gapps.category": "카테고리",
   "gapps.privacy": "개인정보",
   "gapps.terms": "약관",
+  "gapps.privacyName": "{by} 개인정보 처리방침",
+  "gapps.termsName": "{by} 서비스 약관",
   "gapps.changesTag": "변경",
   "gapps.tools": "도구",
   "gapps.signIn": "로그인",

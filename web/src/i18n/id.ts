@@ -4851,6 +4851,8 @@ export const id: Record<MessageKey, string> = {
   "gapps.category": "Kategori",
   "gapps.privacy": "Privasi",
   "gapps.terms": "Ketentuan",
+  "gapps.privacyName": "Kebijakan privasi {by}",
+  "gapps.termsName": "Ketentuan layanan {by}",
   "gapps.changesTag": "Mengubah",
   "gapps.tools": "Alat",
   "gapps.signIn": "Masuk dengan",
