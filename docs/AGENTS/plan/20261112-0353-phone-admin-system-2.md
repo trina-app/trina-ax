@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 03:53
 - Branch: `fix/phone-admin-system-2`
-- Status: in progress
+- Status: done (PR #560)
 - Where: `web/` (pages/admin). Why: the phone app shows the web app; these pages' phone layouts are web code.
 - Version impact: patch, phone layout only; computers unchanged
 
@@ -17,7 +17,8 @@ Follow-ups from testing #551 on a real server at 390×844 (WebKit and Chromium),
    server.json line and the environment variable to copy. On a phone: the Off status and "컴퓨터에서 설정해요" with one
    line, like connected folders and connection in #551. The app rows stay.
 3. An engine's page (`/admin/providers/claude-code`) showed ‹ with no name: "Team AI accounts" did not fit beside a
-   long title, so the bar hid it. Every `/admin/<section>/<sub>` page names the page it returns to.
+   long title, so the bar hid it. Every `/admin/<section>/<sub>` page names the page it returns to. QA TC-381 adds Team
+   settings' "Members and AI" and "Company profile" (same cause).
 4. QA TC-269 step 2: a plugin's own page on a phone still had the plugin search box and the upload button above it.
    The page shows the plugin only; the list keeps them.
 
@@ -51,4 +52,12 @@ e2e specs for Admin (Chromium and WebKit).
 
 ## Result
 
-(filled in at the end)
+- Backups: a phone branch of the row (date and size, badges under it, Restore on the right); computers' markup as before.
+- AI apps: with the connector off a phone shows Off and "컴퓨터에서 설정해요" with `admin.onComputerAiApps` (5 locales); the
+  setup lines stay on computers (`ConnectorOff` unchanged).
+- ‹ label: every Admin page already had the parent's name; the shared bar hid it when it did not fit beside the centred
+  title. `PhonePageBar` now lays out in three ways (`barFit`): centred title, else the label whole and the title in the
+  room left, else ‹ alone. `pageName` is exported and unit-tested over every pushed Admin address.
+- Plugins: the title row is not drawn on a phone's plugin page.
+- Tests: `phone-admin-system.cases.ts` `systemFollowUps()` (Chromium + WebKit), `test/unit/admin-back-names.test.ts`.
+  1440 screenshots before and after differ only in "checked at" times. PR: #560.
