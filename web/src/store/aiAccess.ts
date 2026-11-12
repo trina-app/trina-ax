@@ -35,7 +35,8 @@ export const useAiAccess = create<State>((set, get) => ({
     try {
       const r = await api.call(API.getAiAccess)
       if (g !== generation) return
-      set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested, trial: r.trial ?? null, notReadyTold: r.notReadyTold ?? false })
+      // a press that went through while this answer was on its way stays "Told"
+      set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested, trial: r.trial ?? null, notReadyTold: (r.notReadyTold ?? false) || get().notReadyTold })
     } catch {
       if (g !== generation) return
       // a failed check is not "no AI": nothing shows

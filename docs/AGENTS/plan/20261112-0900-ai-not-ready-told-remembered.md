@@ -21,7 +21,9 @@ again the card goes away as today.
   `AI_NOT_READY_WINDOW_MS`? The same query `aiNotReady` already used as its limit (now it calls this one).
 - `GET /api/me/ai-access` gains `notReadyTold` (optional: older servers omit it); false for the owner and admins.
 - Web: `useAiAccess` keeps `notReadyTold` (loaded with the rest, set by a successful press, cleared on sign-out);
-  `NotReadyButton` loads it for a member and reads "Told" when it is true.
+  `NotReadyButton` loads it for a member and reads "Told" when it is true. A late answer of that load never undoes a
+  press. In a tab kept open past the hour the button stays "Told" until the next reload (the server would take a new
+  press then); accepted.
 
 ## Tests
 
