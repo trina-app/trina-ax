@@ -23251,8 +23251,8 @@ Plan: `docs/AGENTS/plan/20261112-0930-request-any-connector.md`. Extends "A memb
 
 - **What can be asked for:** the five Google ids and the ids of the app's list (`shared/src/service-catalog.ts`). The
   server checks the id against that list; a member never sends an address or free text to an admin.
-- **When a listed service counts as added:** for each member, once a team connection to its official address
-  (`canonicalService`) exists that they may use. Not the moment any team connection exists: an admin who limits it to
+- **When a listed service counts as added:** for each member, once a working (`connected`) team connection at any of
+  its official addresses (`catalogAt`: Atlassian's v1 and v2 alike) exists that they may use. Not the moment any team connection exists: an admin who limits it to
   some people leaves the others' requests open, and they are told only when they can use it. Checked when a team
   connection is made or changed (`afterTeamConnection`) and on the 30-second check (rules and groups change too).
 - **Members who may add their own connections still see Connect.** The request is for the team's connection, so it
