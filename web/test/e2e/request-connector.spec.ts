@@ -9,6 +9,7 @@ const BOB = { username: 'bob', password: 'bob password 1' }
 
 test('member asks for Notion, takes it back, asks again; the admin adds it for the team; the member is told', async ({ page }) => {
   await reset(page)
+  await page.context().route('https://auth.example.test/**', (r) => r.fulfill({ contentType: 'text/html', body: '<title>Sign in</title><p>Synthetic sign-in page</p>' }))
   const errors = watchConsole(page)
   await signIn(page, BOB)
   await page.goto('/connectors/notion')
@@ -44,7 +45,15 @@ test('member asks for Notion, takes it back, asks again; the admin adds it for t
   // who may use it: everyone (a team connection Bob may not use would leave his request open)
   await dialog.getByTestId('integration-advanced').click()
   await dialog.getByTestId('integration-access-everyone').check()
+  const popup = page.waitForEvent('popup')
   await dialog.getByTestId('integration-save').click()
+  // saved, it still needs its sign-in: the request waits (a broken connection never says "ready")
+  await popup
+  // the sign-in finishes: the team's Notion works, and the request closes
+  await expect.poll(async () => ((await (await page.request.get('/api/admin/integrations')).json()).items as { url: string; status: string }[])
+    .find((i) => i.url.startsWith('https://mcp.notion.com'))?.status, { timeout: 15_000 }).toBe('connected')
+  await page.goto('/admin/connectors')
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
   await expect(page.getByTestId('member-asks')).toHaveCount(0)
 
   // the member: it is ready, and the page offers no ask any more

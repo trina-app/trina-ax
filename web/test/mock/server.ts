@@ -1199,7 +1199,7 @@ export class MockServer {
     // a listed service (QA TC-133): added for this member once a team connection to its address is one they may use
     if (!isGoogleRequestable(service)) {
       const c = CATALOG.find((x) => x.id === service), u = this.users.find((x) => x.id === userId)
-      return c && u && this.integrations.some((x) => x.scope === 'team' && canonicalOf(x.url) === canonicalOf(c.url) && this.integrationAllows(x, u)) ? 'available' : 'not_set_up'
+      return c && u && this.integrations.some((x) => x.scope === 'team' && x.status === 'connected' && canonicalOf(x.url) === canonicalOf(c.url) && this.integrationAllows(x, u)) ? 'available' : 'not_set_up'
     }
     if (service === 'google-drive') return this.driveClient === 'none' ? 'not_set_up' : this.driveMembers ? 'available' : 'other'
     const r = this.googleApps.reasonOf(this.googleApps.app(service)!)
@@ -4049,6 +4049,8 @@ export class MockServer {
           f.flow.state = 'completed'
           // made from an admin's request: connected now that the member signed in
           for (const r of this.integrationRequests) if (r.integrationId === x.id && this.requestState(r) === 'waiting') Object.assign(r, { state: 'connected', endedAt: now() })
+          // a team connection that works now: members who asked for that listed service and may use it hear it is ready
+          this.settleServiceRequests()
         }
       }
       return f.flow

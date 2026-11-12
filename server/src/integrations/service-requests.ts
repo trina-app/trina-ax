@@ -58,13 +58,15 @@ export function serviceState(ctx: AppContext, service: RequestableService, userI
   return reason === null ? 'available' : 'other'
 }
 
-/** A team connection to the listed service's official address (any spelling of it) that this member may use. */
+/** A working team connection to the listed service's official address (any spelling of it) that this member may use. */
 function teamCovers(ctx: AppContext, service: string, userId: string): boolean {
   const c = SERVICE_CATALOG.find((x) => x.id === service)
   if (!c) return false
   const key = canonicalService(c.url)
   const rows = ctx.db.query(`${selectRows(ctx.db)} WHERE scope = 'team'`).all() as Row[]
-  return rows.some((r) => canonicalService(r.url) === key && mayUse(ctx.db, r, userId))
+  // only one that works: a team connection that needs a sign-in or fails would close the request and say "ready" for
+  // something the member cannot use yet (review of #601)
+  return rows.some((r) => r.status === 'connected' && canonicalService(r.url) === key && mayUse(ctx.db, r, userId))
 }
 
 const refuse = (code: 'bad_request' | 'forbidden' | 'conflict' | 'rate_limited', reason: string): never => { throw new HttpError(code, undefined, { params: { reason } }) }

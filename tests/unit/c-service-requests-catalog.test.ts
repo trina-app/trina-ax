@@ -3,11 +3,12 @@
 // id is asked for and its address or name is refused; the owner and the admins get the notice and see the open requests
 // (GET /api/admin/service-requests, admins only); a member takes their own request back (it still counts toward the day's
 // limit, and the admins' notice is read once none is left); an admin dismisses them (nobody is told, they may ask
-// again); a team connection to the service's official address closes the requests of the members who may use it (each
+// again); a working team connection (one that needs its sign-in does not count) to the service's official address closes the requests of the members who may use it (each
 // is told, 'service.ready') and leaves the others open; then asking is refused as can_connect. A member's own
 // connection to it does not stop the ask (the request is for the team's).
 import { afterEach, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
+import { serviceRequestsTick } from '../../server/src/integrations/service-requests'
 
 setDefaultTimeout(30_000)
 
@@ -72,13 +73,19 @@ test('an admin dismisses the requests for a service: nobody is told, they may as
   expect((await ask('alice', 'notion')).body.state).toBe('sent')
 })
 
-test('a team connection to its official address closes the requests of those who may use it, who are told; the others wait', async () => {
+test('a working team connection to its official address closes the requests of those who may use it, who are told; the others wait', async () => {
   await ask('alice', 'notion')
   await ask('erin', 'notion')
-  // only erin may use the team's Notion
+  // only erin may use the team's Notion; it still needs its sign-in: nothing closes, nobody hears "ready"
   const t = await team({ everyone: false, groups: [], users: ['erin'] })
   expect(t.status).toBe(201)
-  expect((await mine('erin'))).toEqual([])
+  expect(t.body.status).not.toBe('connected')
+  expect((await mine('erin')).map((x) => x.service)).toEqual(['notion'])
+  expect(await notices('erin', 'service.ready')).toEqual([])
+  // signed in (the connection works): erin's request closes on the next check, and she is told
+  A.ctx.db.query("UPDATE integrations SET status = 'connected' WHERE id = ?").run(t.body.id)
+  serviceRequestsTick(A.ctx)
+  expect(await mine('erin')).toEqual([])
   expect((await notices('erin', 'service.ready')).map((x) => x.serviceRequest.service)).toEqual(['notion'])
   expect((await mine('alice')).map((x) => x.service)).toEqual(['notion'])
   expect((await ask('erin', 'notion')).body.error.params.reason).toBe('can_connect')
@@ -87,6 +94,9 @@ test('a team connection to its official address closes the requests of those who
   expect(await mine('alice')).toEqual([])
   expect((await notices('alice', 'service.ready'))).toHaveLength(1)
   expect(await teamList()).toEqual([])
+  // it stops working: members may ask again (nothing they can use)
+  A.ctx.db.query("UPDATE integrations SET status = 'needs_auth' WHERE id = ?").run(t.body.id)
+  expect((await ask('alice', 'notion')).body.state).toBe('sent')
 })
 
 test('a member\'s own connection to the service does not stop the ask for the team\'s', async () => {
