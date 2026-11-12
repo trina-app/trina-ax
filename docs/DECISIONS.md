@@ -5816,6 +5816,27 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c,
   A12e, A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
 
+### Dev environment on srt: reads on the host are an allow-list (fix/srt-deny-host-paths, 2026-11-12)
+
+QA TC-306 (a Debian 13 install with srt): a member's command read files outside the team folder: the NAS source behind
+a connected folder under `/mnt` (a sub-folder the rules close too), other apps' files under `/srv` and `/opt`, a tunnel
+token in a unit file under `/etc/systemd`, and listed `/var/lib`. The settings hid a short deny list only. Through the
+team folder the closed sub-folder stayed closed: the leak was the raw host path.
+
+- **Allow-list.** `denyRead` now holds `/`: srt expands it into the root's children (not `/proc`, `/dev`, `/sys`) and
+  skips the ones `allowRead` gives back, so a top folder made later is hidden too. `SYSTEM_READ_PATHS` gives back what
+  a run needs: `/usr` (and `/bin`, `/lib`, `/lib64`, `/sbin`, which point into it), `/etc` and `/opt/trina` (node,
+  python, srt, the headless browser). `ETC_SECRETS` stay hidden inside `/etc`. `/mnt`, `/media`, `/srv`, `/opt`,
+  `/var/lib` and the old list are named too, so they stay hidden if `/` were dropped.
+- **Connected sources by name.** The runner reads every source in `connected_folders` and hides it, so a NAS mounted
+  outside `/mnt` is covered too. The run reads the mirror `connected/<name>` with its folder rules.
+- **The check.** `settingsProblems` refuses a run when `/`, a host path, a server path or a connected source is not
+  hidden, counting srt's rule that `allowRead` wins over `denyRead` (the deepest entry decides), and when an `allowRead`
+  lies in a source or an `/etc` secret.
+- **Not changed.** The network: with a person's Full internet switch on, public sites are reachable (owner's setting).
+- **Tests.** `tests/unit/dev-env-srt.test.ts`; attack cases A30, A31, A31b (host paths) and A0c (node, python, git,
+  bun and an npm install still work) in `tests/linux/srt-attack.ts`.
+
 ### Dev environment: no line on the project page (chore/remove-project-devenv-row, 2026-11-08)
 
 Owner: "프로젝트에서 이제 dev environment 저거 필요없지 않아?" The project page's 개발 환경 line (`DevEnvSection.tsx`) is

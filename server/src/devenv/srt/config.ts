@@ -52,8 +52,23 @@ export const chatWork = (base: string, chatId: string) => path.join(devenvPaths(
  * they go here too (a unit test checks the list against scripts/dev-env/srt/install-srt.sh). */
 export const serverFilesOutsideBase = (id: string) => [`/etc/default/${id}`]
 
-/** Other system places that a run must not read. /tmp is the server's private /tmp (PrivateTmp). */
-export const DENIED_SYSTEM_PATHS = ['/tmp', '/var/log', '/run', '/home', '/root']
+/** What a run reads on the host besides its own folders (QA TC-306: an allow-list, not a deny list). Programs and
+ * libraries (/usr; /bin, /lib, /lib64 and /sbin point into it on Debian 13), the system configuration (/etc, less
+ * ETC_SECRETS) and Trina's tools (/opt/trina: node, python, srt, the headless browser). A path that is not there is
+ * skipped by srt. */
+export const SYSTEM_READ_PATHS = ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc', '/opt/trina']
+
+/** Places in /etc that hold host secrets or service units (a tunnel token in a unit file, for example). */
+export const ETC_SECRETS = ['/etc/systemd', '/etc/cloudflared', '/etc/ssh', '/etc/polkit-1', '/etc/sudoers.d',
+  '/etc/letsencrypt', '/etc/ssl/private', '/etc/wireguard', '/etc/NetworkManager/system-connections', '/etc/docker']
+
+/** Hidden in every run. `/` hides the whole host: srt expands it into the root's children (not /proc, /dev, /sys) and
+ * skips the ones SYSTEM_READ_PATHS gives back, so a folder made later at the top (a new mount) is hidden too. The rest
+ * name what must stay hidden even if `/` were dropped: /tmp is the server's private /tmp (PrivateTmp); /mnt, /media and
+ * /srv hold the sources of connected folders (team-files/connected.ts LINUX_ROOTS), which a run sees only through
+ * connected/<name> and its folder rules; /opt and /var/lib hold other apps' files. */
+export const DENIED_SYSTEM_PATHS = ['/', '/tmp', '/var/log', '/var/lib', '/run', '/home', '/root', '/mnt', '/media', '/srv', '/opt',
+  ...ETC_SECRETS]
 
 /** Private, shared, link-local and unique-local ranges. srt has a built-in set too; this list is explicit. */
 export const DENIED_RANGES = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16', '127.0.0.0/8', '0.0.0.0/8', 'fc00::/7', 'fe80::/10', '::1/128']
@@ -95,6 +110,9 @@ export interface SettingsInput {
   /** server folders and files that must be hidden even when they are outside the base folder (data folder, sockets,
    * engine folders, config file, secrets, TLS key). A path inside the base folder is hidden already. */
   serverPaths?: readonly string[]
+  /** the source folders of the team's connected folders (a NAS mount, for example): a run reads only the mirror in
+   * connected/<name>, with its folder rules, never the source */
+  connectedSources?: readonly string[]
 }
 
 const abs = (teamRoot: string, rel: string) => (rel === '' ? teamRoot : path.join(teamRoot, rel))
@@ -118,9 +136,9 @@ export function srtSettings(i: SettingsInput) {
     filesystem: {
       // the whole base folder, not a list of its folders: a file made later in a hidden folder stays hidden
       denyRead: uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...serverFilesOutsideBase(i.id), ...DENIED_SYSTEM_PATHS,
-        ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r)),
+        ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...(i.connectedSources ?? []), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r)),
         ...writeInRead.map((w) => abs(i.teamRoot, w))]),
-      allowRead: uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [])),
+      allowRead: uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [], SYSTEM_READ_PATHS)),
       allowWrite: uniq(i.view.write.map((r) => abs(i.teamRoot, r)).concat([home], i.work ? [i.work] : [])),
       denyWrite: uniq(i.view.denyWrite.map((r) => abs(i.teamRoot, r))),
     },
@@ -140,9 +158,16 @@ export function srtSettings(i: SettingsInput) {
 /** Is `child` the same folder as `parent`, or inside it? */
 const inside = (child: string, parent: string) => child === parent || child.startsWith(parent.endsWith('/') ? parent : parent + '/')
 
+/** Is `p` hidden in a run with these settings? srt gives an allowRead path back inside a denied folder (allowRead wins
+ * over denyRead, a tie too), so the deepest entry at or above `p` decides. */
+function hidden(s: ReturnType<typeof srtSettings>, p: string): boolean {
+  const depth = (list: readonly string[]) => Math.max(-1, ...list.filter((e) => inside(p, e)).map((e) => (e === '/' ? 0 : e.split('/').length - 1)))
+  return depth(s.filesystem.denyRead) > depth(s.filesystem.allowRead)
+}
+
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources'>): string[] {
   const out: string[] = []
   const deny = s.filesystem.denyRead
   const users = path.join(i.teamRoot, 'users'), own = path.join(users, i.userId), system = path.join(i.teamRoot, PRODUCT.systemDir)
@@ -152,7 +177,14 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   if (!deny.includes(users)) out.push('the personal folders are not hidden')
   if (!deny.includes(system)) out.push('the system folder is not hidden')
   // a base folder from the environment that is not the real one must not show the server's data (fail closed)
-  for (const sp of i.serverPaths ?? []) if (!deny.some((d) => inside(sp, d))) out.push(`a server path is not hidden: ${sp}`)
+  for (const sp of i.serverPaths ?? []) if (!hidden(s, sp)) out.push(`a server path is not hidden: ${sp}`)
+  // the host: everything outside the allowed paths is hidden, and the connected sources by name (QA TC-306)
+  for (const d of DENIED_SYSTEM_PATHS) if (!deny.includes(d)) out.push(`a host path is not hidden: ${d}`)
+  for (const d of DENIED_SYSTEM_PATHS) if (d !== '/' && !hidden(s, d)) out.push(`a host path is given back: ${d}`)
+  for (const src of i.connectedSources ?? []) {
+    if (!deny.includes(src) || !hidden(s, src)) out.push(`a connected folder's source is not hidden: ${src}`)
+    for (const r of s.filesystem.allowRead) if (inside(r, src)) out.push(`a path in a connected folder's source is readable: ${r}`)
+  }
   if (i.work !== null && !inside(i.work, devenvPaths(i.base).work)) out.push(`the work folder is not in the base folder's devenv/work: ${i.work}`)
   /** a path a run may get: a team folder (not .system, not another person's personal folder), the home, the work folder */
   const allowed = (p: string, extra: string[]) => {
@@ -169,7 +201,9 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   for (const w of s.filesystem.allowWrite) {
     if (inside(w, i.teamRoot) && !inside(w, own) && !(start !== null && inside(w, start))) out.push(`a team folder outside the starting folder is writable: ${w}`)
   }
-  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs])) out.push(`a path that a run may not read: ${r}`)
+  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, ...SYSTEM_READ_PATHS])) out.push(`a path that a run may not read: ${r}`)
+  // a host secret in /etc must not be given back
+  for (const r of s.filesystem.allowRead) if (ETC_SECRETS.some((e) => inside(r, e))) out.push(`a host secret is readable: ${r}`)
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
   // the network: the private, link-local and metadata ranges are always denied, with every site list and Full internet
   const n = s.network

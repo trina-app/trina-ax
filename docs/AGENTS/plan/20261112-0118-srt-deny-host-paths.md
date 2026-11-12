@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:18
 - Branch: `fix/srt-deny-host-paths`
-- Status: in progress
+- Status: done
 - Where: `server/src/devenv/srt/` (config.ts, runner.ts). Why: the Linux run base is core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a security fix with no setting or UI change
 
@@ -45,3 +45,9 @@ srt's allow-list needs the Docker suite to prove it; no migration, no UI, no lan
 `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, the devenv unit tests, the srt Docker suite.
 
 ## Result
+
+Built as planned. `ETC_SECRETS` also names /etc/wireguard, /etc/NetworkManager/system-connections and /etc/docker.
+`settingsProblems` judges "hidden" the way srt does (the deepest denyRead or allowRead entry at or above a path
+decides, a tie gives it back). Docker suite (colima, Debian 13 image of Dockerfile.srt): A30, A31, A31b fail on dev
+and pass with the fix; A0c passes. A28d, A28e, A28h and A29 fail on that local host with and without this change (they
+pass in CI). install-srt.sh itself was not run (it needs systemd and polkit).

@@ -14,7 +14,7 @@ import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_NAMES, DENIED_RANGES, RUN_ID_RE, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
+import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -344,8 +344,8 @@ const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: 
 describe('the srt settings file', () => {
   test('hides the base folder, users/ and .system/; gives back the person\'s folders, home and logs', () => {
     const s = srtSettings(input)
-    expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', '/tmp', '/var/log', '/run', '/home', '/root', `${TEAM}/users`, `${TEAM}/.system`, `${TEAM}/groups/marketing/salaries`])
-    expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`])
+    expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', ...DENIED_SYSTEM_PATHS, `${TEAM}/users`, `${TEAM}/.system`, `${TEAM}/groups/marketing/salaries`])
+    expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`, ...SYSTEM_READ_PATHS])
     expect(s.filesystem.allowWrite).toEqual([`${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`])
     expect(s.filesystem.denyWrite).toEqual([`${TEAM}/projects/falcon/public`, `${TEAM}/projects/falcon/skills`, `${TEAM}/users/alice/skills`])
     expect(settingsProblems(s, input)).toEqual([])
@@ -418,12 +418,46 @@ describe('the srt settings file', () => {
     expect(settingsProblems(net({ allowedDomains: ['*.trina.app'] }), input).join()).toContain('covers a denied host')
   })
   test('server paths outside the base folder are hidden too (a wrong base in the env fails closed)', () => {
-    const sp = ['/srv/trina/data', '/srv/trina/secrets', BASE + '/data']
+    // /etc is given back to runs, so a server file there needs its own hide
+    const sp = ['/srv/trina/data', '/etc/trina/secrets', BASE + '/data']
     const s = srtSettings({ ...input, serverPaths: sp })
-    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/srv/trina/data', '/srv/trina/secrets']))
+    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/srv/trina/data', '/etc/trina/secrets']))
     expect(s.filesystem.denyRead).not.toContain(BASE + '/data') // inside the base: hidden already
     expect(settingsProblems(s, { ...input, serverPaths: sp })).toEqual([])
-    expect(settingsProblems(srtSettings(input), { ...input, serverPaths: sp }).join()).toContain('a server path is not hidden: /srv/trina/data')
+    expect(settingsProblems(srtSettings(input), { ...input, serverPaths: sp }).join()).toContain('a server path is not hidden: /etc/trina/secrets')
+  })
+  test('the host is hidden but for programs, /etc and the Trina tools (QA TC-306)', () => {
+    const s = srtSettings(input)
+    const deny = s.filesystem.denyRead, allow = s.filesystem.allowRead
+    // the whole root: srt expands it into the root's children, less the ones allowRead gives back
+    expect(deny).toContain('/')
+    for (const p of ['/mnt', '/media', '/srv', '/opt', '/var/lib', '/home', '/root', '/tmp', '/run', '/var/log']) expect(deny, p).toContain(p)
+    for (const p of ['/etc/systemd', '/etc/cloudflared', '/etc/ssh', '/etc/polkit-1', '/etc/sudoers.d', '/etc/ssl/private']) expect(deny, p).toContain(p)
+    // what a run needs: programs, libraries, /etc, node / python / srt in /opt/trina
+    for (const p of ['/usr', '/bin', '/lib', '/etc', '/opt/trina']) expect(allow, p).toContain(p)
+    expect(SRT_PATHS.node.startsWith('/opt/trina/')).toBe(true)
+    // nothing given back lies in /opt outside /opt/trina, in /mnt, /media, /srv, /var/lib or in an /etc secret
+    for (const r of allow) {
+      for (const d of ['/opt', '/mnt', '/media', '/srv', '/var/lib', ...ETC_SECRETS]) {
+        if (r === d || r.startsWith(d + '/')) expect(r === '/opt/trina' || r.startsWith(BASE + '/'), `${r} in ${d}`).toBe(true)
+      }
+    }
+    expect(settingsProblems(s, input)).toEqual([])
+  })
+  test('the source folders of connected folders are hidden by name, wherever they are mounted (QA TC-306)', () => {
+    const src = ['/mnt/nas/share', '/data/nas2']
+    const c = { ...input, connectedSources: src }
+    const s = srtSettings(c)
+    for (const p of src) expect(s.filesystem.denyRead).toContain(p)
+    expect(settingsProblems(s, c)).toEqual([])
+    // the check refuses settings that lost a source, or give a path in one back, or give /opt or an /etc secret back
+    expect(settingsProblems(srtSettings(input), c).join()).toContain("a connected folder's source is not hidden: /data/nas2")
+    const fsx = (f: Partial<typeof s.filesystem>) => ({ ...s, filesystem: { ...s.filesystem, ...f } })
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/mnt/nas'] }), c).join()).toContain('/mnt/nas')
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/mnt/nas/share/closed'] }), c).join()).toContain('/mnt/nas/share/closed')
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/opt'] }), c).join()).toContain('may not read: /opt')
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, '/etc/systemd/system'] }), c).join()).toContain('a host secret is readable: /etc/systemd/system')
+    expect(settingsProblems(fsx({ denyRead: s.filesystem.denyRead.filter((d) => d !== '/') }), c).join()).toContain('a host path is not hidden: /')
   })
   test('a team folder outside the base folder is hidden too', () => {
     const s = srtSettings({ ...input, teamRoot: '/srv/team' })
@@ -805,6 +839,16 @@ describe('a command follows the person, not the project', () => {
     for (const f of [run.spec.settingsFile, run.spec.stdoutFile, run.spec.exitFile]) expect(fs.existsSync(f)).toBe(false)
     const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'dev_env.command' AND target = ?").get(falconId) as { detail: string }
     expect(JSON.parse(audit.detail)).toMatchObject({ runner: 'srt', folder: 'project', chatId: chatFalcon, result: { code: 0, signal: '' } })
+  })
+  test('a connected folder\'s source on the server is hidden in the run, the host too (QA TC-306)', async () => {
+    h.ctx.db.query("INSERT INTO connected_folders (id, name, source, created_by) VALUES ('cf-nas', 'nas', '/mnt/nas-test/share', 'carol')").run()
+    try {
+      const r = await alice().call({ command: 'echo hello' })
+      expect(out(r)).toContain('Exit code 0.')
+      const s = lastSettings()
+      expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/', '/mnt/nas-test/share', '/mnt', '/srv', '/opt', '/etc/systemd']))
+      expect(s.filesystem.allowRead).toEqual(expect.arrayContaining(['/usr', '/etc', '/opt/trina']))
+    } finally { h.ctx.db.query("DELETE FROM connected_folders WHERE id = 'cf-nas'").run() }
   })
   test('a chat with no project: starts in the chat\'s work folder, which is writable; the person\'s folders are there too', async () => {
     const r = await alice({ project: null, chat: chatPlain }).call({ command: 'write out.txt done' })

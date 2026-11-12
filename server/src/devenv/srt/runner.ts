@@ -229,6 +229,12 @@ export function serverPaths(ctx: Pick<AppContext, 'config' | 'engineConfig'>): s
   return [...new Set(out.filter((p): p is string => !!p && path.isAbsolute(p) && fs.existsSync(p)).map((p) => path.resolve(p)))]
 }
 
+/** The source folders of the team's connected folders (connected.ts): srtSettings hides each one by name. */
+export function connectedSources(ctx: Pick<AppContext, 'db'>): string[] {
+  const rows = ctx.db.query('SELECT source FROM connected_folders').all() as { source: string }[]
+  return [...new Set(rows.map((r) => r.source).filter((p) => path.isAbsolute(p)).map((p) => path.resolve(p)))]
+}
+
 /** Can this server run Full internet? full.mjs is installed (install-srt.sh). Without it Full internet acts as off:
  * the run gets the lists only (fail closed). */
 export const fullAvailable = () => !!systemOverride || fs.existsSync(SRT_PATHS.cliFull)
@@ -265,6 +271,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network:
     denyHosts: hosts,
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
     serverPaths: serverPaths(ctx),
+    connectedSources: connectedSources(ctx),
   }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
