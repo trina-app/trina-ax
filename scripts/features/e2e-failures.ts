@@ -31,7 +31,7 @@ export function failuresOf(report: JsonReport): Failure[] {
   return out
 }
 
-const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').slice(0, 200)
+const cell = (s: string) => s.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\|/g, '\\|').replace(/\s+/g, ' ').slice(0, 200)
 
 /** Markdown for the run summary: a count line, then a table of the failed tests (or a line saying none failed). */
 export function summaryMarkdown(report: JsonReport | null, label: string): string {
