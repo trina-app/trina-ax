@@ -17,7 +17,12 @@ import { permissionFrom } from './permission'
 export const CHANNEL_ID = 'default'
 // set once this app has asked the OS (src/permission.ts: Android tells "not asked yet" from "turned off" by it)
 const ASKED = 'team-ax.push-asked'
+// set once this app has asked iOS again with badges for a person who allowed notifications before badges were asked
+// for (store builds up to 9): iOS shows no prompt then and decides itself whether badges come on
+const BADGE_ASKED = 'team-ax.push-badge-asked'
 let asking: Promise<PushToken> | null = null
+/** iOS: alerts, sounds and the app icon's number (badge-v1); one prompt for all three. */
+const IOS_ASK = { ios: { allowAlert: true, allowBadge: true, allowSound: true } } as const
 
 /** Built with push: iOS always (aps-environment entitlement); Android only when the build has an FCM config file. */
 export function pushBuilt(): boolean {
@@ -66,8 +71,9 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
     await SecureStore.setItemAsync(ASKED, '1').catch(() => {})
     // Not 'undetermined' only: Android 13+ reports 'denied' (canAskAgain) before the first question, because
     // notifications are off until the person allows them. iOS says canAskAgain=false once the person has answered.
-    if (status.status !== 'granted' && status.canAskAgain) status = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: false, allowSound: true } })
+    if (status.status !== 'granted' && status.canAskAgain) status = await Notifications.requestPermissionsAsync(IOS_ASK)
     if (status.status !== 'granted') throw new PushRefused('push_denied')
+    await askBadgesOnce(status)
     let token: Notifications.DevicePushToken
     try { token = await Notifications.getDevicePushTokenAsync() } catch {
       console.log('push: the OS gave no device token; push stays off')
@@ -79,8 +85,39 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
   return asking
 }
 
+/** A person who allowed notifications before this app asked for badges (store builds up to 9 asked without them): ask
+ * iOS once more with badges. iOS shows no prompt to someone who has answered; whether badges come on is its decision
+ * (Settings › 알림 › Trina AX › 배지 turns them on either way, and the page says so when the app answers badgeOff). Never
+ * before the person answered (that would be the prompt itself), never on Android, at most once per install. */
+async function askBadgesOnce(status: Notifications.NotificationPermissionsStatus): Promise<void> {
+  if (Platform.OS !== 'ios' || status.status !== 'granted' || status.ios?.allowsBadge === true) return
+  if (await SecureStore.getItemAsync(BADGE_ASKED).catch(() => '1') === '1') return
+  await SecureStore.setItemAsync(BADGE_ASKED, '1').catch(() => {})
+  await Notifications.requestPermissionsAsync(IOS_ASK).catch(() => null)
+}
+
+/** The app icon's number (badge-v1): the page's one count n while it is open, 0 at a sign-out or a team change. Best
+ * effort: iOS sets it only while the person allows badges (expo-notifications answers false otherwise), Android only
+ * where the launcher shows numbers. `off`: iOS has badges off for this app although notifications are on, so the page
+ * can say where to turn them on. Never throws. */
+export async function setAppBadge(count: number): Promise<{ off: boolean }> {
+  if (!pushBuilt()) return { off: false }
+  try {
+    let status = await Notifications.getPermissionsAsync()
+    // the person allowed notifications on an older build, and the page has not asked for the token since
+    if (Platform.OS === 'ios' && status.status === 'granted' && status.ios?.allowsBadge !== true) {
+      await askBadgesOnce(status)
+      status = await Notifications.getPermissionsAsync()
+    }
+    await Notifications.setBadgeCountAsync(count).catch(() => false)
+    return { off: Platform.OS === 'ios' && status.status === 'granted' && status.ios?.allowsBadge === false }
+  } catch { return { off: false } }
+}
+
 /** In the foreground the web app already shows new things live: keep the notification in the list, no banner/sound.
- * The web app plays its own room sound while it is on screen (web/src/lib/roomSound.ts), so the open app has one. */
+ * The web app plays its own room sound while it is on screen (web/src/lib/roomSound.ts), so the open app has one. No
+ * badge from the push either: the page sets the exact number while it is open (badge-v1); the push's number is the
+ * server's, for the icon while the app is closed. */
 export function quietForeground() {
   // Never let notifications break the app (an Android build without FCM has no push at all).
   try { Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) }) }
@@ -107,8 +144,12 @@ function listenForTaps(teamSince: () => number, device: () => string | null, ope
   return () => sub.remove()
 }
 
-/** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen. */
-export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}) }
+/** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen,
+ * nor that person's number on the app icon. */
+export function forgetDelivered() {
+  void Notifications.dismissAllNotificationsAsync().catch(() => {})
+  try { void Notifications.setBadgeCountAsync(0).catch(() => {}) } catch { /* a build without notifications */ }
+}
 
 /** The keychain item the notification extension reads (src/labels.ts): only on an iPhone build with the extension (the
  * edition's shared keychain group in extra.pushLabels), readable after the phone's first unlock (the extension runs
