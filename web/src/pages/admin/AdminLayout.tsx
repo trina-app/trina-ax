@@ -120,6 +120,9 @@ function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | 
   return settingsPageName(path, t)
 }
 
+/** where Folder permissions is opened as a detour from (lib/backStack.ts useListUnderPage `inside`) */
+const DETOURS = ['/files', '/projects']
+
 /** The old addresses that open another page (see the top of this file), else null. An item's page that is a phone's
  * only (adminScreens.ts ADMIN_DETAILS) is the item in its page on a computer, and the other way round. */
 function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean): string | null {
@@ -196,9 +199,10 @@ export default function AdminLayout() {
   // the page that stays (no redirect, allowed): only then may the list be put under it
   const final = admin && !redirect && known && section !== ''
   // the lists under a page (adminScreens.ts): Back goes group → Team settings → Admin, a connector → Connectors → Admin,
-  // the rule editor → the folder → the tree → Admin
+  // the rule editor → the folder → the tree → Admin. Folder permissions opened from a folder (Files' "who can see it",
+  // a project's members) is a detour: Back goes straight back there
   const here = `${location.pathname}${search}`
-  useListUnderPage(adminChain(here), phone, final)
+  useListUnderPage(adminChain(here), phone, final, section === 'folders' ? DETOURS : undefined)
   useKeptScroll(content, 'admin', phone && admin && !redirect && known)
   const up = adminParent(here) ?? '/admin'
   const name = (p: string) => pageName(p, t, devEnv)

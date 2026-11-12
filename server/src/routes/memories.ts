@@ -50,7 +50,15 @@ export const memoriesRoutes: RouteModule = {
         : ctx.db.query('SELECT id, text, source_chat_id, created_at FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?').all(auth.user.id, limit + 1)) as Row[]
       const items = rows.slice(0, limit)
       const last = items[items.length - 1]
-      return { items: items.map((r) => rt.store.toMemory(r)), nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null }
+      // which of them the AI gets now (the same cut as its memory block): the others are marked, and the page says how
+      // many are in use of how many kept (QA TC-213)
+      const used = rt.memoriesInUse(auth.user.id)
+      const total = (ctx.db.query('SELECT count(*) n FROM memories WHERE user_id = ?').get(auth.user.id) as { n: number }).n
+      return {
+        items: items.map((r) => ({ ...rt.store.toMemory(r), ...(used.has(r.id) ? {} : { unused: true as const }) })),
+        nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null,
+        inUse: used.size, total,
+      }
     })
     // the person's own memories, with the AI's limits (prompt.ts cleanMemoryText). Kept as the person's (source
     // 'user'); the audit line has the id and the length, never the text (admins can't see memories, tab 1). Memories
