@@ -22,3 +22,7 @@ then ctl). A reset in between left new root programs with the old mycel-ctl, who
 - Tests: Go tests for both orders, the message and the not-"already at" answer; check:docs, typecheck, shellcheck.
 
 ## Result
+`go test ./cmd/mycel-ctl/` passes (new: TestRootDiffPutsMycelCtlFirst, TestInstallScriptInstallsMycelCtlFirst — failed on the
+old loop —, TestUpdateSaysWhenRootFilesAreHalfReplaced; TestStatusSaysAnUpdateDidNotFinish checks the new message and
+that the kit's command comes first). check:docs, typecheck, related unit tests (installer, backup, update durability)
+pass; shellcheck on install-linux.sh: 21 findings before and after.

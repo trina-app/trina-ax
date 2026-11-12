@@ -51,7 +51,7 @@ Role-account Mac uses the same `admin.js` commands as `_axserver`, with `MYCEL_C
 
 Before any replacement, make a current backup, pause team use and preserve the current version/configuration.
 
-- DB only (same version): use Admin → System → Backups → Restore (password confirmation), or `trina_admin stage-restore --backup ID`. To go back to the version you had before an update, do not restart: follow [Going back to the version before an update](#going-back-to-the-version-before-an-update-linux) instead. Restart the server (`sudo systemctl restart mycel-server` on default Linux). Folder permissions stay as they were just before the restore, because the files they protect stay too: a folder closed after the backup stays closed (if the current database cannot be read, the backup's permissions apply and Admin → System says to check them). After the restart, Admin → System → Backups and the activity log ("Restored a backup") say which backup was put back, when it was made, when and by whom it was restored, and whether it worked. The old DB is retained under `data/backups/before-restore-*` for the same period as backups (the newest one is always kept). Everyone signs in again. Team files remain current.
+- DB only (same version): use Admin → System → Backups → Restore (password confirmation), or `trina_admin stage-restore --backup ID`. To go back to the version you had before an update, do not restart: follow [Going back to the version before an update](#going-back-to-the-version-before-an-update-linux) instead. Restart the server (`sudo systemctl restart mycel-server` on default Linux). Folder permissions stay as they were just before the restore, because the files they protect stay too: a folder closed after the backup stays closed (if the current database cannot be read, the backup's permissions apply and Admin → System says to check them). After the restart, Admin → System → Backups and the activity log ("Restored a backup") say which backup was put back, when it was made, when and by whom it was restored, and whether it worked (from 0.5.0 on; 0.4.0 does not show this). The old DB is retained under `data/backups/before-restore-*` for the same period as backups (the newest one is always kept). Everyone signs in again. Team files remain current.
 - File recovery: `trina_admin restore-team --backup ID --to /var/lib/mycel/data/recovered-team`. The target must be new. Compare files, then restore only selected files through the app with appropriate permissions. This avoids replacing unrelated work.
 - Encrypted archive drill: `trina_admin restore-archive --in /var/lib/mycel/data/off-host.tar.zst.age --to /var/lib/mycel/data/recovery-drill --password-stdin`. Verify the resulting DB and team tree; extraction alone does not start a server.
 
@@ -97,10 +97,10 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
      - Otherwise, cancel the staged copy, then read the message, fix the cause and start again at step 2:
 
        ```sh
-       sudo -u axserver rm -f /var/lib/mycel/data/restore-pending.json
+       sudo -u axserver rm -f /var/lib/mycel/data/restore-pending.json /var/lib/mycel/data/restore-staged.db
        ```
 
-       Without that file the server starts with the database it has, as if step 3 had not been done. Removing it does no harm when the copy was already put back (the file is gone then).
+       Without `restore-pending.json` the server starts with the database it has, as if step 3 had not been done. `restore-staged.db` is the staged copy of the database (as large as the database); nothing uses it once the first file is gone. Removing both does no harm when the copy was already put back (the files are gone then).
 
 5. Check:
 
@@ -109,7 +109,7 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
    curl -s http://127.0.0.1:47820/api/health
    ```
 
-   Both show the old version (`version 0.4.0`). `root files` still shows the newer version: that is expected, the root programs only move forward and work with the old version. Sign in, and open a chat and a file from before the update. Admin › System › Backups and the activity log say which backup was put back.
+   Both show the old version (`version 0.4.0`). `root files` still shows the newer version: that is expected, the root programs only move forward and work with the old version. Sign in, and open a chat and a file from before the update: they are there, and what was written after the update is not. On 0.4.0, Admin › System › Backups and the activity log do not say that a backup was put back (they do from 0.5.0 on), so this check is how you see it.
 
 6. While automatic updates are off, Admin › Home shows the newer version with an **Install now** button. Do not press it until the problem is fixed. When the problem is fixed, make a backup first. Then either install the new version once, now, with `sudo mycel-ctl update` (automatic updates stay off), or turn automatic updates back on with `sudo mycel-ctl auto-update on` (the new version is installed in the next update window).
 
@@ -176,6 +176,8 @@ When the old server is lost, set up a new one from your off-host archive (made w
    sudo systemctl start mycel-launcher mycel-server mycel-update.timer
    sudo mycel-ctl status
    ```
+
+   Right after the start, the `health:` line may show `connection refused`: the server is still starting. Wait a few seconds and run `sudo mycel-ctl status` again; `health:` then shows `ok:true`.
 
 9. Everyone signs in again with their old password. Old sign-ins, unused invite links and password-reset links no longer work: send new invites where needed.
 10. Connect the AI accounts again in **Admin › AI accounts**, and reconnect integrations (Google, Slack and others). Their keys were sealed with the old server's keys, which are not in the archive; never copy key files from the old server or from a support attachment.

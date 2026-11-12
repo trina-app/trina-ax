@@ -1076,7 +1076,10 @@ rootfile() {  # mode name
   nolink "$BASE/root/$2"
   install -o root -g root -m "$1" "$KROOT/$2" "$BASE/root/$2" || die "installing root/$2 failed"
 }
-for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account set-claude-token; do rootfile 755 "$f"; done
+# mycel-ctl first (as in mycel-ctl update, update.go ctlProgram): a reset after any root program changed then leaves the
+# new mycel-ctl, whose `status` says "AN UPDATE DID NOT FINISH" (0.4.0's has no such check; QA TC-340 retest). The new
+# mycel-ctl works with the old programs and units until the rest are in.
+for f in mycel-ctl mycel-bootstrap mycel-launcher mycel-sandbox mycel-account set-claude-token; do rootfile 755 "$f"; done
 # the dev environment's root helper. It runs only from here, never from a version folder (the server account owns those),
 # and only when scripts/dev-env/install-trial.sh added its service: this file alone changes nothing. A kit without it (a
 # repair from an older installed version) leaves the file in place.
