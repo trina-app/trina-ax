@@ -3152,6 +3152,7 @@ export const es: Record<MessageKey, string> = {
   'admin.onComputerConnection': "Cambiar cómo se conecta el equipo se hace en Administración en una computadora.",
   'admin.onComputerUpdate': "Esta versión se instala en la computadora del servidor. También puedes esperar la actualización automática.",
   'admin.onComputerNoFeed': "Las actualizaciones se instalan en la computadora del servidor con el instalador.",
+  'admin.onComputerAiApps': "Activar el acceso de las apps de IA se hace en la configuración del servidor, en una computadora.",
   'integrations.users': "Usada por: {who}",
   'integrations.users.nobody': "Aún nadie puede usarla",
   'integrations.users.notMe': "No disponible en sus chats",

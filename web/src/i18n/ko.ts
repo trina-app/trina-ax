@@ -3195,6 +3195,7 @@ export const ko = {
   'admin.onComputerConnection': "연결 방식 바꾸기는 컴퓨터의 관리자 화면에서 해요.",
   'admin.onComputerUpdate': "이 버전은 서버 컴퓨터에서 설치해요. 자동 업데이트를 기다려도 돼요.",
   'admin.onComputerNoFeed': "업데이트는 서버 컴퓨터에서 설치 프로그램으로 해요.",
+  'admin.onComputerAiApps': "AI 앱 연결 켜기는 컴퓨터에서 서버 설정으로 해요.",
   'integrations.users': '사용할 사람: {who}',
   'integrations.users.nobody': '아직 아무도 못 씀',
   'integrations.users.notMe': '내 대화에서는 못 씀',

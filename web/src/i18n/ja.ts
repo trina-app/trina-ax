@@ -3152,6 +3152,7 @@ export const ja: Record<MessageKey, string> = {
   'admin.onComputerConnection': "チームの接続方法の変更は、パソコンの管理画面で行います。",
   'admin.onComputerUpdate': "このバージョンはサーバーのパソコンでインストールします。自動アップデートを待つこともできます。",
   'admin.onComputerNoFeed': "アップデートはサーバーのパソコンでインストーラーから行います。",
+  'admin.onComputerAiApps': "AIアプリの接続は、パソコンでサーバーの設定から有効にします。",
   'integrations.users': "利用者：{who}",
   'integrations.users.nobody': "まだ誰も利用できません",
   'integrations.users.notMe': "自分のチャットでは利用不可",

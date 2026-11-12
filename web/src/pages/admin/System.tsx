@@ -5,7 +5,8 @@
 // On a phone (below 768 px; QA TC-269) the page is a list of its parts, each its own page at /admin/system/<group>
 // (systemGroups.ts), with a short state on each row; the parts stay mounted while another shows, so a backup or an
 // export keeps its progress and the list its states. What needs the server computer (a folder path on it, the
-// connection mode, an update by its command) says "컴퓨터에서 설정해요" there (QA TC-270). Computers keep the one page.
+// connection mode, an update by its command) says "컴퓨터에서 설정해요" there (QA TC-270). A backup is a list row there: the
+// date and size, the kind under it, Restore on the right. Computers keep the one page.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import clsx from 'clsx'
@@ -792,6 +793,7 @@ function Backups({ onChanged }: { onChanged: () => void }) {
   const state = useLoad(() => api.call(API.listBackups))
   const runner = useJobRunner()
   const [restore, setRestore] = useState<{ id: string; createdAt: string } | null>(null)
+  const phone = useMediaQuery(PHONE)
   // a phone's list: when the last backup was made
   const latest = state.data?.items.reduce<string | null>((m, b) => (!m || b.createdAt > m ? b.createdAt : m), null)
   useRowNote('backups', latest ? { value: formatRelative(latest, locale) } : null)
@@ -827,7 +829,24 @@ function Backups({ onChanged }: { onChanged: () => void }) {
             <p className="text-sm text-faint">{t('system.noBackups')}</p>
           ) : (
             <ul className="divide-y divide-line border-y border-line text-sm" data-testid="backup-list">
-              {list.map((b) => (
+              {list.map((b) => phone ? (
+                // a phone: a list row, the date and size on the first line, what kind of backup under it, Restore on the
+                // right (in one line the badges and the button left the date one word per line)
+                <li key={b.id} className="flex items-center gap-3 py-2.5" data-testid="backup-row">
+                  <div className="min-w-0 flex-1">
+                    <p data-testid="backup-when">
+                      {formatDateTime(b.createdAt, locale)} <span className="text-xs whitespace-nowrap text-faint">· {formatSize(b.size, locale)}</span>
+                    </p>
+                    <p className="mt-1 flex flex-wrap gap-1.5" data-testid="backup-badges">
+                      <Badge>{t(`system.backupKind.${b.kind}`)}</Badge>
+                      <Badge tone="neutral">{t(`system.backupScope.${b.scope}`)}</Badge>
+                    </p>
+                  </div>
+                  <Button size="sm" variant="ghost" className="shrink-0" disabled={!!runner.jobId} onClick={() => setRestore({ id: b.id, createdAt: b.createdAt })}>
+                    {t('system.restore')}
+                  </Button>
+                </li>
+              ) : (
                 <li key={b.id} className="flex flex-wrap items-center gap-2 py-2.5">
                   <span className="min-w-0 flex-1">
                     {formatDateTime(b.createdAt, locale)} <span className="text-xs text-faint">· {formatSize(b.size, locale)}</span>
