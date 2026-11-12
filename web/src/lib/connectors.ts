@@ -8,7 +8,7 @@
 // sign-in: Slack, GitHub, Asana, HubSpot, Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Descriptions are the message
 // keys integrations.catalog.<id>; logos are files in web/public/icons/connectors (this server's own, because the
 // content security policy loads no image from elsewhere).
-import { canonicalService, SERVICE_CATALOG, type CatalogServiceId } from '@mycel/shared'
+import { catalogAt, SERVICE_CATALOG, type CatalogServiceId } from '@mycel/shared'
 
 /** each listed service's logo (the list itself, with names and official addresses, is shared/src/service-catalog.ts) */
 const LOGOS: Record<CatalogServiceId, string> = {
@@ -63,8 +63,10 @@ export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
  * and, where the service itself lists them, the tools it offers (their names as the service writes them, the same
  * names its page shows once connected) with the page that lists them. Only values checked on the service's own pages
  * on 2026-11-12 (each cited next to it); a service missing here, or without `tools`, shows the links and a plain line.
- * Left out on purpose: Linear (its MCP page names no tools), Atlassian (its tool list is for the v2 address, the list
- * here uses v1) and Canva's tools (its MCP pages now give another address than the one listed here). */
+ * Left out on purpose: Linear (its MCP page names no tools), Atlassian's tools (its v2 address offers discover/execute
+ * tools; the full list, https://developer.atlassian.com/cloud/rovo-mcp/guides/supported-tools/, is only behind
+ * `?tools=all`) and Canva's (its tool list, https://www.canva.dev/docs/apps/mcp/tools/, is for the address that needs an
+ * app of one's own, not the one listed). */
 export interface ConnectorDocs { privacy: string; terms: string; docs: string; toolsUrl?: string; tools?: readonly string[] }
 export const CONNECTOR_DOCS: Partial<Record<Connector['id'], ConnectorDocs>> = {
   notion: {
@@ -101,7 +103,7 @@ export const CONNECTOR_DOCS: Partial<Record<Connector['id'], ConnectorDocs>> = {
   atlassian: {
     privacy: 'https://www.atlassian.com/legal/privacy-policy',
     terms: 'https://www.atlassian.com/legal/atlassian-customer-agreement',
-    // https://developer.atlassian.com/cloud/rovo-mcp/ (its tool list, guides/supported-tools, is for the v2 address)
+    // https://developer.atlassian.com/cloud/rovo-mcp/ (the v2 address the list uses)
     docs: 'https://developer.atlassian.com/cloud/rovo-mcp/',
   },
   figma: {
@@ -116,6 +118,9 @@ export const CONNECTOR_DOCS: Partial<Record<Connector['id'], ConnectorDocs>> = {
       'add_code_connect_map', 'get_code_connect_map', 'get_code_connect_suggestions', 'get_context_for_code_connect', 'get_libraries',
       'search_design_system', 'send_code_connect_mappings', 'create_generative_plugin', 'get_generative_plugin', 'update_generative_plugin',
       'list_generative_plugins', 'create_shader', 'get_shader', 'update_shader', 'list_shaders', 'list_file_shaders', 'send_code_to_figma', 'whoami',
+      // "Figma Weave" on the same page (2026-11-12; the page does not say which server has them)
+      'weave_list_tools', 'weave_get_tool_inputs', 'weave_upload_asset', 'weave_run_tool', 'weave_get_tool_run_output', 'weave_cancel_tool_run',
+      'weave_find_model', 'weave_run_model', 'weave_get_model_run_output',
     ],
   },
   canva: {
@@ -188,7 +193,10 @@ export type AiApp = (typeof AI_APPS)[number]
 export const aiAppLogo = (a: AiApp) => (a.logo ? `/icons/connectors/${a.logo}` : null)
 
 /** The listed service at this address, if there is one (a connection added by hand shows its logo too). */
-export const connectorFor = (url: string): Connector | undefined => CONNECTORS.find((c) => canonicalService(c.url) === canonicalService(url))
+/** A connection at any official address of the listed service (Atlassian's v1 and v2, shared/src/service-catalog.ts
+ * otherUrls) is that service: its logo, "connected" in Discover, its page. */
+export const servesAt = (c: Connector, url: string) => catalogAt(url)?.id === c.id
+export const connectorFor = (url: string): Connector | undefined => { const at = catalogAt(url); return at && CONNECTORS.find((c) => c.id === at.id) }
 
 /** A connection to this service is already in `urls`. */
-export const isConnected = (c: Connector, urls: string[]) => urls.some((u) => canonicalService(u) === canonicalService(c.url))
+export const isConnected = (c: Connector, urls: string[]) => urls.some((u) => servesAt(c, u))

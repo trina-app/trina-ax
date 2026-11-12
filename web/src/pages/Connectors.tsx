@@ -28,9 +28,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
+import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
-import { canonicalService, connectionRowStatus, splitByScope } from '../lib/integrations'
+import { connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
@@ -363,10 +363,10 @@ function ListedPage({ c }: { c: Connector }) {
   const navigate = useNavigate()
   const { list, setDialog, asks, admin } = useConnectors()
   const mine = list.data ? splitByScope(list.data.items).mine : []
-  const have = mine.filter((i) => canonicalService(i.url) === canonicalService(c.url))
-  // a member whose team has no connection to it they may use: ask an admin to add it for the team (QA TC-133); one who
-  // may connect their own keeps Connect, with the ask under it
-  const teamHas = !!list.data && splitByScope(list.data.items).team.some((i) => canonicalService(i.url) === canonicalService(c.url))
+  const have = mine.filter((i) => servesAt(c, i.url))
+  // a member whose team has no connection to it they may use (at any of its official addresses): ask an admin to add
+  // it for the team (QA TC-133); one who may connect their own keeps Connect, with the ask under it
+  const teamHas = !!list.data && splitByScope(list.data.items).team.some((i) => servesAt(c, i.url))
   const askFor = !admin && asks.ready && !!list.data && !teamHas && !have.length && isRequestableService(c.id) ? c.id : null
   const own = !!list.data?.personalAllowed
   return (

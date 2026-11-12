@@ -7,8 +7,14 @@
 export const SERVICE_CATALOG = [
   { id: 'notion', name: 'Notion', url: 'https://mcp.notion.com/mcp', aliases: ['노션', 'ノーション'] },
   { id: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp', ambiguous: true, aliases: ['리니어'] },
-  { id: 'atlassian', name: 'Atlassian', url: 'https://mcp.atlassian.com/v1/mcp', aliases: ['아틀라시안', 'jira', '지라', 'confluence', '컨플루언스'] },
-  { id: 'canva', name: 'Canva', url: 'https://mcp.canva.com/mcp', aliases: ['캔바'] },
+  // https://developer.atlassian.com/cloud/rovo-mcp/ (2026-11-12) gives v2; the v1 address still works for users outside
+  // the v2 rollout cohort (https://developer.atlassian.com/cloud/rovo-mcp/changelog/), so a connection saved there
+  // stays Atlassian's
+  { id: 'atlassian', name: 'Atlassian', url: 'https://mcp.atlassian.com/v2/mcp', otherUrls: ['https://mcp.atlassian.com/v1/mcp'], aliases: ['아틀라시안', 'jira', '지라', 'confluence', '컨플루언스'] },
+  // https://www.canva.dev/blog/developers/canva-mcp-ga/ (2026-10-27) gives https://api.canva.com/connect/v1/mcp, signed
+  // in with "your app's OAuth client" (no dynamic client registration there); the list keeps mcp.canva.com/mcp, which
+  // still signs in without an app of one's own, and counts the documented one as Canva's too
+  { id: 'canva', name: 'Canva', url: 'https://mcp.canva.com/mcp', otherUrls: ['https://api.canva.com/connect/v1/mcp'], aliases: ['캔바'] },
   { id: 'figma', name: 'Figma', url: 'https://mcp.figma.com/mcp', aliases: ['피그마', 'フィグマ'] },
   { id: 'stripe', name: 'Stripe', url: 'https://mcp.stripe.com/', ambiguous: true, aliases: ['스트라이프'] },
   { id: 'supabase', name: 'Supabase', url: 'https://mcp.supabase.com/mcp', aliases: ['수파베이스'] },
@@ -63,11 +69,16 @@ export function canonicalService(url: string): string {
   }
 }
 
+/** Every official address of a listed service: the one new connections use (`url`), then the other ones the service
+ * documents or that still work (`otherUrls`: an older version, another documented address). A connection saved at any
+ * of them is that service. */
+export const officialUrls = (c: CatalogService): readonly string[] => ('otherUrls' in c ? [c.url, ...c.otherUrls] : [c.url])
+
 /** The listed service at this address by host and path (any scheme, query or letter case): for a logo or a list
  * match. To vouch for an address, use officialService. */
 export function catalogAt(url: string): CatalogService | undefined {
   const key = canonicalService(url)
-  return SERVICE_CATALOG.find((c) => canonicalService(c.url) === key)
+  return SERVICE_CATALOG.find((c) => officialUrls(c).some((o) => canonicalService(o) === key))
 }
 
 /** The listed service whose official address this is, exactly: https, the same host and path (a trailing slash aside),
@@ -77,11 +88,20 @@ export function officialService(url: string): CatalogService | undefined {
   try { u = new URL(url) } catch { return undefined }
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return undefined
   const path = u.pathname.replace(/\/+$/, '')
-  return SERVICE_CATALOG.find((c) => { const o = new URL(c.url); return o.host === u.host && o.pathname.replace(/\/+$/, '') === path })
+  return SERVICE_CATALOG.find((c) => officialUrls(c).some((x) => { const o = new URL(x); return o.host === u.host && o.pathname.replace(/\/+$/, '') === path }))
 }
 
-/** The official host of a listed service ("mcp.notion.com"). */
+/** Two addresses that are official addresses of the same listed service (Atlassian's v1 and v2): one service, never a
+ * second connection for it. */
+export function sameListedService(a: string, b: string): boolean {
+  const x = officialService(a)
+  return !!x && x.id === officialService(b)?.id
+}
+
+/** The official host of a listed service ("mcp.notion.com"): the one new connections use. */
 export const catalogHost = (c: CatalogService) => new URL(c.url).host
+/** Every official host of a listed service (Canva's mcp.canva.com and api.canva.com) */
+export const catalogHosts = (c: CatalogService) => officialUrls(c).map((x) => new URL(x).host.toLowerCase())
 
 /** Letters that look like Latin ones in other scripts (Cyrillic, Greek, Armenian, IPA, small capitals) and digits that
  * pass for letters, mapped to the Latin letter they imitate: a name is compared by its look ("Nоtion" with a Cyrillic
@@ -180,7 +200,7 @@ export function trustedServiceName(name: string, url?: string | null): { name: s
   try { u = url ? new URL(url) : null } catch { u = null }
   const official = url ? officialService(url) : undefined
   if (official) return { name: official.name, listed: official }
-  if (named?.exact && (!url || (u && u.host.toLowerCase() === catalogHost(named.service)))) return { name: named.service.name, listed: named.service }
+  if (named?.exact && (!url || (u && catalogHosts(named.service).includes(u.host.toLowerCase())))) return { name: named.service.name, listed: named.service }
   if (u && (named || mixedScript(name))) return { name: u.host.slice(0, 60), ...(named ? { claimed: named.service } : {}) }
   return { name }
 }

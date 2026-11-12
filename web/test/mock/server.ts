@@ -108,7 +108,7 @@ import { MockPlugins } from './plugins'
 import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
 import type { GoogleAppId } from '@mycel/shared/api'
 import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
-import { canonicalService as canonicalOf, SERVICE_CATALOG as CATALOG } from '@mycel/shared'
+import { catalogAt as catalogAtUrl } from '@mycel/shared'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
@@ -1202,8 +1202,8 @@ export class MockServer {
   serviceState(service: RequestableService, userId?: string): 'not_set_up' | 'available' | 'other' {
     // a listed service (QA TC-133): added for this member once a team connection to its address is one they may use
     if (!isGoogleRequestable(service)) {
-      const c = CATALOG.find((x) => x.id === service), u = this.users.find((x) => x.id === userId)
-      return c && u && this.integrations.some((x) => x.scope === 'team' && x.status === 'connected' && canonicalOf(x.url) === canonicalOf(c.url) && this.integrationAllows(x, u)) ? 'available' : 'not_set_up'
+      const u = this.users.find((x) => x.id === userId)
+      return u && this.integrations.some((x) => x.scope === 'team' && x.status === 'connected' && catalogAtUrl(x.url)?.id === service && this.integrationAllows(x, u)) ? 'available' : 'not_set_up'
     }
     if (service === 'google-drive') return this.driveClient === 'none' ? 'not_set_up' : this.driveMembers ? 'available' : 'other'
     const r = this.googleApps.reasonOf(this.googleApps.app(service)!)

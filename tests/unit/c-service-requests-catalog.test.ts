@@ -105,3 +105,21 @@ test('a member\'s own connection to the service does not stop the ask for the te
   expect(own.status).toBe(201)
   expect((await ask('alice', 'notion')).body.state).toBe('sent')
 })
+
+test('a working team connection at another official address of the service (Atlassian v1) closes its requests too', async () => {
+  await ask('alice', 'atlassian')
+  const t = await send('carol', 'POST', '/api/admin/integrations', { kind: 'mcp', name: 'Jira', url: 'https://mcp.atlassian.com/v1/mcp', auth: 'oauth', writePolicy: 'ask', access: { everyone: true, groups: [], users: [] } })
+  expect(t.status).toBe(201)
+  expect((await mine('alice')).map((x) => x.service)).toEqual(['atlassian'])
+  A.ctx.db.query("UPDATE integrations SET status = 'connected' WHERE id = ?").run(t.body.id)
+  serviceRequestsTick(A.ctx)
+  expect(await mine('alice')).toEqual([])
+  expect((await notices('alice', 'service.ready')).map((x) => x.serviceRequest.service)).toEqual(['atlassian'])
+  expect((await ask('alice', 'atlassian')).body.error.params.reason).toBe('can_connect')
+  // a team connection at an address of another service closes nothing
+  await ask('alice', 'figma')
+  const other = await send('carol', 'POST', '/api/admin/integrations', { kind: 'mcp', name: 'Not Figma', url: 'https://mcp.figma.example/mcp', auth: 'oauth', writePolicy: 'ask', access: { everyone: true, groups: [], users: [] } })
+  A.ctx.db.query("UPDATE integrations SET status = 'connected' WHERE id = ?").run(other.body.id)
+  serviceRequestsTick(A.ctx)
+  expect((await mine('alice')).map((x) => x.service)).toEqual(['figma'])
+})

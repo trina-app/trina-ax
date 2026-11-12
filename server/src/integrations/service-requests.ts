@@ -21,7 +21,7 @@
 //   - An app whose setup is not the admins' to make (a hosted team's, an operator's) cannot be asked for: nobody could
 //     answer it here.
 import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type AskServiceResult, type RequestableService, type ServiceRequest, type TeamServiceRequest } from '@mycel/shared/api'
-import { canonicalService, SERVICE_CATALOG } from '@mycel/shared'
+import { catalogAt } from '@mycel/shared'
 import { mayUse, selectRows, type Row } from './connections/store'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -58,15 +58,14 @@ export function serviceState(ctx: AppContext, service: RequestableService, userI
   return reason === null ? 'available' : 'other'
 }
 
-/** A working team connection to the listed service's official address (any spelling of it) that this member may use. */
+/** A working team connection to one of the listed service's official addresses (any spelling of it) that this member may
+ * use. */
 function teamCovers(ctx: AppContext, service: string, userId: string): boolean {
-  const c = SERVICE_CATALOG.find((x) => x.id === service)
-  if (!c) return false
-  const key = canonicalService(c.url)
   const rows = ctx.db.query(`${selectRows(ctx.db)} WHERE scope = 'team'`).all() as Row[]
-  // only one that works: a team connection that needs a sign-in or fails would close the request and say "ready" for
-  // something the member cannot use yet (review of #601)
-  return rows.some((r) => r.status === 'connected' && canonicalService(r.url) === key && mayUse(ctx.db, r, userId))
+  // at any of its official addresses (Atlassian's v1 and v2: catalogAt); only one that works: a team connection that
+  // needs a sign-in or fails would close the request and say "ready" for something the member cannot use yet (review
+  // of #601)
+  return rows.some((r) => r.status === 'connected' && catalogAt(r.url)?.id === service && mayUse(ctx.db, r, userId))
 }
 
 const refuse = (code: 'bad_request' | 'forbidden' | 'conflict' | 'rate_limited', reason: string): never => { throw new HttpError(code, undefined, { params: { reason } }) }
@@ -179,8 +178,7 @@ export function dismissServiceRequests(ctx: AppContext, actor: string, raw: stri
 /** A team connection was made or changed (its address, who may use it): requests for the listed service at that
  * address close for the members who may use it now. */
 export function afterTeamConnection(ctx: AppContext, url: string) {
-  const key = canonicalService(url)
-  const c = SERVICE_CATALOG.find((x) => canonicalService(x.url) === key)
+  const c = catalogAt(url)
   if (c) afterServiceSetup(ctx, c.id)
 }
 
