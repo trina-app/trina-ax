@@ -6,7 +6,7 @@
 // tokens"; without an https address one line says "Sign in with Slack" needs it. Settings: the person's Slack line
 // (SlackAccount, under Connectors' list); "Sign in with Slack" goes to Slack and its outcome is said when it comes back.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import type { MySlack, SlackAdmin } from '@mycel/shared/api'
 import AdminSlack from '../../src/pages/admin/Slack'
 import AdminIntegrations, { slackAdded, slackRowStatus } from '../../src/pages/admin/Integrations'
@@ -15,6 +15,8 @@ import { useSession } from '../../src/store/session'
 import { SlackAccount } from '../../src/components/settings/SlackAccount'
 import { useLocaleStore } from '../../src/i18n'
 import { useUi } from '../../src/store/ui'
+import { DialogHost } from '../../src/components/ui'
+import { act } from 'react'
 import { installDom, mount, removeDom } from './dom-host'
 
 const realFetch = globalThis.fetch
@@ -27,6 +29,7 @@ let saveAnswer: () => Response
 let calls: string[] = []
 let sealingKey: unknown
 let installAnswer: () => Response
+let enabledAnswer: () => Response
 
 const base = (o: Partial<SlackAdmin> = {}): SlackAdmin => ({
   mode: 'own', official: false, enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0,
@@ -56,6 +59,7 @@ beforeEach(() => {
   me = { available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }
   saveAnswer = () => json(on({ enabled: false, state: 'off' }))
   installAnswer = () => json({ authorizationUrl: 'https://slack.com/oauth/v2/authorize?client_id=1111111111.2222222222&state=s' })
+  enabledAnswer = () => json(on())
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     const what = `${init?.method ?? 'GET'} ${url.pathname}`
@@ -64,7 +68,9 @@ beforeEach(() => {
     if (what === 'GET /api/admin/slack') return json(admin)
     if (what === 'GET /api/credentials/sealing-key') return json(sealingKey)
     if (what === 'PUT /api/admin/slack/tokens') return saveAnswer()
-    if (what === 'POST /api/admin/slack/enabled') return json(on())
+    if (what === 'POST /api/admin/slack/enabled') return enabledAnswer()
+    // Remove: nothing of Slack left (the hosting service still serves this server)
+    if (what === 'DELETE /api/admin/slack') return json(base({ official: true }))
     if (what === 'POST /api/slack/signin') return json({ authorizationUrl: 'https://slack.com/openid/connect/authorize?state=s' })
     if (what === 'POST /api/admin/slack/official/install') return installAnswer()
     if (what === 'GET /api/slack/me') return json(me)
@@ -136,6 +142,18 @@ describe('Admin › Connected apps › Slack: the official app (the hosting serv
     m = await page()
     expect((await m.until(() => m.find('slack-removed'), 'removed')).textContent).toBe('The app was removed from Slack. Add it to Slack again.')
     expect(m.find('slack-add')).not.toBeNull()
+    await m.unmount()
+  })
+
+  test('removed in Slack: Remove beside Add to Slack clears it, after a confirm', async () => {
+    admin = base({ mode: 'official', official: true, enabled: true, lastError: 'removed', linked: 3, workspace: { teamId: 'T0ACME', name: 'Acme', url: null } })
+    const m = await mount(<MemoryRouter initialEntries={['/admin/connectors/slack']}><AdminSlack /><DialogHost /></MemoryRouter>)
+    await m.click(await m.until(() => m.find('slack-remove'), 'Remove'))
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
+    await m.until(() => (calls.includes('DELETE /api/admin/slack') && !m.find('slack-removed') ? true : null), 'removed')
+    // nothing left: Add to Slack, and no Remove
+    expect(m.find('slack-add')).not.toBeNull()
+    expect(m.find('slack-remove')).toBeNull()
     await m.unmount()
   })
 
@@ -301,11 +319,15 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
     expect(slackAdded(base({ official: true }))).toBe(false)
   })
 
-  const list = (role: 'owner' | 'admin') => {
+  // the way back by the breadcrumb (this DOM does not follow a link's click): its address, in the same router
+  let go: (path: string) => void = () => {}
+  function Nav() { go = useNavigate(); return null }
+  const list = (role: 'owner' | 'admin', at = '/admin/connectors') => {
     const me = { user: { id: 'u1', username: 'olga', name: 'Olga', email: null, role, locale: 'en', localeChoice: 'en', mustChangePassword: false, prefs: {} }, groups: [], team: { name: 'Acme', defaultLocale: 'en' }, server: { version: '0', dev: false, features: {} } }
     useSession.setState({ status: { kind: 'signed-in', me } } as never)
-    return mount(<MemoryRouter initialEntries={['/admin/connectors']}><Routes><Route path="/admin/:section/:sub?/:item?" element={<AdminIntegrations />} /></Routes></MemoryRouter>)
+    return mount(<MemoryRouter initialEntries={[at]}><Routes><Route path="/admin/:section/:sub?/:item?" element={<AdminIntegrations />} /></Routes><DialogHost /><Nav /></MemoryRouter>)
   }
+  const back = async (m: Awaited<ReturnType<typeof list>>) => { const to = m.get('app-breadcrumb-connectors').getAttribute('href')!; await act(async () => { go(to) }) }
   const slackRow = (m: Awaited<ReturnType<typeof page>>, kind: 'connected-app' | 'connector-card') => m.container.querySelector(`[data-testid="${kind}"][data-id="slack"]`)
 
   test('the owner: added, a row in Connected with its state; not added, a card in Discover', async () => {
@@ -323,6 +345,29 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
       m = await list('owner')
       const card = await m.until(() => slackRow(m, 'connector-card'), 'the Slack card')
       expect(card.textContent).toContain('People ask @Trina AX in Slack')
+      expect(slackRow(m, 'connected-app')).toBeNull()
+      await m.unmount()
+    } finally { useSession.setState({ status } as never) }
+  })
+
+  test('what changes on Slack\'s page is on its row on the way back: Turn off, then Off; Remove, then a Discover card', async () => {
+    const status = useSession.getState().status
+    try {
+      admin = on()
+      enabledAnswer = () => json(on({ enabled: false, state: 'off' }))
+      let m = await list('owner', '/admin/connectors/slack')
+      await m.click(await m.until(() => m.find('slack-toggle'), 'Turn off'))
+      await m.until(() => (m.find('slack-toggle')?.textContent === 'Turn on' ? true : null), 'turned off')
+      await back(m)
+      expect((await m.until(() => slackRow(m, 'connected-app'), 'the Slack row')).getAttribute('data-state')).toBe('off')
+      await m.unmount()
+      admin = base({ mode: 'official', official: true, enabled: true, lastError: 'removed', workspace: { teamId: 'T0ACME', name: 'Acme', url: null } })
+      m = await list('owner', '/admin/connectors/slack')
+      await m.click(await m.until(() => m.find('slack-remove'), 'Remove'))
+      await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
+      await m.until(() => (m.find('slack-removed') ? null : true), 'removed')
+      await back(m)
+      await m.until(() => slackRow(m, 'connector-card'), 'the Slack card')
       expect(slackRow(m, 'connected-app')).toBeNull()
       await m.unmount()
     } finally { useSession.setState({ status } as never) }

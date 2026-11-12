@@ -110,13 +110,13 @@ aren't the team's owner: ask them.
 
 Slack's page in **Admin › Connected apps** always says where things stand, and its row in the list shows **On**,
 **Off** or what needs you. When the app was removed in Slack, the row says **Reconnect** and the page offers **Add to
-Slack** again.
+Slack** again, or **Remove Slack** if you don't want it back.
 
-![Slack's page after the app was removed in Slack: The app was removed from Slack. Add it to Slack again. Above the Add to Slack button](../images/slack/removed.webp "After the app was removed in Slack")
+![Slack's page after the app was removed in Slack: The app was removed from Slack. Add it to Slack again. Above the Add to Slack button and Remove Slack](../images/slack/removed.webp "After the app was removed in Slack")
 
 | What happened | What to do |
 |---|---|
-| **Someone removed the app in Slack** | Slack's page says "The app was removed from Slack. Add it to Slack again." Press **Add to Slack** again. People's links stay: added to the same workspace, nobody links again. |
+| **Someone removed the app in Slack** | Slack's page says "The app was removed from Slack. Add it to Slack again." Press **Add to Slack** again. People's links stay: added to the same workspace, nobody links again. If you don't want it back, press **Remove Slack** instead: Slack goes back under **Discover** and everyone's account links are deleted. |
 | **You want it off for a while** | Press **Turn off**. Trina AX stops answering in Slack; links stay. **Turn on** brings it back. |
 | **You want it gone** | Press **Remove Slack** and confirm. The app is taken out of your Slack workspace and everyone's account links are deleted. If you add it again later, everyone links again. |
 

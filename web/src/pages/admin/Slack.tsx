@@ -10,7 +10,8 @@
 // keys to copy and paste) is a computer's job there: a status row and "Set this up on a computer" in its place.
 // Where the hosting service serves this server (SlackAdmin.official) and no own app is saved: one "Add to Slack" button
 // instead (the official app: nothing to copy, also on a phone); the four steps stay one link away. Added: the same
-// status line, with Remove (it takes the app off the workspace) in place of "Replace tokens". How "Add to Slack" went
+// status line, with Remove (it takes the app off the workspace) in place of "Replace tokens". Removed in Slack: "Add to
+// Slack" again, with Remove beside it (it clears Slack from Connected and everyone's links). How "Add to Slack" went
 // comes back in the address (?slack=…) and is said once.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -155,7 +156,7 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                 </Card>
               )}
               {addable ? (
-                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={() => setOwnApp(true)} />
+                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={() => setOwnApp(true)} onRemove={() => void remove(true)} />
               ) : (!s.tokens || replacing) && phone ? (
                 <Card flat testId="slack-on-computer">
                   {!s.tokens && (
@@ -197,8 +198,9 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
 }
 
 /** "Add to Slack": the hosting service's official app. One button: Slack's own page (choose the workspace, allow),
- * then back here, added and on. Nothing to copy, so also on a phone. */
-function OfficialAdd({ removed, onOwnApp }: { removed: boolean; onOwnApp: () => void }) {
+ * then back here, added and on. Nothing to copy, so also on a phone. Removed in Slack: Remove too, so an owner who
+ * does not want it back can clear it (its row in Connected apps, everyone's links) instead of keeping "Reconnect". */
+function OfficialAdd({ removed, onOwnApp, onRemove }: { removed: boolean; onOwnApp: () => void; onRemove: () => void }) {
   const t = useT(), locale = useLocale()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -216,6 +218,7 @@ function OfficialAdd({ removed, onOwnApp }: { removed: boolean; onOwnApp: () => 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button variant="primary" className="max-md:h-11" busy={busy} disabled={busy} onClick={() => void add()} data-testid="slack-add">{t('slack.official.add')}</Button>
         <button type="button" className="text-xs text-muted underline underline-offset-2 max-md:min-h-11" onClick={onOwnApp} data-testid="slack-own-app">{t('slack.official.ownApp')}</button>
+        {removed && <button type="button" className="text-xs text-danger underline underline-offset-2 max-md:min-h-11" onClick={onRemove} data-testid="slack-remove">{t('slack.admin.remove')}</button>}
       </div>
     </Card>
   )

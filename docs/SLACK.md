@@ -46,7 +46,8 @@ four steps.
   signed in; this server checks that it is a person of this workspace, as before. No https address is needed here.
 - **Removed in Slack** (the app removed from the workspace, its token revoked, or the hosting service's operator
   removed it): the token is forgotten here and Slack's page says "The app was removed from Slack. Add it to Slack
-  again." People's links stay (the same workspace when it is added again). A token Slack refuses at a post means the
+  again." People's links stay (the same workspace when it is added again). **Remove Slack** beside Add to Slack takes
+  it out of Admin › Connected apps instead, with everyone's links. A token Slack refuses at a post means the
   same. A notice about an earlier install (still waiting at the hosting service when the app was added again) changes
   nothing: the server acts only on the notice of the install it holds.
 - **Remove** asks the hosting service to take the app off the workspace, then deletes the token and every person's

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 14:35
 - Branch: `fix/slack-in-connectors`
-- Status: in progress
+- Status: done
 - Where: the web app (`web/src/pages/admin/`), the server's Slack return address, the docs and the docs screenshot
   script. Why: the owner's correction of the Admin menu and of the docs images; every team gets it (see
   docs/REPOSITORY-RULES.md)
@@ -67,29 +67,16 @@ Out: Slack's other pages and flows (unchanged); a Slack line in Admin › Home.
 `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun test` for `web/test/unit/slack-screens.test.tsx`,
 `connectors.test.ts`, `back-stack.test.tsx`, the admin e2e specs that open Slack, the server's Slack route tests.
 
-## Hand-off (2026-11-12, to continue on another machine)
-
-Done on this branch (pushed, no PR yet): Slack is one row in Admin › Connected apps (`/admin/connectors`, Slack logo),
-its settings at `/admin/connectors/slack`; no sidebar item; old `/admin/slack` links redirect there; texts, server
-messages and docs say "Admin › Connected apps › Slack"; unit + e2e tests; the docs screenshot script has the Slack shots
-(`mock` states from the web e2e mock server, workspace "Acme"); Slack's own consent image is dropped from the guide.
-
-Left:
-1. **Take the English screenshots** (the files in `docs/site/images/slack/` are still the old Korean dark crops, and
-   `connected-apps.webp` does not exist yet, so the docs-site test fails until this is done):
-   `bun install` → `bun run build:web` → in another terminal `bun web/test/mock/serve.ts` (port 19143) →
-   `DOCS_SHOT_USER=olga DOCS_SHOT_PASSWORD=<the mock server's test password> bun scripts/docs/screenshots.ts --url http://127.0.0.1:19143 --mock --only slack`.
-   Open every image: English, light theme, "Acme", nothing private. Expected files: connected-apps, add-to-slack,
-   connected, removed, linked (`.webp`).
-2. Run `bun run typecheck`, `bun test` for the Slack/admin unit tests (`tests/unit/c-slack*.test.ts`,
-   `web/test/unit/slack-screens.test.tsx`, the admin layout tests, `tests/unit/docs-site.test.ts`), `bun run check:i18n`,
-   `bun run check:docs`; commit; push.
-3. Open the PR into `dev` (owner asks: no Slack menu item; English screenshots), wait for CI, merge.
-4. Publish the docs: in trina-app/trina-ax-website (from `origin/main`) run `bun scripts/sync-docs.mjs --from <trina-ax
-   checkout at dev>`, `bun run build`, `bun test`, commit `public/docs/**` + `src/content/docs-pages.json`, push main;
-   deploy with `wrangler deploy` (worker `trina-ax-site`, route ax.trina.app) from a wrangler logged in to the Cloudflare
-   account that owns it (not the one on the old Mac). Then check https://ax.trina.app/docs/use/slack/.
-
 ## Result
 
-(filled in at the end)
+Done as planned. Slack is one row of Admin › Connected apps (On, Off, Needs attention, Reconnect; a Discover card
+before it is added), its page at `/admin/connectors/slack` with a connector page's header; no menu item, `/admin/slack`
+redirects with its query; the server returns "Add to Slack" there. After the review: the page of an app removed in
+Slack offers **Remove Slack** beside Add to Slack (else its Reconnect row could never be cleared), Slack's one line says
+in plain words whose access an answer uses ("only what the person who asked can open"), and the unused
+`slack.admin.title` is gone. The Slack guide's five screenshots are the English app, light theme, team and workspace
+"Acme", taken with `scripts/docs/screenshots.ts --mock --only slack` against the web e2e mock server.
+Tests: `web/test/unit/slack-screens.test.tsx` (also a change on the page reaching its row on the way back),
+`web/test/e2e/slack-in-connectors.spec.ts`, the phone Admin list without Slack (`phone-admin.spec.ts`), Slack's page in
+the phone back-name table, `ux-quick-check.spec.ts` (Connected right under the title). The docs site is published from
+dev after the merge.

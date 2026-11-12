@@ -23529,6 +23529,10 @@ Supersedes the Admin menu item "Slack" (c964122e3, 2026-11-05). The owner: "설�
   apps.
 - **Who.** The owner only, as before: the list asks for Slack's state only for the owner (the server refuses admins),
   and an admin's `/admin/connectors/slack` leads to the list.
+- **Removed in Slack.** The row says Reconnect until Slack is added again, so the page offers **Remove Slack** beside
+  Add to Slack (the same Remove and confirm as an added app's: everyone's links are deleted): an owner who does not
+  want it back can take it out of Connected. Its one line, now also a Discover card's, says whose access an answer
+  uses in plain words ("only what the person who asked can open", not "the linked person's own permissions").
 - **Old addresses.** `/admin/slack` with its query (`?slack=installed` and the other outcomes of "Add to Slack") opens
   `/admin/connectors/slack` with the same query, Connected apps marked in the menu; an admin who is not the owner gets
   Admin's list, as before. The server now sends "Add to Slack" back to `/admin/connectors/slack?slack=…`.

@@ -12,8 +12,8 @@
 // they run against the web e2e mock server instead (made-up team "Acme", owner olga), which sets each state through
 // its test control, and only with --mock (the others need the demo seed's data and are left out then):
 //
-//   bun run build:web && bun web/test/mock/serve.ts      (in another terminal; port 19143)
-//   DOCS_SHOT_USER=olga DOCS_SHOT_PASSWORD=… bun scripts/docs/screenshots.ts --url http://127.0.0.1:19143 --mock
+//   bun run build:web && bun web/test/mock/serve.ts      (in another terminal; port 19143, another with MOCK_PORT=…)
+//   DOCS_SHOT_PASSWORD=… bun scripts/docs/screenshots.ts --url http://127.0.0.1:19143 --mock [--only slack]
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -103,7 +103,9 @@ function args() {
   const get = (k: string) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : undefined }
   const url = get('--url')?.replace(/\/+$/, '')
   if (!url) throw new Error('Usage: DOCS_SHOT_USER=… DOCS_SHOT_PASSWORD=… bun scripts/docs/screenshots.ts --url https://team.example.com [--only <file prefix>] [--mock]')
-  return { url, only: get('--only'), mock: a.includes('--mock'), user: process.env.DOCS_SHOT_USER ?? 'dion', password: process.env.DOCS_SHOT_PASSWORD ?? '' }
+  const mock = a.includes('--mock')
+  // the mock server's seeded owner is olga (web/test/mock/serve.ts)
+  return { url, only: get('--only'), mock, user: process.env.DOCS_SHOT_USER ?? (mock ? 'olga' : 'dion'), password: process.env.DOCS_SHOT_PASSWORD ?? '' }
 }
 
 async function webp(page: Page, png: Buffer): Promise<Buffer> {
@@ -155,7 +157,10 @@ async function main() {
   if (o.mock) await control(signedOut, 'reset', { teamLocale: 'en', usersFollowTeam: true })
   const encoder = await signedOut.newPage()
   const failed: string[] = []
-  for (const s of SHOTS.filter((x) => (!o.only || x.file.startsWith(o.only)) && !!x.mock === o.mock)) {
+  const todo = SHOTS.filter((x) => (!o.only || x.file.startsWith(o.only)) && !!x.mock === o.mock)
+  // the --only of a mock shot without --mock (or the other way round) takes nothing: say so
+  if (!todo.length) console.error(`No shot to take${o.only ? ` for --only ${o.only}` : ''}${SHOTS.some((x) => (!o.only || x.file.startsWith(o.only)) && !!x.mock !== o.mock) ? (o.mock ? ': these shots need a development server, without --mock' : ': these shots need --mock and the web e2e mock server') : ''}`)
+  for (const s of todo) {
     const ctx = await contextFor(!!s.phone, !!s.signedOut)
     const page = await ctx.newPage()
     try {
