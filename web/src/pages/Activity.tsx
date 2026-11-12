@@ -5,7 +5,9 @@
 // (a DM, #room › Thread) or what it is about. The unread count sits on the right. The whole row opens the place and reads
 // it; a notice with nowhere to open keeps its "Mark as read". The preferences stay in Settings › Notifications (the gear).
 // Opened from a phone's 대화 tab (its 멘션·스레드 row, `?in=chats`: lib/screens.ts CHATS_ACTIVITY) it is that tab's page of
-// the conversations only: All · Mentions · Threads, rows of rooms (no notice of the app's own), named "멘션·스레드".
+// the conversations only: All · Mentions · Threads, rows of rooms (no notice of the app's own: the server sends only
+// those, GET /api/notifications?only=rooms), named "멘션·스레드". "Nothing here" is never said while older pages are left:
+// a tab or "Unreads" that shows nothing of what is loaded reads the next pages by itself (AUTO_ROWS), then "Load more".
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { AtSign, Bell, BellRing, Check, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
@@ -41,6 +43,8 @@ const FILTERS: { id: Filter; label: MessageKey; short?: MessageKey; icon?: typeo
  * A phone: the four share the width equally, 44px tall, words only (no icons), never scrolling sideways. */
 export const tabCls = 'inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition focus-visible:-outline-offset-2 max-md:h-11 max-md:min-w-0 max-md:justify-center max-md:px-1'
 const isFilter = (s: string | null): s is Filter => FILTERS.some((f) => f.id === s)
+/** while nothing loaded shows, older pages are read by themselves up to this many rows (10 pages) */
+const AUTO_ROWS = 300
 /** the conversations' tabs (opened from 대화): DMs are that tab's own list */
 const CHATS_FILTERS = FILTERS.filter((f) => f.id !== 'dms')
 
@@ -70,11 +74,18 @@ function dayLabel(iso: string, t: T, locale: ReturnType<typeof useLocale>, now =
 
 const timeOf = (iso: string, locale: ReturnType<typeof useLocale>) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 
+/** The page for the address: the conversations' (from 대화) or the whole Activity, each with its own state, so going from one
+ * to the other (a tab of the phone's bar) starts afresh. */
 export default function Activity() {
+  const [params] = useSearchParams()
+  const chats = activityInChats(params.toString())
+  return <ActivityPage key={chats ? 'chats' : 'all'} chats={chats} />
+}
+
+/** `chats`: the conversations only (opened from 대화): rows of rooms, without the DMs tab */
+function ActivityPage({ chats }: { chats: boolean }) {
   const t = useT(), locale = useLocale()
   const [params, setParams] = useSearchParams()
-  // the conversations only (opened from 대화): rows of rooms, without the DMs tab
-  const chats = activityInChats(params.toString())
   const filters = chats ? CHATS_FILTERS : FILTERS
   const asked = params.get('tab')
   const filter: Filter = isFilter(asked) && filters.some((f) => f.id === asked) ? asked : 'all'
@@ -97,7 +108,7 @@ export default function Activity() {
   const load = useCallback(async (after?: string) => {
     const generation = life.current, seq = ++sequence.current
     try {
-      const inbox = await api.call(API.listNotifications, { query: { limit: after ? 30 : Math.min(100, Math.max(30, shown.current)), cursor: after } })
+      const inbox = await api.call(API.listNotifications, { query: { limit: after ? 30 : Math.min(100, Math.max(30, shown.current)), cursor: after, ...(chats ? { only: 'rooms' as const } : {}) } })
       if (generation !== life.current || seq !== sequence.current) return
       setItems((previous) => {
         const next = after && previous ? [...new Map([...previous, ...inbox.items].map((item) => [item.id, item])).values()] : inbox.items
@@ -108,7 +119,7 @@ export default function Activity() {
     } catch (e) { if (generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     // useT returns a fresh function; its translations change only with locale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale])
+  }, [locale, chats])
   useEffect(() => {
     void load()
     const off = notificationsChanged.on(() => void load()), reload = reloadAsked.on(() => void load())
@@ -164,6 +175,11 @@ export default function Activity() {
     return out
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, locale])
+  // nothing loaded shows here and older pages are left: read them by themselves (up to AUTO_ROWS), one after another
+  const seeking = !!items && !visible.length && !!cursor && !error && items.length < AUTO_ROWS
+  useEffect(() => {
+    if (seeking && cursor) void load(cursor)
+  }, [seeking, cursor, load])
 
   const toolBtn = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink hover:bg-hover max-md:h-11 max-md:rounded-full max-md:border-transparent'
   // a phone: the tabs share the width; the search is in the top bar (phone/PhoneBarAction.tsx), its field opens here;
@@ -238,8 +254,9 @@ export default function Activity() {
         </div>
 
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
-        {!items && !error && <Skeleton lines={4} />}
-        {items && !visible.length && (
+        {((!items && !error) || seeking) && <Skeleton lines={4} />}
+        {/* "nothing here" only when no older page is left */}
+        {items && !visible.length && !cursor && (
           <EmptyState icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
         )}
         {groups.map((g, i) => (
@@ -252,7 +269,7 @@ export default function Activity() {
             </ul>
           </section>
         ))}
-        {cursor && items && <div className="pt-3"><Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button></div>}
+        {cursor && items && !seeking && <div className="pt-3"><Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button></div>}
       </div>
     </div>
   )
