@@ -184,6 +184,30 @@ export class FileList implements VirtualFiles {
     return v ? { text: v.text, mtimeMs: v.mtimeMs } : null
   }
 
+  /**
+   * One file's fields as this person's `_FILES.md` would show its line now, or null (the Move picker's suggestions,
+   * team-files/move-suggest.ts): the same checks as renderList (its unit's chain, every call-mate openable, the very
+   * file with the size and mtime that were read, the list's own path readable). One rendering's memo per returned
+   * function: make one per request.
+   */
+  lineFields(user: Principal, rules: RuleSet): (rel: string) => Fields | null {
+    if (!this.on()) return () => null
+    const seen = this.seen(user, rules)
+    const units = this.groups(rules).units
+    return (rel) => {
+      const e = this.store.get(rel)
+      if (!e?.fields) return null
+      const segs = segsOf(rel)
+      if (!units.listable(segs)) return null
+      const folder = units.listFolderOf(segs)
+      if (e.chain !== this.chainOfFolder(units, folder) || !seen.canRead(Units.listPath(folder))) return null
+      if (e.batch && !seen.batchOk(e.batch)) return null
+      const st = seen.visible(rel)
+      if (!st || st.size !== e.size || st.mtimeMs !== e.mtimeMs || (e.ino && e.ino !== `${st.dev}:${st.ino}`)) return null
+      return e.fields
+    }
+  }
+
   /** The person has at least one list now (the AI is told about the lists only then: chat/prompt.ts). */
   hasListFor(user: Principal): boolean {
     if (!this.on()) return false
