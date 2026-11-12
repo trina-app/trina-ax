@@ -7622,9 +7622,6 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
   announced.)
 - **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
   `tests/unit/a-team-links.test.ts` (team link join: the line).
-||||||| 2be3f4b09
-||||||| 1565b39f1
-||||||| 626c5fbfd
 
 ## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
 
@@ -23470,8 +23467,6 @@ at the bottom.
   events do not carry everything (a version picked in another window, another member's turn in a shared project chat),
   and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
   visible branch). AI chats' messages stay in memory without a limit, as before.
-||||||| parent of a2a6547aa (Dev environment: the installer turns srt on (Debian 13 self-install))
-||||||| parent of e046059e5 (Dev environment: the installer turns srt on (Debian 13 self-install))
 
 ## Dev environment: the installer turns srt on (feat/install-srt-auto, 2026-11-12)
 
