@@ -7622,9 +7622,6 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
   announced.)
 - **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
   `tests/unit/a-team-links.test.ts` (team link join: the line).
-||||||| 2be3f4b09
-||||||| 1565b39f1
-||||||| 626c5fbfd
 
 ## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
 
@@ -23470,6 +23467,61 @@ at the bottom.
   events do not carry everything (a version picked in another window, another member's turn in a shared project chat),
   and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
   visible branch). AI chats' messages stay in memory without a limit, as before.
+
+## Dev environment: the installer turns srt on (feat/install-srt-auto, 2026-11-12)
+
+Owner (pras), after Dion's list of where the dev environment is missing (2026-11-12): "Linux servers customers install
+themselves: the packages are installed, but install-srt.sh still has to be run once by hand. The installer can run it
+automatically." Plan agreed with the owner: srt is the only runner (no box), on hosted Linux, self-installed Linux and,
+later, a team's own Mac mini.
+
+- **The kit carries srt.** `scripts/build-bundle.ts` puts the image's srt install files (`build-ami.sh` SRT_FILES) in
+  `app/<v>/root/dev-env-srt/`, with the package list and its reader in `dev-env-srt/system/` (where `install-srt.sh`
+  looks first). They are root files: `install-linux.sh` copies them root-owned to `<base>/root/dev-env-srt/` and root
+  runs `install-srt.sh` and `uninstall-srt.sh` only from there, never from `app/` (the server account's).
+- **When the installer turns it on.** Self-install, Debian 13, not `--minimal` (its tools are in the default groups),
+  systemd on. It runs after the server answers (step 15), because the first `install-srt.sh` restarts the server; then
+  it waits for the server again. A failure is a warning with the retry command: the server runs without it. Ubuntu
+  24.04 and Debian 12 are skipped with the reason (`install-srt.sh` stops there: Ubuntu needs its AppArmor profile,
+  spike S6). Hosted servers keep `mycel-devenv-boot` (the plan decides).
+- **Options.** `--dev-env` (stop when this system cannot have it), `--no-dev-env` (off; on a repair it runs
+  `uninstall-srt.sh`). Kept in `install.json` as `devEnv` (true, false, or null = the default for the system).
+- **Updates.** `mycel-ctl update` (`devenv.go`) runs the new `root/dev-env-srt/install-srt.sh --id <id>` once when the
+  release changed files there and srt is on here (the drop-in names `MYCEL_DEV_ENV_RUNNER=srt`). It runs before the
+  package sync (both may use apt). A failure is a note; the server keeps the dev environment it had.
+- **Uninstall** runs `uninstall-srt.sh` (`--purge` with `--purge`) before `root/` goes.
+- **Exposure.** `MYCEL_DEV_ENV=1` makes the feature exist. A new team has it on by default with "Allowed sites only"
+  (owner, 2026-11-06); a team that had people before migration 236 stays off. Team admins turn it off.
+- Open: preview on srt (`mycel-sandbox port-forward`, `docs/research/srt-dev-env.md` §5), Ubuntu 24.04 (the installer
+  already writes `apparmor-bwrap.in` for bwrap; `install-srt.sh` needs the same for srt's apply-seccomp), macOS.
+
+## Dev environment on srt: Ubuntu 24.04 stays off (feat/srt-ubuntu-apparmor, 2026-11-12)
+
+Owner (pras), 2026-11-12: Ubuntu 24.04 is the most common server system of customers. The task was to give srt an
+AppArmor profile there (spike S6). A real Ubuntu 24.04 VM (EC2, 24.04.5, systemd 255.4, polkitd 124,
+`kernel.apparmor_restrict_unprivileged_userns=1`) showed that AppArmor is not the stop. The owner chose route C: Ubuntu
+stays off with the real reason; route A is the follow-up.
+
+- **AppArmor needs no profile of its own.** srt runs `/usr/bin/bwrap`, which the installer's `<ID>-bwrap` profile
+  (step 4, unconfined with `userns`) covers. srt's `apply-seccomp` has no attachment of its own, so it inherits that
+  profile. One srt command as the server account under `no_new_privs` ran: label `mycel-bwrap (unconfined)`,
+  `NoNewPrivs: 1`, `Seccomp: 2`, and `unshare -U` refused (srt's own filter). A `trina-srt` profile for apply-seccomp
+  also worked (the exec transition works under `no_new_privs`), but it gives `userns` to that file outside bwrap as
+  well. So: no extra profile. The sysctl stays on.
+- **The stop is polkit.** `busctl monitor` of polkit: `systemd-run --scope` (StartTransientUnit) sends
+  `org.freedesktop.systemd1.manage-units` with an empty details array on systemd 255, no `unit` and no `verb`. Debian
+  13 (systemd 257) sends them (spike S1). `devenv.rules.in` needs the unit name to allow only `trina-dev-<16>.scope`; a
+  rule without it would let the server account start a transient `.service` with `User=root`. Not done.
+- **What changes.** `install-srt.sh` stops on Ubuntu 24.04 with this reason, before it changes anything.
+  `install-linux.sh` says the same reason when it keeps the dev environment off there (`--dev-env` stops with it).
+  Where the kernel restricts user namespaces, `install-srt.sh` checks bwrap as the server account and runs one command
+  in srt with `no_new_privs`, as the server unit runs it (`NoNewPrivileges=yes`), so the follow-up has its check.
+  Debian 13 does not change.
+- **Follow-up, route A.** Runs become instances of a root-installed template unit (`trina-dev@.service`), started with
+  StartUnit. On systemd 255 StartUnit sends `unit` and `verb` (checked on the VM with `trina-dev-probe@x.service`), so a
+  narrow rule works: the server account may start and stop `trina-dev@<16>.service` only. It changes the runner
+  (`server/src/devenv/srt/system.ts`), so it starts after the preview PR. Route B (the server account's user manager
+  with linger, `systemd-run --user --scope`) also worked on the VM, but moves the root ceiling to `user-<uid>.slice`.
 
 ## Move picker: suggested and recent folders — 옮기기 창의 추천·최근 (feat/move-picker-suggestions, 2026-11-12, product owner)
 

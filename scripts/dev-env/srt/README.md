@@ -29,6 +29,12 @@ scripts/dev-env/srt/install-srt.sh --id mycel
 On a hosted team VM the plan file `<base>/root/dev-env.json` must be there (root-owned, format 1). Self-hosted servers
 without the file get half of the memory and of the CPUs for all runs together. The first run restarts the team server.
 
+Ubuntu 24.04 is not supported yet. AppArmor is not the reason: srt runs `/usr/bin/bwrap`, which the installer's
+`<ID>-bwrap` profile covers, and srt's `apply-seccomp` inherits that profile. The reason is polkit: systemd 255 sends no
+unit name for `StartTransientUnit`, so `devenv.rules.in` cannot limit the server account to `trina-dev-<16>.scope`.
+Where the kernel restricts user namespaces, the script checks bwrap as the server account and runs one command in srt
+with `no_new_privs` (as the server unit runs).
+
 Then, in the app, an owner or admin turns on the dev environment for the team in Team settings › Dev environment and
 accepts the warning (version 2).
 
