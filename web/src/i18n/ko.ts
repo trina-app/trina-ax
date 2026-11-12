@@ -4584,6 +4584,7 @@ export const ko = {
   "welcome.teamFiles.tooBig": "50MB가 넘는 파일 {n}개는 파일 화면에서 올려요",
   "welcome.teamFiles.cut": "폴더가 커서 문서 {n}개까지만 봤어요 · 더 안쪽 폴더를 고르면 더 잘 골라요",
   "welcome.teamFiles.empty": "이 폴더엔 문서가 없어요 · 다른 폴더를 골라 주세요",
+  "welcome.teamFiles.macBlocked": "macOS가 '{folder}' 폴더를 막았어요 · 시스템 설정 › 개인정보 보호 및 보안 › 파일 및 폴더에서 트리나를 켜 주세요",
   "welcome.teamFiles.addFolder": "폴더 더 고르기",
   "welcome.teamFiles.otherFolder": "다른 폴더 고르기",
   "welcome.teamFiles.uploadPicked": "추천 {n}개 올리기",

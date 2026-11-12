@@ -152,6 +152,11 @@ export interface DesktopBridge {
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
   setLocale?(locale: 'ko' | 'en' | 'id' | 'ja' | 'es'): void
+  /** The folder the page picked last in the folder window (by its name, as the handle gives it) gave nothing to read:
+   * 'mac-blocked' when macOS privacy keeps the app out of it (Don't Allow, or the app off in System Settings › Privacy &
+   * Security › Files and Folders); null for anything else, an empty folder included, and always on Windows and Linux.
+   * Optional: desktop apps before this addition do not have it (the page says the folder is empty). QA TC-049. */
+  folderProblem?(folderName: string): Promise<'mac-blocked' | null>
   /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to
    * asking, remove an always-allowed site and clear them all. setAccess('all') only asks: the desktop app shows its

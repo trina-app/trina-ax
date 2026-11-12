@@ -4540,6 +4540,7 @@ export const ja: Record<MessageKey, string> = {
   "welcome.teamFiles.tooBig": "50MBを超えるファイル{n, plural, one {#件} other {#件}}はファイル画面でアップロードしてください",
   "welcome.teamFiles.cut": "フォルダーが大きいため、書類{n, plural, one {#件} other {#件}}までしか確認していません · もっと内側のフォルダーを選ぶとよく選べます",
   "welcome.teamFiles.empty": "このフォルダーには書類がありません · 別のフォルダーを選んでください",
+  "welcome.teamFiles.macBlocked": "macOSが「{folder}」フォルダーをブロックしました · システム設定 › プライバシーとセキュリティ › ファイルとフォルダでTrinaをオンにしてください",
   "welcome.teamFiles.addFolder": "フォルダーを追加する",
   "welcome.teamFiles.otherFolder": "別のフォルダーを選ぶ",
   "welcome.teamFiles.uploadPicked": "おすすめ{n, plural, one {#件} other {#件}}をアップロード",

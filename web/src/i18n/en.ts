@@ -4584,6 +4584,7 @@ export const en: Record<MessageKey, string> = {
   "welcome.teamFiles.tooBig": "{n, plural, one {# file} other {# files}} over 50 MB: upload them on the Files page",
   "welcome.teamFiles.cut": "The folder is big, so only {n, plural, one {# document was} other {# documents were}} looked at · Pick a folder further in for better picks",
   "welcome.teamFiles.empty": "No documents in this folder · Pick another folder",
+  "welcome.teamFiles.macBlocked": "macOS blocked the '{folder}' folder · Turn on Trina in System Settings › Privacy & Security › Files and Folders",
   "welcome.teamFiles.addFolder": "Add another folder",
   "welcome.teamFiles.otherFolder": "Pick another folder",
   "welcome.teamFiles.uploadPicked": "Upload {n, plural, one {# recommended file} other {# recommended files}}",

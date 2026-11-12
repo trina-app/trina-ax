@@ -4540,6 +4540,7 @@ export const es: Record<MessageKey, string> = {
   "welcome.teamFiles.tooBig": "{n, plural, one {# archivo de más de 50 MB se sube} other {# archivos de más de 50 MB se suben}} en Archivos",
   "welcome.teamFiles.cut": "La carpeta es grande y solo revisamos {n, plural, one {# documento} other {# documentos}} · Elige una carpeta más adentro para mejores sugerencias",
   "welcome.teamFiles.empty": "Esta carpeta no tiene documentos · Elige otra carpeta",
+  "welcome.teamFiles.macBlocked": "macOS bloqueó la carpeta «{folder}» · Active Trina en Ajustes del Sistema › Privacidad y seguridad › Archivos y carpetas",
   "welcome.teamFiles.addFolder": "Añadir otra carpeta",
   "welcome.teamFiles.otherFolder": "Elegir otra carpeta",
   "welcome.teamFiles.uploadPicked": "Subir {n, plural, one {# recomendado} other {# recomendados}}",
