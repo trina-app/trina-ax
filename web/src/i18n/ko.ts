@@ -1254,6 +1254,7 @@ export const ko = {
   'feed.tab.mentions': '멘션',
   'feed.tab.threads': '스레드',
   'feed.unreads': '안 읽음',
+  'feed.markAllRead': '모두 읽음 표시',
   'feed.search': '활동 검색',
   'feed.today': '오늘',
   'feed.settings': '알림 설정',

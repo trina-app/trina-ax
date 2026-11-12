@@ -1,4 +1,4 @@
-import type { InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
+import type { ActivityTab, InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
 import { outcomeEvent, storedRunOutcome } from '../chat/schedule-outcome'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -21,7 +21,7 @@ import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
+import { activityTabHas, AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 import { serviceRequestOut } from '../integrations/service-request-notices'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
@@ -733,6 +733,39 @@ export class Notifications {
     this.signal(userId)
     return this.out(r)
   }
+  /** Activity's "Mark all as read" for a tab (activityTabHas, the page's own rule): All reads every unread notice of
+   * mine (`only: 'rooms'`: the conversation rows alone, the phone's 멘션·스레드), the other tabs only the conversation
+   * rows they show; also the ones not loaded yet. A conversation row reads as opening it does: its notices, and my place
+   * in its room (a thread's: in the thread) moves to the row's newest message, as a notification's "Mark as read" does
+   * (`room.seq`), so the room's unread count and the attention count follow; my other windows and devices hear it
+   * through room.read / room.thread and notifications.changed. Nothing is deleted; a second call marks nothing. Returns
+   * how many rows it marked. `rooms`: the rooms service (rooms/service.ts, which imports this one). */
+  readAll(userId: string, o: { tab: ActivityTab; only?: 'rooms' }, rooms: RoomReader): { read: number } {
+    if (!this.active(userId)) return { read: 0 }
+    const db = this.ctx.db, cutoff = this.cutoff(), now = new Date().toISOString()
+    let read = 0
+    if (o.tab === 'all' && o.only !== 'rooms') {
+      for (const table of NOTICE_TABLES) {
+        if (table === 'room_notices') continue
+        read += db.query(`UPDATE ${table} SET read_at=? WHERE user_id=? AND read_at IS NULL AND suppressed=0 AND created_at>=?`).run(now, userId, cutoff).changes
+      }
+    }
+    for (const row of roomRows(db, userId, cutoff)) {
+      if (row.read_at || !activityTabHas(this.out(row), o.tab)) continue
+      const { roomId, place, to, ids } = row.group
+      try { if (place) rooms.markThreadRead(userId, roomId, place, to); else rooms.markRead(userId, roomId, to) }
+      catch { this.ctx.log.warn('room read place not moved') }
+      db.query(`UPDATE room_notices SET read_at=? WHERE user_id=? AND read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(now, userId, ...ids)
+      read++
+    }
+    if (read) this.signal(userId)
+    return { read }
+  }
+}
+/** What readAll needs of the rooms service: moving my read place (never back). */
+export interface RoomReader {
+  markRead(userId: string, roomId: string, seq: number): unknown
+  markThreadRead(userId: string, roomId: string, rootId: string, seq: number): unknown
 }
 export function notificationsOf(ctx: AppContext): Notifications {
   let service = services.get(ctx)

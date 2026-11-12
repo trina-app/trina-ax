@@ -1227,6 +1227,7 @@ export const es: Record<MessageKey, string> = {
   'feed.tab.mentions': 'Menciones',
   'feed.tab.threads': 'Hilos',
   'feed.unreads': 'No leídos',
+  'feed.markAllRead': 'Marcar todo como leído',
   'feed.search': 'Buscar en la actividad',
   'feed.today': 'Hoy',
   'feed.settings': 'Configuración de notificaciones',

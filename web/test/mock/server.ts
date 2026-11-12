@@ -69,6 +69,7 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome } from '@mycel/shared/api'
+import { activityTabHas } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
 import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
@@ -4429,6 +4430,20 @@ export class MockServer {
       return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length, roomUnreadCount: 0 }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
+    // the server's rule (server/src/notifications/service.ts readAll): All every unread notice of mine, a tab its own
+    markAllNotificationsRead: (c) => {
+      let read = 0
+      for (const n of this.inbox) {
+        if (n.userId !== c.user.id || n.readAt) continue
+        const item = this.inboxItem(n)
+        if (c.body.only === 'rooms' && !item.room) continue
+        if (!activityTabHas(item, c.body.tab)) continue
+        n.readAt = now()
+        read++
+      }
+      if (read) this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+      return { read }
+    },
     markNotificationRead: (c) => {
       const n = this.inbox.find((x) => x.id === c.params.id && x.userId === c.user.id) ?? fail('not_found', 404)
       n.readAt ??= now()
