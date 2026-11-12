@@ -116,6 +116,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/devenv/jobs.ts': { why: 'dev environment job and box stop notices (ko next to en/id/ja/es)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
+  'server/src/team-files/move-suggest.ts': { why: 'Korean filler words (최종, 사본, 임시 …) the Move picker\'s folder scoring ignores in file names (not screen text)', also: /^\s*'[가-힣]+',/ },
   'desktop/src/main/pane/page-script.js': { why: 'Korean synonyms the AI\'s "find" understands on Korean pages (not screen text)', also: /./ },
   'relay/src/pages.ts': { why: 'relay page texts (ko next to en/id/ja/es)', also: /if \(lang === 'ko'\)/ },
   'shared/src/api/common.ts': { why: 'the name 한국어 in language pickers', also: /ko: '한국어'/ },
