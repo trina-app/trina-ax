@@ -1,6 +1,7 @@
 // Admin: Home first (what needs attention, then one card per area), a grouped menu that stays put while a page
 // scrolls, and explanations kept to one line with "More" (pages/admin/AdminLayout.tsx, Home.tsx, common.tsx OneLine).
 import { expect, test, type Page } from '@playwright/test'
+import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS, type MessageKey } from '../../src/i18n'
 import { turnWhen } from '../../src/lib/updateTurn'
@@ -377,6 +378,15 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await page.goto('/admin')
   await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rolloutNever'].replace('{version}', '0.3.0'))
   await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+  // a release the publisher paused (hold 'paused', server/src/system/rollout.ts): says so, and offers no install (the
+  // server refuses it), automatic updates on or off
+  for (const json of [{ ...auto, hold: 'paused', turnAt: null }, { ...NEW_STATUS, auto: false, hold: 'paused' }, { ...auto, needsRoot: true, hold: 'paused', turnAt: null }]) {
+    await page.unroute('**/api/admin/update')
+    await answerUpdate(page, () => ({ json }))
+    await page.goto('/admin')
+    await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.paused'].replace('{version}', '0.3.0').replace('{product}', PRODUCT.displayName))
+    await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toHaveCount(0)
+  }
   // a release that needs root waits for this server's turn too: the update timer installs it then; never by itself: the command
   {
     const turnAt = new Date(Date.now() + 3 * 86_400_000).toISOString()
