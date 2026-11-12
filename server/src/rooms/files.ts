@@ -13,6 +13,10 @@
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
 // fromTeamFile() makes a room upload from a team file the sender may read now ("대화방에 보내기" attaching the files an
 // answer links to, chat/answer-share.ts): the same limits (≤ 50 MB, the storage check), then create().
+// teamCopy() is the same copy for a phone's attach sheet (POST /api/rooms/:id/team-file), kept as an unsent upload until
+// the person sends it: marked with its team path and the file as it was (room_files.team_path, team_stamp; migration
+// 287), so the same unchanged file picked again in the same room gets that copy back, and a person's unsent copies are
+// capped (TEAM_COPIES_UNSENT_MAX): a small request cannot fill the team's disk with 50 MB copies kept for a day.
 // hwpSource() gives a Hangul file's bytes to the HWP preview (files/hwp-preview.ts, the HWP Preview plugin's renderer;
 // GET /api/rooms/:id/files/:fileId/hwp-preview) with the inline read's checks, made again on every call.
 import { createHash, randomBytes } from 'node:crypto'
@@ -53,6 +57,8 @@ function plainPicture(b: Uint8Array, name: string): boolean {
 
 /** An upload not sent in a message within a day is removed. */
 export const UNSENT_FILE_MS = 24 * 3600_000
+/** A person's team-file copies not sent yet (teamCopy), in bytes, all rooms together: four 50 MB files, or many small ones */
+export const TEAM_COPIES_UNSENT_MAX = 200 * 1024 * 1024
 /** Room files without a database row are kept this long in .system/rooms-orphans/ (reconcile). */
 export const ORPHAN_KEEP_MS = 30 * 86400_000
 /** a picture's thumbnail beside it: <file id>.thumb.jpg, or .thumb.png for one with transparency (uploads/image.ts) */
@@ -139,16 +145,7 @@ export class RoomFiles {
    */
   async fromTeamFile(userId: string, roomId: string, rel: string): Promise<RoomFile> {
     this.member(userId, roomId)
-    const who = loadPrincipal(this.ctx.db, userId) ?? fail('not_found')
-    const fx = this.ctx.files.fx, rules = this.ctx.files.rules()
-    let abs: string, name: string
-    try {
-      const a = authorize(fx, rules, who, rel, 'read', { mustExist: true })
-      if (!a.st?.isFile() || !visiblePath(fx, rules, who, a.rel)) throw new Error('not a file I may open')
-      checkRegular(a.abs)
-      abs = a.abs
-      name = a.segs[a.segs.length - 1]!
-    } catch { return fail('not_found') }
+    const { abs, name } = this.teamSource(userId, rel)
     let opened: { fd: number; st: fs.Stats }
     try { opened = openChecked(abs) } catch { return fail('not_found') }
     const tmpDir = path.join(this.ctx.config.dataDir, 'uploads', 'tmp')
@@ -179,6 +176,39 @@ export class RoomFiles {
       throw e
     } finally { fs.closeSync(opened.fd) }
     try { return await this.create(userId, roomId, name, tmp, sha) } finally { fs.rmSync(tmp, { force: true }) }
+  }
+
+  /** The team file `rel` as `userId` may read it now: a regular file they may open (anything else 404, like a missing
+   * one), its real path, name and stat. */
+  private teamSource(userId: string, rel: string): { abs: string; name: string; rel: string; st: fs.Stats } {
+    const who = loadPrincipal(this.ctx.db, userId) ?? fail('not_found')
+    const fx = this.ctx.files.fx, rules = this.ctx.files.rules()
+    try {
+      const a = authorize(fx, rules, who, rel, 'read', { mustExist: true })
+      if (!a.st?.isFile() || !visiblePath(fx, rules, who, a.rel)) throw new Error('not a file I may open')
+      return { abs: a.abs, name: a.segs[a.segs.length - 1]!, rel: a.rel, st: checkRegular(a.abs) }
+    } catch { return fail('not_found') }
+  }
+
+  /**
+   * "팀 파일" in a room's box: fromTeamFile's copy, kept as `userId`'s unsent upload marked with its team path and the file
+   * as it was (team_stamp). The same file, unchanged, picked again in this room before sending: that copy again (no new
+   * one). Over TEAM_COPIES_UNSENT_MAX of the person's unsent copies (all rooms) with this one: refused (409
+   * team_copies_full, a plain line), before anything is read. Sent, Rooms.send audits it (room.team_file).
+   */
+  async teamCopy(userId: string, roomId: string, rel: string, locale: Locale): Promise<RoomFile> {
+    this.member(userId, roomId)
+    const src = this.teamSource(userId, rel)
+    const stamp = `${src.st.size}:${Math.trunc(src.st.mtimeMs)}:${src.st.ino}`
+    const same = this.ctx.db.query('SELECT * FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND team_path = ? AND team_stamp = ? ORDER BY created_at DESC').all(roomId, userId, src.rel, stamp) as FileRow[]
+    for (const f of same) {
+      try { checkRegular(this.abs(f)); return fileOut(f) } catch { /* its file is gone: a new copy below */ }
+    }
+    const unsent = (this.ctx.db.query('SELECT COALESCE(SUM(size), 0) n FROM room_files WHERE user_id = ? AND message_id IS NULL AND team_path IS NOT NULL').get(userId) as { n: number }).n
+    if (unsent + src.st.size > TEAM_COPIES_UNSENT_MAX) fail('conflict', tr('roomTeamCopiesFull', locale, { max: '200 MB' }), { params: { reason: 'team_copies_full' } })
+    const file = await this.fromTeamFile(userId, roomId, src.rel)
+    this.ctx.db.query('UPDATE room_files SET team_path = ?, team_stamp = ? WHERE id = ?').run(src.rel, stamp, file.id)
+    return file
   }
 
   /** Uploads of `userId` in this room not sent with a message: removed (a shared answer that did not go after all). */

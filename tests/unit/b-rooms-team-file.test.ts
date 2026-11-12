@@ -3,8 +3,9 @@
 // makes of a linked file (rooms/files.ts fromTeamFile), and is sent by id like any upload. Covered: the copy and the
 // count of other members who cannot open the team file (never who; a disabled account counts), my read access now
 // (another group's file, a missing one, a folder, a link, a quarantined file: all 404 alike), a room I am not in, the
-// 50 MB limit, a bad path, the copy readable by the room only once sent, and the audit row (the path, the room as room
-// audits name it, never the contents). The fixture team: alice and erin in marketing, bob in finance, carol admin, dana
+// 50 MB limit, a bad path, the copy readable by the room only once sent, the same file picked again (its copy again),
+// the cap on a person's unsent copies, and the audit row when it is sent (the path, the room as room audits name it,
+// never the contents). The fixture team: alice and erin in marketing, bob in finance, carol admin, dana
 // owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -12,6 +13,7 @@ import path from 'node:path'
 import { API, SMALL_UPLOAD_MAX, uuidv7, type Room, type RoomMessage, type RoomTeamFile } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
+import { roomFilesOf, TEAM_COPIES_UNSENT_MAX } from '../../server/src/rooms/files'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -59,6 +61,8 @@ async function copy(user: string, roomId: string, p: string): Promise<RoomTeamFi
 const send = (user: string, roomId: string, fileIds: string[]) =>
   h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body: '', clientMessageId: cm(), mentions: [], fileIds } }) as Promise<RoomMessage>
 const read = (user: string, roomId: string, fileId: string) => h.req(user, `/api/rooms/${roomId}/files/${fileId}`)
+/** `user`'s unsent copies of files named `name` */
+const unsent = (user: string, name: string) => (h.ctx.db.query('SELECT COUNT(*) n FROM room_files WHERE user_id = ? AND name = ? AND message_id IS NULL').get(user, name) as { n: number }).n
 const auditOf = (fileId: string) => h.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'room.team_file' AND json_extract(detail, '$.file') = ?").get(fileId) as { actor_id: string; target: string; detail: string } | null
 
 describe('a team file sent in a room', () => {
@@ -131,16 +135,62 @@ describe('a team file sent in a room', () => {
     expect((h.ctx.db.query("SELECT COUNT(*) n FROM room_files WHERE name = 'huge-room.bin'").get() as { n: number }).n).toBe(0)
   })
 
-  test('audited: who, the path, the room (a DM by its kind only), the count; never the contents', async () => {
+  test('audited when sent, not when copied: who, the path, the room (a DM by its kind only), the count; never the contents', async () => {
     put('users/alice/audit-room.md', '아무도 보면 안 되는 내용\n')
     const team = await copy('alice', rooms.all, 'users/alice/audit-room.md')
+    // picked, not sent (maybe taken out of the box again): nothing in the log
+    expect(auditOf(team.file.id)).toBeNull()
+    const m = await send('alice', rooms.all, [team.file.id])
     const row = auditOf(team.file.id)!
     expect(row.actor_id).toBe('alice')
     expect(row.target).toBe('users/alice/audit-room.md')
-    expect(JSON.parse(row.detail)).toEqual({ roomId: rooms.all, file: team.file.id, unable: 4 })
+    expect(JSON.parse(row.detail)).toEqual({ roomId: rooms.all, message: m.id, file: team.file.id, unable: 4 })
     const dm = await copy('alice', rooms.dm, 'users/alice/audit-room.md')
+    const dmMessage = await send('alice', rooms.dm, [dm.file.id])
     const dmDetail = JSON.parse(auditOf(dm.file.id)!.detail)
-    expect(dmDetail).toEqual({ kind: 'dm', file: dm.file.id, unable: 1 })
+    expect(dmDetail).toEqual({ kind: 'dm', message: dmMessage.id, file: dm.file.id, unable: 1 })
     expect(JSON.stringify([row, dmDetail])).not.toContain('보면 안 되는')
+    // an upload from the phone in the same message is no team file
+    const up = await roomFilesOf(h.ctx).create('alice', rooms.all, 'photo-note.txt', (() => { const p = path.join(h.dataDir, `up-${uuidv7()}`); fs.writeFileSync(p, 'x'); return p })(), 'b'.repeat(64))
+    await send('alice', rooms.all, [up.id])
+    expect(auditOf(up.id)).toBeNull()
+  })
+
+  test('the same file picked again before sending: the same copy, no new one; changed or sent: a new copy', async () => {
+    put('users/alice/again-room.md', '# 1\n')
+    const a = await copy('alice', rooms.all, 'users/alice/again-room.md')
+    const b = await copy('alice', rooms.all, 'users/alice/again-room.md')
+    expect(b.file.id).toBe(a.file.id)
+    expect(unsent('alice', 'again-room.md')).toBe(1)
+    // another room, or another person: copies of their own
+    expect((await copy('alice', rooms.dm, 'users/alice/again-room.md')).file.id).not.toBe(a.file.id)
+    expect((await copy('erin', rooms.marketing, 'shared/glossary.md')).file.id).not.toBe((await copy('alice', rooms.marketing, 'shared/glossary.md')).file.id)
+    // the file changed meanwhile: a new copy, with the new bytes
+    put('users/alice/again-room.md', '# 2 — 고친 내용\n')
+    const c = await copy('alice', rooms.all, 'users/alice/again-room.md')
+    expect(c.file.id).not.toBe(a.file.id)
+    expect(await (await read('alice', rooms.all, c.file.id)).text()).toBe('# 2 — 고친 내용\n')
+    // sent: the next pick is a new copy (a sent one is the message's)
+    await send('alice', rooms.all, [c.file.id])
+    expect((await copy('alice', rooms.all, 'users/alice/again-room.md')).file.id).not.toBe(c.file.id)
+  })
+
+  test('a person\'s unsent copies are capped: past 200 MB the next copy is refused with a plain line; sending frees it', async () => {
+    put('users/bob/cap-room.md', '# 예산 메모\n')
+    // bob's unsent copies, as big as the cap less a little (rows as teamCopy keeps them; their files are not read here)
+    const big = uuidv7()
+    h.ctx.db.query("INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, sha256, thumb, created_at, team_path, team_stamp) VALUES (?, ?, 'bob', 'big.bin', ?, 'application/octet-stream', 'other', ?, 0, ?, 'users/bob/big.bin', 'x')")
+      .run(big, rooms.dm, TEAM_COPIES_UNSENT_MAX - 5, 'c'.repeat(64), new Date().toISOString())
+    const r = await h.req('bob', `/api/rooms/${rooms.all}/team-file`, { method: 'POST', headers: { 'content-type': 'application/json', 'accept-language': 'ko' }, body: JSON.stringify({ path: 'users/bob/cap-room.md' }) })
+    expect(r.status).toBe(409)
+    const err = (await r.json()) as { error: { message: string; params: { reason: string } } }
+    expect(err.error.params.reason).toBe('team_copies_full')
+    expect(err.error.message).toContain('200 MB')
+    expect(unsent('bob', 'cap-room.md')).toBe(0)
+    // copies once sent do not count, nor do uploads from the phone
+    await send('bob', rooms.dm, [big])
+    h.ctx.db.query("INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, sha256, thumb, created_at) VALUES (?, ?, 'bob', 'upload.bin', ?, 'application/octet-stream', 'other', ?, 0, ?)")
+      .run(uuidv7(), rooms.dm, TEAM_COPIES_UNSENT_MAX, 'd'.repeat(64), new Date().toISOString())
+    expect((await copy('bob', rooms.all, 'users/bob/cap-room.md')).file.name).toBe('cap-room.md')
   })
 })

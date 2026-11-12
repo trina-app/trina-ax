@@ -550,6 +550,21 @@ export class Rooms {
     return searchRoomFiles(this.db, userId, o)
   }
 
+  /** Team files a person copied in with a phone's attach sheet (rooms/files.ts teamCopy), now sent in message
+   * `messageId`: one audit row each (room.team_file), by its team path, with the room as room audits name it (a DM's or
+   * group chat's kind only) and how many other members could not open the team file at the send (never who, never the
+   * contents). Never throws: the message is sent already. */
+  private auditTeamCopies(userId: string, room: RoomRow, messageId: string, fileIds: readonly string[]) {
+    try {
+      const copies = this.db.query(`SELECT id, team_path FROM room_files WHERE message_id = ? AND team_path IS NOT NULL AND id IN (${fileIds.map(() => '?').join(',')})`).all(messageId, ...fileIds) as { id: string; team_path: string }[]
+      if (!copies.length) return
+      const others = (this.db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(room.id, userId) as { user_id: string }[]).map((m) => fileOpener(this.ctx, m.user_id))
+      for (const f of copies) {
+        audit(this.db, { actor: userId, action: 'room.team_file', target: f.team_path, detail: { ...roomAuditRef(room), message: messageId, file: f.id, unable: others.filter((opens) => !opens(f.team_path)).length } })
+      }
+    } catch (e) { this.ctx.log.warn('room team file audit failed', { err: e }) }
+  }
+
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
    * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it.
    * With threadRootId it is a reply in that message's thread (see the top of this file).
@@ -610,6 +625,7 @@ export class Rooms {
       if (root) this.follow(root, userId, seq, mentions)
       else this.db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ? AND last_read_seq < ?').run(seq, roomId, userId, seq)
     })()
+    if (fileIds.length && !answer) this.auditTeamCopies(userId, room, id, fileIds)
     if (root) this.markThreadNoticesRead(userId, roomId, root.id, seq)
     else {
       this.readEvent(roomId, userId)
