@@ -30,7 +30,10 @@ export function PhonePageBar({ onBack, backLabel, title, titleHidden, heading, a
   const t = useT()
   const barRef = useRef<HTMLDivElement>(null)
   const labelRef = useRef<HTMLSpanElement>(null)
-  const titleRef = useRef<HTMLSpanElement>(null)
+  const titleRef = useRef<HTMLElement | null>(null)
+  const setTitle = (el: HTMLElement | null) => {
+    titleRef.current = el
+  }
   const actionRef = useRef<HTMLDivElement>(null)
   const [fit, setFit] = useState<BarFit>('centred')
   // measured from what each part needs (the same in every layout, so the choice holds once made), again whenever the
@@ -40,13 +43,15 @@ export function PhonePageBar({ onBack, backLabel, title, titleHidden, heading, a
     const label = labelRef.current
     if (!bar || !label) return setFit('centred')
     const measure = () => {
-      const pad = parseFloat(getComputedStyle(bar).paddingLeft) + parseFloat(getComputedStyle(bar).paddingRight)
+      // not laid out (hidden, or no layout at all): as before, the label stays
+      if (!bar.clientWidth) return setFit('centred')
+      const style = getComputedStyle(bar)
       setFit(barFit({
-        bar: bar.clientWidth - pad,
+        bar: bar.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0),
         // ‹ (44 px, the label pulled 10 px into it) + the label + the button's 8 px after it
         back: 44 - 10 + label.scrollWidth + 8,
-        // the title's text and its 4 px each side
-        title: (titleRef.current?.getBoundingClientRect().width ?? 0) + 8,
+        // the title's own text (its box is the column's), and its 4 px each side
+        title: textWidth(titleRef.current) + 8,
         right: Math.max(44, actionRef.current?.getBoundingClientRect().width ?? 0),
       }))
     }
@@ -86,14 +91,13 @@ export function PhonePageBar({ onBack, backLabel, title, titleHidden, heading, a
           </Tooltip>
         )}
       </div>
-      {/* the inner span is the title's own width (measured above); the box around it is the column's */}
       {heading ? (
-        <h1 className="min-w-0 truncate px-1 text-center text-sm font-semibold" data-testid={titleTestId}>
-          <span ref={titleRef}>{title}</span>
+        <h1 ref={setTitle} className="min-w-0 truncate px-1 text-center text-sm font-semibold" data-testid={titleTestId}>
+          {title}
         </h1>
       ) : (
-        <span aria-hidden={titleHidden || undefined} className="min-w-0 truncate px-1 text-center text-sm font-semibold" data-testid={titleTestId}>
-          <span ref={titleRef}>{title}</span>
+        <span ref={setTitle} aria-hidden={titleHidden || undefined} className="min-w-0 truncate px-1 text-center text-sm font-semibold" data-testid={titleTestId}>
+          {title}
         </span>
       )}
       <div className="flex min-w-0 items-center justify-end">
@@ -101,6 +105,14 @@ export function PhonePageBar({ onBack, backLabel, title, titleHidden, heading, a
       </div>
     </div>
   )
+}
+
+/** The width of an element's text as laid out on one line, also where its box cuts it or is wider. */
+function textWidth(el: HTMLElement | null): number {
+  if (!el?.firstChild) return 0
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  return range.getBoundingClientRect().width
 }
 
 /** How the bar is laid out: 'centred' (the label fits beside the centred title, or there is no label), 'moved' (the

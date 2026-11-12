@@ -16,7 +16,7 @@
 //   page ‹ returns to, shown whole beside its title (an engine's page, and Team settings' "Members and AI" and "Company
 //   profile", QA TC-381, showed ‹ alone: the name did not fit beside a centred title).
 // - TC-269 step 2: a plugin's page is the plugin alone: no plugin search and no upload button above it.
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { reset, signIn } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
@@ -262,7 +262,12 @@ async function expectBackNamed(page: Page, name: string, where: string) {
   await expect(label, where).toBeVisible()
   await expect(page.getByTestId('admin-back')).toHaveAccessibleName(t['tabs.backTo'].replace('{page}', name))
   const l = (await label.boundingBox())!
-  const title = (await bar(page).locator(':scope > span').boundingBox())!
+  // the title's text (its box is the bar's middle column)
+  const title = await bar(page).evaluate((el) => {
+    const r = document.createRange()
+    r.selectNodeContents(el)
+    return { x: r.getBoundingClientRect().x }
+  })
   expect(l.x + l.width, where).toBeLessThanOrEqual(title.x + 1)
   expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), where).toBe(true)
   expect(await bar(page).evaluate((el) => el.scrollWidth <= el.clientWidth + 1), where).toBe(true)
