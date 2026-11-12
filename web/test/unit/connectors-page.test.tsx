@@ -103,8 +103,9 @@ describe('the mock server keeps the contract', () => {
     expect(m.poll('gmail', a.flowId, 'u2')).toBeNull()
     expect(GoogleAppView.parse(m.complete('gmail', a.flowId, 'u1')).status).toBe('connected')
     expect(m.adminStatus('gmail', true).connectedMembers).toBe(1)
+    // no members' switch: an old control asking for "off" changes nothing
     m.control({ app: 'gmail', members: false })
-    expect(m.view('gmail', 'u2')).toMatchObject({ available: false, reason: 'members_off' })
+    expect(m.view('gmail', 'u2')).toMatchObject({ available: true, reason: null })
     expect(m.disconnect('gmail', 'u1').revocation).toBe('revoked')
   })
 })

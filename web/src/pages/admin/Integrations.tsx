@@ -21,7 +21,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, GoogleAppView, Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
-import { awaitingFirstSignIn, canonicalService, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
+import { canonicalService, connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -194,7 +194,7 @@ export default function AdminIntegrations() {
               const c = connectorFor(i.url)
               return { name: i.name, row: (
                 <ConnectorRow key={i.id} id={i.id} logo={c ? connectorLogo(c) : undefined} name={i.name} note={accessWarning(i)} testId="team-connection"
-                  status={awaitingFirstSignIn(i) ? 'signin' : i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'}
+                  status={connectionRowStatus(i)}
                   onOpen={() => setOpen({ kind: 'team', id: i.id })} />
               ) }
             }),

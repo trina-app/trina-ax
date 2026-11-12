@@ -91,7 +91,7 @@ test('Admin › Google Drive lists its tools in words, not drive_search / drive_
 // The owner's decision (11-12): a server whose Google sign-in comes from the hosting service says so plainly, needs no
 // setup, and still has the team settings
 describe('관리자 › 연결한 서비스 › Google Drive from the hosting service', () => {
-  test('the hosting service line, no Set up and no ⋯, Team settings with the members switch', async () => {
+  test('the hosting service line, no Set up and no ⋯, Team settings with who can use it (no members\' switch)', async () => {
     as('owner')
     for (const s of [{ ...admin, configured: true, source: 'service' as const, blocked: 'hosted' as const }, { ...admin, configured: false, source: 'none' as const, blocked: 'hosted' as const }]) {
       const { text, html } = await page(s)
@@ -100,7 +100,8 @@ describe('관리자 › 연결한 서비스 › Google Drive from the hosting se
       expect(html).not.toContain('data-testid="drive-setup"')
       expect(html).not.toContain('data-testid="drive-setup-menu"')
       expect(html).toContain('data-testid="team-settings"')
-      expect(html).toContain('data-testid="drive-members-switch"')
+      expect(html).toContain('data-testid="team-who"')
+      expect(html).not.toContain('switch')
     }
   })
   test('its own setup: Set up while not set up, Change setup in ⋯ once it is', async () => {

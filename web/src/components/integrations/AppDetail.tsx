@@ -107,7 +107,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
           </section>
         )}
 
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 text-sm sm:max-w-xl" data-testid="app-info">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 text-sm" data-testid="app-info">
           <Detail label={t('gapps.developer')}>{developer}</Detail>
           <Detail label={t('gapps.category')}>{category}</Detail>
           <Detail label={t('gapps.signIn')}>{signIn}</Detail>

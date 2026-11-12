@@ -120,7 +120,7 @@ export function DriveAdminSettings({ onStatus }: { onStatus: (s: DriveAdminStatu
   return (
     <div data-testid="drive-admin-settings">
       <SettingRow heading title={t('driveAdmin.shareTitle')} desc={t('driveAdmin.shareDesc')} testId="drive-shares"
-        control={<Button onClick={() => setDialog({})} data-testid="drive-share-add">{t('driveAdmin.shareAdd')}</Button>}
+        control={<Button variant="primary" onClick={() => setDialog({})} data-testid="drive-share-add">{t('driveAdmin.shareAdd')}</Button>}
         below={shares.error ? <p className="mt-2 text-sm text-danger" role="alert">{t('driveAdmin.loadFailed')}</p>
           : !shares.data ? <div className="mt-2"><Spinner /></div>
           : !shares.data.length ? <p className="mt-2 text-sm text-faint" data-testid="drive-shares-empty">{t('driveAdmin.shareEmpty')}</p>
@@ -134,7 +134,7 @@ export function DriveAdminSettings({ onStatus }: { onStatus: (s: DriveAdminStatu
                       <span className="break-words">{s.name}</span>
                       {s.status !== 'connected' && <Badge tone="warn">{t('driveShare.needsReconnect')}</Badge>}
                     </p>
-                    <p className="text-xs break-words text-muted">{s.account.email ?? s.account.name ?? ''}</p>
+                    <p className="text-xs break-words text-muted" data-testid="drive-share-row-line">{s.account.email ?? s.account.name ?? ''}</p>
                     <p className="mt-0.5 text-xs break-words text-muted" data-testid="drive-share-detail">{foldersLine(t, s)} · {audienceOf(s)}</p>
                     {s.status !== 'connected' && s.reason && <p className="text-xs text-warn" role="status" data-testid="drive-share-reason">{t(`driveShare.reason.${s.reason}`)}</p>}
                   </div>
