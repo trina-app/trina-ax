@@ -35,6 +35,20 @@ limited() {  # seconds command... (macOS may wait for an administrator's approva
   wait "$pid"
 }
 
+# the ACL entries first, while the group still exists (an entry of a deleted group shows only its UUID). The inherited
+# copies are not the same text, so the entries that name the slot group or the server account go; nothing else of an
+# ACL there is touched
+if [ -n "$BASE" ]; then
+  for d in team devenv; do
+    [ -d "$BASE/$d" ] && [ ! -L "$BASE/$d" ] || continue
+    find "$BASE/$d" -print0 2>/dev/null | while IFS= read -r -d '' f; do
+      # the highest index first, so the numbers of the ones still to remove stay right
+      ls -led "$f" 2>/dev/null | awk -v g="group:$PREFIX" -v u="user:$SRV_USER" '$1 ~ /^[0-9]+:$/ && ($2 == g || $2 == u) { sub(":", "", $1); print $1 }' | sort -rn | while read -r i; do chmod -h -a# "$i" "$f" 2>/dev/null; done
+    done
+  done
+  [ "$PURGE" = 1 ] && [ -d "$BASE/devenv" ] && [ ! -L "$BASE/devenv" ] && rm -rf "$BASE/devenv"
+fi
+
 rm -f "/etc/sudoers.d/$ID-devenv"
 SLOT_USERS=$(dscl . -list /Users | grep -E "^${PREFIX}[0-9]{1,2}$" || true)
 for u in $SLOT_USERS; do
@@ -49,22 +63,9 @@ for u in $SLOT_USERS; do
 done
 if dscl . -read "/Groups/$PREFIX" >/dev/null 2>&1; then dseditgroup -o delete "$PREFIX" >/dev/null 2>&1 || dscl . -delete "/Groups/$PREFIX" >/dev/null 2>&1 || say "could not delete the group $PREFIX"; fi
 
-# the ACL entries (the inherited copies are not the same text, so the entries that name the slot group or the server
-# account go; nothing else of an ACL there is touched)
-if [ -n "$BASE" ]; then
-  for d in team devenv; do
-    [ -d "$BASE/$d" ] && [ ! -L "$BASE/$d" ] || continue
-    find "$BASE/$d" -print0 2>/dev/null | while IFS= read -r -d '' f; do
-      # the highest index first, so the numbers of the ones still to remove stay right
-      ls -led "$f" 2>/dev/null | awk -v g="group:$PREFIX" -v u="user:$SRV_USER" '$1 ~ /^[0-9]+:$/ && ($2 == g || $2 == u) { sub(":", "", $1); print $1 }' | sort -rn | while read -r i; do chmod -h -a# "$i" "$f" 2>/dev/null; done
-    done
-  done
-  [ "$PURGE" = 1 ] && [ -d "$BASE/devenv" ] && [ ! -L "$BASE/devenv" ] && rm -rf "$BASE/devenv"
-fi
-
 # /opt/trina: only when no other install has a dev environment here
 if ! ls /etc/sudoers.d/*-devenv >/dev/null 2>&1; then
-  rm -rf "$OPT/srt" "$OPT/devenv" "$OPT"/node-v* "$OPT/node"
+  rm -rf "$OPT/srt" "$OPT/devenv" "$OPT"/node-v* "$OPT/node" "$OPT"/python3-* "$OPT/python3"
   rmdir "$OPT" 2>/dev/null || true
 fi
 say "done"
