@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 23:03
 - Branch: `feat/activity-dms-tab-back`
-- Status: in progress
+- Status: done
 - Where: trina-ax `web/src/pages/Activity.tsx`, `shared/src/api/notifications.ts`. Why: Activity and the notices are
   core (see docs/REPOSITORY-RULES.md).
 - Version impact: minor, a visible tab comes back and the "Mark all as read" API accepts `tab: 'dms'` again.
@@ -38,4 +38,7 @@ activity-tabs, phone-menus-tabs, phone-chats-tab and activity-mark-all-read.
 
 ## Result
 
-Filled in at the end.
+Built as planned. #635 was undone by reading both sides: Activity keeps dev's shared `activityTabHas` (from #639), which
+now has `dms` again, so "Mark all as read" on DMs reads the same rows the tab shows. New: a web unit test and a server
+step for Mark all as read on DMs. The fragment is `changes/activity-dms-tab-back.md` (branch name), replacing
+`changes/activity-dms.md`.

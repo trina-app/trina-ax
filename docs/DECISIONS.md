@@ -24181,6 +24181,19 @@ Version impact: **patch** (no route, no migration).
 - Tests: `tests/unit/b-form-skill.test.ts`, `tests/unit/c-move-suggest.test.ts`, `web/test/unit/form-skills.test.tsx`,
   `web/test/unit/folder-picker-suggestions.test.tsx`.
 
+## Activity: the DMs tab is back (feat/activity-dms-tab-back, 2026-11-13, the owner)
+
+Supersedes "no DMs tab" (#635, fix/activity-dms, the same day): the owner wants the tab back.
+- **Tabs.** All · DMs · Mentions · Threads again, as before #635 (a phone shows the short word, "MD" in Spanish). DMs
+  holds a direct or group chat's conversation rows (`room.kind` dm or group); a mention or a thread reply inside one is
+  under Mentions or Threads as well. The 멘션·스레드 page opened from a phone's 대화 tab (`?in=chats`) keeps All ·
+  Mentions · Threads (CHATS_FILTERS), and `?tab=dms` there opens All.
+- **One rule.** `dms` is back in shared `ActivityTab` and `activityTabHas`, so the page's filter and the server's
+  "Mark all as read" (`POST /api/notifications/read` `{ tab: 'dms' }`) read the same rows.
+- Tests: `web/test/e2e/activity-tabs.spec.ts`, `phone-menus-tabs.spec.ts`, `phone-chats-tab.cases.ts`,
+  `web/test/unit/inbox-rooms.test.tsx`, `web/test/unit/activity-mark-all.test.tsx`, `tests/unit/b-rooms-inbox.test.ts`.
+- Version impact: **minor** (a visible tab; the API accepts one more tab value).
+
 ## Activity: "Mark all as read" for the open tab (feat/activity-mark-all-read, 2026-11-13, QA TC-457)
 
 넣을 곳: trina-ax `web/src/pages/Activity.tsx`, `server/src/notifications/service.ts` (`readAll`) and
@@ -24190,8 +24203,8 @@ Activity cleared notices one click at a time.
 
 - **One call for the tab, on the server.** `POST /api/notifications/read` `{ tab, only? }` → `{ read }`. All: every
   unread notice of mine (not suppressed, inside the 30 days) and every unread conversation row; `only: 'rooms'` (대화's
-  멘션·스레드 page) the conversation rows alone; Mentions / Threads the conversation rows the tab shows (no DMs tab
-  since dev's 4a68912a9). The tab rule moved from the page to shared `activityTabHas`, so the page and the server follow one rule, and
+  멘션·스레드 page) the conversation rows alone; DMs / Mentions / Threads the conversation rows the tab shows (the DMs
+  tab was gone from dev's 4a68912a9 and is back since feat/activity-dms-tab-back). The tab rule moved from the page to shared `activityTabHas`, so the page and the server follow one rule, and
   rows not loaded yet are read too. Only mine, nothing deleted, a second call marks nothing.
 - **A conversation row reads as opening it does.** Opening a row reads its notices and then the room (or the thread) at
   its newest message. Mark all moves my place in the room (`markRead`), or for a thread's row in the thread

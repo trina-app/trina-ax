@@ -367,12 +367,14 @@ test('"Mark all as read" reads one Activity tab on the server: only its rows, on
   }
   const room = async (id: string) => (await rooms(nora.client)).find((r) => r.id === id)
 
-  // Mentions: the DM's and the team room's mentions; each room is read up to its mention, as opening the row reads it;
-  // the reply in the thread and the app's notice stay
-  expect(await markAll({ tab: 'mentions' })).toEqual({ read: 2 })
-  expect(unreadRows()).toHaveLength(1)
+  // DMs: the DM's mention alone; the DM is read up to it, as opening the row reads it
+  expect(await markAll({ tab: 'dms' })).toEqual({ read: 1 })
   expect(unreadRows()).not.toContain(inDm.id)
   expect(await room(dm.id)).toMatchObject({ unreadCount: 0, mentioned: false })
+  expect(n.list(nora.id, {}).unreadCount).toBe(3)
+  // Mentions: the team room's mention; the room is read up to it; the reply in the thread and the app's notice stay
+  expect(await markAll({ tab: 'mentions' })).toEqual({ read: 1 })
+  expect(unreadRows()).toHaveLength(1)
   expect(await room(team.id)).toMatchObject({ unreadCount: 0, mentioned: false })
   expect(n.list(nora.id, {}).unreadCount).toBe(2)
   expect((await room(team.id)).threadsUnread).toBeGreaterThan(0)
