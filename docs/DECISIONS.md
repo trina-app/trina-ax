@@ -23619,6 +23619,13 @@ isolation on a Mac. Office mode (no sudo) has no dev environment.
   users/ during a run is empty and hidden from the next run; the names in users/ are visible to an admin's run, as the
   members list shows them), and the Linux-only `writeInRead` rule (a denyRead on a writable folder inside a read-only one,
   for bwrap's mounts) is not used: on macOS it hid that folder.
+- **The other groups of a dev account (Mac mini, 2026-11-12).** `id _axdev5` also lists 701/702
+  `com.apple.sharepoint.group.*` (File Sharing: one per shared folder) and 100 `_lpoperator` (printing). Nobody adds the
+  account to them: they name `everyone` and `localaccounts` as nested groups, so every local account is in them,
+  `_axserver` and `_axagent` too, and the installer cannot take an account out. They give a run no reach: SMB, AFP and
+  CUPS are network or Unix-socket services, and Seatbelt allows a run no localhost port but its proxy and its own port
+  and no Unix socket; the shared folders are under `/Users`, which is hidden; a dev account has no password (`*`), so it
+  cannot sign in to a share (a share with guest access is open to anyone on the network anyway).
 - **Host lists.** A run reads `/usr`, `/bin`, `/sbin`, `/System`, the dyld cache, the time zones, the Command Line
   Tools, `/opt/homebrew`, `/opt/trina` and a few `/etc` files; `/`, `/Users`, `/Volumes`, `/Library` (the base folder,
   the server's logs), `/private/var`, `/private/etc` and the rest are hidden (`MAC_*` in `config.ts`).
