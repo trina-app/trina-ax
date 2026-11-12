@@ -20,7 +20,11 @@
 // Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 이름 바꾸기 for those who may, 링크 복사,
 // and 대화방 나가기 or 숨기기 by kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
 // (docs/DECISIONS.md "대화 숨기기").
-import { ArrowDown, ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
+// Phones (QA TC-257): ‹, the name with the member count under it, ✦ and ⋯ only, so a long name has the room. The bell's
+// choices are ⋯ › 알림 설정 (the level now after it; a crossed-out bell after the name when it is off), the threads with
+// new replies are ⋯'s first entry (a dot on ⋯), and ⋯ has no 이름 바꾸기 (the name opens the room's info, where it is
+// changed).
+import { ArrowDown, BellOff, ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
@@ -44,7 +48,7 @@ import { ImageGroup } from '../components/ImageViewer'
 import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
-import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
+import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { roomLeft, SideChatPanel, threadClosedOn, type SideSeed } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
@@ -52,7 +56,7 @@ import { RoomAskHint, useRoomAskHint } from '../components/rooms/RoomAskHint'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
-import { EmptyState, IconButton, Skeleton } from '../components/ui'
+import { EmptyState, IconButton, Skeleton, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { FileDropZone } from '../components/FileDropZone'
 import { Tooltip } from '../components/Tooltip'
@@ -174,8 +178,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   }), [roomId, threadId, closeThread, setSideOpen])
   // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
   const [picker, setPicker] = useState<PickerMode | null>(null)
-  // the "⋯"'s 알림 설정 opens the bell's own menu
+  // the "⋯"'s 알림 설정 opens the bell's own menu (a phone shows no bell: the keyboard then goes back to the "⋯")
   const [notifyRequest, setNotifyRequest] = useState(0)
+  const moreRef = useRef<HTMLButtonElement>(null)
+  // a phone's header: ‹, the name, ✦ and ⋯ only (QA TC-257)
+  const wide = useMediaQuery('(min-width: 768px)')
   usePeopleList()
   // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens, and only when
   // that was a choice (openedByChoice): hiding it from here leaves the room in place of this entry (store/rooms.ts
@@ -324,14 +331,17 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
 
   if (notFound) return <RoomNotFound />
 
-  // threads I follow with replies I have not read: the newest of them is one tap away (none open already)
+  // threads I follow with replies I have not read: the newest of them is one tap away (none open already); on a phone
+  // it is the "⋯"'s first entry
   const nextThread = room && room.threadsUnread > 0 && room.nextThreadId && room.nextThreadId !== threadId ? room.nextThreadId : null
+  const threadsLabel = nextThread ? t('rooms.threadsUnread', { n: room!.threadsUnread }) : ''
+  const muted = !!room && roomNotify(room).level === 'off'
 
   return (
     <div className="flex h-full" data-testid="room-page">
     {/* a file dropped anywhere on the room's column (not on the thread or side chat beside it) goes into its box */}
     <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} data-testid="room">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4" data-testid="room-header">
         <Tooltip label={t('tabs.back')}>
           <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
             <ChevronLeft size={20} aria-hidden />
@@ -348,14 +358,16 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             for a DM the other person's title (직함) small under their name, as the people list shows it */}
         <div className="min-w-0 flex-1">
           <h1 className="flex min-w-0 text-base font-medium text-ink">
-            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover [--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)]" data-testid="room-members-button">
+            {/* a phone: the count on its own line under the name (the name keeps the whole width) */}
+            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover [--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] max-md:flex-wrap max-md:gap-x-1 max-md:gap-y-0" data-testid="room-members-button">
               {peerId && peerState !== 'offline' && <PresenceDot state={peerState} className="self-center md:hidden" />}
               <span className="truncate" data-testid="room-title">
                 {room ? title(room) : ''}
               </span>
               {peerId && <PresenceText userId={peerId} offline />}
+              {!wide && muted && <BellOff size={13} className="shrink-0 self-center text-faint" role="img" aria-label={t('rooms.notify.button', { level: t('rooms.notify.off') })} data-testid="room-muted" />}
               {room && room.kind !== 'dm' && (
-                <span className="shrink-0 text-xs font-normal text-faint" data-testid="room-member-count">
+                <span className="shrink-0 text-xs font-normal text-faint max-md:basis-full max-md:leading-4" data-testid="room-member-count">
                   {t('rooms.members', { n: room.memberCount })}
                 </span>
               )}
@@ -367,8 +379,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             </p>
           )}
         </div>
-        {nextThread && (
-          <IconButton tip label={t('rooms.threadsUnread', { n: room!.threadsUnread })} className="touch-hit relative shrink-0" onClick={() => openThread(nextThread)} data-testid="room-next-thread">
+        {nextThread && wide && (
+          <IconButton tip label={threadsLabel} className="touch-hit relative shrink-0" onClick={() => openThread(nextThread)} data-testid="room-next-thread">
             <MessagesSquare size={16} aria-hidden />
             <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
           </IconButton>
@@ -380,9 +392,20 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           </IconButton>
         )}
         {/* the room's one setting, right here: the bell shows how it is now and opens its four levels; then the room's
-            "⋯" (its 알림 설정 opens the bell's menu) */}
-        {room && <RoomNotifyMenu room={room} openRequest={notifyRequest} />}
-        {room && <RoomMenu room={room} onNotify={() => setNotifyRequest((n) => n + 1)} className="shrink-0" buttonClassName="touch-hit" />}
+            "⋯" (its 알림 설정 opens the bell's menu). A phone: no bell (its menu stays, as a sheet from ⋯ › 알림 설정) */}
+        {room && <RoomNotifyMenu room={room} openRequest={notifyRequest} bare={!wide} className={wide ? undefined : 'contents'} focusBack={() => moreRef.current?.focus()} />}
+        {room && (
+          <RoomMenu
+            room={room}
+            onNotify={() => setNotifyRequest((n) => n + 1)}
+            className="shrink-0"
+            buttonClassName="touch-hit"
+            buttonRef={moreRef}
+            phone={wide ? undefined : { first: nextThread ? [{ label: threadsLabel, icon: <MessagesSquare size={14} aria-hidden />, onSelect: () => openThread(nextThread), testId: 'room-menu-next-thread' }] : [] }}
+            dot={!wide && !!nextThread}
+            label={!wide && nextThread ? `${t('rooms.menu.label')}, ${threadsLabel}` : undefined}
+          />
+        )}
       </div>
       {room && askHint.show && <RoomAskHint onAsk={() => { if (threadId) closeThread(); setSideOpen(true) }} onClose={askHint.seen} />}
       <div className="relative flex min-h-0 flex-1 flex-col">

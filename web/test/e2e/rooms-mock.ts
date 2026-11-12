@@ -27,8 +27,9 @@ export interface MockMessage { id: string; author: { id: string; name: string };
 export interface MockRoomAi { answering: number; mine: unknown[]; requests: unknown[] }
 
 /** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat); `ai`: the AI's state
- * (none by default) */
-export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; ai?: MockRoomAi }): Promise<MockRoom> {
+ * (none by default); `room`: fields of the room as they are (its name, threads with new replies, …). A PATCH of the
+ * room (my notification level) answers with the room changed. */
+export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; ai?: MockRoomAi; room?: Record<string, unknown> }): Promise<MockRoom> {
   const state: MockRoom = { sent: [], reacted: [], add: () => { throw new Error('not yet') } }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
@@ -46,7 +47,8 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     id: ROOM_ID, kind: o.kind ?? 'group', name: o.kind === 'all' || o.kind === 'dm' ? null : '디자인 리뷰', canRename: true, managerId: 'olga', groupId: null, memberCount: members.length,
     peers: o.members.slice(0, 4), lastSeq: last, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false,
     lastReadSeq: last, lastMessage: null, muted: false, createdAt: at(-60), activityAt: at(messages.length),
-  }
+    ...(o.room ?? {}),
+  } as Record<string, unknown> & { lastSeq: number }
   const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
   state.add = (m) => {
     const n = ++seq
@@ -66,6 +68,11 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai`) return route.fulfill(json({ answering: o.ai?.answering ?? 0, mine: o.ai?.mine ?? [] }))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai/requests`) return route.fulfill(json({ items: o.ai?.requests ?? [] }))
     if (method === 'POST' && path === `/api/rooms/${ROOM_ID}/read`) return route.fulfill(json({ lastReadSeq: room.lastSeq, unreadCount: 0, mentioned: false }))
+    if (method === 'PATCH' && path === `/api/rooms/${ROOM_ID}`) {
+      const b = req.postDataJSON() as { notifyLevel?: string | null }
+      if ('notifyLevel' in b) room.notify = { own: b.notifyLevel ?? null, byDefault: 'all', level: b.notifyLevel ?? 'all' }
+      return route.fulfill(json(room))
+    }
     const react = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)\/reactions$/.exec(path)
     if (react && method === 'PUT') {
       const b = req.postDataJSON() as { emoji: string; on: boolean }

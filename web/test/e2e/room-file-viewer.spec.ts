@@ -626,21 +626,23 @@ test('the side chat beside a file takes a pasted picture, and the room page\'s s
 test.describe('a phone (390 px)', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
-  test('a PDF opens over the whole screen with the bar above it; a swipe steps; ✕ closes', async ({ page }) => {
+  test('a PDF opens over the whole screen between its bars; a swipe steps; ✕ closes', async ({ page }) => {
     await openRoom(page)
     await openChip(timeline(page), 'acme-handbook.pdf')
     await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
     const box = (await viewer(page).boundingBox())!
     expect(box).toMatchObject({ x: 0, y: 0, width: 390, height: 844 })
     await expect(pdfPages(page).first()).toBeVisible({ timeout: 15_000 })
-    // the document sits under the bar, which stays (a tap does not hide it here), full width
+    // the document sits between the bars, which stay (a tap does not hide them here), full width
     const bar = (await page.getByTestId('image-viewer-bar').boundingBox())!
+    const actions = (await page.getByTestId('image-viewer-actions').boundingBox())!
     const body = (await viewer(page).getByTestId('file-viewer-body').boundingBox())!
     expect(body.y).toBeGreaterThanOrEqual(bar.y + bar.height - 1)
+    expect(body.y + body.height).toBeLessThanOrEqual(actions.y + 1)
     expect(body.width).toBe(390)
-    // the edge arrows would sit on the text: the bar's ‹ › step instead (and a swipe)
+    // a finger swipes: no arrows on a touch screen (the edge arrows would sit on the text; QA TC-257)
     await expect(page.getByTestId('image-viewer-next')).toBeHidden()
-    await expect(page.getByTestId('image-viewer-bar-next')).toBeVisible()
+    await expect(page.getByTestId('image-viewer-bar-next')).toBeHidden()
     await expect(page.getByTestId('image-viewer-panel')).toBeHidden()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await audit(page, 'viewer on a phone')
@@ -654,9 +656,11 @@ test.describe('a phone (390 px)', () => {
     }, dx)
     await swipe(-150)
     await expect(page.getByRole('dialog', { name: '이미지 보기: acme-logo.png' })).toBeVisible()
-    await page.getByTestId('image-viewer-prev').click()
+    // the photo has no arrows on a touch screen either: ← (a keyboard) steps back
+    await expect(page.getByTestId('image-viewer-prev')).toBeHidden()
+    await page.keyboard.press('ArrowLeft')
     await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
-    await page.getByTestId('image-viewer-bar-next').click()
+    await swipe(-150)
     await expect(page.getByRole('dialog', { name: '이미지 보기: acme-logo.png' })).toBeVisible()
     await page.getByTestId('image-viewer-close').click()
     await expect(viewer(page)).toHaveCount(0)
@@ -954,13 +958,13 @@ test.describe('screenshots on a phone (SHOTS_DIR)', () => {
     await page.locator(':focus').blur()
     await page.waitForTimeout(400)
     await page.screenshot({ path: `${dir}/room-viewer-trina-sheet-390-dark.png` })
-    // the bar on a file in the middle of the list (‹ › both there), light
+    // the bars on a file in the middle of the list (no ‹ ›: a finger swipes; QA TC-257), light
     await page.goBack()
     await page.emulateMedia({ colorScheme: 'light' })
     await page.getByTestId('image-viewer-close').tap()
     await openChip(timeline(page), 'acme-notes.md')
-    await expect(page.getByTestId('image-viewer-bar-prev')).toBeVisible()
-    expect((await page.getByTestId('image-viewer-name').boundingBox())!.width).toBeGreaterThan(55)
-    await page.screenshot({ path: `${dir}/room-viewer-phone-bar-middle-390-light.png`, clip: { x: 0, y: 0, width: 390, height: 120 } })
+    await expect(page.getByTestId('image-viewer-count')).toBeVisible()
+    expect((await page.getByTestId('image-viewer-name').boundingBox())!.width).toBeGreaterThan(300)
+    await page.screenshot({ path: `${dir}/room-viewer-phone-bar-middle-390-light.png` })
   })
 })
