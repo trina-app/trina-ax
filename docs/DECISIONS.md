@@ -7622,9 +7622,6 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
   announced.)
 - **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
   `tests/unit/a-team-links.test.ts` (team link join: the line).
-||||||| 2be3f4b09
-||||||| 1565b39f1
-||||||| 626c5fbfd
 
 ## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
 
@@ -23471,6 +23468,61 @@ at the bottom.
   and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
   visible branch). AI chats' messages stay in memory without a limit, as before.
 
+## Dev environment: the installer turns srt on (feat/install-srt-auto, 2026-11-12)
+
+Owner (pras), after Dion's list of where the dev environment is missing (2026-11-12): "Linux servers customers install
+themselves: the packages are installed, but install-srt.sh still has to be run once by hand. The installer can run it
+automatically." Plan agreed with the owner: srt is the only runner (no box), on hosted Linux, self-installed Linux and,
+later, a team's own Mac mini.
+
+- **The kit carries srt.** `scripts/build-bundle.ts` puts the image's srt install files (`build-ami.sh` SRT_FILES) in
+  `app/<v>/root/dev-env-srt/`, with the package list and its reader in `dev-env-srt/system/` (where `install-srt.sh`
+  looks first). They are root files: `install-linux.sh` copies them root-owned to `<base>/root/dev-env-srt/` and root
+  runs `install-srt.sh` and `uninstall-srt.sh` only from there, never from `app/` (the server account's).
+- **When the installer turns it on.** Self-install, Debian 13, not `--minimal` (its tools are in the default groups),
+  systemd on. It runs after the server answers (step 15), because the first `install-srt.sh` restarts the server; then
+  it waits for the server again. A failure is a warning with the retry command: the server runs without it. Ubuntu
+  24.04 and Debian 12 are skipped with the reason (`install-srt.sh` stops there: Ubuntu needs its AppArmor profile,
+  spike S6). Hosted servers keep `mycel-devenv-boot` (the plan decides).
+- **Options.** `--dev-env` (stop when this system cannot have it), `--no-dev-env` (off; on a repair it runs
+  `uninstall-srt.sh`). Kept in `install.json` as `devEnv` (true, false, or null = the default for the system).
+- **Updates.** `mycel-ctl update` (`devenv.go`) runs the new `root/dev-env-srt/install-srt.sh --id <id>` once when the
+  release changed files there and srt is on here (the drop-in names `MYCEL_DEV_ENV_RUNNER=srt`). It runs before the
+  package sync (both may use apt). A failure is a note; the server keeps the dev environment it had.
+- **Uninstall** runs `uninstall-srt.sh` (`--purge` with `--purge`) before `root/` goes.
+- **Exposure.** `MYCEL_DEV_ENV=1` makes the feature exist. A new team has it on by default with "Allowed sites only"
+  (owner, 2026-11-06); a team that had people before migration 236 stays off. Team admins turn it off.
+- Open: preview on srt (`mycel-sandbox port-forward`, `docs/research/srt-dev-env.md` §5), Ubuntu 24.04 (the installer
+  already writes `apparmor-bwrap.in` for bwrap; `install-srt.sh` needs the same for srt's apply-seccomp), macOS.
+
+## Dev environment on srt: Ubuntu 24.04 stays off (feat/srt-ubuntu-apparmor, 2026-11-12)
+
+Owner (pras), 2026-11-12: Ubuntu 24.04 is the most common server system of customers. The task was to give srt an
+AppArmor profile there (spike S6). A real Ubuntu 24.04 VM (EC2, 24.04.5, systemd 255.4, polkitd 124,
+`kernel.apparmor_restrict_unprivileged_userns=1`) showed that AppArmor is not the stop. The owner chose route C: Ubuntu
+stays off with the real reason; route A is the follow-up.
+
+- **AppArmor needs no profile of its own.** srt runs `/usr/bin/bwrap`, which the installer's `<ID>-bwrap` profile
+  (step 4, unconfined with `userns`) covers. srt's `apply-seccomp` has no attachment of its own, so it inherits that
+  profile. One srt command as the server account under `no_new_privs` ran: label `mycel-bwrap (unconfined)`,
+  `NoNewPrivs: 1`, `Seccomp: 2`, and `unshare -U` refused (srt's own filter). A `trina-srt` profile for apply-seccomp
+  also worked (the exec transition works under `no_new_privs`), but it gives `userns` to that file outside bwrap as
+  well. So: no extra profile. The sysctl stays on.
+- **The stop is polkit.** `busctl monitor` of polkit: `systemd-run --scope` (StartTransientUnit) sends
+  `org.freedesktop.systemd1.manage-units` with an empty details array on systemd 255, no `unit` and no `verb`. Debian
+  13 (systemd 257) sends them (spike S1). `devenv.rules.in` needs the unit name to allow only `trina-dev-<16>.scope`; a
+  rule without it would let the server account start a transient `.service` with `User=root`. Not done.
+- **What changes.** `install-srt.sh` stops on Ubuntu 24.04 with this reason, before it changes anything.
+  `install-linux.sh` says the same reason when it keeps the dev environment off there (`--dev-env` stops with it).
+  Where the kernel restricts user namespaces, `install-srt.sh` checks bwrap as the server account and runs one command
+  in srt with `no_new_privs`, as the server unit runs it (`NoNewPrivileges=yes`), so the follow-up has its check.
+  Debian 13 does not change.
+- **Follow-up, route A.** Runs become instances of a root-installed template unit (`trina-dev@.service`), started with
+  StartUnit. On systemd 255 StartUnit sends `unit` and `verb` (checked on the VM with `trina-dev-probe@x.service`), so a
+  narrow rule works: the server account may start and stop `trina-dev@<16>.service` only. It changes the runner
+  (`server/src/devenv/srt/system.ts`), so it starts after the preview PR. Route B (the server account's user manager
+  with linger, `systemd-run --user --scope`) also worked on the VM, but moves the root ceiling to `user-<uid>.slice`.
+
 ## Move picker: suggested and recent folders — 옮기기 창의 추천·최근 (feat/move-picker-suggestions, 2026-11-12, product owner)
 
 넣을 곳: Team AX core (`server/src/team-files/move-suggest.ts`, `server/src/file-list/service.ts` `lineFields`,
@@ -23516,6 +23568,54 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
   `web/test/unit/folder-picker-suggestions.test.tsx`, `web/test/e2e/move-suggestions.spec.ts` (1360 and 390, light and
   dark, keyboard).
 - Version impact: **minor** (two endpoints, a new part of the Move picker).
+
+## 휴대폰 앱 아이콘의 숫자 — the phone app's icon shows the unread count (feat/phone-app-badge, 2026-11-12, QA TC-408)
+
+넣을 곳: Team AX core (`mobile/`, `push-gateway/`, `shared/src/cloud-protocol/push-gateway.ts`, `shared/src/api/attention.ts`,
+`server/src/notifications/`, `web/src/lib/mobile.ts`, `web/src/store/sessionMarkers.ts`). Why: phone and push are core.
+
+- **Problem.** Pushes reached the iPhone (an answer finished, an @mention, a DM), but the app icon never showed a number:
+  the app asked the OS with `allowBadge: false`, no push carried a count and nothing set one.
+- **Which number.** The one count n ("Session markers"): the AI chats that need me and the rooms that want me, each
+  once. It is already the tab title's "(n)", the Mac Dock's and an installed web app's icon number, so the phone shows
+  the same, not a new count. The Inbox's unread count is not used: it counts notices (schedules, connections), not what
+  waits for me. The phone shows no dot for "other unread rooms" (the Dock's dot): a phone icon shows a number or nothing.
+- **One set of rules.** `markerOf`, `roomWantsMe`, `roomLightsDot` and `attentionCount` moved from `web/src/lib/` to
+  `shared/src/api/attention.ts`; the web re-exports them from where they were. The server counts with the same code.
+- **While the app is closed: the push.** At send time the push service asks, for an iPhone device only, `pushBadge(userId)`
+  (`server/src/notifications/push-badge.ts`): the person's rooms as GET /api/rooms gives them (read only: `Rooms.listed`,
+  no sync) and the AI chats of the first page of their list (pinned ones, then the newest 50, as the page loads; a shared
+  chat only while they see its project, as the list's `visible()`), with the runtime's word on what waits for them. The count is per recipient: a DM counts for its other member, an @mention for the one named, a plain team
+  message for nobody at its default level, a room set to 끄기 or hidden never. The gateway contract gets an optional
+  `badge` (0 to 9999, `validPushBadge`, used by the server and the gateway); APNs `aps.badge`. Android gets none: launchers count the notifications in the tray and add up each one's
+  `notification_count`, so a total on every push would show 1+2+3 = 6 after three; there each notification counts as
+  one, and the open app sets the exact number. The server does
+  not know which chat is on screen in a window: the page corrects that when it opens.
+- **An older gateway.** Its body schema is strict, so it answers `400 invalid_body` to `badge`. Only that answer (the
+  code read from the 400's body, at most 512 bytes) to a push that carried a badge counts as an older gateway; any other
+  400 is the push's answer as before. The transport then sends the same push without it (`invalid_body` is checked before the dedupe, so nothing is lost or doubled) and tries
+  the field again an hour later (`NO_BADGE_RETRY_MS`). Team servers can update before the gateway.
+- **While the page is open: the page.** New capability `badge-v1`: `{type:'badge', count}` (a whole number 0 to 9999),
+  sent by `setAppBadge` (`web/src/lib/mobile.ts`) when n changes (a burst waits `WEB_BADGE_MS`), when the bridge comes,
+  after a session reset and on every `mycel:mobile-foreground` even unchanged (a push may have set the server's number
+  meanwhile). The app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  In the foreground a push's number is not applied (`shouldSetBadge: false`): the page's is the newer.
+- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the app
+  (`forgetDelivered`); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
+  0, never the last session's number, until its own count is worked out.
+- **Permission.** The OS question asks for the badge with alerts and sounds. iOS asks once: an iPhone that said yes before
+  1.0.5 is asked once more (`askBadgeAgain`, remembered in the keychain), which shows no dialog; if iOS keeps Badges off,
+  Settings › Notifications › Badges turns it on. Android's notification permission covers the icon; while the app is closed
+  the launcher shows its own count of the notifications in the tray (or a dot).
+- **Privacy.** A number only: no id, name or kind of what it counts in the push or the bridge message. Lock-screen text
+  is unchanged (TC-365).
+- **Ships with:** the next phone build (1.0.5 on dev). The gateway (push.trina.app) needs a deploy for the number to come
+  with pushes; until then the app sets it when it opens. Team servers need nothing else.
+- Tests: `tests/unit/push-badge.test.ts` (per recipient; the push carries it; an older gateway), `push-gateway.test.ts`
+  (contract, APNs, FCM), `push-native.test.ts`, `mobile-badge.test.ts` (permission, the message, the bridge, latest
+  wins), `web/test/unit/mobile.test.ts` (badge-v1: changes, bridge, foreground, sign-out), `web-badge.test.ts` (the
+  phone app gets n).
+- Version impact: **patch**.
 
 ## Dev environment on srt: preview (feat/srt-preview, 2026-11-12, owner)
 
@@ -23582,4 +23682,3 @@ section 5. Linux only (macOS will use the shared localhost).
   counts as running for an unknown scope and for `inactive` (`rowStatus`, test in `dev-env-preview.test.ts`).
 - **Files from a run.** A file a run writes in the person's own folder (`users/<id>/...`) belongs to the server account
   (mode 640), and the Files API lists it and serves it (VM check P6).
-||||||| a932b709c

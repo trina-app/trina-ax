@@ -26,7 +26,7 @@ import { API, plainLabel, type Chat, type Room, type RoomMessage, type ServerEve
 import { api } from '../lib/api'
 import { onWindowFocus, unwatchWindowFocus, watchWindowFocus, windowFocused } from '../lib/attention'
 import { desktop } from '../lib/desktop'
-import { mobileApp } from '../lib/mobile'
+import { mobileApp, setAppBadge } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
 import { plainLine, roomTitle, roomWantsMe } from '../lib/rooms'
@@ -339,8 +339,26 @@ export function startSessionMarkers() {
     offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
     apply()
   }
+  // the phone app: its bridge may come after this starts (at the page's load end), so the number is kept from the start
+  // and lib/mobile.ts sends it once an app offering badge-v1 is there
+  // (also when the Badging API is there: the iPhone's WebView may have it before the bridge comes)
+  if (!app) {
+    phoneBadge = true
+    let shown: number | undefined, timer: ReturnType<typeof setTimeout> | undefined
+    const apply = () => {
+      timer = undefined
+      const n = currentCount().n
+      if (n !== shown) { shown = n; setAppBadge(n) }
+    }
+    const later = () => { if (timer === undefined) timer = setTimeout(apply, WEB_BADGE_MS) }
+    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
+    apply()
+  }
 }
 
+/** The phone app's icon (badge-v1, lib/mobile.ts setAppBadge): n (no dot: a phone icon shows a number or nothing), set
+ * once a burst settles; 0 when this window stops (signed out). */
+let phoneBadge = false
 export function stopSessionMarkers() {
   for (const off of offs.splice(0)) off()
   for (const p of [...pendingTell.values(), ...pendingRoom.values()]) clearTimeout(p.timer)
@@ -351,7 +369,9 @@ export function stopSessionMarkers() {
   if (started) desktop()?.setBadgeCount?.(0)
   // signed out (or the page closing its live state): no count of this person stays on the icon
   if (started && webBadge) setWebBadge(webBadge, 0)
+  if (started && phoneBadge) setAppBadge(0)
   webBadge = null
+  phoneBadge = false
   started = false
 }
 
