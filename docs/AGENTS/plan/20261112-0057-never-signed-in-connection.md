@@ -61,3 +61,5 @@ Tests:
   "연결됨"; a no-auth connection stays in "연결됨".
 - `integrations.spec` + `connectors-hub.spec`: 20 pass. `bun run test:web`: 2636 pass. Typecheck, check:i18n and
   check:docs pass.
+
+PR: https://github.com/trina-app/trina-ax/pull/518
