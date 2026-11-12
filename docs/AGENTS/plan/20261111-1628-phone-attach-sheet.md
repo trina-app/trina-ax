@@ -59,7 +59,7 @@ photo library from a web page; only the app can skip it).
 
 ## Risks
 
-- No migration. Permissions: the copy is `fromTeamFile`'s (read access now, 404 for anything else); the count uses the
+- Migration 287 (added after the review; 286 is the highest on dev). Permissions: the copy is `fromTeamFile`'s (read access now, 404 for anything else); the count uses the
   rooms' own link check (`fileOpener`).
 - Overlaps: #428 (Composer's picker lines: kept out of its hunks), #429 (Messages.tsx imports and the error row), #413
   and #430 (`shared/src/api/rooms.ts` elsewhere), overlay-back (MenuButton's Back hook).
@@ -82,3 +82,8 @@ PR #439. Built as planned, with these differences:
   picker hunks stay apart from #428's (a test merge with #428, #413, #423 and #429 is clean).
 - Each box's 파일 input keeps the test id its computer input had (`file-input`, `side-chat-file-input`,
   `room-file-input`).
+- Review (should-fix): the copies are reused and capped, and audited when sent. Migration 287 (additive, reader 1) adds
+  `room_files.team_path` and `team_stamp`: the same unchanged file picked again in the same room before sending gets
+  its copy back, a person's unsent copies are capped at 200 MB (409 `team_copies_full`, a plain line in five languages),
+  and `room.team_file` is written by the send (with the message), so a copy taken out of the box again is not in the
+  log. Nits: with several team files the box says "N명 이상"; a refused send brings the line back.
