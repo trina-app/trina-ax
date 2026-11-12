@@ -23990,3 +23990,39 @@ approved by the owner 2026-11-13) draws the same lists in new places (the rail's
 - Tests: `tests/unit/b-nav-rail-flag.test.ts` (Me off/on, server.json), `web/test/unit/rail.test.ts`,
   `web/test/e2e/nav-rail-flag.spec.ts`.
 - Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
+
+## Computers: an icon rail with labels, one list at a time (feat/nav-rail-p1, 2026-11-13, navigation redesign P1)
+
+넣을 곳: Team AX core (`web/src/components/rail/`, `web/src/components/panels/`, `Layout.tsx`), 이유: the app's own
+navigation. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.1 (approved by the owner 2026-11-13). Only while the
+server's `navRail` switch is on (previous entry); with it off nothing changes. Supersedes, on that path, the layout part
+of "Desktop sidebar: rooms first" and the team menu's place; keeps "Labeled rows, not icons" (every icon has its name
+under it) and W5 (the setup row is at the top of every list panel).
+
+- **The rail** (72 px, grows with the text size up to 88 px): the team's logo with its name small under it (owners and
+  admins: the team menu, Invite people and Admin, opening to the right; a member: the logo, not a button), then 트리나 ·
+  대화 · 파일 · 활동 (the phone's tab order), my photo at the bottom (status, away, Settings, Sign out; Usage is in
+  Settings and ⌘K, Deleted history at the end of 트리나's list, Admin only in the logo menu). A place opens what was open
+  in it last in this browser tab; the lit place opens its start. Tab goes logo → places → photo; arrows move too.
+- **One list panel** for 트리나 (트리나에게 묻기, 검색, setup row, today's history list with its caps, then 프로젝트 · 예약
+  작업 · 팀 스킬 · 삭제한 기록 as quiet rows) and 대화 (🔍 on the 대화 search type, ⊕ 새 대화, setup row, 멘션·스레드 with its
+  count, today's capped rooms list). 파일 and 활동 open today's pages at full width (their panels are phase P3). Width:
+  `clamp(240px, min(16.75rem, 18.6vw), 300px)`: 268 px at 1440, 240 px at 1290 and below. The plan wrote `26vw`, which
+  gives 268 px at 1280 too; its own numbers (240 at 1280, the 1052 px rule) need the narrower one.
+- **Below 1052 px** (72 + 240 + a room with its thread, 740) the panel folds away by itself while a thread, the room's ✦
+  side chat or a side panel is open, and comes back when it closes; its "목록 숨기기" hides it (remembered in this browser)
+  and the rail's "목록 보기" brings it back. Not done here: the plan's overlay sheet for a thread below 812 px (768–811 px
+  keeps today's room + thread columns).
+- **Marks**: 트리나 a "?" (an AI chat waits on me) or a dot (an unseen answer); 대화 the number of conversations with
+  something unread (muted and hidden left out), "?" while a room's AI waits on me, a dot when only mention/thread rows are
+  unread; 활동 the unread notices that are not conversation rows (the phone 나 tab's number). Nothing counted twice:
+  mentions and thread replies are 대화's, on its 멘션·스레드 row.
+- **Admin**: no place lit; its own menu is a 240 px list beside the rail at every computer width (its 88 px icon rail is
+  not used), so two rails never stand side by side.
+- **⌘K**: the computer has the 대화 search type too (the panel's 🔍 opens it); "프로젝트" and "사용량" are found as
+  actions, the files by "팀 폴더".
+- Unchanged: routes, push targets and deep links, shortcuts (⇧⌘O lights 트리나), Settings as a dialog, the Electron
+  window, phones (their tabs are phase P5).
+- Tests: `web/test/unit/rail-badges.test.tsx`, `web/test/e2e/rail.spec.ts` (1440, 1280, 1100, 1024; owner and member),
+  `web/test/e2e/nav-rail-flag.spec.ts` (the rail only while on).
+- Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).

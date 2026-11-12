@@ -8,6 +8,8 @@
 // is not a second way there. Keyboard as in the profile menu: the first item takes focus, arrows, Home and End move,
 // Esc closes it and gives the keyboard back, Tab and a click outside close it. Phones (below 768 px) keep the AI's
 // drawer and have Admin on the 나 tab (Sidebar.tsx).
+// `rail`: the top of the new navigation's rail (components/rail/Rail.tsx, behind the server's `navRail` switch): the logo
+// with the team's name small under it, the same menu opening to its right; a member's is the logo and name, no button.
 // "Invite people" (here and in ⌘K) opens the invite dialog Home's goal card opens (onboarding/InviteStep.tsx: the team
 // invite link's message and its copy button), one for the whole window (Layout.tsx mounts it; a page change closes it,
 // as leaving Home closes the goal card's); while the owner's welcome steps are unfinished it opens the owner's own
@@ -35,7 +37,7 @@ function TeamLogo({ className, testId }: { className: string; testId?: string })
   return <img src={src} alt="" aria-hidden className={clsx('shrink-0 object-cover', className)} data-testid={testId} />
 }
 
-export function TeamMenu() {
+export function TeamMenu({ rail = false }: { rail?: boolean } = {}) {
   const t = useT()
   const me = useMeStrict()
   const navigate = useNavigate()
@@ -80,6 +82,19 @@ export function TeamMenu() {
   const name = <span className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight" data-testid="sidebar-team">{me.team.name}</span>
   // the logo's middle is in line with the rows' icons below (8 + 6 + 14 = 8 + 12 + 8 px from the edge)
   const head = 'flex h-11 w-full items-center gap-2.5 rounded-lg pr-2 pl-1.5 text-left text-ink'
+  if (rail) {
+    const railName = <span className="block w-full truncate px-0.5 text-center text-nano leading-tight text-muted" data-testid="sidebar-team">{me.team.name}</span>
+    const railHead = 'flex w-full flex-col items-center gap-1 rounded-lg px-1 py-1.5 text-ink'
+    if (!admin)
+      return (
+        <div className="px-1.5 pt-2 pb-1" title={me.team.name}>
+          <div className={railHead} data-testid="team-header">
+            <TeamLogo className="size-9 rounded-xl" testId="sidebar-logo" />
+            {railName}
+          </div>
+        </div>
+      )
+  }
   if (!admin)
     return (
       <div className="px-2 pt-2 pb-1">
@@ -91,22 +106,24 @@ export function TeamMenu() {
     )
   const item = 'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm text-ink hover:bg-hover focus-visible:-outline-offset-2'
   return (
-    <div ref={ref} className="relative px-2 pt-2 pb-1" onKeyDown={onKey}>
+    <div ref={ref} className={clsx('relative pt-2 pb-1', rail ? 'px-1.5' : 'px-2')} onKeyDown={onKey}>
       <button
         ref={button}
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={rail ? me.team.name : undefined}
         onClick={() => (open ? hide(false) : setOpen(true))}
-        className={clsx(head, 'hover:bg-hover active:bg-hover aria-expanded:bg-hover focus-visible:-outline-offset-2')}
+        className={clsx(rail ? 'flex w-full flex-col items-center gap-1 rounded-lg px-1 py-1.5 text-ink' : head, 'hover:bg-hover active:bg-hover aria-expanded:bg-hover focus-visible:-outline-offset-2')}
         data-testid="team-menu"
+        data-rail-stop={rail ? '' : undefined}
       >
-        <TeamLogo className="size-7 rounded-lg" testId="sidebar-logo" />
-        {name}
-        <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
+        <TeamLogo className={rail ? 'size-9 rounded-xl' : 'size-7 rounded-lg'} testId="sidebar-logo" />
+        {rail ? <span className="block w-full truncate px-0.5 text-center text-nano leading-tight text-muted" aria-hidden data-testid="sidebar-team">{me.team.name}</span> : name}
+        {!rail && <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />}
       </button>
       {open && (
-        <div ref={menu} role="menu" aria-label={me.team.name} aria-describedby={host ? addressId : undefined} className="absolute top-full right-2 left-2 z-30 mt-1 rounded-xl border border-line bg-surface p-1.5 shadow-lg" data-testid="team-dropdown">
+        <div ref={menu} role="menu" aria-label={me.team.name} aria-describedby={host ? addressId : undefined} className={clsx('absolute z-30 rounded-xl border border-line bg-surface p-1.5 shadow-lg', rail ? 'top-2 left-full ml-2 w-64' : 'top-full right-2 left-2 mt-1')} data-testid="team-dropdown">
           {/* the team, as a new device would look for it: its logo, its whole name (the button above may cut it) and its
               address (Settings › 앱 has the copy button) */}
           <div className="flex items-center gap-2.5 px-2.5 pt-1 pb-2" data-testid="team-menu-head">

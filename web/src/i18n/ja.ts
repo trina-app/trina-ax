@@ -5145,4 +5145,10 @@ export const ja: Record<MessageKey, string> = {
   "files.personalInside": "中に自分のフォルダーがあります",
   "files.addHere": "編集できるフォルダーの中にファイルを追加できます",
   "files.addInMyFolder": "自分のファイルは自分のフォルダーに追加します",
+  "rail.label": "アプリメニュー",
+  "rail.skipList": "リストへ移動",
+  "rail.hideList": "リストを隠す",
+  "rail.showList": "リストを表示",
+  "rail.searchChats": "会話を検索",
+  "rail.unreadRooms": "{n, plural, one {未読の会話#件} other {未読の会話#件}}",
 }

@@ -28,6 +28,7 @@ import clsx from 'clsx'
 import { teamIconUrl } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
 import { useGoBack } from '../../lib/back'
+import { useNavRail } from '../../lib/navRail'
 import { BELOW, entryBelow, useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { Spinner, useMediaQuery } from '../../components/ui'
@@ -187,8 +188,11 @@ export default function AdminLayout() {
   const { search, hash } = location
   // phones: the list and its pages (below 768 px, the width of the phone top bar and tabs)
   const phone = useMediaQuery('(max-width: 767.98px)')
-  // tablets: the menu as a rail of icons (names in tips); computers: with the names
-  const wide = useMediaQuery('(min-width: 1024px)')
+  // tablets: the menu as a rail of icons (names in tips); computers: with the names. With the new navigation
+  // (lib/navRail.ts) the app's rail is beside it already: the menu is a 240 px list at every computer width, so two rails
+  // never stand side by side (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1)
+  const navRail = useNavRail()
+  const wide = useMediaQuery('(min-width: 1024px)') || navRail
   const content = useRef<HTMLDivElement>(null)
   // the width this entry first showed at: a redirect after a resize (Team settings' one page ↔ its groups) says what is
   // under it, so the new entry gets no list put under it (a resize never builds a back stack, lib/backStack.ts)
