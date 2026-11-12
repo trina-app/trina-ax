@@ -198,10 +198,26 @@ export function CountBadge({ n, testId }: { n: number | null | undefined; testId
   )
 }
 
-/** A search box for a list on the page (it filters what is already loaded), in the height of the filter pills. */
-export function SearchBox({ value, onChange, label, testId, className }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string }) {
+/** A search box for a list on the page (it filters what is already loaded), in the height of the filter pills. `end`:
+ * a button inside the field at its end (a phone's Filters icon, components/PhoneFilters.tsx): the field then takes the
+ * whole row (QA TC-379). */
+export function SearchBox({ value, onChange, label, testId, className, end }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string; end?: ReactNode }) {
+  const frame = 'flex h-9 min-w-0 items-center rounded-lg border border-line bg-surface text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-11 max-md:flex-1'
+  if (end)
+    return (
+      // the label holds the field only (a button inside a label would be its second control)
+      <div className={clsx(frame, 'w-full basis-full')} data-testid={testId ? `${testId}-field` : undefined}>
+        <SearchLabel value={value} onChange={onChange} label={label} testId={testId} className="flex-1 self-stretch" />
+        {/* 44 px to tap: over the field's own 1 px frame, so the field stays 44 px tall */}
+        <span className="-my-px flex shrink-0">{end}</span>
+      </div>
+    )
+  return <SearchLabel value={value} onChange={onChange} label={label} testId={testId} className={clsx(frame, className)} />
+}
+
+function SearchLabel({ value, onChange, label, testId, className }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string }) {
   return (
-    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-11 max-md:flex-1', className)}>
+    <label className={clsx('flex min-w-0 items-center gap-2 px-3', className)}>
       <Search size={15} className="shrink-0 text-faint" aria-hidden />
       <input
         type="search"

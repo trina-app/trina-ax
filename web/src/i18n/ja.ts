@@ -3519,6 +3519,7 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.none": "まだ会社紹介がありません。",
   "onboarding.profile.create": "作成",
   "onboarding.profile.edit": "編集",
+  "onboarding.profile.createNamed": "会社紹介を作成",
   "onboarding.profile.cancel": "キャンセル",
   "onboarding.profile.noAi": "ウェブサイトや貼り付けた文章を読むには AI が必要です。AI がなくても、3つの質問に答えて作れます。",
   // the profile draft, line by line: what the server opens or skips for it (components/onboarding/ProfileStep.tsx DraftActivity)

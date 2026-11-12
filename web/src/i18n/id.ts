@@ -3563,6 +3563,7 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.none": "Belum ada profil perusahaan.",
   "onboarding.profile.create": "Buat",
   "onboarding.profile.edit": "Ubah",
+  "onboarding.profile.createNamed": "Buat profil perusahaan",
   "onboarding.profile.cancel": "Batal",
   "onboarding.profile.noAi": "Membaca situs web atau teks yang ditempel memerlukan AI. Tanpa AI, Anda bisa menjawab tiga pertanyaan.",
   // the profile draft, line by line: what the server opens or skips for it (components/onboarding/ProfileStep.tsx DraftActivity)
