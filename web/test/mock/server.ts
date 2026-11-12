@@ -387,6 +387,9 @@ export class MockServer {
   teamAddress: string | null = null
   /** GET /api/admin/backups' lastRestore (POST /__test/last-restore): none until a test sets it */
   lastRestore: import('@mycel/shared/api').LastRestore | null = null
+  /** the Move picker's "최근" per person (folders moved into, newest first) and its ✕ (person|folder|name pattern) */
+  moveRecent = new Map<string, string[]>()
+  moveDismissed = new Set<string>()
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
@@ -530,6 +533,8 @@ export class MockServer {
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
     this.fileRankCalls = []
+    this.moveRecent = new Map()
+    this.moveDismissed = new Set()
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
@@ -2781,6 +2786,8 @@ export class MockServer {
           this.files.set(to + p.slice(from.length), v)
         }
       }
+      const into = parentOf(to)
+      if (into !== parentOf(from)) this.moveRecent.set(c.user.id, [into, ...(this.moveRecent.get(c.user.id) ?? []).filter((x) => x !== into)].slice(0, 10))
       return { entry: this.entry(to, n, c.user) }
     },
     // share by copying (server/src/team-files/service.ts copy): files only; dryRun counts who would see it in addition
@@ -2894,6 +2901,28 @@ export class MockServer {
         dec.decode(n.data!).split('\n').map((l) => (html && l.toLowerCase().includes(q.toLowerCase()) ? asText(l) : l)).forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
       }
       return { items, truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
+    },
+    // the Move picker's suggestions (server/src/team-files/move-suggest.ts), short: a folder the person can write whose
+    // name is in the file's name; recent = folders they moved into here
+    moveSuggestions: (c) => {
+      const paths: string[] = c.body.paths
+      for (const p of paths) if (!this.files.has(p) || this.access(p, c.user) === 'none') fail('not_found', 404)
+      const from = new Set(paths.map(parentOf))
+      const pattern = (p: string) => p.slice(p.lastIndexOf('/') + 1).toLowerCase().replace(/\d+/g, '#')
+      const writable = (p: string) => this.files.get(p)?.type === 'folder' && this.access(p, c.user) === 'write' && !from.has(p) && !p.startsWith('skills')
+      const suggested = [...this.files.keys()]
+        .filter((p) => writable(p) && p.slice(p.lastIndexOf('/') + 1).length >= 2)
+        .filter((p) => { const n = p.slice(p.lastIndexOf('/') + 1).toLowerCase(); return paths.every((f) => this.files.get(f)?.type === 'file' && f.slice(f.lastIndexOf('/') + 1).toLowerCase().includes(n)) })
+        .filter((p) => !paths.some((f) => this.moveDismissed.has(`${c.user.id}|${p}|${pattern(f)}`)))
+        .slice(0, 3).map((p) => ({ path: p, confidence: 0.9 }))
+      const recent = (this.moveRecent.get(c.user.id) ?? []).filter((p) => writable(p) && !suggested.some((s) => s.path === p)).slice(0, 3).map((p) => ({ path: p }))
+      return { suggested, recent }
+    },
+    dismissMoveSuggestion: (c) => {
+      for (const p of c.body.paths as string[]) {
+        if (!this.files.has(p) || this.access(p, c.user) === 'none') fail('not_found', 404)
+        this.moveDismissed.add(`${c.user.id}|${c.body.folder}|${p.slice(p.lastIndexOf('/') + 1).toLowerCase().replace(/\d+/g, '#')}`)
+      }
     },
     recentFiles: (c) => {
       const items = [...this.files.entries()]

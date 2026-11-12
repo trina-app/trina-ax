@@ -18,7 +18,7 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | Group | Pages |
 |---|---|
 | **People** | Members & invites, Groups, Folder permissions |
-| **Connections** | Providers, MCP, App connectors, AI apps, Plugins |
+| **Connections** | Providers, MCP, App connectors, AI apps, Plugins, [Slack](slack.md) (the owner only) |
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
