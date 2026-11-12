@@ -60,7 +60,7 @@ export function AttachSheet({ onFiles, onTeam, computer = true, icon, testId, fi
   ]
   return (
     <>
-      <MenuButton label={t('composer.attach')} heading={t('composer.attach')} items={items} icon={icon} muted buttonClassName={buttonClassName ?? 'touch-hit'} testId={testId} />
+      <MenuButton label={t('composer.attach')} heading={t('composer.attach')} items={items} icon={icon} muted compact buttonClassName={buttonClassName} testId={testId} />
       {computer && (
         <>
           <input ref={photos} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => take(e.target)} data-testid="attach-photos-input" />
