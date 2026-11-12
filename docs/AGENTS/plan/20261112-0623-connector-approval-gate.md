@@ -81,3 +81,9 @@ Connectors (`integration_user_allow`, migration 346); the AI's text for a team c
 an admin fixes it. Scheduled runs are unchanged (noted in DECISIONS as the owner's call). Tests: new
 `tests/unit/c-connector-approval-gate.test.ts` (6 of its 7 tests fail on the old gate), four TC-127 tests in
 `connect-service.test.ts`, a Google app case, web `integration-always-allow.test.tsx` and a ConnectCard case.
+
+Review fixes (independent review of #583): the outside check no longer counts `chats.room_outside`, which the own chat
+sets before every connection tool runs (the first change of a clean chat asked); a card raised in a chat that read
+something from outside offers no Always allow; a team "never" wins over a member's own Always allow (tested); a
+member's own row goes when they lose access and they can clear it without access. Full-turn regression tests in
+`tests/unit/c-connector-approval-turns.test.ts`.

@@ -22946,11 +22946,16 @@ Plan: `docs/AGENTS/plan/20261112-0623-connector-approval-gate.md`.
   read-only, `api_request`'s POST, PUT, PATCH or DELETE) goes without a card only when the chat holds nothing someone
   else wrote. "Someone else wrote" is the chat's existing mark (`chats.session_tainted`: a web page or search, the
   browser, another person's file, an attachment, project instructions, any connection's answer, including the same
-  service's; `room_outside`; `rooms_seen`); a chat row that is gone counts as outside. It overrides a team connection's
+  service's, marked once the answer came back; `rooms_seen`); a chat row that is gone counts as outside. Not
+  `room_outside`: in the person's own chat it is set before any connection tool runs (`noteRoomTool`), the call being
+  checked included, so it means "a tool was used", not "something was read" (independent review: with it, the first
+  change of a clean chat already asked). It overrides a team connection's
   "Run without asking", a person's own Always allow and a Google app's Always allow (`gate`, `outsideSeen`). Before,
   only a room read made those ask, so a page from a service anyone can edit could have the AI send a team file to it
-  with no card. The card leads with a plain line on why it asks and offers Send / Don't send (Always allow is on
-  already). Reads never ask. A write's own answer is outside content too, so a second change in the same chat asks
+  with no card. The card leads with a plain line on why it asks (unless the room line already does) and offers only
+  Send / Don't send: no Always allow on a card raised in such a chat, whatever the connection's rule (the words asking
+  for the change could be someone else's). Reads never ask. The owner confirmed the strict rule: a connection's own
+  reply counts. A write's own answer is outside content too, so a second change in the same chat asks
   again; a new chat does not.
 - **Not changed here: scheduled runs.** Nobody answers a card there, so the rule would refuse every send after a web
   read. A team "allow" connection still sends only when the schedule's card allowed it, a person's own only to the
@@ -22966,7 +22971,12 @@ Plan: `docs/AGENTS/plan/20261112-0623-connector-approval-gate.md`.
   - a team connection: a row of their own in `integration_user_allow` (migration 346), never the team's rule; it
     counts only while the connection is at the address it was chosen for, never in a scheduled run, and is listed on
     the row (`alwaysAllowedByMe`) with "Ask every time" (`DELETE /api/integrations/:id/always-allow`, audited
-    `integration.always_allow`).
+    `integration.always_allow`). It applies where the team's rule is "ask" (the owner's standing rule: Always allow
+    means done, only the caller's own switch; no admin setting for it). **The team's "never" always wins**: a
+    connection set to refuse refuses, with no card, whatever a member chose. The row goes when no rule of the
+    connection includes the member any more (its rule changed, they left the group, the group went:
+    `pruneMemberAllows`), so it never comes back on its own when access is given again; the member can also clear
+    their own row without access (the route deletes it, then answers "not found").
 - **Signing in again from the chat (TC-127).** connect_service takes `connection`, the id of the person's own
   connection that needs a new sign-in or key (the AI's list of connections names it), and a call that fills in the
   address of such a connection gets the same card instead of "already exists". It is the template card with "Sign in

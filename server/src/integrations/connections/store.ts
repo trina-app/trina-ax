@@ -168,6 +168,16 @@ export function setAccess(db: Database, id: string, a: IntegrationAccess): void 
   if (a.everyone) ins.run(id, 'everyone', '')
   for (const g of new Set(a.groups)) ins.run(id, 'group', g)
   for (const u of new Set(a.users)) ins.run(id, 'user', u)
+  pruneMemberAllows(db)
+}
+
+/** A member's own Always allow on a team connection (integration_user_allow, migration 346) goes when no rule of that
+ * connection includes them any more (its rule changed, they left the group, the group went), so it never comes back
+ * on its own when they are given access again. Called after every change of a rule or a group's members. */
+export function pruneMemberAllows(db: Database): void {
+  db.query(`DELETE FROM integration_user_allow WHERE NOT EXISTS (SELECT 1 FROM integration_access a WHERE a.integration_id = integration_user_allow.integration_id
+    AND (a.subject_type = 'everyone' OR (a.subject_type = 'user' AND a.subject_id = integration_user_allow.user_id)
+      OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = integration_user_allow.user_id))))`).run()
 }
 
 const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations

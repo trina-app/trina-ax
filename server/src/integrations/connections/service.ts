@@ -437,10 +437,13 @@ export class Integrations {
   /** Ends the caller's own Always allow on a team connection (integration_user_allow, QA TC-130): their changes there ask
    * again. Anyone who may use the connection; the team's rule is not touched. Audited when there was one. */
   stopAlwaysAllow(viewer: Viewer, id: string, locale: Locale): Integration {
-    const row = getRow(this.db, id)
-    if (!row || row.scope !== 'team' || !activeUser(this.db, viewer.id) || !mayUse(this.db, row, viewer.id)) return fail('not_found')
+    if (!activeUser(this.db, viewer.id)) return fail('not_found')
+    // their own row goes even when they may not use the connection now (a choice of theirs never waits to come back)
     const n = this.db.query('DELETE FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').run(id, viewer.id).changes
     if (n) audit(this.db, { actor: viewer.id, action: 'integration.always_allow', target: id, detail: { allow: false } })
+    const row = getRow(this.db, id)
+    // what they may not use is "not found" (the same for one that does not exist)
+    if (!row || row.scope !== 'team' || !mayUse(this.db, row, viewer.id)) return fail('not_found')
     return view(this.db, row, viewer, locale)
   }
 

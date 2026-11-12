@@ -109,18 +109,31 @@ describe('TC-328: outside content asks, whatever the rule', () => {
     expect(created()).toBe(n0 + 2)
   })
 
-  test('a web page, a room\'s messages or other outside words in the chat: the change asks; reads still go without a card', async () => {
-    for (const col of ['session_tainted', 'room_outside', 'rooms_seen'] as const) {
+  test('a web page or other outside words, or a room\'s messages, in the chat: the change asks; the own chat\'s "used a tool" mark alone does not; reads never ask', async () => {
+    for (const col of ['session_tainted', 'rooms_seen'] as const) {
       const p = asker('no')
       const t = turn('alice', { person: p })
       outside(t.chat, col)
-      expect((await t.call('team_guestboard__search_tasks', { query: 'x' })).isError).toBe(false)
-      expect(p.cards, col).toEqual([])
       const n = created()
       expect((await t.call('team_guestboard__create_task', { title: col })).isError, col).toBe(true)
       expect(p.cards, col).toHaveLength(1)
       expect(created(), col).toBe(n)
     }
+    // room_outside is set in the person's own chat before any connection tool runs (chat/turn.ts noteRoomTool), this
+    // one included: it says a tool was used, not that something was read (review of #583)
+    const used = asker('no')
+    const u = turn('alice', { person: used })
+    outside(u.chat, 'room_outside')
+    const n = created()
+    expect((await u.call('team_guestboard__create_task', { title: 'used a tool' })).isError).toBe(false)
+    expect(used.cards).toEqual([])
+    expect(created()).toBe(n + 1)
+    // a read after outside content: no card
+    const r = asker('no')
+    const t = turn('alice', { person: r })
+    outside(t.chat)
+    expect((await t.call('team_guestboard__search_tasks', { query: 'x' })).isError).toBe(false)
+    expect(r.cards).toEqual([])
   })
 
   test('an HTTP API set to "Run without asking": POST asks after a web page, GET does not', async () => {
@@ -231,6 +244,57 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     expect((A.ctx.db.query('SELECT write_policy FROM integrations WHERE id = ?').get(teamAsk.id) as { write_policy: string }).write_policy).toBe('ask')
     // someone who may not use it gets "not found", not a way to learn about it
     expect((await json('dana', `/api/integrations/${teamAsk.id}/always-allow`, 'DELETE')).status).toBe(404)
+  })
+
+  test('a card shown in a chat that read something from outside offers no Always allow, and says why', async () => {
+    const p = asker('no')
+    const t = turn('alice', { person: p })
+    outside(t.chat)
+    const n = created()
+    // the two-answer card (Send / Don't send): no Always allow to pick, nothing kept
+    expect((await t.call('team_teamboard__create_task', { title: 'page asked' })).isError).toBe(true)
+    expect(p.cards).toHaveLength(1)
+    expect(p.cards[0]!.options).toEqual(SEND2)
+    expect(p.cards[0]!.question).toStartWith('This chat has read something from outside (a web page, someone else\'s file, a service\'s answer), so here the AI asks before every change.')
+    expect(created()).toBe(n)
+    expect(A.ctx.db.query('SELECT 1 FROM integration_user_allow WHERE integration_id = ?').all(teamAsk.id)).toEqual([])
+  })
+
+  test('the team\'s "never" wins over a member\'s own Always allow', async () => {
+    const deny = (await json('carol', '/api/admin/integrations', 'POST', { kind: 'mcp', name: 'Locked board', url: `${fake.base}/mcp-open?team=deny`, auth: 'none', writePolicy: 'ask', access: { everyone: false, groups: [], users: ['alice'] } })).body
+    try {
+      expect((await turn('alice', { person: asker('always') }).call('team_lockedboard__create_task', { title: 'always' })).isError).toBe(false)
+      expect(A.ctx.db.query('SELECT user_id FROM integration_user_allow WHERE integration_id = ?').all(deny.id)).toEqual([{ user_id: 'alice' }])
+      expect((await json('carol', `/api/integrations/${deny.id}`, 'PATCH', { writePolicy: 'deny' })).status).toBe(200)
+      const p = asker('yes')
+      const n = created()
+      const r = await turn('alice', { person: p }).call('team_lockedboard__create_task', { title: 'blocked' })
+      expect(r.isError).toBe(true)
+      expect(r.summary).toBe('team_lockedboard__create_task -> refused (write policy deny)')
+      expect(p.cards).toEqual([])
+      expect(created()).toBe(n)
+    } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(deny.id) }
+  })
+
+  test('a member\'s own Always allow goes when they lose access (it never comes back on its own), and they can clear it without access', async () => {
+    const t = (await json('carol', '/api/admin/integrations', 'POST', { kind: 'mcp', name: 'Gone board', url: `${fake.base}/mcp-open?team=gone`, auth: 'none', writePolicy: 'ask', access: { everyone: false, groups: [], users: ['alice', 'bob'] } })).body
+    const rows = () => (A.ctx.db.query('SELECT user_id FROM integration_user_allow WHERE integration_id = ? ORDER BY user_id').all(t.id) as { user_id: string }[]).map((r) => r.user_id)
+    try {
+      for (const who of ['alice', 'bob'] as const) expect((await turn(who, { person: asker('always') }).call('team_goneboard__create_task', { title: who })).isError).toBe(false)
+      expect(rows()).toEqual(['alice', 'bob'])
+      // the admin takes bob out of the rule: his choice goes, alice's stays
+      expect((await json('carol', `/api/integrations/${t.id}`, 'PATCH', { access: { everyone: false, groups: [], users: ['alice'] } })).status).toBe(200)
+      expect(rows()).toEqual(['alice'])
+      // given access again, bob is asked again
+      expect((await json('carol', `/api/integrations/${t.id}`, 'PATCH', { access: { everyone: false, groups: [], users: ['alice', 'bob'] } })).status).toBe(200)
+      const bob = asker('no')
+      expect((await turn('bob', { person: bob }).call('team_goneboard__create_task', { title: 'again' })).isError).toBe(true)
+      expect(bob.cards).toHaveLength(1)
+      // a row left behind (written directly) is cleared by its own person even without access: "not found", row gone
+      A.ctx.db.query('INSERT INTO integration_user_allow (integration_id, user_id, url, created_at) VALUES (?, ?, ?, ?)').run(t.id, 'erin', t.url, new Date().toISOString())
+      expect((await json('erin', `/api/integrations/${t.id}/always-allow`, 'DELETE')).status).toBe(404)
+      expect(rows()).toEqual(['alice'])
+    } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
   })
 
   test('an HTTP API\'s card offers it too; a connection that already sends without asking offers no Always allow', async () => {

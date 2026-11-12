@@ -1,5 +1,6 @@
 // Groups (tab 1 `groups`, tab 2): creating a group also creates groups/<name>/, its folders row and the rule
 // "this group writes" in one go. Membership changes can narrow access, so they go through afterAccessChange (H7).
+import { pruneMemberAllows } from '../integrations/connections/store'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Context } from 'hono'
@@ -137,6 +138,8 @@ export function updateGroupAs(ctx: AppContext, actorId: string, id: string, b: {
       ctx.db.query('DELETE FROM group_members WHERE group_id = ?').run(id)
       const add = ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
       for (const u of memberIds) add.run(id, u)
+      // someone who left the group loses their own Always allow on the team connections it gave them
+      pruneMemberAllows(ctx.db)
     }
     audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds, ...viaOf(from) } })
   })()
@@ -166,6 +169,7 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // team connections' and templates' rules: a group nobody can see any more would block every later change of them
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    pruneMemberAllows(ctx.db)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // AI connections assigned to it: the rows go; one left with no group or person is switched off, not team-wide

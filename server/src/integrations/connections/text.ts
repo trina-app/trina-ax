@@ -46,6 +46,14 @@ export const TEXT = {
     'Selalu izinkan: mulai sekarang AI mengirim ke {name} tanpa bertanya. Dalam obrolan yang membaca sesuatu dari luar (halaman web, file orang lain), AI tetap bertanya. Anda bisa mematikannya di Konektor.',
     "常に許可：今後AIは確認せずに{name}へ送信します。外部の内容（ウェブページ、他の人のファイルなど）を読んだチャットでは、引き続き確認します。コネクターでオフにできます。",
     "Permitir siempre: a partir de ahora la IA envía a {name} sin preguntar. En un chat que leyó algo de fuera (una página web, un archivo de otra persona), sigue preguntando. Puede desactivarlo en Conectores."),
+  // the card's first line in a chat that read something from outside, for a connection that asks anyway: why the card
+  // has no Always allow (TC-328)
+  outsideAsksOnce: t(
+    '이 대화는 바깥 내용(웹 페이지, 다른 사람의 파일, 서비스의 답 등)을 읽었어요. 그래서 여기서는 바꿀 때마다 물어요.',
+    'This chat has read something from outside (a web page, someone else\'s file, a service\'s answer), so here the AI asks before every change.',
+    'Obrolan ini sudah membaca sesuatu dari luar (halaman web, file orang lain, jawaban layanan), jadi di sini AI bertanya sebelum setiap perubahan.',
+    "このチャットは外部の内容（ウェブページ、他の人のファイル、サービスの応答など）を読みました。そのため、ここでは変更のたびに確認します。",
+    "Este chat leyó algo de fuera (una página web, un archivo de otra persona, la respuesta de un servicio), así que aquí la IA pregunta antes de cada cambio."),
   // the card's first line when it asks only because the chat read something from outside (TC-328)
   outsideAsks: t(
     '이 대화는 바깥 내용(웹 페이지, 다른 사람의 파일, 서비스의 답 등)을 읽었어요. 그래서 묻지 않고 보내기가 켜져 있어도 보내기 전에 물어요.',

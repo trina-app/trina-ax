@@ -319,14 +319,16 @@ function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string)
 
 /**
  * The chat holds something someone else wrote (docs/DECISIONS.md "Connector write cards: outside content asks"): a web
- * page or search, another person's file, an attachment, project instructions, a connection's answer
- * (chats.session_tainted), something from outside the team's own words (room_outside) or a room's messages
- * (rooms_seen). Any of it can carry instructions, so after it no change goes without the person's yes. A chat that is
- * gone counts as outside.
+ * page or search, another person's file, an attachment, project instructions, a connection's answer (chats.session_tainted,
+ * set once the content came in: a connection's answer after its call, noteAnswer) or a room's messages (rooms_seen). Any
+ * of it can carry instructions, so after it no change goes without the person's yes. A chat that is gone counts as
+ * outside. Not chats.room_outside: in the person's own chat it is set before any tool outside the team's own words
+ * runs (chat/turn.ts noteRoomTool), this very call included, so it says a tool was used, not that something was read
+ * (independent review of #583); what such a tool brought back sets session_tainted.
  */
 export function outsideSeen(db: AppContext['db'], chatId: string): boolean {
-  const c = db.query('SELECT session_tainted AS t, room_outside AS o, rooms_seen AS r FROM chats WHERE id = ?').get(chatId) as { t: number; o: number; r: number } | null
-  return !c || !!(c.t || c.o || c.r)
+  const c = db.query('SELECT session_tainted AS t, rooms_seen AS r FROM chats WHERE id = ?').get(chatId) as { t: number; r: number } | null
+  return !c || !!(c.t || c.r)
 }
 
 /** A member's own Always allow on a team connection (integration_user_allow, migration 346): only while the
@@ -388,8 +390,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
     (row.scope === 'team' && row.write_policy === 'allow')
     || (!b.room && row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow')
     || (!b.room && memberAllows(ctx.db, row, b.userId)))
-  // ...unless the chat holds something someone else wrote: then the card asks (TC-328)
-  const outside = allowed && outsideSeen(ctx.db, b.chatId)
+  // ...unless the chat holds something someone else wrote: then the card asks (TC-328). Read for every change of the
+  // person's own chat: the card it raises offers no Always allow then
+  const outside = !b.scheduled && outsideSeen(ctx.db, b.chatId)
   if (allowed && !outside) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
@@ -410,7 +413,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const L = person.locale
-  const question = `${outside ? `${say('outsideAsks', L)}\n\n` : ''}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+  // why it asks, unless the room line says it already (after a room read, in a room's session)
+  const lead = outside && !person.roomsSeen && !b.room ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
+  const question = `${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
   const shown = sent.lines?.(L) ?? { fields: sent.fields, exact: false }
@@ -418,9 +423,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}) }]
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
-  // but not in a room's session or after a room read, where every change asks, and not when it is on already (the
-  // card asks only because of outside content)
-  if (person.choose && !b.room && !person.roomsSeen && !allowed) {
+  // but not in a room's session or after a room read, where every change asks, not when it is on already, and not in a
+  // chat that read something from outside (the words that ask for the change could be someone else's)
+  if (person.choose && !b.room && !person.roomsSeen && !allowed && !outside) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') return true
