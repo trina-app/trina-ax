@@ -122,5 +122,8 @@ test('the admin lets a member pick; the member sees the picker without reloading
   await expect(card.getByLabel('다른 AI로 대신 답하기')).toBeDisabled()
   await expect(card.getByLabel('다른 AI로 대신 답하기')).not.toBeChecked()
   await expect(card).toContainText('Codex가 꺼져 있어 켤 수 없어요')
+  // the AI defaults list only what is on, by the AI's own name (QA TC-182)
+  await expect(page.locator('#ai-engine option')).toHaveText(['Claude'])
+  await expect(page.getByTestId('default-engine-off')).toHaveCount(0)
   await ctx2.close()
 })

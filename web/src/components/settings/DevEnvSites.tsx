@@ -2,7 +2,10 @@
 // this person allowed "always" from a chat's site card, with Remove, and her own Full internet switch (off by default;
 // turning it on asks first, with the warning). Only her own commands use them. With the team's No network there is
 // nothing to allow: the section says so and shows nothing else. The dialog shows this section only while the server
-// says the dev environment is on for her (GET /api/dev-env/sites state is not 'off').
+// says the dev environment is on for her (GET /api/dev-env/sites state is not 'off'). On a phone it is the last part
+// of 트리나에게 허용한 것 (`part`, pages/Settings.tsx): a heading like the other parts', the Full internet switch as a row
+// without a frame, 44 px targets.
+import clsx from 'clsx'
 import { Globe, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { DevEnvMySites } from '@mycel/shared/api'
@@ -12,7 +15,7 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { ErrorNote, IconButton, Skeleton, Switch, confirmDialog } from '../ui'
 
-export function DevEnvSites() {
+export function DevEnvSites({ part = false }: { part?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const [r, setR] = useState<DevEnvMySites | null>(null)
@@ -45,9 +48,9 @@ export function DevEnvSites() {
   }
 
   return (
-    <section className="space-y-5" data-testid="dev-env-sites">
+    <section className={clsx('space-y-5', part && 'border-t border-line pt-5')} data-testid="dev-env-sites" data-part={part ? '' : undefined}>
       <div>
-        <h2 className="text-base font-semibold">{t('settings.devEnvSites')}</h2>
+        {part ? <h3 className="text-sm font-semibold">{t('settings.devEnvSites')}</h3> : <h2 className="text-base font-semibold">{t('settings.devEnvSites')}</h2>}
         <p className="mt-1 text-sm text-muted">{t('devEnvSites.intro')}</p>
       </div>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
@@ -66,7 +69,7 @@ export function DevEnvSites() {
                     <p className="break-all font-mono text-sm">{s.host}</p>
                     <p className="text-xs text-faint">{formatDateTime(s.createdAt, locale)}</p>
                   </div>
-                  <IconButton label={t('devEnvSites.remove', { host: s.host })} disabled={busy} onClick={() => void remove(s.host)} data-testid="dev-env-site-remove">
+                  <IconButton label={t('devEnvSites.remove', { host: s.host })} className={part ? 'touch-hit' : undefined} disabled={busy} onClick={() => void remove(s.host)} data-testid="dev-env-site-remove">
                     <Trash2 size={16} />
                   </IconButton>
                 </li>
@@ -74,7 +77,7 @@ export function DevEnvSites() {
             </ul>
           </div>
           {r.fullAvailable && (
-            <div className="space-y-2 rounded-xl border border-line p-4" data-testid="dev-env-full">
+            <div className={clsx('space-y-2', part ? 'py-1' : 'rounded-xl border border-line p-4')} data-testid="dev-env-full">
               <div className="flex items-center gap-3">
                 <label htmlFor="dev-env-full-switch" className="flex-1 text-sm font-medium">{t('devEnvSites.full')}</label>
                 <Switch id="dev-env-full-switch" external checked={r.fullInternet} disabled={busy} label={t('devEnvSites.full')} onChange={(v) => void full(v)} testId="dev-env-full-switch" />
@@ -84,7 +87,7 @@ export function DevEnvSites() {
             </div>
           )}
           <details className="text-sm">
-            <summary className="cursor-pointer text-muted">{t('devEnvSites.team')}</summary>
+            <summary className={clsx('cursor-pointer text-muted', part && 'py-3')}>{t('devEnvSites.team')}</summary>
             <ul className="mt-2 space-y-0.5 font-mono text-xs text-faint" data-testid="dev-env-team-sites">
               {r.teamSites.map((h) => <li key={h} className="break-all">{h}</li>)}
             </ul>

@@ -24,7 +24,7 @@ import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPa
 import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { authOf } from './service'
-import { assertSeatFree } from '../system/limits'
+import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
 import { resolveLayout } from '../system/layout'
@@ -359,8 +359,10 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const r = inviteByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
   const valid = inviteValid(ctx.db, r!, authOf(ctx).now())
-  // who made it, only while it works ("{inviter} invited you to {team}")
-  const inviterName = valid && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
+  // who made it, only while it works ("{inviter} invited you to {team}"): not while every seat is taken either, when the
+  // accept is refused (the team link's 'full'); `valid` stays as it was, so the page does not say "expired or used"
+  const max = seatLimit()
+  const inviterName = valid && (max === null || seatsUsed(ctx.db) < max) && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName }
 }
 

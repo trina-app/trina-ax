@@ -190,6 +190,8 @@ test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, a
 test('a member: /admin says it is for admins; Back never shows the Admin list', async ({ page }) => {
   await page.getByTestId('tab-me').click()
   await page.getByTestId('settings-logout').click()
+  // signing out asks first on a phone
+  await page.getByTestId('dialog-confirm').click()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/members')
   // TC-272: the admin-only notice with a way Home, in place of the page

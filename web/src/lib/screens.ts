@@ -7,7 +7,7 @@
 //
 // Parents: a page under a tab's ☰ or list → that tab's root (트리나 /, 대화 /rooms, 파일 /files, 나 /settings); one project →
 // /projects; one chat → its project when this window knows it, else /; a room's thread → the room; a folder → the folder
-// above it, a file → its folder; a Settings section → /settings (the account deletion page → the profile); Activity and
+// above it, a file → its folder, the Trash (a row of the team folder on phones) → the team folder; a Settings section → /settings (the account deletion page → the profile); Activity and
 // Admin → /settings; an Admin page and what is under it: pages/admin/adminScreens.ts; a connector → /connectors.
 import { parsePath } from 'react-router-dom'
 import { useCallback } from 'react'
@@ -27,7 +27,7 @@ export interface Screen {
   /** the address one level up (null: a tab's root, or no parent) */
   parent: string | null
   /** what makes two addresses the same screen (two Files addresses of one folder are one screen, whatever else their
-   * query says: the Trash view, a row picked out, a panel to open) */
+   * query says: a row picked out, a panel to open; the Trash is one screen whatever folder it was opened from) */
   id: string
   /** Files' folders and files: a tree, where Back is always the folder above */
   tree?: boolean
@@ -90,7 +90,10 @@ export function screenOf(to: string): Screen {
       const path = q(search).get('path') ?? ''
       if (b === 'view') return { tab: 'files', parent: folder(dirOf(path)), id: `file:${path}`, tree: true }
       if (b) return s('files', null)
-      // the Trash view and a picked-out row are this folder still
+      // the Trash: a place under the team folder (a row there on phones), so Back from it is the team folder; in the tree,
+      // so going into it from a folder goes back to the team folder first, and a folder opened from it goes down from there
+      if (q(search).get('view') === 'trash') return { tab: 'files', parent: '/files', id: 'trash', tree: true }
+      // a picked-out row is this folder still
       return { tab: 'files', parent: path ? folder(dirOf(path)) : null, id: `folder:${path}`, tree: true }
     }
     case 'settings':

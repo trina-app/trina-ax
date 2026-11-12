@@ -994,6 +994,54 @@ describe('the later steps and the end', () => {
     }
   })
 
+  test('팀 파일 in the desktop app on a Mac: a picked folder macOS keeps the app out of says so and where to turn it on, [다른 폴더 고르기] opens the folder window again; an empty one stays "이 폴더엔 문서가 없어요" (QA TC-049)', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'skipped', files: null, tools: null, invite: null } })
+    // the picked folder lists nothing: macOS privacy (Don't Allow) or simply empty, the page cannot tell
+    const opened: string[] = []
+    let next = 'Documents'
+    g.showDirectoryPicker = async () => { opened.push(next); return { kind: 'directory', name: next, entries: async function* () {} } }
+    const asked: string[] = []
+    const off = () => () => {}
+    g.mycelDesktop = {
+      bridgeVersion: 1, appVersion: '0.4.0', platform: 'darwin',
+      browser: { run: async () => ({}), cancel: () => {} },
+      pane: { open() {}, close() {}, toggle() {}, getState: async () => null, onState: off },
+      connection: { get: async () => null, onChange: off },
+      notify() {}, openTeams() {},
+      folderProblem: async (name: string) => { asked.push(name); return name === 'Documents' ? 'mac-blocked' : null },
+    }
+    const m = await app()
+    try {
+      await m.click(await m.until(() => m.find('welcome-team-files-pick'), '팀 파일'))
+      await m.until(() => m.find('welcome-team-files-blocked'), 'the macOS line')
+      expect(asked).toEqual(['Documents'])
+      expect(m.get('welcome-team-files-blocked').textContent).toContain("macOS가 'Documents' 폴더를 막았어요 · 시스템 설정 › 개인정보 보호 및 보안 › 파일 및 폴더에서 트리나를 켜 주세요")
+      expect(m.find('welcome-team-files-empty')).toBeNull()
+      // the step's folder button reads [다른 폴더 고르기] (no second button) and opens the folder window again
+      expect(m.get('welcome-team-files-pick').textContent).toContain('다른 폴더 고르기')
+      next = 'empty'
+      await m.click('welcome-team-files-pick')
+      await m.until(() => m.find('welcome-team-files-empty'), 'the empty line')
+      expect(opened).toEqual(['Documents', 'empty'])
+      expect(asked).toEqual(['Documents', 'empty'])
+      expect(m.find('welcome-team-files-blocked')).toBeNull()
+      expect(m.get('welcome-team-files-empty').textContent).toBe(translate('ko', 'welcome.teamFiles.empty'))
+      expect(m.get('welcome-team-files-pick').textContent).toContain('폴더 고르기')
+      expect(m.get('welcome-team-files-pick').textContent).not.toContain('다른')
+      // a browser (no desktop app): nothing to ask, the empty line as before
+      delete g.mycelDesktop
+      next = 'Documents'
+      await m.click('welcome-team-files-pick')
+      await m.until(() => opened.length === 3 && m.find('welcome-team-files-empty'), 'empty in a browser')
+      expect(asked).toHaveLength(2)
+      expect(m.find('welcome-team-files-blocked')).toBeNull()
+    } finally {
+      delete g.mycelDesktop
+      await m.unmount()
+    }
+  })
+
   test('the invite with nothing shared: the link made as it opens with no skill (it lands on Home: docs/DECISIONS.md "DS3"), the message at once; done → the end screen once, 홈으로 its one button', async () => {
     signIn('owner')
     progress = ran({ teamType: 'marketing' })

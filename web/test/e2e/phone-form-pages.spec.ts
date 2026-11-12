@@ -229,7 +229,8 @@ test('nothing on these pages is wider than the screen, in Spanish too', async ({
     const pages: [string, string][] = [
       ...['', ...GROUPS].map((g): [string, string] => [g ? `/admin/settings/${g}` : '/admin/settings', 'admin-content']),
       ['/admin/system', 'admin-content'],
-      ...['profile', 'security', 'browser', 'memory', 'allowances', 'notifications', 'about'].map((s): [string, string] => [`/settings/${s}`, 'settings-content']),
+      // Browser is a part of 트리나에게 허용한 것 on a phone (QA TC-263): that page holds it
+      ...['profile', 'security', 'memory', 'allowances', 'notifications', 'about'].map((s): [string, string] => [`/settings/${s}`, 'settings-content']),
     ]
     for (const [path, box] of pages) {
       await page.goto(path)
