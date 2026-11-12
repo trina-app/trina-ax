@@ -307,7 +307,7 @@ describe('removed, restored and removed by the owner', () => {
     expect((h.ctx.db.query('SELECT count(*) n FROM slack_install_flows').get() as { n: number }).n).toBe(0)
   })
 
-  test('the hosting service down or not serving: Admin › Slack says so, and it comes back by itself', async () => {
+  test('the hosting service down or not serving: the Slack page says so, and it comes back by itself', async () => {
     broker.serving = 'down'
     await waitFor(async () => (await admin()).lastError === 'broker_unreachable')
     expect((await admin()).state).toBe('error')

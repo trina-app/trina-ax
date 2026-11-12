@@ -128,7 +128,7 @@ const DETOURS = ['/files', '/projects']
 
 /** The old addresses that open another page (see the top of this file), else null. An item's page that is a phone's
  * only (adminScreens.ts ADMIN_DETAILS) is the item in its page on a computer, and the other way round. */
-function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean, owner: boolean): string | null {
+export function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean, owner: boolean): string | null {
   const q = new URLSearchParams(search)
   // Slack's menu item until 2026-11-12: its page in Connected apps, with the query "Add to Slack" came back with
   // (?slack=installed); the owner's only (an admin gets Admin's list, as before)

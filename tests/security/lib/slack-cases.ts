@@ -1,7 +1,7 @@
 import type { Spec } from './cases'
 
-// The Slack connector (docs/SLACK.md). Admin › Slack is the owner's alone (admins too are refused); each person's own
-// link is theirs (self); a one-time link token nobody was given is refused for everyone after the auth level. Who a
+// The Slack connector (docs/SLACK.md). Slack's admin page is the owner's alone (admins too are refused); each person's
+// own link is theirs (self); a one-time link token nobody was given is refused for everyone after the auth level. Who a
 // link binds (the Slack account of the event, used once, 10 minutes, both names shown) is tested against a fake Slack
 // in tests/unit/c-slack.test.ts.
 /** a sealed value of the right shape that opens with no key (refused after the permission check) */

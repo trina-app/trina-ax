@@ -2075,7 +2075,7 @@ export class MockServer {
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
     listRooms: () => ({ items: this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
-    // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
+    // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app
     mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
     slackAdmin: () => ({
       mode: 'own', official: false, enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',

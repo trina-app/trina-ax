@@ -1,12 +1,17 @@
-// Admin › Slack and Settings › Connectors › Slack (docs/SLACK.md): the setup is four steps, each with its Slack page,
+// Admin › Connected apps › Slack and Settings › Connectors › Slack (docs/SLACK.md). Slack is one row of Admin ›
+// Connected apps (the owner's only), not a menu item of its own; /admin/slack leads to its page. The setup is four
+// steps, each with its Slack page,
 // and no manifest on the page; a refused token is said under its own field until the next try, never in a toast; once
 // set up, one status line with one button, a problem names the one place to fix it, "Remove" waits behind "Replace
 // tokens"; without an https address one line says "Sign in with Slack" needs it. Settings: the person's Slack line
 // (SlackAccount, under Connectors' list); "Sign in with Slack" goes to Slack and its outcome is said when it comes back.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { MySlack, SlackAdmin } from '@mycel/shared/api'
 import AdminSlack from '../../src/pages/admin/Slack'
+import AdminIntegrations, { slackAdded, slackRowStatus } from '../../src/pages/admin/Integrations'
+import { redirectOf } from '../../src/pages/admin/AdminLayout'
+import { useSession } from '../../src/store/session'
 import { SlackAccount } from '../../src/components/settings/SlackAccount'
 import { useLocaleStore } from '../../src/i18n'
 import { useUi } from '../../src/store/ui'
@@ -36,7 +41,7 @@ beforeAll(async () => {
   // the admin pages' one-line explanations measure themselves (no layout here)
   ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
   // the page's own address (links of the app open there unless the server says another)
-  Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: { origin: 'http://team.localhost', href: 'http://team.localhost/admin/slack', assign(u: string) { assigned.push(u) } } })
+  Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: { origin: 'http://team.localhost', href: 'http://team.localhost/admin/connectors/slack', assign(u: string) { assigned.push(u) } } })
   const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']) as CryptoKeyPair
   const jwk = await crypto.subtle.exportKey('jwk', pair.publicKey)
   sealingKey = { kid: 'k1', alg: 'ECDH-ES+P256+HKDF-SHA256+A256GCM', publicJwk: { kty: 'EC', crv: 'P-256', x: jwk.x, y: jwk.y } }
@@ -64,12 +69,13 @@ beforeEach(() => {
     if (what === 'POST /api/admin/slack/official/install') return installAnswer()
     if (what === 'GET /api/slack/me') return json(me)
     if (what === 'GET /api/connectors/remote') return json({ configured: false, resource: null, items: [] })
+    if (what === 'GET /api/admin/integrations') return json({ items: [] })
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
   }) as typeof fetch
 })
 afterEach(() => { globalThis.fetch = realFetch })
 
-const page = (at = '/admin/slack') => mount(<MemoryRouter initialEntries={[at]}><AdminSlack /></MemoryRouter>)
+const page = (at = '/admin/connectors/slack') => mount(<MemoryRouter initialEntries={[at]}><AdminSlack /></MemoryRouter>)
 const BOT = 'xoxb-111-222-' + 'b'.repeat(24), APP = 'xapp-1-A0APP-333-' + 'a'.repeat(32)
 const fill = async (m: Awaited<ReturnType<typeof page>>) => {
   await m.type('slack-bot-token', BOT)
@@ -78,7 +84,7 @@ const fill = async (m: Awaited<ReturnType<typeof page>>) => {
   await m.type('slack-client-secret', 'c'.repeat(32))
 }
 
-describe('Admin › Slack: the official app (the hosting service serves this server)', () => {
+describe('Admin › Connected apps › Slack: the official app (the hosting service serves this server)', () => {
   test('Add to Slack in place of the four steps (also on a phone); it goes to Slack\'s own page', async () => {
     admin = base({ official: true })
     const m = await page()
@@ -135,26 +141,26 @@ describe('Admin › Slack: the official app (the hosting service serves this ser
 
   test('how Add to Slack went is said once, from the address', async () => {
     admin = on({ mode: 'official', official: true })
-    let m = await page('/admin/slack?slack=installed')
+    let m = await page('/admin/connectors/slack?slack=installed')
     expect((await m.until(() => m.find('slack-outcome'), 'the outcome')).textContent).toBe('Added to Slack. Invite the app to the channels where people will use it.')
     await m.unmount()
     admin = base({ official: true })
-    m = await page('/admin/slack?slack=workspace_taken')
+    m = await page('/admin/connectors/slack?slack=workspace_taken')
     expect((await m.until(() => m.find('slack-outcome'), 'the outcome')).textContent).toBe('This Slack workspace is connected to another team. Remove it there, or remove the app in Slack, then try again.')
     await m.unmount()
-    m = await page('/admin/slack?slack=not_workspace_admin')
+    m = await page('/admin/connectors/slack?slack=not_workspace_admin')
     expect((await m.until(() => m.find('slack-outcome'), 'the outcome')).textContent).toBe('A Slack workspace admin has to add it. Ask an admin to do it.')
     await m.unmount()
-    m = await page('/admin/slack?slack=install_pending')
+    m = await page('/admin/connectors/slack?slack=install_pending')
     expect((await m.until(() => m.find('slack-outcome'), 'the outcome')).textContent).toBe('Added to Slack. It turns on by itself once Slack confirms it.')
     await m.unmount()
-    m = await page('/admin/slack?slack=constructor')
+    m = await page('/admin/connectors/slack?slack=constructor')
     expect((await m.until(() => m.find('slack-outcome'), 'the outcome')).textContent).toBe('Could not link with the Slack sign-in. Try again in a moment.')
     await m.unmount()
   })
 })
 
-describe('Admin › Slack', () => {
+describe('Admin › Connected apps › Slack: the own app', () => {
   test('not set up: four steps with their Slack pages, no manifest; saving turns it on', async () => {
     const m = await page()
     await m.until(() => m.find('slack-setup'), 'the steps')
@@ -254,6 +260,86 @@ describe('Admin › Slack', () => {
     await m.click(m.get('slack-error').querySelector('button')!)
     expect(m.find('slack-setup')).not.toBeNull()
     await m.unmount()
+  })
+})
+
+describe('Admin › Connected apps › Slack: one service of the list, no menu item', () => {
+  test('its page has a connector page\'s header: the way back to Connected apps, the logo, the name and one line', async () => {
+    admin = on()
+    const m = await page()
+    await m.until(() => m.find('slack-status'), 'the status line')
+    const back = m.get('app-breadcrumb-connectors')
+    expect(back.getAttribute('href')).toBe('/admin/connectors')
+    expect(back.textContent).toBe('Connected apps')
+    expect(m.get('slack-admin').querySelector('h1')!.textContent).toBe('Slack')
+    expect(m.get('app-by').textContent).toContain('People ask @Trina AX in Slack')
+    expect(m.get('connector-logo').getAttribute('src')).toBe('/icons/connectors/slack.svg')
+    // not an app the AI uses for a person: no About, tools or details
+    expect(m.find('app-about')).toBeNull()
+    expect(m.find('app-info')).toBeNull()
+    await m.unmount()
+  })
+
+  test('the old address: the owner gets Slack\'s page with the query Add to Slack came back with; an admin the list', () => {
+    expect(redirectOf('slack', undefined, '?slack=installed', false, true)).toBe('/admin/connectors/slack?slack=installed')
+    expect(redirectOf('slack', undefined, '', true, true)).toBe('/admin/connectors/slack')
+    expect(redirectOf('slack', undefined, '?slack=installed', false, false)).toBe('/admin')
+    // its page is the owner's; an admin who types it gets Connected apps
+    expect(redirectOf('connectors', 'slack', '', false, true)).toBeNull()
+    expect(redirectOf('connectors', 'slack', '', false, false)).toBe('/admin/connectors')
+  })
+
+  test('its state on the row: on, off, a problem, Reconnect after it was removed in Slack; not added: Discover', () => {
+    expect(slackRowStatus(on())).toBe('on')
+    expect(slackRowStatus(on({ state: 'connecting' }))).toBe('on')
+    expect(slackRowStatus(on({ enabled: false, state: 'off' }))).toBe('off')
+    expect(slackRowStatus(on({ state: 'error', lastError: 'unreachable' }))).toBe('attention')
+    const removed = base({ mode: 'official', official: true, enabled: true, lastError: 'removed' })
+    expect(slackRowStatus(removed)).toBe('reconnect')
+    expect(slackAdded(removed)).toBe(true)
+    expect(slackAdded(on())).toBe(true)
+    expect(slackAdded(base({ official: true }))).toBe(false)
+  })
+
+  const list = (role: 'owner' | 'admin') => {
+    const me = { user: { id: 'u1', username: 'olga', name: 'Olga', email: null, role, locale: 'en', localeChoice: 'en', mustChangePassword: false, prefs: {} }, groups: [], team: { name: 'Acme', defaultLocale: 'en' }, server: { version: '0', dev: false, features: {} } }
+    useSession.setState({ status: { kind: 'signed-in', me } } as never)
+    return mount(<MemoryRouter initialEntries={['/admin/connectors']}><Routes><Route path="/admin/:section/:sub?/:item?" element={<AdminIntegrations />} /></Routes></MemoryRouter>)
+  }
+  const slackRow = (m: Awaited<ReturnType<typeof page>>, kind: 'connected-app' | 'connector-card') => m.container.querySelector(`[data-testid="${kind}"][data-id="slack"]`)
+
+  test('the owner: added, a row in Connected with its state; not added, a card in Discover', async () => {
+    const status = useSession.getState().status
+    try {
+      admin = on()
+      let m = await list('owner')
+      const row = await m.until(() => slackRow(m, 'connected-app'), 'the Slack row')
+      expect(row.getAttribute('data-state')).toBe('on')
+      expect(row.textContent).toContain('Slack')
+      expect(slackRow(m, 'connector-card')).toBeNull()
+      expect(adminQueries).toEqual(['?origin=http%3A%2F%2Fteam.localhost'])
+      await m.unmount()
+      admin = base({ official: true })
+      m = await list('owner')
+      const card = await m.until(() => slackRow(m, 'connector-card'), 'the Slack card')
+      expect(card.textContent).toContain('People ask @Trina AX in Slack')
+      expect(slackRow(m, 'connected-app')).toBeNull()
+      await m.unmount()
+    } finally { useSession.setState({ status } as never) }
+  })
+
+  test('an admin who is not the owner: no Slack, and its state is not asked for (the server refuses it)', async () => {
+    const status = useSession.getState().status
+    try {
+      admin = on()
+      const m = await list('admin')
+      await m.until(() => m.find('connector-discover'), 'the list')
+      await m.settle()
+      expect(slackRow(m, 'connected-app')).toBeNull()
+      expect(slackRow(m, 'connector-card')).toBeNull()
+      expect(calls).not.toContain('GET /api/admin/slack')
+      await m.unmount()
+    } finally { useSession.setState({ status } as never) }
   })
 })
 
