@@ -61,7 +61,7 @@ describe('관리자 › 연결한 서비스 › Google Drive without a public ad
     expect(html).toContain('data-testid="drive-public-host"')
     expect(text).toContain(ko('driveAdmin.publicHost.why'))
     expect(text).toContain(ko('driveAdmin.publicHost.owner'))
-    expect(html).toContain('href="/admin/system"')
+    expect(html).toContain('href="/admin/system/connection"')
   })
   test('an admin: the same reason, and to ask the owner (no link to a page they do not see)', async () => {
     as('admin')
@@ -69,7 +69,7 @@ describe('관리자 › 연결한 서비스 › Google Drive without a public ad
     expect(text).toContain(ko('driveAdmin.publicHost.why'))
     expect(text).toContain(ko('driveAdmin.publicHost.admin'))
     expect(text).not.toContain(ko('driveAdmin.publicHost.owner'))
-    expect(html).not.toContain('href="/admin/system"')
+    expect(html).not.toContain('href="/admin/system')
   })
   test('set up, or blocked for another reason: no such paragraph', async () => {
     as('owner')
