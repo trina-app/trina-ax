@@ -3,11 +3,13 @@
 // account made in one of its groups, a change of its members) leaves an audit row `project.member_gained` (the
 // project, the person, how: `via`, and `self` when they did it themselves) and one quiet inbox notice to the project's
 // members, "{who} joined '{name}'" (notifications/service.ts project.joined). So nobody, an admin included, reads a
-// project without its members being told and the activity log saying so (security review M5).
+// project without its members being told and the activity log saying so (security review M5). The person's scheduled
+// tasks paused for not seeing it start again.
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { atLeast, inProjectZone, RuleSet, type Principal } from '../policy/access'
 import { notificationsOf } from '../notifications/service'
+import { getChatRuntime } from './runtime'
 
 /** The rules as if a trashed folder were back: its parked rules (under its trash storage path) at its old path, and no
  * rules of a folder that took that path since (as chat/shared.ts rulesInPlace builds them from the database). */
@@ -50,6 +52,8 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
       if (!gained.length) continue
       for (const g of gained) {
         const id = audit(ctx.db, { actor: by.actor, action: 'project.member_gained', target: pr.id, detail: { projectId: pr.id, userId: g.id, via: by.via, ...(by.actor === g.id ? { self: true } : {}) } })
+        // their scheduled tasks that paused because they did not see it start again (chat/schedules.ts resumeForProject)
+        try { getChatRuntime(ctx).schedules.resumeForProject(g.id, pr.id) } catch (e) { ctx.log.warn('paused project tasks not resumed', { err: e }) }
         // its members (who saw it before; not the person, not who made the change: they know)
         for (const m of now) {
           if (m.id === g.id || m.id === by.actor || !was.has(m.id)) continue

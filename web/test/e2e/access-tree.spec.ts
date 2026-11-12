@@ -440,8 +440,9 @@ for (const size of [{ width: 1360, height: 900 }, { width: 375, height: 812 }]) 
     // the Tab stop is the chosen row
     await expect(item(page, 'shared')).toHaveAttribute('tabindex', '0')
     await page.getByTestId('folder-rule-new').focus()
-    // the header's tabs and switch, and "How this works", come first
-    for (let i = 0; i < 3; i++) await page.keyboard.press('Tab')
+    // the header's tabs and switch, and "How this works", come first (a phone: Add folder and Filters are the bar's,
+    // before the page, so only the tabs and "How this works")
+    for (let i = 0; i < (narrow ? 2 : 3); i++) await page.keyboard.press('Tab')
     await page.keyboard.press('Tab')
     await expect(item(page, 'shared')).toBeFocused()
     expect(realErrors(errors)).toEqual([])

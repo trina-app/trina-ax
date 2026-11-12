@@ -21,6 +21,7 @@ const uploads = { rejected: 0 }
 
 async function app(req: Request): Promise<Response> {
   const u = new URL(req.url)
+  // Set-Cookie Domain stripping only: the relay never sends sid / lang back to a team server (only __Host- cookies)
   if (u.pathname === '/hello') {
     const h = new Headers({ 'content-type': 'text/plain' })
     h.append('set-cookie', 'sid=1; Path=/; Domain=localhost; HttpOnly')
@@ -28,6 +29,7 @@ async function app(req: Request): Promise<Response> {
     h.append('set-cookie', '__Host-x=1; Path=/; Secure')
     return new Response('hello', { headers: h })
   }
+  if (u.pathname === '/cookies') return Response.json({ cookie: req.headers.get('cookie') })
   if (u.pathname === '/reject') { uploads.rejected++; return new Response('no thanks', { status: 401 }) } // body never read
   if (u.pathname === '/echo') { let n = 0; for await (const ch of req.body as unknown as AsyncIterable<Uint8Array>) n += ch.byteLength; return Response.json({ n }) }
   return new Response('ok')
@@ -85,6 +87,55 @@ describe('relay hardening (Node 25 relay)', () => {
     const res = await fetch(teamUrl(PORT, 'victim', '/hello'))
     const cookies = res.headers.getSetCookie()
     expect(cookies).toEqual(['sid=1; Path=/; HttpOnly', 'lang=ko; Path=/', '__Host-x=1; Path=/; Secure'])
+  })
+
+  test('cookies left on the parent domain by another team page do not take this team offline (QA TC-346)', async () => {
+    const drops = c.stats.drops
+    const flood = (n: number) => Array.from({ length: n }, (_, i) => `flood${i}=${'x'.repeat(4000)}`).join('; ')
+    // ~40 KB of them (over Node's 16 KB default): the request goes through and the team server sees only its own cookie
+    const res = await fetch(teamUrl(PORT, 'victim', '/cookies'), { headers: { cookie: `${flood(10)}; mycel-dev-sid=d1; mycel_locale=ko` } })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ cookie: 'mycel-dev-sid=d1' })
+    // ~240 KB (QA's 60 x 4 KB): more than the relay reads. A page that says how to remove them, not a bare 400
+    const big = await new Promise<string>((resolve) => {
+      const s = net.connect(PORT, '127.0.0.1', () => s.write(`GET / HTTP/1.1\r\nHost: victim.localhost\r\nAccept: text/html\r\nCookie: ${flood(60)}\r\n\r\n`))
+      let out = ''
+      s.on('data', (d) => { out += d.toString('utf8') })
+      s.on('close', () => resolve(out))
+      s.on('error', () => resolve(out))
+      setTimeout(() => s.destroy(), 5000)
+    })
+    expect(big.split('\r\n')[0]).toBe('HTTP/1.1 431 Request Header Fields Too Large')
+    expect(big).toContain('content-type: text/html')
+    expect(big).toContain('too many cookies')
+    // the rest of a big head still arriving after the page went out is read and dropped (no reset, which would show a
+    // connection error instead of the page): sent in 8 KB pieces, every piece is taken
+    const slow = await new Promise<{ out: string; err: string | null; sent: number; total: number }>((resolve) => {
+      const head = Buffer.from(`GET / HTTP/1.1\r\nHost: victim.localhost\r\nCookie: ${flood(60)}\r\n\r\n`)
+      let out = ''
+      let err: string | null = null
+      let sent = 0
+      const s = net.connect({ port: PORT, host: '127.0.0.1', allowHalfOpen: true }, () => {
+        const next = () => {
+          if (err || sent >= head.length) { setTimeout(() => s.destroy(), 300); return }
+          const piece = head.subarray(sent, sent + 8192)
+          s.write(piece, (e) => { if (e) err ??= (e as NodeJS.ErrnoException).code ?? 'error'; else sent += piece.length })
+          setTimeout(next, 20)
+        }
+        next()
+      })
+      s.on('data', (d) => { out += d.toString('utf8') })
+      s.on('error', (e: NodeJS.ErrnoException) => { err ??= e.code ?? 'error' })
+      s.on('close', () => resolve({ out, err, sent, total: head.length }))
+    })
+    expect(slow.out).toContain('too many cookies')
+    expect(slow.err).toBeNull()
+    expect(slow.sent).toBe(slow.total)
+    // the same for a WebSocket upgrade
+    const up = await raw(`GET /api/ws HTTP/1.1\r\nHost: victim.localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: ${flood(60)}\r\n\r\n`)
+    expect(up).toContain(' 431 ')
+    expect(c.stats.drops).toBe(drops)
+    expect((await fetch(teamUrl(PORT, 'victim', '/ok'))).status).toBe(200)
   })
 
   test('an answer sent before the upload was read is delivered whole, and the upload stops (no lingering stream)', async () => {

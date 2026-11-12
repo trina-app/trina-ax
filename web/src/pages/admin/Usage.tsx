@@ -3,12 +3,13 @@
 // cards, a "Token usage" chart (tokens per day, stacked by the Group by) and the breakdown table under it. The numbers
 // are the same report as before (GET /api/admin/usage, now with its filters, series and facets); amounts are estimates,
 // not bills. A person's own usage is Settings > Usage (components/settings/MyUsage.tsx).
-// A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): "Usage limits" with Download CSV under its
-// ⌄ (components/PageActions.tsx); the range stays in sight and the filters (Group, Person, Engine, Model, AI connection)
-// go under one Filters button beside it (components/PhoneFilters.tsx); Group by is a view choice, not a filter, so it
-// sits in the breakdown's heading; the numbers, the chart and the breakdown stand without frames.
+// A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): Usage limits is the Admin bar's + and
+// Download CSV its ⋯ (barActions.tsx; QA TC-377: no button block over the numbers); the range takes the row and the
+// filters (Group, Person, Engine, Model, AI connection) go under the Filters icon at its end (components/PhoneFilters.tsx,
+// TC-379); Group by is a view choice, not a filter, so it sits in the breakdown's heading; the numbers, the chart and the
+// breakdown stand without frames.
 import clsx from 'clsx'
-import { Download, Gauge } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { z } from 'zod'
@@ -18,7 +19,6 @@ import { formatDateTime, formatNumber, formatUsd, localDay, localDayRange } from
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { IconButton, useMediaQuery } from '../../components/ui'
-import { PageActions } from '../../components/PageActions'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { UsageBar } from '../../components/UsageBar'
 import { FilterPill } from '../../components/usage/FilterPill'
@@ -29,6 +29,7 @@ import { AdminPageHeader, Loadable, OneLine, USAGE_LIMITS_LINK } from './common'
 import { usageCsv } from '../../lib/usage-csv'
 import { usageShares } from '../../lib/usage-share'
 import { Tooltip } from '../../components/Tooltip'
+import { AdminBarActions, BarAdd, BarMore } from './barActions'
 
 type GroupBy = 'user' | 'engine' | 'model' | 'day' | 'group' | 'credential' | 'skill'
 type Range = 'today' | '7d' | '30d' | 'month' | 'custom'
@@ -175,13 +176,7 @@ export default function Usage() {
         testId="usage-header"
         className="!mb-0"
         actions={
-          phone ? (
-            <PageActions
-              menuLabel={t('common.moreActions')}
-              primary={{ label: t('adminux.usageLimitsLink'), icon: <Gauge size={14} aria-hidden />, onSelect: () => navigate(USAGE_LIMITS_LINK), testId: 'usage-limits-link' }}
-              more={[{ label: t('usage.exportCsv'), icon: <Download size={14} aria-hidden />, onSelect: csv, disabled: !data, testId: 'usage-csv' }]}
-            />
-          ) : (
+          phone ? undefined : (
             <>
               <Link to={USAGE_LIMITS_LINK} className="text-sm font-medium text-accent-text underline-offset-2 hover:underline" data-testid="usage-limits-link">
                 {t('adminux.usageLimitsLink')}
@@ -194,11 +189,18 @@ export default function Usage() {
         }
       />
 
+      {phone && (
+        <AdminBarActions>
+          <BarMore label={t('common.moreActions')} testId="usage-limits-link-more"
+            items={[{ label: t('usage.exportCsv'), icon: <Download size={18} aria-hidden />, onSelect: csv, disabled: !data, testId: 'usage-csv' }]} />
+          <BarAdd label={t('adminux.usageLimitsLink')} onClick={() => navigate(USAGE_LIMITS_LINK)} testId="usage-limits-link" />
+        </AdminBarActions>
+      )}
       {phone ? (
-        // a phone: the range and a Filters button on one row, the filters (and Clear) under it
+        // a phone: the range across the row with the Filters icon at its end, the filters (and Clear) under it
         <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="usage-controls">
-          {rangePill}
-          <PhoneFilters active={Object.values(filters).filter((v) => v !== ALL).length} testId="usage-filters">
+          <div className="flex min-w-0 flex-1 [&>*]:w-full [&_select]:max-w-none [&_select]:flex-1">{rangePill}</div>
+          <PhoneFilters icon framed active={Object.values(filters).filter((v) => v !== ALL).length} testId="usage-filters">
             {groupPill}
             {pills}
             {clearFilters}
