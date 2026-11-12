@@ -44,15 +44,16 @@
 bun run changelog:fold
 
 # 1) 버전을 올린다: server/package.json과 desktop/package.json의 version. 자리는 위 "버전 번호"로 고른다 (예: 0.3.0-beta.1)
+#    main은 리뷰된 PR로만 바뀐다(ruleset "main protection"): dev → main PR을 열고 승인받아 병합한다.
 git commit -am "0.3.0-beta.1"
-git push origin main
 
-# 2) 그 커밋에 태그를 단다. 태그 메시지가 릴리스 노트가 된다(설치의 "새 버전" 안내, GitHub Release).
+# 2) main에 들어간 그 커밋에 태그를 단다. 태그 메시지가 릴리스 노트가 된다(설치의 "새 버전" 안내, GitHub Release).
 git tag -a v0.3.0-beta.1 -m "새 기능: …"
 git push origin v0.3.0-beta.1
 ```
 
 - 태그는 `v` + `server/package.json`의 version과 정확히 같아야 한다. 다르면 아무것도 하지 않고 실패한다.
+- 태그의 커밋은 main에 있어야 한다(리뷰된 커밋만 나간다). 아니면 prepare가 비밀값을 읽기 전에 멈춘다(`is not on main`).
 - 태그에 `-`가 있으면 beta 채널(`v0.3.0-beta.1`, `v0.3.0-rc.1`), 없으면 stable 채널(`v0.3.0`)이다.
 - stable 릴리스는 사흘에 걸쳐 나간다(아래 "단계적 배포"). 모든 서버에 한 번에 내려면 태그 메시지에 `Rollout: all` 한 줄을 넣는다.
 - 주석 없는 태그(`git tag v0.3.0`)도 된다. 그때 피드의 노트는 비고, GitHub Release는 노트를 자동으로 만든다.
@@ -62,7 +63,7 @@ git push origin v0.3.0-beta.1
 
 | 순서 | job | 하는 일 | 비밀값 |
 |---|---|---|---|
-| 1 | prepare | 태그 = 버전 확인, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트, 단계적 배포(`Rollout:` 줄, `release-ci.ts rollout`) | 키 확인 단계만 |
+| 1 | prepare | 태그 = 버전 확인, 태그의 커밋이 main에 있는지, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트, 단계적 배포(`Rollout:` 줄, `release-ci.ts rollout`) | 키 확인 단계만 |
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-office | 사무실 zip(macos-15, 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
@@ -171,7 +172,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
   - 올리는 법: 새 Go를 정한 뒤 한 커밋에서 `versions.json`의 `"go"`, 두 워크플로의 `GO_VERSION`을 같이 바꾼다(`tests/unit/release-ci.test.ts`가
     셋이 같은지 본다). 필요하면 `native/go.mod`의 `go` 줄도. 그 커밋이 들어간 첫 릴리스는 root 프로그램이 바뀌므로 `needsRoot`가 되고,
     서버는 `mycel-update.timer`나 `sudo mycel-ctl update`로 한 번 root 업데이트를 받는다. 보안 패치가 아니면 다른 root 변경과 묶어 올린다.
-- **워크플로를 고친 뒤**: `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/release.yml .github/workflows/ci.yml`
+- **워크플로를 고친 뒤**: `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/release.yml .github/workflows/ci.yml .github/workflows/msstore.yml`
   (shellcheck가 있으면 `-shellcheck $(command -v shellcheck)`도). 스크립트 시험은 `bun test tests/unit/release-ci.test.ts tests/unit/publish-server.test.ts`.
 
 ## 4. 처음 한 번 할 일 (계정, 대표 확인 뒤)
@@ -212,6 +213,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | 어디서 | 상태 | 할 일 |
 |---|---|---|
 | prepare: 태그 ≠ 버전 | 아무것도 안 함 | 태그를 지운다(`git push --delete origin vX && git tag -d vX`). 버전을 고친 커밋에 다시 단다. |
+| prepare: `is not on main` | 아무것도 안 함(비밀값을 읽기 전) | 태그를 지우고, 그 커밋을 리뷰된 PR로 main에 넣은 뒤 main의 커밋에 다시 단다. |
 | prepare: 비밀값 없음, 키 불일치 | 아무것도 안 함 | 비밀값을 고친 뒤 그 run에서 "Re-run all jobs" |
 | test·build-linux (사무실·윈도우 빌드는 아래 "Desktop builds missing") | 아무것도 안 올라감 | 고친 커밋에 **새 버전**으로 태그(예: `0.3.1`, `0.3.0-beta.2`). 태그를 옮기지 않는다. |
 | publish 중간 | 버전 파일 일부만 올라갔을 수 있다. 머리는 그대로라 설치는 영향 없음 | 그 run에서 **"Re-run failed jobs"**. 같은 run의 빌드 결과(7일 보관)를 다시 서명해도 바이트가 같으므로 이어서 올라간다. 올라간 파일을 지우지 않는다. |

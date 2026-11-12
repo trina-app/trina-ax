@@ -1,14 +1,16 @@
 # Microsoft Store package (editions/trina/microsoft-store/README.md): builds the desktop app as an MSIX file on a Windows
 # runner and keeps it as a workflow artifact, to upload in Partner Center. The store signs the package, so no secret is
-# used. Manual run: pick the branch or tag under "Use workflow from" and the store version. A pull request that touches
-# the store files builds a test package (placeholder identity, MSSTORE_TEST=1) to show that the package still builds.
+# used. Manual run: pick a release tag (v0.5.1) under "Use workflow from" and the store version. Only a tag on main
+# builds, and only after ci.yml passed on that tag's commit in this run, so every package sent to the store comes from a
+# reviewed, tested release. A pull request that touches the store files builds a test package (placeholder identity,
+# MSSTORE_TEST=1) to show that the package still builds; the store refuses it.
 name: Microsoft Store package
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Store version x.y.z, higher than the last package sent to the store (e.g. 0.4.0)"
+        description: "Store version x.y.z, higher than the last package sent to the store (e.g. 0.4.0). Run it from a v* tag."
         type: string
         required: true
       test:
@@ -33,8 +35,48 @@ env:
   BUN_VERSION: 1.3.12
 
 jobs:
+  # a manual run: the run's ref is a release tag whose commit is on main (reviewed: ruleset "main protection")
+  release-tag:
+    name: Release tag on main
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      - name: The run is from a v* tag on main
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$REF_TYPE" != tag ] || ! [[ "$TAG" =~ ^v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}(-[0-9A-Za-z]+(\.[0-9A-Za-z]+){0,3})?$ ]]; then
+            echo "::error::run this from a release tag (v0.5.1): choose the tag under 'Use workflow from', not a branch"
+            exit 1
+          fi
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$SHA" --jq .status)
+          case "$status" in
+            identical|behind) echo "$TAG ($SHA) is on main ($status)" ;;
+            *) echo "::error::$TAG ($SHA) is not on main (compare: $status)"; exit 1 ;;
+          esac
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  # the same tests as a release (release.yml's test job): every ci.yml job on the tag's commit
+  test:
+    name: Tests
+    needs: release-tag
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.release-tag.outputs.sha }}
+
   msix:
     name: MSIX package
+    needs: [release-tag, test]
+    # a pull request builds its test package without the tag check and the tests (they did not run: skipped);
+    # a manual run builds only when both passed
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (needs.release-tag.result == 'success' && needs.test.result == 'success')) }}
     runs-on: windows-2025
     timeout-minutes: 45
     env:
@@ -43,6 +85,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          # a manual run builds exactly the tested commit (the pull request: its own merge commit)
+          ref: ${{ needs.release-tag.outputs.sha }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:

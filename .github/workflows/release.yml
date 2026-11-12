@@ -97,6 +97,19 @@ jobs:
         run: |
           bun scripts/release/release-ci.ts tag "$TAG" | tee -a "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
+      # only a reviewed commit ships: main takes changes through a reviewed PR (ruleset "main protection"), so the tagged
+      # commit must be on main. GitHub's compare says "identical" or "behind" when main already contains it (the same
+      # answer as `git merge-base --is-ancestor`, without fetching main's history into this shallow checkout).
+      - name: The tagged commit is on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$SHA" --jq .status)
+          case "$status" in
+            identical|behind) echo "$SHA is on main ($status)" ;;
+            *) echo "::error::$SHA is not on main (compare: $status). Merge the release to main through a reviewed PR, then tag main's commit."; exit 1 ;;
+          esac
       # the staged roll-out (docs/RELEASE-CI.md "단계적 배포"): a "Rollout: all" line in the tag message (taken out of the
       # notes) or the manual run's input publishes a stable release to every server at once; otherwise it is staged
       - name: Release notes (the annotated tag's message; empty for a lightweight tag) and the roll-out

@@ -23,8 +23,9 @@ on:
         required: true
 
 concurrency:
-  # a release's test run has its own group: a push to main never cancels it
-  group: ci-${{ inputs.ref && format('release-{0}', inputs.ref) || github.ref }}
+  # a called run (release.yml, msstore.yml) has its own group per calling workflow: a push to main never cancels it, and
+  # a store package's tests never cancel the release's tests of the same commit (github.workflow is the caller's name)
+  group: ci-${{ inputs.ref && format('call-{0}-{1}', github.workflow, inputs.ref) || github.ref }}
   cancel-in-progress: true
 
 permissions:
