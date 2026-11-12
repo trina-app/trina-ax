@@ -139,10 +139,11 @@ export function ProjectForm({ project, onClose, onSaved }: {
         </Field>
         {!project && (
           <Field label={t('projects.kind')} hint={!mayTeam ? t('projects.teamAdminsOnly') : undefined}>
-            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm" role="radiogroup">
+            {/* phones (QA TC-254): each choice a 44 px row with a 20 px radio */}
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm max-md:gap-y-0" role="radiogroup">
               {(mayTeam ? (['team', 'personal'] as const) : (['personal'] as const)).map((m) => (
-                <label key={m} className="flex items-center gap-1.5">
-                  <input type="radio" name="project-kind" checked={mode === m} onChange={() => setMode(m)} data-testid={`project-kind-${m}`} /> {t(`projects.kind.${m}`)}
+                <label key={m} className="flex items-center gap-1.5 max-md:min-h-11 max-md:gap-2.5">
+                  <input type="radio" name="project-kind" checked={mode === m} onChange={() => setMode(m)} className="max-md:size-5" data-testid={`project-kind-${m}`} /> {t(`projects.kind.${m}`)}
                 </label>
               ))}
             </div>
@@ -165,7 +166,8 @@ export function ProjectForm({ project, onClose, onSaved }: {
           </Field>
         )}
         <Field label={t('projects.instructions')} hint={t('projects.instructionsHint')}>
-          <textarea className={`${inputCls} h-40 resize-y py-2`} value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={50_000} />
+          {/* phones: no resize grip (the sheet scrolls; a finger cannot drag the corner) */}
+          <textarea className={`${inputCls} h-40 resize-y py-2 max-md:resize-none`} value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={50_000} />
         </Field>
         {canShare && (
           <div data-testid="project-share-chats">

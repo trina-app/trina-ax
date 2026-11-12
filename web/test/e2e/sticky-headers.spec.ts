@@ -81,18 +81,28 @@ test("Projects and a project's page keep their top bar while the page scrolls", 
     expect(r.status()).toBe(201)
     id ||= ((await r.json()) as { id: string }).id
   }
-  for (const size of [{ width: 1360, height: 300 }, { width: 390, height: 480 }]) {
-    await page.setViewportSize(size)
-    await page.goto('/projects')
-    const bar = page.locator('[data-sticky-header]').filter({ has: page.getByRole('heading', { level: 1, name: t['projects.title'] }) })
-    await expect(page.getByTestId('project-new')).toBeVisible()
-    await staysPut(bar, false)
-    await expect(page.getByTestId('project-new')).toBeInViewport()
-    await page.goto(`/projects/${id}`)
-    const top = page.getByTestId('project-topline')
-    await expect(top.getByTestId('project-menu')).toBeVisible()
-    await staysPut(top, false)
-    await expect(top.getByTestId('project-menu')).toBeInViewport()
+  await page.setViewportSize({ width: 1360, height: 300 })
+  await page.goto('/projects')
+  const bar = page.locator('[data-sticky-header]').filter({ has: page.getByRole('heading', { level: 1, name: t['projects.title'] }) })
+  await expect(page.getByTestId('project-new')).toBeVisible()
+  await staysPut(bar, false)
+  await expect(page.getByTestId('project-new')).toBeInViewport()
+  await page.goto(`/projects/${id}`)
+  const top = page.getByTestId('project-topline')
+  await expect(top.getByTestId('project-menu')).toBeVisible()
+  await staysPut(top, false)
+  await expect(top.getByTestId('project-menu')).toBeInViewport()
+  // a phone: the top bar holds "+" and the project's "···" (QA TC-254); the page scrolls under it
+  await page.setViewportSize({ width: 390, height: 480 })
+  for (const [to, action, inPage] of [['/projects', 'project-new', 'project-card'], [`/projects/${id}`, 'project-menu', 'project-chats']] as const) {
+    await page.goto(to)
+    const button = page.getByTestId('phone-page-bar').getByTestId(action)
+    await expect(button).toBeVisible()
+    const area = scroller(page.getByTestId(inPage).first())
+    expect(await area.evaluate((el) => el.scrollHeight > el.clientHeight + 40)).toBe(true)
+    await area.evaluate((el) => el.scrollTo(0, el.scrollHeight))
+    await expect.poll(() => area.evaluate((el) => el.scrollTop)).toBeGreaterThan(40)
+    await expect(button).toBeInViewport()
   }
 })
 
