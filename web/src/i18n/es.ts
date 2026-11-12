@@ -5166,4 +5166,10 @@ export const es: Record<MessageKey, string> = {
   "rail.searchChats": "Buscar conversaciones",
   "rail.unreadRooms": "{n, plural, one {# conversación sin leer} other {# conversaciones sin leer}}",
   "rail.pickConversation": "Elija una conversación de la lista o empiece una nueva con +.",
+  "trinaList.folders": "Carpetas",
+  "trinaList.onlyYou": "solo las ve usted",
+  "trinaList.emptyFolder": "Una carpeta para ordenar sus propios chats. Solo la ve usted; no contiene archivos ni instrucciones.",
+  "trinaList.allProjects": "Todos los proyectos",
+  "trinaList.history": "Historial",
+  "projects.askHere": "Preguntar a {name} en este proyecto",
 }

@@ -1,17 +1,21 @@
 // 트리나's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1; behind the server's
 // `navRail` switch). On top "트리나에게 묻기" (a new AI chat, ⇧⌘O; the one word for every AI action, §2.0) and 검색 (⌘K),
 // then the owner's setup row while it shows (onboarding/SetupRow.tsx, on every panel: docs/DECISIONS.md W5). Under them
-// today's Trina history as the old sidebar shows it (nav/HistoryList.tsx with its caps: pins, the latest projects, "모두
-// 보기"; phase P2 brings the final order and server counts), and at its end the quiet rows that were sidebar rows:
-// 프로젝트 (all projects), 예약 작업, 팀 스킬 and 삭제한 기록 (before: the account menu's).
-import { BookMarked, CalendarClock, FolderKanban, Search, Trash2 } from 'lucide-react'
+// the Trina list in its own order with the server's heads (panels/TrinaList.tsx, phase P2: 고정 · 폴더 · 프로젝트 · 모든
+// 프로젝트 · 기타 기록; no five-latest cap, no "모두 보기"), and at its end the quiet rows that were sidebar rows: 예약 작업,
+// 팀 스킬 and 삭제한 기록 (before: the account menu's). The header's filter button (status, last activity, group by, sort)
+// shows the whole history filtered instead (nav/HistoryList.tsx, the chats this window has loaded and "더 보기"), with
+// one line that says what is filtered and a way back.
+import { BookMarked, CalendarClock, Search, Trash2, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { platform } from '../../lib/pwa'
 import { aiName } from '../../lib/tabs'
 import { useUi } from '../../store/ui'
 import { useChatPeek } from '../nav/ChatItem'
-import { HistoryList, SIDEBAR_HISTORY_CAPS } from '../nav/HistoryList'
+import { HistoryList, RecentsMenu, useRecentsView, viewWords, DEFAULT_RECENTS_VIEW } from '../nav/HistoryList'
+import { Tooltip } from '../Tooltip'
+import { TrinaList } from './TrinaList'
 import { SetupRow } from '../onboarding/SetupRow'
 import { AiMark } from '../rooms/AiFace'
 import { PanelFrame, panelRow, panelRowActive } from './PanelFrame'
@@ -25,11 +29,14 @@ export function TrinaPanel() {
   const navigate = useNavigate()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const peek = useChatPeek()
+  const view = useRecentsView()
+  const filtered = view.changed.length > 0
   return (
     <PanelFrame
       title={aiName(t)}
       testId="trina-panel"
       onScroll={peek.hide}
+      actions={<RecentsMenu view={view.view} onChange={view.setView} changed={filtered} always />}
       top={
         <>
           <button type="button" className={`${panelRow} font-medium`} onClick={() => navigate('/')} data-testid="new-chat">
@@ -44,12 +51,23 @@ export function TrinaPanel() {
         </>
       }
     >
-      <HistoryList caps={SIDEBAR_HISTORY_CAPS} onNavigate={noop} peek={peek} />
+      {filtered ? (
+        <>
+          <div className="flex h-8 items-center gap-1 pr-1 pl-3 text-xs text-faint" data-testid="recents-filter-label">
+            <span className="min-w-0 flex-1 truncate">{viewWords(view, t)}</span>
+            <Tooltip label={t('sidebar.filter.clear')}>
+              <button type="button" onClick={() => view.setView(DEFAULT_RECENTS_VIEW)} aria-label={t('sidebar.filter.clear')} className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
+                <X size={12} aria-hidden />
+              </button>
+            </Tooltip>
+          </div>
+          <HistoryList caps={null} onNavigate={noop} peek={peek} viewState={view} bare />
+        </>
+      ) : (
+        <TrinaList peek={peek} />
+      )}
       {peek.card}
       <div className="mt-3 space-y-0.5 border-t border-line pt-2" data-testid="trina-panel-more">
-        <NavLink to="/projects" className={panelRowActive} data-testid="nav-projects">
-          <FolderKanban size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.projects')}</span>
-        </NavLink>
         <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
           <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
         </NavLink>

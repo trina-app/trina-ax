@@ -116,7 +116,26 @@ export const SIDEBAR_HISTORY_CAPS: HistoryCaps = { pins: PINS_SHOWN, latest: LAT
  * computer's sidebar) the capped list with "모두 보기"; `null`, the whole of it (the phone's drawer). `peek` is the
  * hover quick view of the column it sits in (its scroll hides it).
  */
-export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | null; onNavigate: () => void; peek: ChatPeek }) {
+/** The history's filter and sort (four menus), remembered in this browser as what differs from the default. */
+export function useRecentsView() {
+  const [view, setViewState] = useState<RecentsView>(rememberedView)
+  const setView = useCallback((v: RecentsView) => {
+    setViewState(v)
+    remember(VIEW_KEY, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== DEFAULT_VIEW[k]).map((k) => [k, v[k]]))))
+  }, [])
+  const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
+  return { view, setView, changed }
+}
+export type RecentsViewState = ReturnType<typeof useRecentsView>
+/** the choices that differ from the default, in words ("Waiting, Title") */
+export const viewWords = (s: RecentsViewState, t: ReturnType<typeof useT>) => s.changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[s.view[k]])).join(', ')
+export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
+
+/**
+ * `viewState` and `bare` (the rail's Trina panel, docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): the filter lives in
+ * the panel's header, so the list takes its view from there and shows no title row of its own.
+ */
+export function HistoryList({ caps, onNavigate, peek, viewState, bare }: { caps: HistoryCaps | null; onNavigate: () => void; peek: ChatPeek; viewState?: RecentsViewState; bare?: boolean }) {
   const t = useT()
   const capped = !!caps
   // the whole history opened ("모두 보기"), remembered in this browser like the fold
@@ -140,13 +159,10 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
     if (!loaded) void readChats()
   }, [loaded, readChats])
 
-  const [recentsOpen, setRecentsOpen] = useState(() => remembered(OPEN_KEY, ['open', 'closed'] as const, 'open') === 'open')
-  const [view, setViewState] = useState<RecentsView>(rememberedView)
-  const setView = (v: RecentsView) => {
-    setViewState(v)
-    remember(VIEW_KEY, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== DEFAULT_VIEW[k]).map((k) => [k, v[k]]))))
-  }
-  const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
+  const [openState, setRecentsOpen] = useState(() => remembered(OPEN_KEY, ['open', 'closed'] as const, 'open') === 'open')
+  const recentsOpen = bare || openState
+  const own = useRecentsView()
+  const { view, setView, changed } = viewState ?? own
   const requests = useChats((s) => s.requests)
   // session markers as this window sees them: the chats with a card open here, the chat on screen in a visible window
   const cards = useMemo(() => cardChats(requests), [requests])
@@ -206,7 +222,7 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
 
   return (
     <>
-      <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
+      {!bare && <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
         <SidebarSectionTitle open={recentsOpen} onToggle={toggleRecents} controls={listId} testId="recents-toggle">
           {t('sidebar.aiChats', { name: aiName(t) })}
         </SidebarSectionTitle>
@@ -222,7 +238,7 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
           </span>
         )}
         <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
-      </div>
+      </div>}
       <div ref={listRef} id={listId} hidden={!recentsOpen} data-testid="recents-list">
         {/* the chats, and the projects the person sees for their headers (one read): no flat list first */}
         {(!loaded || !byProject.ready) && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
@@ -321,14 +337,14 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
  * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
  * menus sit in <body> (the Recents list scrolls and would clip them); on a narrow screen a submenu takes the menu's
  * place with a way back. A phone (below 768px, the drawer): bottom sheets instead (RecentsSheet). */
-function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+export function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; always?: boolean }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
   return phone ? <RecentsSheet {...props} /> : <RecentsDropdown {...props} />
 }
 
 /** The phone's drawer: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
  * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
-function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; always?: boolean }) {
   const t = useT()
   const [sub, setSub] = useState<ViewKey | null>(null)
   const [ask, setAsk] = useState(0)
@@ -379,7 +395,7 @@ function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange
   )
 }
 
-function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+function RecentsDropdown({ view, onChange, changed, always }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; always?: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState<ViewKey | null>(null)
@@ -462,7 +478,7 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
           aria-expanded={open}
           aria-label={t('sidebar.filter')}
           onClick={() => (open ? close(false) : openMenu())}
-          className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open ? 'bg-hover text-ink opacity-100' : changed ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
+          className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open ? 'bg-hover text-ink opacity-100' : changed || always ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
           data-testid="recents-filter"
         >
           <ListFilter size={15} aria-hidden />

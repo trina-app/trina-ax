@@ -53,6 +53,8 @@ export const reloadAsked = new Emitter<'reset' | 'resync'>()
 /** every chat.updated, also for a chat the chat list does not keep (someone else's shared chat I have not written in):
  * a project's page applies those of its project (pages/Projects.tsx) */
 export const chatChanged = new Emitter<ServerEventData<'chat.updated'>>()
+/** my list folders changed (navFolders.changed, docs/DECISIONS.md "List folders"): the Trina list reads its groups again */
+export const navFoldersChanged = new Emitter<'chats' | 'rooms'>()
 /** an answer of this chat took a step or ended (message.step / message.done), also for a chat no screen has open: the
  * company profile step asks for its draft's pages right away instead of at its next poll */
 export const chatActivity = new Emitter<string>()
@@ -257,6 +259,9 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       return
     case 'browser.cancel':
       relay?.cancel(ev.data.callId)
+      return
+    case 'navFolders.changed':
+      navFoldersChanged.emit(ev.data.kind)
       return
     case 'session.ended':
       // after the person's own sign-out in this window the event (or the 4401 close) can still arrive: keep that screen

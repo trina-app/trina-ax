@@ -46,6 +46,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
+import { useNavRail } from '../lib/navRail'
 import { formatRelative } from '../lib/format'
 import { firstParagraph } from '../lib/markdown'
 import { openTeamFile } from '../lib/sidePanel'
@@ -525,6 +526,8 @@ export function ProjectHome() {
 
 function ProjectPage() {
   const t = useT()
+  // the new navigation: every AI action is "Ask Trina" (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.0)
+  const navRail = useNavRail()
   const locale = useLocale()
   const { projectId } = useParams()
   const navigate = useNavigate()
@@ -804,7 +807,7 @@ function ProjectPage() {
                 )}
               </div>
             ) : (
-              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t('projects.newChat')} autoFocus={newChat} />
+              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={navRail ? t('projects.askHere', { name: aiName(t) }) : t('projects.newChat')} autoFocus={newChat} />
             )}
           </div>
           {(!outside || hasMembers) && (

@@ -5210,6 +5210,12 @@ export const ko = {
   "rail.searchChats": "대화 검색",
   "rail.unreadRooms": "안 읽은 대화 {n}개",
   "rail.pickConversation": "목록에서 대화를 고르거나, +로 새 대화를 시작하세요.",
+  "trinaList.folders": "폴더",
+  "trinaList.onlyYou": "나만 보여요",
+  "trinaList.emptyFolder": "나만 보는 정리용 폴더예요. 파일이나 지침은 없어요.",
+  "trinaList.allProjects": "모든 프로젝트",
+  "trinaList.history": "기록",
+  "projects.askHere": "이 프로젝트에서 {name}에게 묻기",
 } as const
 
 export type MessageKey = keyof typeof ko

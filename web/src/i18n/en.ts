@@ -5210,4 +5210,10 @@ export const en: Record<MessageKey, string> = {
   "rail.searchChats": "Search conversations",
   "rail.unreadRooms": "{n, plural, one {# conversation with unread messages} other {# conversations with unread messages}}",
   "rail.pickConversation": "Pick a conversation from the list, or start a new one with +.",
+  "trinaList.folders": "Folders",
+  "trinaList.onlyYou": "only you see them",
+  "trinaList.emptyFolder": "A folder for sorting your own chats. Only you see it; it holds no files or instructions.",
+  "trinaList.allProjects": "All projects",
+  "trinaList.history": "History",
+  "projects.askHere": "Ask {name} in this project",
 }

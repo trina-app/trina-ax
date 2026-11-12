@@ -11622,6 +11622,45 @@ under it) and W5 (the setup row is at the top of every list panel).
   `web/test/e2e/nav-rail-flag.spec.ts` (the rail only while on).
 - Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
 
+## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
+
+넣을 곳: Team AX core (`server/src/chat/chat-groups.ts`, `shared/src/api/chats.ts` `listChatGroups`,
+`web/src/components/panels/TrinaList.tsx`, `web/src/store/chatGroups.ts`), 이유: the AI history is core chat UI. Plan:
+`docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.3 and §4.7 (approved by the owner 2026-11-13). Only while the server's
+`navRail` switch is on; with it off the sidebar's history is unchanged. On that path it supersedes the caps of "Trina
+history by project" (five projects, the five latest, "모두 보기") and the P1 panel's 프로젝트 row.
+
+- **Order**: 고정 · 폴더 · 나만 보여요 · 프로젝트 · 모든 프로젝트 (N) · 기타 기록, then 예약 작업 · 팀 스킬 · 삭제한 기록.
+  Each chat shows in one place: pinned › one of my folders › its project › other. Folders show read-only (their name,
+  rows, count); making, renaming and filling them is phase P4b.
+- **Projects**: groups only for projects I can see with my activity in the last 14 days, at most 8, newest first; the
+  rest are behind "모든 프로젝트 (N)" (N = every project I can see). A group with no activity of mine for 7 days starts
+  folded; a fold I choose wins after that (`mycel.trina.groupFolds.<user id>`). Three rows, then "N개 더 보기" opens the
+  group in place (pages of `GET /api/chats?projectId=`, only my list's chats: mine and the shared ones I wrote in). The
+  header uses a board icon (`SquareKanban`), not a folder: a project is not one of my folders. Its name opens the
+  project (트리나 stays lit); + is "'<project>'에서 트리나에게 묻기", and the project page's box says "이 프로젝트에서
+  트리나에게 묻기" (flag on only). "+ 새 프로젝트" sits on the 프로젝트 label, or as a quiet row when no group shows.
+- **No project group** (a member who never uses projects): no 프로젝트 label, the history's label is **"기록"**, not
+  "기타 기록" (which only makes sense under project groups).
+- **Heads from the server**: `GET /api/chats/groups` returns my pins, my chat folders and the project groups, each with
+  `count`, the first three rows and `marked` (the chats of the group that show a session marker now, with what the
+  marker is made of, so a folded header or "N개 더 보기" shows the strongest mark of rows not loaded), `projectsMore`, and
+  page 1 of the other chats (next pages `GET /api/chats?other=1`). Nothing is counted from the pages a window happens to
+  have loaded. Same set as my chat list: no room session, no server draft, a shared chat only while I see its project, a
+  chat made only to hold attachments left out. A project I cannot see now is never named (my own chats in it are with
+  the other chats); nobody else's folders. The page reads it again 0.6 s after a chat change (`chat.updated`), on
+  `navFolders.changed` (now dispatched), on a server reload and an access change, and on focus after a minute; rows use
+  the chats store's live copy when it has one.
+- **Filter**: the button sits in the panel's header (always visible). Anything not at the default shows the whole
+  history filtered as before (the loaded chats and "더 보기") under one line naming the choices and a reset ✕.
+- **Removed** on this path: the five-latest cap and "모두 보기" / "접기", the 프로젝트 quiet row of P1.
+- Decided without the owner: "모든 프로젝트" hides when I can see no project; "+ 새 프로젝트" opens `/projects?new=1`
+  (the existing form); "N개 더 보기" pages in place rather than opening the project.
+- Tests: `tests/unit/b-chat-groups.test.ts`, `tests/security/chat-groups.test.ts`, the permission matrix case
+  `listChatGroups`, `web/test/e2e/trina-panel.spec.ts`.
+- Version impact: none while the switch is off (an additive endpoint and query flag; no changelog fragment, per
+  `changes/README.md`).
+
 ## Session markers (feat/session-status-v2, 2026-11-07)
 
 넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,

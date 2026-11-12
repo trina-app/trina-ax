@@ -53,7 +53,9 @@ test('the rail replaces the sidebar; four places in order; 트리나 and 대화 
   // the old sidebar's seven rows: ask and search on top of 트리나's list, the rest at its end; Files and Activity are places
   await expect(page.getByTestId('trina-panel').getByTestId('new-chat')).toContainText('트리나에게 묻기')
   await expect(page.getByTestId('trina-panel').getByTestId('nav-search')).toBeVisible()
-  for (const row of ['nav-projects', 'nav-scheduled', 'nav-skills', 'nav-trash']) await expect(page.getByTestId('trina-panel').getByTestId(row)).toBeVisible()
+  for (const row of ['nav-scheduled', 'nav-skills', 'nav-trash']) await expect(page.getByTestId('trina-panel').getByTestId(row)).toBeVisible()
+  // projects are in the list (phase P2, trina-panel.spec.ts): "모든 프로젝트" or, with none, "+ 새 프로젝트"
+  await expect(page.getByTestId('trina-panel').getByTestId('trina-all-projects').or(page.getByTestId('trina-panel').getByTestId('trina-new-project')).first()).toBeVisible()
   await expect(page.getByTestId('nav-files')).toHaveCount(0)
   await expect(page.getByTestId('nav-inbox')).toHaveCount(0)
   expect(await width(page, 'rail')).toBe(72)

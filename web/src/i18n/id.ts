@@ -5210,4 +5210,10 @@ export const id: Record<MessageKey, string> = {
   "rail.searchChats": "Cari percakapan",
   "rail.unreadRooms": "{n} percakapan belum dibaca",
   "rail.pickConversation": "Pilih percakapan dari daftar, atau mulai yang baru dengan +.",
+  "trinaList.folders": "Folder",
+  "trinaList.onlyYou": "hanya Anda yang melihat",
+  "trinaList.emptyFolder": "Folder untuk merapikan obrolan Anda sendiri. Hanya Anda yang melihatnya; tidak berisi file atau instruksi.",
+  "trinaList.allProjects": "Semua proyek",
+  "trinaList.history": "Riwayat",
+  "projects.askHere": "Tanya {name} di proyek ini",
 }

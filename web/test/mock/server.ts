@@ -5596,6 +5596,24 @@ export class MockServer {
       })
       return { ...out, items }
     })
+    // the Trina list's groups (server/src/chat/chat-groups.ts), from the viewer's own list: pinned › project › other (the
+    // mock has no list folders); the projects with activity in the last 14 days, at most 8; `marked` the rows that mark
+    h.listChatGroups = (c) => {
+      const all = (h.listChats!({ ...c, query: {} }) as { items: Chat[] }).items.filter((x) => !(!x.title && x.createdAt === x.updatedAt && x.runState === 'idle'))
+      const sees = (id: string | null) => { const p = id ? this.projects.find((x) => x.id === id) : undefined; return p && !p.inTrash && this.projectSees(p, c.user) ? p : undefined }
+      const newest = (list: Chat[]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
+      const pinned = all.filter((x) => x.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!))
+      const rest = newest(all.filter((x) => !x.pinnedAt))
+      const by = new Map<string, Chat[]>()
+      const other: Chat[] = []
+      for (const x of rest) { const p = sees(x.projectId); if (p) (by.get(p.id) ?? by.set(p.id, []).get(p.id)!).push(x); else other.push(x) }
+      const since = new Date(Date.now() - 14 * 86_400_000).toISOString(), fold = new Date(Date.now() - 7 * 86_400_000).toISOString()
+      const marks = (list: Chat[]) => list.filter((x) => x.waiting || x.unseen || x.runState !== 'idle').map((x) => ({ id: x.id, runState: x.runState, ...(x.waiting ? { waiting: x.waiting } : {}), ...(x.unseen ? { unseen: x.unseen } : {}), ...(x.lastOutcome ? { lastOutcome: x.lastOutcome } : {}) }))
+      const projects = [...by.entries()].filter(([, l]) => l[0]!.updatedAt >= since).sort((a, b) => b[1][0]!.updatedAt.localeCompare(a[1][0]!.updatedAt)).slice(0, 8)
+        .map(([id, l]) => ({ projectId: id, name: sees(id)!.name, lastActivityAt: l[0]!.updatedAt, folded: l[0]!.updatedAt < fold, count: l.length, top: l.slice(0, 3), marked: marks(l) }))
+      const visible = this.projects.filter((p) => !p.inTrash && this.projectSees(p, c.user)).length
+      return { pinned, folders: [], projects, projectsMore: Math.max(0, visible - projects.length), other: { items: other.slice(0, 50), nextCursor: null } }
+    }
     over('createChat', (c, base) => {
       const out = base(c) as { status: number; body: Chat }
       this.chatOwners.set(out.body.id, c.user.id)

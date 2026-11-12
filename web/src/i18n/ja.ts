@@ -5166,4 +5166,10 @@ export const ja: Record<MessageKey, string> = {
   "rail.searchChats": "会話を検索",
   "rail.unreadRooms": "{n, plural, one {未読の会話#件} other {未読の会話#件}}",
   "rail.pickConversation": "リストから会話を選ぶか、+ で新しい会話を始めてください。",
+  "trinaList.folders": "フォルダ",
+  "trinaList.onlyYou": "自分だけに表示",
+  "trinaList.emptyFolder": "自分のチャットを整理するためのフォルダです。自分だけに表示され、ファイルや指示は入っていません。",
+  "trinaList.allProjects": "すべてのプロジェクト",
+  "trinaList.history": "履歴",
+  "projects.askHere": "このプロジェクトで{name}に聞く",
 }

@@ -76,7 +76,46 @@ export const ListChatsQuery = PageQuery.extend({
   /** only my chats in this list folder of mine (docs/DECISIONS.md "List folders"), newest first; another person's
    * folder answers 404. Not with projectId or trash. */
   folderId: Uuid7.optional(),
+  /** only the Trina list's "Other chats" (GET /api/chats/groups `other`, its next pages): my list's chats in no project
+   * I can see and in none of my list folders, pinned ones left out. Not with q, projectId, folderId, sideRoomId or trash. */
+  other: QueryBool.optional(),
 })
+
+// ---------------- the Trina list's groups (GET /api/chats/groups) ----------------
+/** Project groups in the Trina list: the projects with my activity in the last CHAT_GROUPS_RECENT_DAYS days, at most
+ * this many, the most recent first (the rest are behind "All projects"). */
+export const CHAT_GROUPS_PROJECTS_MAX = 8
+export const CHAT_GROUPS_RECENT_DAYS = 14
+/** a project group with no activity of mine for this many days starts folded */
+export const CHAT_GROUPS_FOLD_DAYS = 7
+/** rows of each group that come with it (`top`), the most recently active first */
+export const CHAT_GROUPS_TOP = 3
+/** A chat of a group that shows a session marker now (docs/DECISIONS.md "Session markers"): what the marker is made of,
+ * so a folded header or a group's "N more" shows the strongest mark of rows that are not in `top`. */
+export const ChatMark = Chat.pick({ id: true, runState: true, waiting: true, unseen: true, lastOutcome: true })
+export type ChatMark = z.infer<typeof ChatMark>
+const GroupHead = {
+  /** every chat of the group I can open now (never one I cannot), pinned ones left out (they are under `pinned`) */
+  count: z.number().int().nonnegative(),
+  /** its first CHAT_GROUPS_TOP chats, the most recently active first */
+  top: z.array(Chat),
+  /** the chats of the group that show a marker now, `top`'s included */
+  marked: z.array(ChatMark),
+}
+export const ChatGroups = z.object({
+  /** my pinned chats (the most recently pinned first), as the first page of GET /api/chats has them */
+  pinned: z.array(Chat),
+  /** my chat list folders in their order (docs/DECISIONS.md "List folders"), each with what I can open in it now */
+  folders: z.array(z.object({ id: Uuid7, name: z.string(), position: z.number().int().nonnegative(), ...GroupHead })),
+  /** the projects I can see with my activity in the last 14 days, the most recent first, at most 8. A project I cannot
+   * see now is never named: my chats in it are in `other`. */
+  projects: z.array(z.object({ projectId: Uuid7, name: z.string(), lastActivityAt: IsoTime, folded: z.boolean(), ...GroupHead })),
+  /** the projects I can see that are not in `projects` (behind "All projects") */
+  projectsMore: z.number().int().nonnegative(),
+  /** page 1 of my other chats: in no project I can see and in no folder of mine (the next pages: GET /api/chats?other=1) */
+  other: page(Chat),
+})
+export type ChatGroups = z.infer<typeof ChatGroups>
 export const CreateChatBody = z.object({
   projectId: Uuid7.nullable().optional(),
   /** a side chat of this room (✦ Trina, docs/DECISIONS.md "Trina side chat"): I must be in the room; never with a
@@ -380,6 +419,7 @@ export const PutProjectParticipantsBody = z.object({ participants: z.array(Proje
 export const CHATS = {
   oftenAsked: endpoint({ method: 'GET', path: '/api/questions/often-asked', auth: 'user', owner: 'B', response: OftenAsked, summary: 'Home’s "what my group often asks": generic sentences that 3 or more people of the caller’s group (else the team) asked in a similar way, rewritten once a day; never who asked, how many or when. Empty while the team setting is off or there is too little data.' }),
   listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1: my own and the shared chats I deleted, while I may restore them). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount). Without q and trash, the first page starts with my pinned chats of that list (pinnedAt, the most recently pinned first) and the pages after it leave them out.' }),
+  listChatGroups: endpoint({ method: 'GET', path: '/api/chats/groups', auth: 'user', owner: 'B', response: ChatGroups, summary: 'My Trina list in one read: my pinned chats, my chat folders, the projects I can see with my activity in the last 14 days (at most 8, the most recent first; projectsMore counts the rest I can see), each folder and project with how many of its chats I can open now, its first 3 and the ones that show a marker now, and page 1 of my other chats (next pages: GET /api/chats?other=1). Only what my own chat list holds and only projects I can see now; nobody else\'s folders.' }),
   createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project). In a project that shares its chats it is a shared chat (never in a personal project or while safe operations are on).' }),
   chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
   getChat: endpoint({ method: 'GET', path: '/api/chats/:id', auth: 'user', owner: 'B', response: Chat, summary: 'One own chat, or a shared project chat I can see.' }),
