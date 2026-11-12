@@ -58,22 +58,23 @@ export function readProjectList(o: { minAgeMs?: number; covers?: readonly string
   if (o.minAgeMs && lastRead && Date.now() - lastRead < o.minAgeMs) return Promise.resolve()
   for (const id of o.covers ?? []) askedFor.add(id)
   const mine = generation
-  const done = () => {
+  // a failed read does not count as one for `minAgeMs`: the window coming back to the front tries again at once
+  const done = (ok: boolean) => {
     if (mine !== generation) return
     inFlight = null
-    lastRead = Date.now()
+    if (ok) lastRead = Date.now()
   }
   inFlight = api.call(API.listProjects).then(
     (r) => {
       if (mine !== generation) return
-      done()
+      done(true)
       useProjects.getState().put(...r.items)
       useProjects.setState({ listed: new Set(r.items.map((p) => p.id)) })
     },
     // nothing known: every chat is with the other chats (no name is ever guessed)
     () => {
       if (mine !== generation) return
-      done()
+      done(false)
       useProjects.setState((s) => ({ listed: s.listed ?? new Set() }))
     },
   )

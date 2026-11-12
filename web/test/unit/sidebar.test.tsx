@@ -1372,8 +1372,8 @@ describe('Trina history by project (docs/DECISIONS.md "Trina history by project"
     }
   })
 
-  test('+ on a project\'s header opens its page ready for a new chat; none on the other chats or on a project in the trash', async () => {
-    routes = { 'GET /api/projects': () => json({ items: [project(1), project(2, { inTrash: true }), ...[3, 4, 5, 6].map((n) => project(n))] }) }
+  test('+ on a project\'s header opens its page ready for a new chat; none on the other chats, on a project in the trash or on one I only manage', async () => {
+    routes = { 'GET /api/projects': () => json({ items: [project(1), project(2, { inTrash: true }), project(3, { member: false }), ...[4, 5, 6].map((n) => project(n))] }) }
     let path = ''
     let state: unknown = null
     const Here = () => { const l = useLocation(); path = l.pathname; state = l.state; return null }
@@ -1383,6 +1383,7 @@ describe('Trina history by project (docs/DECISIONS.md "Trina history by project"
       const plus = groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-new"]')!
       expect(plus.getAttribute('aria-label')).toBe(ko('history.group.newChat', { name: 'Acme 1', ai: aiName }))
       expect(groupNamed(m, 'Acme 2').querySelector('[data-testid="history-group-new"]')).toBeNull()
+      expect(groupNamed(m, 'Acme 3').querySelector('[data-testid="history-group-new"]')).toBeNull()
       expect(groupNamed(m, ko('history.other')).querySelector('[data-testid="history-group-new"]')).toBeNull()
       await m.click(plus)
       expect(path).toBe(`/projects/${pid(1)}`)

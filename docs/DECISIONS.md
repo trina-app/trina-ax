@@ -23889,10 +23889,10 @@ and **supersedes** two earlier decisions:
   drawer the date groups as before ("Group by: Project" with nothing to group shows dates).
 - **The header**, small and grey (12 px, `text-faint`): the project's name (a link to its page), a folder icon, ▾ (folds
   the group). **+** at its right end on hover and keyboard focus, always on a touch screen (44 px on a phone): it opens
-  the project's page with its "이 프로젝트에서 채팅" box focused. Its name is **"'<project>'에서 트리나에게 묻기" / "Ask
-  Trina in <project>"**, the AI action's one name (navigation plan `docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.0;
-  "새 채팅" leaves navigation) (with a mouse; a phone's keyboard does not jump up), the
-  same as starting there; the word leaves that history entry once the box has it, so Back or a reload do not focus it
+  the project's page with its "이 프로젝트에서 채팅" box focused (with a mouse; a phone's keyboard does not jump up), the
+  same as starting there. Its name is **"'<project>'에서 트리나에게 묻기" / "Ask Trina in <project>"**, the AI action's one
+  name everywhere (the navigation redesign plan, §2.0, added to the repo with the `navRail` flag as
+  `docs/AGENTS/plan/20261112-1839-nav-rail.md`; "새 채팅" leaves navigation); the word leaves that history entry once the box has it, so Back or a reload do not focus it
   again. The name's link is as tall as the header (28 px, 44 px on a phone); ▾ is a 24 px button (44 px to a finger).
   On a computer + shows on hover and on keyboard focus only, not on the focus a click on ▾ leaves (folding would hide
   the mark it just showed); where + always shows, the mark sits left of it. No + on the other chats (that is 트리나에게 묻기) nor on a project whose folder is in the
