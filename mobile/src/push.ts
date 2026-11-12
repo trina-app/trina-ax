@@ -13,7 +13,7 @@ import * as Crypto from 'expo-crypto'
 import { LABEL_ITEM, LABEL_SERVICE, LabelStore } from './labels'
 import { tappedNotificationPath, type PushEnvironment, type PushPermission, type PushToken } from './protocol'
 import { permissionFrom } from './permission'
-import { AppBadge, askBadgeAgain, PERMISSION_REQUEST } from './badge'
+import { AppBadge, askBadgeAgain, PERMISSION_REQUEST, setsIconNumber } from './badge'
 
 export const CHANNEL_ID = 'default'
 // set once this app has asked the OS (src/permission.ts: Android tells "not asked yet" from "turned off" by it)
@@ -118,11 +118,13 @@ function listenForTaps(teamSince: () => number, device: () => string | null, ope
   return () => sub.remove()
 }
 
-/** The app icon's number (badge-v1, src/badge.ts). Never throws: a build or launcher without badges changes nothing. */
-export const appBadge = new AppBadge(async n => { if (pushBuilt()) await Notifications.setBadgeCountAsync(n) })
+/** The app icon's number (badge-v1, src/badge.ts). Never throws: a build or launcher without badges changes nothing.
+ * iPhone only (setsIconNumber): on Android setBadgeCountAsync is never called, not even with 0, and the launcher counts
+ * the notifications in the tray. */
+export const appBadge = new AppBadge(async n => { if (pushBuilt() && setsIconNumber(Platform.OS)) await Notifications.setBadgeCountAsync(n) })
 
 /** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen,
- * and its number goes from the icon. */
+ * and its number goes from the icon (an iPhone's; on Android the cleared tray clears the launcher's count). */
 export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}); void appBadge.clear() }
 
 /** The keychain item the notification extension reads (src/labels.ts): only on an iPhone build with the extension (the

@@ -1222,8 +1222,6 @@ export const ja: Record<MessageKey, string> = {
   'inbox.open': 'アクティビティを開く',
   // Activity (pages/Activity.tsx): the notices as a page of their own, like Slack's
   'feed.tab.all': 'すべて',
-  'feed.tab.dms': 'DM',
-  'feed.tab.dmsShort': 'DM',
   'feed.tab.mentions': 'メンション',
   'feed.tab.threads': 'スレッド',
   'feed.unreads': '未読',
@@ -2887,6 +2885,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.chatgpt.step1': "このアドレスを開いてください",
   'credentials.chatgpt.step2': "このコードを入力してください（15分以内）",
   'credentials.chatgpt.step3': "チームが使用するChatGPTアカウントでログインして承認してください。",
+  'credentials.chatgpt.step3Own': "ご自身のChatGPTアカウントでログインして承認してください。",
   'credentials.chatgpt.waiting': "待機中…",
   'credentials.chatgpt.starting': "ログインを準備中…",
   'credentials.chatgpt.done': "接続済み · ChatGPT {plan}",

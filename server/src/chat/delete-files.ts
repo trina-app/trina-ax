@@ -18,6 +18,7 @@ import { z } from 'zod'
 import { audit } from '../admin/audit'
 import { teamTimeZone } from '../admin/settings'
 import { ToolError } from '../policy/errors'
+import { zonedDay } from '../system/time-zone'
 import { confidentialChat } from '../safe-ops/confidential'
 import { componentC } from '../team-files/component'
 import type { AiTrashPlan } from '../team-files/service'
@@ -102,6 +103,13 @@ const cardStates = new WeakMap<object, CardState>()
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
 const result = (text: string, summary: string, isError = true) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}), summary: `${DELETE_FILES_TOOL} -> ${summary}` })
+
+/** The day an item can be restored until, as the AI is told it: the team's day ("YYYY-MM-DD" in its time zone), the one
+ * the card and the trash list show, not the UTC day (near midnight in a zone east of UTC that was a day earlier, QA
+ * TC-015). */
+export function restoreUntilDay(purgeAt: string, timeZone: string): string {
+  return zonedDay(new Date(purgeAt), timeZone)
+}
 
 /** The card: what goes (every path in full, what each folder holds), whose files they are, who loses them, until when. */
 export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now = Date.now(), place: (path: string) => string = (p) => p): { question: string; details: { label: string; text: string; collapsedAt?: number; noSize?: boolean }[] } {
@@ -246,10 +254,11 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     if (!moved) {
       return result(`${NONE}: ${done.changed.length ? `${done.changed.map(neutralizeTags).join(', ')} changed after the card was shown (a file or folder was added, removed or changed, or who can see it or the trash setting changed). Ask again with one call; the user confirms the current state on a new card` : done.failed.map((f) => `${neutralizeTags(f.path)}: ${neutralizeTags(f.error)}`).join('; ')}.`, done.changed.length ? 'changed after the card' : 'failed')
     }
-    const until = done.trashed[0]?.purgeAt.slice(0, 10)
+    const timeZone = teamTimeZone(rt.db)
+    const until = done.trashed[0] && restoreUntilDay(done.trashed[0].purgeAt, timeZone)
     const text = [
       done.trashed.length ? `Moved to the team trash (${done.trashed.length}):\n${done.trashed.map((x) => `- ${neutralizeTags(x.path)}${x.changed ? ' (it changed while it moved and could not go back: everything in it went to the trash; tell the user to check it there)' : ''}`).join('\n')}` : '',
-      until ? `The user can restore each item until ${until} on the Files screen › Trash (in their app: ${DELETE_TEXT.where[L]}); an admin can empty the trash before then. Tell the user what went and how to restore it.` : '',
+      until ? `The user can restore each item until ${until} (in the team's time zone, ${timeZone}) on the Files screen › Trash (in their app: ${DELETE_TEXT.where[L]}); an admin can empty the trash before then. Tell the user what went and how to restore it.` : '',
       // a double fault (TeamFiles.remove): moved, but the trash list could not record it; the server log says where it is
       done.stranded.length ? `Moved out of its place but not listed in the trash (the server could not record it; it is kept in the server's trash storage, and the server log says where): ${done.stranded.map((x) => neutralizeTags(x.path)).join(', ')}. Tell the user it was removed from its folder and that an admin can recover it; it is not in Files › Trash.` : '',
       done.changed.length ? `Not moved, changed after the card was shown (left where it was): ${done.changed.map(neutralizeTags).join(', ')}.` : '',

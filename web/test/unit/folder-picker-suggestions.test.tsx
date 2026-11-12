@@ -63,6 +63,18 @@ test('suggested on top with ✕, then recent; a row picks the folder; ✕ hides 
   } finally { await m.unmount() }
 })
 
+test('✕ also takes the folder out of Recent, where it would still read as suggested (QA 2026-11-13)', async () => {
+  hints = { suggested: [{ path: 'shared/quotes', confidence: 0.9 }], recent: [{ path: 'shared/quotes' }, { path: 'shared/minutes' }] }
+  const m = await mount(<FolderPicker open title="Move" confirmLabel="Move here" initial="shared" suggestFor={['shared/q1.xlsx']} onPick={() => {}} onClose={() => {}} />)
+  try {
+    await m.until(() => m.find('move-suggested'), 'the suggestions')
+    await m.click(m.get('move-suggested').querySelector('[data-testid="move-hint-dismiss"]') as never)
+    await m.until(() => !m.find('move-suggested'), 'the suggestion gone')
+    expect(m.get('move-recent').textContent).not.toContain('quotes')
+    expect(m.get('move-recent').querySelectorAll('[data-testid="move-hint"]')).toHaveLength(1)
+  } finally { await m.unmount() }
+})
+
 test('no hints: no sections; not a move: never asked', async () => {
   hints = { suggested: [], recent: [] }
   let m = await mount(<FolderPicker open title="Move" confirmLabel="Move here" suggestFor={['shared/x.bin']} onPick={() => {}} onClose={() => {}} />)

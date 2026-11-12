@@ -1250,8 +1250,6 @@ export const en: Record<MessageKey, string> = {
   'inbox.open': 'Open Activity',
   // Activity (pages/Activity.tsx): the notices as a page of their own, like Slack's
   'feed.tab.all': 'All',
-  'feed.tab.dms': 'DMs',
-  'feed.tab.dmsShort': 'DMs',
   'feed.tab.mentions': 'Mentions',
   'feed.tab.threads': 'Threads',
   'feed.unreads': 'Unreads',
@@ -2928,6 +2926,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.chatgpt.step1': 'Open this address',
   'credentials.chatgpt.step2': 'Enter this code (within 15 minutes)',
   'credentials.chatgpt.step3': 'Sign in with the ChatGPT account the team will use and approve.',
+  'credentials.chatgpt.step3Own': 'Sign in with your own ChatGPT account and approve.',
   'credentials.chatgpt.waiting': 'Waiting…',
   'credentials.chatgpt.starting': 'Preparing the sign-in…',
   'credentials.chatgpt.done': 'Connected · ChatGPT {plan}',

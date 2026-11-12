@@ -1250,8 +1250,6 @@ export const id: Record<MessageKey, string> = {
   'inbox.open': 'Buka Aktivitas',
   // Activity (pages/Activity.tsx): the notices as a page of their own, like Slack's
   'feed.tab.all': 'Semua',
-  'feed.tab.dms': 'DM',
-  'feed.tab.dmsShort': 'DM',
   'feed.tab.mentions': 'Mention',
   'feed.tab.threads': 'Thread',
   'feed.unreads': 'Belum dibaca',
@@ -2928,6 +2926,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.chatgpt.step1': 'Buka alamat ini',
   'credentials.chatgpt.step2': 'Masukkan kode ini (dalam 15 menit)',
   'credentials.chatgpt.step3': 'Masuk dengan akun ChatGPT yang akan dipakai tim lalu setujui.',
+  'credentials.chatgpt.step3Own': 'Masuk dengan akun ChatGPT Anda sendiri lalu setujui.',
   'credentials.chatgpt.waiting': 'Menunggu…',
   'credentials.chatgpt.starting': 'Menyiapkan proses masuk…',
   'credentials.chatgpt.done': 'Terhubung · ChatGPT {plan}',

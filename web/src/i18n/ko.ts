@@ -1249,8 +1249,6 @@ export const ko = {
   'inbox.open': '활동 열기',
   // Activity (pages/Activity.tsx): the notices as a page of their own, like Slack's
   'feed.tab.all': '전체',
-  'feed.tab.dms': 'DM',
-  'feed.tab.dmsShort': 'DM',
   'feed.tab.mentions': '멘션',
   'feed.tab.threads': '스레드',
   'feed.unreads': '안 읽음',
@@ -2927,6 +2925,7 @@ export const ko = {
   'credentials.chatgpt.step1': '이 주소를 여세요',
   'credentials.chatgpt.step2': '이 코드를 넣으세요 (15분 안에)',
   'credentials.chatgpt.step3': '팀이 쓸 ChatGPT 계정으로 로그인해 승인하세요.',
+  'credentials.chatgpt.step3Own': '내 ChatGPT 계정으로 로그인해 승인하세요.',
   'credentials.chatgpt.waiting': '기다리는 중…',
   'credentials.chatgpt.starting': '로그인 준비 중…',
   'credentials.chatgpt.done': '연결했어요 · ChatGPT {plan}',

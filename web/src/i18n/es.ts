@@ -1222,8 +1222,6 @@ export const es: Record<MessageKey, string> = {
   'inbox.open': 'Abrir Actividad',
   // Activity (pages/Activity.tsx): the notices as a page of their own, like Slack's
   'feed.tab.all': 'Todo',
-  'feed.tab.dms': 'Mensajes directos',
-  'feed.tab.dmsShort': 'MD',
   'feed.tab.mentions': 'Menciones',
   'feed.tab.threads': 'Hilos',
   'feed.unreads': 'No leídos',
@@ -2887,6 +2885,7 @@ export const es: Record<MessageKey, string> = {
   'credentials.chatgpt.step1': "Abra esta dirección",
   'credentials.chatgpt.step2': "Introduzca este código (en 15 minutos)",
   'credentials.chatgpt.step3': "Inicie sesión con la cuenta de ChatGPT que usará el equipo y autorice.",
+  'credentials.chatgpt.step3Own': "Inicie sesión con su propia cuenta de ChatGPT y autorice.",
   'credentials.chatgpt.waiting': "Esperando…",
   'credentials.chatgpt.starting': "Preparando el inicio de sesión…",
   'credentials.chatgpt.done': "Conectado · ChatGPT {plan}",
