@@ -1848,7 +1848,8 @@ export class TurnExec {
    *   file, a copy, a move or rename into it) by an AI turn;
    * - a folder's name (a listing's sub-folder, a folder on the way to a file shown): its newest create, and the first
    *   event at or under it (a folder made on the way to a new file has no event of its own).
-   * `folders`: folders whose files' names were shown (TurnFiles.namePaths); `subfolders`: folders shown by name
+   * `folders`: folders whose files' names were shown (TurnFiles.namePaths; a file there, a path a room call named, is a
+   * file's name); `subfolders`: folders shown by name
    * (TurnFiles.listedNames); `files`: files shown (TurnFiles.readPaths). Each is looked at once per turn.
    */
   private noteOwnNames(folders: Iterable<string>, subfolders: Iterable<string>, files: Iterable<string>) {
@@ -1857,7 +1858,15 @@ export class TurnExec {
     const items: [kind: 'file' | 'folder' | 'children', path: string][] = []
     const above = (p: string) => { const segs = p.split('/'); for (let n = 3; n < segs.length; n++) items.push(['folder', segs.slice(0, n).join('/')]) }
     for (const f of files) if (inside(f)) { items.push(['file', f]); above(f) }
-    for (const d of folders) if (d === root || inside(d)) { items.push(['children', d]); if (inside(d)) { items.push(['folder', d]); above(d) } }
+    // a room session's paths also hold each path a call named (noteRoomTool): one that is a file shows its own name, never
+    // a folder's file names (read as a folder it failed, and the catch below marked the whole answer as outside: QA TC-509)
+    const isFile = (p: string) => { try { return fs.lstatSync(path.join(this.rt.files.fx.root, ...p.split('/'))).isFile() } catch { return false } }
+    for (const d of folders) {
+      if (d !== root && !inside(d)) continue
+      if (inside(d) && isFile(d)) { items.push(['file', d]); above(d); continue }
+      items.push(['children', d])
+      if (inside(d)) { items.push(['folder', d]); above(d) }
+    }
     for (const d of subfolders) if (inside(d)) { items.push(['folder', d]); above(d) }
     let level = 0
     // one budget of names traced per call (a listing of thousands of sub-folders or files is not walked on the server's
