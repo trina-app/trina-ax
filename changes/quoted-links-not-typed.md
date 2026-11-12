@@ -1,0 +1,2 @@
+- A link inside a quoted message is no longer treated as one you typed. When you "Ask Trina about this" on someone else's room message, Trina now asks you before opening a link from that message, as it does for any link you did not write. A link you type or paste yourself, outside the quote, still opens without asking.
+- A person's name can no longer hold a line break or invisible characters (the same rule as room names). Saving such a name says so in plain words. Names saved before still show; where they are quoted, they are put on one line.

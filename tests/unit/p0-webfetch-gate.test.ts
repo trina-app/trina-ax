@@ -2,7 +2,7 @@
 // could call web_fetch with any public URL — e.g. one an injected document dictated, with team data in the query
 // string — and the server fetched it without anyone seeing the address.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { API } from '@mycel/shared/api'
+import { API, threadRefToken } from '@mycel/shared/api'
 import { uuidv7 } from '@mycel/shared'
 import { chatUrls, extractUrls, gateUrl, normUrl, rememberUrls, type TurnPerson } from '../../server/src/tools/url-gate'
 import { ToolError } from '../../server/src/policy/errors'
@@ -129,6 +129,28 @@ describe('gateUrl', () => {
     expect(await gateUrl(h.ctx.db, chat, 'https://docs.example/ok', null)).toBe('seen')
     expect(gateUrl(h.ctx.db, chat, 'https://other.example/', null)).rejects.toThrow(/nobody can confirm/)
     expect(gateUrl(h.ctx.db, null, 'https://docs.example/ok', null)).rejects.toThrow(/nobody can confirm/)
+  })
+
+  // "Ask Trina about this" quotes another person's room message into the asker's side chat (web withQuote): a link in
+  // that quote was written by someone else, so it is not one the asker typed (chat/read-rooms.ts isQuoteLine)
+  test('a link only inside a quote asks first; the same link written below the quote opens', async () => {
+    // as withQuote writes it (who · when with the thread token, the message's lines quoted, a blank line, the question)
+    const withQuote = (question: string) => `> Mallory · Nov 12${threadRefToken(uuidv7())}\n> see https://quoted.example/p?d=1\n> and more\n\n${question}`
+    const asked: string[] = []
+    const quoted = await chatWith(withQuote('what does this mean?'))
+    expect(chatUrls(h.ctx.db, quoted).has('https://quoted.example/p?d=1')).toBe(false)
+    const e = await gateUrl(h.ctx.db, quoted, 'https://quoted.example/p?d=1', person(false, asked)).catch((x) => x)
+    expect(e).toBeInstanceOf(ToolError)
+    expect(asked).toHaveLength(1)
+    // a quote the person wrote with "> " themselves is read the same way; spaces before ">" too
+    const own = await chatWith('  > https://pasted.example/a\nplease check')
+    expect(chatUrls(h.ctx.db, own).has('https://pasted.example/a')).toBe(false)
+    // typed by the person below the quote, or in a message of their own: opens without a card
+    const typed = await chatWith(withQuote('open https://quoted.example/p?d=1 please'))
+    const none: string[] = []
+    expect(await gateUrl(h.ctx.db, typed, 'https://quoted.example/p?d=1', person(false, none))).toBe('seen')
+    expect(await gateUrl(h.ctx.db, await chatWith('a > b: https://inline.example/x'), 'https://inline.example/x', person(false, none))).toBe('seen')
+    expect(none).toEqual([])
   })
 
   test('purging a chat drops its remembered URLs', async () => {

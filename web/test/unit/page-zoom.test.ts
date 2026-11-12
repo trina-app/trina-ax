@@ -10,7 +10,7 @@ const BRIDGE = { protocol: 1, appVersion: '0.3.0', platform: 'ios', generation: 
 
 type Listener = (e: { preventDefault(): void }) => void
 /** A window with a viewport meta, as the page has it; `more`: what the phone app or the browser puts on it. */
-function fakeWindow(more: { webView?: boolean; bridge?: boolean; displayStandalone?: boolean; navStandalone?: boolean; framed?: boolean } = {}) {
+function fakeWindow(more: { webView?: boolean; bridge?: boolean; displayStandalone?: boolean; navStandalone?: boolean; framed?: boolean; coarse?: boolean } = {}) {
   const attrs: Record<string, string> = { content: BASE }
   const meta = { getAttribute: (k: string) => attrs[k] ?? null, setAttribute: (k: string, v: string) => { attrs[k] = v } }
   const docListeners = new Map<string, Listener>()
@@ -28,7 +28,7 @@ function fakeWindow(more: { webView?: boolean; bridge?: boolean; displayStandalo
   const w: Record<string, unknown> = {
     document,
     navigator: more.navStandalone ? { standalone: true } : {},
-    matchMedia: (q: string) => ({ matches: q === '(display-mode: standalone)' && !!more.displayStandalone, addEventListener: () => {} }),
+    matchMedia: (q: string) => ({ matches: (q === '(display-mode: standalone)' && !!more.displayStandalone) || (q === '(pointer: coarse)' && !!more.coarse), addEventListener: () => {} }),
     addEventListener: (type: string, fn: () => void) => void winListeners.set(type, fn),
   }
   w.self = w
@@ -47,19 +47,22 @@ function fakeWindow(more: { webView?: boolean; bridge?: boolean; displayStandalo
 
 describe('where the page holds its zoom', () => {
   test('the phone app (with its bridge, or before it came), the installed app: yes; a browser tab: no', () => {
-    expect(pageZoomOff({ app: true, standalone: false })).toBe(true)
-    expect(pageZoomOff({ app: false, standalone: true })).toBe(true)
-    expect(pageZoomOff({ app: false, standalone: false })).toBe(false)
+    expect(pageZoomOff({ app: true, standalone: false, handheld: true })).toBe(true)
+    expect(pageZoomOff({ app: true, standalone: false, handheld: false })).toBe(true)
+    expect(pageZoomOff({ app: false, standalone: true, handheld: true })).toBe(true)
+    // an app installed on a computer (Chrome/Edge "Install app", Safari "Add to Dock"): its pinch is the person's zoom
+    expect(pageZoomOff({ app: false, standalone: true, handheld: false })).toBe(false)
+    expect(pageZoomOff({ app: false, standalone: false, handheld: true })).toBe(false)
 
-    expect(shownIn(fakeWindow({ webView: true, bridge: true }).win)).toEqual({ app: true, standalone: false })
+    expect(shownIn(fakeWindow({ webView: true, bridge: true }).win)).toEqual({ app: true, standalone: false, handheld: false })
     // react-native-webview's object is there before the page's scripts; the bridge only after the page loaded
-    expect(shownIn(fakeWindow({ webView: true }).win)).toEqual({ app: true, standalone: false })
-    expect(shownIn(fakeWindow({ displayStandalone: true }).win)).toEqual({ app: false, standalone: true })
+    expect(shownIn(fakeWindow({ webView: true }).win)).toEqual({ app: true, standalone: false, handheld: false })
+    expect(shownIn(fakeWindow({ displayStandalone: true }).win)).toEqual({ app: false, standalone: true, handheld: false })
     // an iPhone's Home Screen app
-    expect(shownIn(fakeWindow({ navStandalone: true }).win)).toEqual({ app: false, standalone: true })
-    expect(shownIn(fakeWindow().win)).toEqual({ app: false, standalone: false })
+    expect(shownIn(fakeWindow({ navStandalone: true }).win)).toEqual({ app: false, standalone: true, handheld: false })
+    expect(shownIn(fakeWindow().win)).toEqual({ app: false, standalone: false, handheld: false })
     // a page that only names the bridge is no app: the app's WebView object is what says so
-    expect(shownIn(fakeWindow({ bridge: true }).win)).toEqual({ app: false, standalone: false })
+    expect(shownIn(fakeWindow({ bridge: true }).win)).toEqual({ app: false, standalone: false, handheld: false })
   })
 
   test('the viewport: the scale held at 1, its width, initial scale, viewport-fit and keyboard rule kept', () => {
@@ -81,8 +84,15 @@ describe('holdPageZoom', () => {
     expect(f.gestures()).toEqual(['gesturechange', 'gesturestart'])
   })
 
-  test('the installed web app: held', () => {
+  test('the web app installed on a computer (a fine pointer): the browser default, untouched', () => {
     const f = fakeWindow({ displayStandalone: true })
+    holdPageZoom(f.win)
+    expect(f.content()).not.toContain('user-scalable=no')
+    expect(f.held()).toBeUndefined()
+  })
+
+  test('the installed web app on a phone or tablet: held', () => {
+    const f = fakeWindow({ displayStandalone: true, coarse: true })
     holdPageZoom(f.win)
     expect(f.content()).toContain('user-scalable=no')
     expect(f.held()).toBe('off')

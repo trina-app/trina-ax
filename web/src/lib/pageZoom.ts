@@ -19,18 +19,22 @@ import { insidePhoneApp, standaloneOf } from './pwa'
 
 /** What a page is shown in: the phone app's WebView (`app`), the installed web app (`standalone`), or neither (a plain
  * browser tab). */
-export interface ShownIn { app: boolean; standalone: boolean }
-/** Where the page holds its zoom: the phone app's WebView or the installed web app; not a plain browser tab. */
-export const pageZoomOff = (where: ShownIn) => where.app || where.standalone
+export interface ShownIn { app: boolean; standalone: boolean; handheld: boolean }
+/** Where the page holds its zoom: the phone app's WebView, or the web app installed on a phone or tablet; not a plain
+ * browser tab, and not an app installed on a computer (Chrome/Edge "Install app", Safari "Add to Dock"), where a
+ * trackpad or touchscreen pinch is the person's own zoom. */
+export const pageZoomOff = (where: ShownIn) => where.app || (where.standalone && where.handheld)
 
 /** The window-like part read here (a fake one in unit tests). */
 export type ZoomWindow = Pick<Window, 'top' | 'self' | 'document' | 'navigator' | 'addEventListener'> & { matchMedia?: Window['matchMedia'] }
-/** What `win` is shown in. The app: react-native-webview's window.ReactNativeWebView, there before the page's own
+/** What `win` is shown in, and on what. The app: react-native-webview's window.ReactNativeWebView, there before the page's own
  * scripts (lib/pwa.ts insidePhoneApp); the app's bridge (window.mycelMobile, lib/mobile.ts mobileApp) comes after the
  * page loaded and always beside it. Installed: display-mode standalone, or an iPhone's Home Screen. */
 export const shownIn = (win: ZoomWindow): ShownIn => ({
   app: insidePhoneApp(win),
   standalone: standaloneOf(!!win.matchMedia?.('(display-mode: standalone)').matches, (win.navigator as { standalone?: unknown }).standalone),
+  // a phone or a tablet: a finger is the main pointer, or a phone OS (an iPad with a trackpad still says iPad)
+  handheld: !!win.matchMedia?.('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod/i.test(String((win.navigator as { userAgent?: unknown }).userAgent ?? '')),
 })
 
 const HELD = ['maximum-scale', 'minimum-scale', 'user-scalable']

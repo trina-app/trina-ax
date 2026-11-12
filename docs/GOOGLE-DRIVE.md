@@ -1,6 +1,6 @@
 # Google Drive integration
 
-The core server implements one personal connection per team user, Drives an admin shares with the team, and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client makes Drive available; it turns nothing on by itself (below). A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves the Google Drive card in Settings › App connectors unavailable ("Not available yet", Connect turned off) and the three tools are not offered. An admin can set the client up in Admin › App connectors (below); the tools are offered as soon as a client is there, without a restart. No Google client or account is provisioned by this code.
+The core server implements one personal connection per team user, Drives an admin shares with the team, and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client makes Drive available; it turns nothing on by itself (below). A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves the Google Drive card in Connectors (the main sidebar) unavailable ("Not available yet", Connect turned off) and the three tools are not offered. An admin can set the client up in Admin › App connectors (below); the tools are offered as soon as a client is there, without a restart. No Google client or account is provisioned by this code.
 
 ## Setting it up in Admin › App connectors
 
