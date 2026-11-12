@@ -78,7 +78,7 @@ async function open(search: string): Promise<Mounted> {
 }
 const unreadRows = (m: Mounted) => m.container.ownerDocument!.body.querySelectorAll('[data-unread]').length
 
-test('Mentions: one call for the tab; its row and dot read at once, the DM\'s and the app\'s notice stay; gone when nothing is left', async () => {
+test('Mentions: one call for the tab; its row and dot read at once, the thread reply and the app\'s notice stay; gone when nothing is left', async () => {
   inbox = fresh()
   const m = await open('?tab=mentions')
   try {
@@ -103,7 +103,7 @@ test('All: every unread notice, the app\'s own too; no button once all is read',
     await m.until(() => unreadRows(m) === 0, 'every row read')
     expect(sent).toEqual([{ tab: 'all' }])
     expect(m.find('activity-mark-all-read')).toBeNull()
-    for (const tab of ['all', 'dms', 'mentions', 'threads']) expect(m.find(`activity-tab-${tab}-unread`)).toBeNull()
+    for (const tab of ['all', 'mentions', 'threads']) expect(m.find(`activity-tab-${tab}-unread`)).toBeNull()
     expect(inbox.every((x) => x.readAt)).toBe(true)
   } finally { await m.unmount() }
 })

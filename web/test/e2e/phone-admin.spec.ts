@@ -33,11 +33,13 @@ test('the list: whose admin it is, what needs attention, then the groups with va
   await expect(page.getByTestId('admin-home')).toHaveCount(0)
   // the bar: ‹ named after the 나 list it came from, no title (the list has its own)
   await expect(page.getByTestId('admin-back-label')).toHaveText(t['settings.title'])
-  for (const id of ['members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'slack', 'usage', 'audit', 'settings', 'system']) {
+  for (const id of ['members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'usage', 'audit', 'settings', 'system']) {
     const row = page.getByTestId(`admin-row-${id}`)
     await expect(row).toBeAttached()
     expect(Math.round((await row.boundingBox())!.height)).toBeGreaterThanOrEqual(48)
   }
+  // Slack is one of the connected apps, not a row of its own (owner, 2026-11-12)
+  await expect(page.getByTestId('admin-row-slack')).toHaveCount(0)
   await expect(page.getByTestId('admin-row-members')).toContainText('2')
   await expect(page.getByTestId('admin-row-providers')).toContainText('Claude Code')
   // the fixture's disk is 82% full: one attention row, and System's badge counts exactly that
@@ -216,7 +218,7 @@ test('nothing is wider than the screen on any Admin page, in Spanish too', async
   for (const locale of ['en', 'es'] as const) {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
-    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'slack', 'usage', 'audit', 'settings', 'system']) {
+    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'connectors/slack', 'ai-apps', 'plugins', 'usage', 'audit', 'settings', 'system']) {
       await page.goto(id ? `/admin/${id}` : '/admin')
       await expect(page.getByTestId('admin-content')).toBeVisible()
       await page.waitForTimeout(300)

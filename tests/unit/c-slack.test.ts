@@ -35,7 +35,7 @@ async function call(user: string, method: string, path: string, body?: unknown) 
   return { status: r.status, json: j, text }
 }
 const seal = async (s: string, purpose: 'slack.token' | 'integration.secret' = 'slack.token') => sealSecret(await credentialsOf(h.ctx).sealer.publicKey(), s, purpose)
-/** the four values of Admin › Slack's last step: the two tokens and the app's client id and secret */
+/** the four values of Admin › Connected apps › Slack's last step: the two tokens and the app's client id and secret */
 const tokens = async (bot = fake.botToken, app = fake.appToken, o: { purpose?: 'slack.token' | 'integration.secret'; clientId?: string; clientSecret?: string } = {}) =>
   ({ botToken: await seal(bot, o.purpose), appToken: await seal(app), clientId: o.clientId ?? fake.clientId, clientSecret: await seal(o.clientSecret ?? fake.clientSecret) })
 const blocksOf = (c: { args: Record<string, string> }) => JSON.stringify(JSON.parse(c.args.blocks ?? '[]'))

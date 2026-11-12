@@ -21,7 +21,6 @@ const inTab = (x: Item, tab: string) => {
   if (tab === 'all') return true
   const r = x.room
   if (!r) return false
-  if (tab === 'dms') return r.kind === 'dm' || r.kind === 'group'
   if (tab === 'mentions') return x.code === 'room.mention' || r.reason === 'mention' || r.reason === 'everyone'
   return !!r.thread
 }
