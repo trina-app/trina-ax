@@ -58,6 +58,10 @@ export const UpdateStatus = z.object({
   lastCheckedAt: IsoTime.nullable(),
   /** previous version kept for roll-back */
   previous: z.string().nullable(),
+  /** the previous version cannot open this database (its reader level is below what the database needs since the
+   * update migrated it): Go back is not offered; going back means restoring the backup made before the update
+   * (docs/BACKUP-RESTORE.md "Going back to the version before an update"). Absent from older servers. */
+  previousNeedsRestore: z.boolean().optional(),
   /** false: this server has no release feed (update.feedUrl null) or no release key, so it never looks for new
    * versions online; a new version comes from re-running the installer. Absent from older servers. */
   feed: z.boolean().optional(),

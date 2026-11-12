@@ -195,6 +195,8 @@ export interface UpdateManagerOptions {
   downloadTotalMs?: number
   /** the root-owned folder of the install (root/VERSION: the root files' version, releaseNeedsRoot); null in dev */
   rootDir?: string | null
+  /** the reader level the database needs now (db.ts requiredReaderLevel); absent: not checked (a Go back is offered) */
+  dbReaderLevel?: () => number
 }
 
 interface CheckRecord { at: string; feed: ReleaseFeed | null; error: string | null }
@@ -276,7 +278,16 @@ export class UpdateManager {
     }
     const prev = st.previous && st.previous !== this.o.version && this.stagedVersions().includes(st.previous) ? st.previous : null
     const needsRoot = !!(available && chk?.feed && chk.feed.version === available.version && this.needsRoot(chk.feed))
-    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, feed: this.feedUsable, needsRoot }
+    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, ...(prev ? { previousNeedsRestore: !this.canRead(prev) } : {}), feed: this.feedUsable, needsRoot }
+  }
+
+  /** Can this staged version open the database as it is now? Its bundle's highest min_compatible_reader is its reader
+   * level (each raise of SCHEMA_READER_LEVEL comes with a migration that declares it, db.ts); the database needs the
+   * highest of its applied migrations. Unknown (no check given): yes. QA TC-336: 0.4.0 (level 4) was offered after
+   * 0.5.0 had migrated to level 6, and only bounced back. */
+  canRead(version: string): boolean {
+    if (!this.o.appDir || !this.o.dbReaderLevel) return true
+    return bundleReaderLevel(path.join(this.versionsDir(), version)) >= this.o.dbReaderLevel()
   }
 
   /** The last verified feed check (null = never checked or it failed). */
@@ -347,6 +358,7 @@ export class UpdateManager {
   async rollBack(): Promise<{ from: string; to: string }> {
     const prev = this.status().previous
     if (!prev) throw new UpdateError('there is no previous version to go back to')
+    if (!this.canRead(prev)) throw new UpdateError(`version ${prev} cannot read the database ${this.o.version} has updated; going back to it needs the backup made before the update (docs/BACKUP-RESTORE.md#going-back-to-the-version-before-an-update-linux)`)
     return this.switchTo(prev)
   }
 

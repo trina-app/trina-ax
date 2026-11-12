@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
+import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -116,10 +116,11 @@ export interface PushBridge {
 
 /** Where Back goes in the page on screen (nav-v1): `home` is true unless the page said it is on another tab. */
 export interface PageNav { canGoBack: boolean; home: boolean }
-/** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. */
+/** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. `share`
+ * (share-text-v1): the phone's share sheet with a text, answered once the sheet is up or closed. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void) {}
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>) {}
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.files.clear() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {
@@ -166,6 +167,9 @@ export class MobileReceiver {
       } else if (m.type === 'nav') {
         if (!this.nav || !current.capabilities.includes(NAV_CAPABILITY)) throw new Error('unsupported')
         this.nav({ canGoBack: m.canGoBack, home: m.home !== false })
+      } else if (m.type === 'share-text') {
+        if (!this.share || !current.capabilities.includes(SHARE_TEXT_CAPABILITY)) throw new Error('unsupported')
+        await this.share(m.text)
       } else await this.files.receive(m)
     } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused ? error.code : 'mobile_operation_failed' }
     return this.enabled && this.config === current ? reply : null

@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -272,6 +274,67 @@ func TestStatusShowsHeldUpdate(t *testing.T) {
 	hold(now.Add(-time.Minute)) // over: not shown
 	if _, out, _ := tb.ctl("", "status"); strings.Contains(out, "HELD") {
 		t.Fatalf("an old hold shown:\n%s", out)
+	}
+}
+
+// QA TC-334: 0.4.0's updater held 0.5.0 ("was rolled back") while the bootstrap had gone forward to 0.5.0 again. A hold
+// of the version that runs and answers is dropped (file removed, a note line); any sign that it is not done keeps it.
+func TestStatusDropsHoldOfTheRunningVersion(t *testing.T) {
+	tb, _ := switchBase(t, true)
+	now := time.Now().UTC().Truncate(time.Second)
+	file := filepath.Join(tb.base, "root/update-failed.json")
+	hold := func() {
+		b, _ := json.Marshal(failedUpdate{Version: "0.2.18", Result: "rolled_back", Detail: "not healthy within 2m0s", At: now.Add(-time.Hour), Failures: 1, Until: now.Add(19 * time.Hour), RootIn: true})
+		must(t, os.WriteFile(file, append(b, '\n'), 0o644))
+	}
+	state := func(s string) { must(t, os.WriteFile(filepath.Join(tb.base, "app/state.json"), []byte(s+"\n"), 0o640)) }
+	healthy := `{"format":1,"current":"0.2.18","previous":null,"pending":null,"history":[{"at":"x","from":"0.2.17","to":"0.2.18","result":"ok","detail":"started again after 0.2.17 could not read the database this version had already updated"}]}`
+	// not reached yet: each of these keeps the hold
+	for name, setup := range map[string]func(){
+		"pending": func() { state(`{"format":1,"current":"0.2.17","pending":"0.2.18","history":[]}`) },
+		"stopped": func() {
+			state(`{"format":1,"current":"0.2.18","pending":null,"history":[],"blocked":{"version":"0.2.18","since":"x","detail":"stopped"}}`)
+		},
+		"other health": func() { state(healthy); tb.health.Store("0.2.17") },
+		"older root": func() {
+			state(healthy)
+			must(t, os.WriteFile(filepath.Join(tb.base, "root/VERSION"), []byte("0.2.17\n"), 0o644))
+		},
+		"no state.json": func() { _ = os.Remove(filepath.Join(tb.base, "app/state.json")) },
+	} {
+		hold()
+		setup()
+		if _, out, _ := tb.ctl("", "status"); !strings.Contains(out, "HELD: release 0.2.18 was rolled back") {
+			t.Fatalf("%s: the hold must stay:\n%s", name, out)
+		}
+		if _, err := os.Stat(file); err != nil {
+			t.Fatalf("%s: the hold file went: %v", name, err)
+		}
+		tb.health.Store("0.2.18")
+		must(t, os.WriteFile(filepath.Join(tb.base, "root/VERSION"), []byte("0.2.18\n"), 0o644))
+	}
+	// reached: 0.2.18 runs, answers, root files 0.2.18, nothing pending or stopped
+	hold()
+	state(healthy)
+	code, out, _ := tb.ctl("", "status")
+	if code != 0 || strings.Contains(out, "HELD") || !strings.Contains(out, "note: release 0.2.18 runs here and answers; an earlier update run reported it as rolled back at "+now.Add(-time.Hour).Format(time.RFC3339)) {
+		t.Fatalf("%d\n%s", code, out)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the hold file stays: %v", err)
+	}
+	// the JSON report says the same: no held, the note
+	hold()
+	code, out, _ = tb.ctl("", "status", "--detail", "--json")
+	var st Status
+	if code != 0 || json.Unmarshal([]byte(out), &st) != nil || st.Updates == nil || st.Updates.Held != nil || len(st.Updates.Notes) == 0 || !strings.Contains(strings.Join(st.Updates.Notes, "\n"), "so that hold is over") {
+		t.Fatalf("json: %d %s", code, out)
+	}
+	// a hold of a newer release (it failed and the server runs the older one) is not touched
+	b, _ := json.Marshal(failedUpdate{Version: "0.2.19", Result: "rolled_back", At: now.Add(-time.Hour), Failures: 1, Until: now.Add(19 * time.Hour), RootIn: true})
+	must(t, os.WriteFile(file, append(b, '\n'), 0o644))
+	if _, out, _ := tb.ctl("", "status"); !strings.Contains(out, "HELD: release 0.2.19") {
+		t.Fatalf("a newer release's hold went:\n%s", out)
 	}
 }
 

@@ -95,10 +95,12 @@ export function phoneSkips(p: WelcomeProgress, from: WelcomeStep | null, compute
 
 /** The steps the progress counts: the AI step while it is needed (the steps would open on it) or once it was shown
  * (recorded), then 회사 소개, 내 스킬, 팀 파일, 도구 연결 and 팀원 초대; an owner whose AI answered from the start never
- * sees it ("n/5"). 도구 연결 counts on a phone too (put off there). */
-export function countedSteps(p: WelcomeProgress | null, aiReady = true): WelcomeStep[] {
+ * sees it ("n/5"). A phone (`computer` false) counts only the steps it shows: not 도구 연결 ("n/4"; QA TC-271, the bar
+ * jumped 3/5 → 5/5 there). */
+export function countedSteps(p: WelcomeProgress | null, aiReady = true, computer = true): WelcomeStep[] {
   const ai = (p?.steps.ai ?? null) !== null || resumeStep(p, aiReady) === 'ai'
-  return ai ? ['ai', ...WELCOME_COUNTED] : [...WELCOME_COUNTED]
+  const steps = WELCOME_COUNTED.filter((s) => offeredHere(s, computer))
+  return ai ? ['ai', ...steps] : steps
 }
 
 /** A counted step is done: 회사 소개 saved and answered (profileAnswered), the others (the AI step too) recorded done.
@@ -106,23 +108,24 @@ export function countedSteps(p: WelcomeProgress | null, aiReady = true): Welcome
 const stepDone = (p: WelcomeProgress, s: WelcomeStep) => (s === 'profile' ? p.steps.profile === 'done' && profileAnswered(p) : stepState(p, s) === 'done')
 
 /** "2/5" in the setup row: the counted steps done (the AI step once AI answered). A step put off is not counted: with
- * steps put off the row read "5/5" while something was left (the recheck of onboarding v5). */
-export function doneCount(p: WelcomeProgress | null, aiReady = true): number {
+ * steps put off the row read "5/5" while something was left (the recheck of onboarding v5). A phone counts its own. */
+export function doneCount(p: WelcomeProgress | null, aiReady = true, computer = true): number {
   if (!p) return 0
-  return countedSteps(p, aiReady).filter((s) => stepDone(p, s)).length
+  return countedSteps(p, aiReady, computer).filter((s) => stepDone(p, s)).length
 }
 
 /** What is left here, in order: the counted steps not done (open or put off), except, on a phone, 내 스킬 while it
  * waits for a computer (`skillsLater`) and 도구 연결 (not offered there): nothing to do there. One left: the setup row
  * names it ("남은 일: 팀 파일"). */
 export function stepsLeft(p: WelcomeProgress | null, aiReady = true, computer = true): WelcomeStep[] {
-  const counted = countedSteps(p, aiReady)
+  const counted = countedSteps(p, aiReady, computer)
   if (!p) return counted
-  return counted.filter((s) => !stepDone(p, s) && offeredHere(s, computer) && !(s === 'skills' && !computer && p.skillsLater))
+  return counted.filter((s) => !stepDone(p, s) && !(s === 'skills' && !computer && p.skillsLater))
 }
 
-/** How many steps the progress counts (the "/5", "/6" with the AI step): read it from here, never as a number of its own. */
-export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true) => countedSteps(p, aiReady).length
+/** How many steps the progress counts (the "/5", "/6" with the AI step; a phone's "/4"): read it from here, never as a
+ * number of its own. */
+export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true, computer = true) => countedSteps(p, aiReady, computer).length
 
 /** A step by its name on the progress bar ("팀 파일"). */
 const STEP_NAME: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progress.ai', profile: 'welcome.progress.profile', skills: 'welcome.progress.skills', files: 'welcome.progress.files', tools: 'welcome.progress.tools', invite: 'welcome.progress.invite' }
@@ -134,7 +137,7 @@ export function setupRowWords(t: (key: MessageKey, params?: Params) => string, p
   const left = stepsLeft(p, aiReady, computer)
   const name = left.length === 1 ? STEP_NAME[left[0]!] : undefined
   if (name) return { text: t('setupRow.left', { step: t(name) }), count: null }
-  return { text: t('setupRow.resume'), count: `${doneCount(p, aiReady)}/${stepTotal(p, aiReady)}` }
+  return { text: t('setupRow.resume'), count: `${doneCount(p, aiReady, computer)}/${stepTotal(p, aiReady, computer)}` }
 }
 
 /** Every team's start (POST /api/onboarding/welcome/team): the team's own group with its brand folder, while either is

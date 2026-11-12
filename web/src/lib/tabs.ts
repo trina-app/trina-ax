@@ -27,8 +27,9 @@ export function tabOf(path: string): Tab | null {
   return null
 }
 
-/** where the bar stays away: inside a room and inside an AI chat (their message box needs the bottom) */
-export const hidesTabs = (path: string) => /^\/rooms\/[^/]+/.test(path) || path.startsWith('/c/')
+/** where the bar stays away: inside a room and inside an AI chat (their message box needs the bottom), and on Getting
+ * started (/welcome), a full-screen flow with its own bar (pages/Welcome.tsx: ‹ · the step · 나중에) */
+export const hidesTabs = (path: string) => /^\/rooms\/[^/]+/.test(path) || path.startsWith('/c/') || path === '/welcome'
 
 /** A phone's landing address (START_TAB's list); a computer lands on Home. */
 export function landingPath(phone: boolean): string {

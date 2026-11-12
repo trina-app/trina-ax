@@ -64,6 +64,8 @@ function scheduleRestart(ctx: AppContext, why: string) {
 export const T = {
   devOnly: { ko: '업데이트는 설치된 서버에서만 할 수 있어요(개발 모드).', en: 'Updates are only possible on an installed server (development mode).', id: 'Pembaruan hanya bisa di server yang terpasang (mode pengembangan).', ja: "更新できるのはインストール済みサーバーのみです（現在は開発モード）。", es: "Solo se puede actualizar un servidor instalado (actualmente en modo de desarrollo)." },
   noUpdate: { ko: '설치할 새 버전이 없어요.', en: 'There is no new version to install.', id: 'Tidak ada versi baru untuk dipasang.', ja: "インストールする新しいバージョンはありません。", es: "No hay ninguna versión nueva para instalar." },
+  /** QA TC-336: the kept version cannot open the database the running one migrated */
+  previousNeedsRestore: (prev: string, cur: string) => ({ ko: `${prev}(으)로는 되돌릴 수 없어요. ${cur}이(가) 이미 바꾼 데이터베이스를 ${prev}은(는) 읽지 못해요. 되돌리려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).`, en: `Going back to ${prev} is not possible: ${prev} cannot read the database that ${cur} has already updated. To return to ${prev}, the backup made before the update has to be restored (see the backup and restore guide).`, id: `Tidak bisa kembali ke ${prev}: ${prev} tidak dapat membaca basis data yang sudah diperbarui ${cur}. Untuk kembali ke ${prev}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).`, ja: `${prev}には戻せません。${cur}がすでに更新したデータベースを${prev}は読み込めません。${prev}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。`, es: `No es posible volver a ${prev}: ${prev} no puede leer la base de datos que ${cur} ya actualizó. Para volver a ${prev}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).` }),
   noPrevious: { ko: '되돌릴 이전 버전이 없어요.', en: 'There is no previous version to go back to.', id: 'Tidak ada versi sebelumnya.', ja: "戻せる以前のバージョンはありません。", es: "No hay una versión anterior a la que volver." },
   busy: { ko: '이미 진행 중인 작업이 있어요.', en: 'Another operation is already running.', id: 'Operasi lain sedang berjalan.', ja: "別の操作がすでに実行中です。", es: "Ya hay otra operación en curso." },
   busyPrune: { ko: '서버가 오래된 버전을 지우는 중이에요. 잠시 뒤에 다시 해 주세요.', en: 'The server is removing old versions. Try again in a moment.', id: 'Server sedang menghapus versi lama. Coba lagi sebentar lagi.', ja: "サーバーが古いバージョンを削除しています。しばらくしてからもう一度お試しください。", es: "El servidor está borrando versiones antiguas. Vuelva a intentarlo en un momento." },
@@ -163,6 +165,8 @@ export const systemRoutes: RouteModule = {
       const st = u.status()
       const target = body.rollback ? st.previous : body.version ?? st.available?.version ?? null
       if (!target) fail('conflict', tr(locale, body.rollback ? T.noPrevious : T.noUpdate))
+      // a version that cannot open the database the running one migrated only exits 75 and bounces back (QA TC-336)
+      if (body.rollback && st.previousNeedsRestore) fail('conflict', tr(locale, T.previousNeedsRestore(target!, st.current)))
       const staged = u.stagedVersions().includes(target!)
       // a release that also changes root-owned parts is installed by `sudo mycel-ctl update` (Linux), not from here
       if (!staged && !body.rollback && u.status().needsRoot) fail('conflict', tr(locale, T.needsRoot))
