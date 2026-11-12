@@ -356,7 +356,7 @@ Windows 데스크톱 앱은 자기 팀 서버의 `/downloads/latest.yml`만 보�
 
 ```json
 { "format": 1, "plan": "team", "maxConcurrency": 3, "memoryMiB": 4096, "cpuCores": 2, "diskGiB": 50,
-  "maxActiveMembers": 12, "readMaxMiB": 128, "localBackupRetentionDays": 7 }
+  "maxActiveMembers": 15, "readMaxMiB": 128, "localBackupRetentionDays": 7 }
 ```
 
 `sudo mycel-ctl apply-plan < plan.json`(root 소유 `/var/lib/mycel/root/plan.json`, 서버 계정은 읽기만). 바로 반영되고
