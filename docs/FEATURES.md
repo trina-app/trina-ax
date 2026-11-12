@@ -28,7 +28,9 @@ and screens, and every unit with its features.
 ## e2e coverage
 
 The mock team server (`web/test/mock/server.ts`) counts every API request of the e2e run by its contract endpoint,
-over every `/__test/reset`. At the end of the run (`web/test/e2e/feature-coverage.ts`, Playwright's global teardown) it
+over every `/__test/reset`. A request a spec answers in the browser (`page.route`, `web/test/e2e/rooms-mock.ts`) never
+reaches it: `web/test/e2e/coverage-report.ts` (turned on by `reset()` and the rooms mock) reports each `/api` answer
+without the mock server's `x-mock-answer` header to `POST /__test/coverage`, so it counts too. At the end of the run (`web/test/e2e/feature-coverage.ts`, Playwright's global teardown) it
 is written to `web/test-results/feature-coverage.json`. Nothing is tagged by hand.
 
 What "covered" means: the screen and the contract are exercised against the mock server, not the real server's logic
