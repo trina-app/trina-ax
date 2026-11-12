@@ -488,15 +488,19 @@ export class Rooms {
     for (const id of r.lines) this.messageEvent('room.message', messageRow(this.db, roomId, id)!)
   }
 
-  /** Someone is out of a room: their member row, notices, the threads they followed, their reactions and their pin there
-   * go, and so do the folders they let @트리나 save new files in there ("이 방에서는 항상 허용", rooms/ai-grants.ts). */
+  /** Someone is out of a room: their member row, notices, the threads they followed, their reactions, their pin and their
+   * list folder's row of it (chat/nav-folders.ts) there go, and so do the folders they let @트리나 save new files in
+   * there ("이 방에서는 항상 허용", rooms/ai-grants.ts). */
   private forgetMember(roomId: string, userId: string) {
     this.onAccessChanged?.(roomId)
     // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
     const counted = countedUnreadIn(this.db, userId, roomId)
     dropGrantsOf(this.db, { id: roomId }, userId)
     // (and the old answers hidden from them: joining again works them out again, rooms/history.ts)
-    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions', 'room_hidden_answers', 'room_pins']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
+    const filed = !!this.db.query('SELECT 1 FROM nav_folder_items WHERE room_id = ? AND user_id = ?').get(roomId, userId)
+    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions', 'room_hidden_answers', 'room_pins', 'nav_folder_items']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
+    // their folder lost a room: their windows read their folders again
+    if (filed) this.ctx.services.realtime.publish(userId, { type: 'navFolders.changed', data: { kind: 'rooms' } })
     if (counted) this.notifySignal(userId)
   }
 

@@ -261,6 +261,10 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing.
    * 'deleted' with no chat: a shared project chat this person no longer sees (they lost its project): drop it. */
   ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional() })),
+  /** my list folders changed (made, renamed, reordered, deleted, a chat or room put in or taken out): read them again
+   * (GET /api/nav-folders). Only to me, never to anyone else (docs/DECISIONS.md "List folders"). An older page ignores
+   * it (an unknown event). */
+  ev('navFolders.changed', z.object({ kind: z.enum(['chats', 'rooms']) })),
   /** only paths this person can read (file screen refresh) */
   ev('files.changed', z.object({ changes: z.array(FileChange) })),
   /** someone's save met a newer version: theirs became `copyPath` next to `path` (sent to the saver and to whoever

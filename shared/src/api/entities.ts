@@ -239,6 +239,9 @@ export const Chat = z.object({
   /** when I pinned it to the top of my chat list ("상단에 고정", POST /api/chats/:id/pin; migration 277). Mine only: on
    * a shared project chat nobody else sees my pin. Absent = not pinned. */
   pinnedAt: IsoTime.optional(),
+  /** the list folder I keep it in (PUT /api/chats/:id/folder; docs/DECISIONS.md "List folders"). Mine only, and only on
+   * my own chat with no project. Absent = in no folder. */
+  folderId: Uuid7.optional(),
   /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
    * continue it, each turn as the person who sent it. Absent: a chat of one person. */
   shared: z.object({
