@@ -274,17 +274,6 @@ describe('outside content saved into my folder', () => {
   })
 })
 
-describe('forget after a room read', () => {
-  test('the room card alone asks (no second forget card); "skip" keeps the memory', async () => {
-    const roomId = await teamRoom()
-    const id = crypto.randomUUID(), text = `room memory ${uuidv7().slice(-6)}`
-    h.ctx.db.query("INSERT INTO memories (id, user_id, text, source, created_at) VALUES (?, 'alice', ?, 'user', ?)").run(id, text, new Date().toISOString())
-    const r = await run('alice', await newChat('alice'), fake(roomRead(roomId), { tool: 'forget', args: { id } }, { say: 'ok' }))
-    expect(r.cards).toHaveLength(1)
-    expect(memory(text)).not.toBeNull()
-  })
-})
-
 describe('one yes per team folder in my own chat', () => {
   test('5 new files in one folder: one card; a second folder: another; a file that was there: its own card', async () => {
     const roomId = await teamRoom()

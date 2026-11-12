@@ -136,10 +136,6 @@ export interface TurnPerson {
    * card (chat/turn.ts ownCard): the tool asks on its card every time, also where it would not ask otherwise (a
    * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */
   roomsSeen?: boolean
-  /** this chat has seen content the person did not write (a file, a page, a skill someone else wrote: chat/turn.ts
-   * taint) and no room card asked for the call already: a change to what the AI keeps for the person (schedule_delete)
-   * asks first on its own card. Absent: false */
-  outsideSeen?(): boolean
   /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
   unattendedLabel?: string
   /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/

@@ -126,9 +126,6 @@ export const STEP_TEXT = {
   /** remember while its card waits for the person's yes (a chat that read other people's content) */
   rememberAsking: t('기억할지 묻는 중: {text}', 'Asking whether to remember: {text}', 'Menanyakan apakah perlu diingat: {text}', "記憶するか確認中：{text}", "Preguntando si recordar: {text}"),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria"),
-  /** forget while its card waits, and after a no (a chat that read other people's content) */
-  forgetAsking: t('기억을 지울지 묻는 중: {text}', 'Asking whether to forget: {text}', 'Menanyakan apakah perlu dilupakan: {text}', "メモリを削除するか確認中：{text}", "Preguntando si olvidar: {text}"),
-  notForgotten: t('기억을 지우지 않음: {text}', 'Not forgotten: {text}', 'Tidak dilupakan: {text}', "メモリを削除しませんでした：{text}", "No se olvidó: {text}"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta"),
   /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
   connectConnected: t('연결됨', 'Connected', 'Terhubung', "接続済み", "Conectado"),
@@ -464,7 +461,7 @@ function resuffix(label: string, locale: Locale): string {
 /** A step whose card ran out without an answer (a question, or remember's "may I keep this?"): its detail says so, in
  * whatever language the answer ran in. Not a success, so the web app gives it a mark of its own (Steps.tsx stepMark). */
 export function unansweredStep(step: { tool?: string; detail?: string }): boolean {
-  return (step.tool === 'ask_user' || step.tool === 'remember' || step.tool === 'forget') && step.detail !== undefined && LOCALES.some((l) => STEP_TEXT.notAnswered[l] === step.detail)
+  return (step.tool === 'ask_user' || step.tool === 'remember') && step.detail !== undefined && LOCALES.some((l) => STEP_TEXT.notAnswered[l] === step.detail)
 }
 
 /**
@@ -483,7 +480,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'agent') label = retemplate(['subtask'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking'], step.label, locale)
-  else if (tool === 'forget') label = retemplate(['forgot', 'forgetAsking', 'notForgotten'], step.label, locale)
+  else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
