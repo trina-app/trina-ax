@@ -989,11 +989,12 @@ export class TurnExec {
           const used = typeof parser.result?.num_turns === 'number' ? parser.result.num_turns : 1
           // a call and an answer after it: at least two rounds left, else the answer pauses at the limit as at any
           // other one (the person's "continue" goes on, continuationBlock)
-          if (turnsLeft - used < 2) { this.limitReason = 'tool_limit'; this.connectedSince = []; break }
-          if (!exit?.session?.b64) { this.connectedSince = []; break }
           // built again even when no tool name is new: a connection reached through find_tools / call_tool or
-          // api_request is in the set's index and its "Connected services" section
-          const added = this.refreshTools()
+          // api_request is in the set's index and its "Connected services" section. Too few rounds left, no session
+          // to go on with or a set that could not be built: the answer pauses as at the round limit ("continue" goes
+          // on with the new tools), never a silent end after the AI was told it goes on
+          const added = turnsLeft - used >= 2 && exit?.session?.b64 ? this.refreshTools() : null
+          if (!added) { this.connectedSince = []; if (!this.stopReason && !this.budgetHit) this.limitReason = 'tool_limit'; break }
           continuations++
           turnsLeft -= used
           toolsNow()
@@ -1262,20 +1263,20 @@ export class TurnExec {
 
   /** After a connect: the turn's tool set built again for the same person and chat (the same filters as at the start),
    * in place, so the MCP handler, the core's turn and this turn all use the new one. Returns the tool names it did not
-   * have before (none: nothing to go on with). */
-  private refreshTools(): string[] {
+   * have before; null: not built (stopped, budget used up, or the build failed: the old set stays). */
+  private refreshTools(): string[] | null {
     const set = this.toolSet
     this.connectedSince = []
-    if (!set || this.stopReason || this.budgetHit) return []
+    if (!set || this.stopReason || this.budgetHit) return null
     const before = new Set(set.list().map((t) => t.name))
     let next: ChatToolSet
-    try { next = buildToolSet(this) } catch (e) { this.rt.log.warn('tool set refresh failed', { err: e, turn: this.id }); return [] }
+    try { next = buildToolSet(this) } catch (e) { this.rt.log.warn('tool set refresh failed', { err: e, turn: this.id }); return null }
     Object.assign(set, next)
     return set.list().map((t) => t.name).filter((n) => !before.has(n))
   }
 
   /** the API engine's hook before each round: a service connected meanwhile is offered from this round on */
-  private toolsChanged(): boolean { if (!this.connectedSince.length) return false; this.refreshTools(); return true }
+  private toolsChanged(): boolean { return this.connectedSince.length > 0 && this.refreshTools() !== null }
 
   /**
    * The person's "block" budget during the answer (admin/budgets.ts budgetBlock, the check before a turn starts): used

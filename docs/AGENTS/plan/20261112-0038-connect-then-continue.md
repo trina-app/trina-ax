@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 00:38
 - Branch: `feat/connect-then-continue`
-- Status: in progress
+- Status: done
 - Where: server chat runtime (`server/src/chat/turn.ts`, `connect-service.ts`, `tools.ts`), API engine loop
   (`server/src/engine/api-agent.ts`), fake engine (`tests/lib/b-fake-engine.ts`). Why: owner decision 2026-11-12 on
   QA TC-128 changes the rule "the new connection's tools come with the next message" (docs/DECISIONS.md, "Connecting a
@@ -77,4 +77,8 @@ connect-continue test, chat, integrations, turn-waiting-slots.
 
 ## Result
 
-(filled in at the end)
+Built as planned (Claude continuation through a resumed session, API engine re-lists its tools, Codex unchanged).
+Differences after review: the answer goes on also when no tool name is new (find_tools / call_tool, api_request); a
+third card is told "next message"; too few rounds, no session or a failed rebuild pause the answer at the round limit
+instead of ending silently; the continuation message is the turn context plus the note; a fresh-session retry after a
+connect gets the new tools. PR: feat/connect-then-continue into dev.
