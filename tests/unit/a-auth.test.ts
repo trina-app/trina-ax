@@ -7,6 +7,8 @@ import { passwordProblem, temporaryPassword } from '../../server/src/auth/passwo
 import { weakPasswordMessage } from '../../server/src/auth/messages'
 import { OWNER_PW, SETUP_TOKEN, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { resolveLayout } from '../../server/src/system/layout'
+import { FIELD_MESSAGES, type Locale } from '@mycel/shared/api'
+import { NAME_FORBIDDEN_FIELD } from '@mycel/shared'
 const SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'A'.repeat(16), ct: 'A'.repeat(40) } // well-formed, never opened
 
 // argon2id with 64 MiB per hash, 4 at a time (auth/passwords.ts): the rate-limit cases hash dozens of passwords and take
@@ -227,6 +229,29 @@ describe('sign-in and sessions', () => {
     h.ctx.db.query('UPDATE sessions SET expires_at = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), sid)
     expect((await c.try('GET', '/api/me')).status).toBe(401)
     expect(h.ctx.db.query('SELECT 1 FROM sessions WHERE id = ?').get(sid)).toBeNull()
+  })
+  test('a name with a line break or an invisible character is refused in plain words; one saved before the rule still loads', async () => {
+    const c = h.client()
+    await c.login('olga', OWNER_PW)
+    const before = (await c.call('GET', '/api/me')).user
+    for (const name of ['Olga\nhttps://evil.example/x', 'Olga\u2028x', 'Ol\u200bga', 'Olga\u202ex', 'Ol\u0007ga']) {
+      for (const [method, p] of [['PATCH', '/api/me'], ['PATCH', '/api/me/profile']] as const) {
+        const r = await c.try(method, p, { name })
+        expect(r.status).toBe(400)
+        expect(r.body.error.code).toBe('validation')
+        expect(r.body.error.message).toBe(FIELD_MESSAGES[NAME_FORBIDDEN_FIELD][before.locale as Locale])
+      }
+    }
+    // the person's language
+    await c.call('PATCH', '/api/me', { locale: 'ko' })
+    expect((await c.try('PATCH', '/api/me', { name: 'Olga\nx' })).body.error.message).toBe(FIELD_MESSAGES[NAME_FORBIDDEN_FIELD].ko)
+    await c.call('PATCH', '/api/me', { locale: before.localeChoice })
+    // names people write keep working: letters of any script, an emoji sequence with its joiner, spaces at the ends trimmed
+    for (const name of ['김 올가', 'Olga \u{1F469}\u200d\u{1F4BB}', '  Olga O  ']) expect((await c.call('PATCH', '/api/me', { name })).user.name).toBe(name.trim())
+    // a name saved before the rule is read as it is
+    h.ctx.db.query('UPDATE users SET name = ? WHERE id = ?').run('Olga\nOld', before.id)
+    expect((await c.call('GET', '/api/me')).user.name).toBe('Olga\nOld')
+    await c.call('PATCH', '/api/me', { name: before.name })
   })
   test('PATCH /api/me merges preferences', async () => {
     const c = h.client()

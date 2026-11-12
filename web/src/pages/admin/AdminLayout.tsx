@@ -18,7 +18,7 @@
 // phones: a list you tap into"). Team settings is one more list there: its groups, each a page at
 // /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); computers keep it one page.
 import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
-import { lazy, Suspense, useRef } from 'react'
+import { lazy, Suspense, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { teamIconUrl } from '@mycel/shared'
@@ -31,6 +31,10 @@ import { PhonePageBar } from '../../components/phone/PhonePageBar'
 import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
 import { teamSettingsGroup, teamSettingsRedirect } from './teamSettingsGroups'
+import { APP_CONNECTORS, CONNECTORS } from '../../lib/connectors'
+import { folderName } from '../../lib/access-view'
+import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
+import { AdminBarProvider, type AdminBar } from './phoneBar'
 
 const Home = lazy(() => import('./Home'))
 const PhoneRoot = lazy(() => import('./PhoneRoot'))
@@ -88,16 +92,30 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
   },
 ]
 
+/** A phone's names of the pages that the 나 list has for the person too (AI accounts, Connected apps, AI apps): the
+ * team's are "Team …" there, so the two lists never show the same name for different things. Computers keep the
+ * sidebar's names (its title says whose they are). */
+const PHONE_LABEL: Partial<Record<string, MessageKey>> = { providers: 'admin.team.providers', connectors: 'admin.team.integrations', 'ai-apps': 'admin.team.aiApps' }
+const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
+
 /** The name of an address for the phone's ‹ label: Admin's list and pages (a group of Team settings by its own name),
  * and Settings' (lib/backStack.ts). */
-function pageName(path: string, t: (key: MessageKey) => string, devEnv: boolean | undefined): string | null {
+function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | undefined): string | null {
+  const path = to.split(/[?#]/)[0]!
   if (path === '/admin') return t('admin.title')
+  // a folder of Folder permissions (under its rule editor): its name; By person (under a person): that view
+  if (path === '/admin/folders') {
+    const q = new URLSearchParams(to.split('?')[1]?.split('#')[0] ?? '')
+    const folder = q.get('folder')
+    if (folder !== null) return folder === '' ? t('accessView.rootFolder') : folderName(t, folder)
+    if (q.get('view') === 'people') return t('accessView.byPerson')
+  }
   if (path.startsWith('/admin/')) {
     const [id, sub] = path.slice('/admin/'.length).split('/')
     const group = id === 'settings' ? teamSettingsGroup(sub, devEnv) : undefined
     if (group) return t(group.label)
     const s = MENU.flatMap((g) => g.items).find((x) => x.id === id)
-    return s ? t(s.label) : null
+    return s ? t(phoneLabel(s)) : null
   }
   return settingsPageName(path, t)
 }
@@ -105,9 +123,26 @@ function pageName(path: string, t: (key: MessageKey) => string, devEnv: boolean 
 /** where Folder permissions is opened as a detour from (lib/backStack.ts useListUnderPage `inside`) */
 const DETOURS = ['/files', '/projects']
 
-/** The old addresses that open another page (see the top of this file), else null. */
-function redirectOf(section: string, search: string): string | null {
+/** The old addresses that open another page (see the top of this file), else null. An item's page that is a phone's
+ * only (adminScreens.ts ADMIN_DETAILS) is the item in its page on a computer, and the other way round. */
+function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean): string | null {
   const q = new URLSearchParams(search)
+  if (sub && !phone) {
+    const desktop = adminDesktopOf(section, sub)
+    if (desktop) return desktop
+  }
+  // a connector's and a plugin's page have their own address (/admin/connectors/<id>, /admin/plugins/<id>); the
+  // queries that opened them in place lead there (a notice's ?drive=1, ?app=gmail; a link's ?focus=<plugin>)
+  if (section === 'connectors' && !sub) {
+    const app = q.get('app')
+    if (app && /^[a-z0-9-]+$/.test(app)) return `/admin/connectors/${app}`
+    if (q.get('drive') === '1') return '/admin/connectors/google-drive'
+  }
+  // a connector this app does not list (a typo, an old link): the list
+  if (section === 'connectors' && sub && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
+  if (section === 'plugins' && !sub && q.get('focus')) return `/admin/plugins/${encodeURIComponent(q.get('focus')!)}`
+  // a phone: an engine is a page of its own (?engine= opened its row in place)
+  if (phone && section === 'providers' && !sub && q.get('engine') && q.get('tab') !== 'team') return `/admin/providers/${encodeURIComponent(q.get('engine')!)}`
   // the team's AI settings moved from the Providers page's second tab into Team settings: its old address opens them
   if ((section === 'engines' || section === 'providers') && q.get('tab') === 'team') return q.get('focus') === 'limits' ? '/admin/settings#ai-limits' : '/admin/settings#ai'
   // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
@@ -157,25 +192,37 @@ export default function AdminLayout() {
   // Team settings: a group's page on a phone, the one page on a computer (teamSettingsGroups.ts); no other page has
   // pages under it
   const redirect = !admin ? null
-    : redirectOf(section, search) ?? (section === 'settings' ? teamSettingsRedirect({ sub, hash, phone, devEnv }) : sub ? `/admin/${section}${search}${hash}` : null)
+    : redirectOf(section, sub, search, phone) ?? (section === 'settings' ? teamSettingsRedirect({ sub, hash, phone, devEnv }) : sub && !ADMIN_DETAILS[section] ? `/admin/${section}${search}${hash}` : null)
   const group = section === 'settings' ? teamSettingsGroup(sub, devEnv) : undefined
   const menu = MENU.map((g) => ({ ...g, items: g.items.filter((s) => !s.ownerOnly || isOwner(me)) })).filter((g) => g.items.length)
   const known = menu.some((g) => g.items.some((s) => s.id === section))
   // the page that stays (no redirect, allowed): only then may the list be put under it
   const final = admin && !redirect && known && section !== ''
-  // a group of Team settings has both lists under it: Back goes group → Team settings → Admin. Folder permissions
-  // opened from a folder (Files' "who can see it", a project's members) is a detour: Back goes straight back there
-  useListUnderPage(group ? ['/admin', '/admin/settings'] : '/admin', phone, final, section === 'folders' ? DETOURS : undefined)
+  // the lists under a page (adminScreens.ts): Back goes group → Team settings → Admin, a connector → Connectors → Admin,
+  // the rule editor → the folder → the tree → Admin. Folder permissions opened from a folder (Files' "who can see it",
+  // a project's members) is a detour: Back goes straight back there
+  const here = `${location.pathname}${search}`
+  useListUnderPage(adminChain(here), phone, final, section === 'folders' ? DETOURS : undefined)
   useKeptScroll(content, 'admin', phone && admin && !redirect && known)
-  const up = group ? '/admin/settings' : section ? '/admin' : '/settings'
-  const label = useBackLabel(up, (p) => pageName(p, t, devEnv))
-  const back = useGoBack(up)
+  const up = adminParent(here) ?? '/admin'
+  const name = (p: string) => pageName(p, t, devEnv)
+  // a folder, a person in By person, the rule editor: the same address with another query is still the page above it
+  const label = useBackLabel(up, name) ?? (isAdminDetail(here) && entryBelow(location.key) === location.pathname ? name(up) : null)
+  // (useBackLabel names a page by its path only: the editor's ‹ goes to a folder, named by its query)
+  const goBack = useGoBack(up)
+  // what the page on show tells the bar: an item's name as the title, a check before ‹ leaves (phoneBar.ts)
+  const [bar, setBar] = useState<AdminBar | null>(null)
+  const back = () => {
+    if (!bar?.beforeBack) return goBack()
+    void bar.beforeBack().then((ok) => ok && goBack())
+  }
   if (!admin) return <AdminOnly />
   if (redirect) return <Navigate to={redirect} replace state={resized ? { [BELOW]: entryBelow(location.key) ?? null } : undefined} />
   if (!known) return <Navigate to="/admin" replace />
   const current = menu.flatMap((g) => g.items).find((s) => s.id === section)!
 
   const page = (
+    <AdminBarProvider value={setBar}>
     <Suspense fallback={<Spinner />}>
       {section === '' && <Home />}
       {section === 'members' && <Members />}
@@ -191,22 +238,22 @@ export default function AdminLayout() {
       {section === 'settings' && <TeamSettingsPage />}
       {section === 'system' && <System />}
     </Suspense>
+    </AdminBarProvider>
   )
 
   if (phone)
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="admin-phone">
         {/* the list's bar: ‹ back to where it came from (the 나 list: "‹ Settings"); its big title is in the list */}
-        <PhonePageBar onBack={back} backLabel={label} title={group ? t(group.label) : section ? t(current.label) : ''} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
+        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
         <div ref={content} className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
           {section === '' ? (
             <Suspense fallback={<Spinner />}>
-              <PhoneRoot groups={menu.filter((g): g is typeof g & { label: MessageKey } => g.label !== null)} />
+              <PhoneRoot groups={menu.filter((g): g is typeof g & { label: MessageKey } => g.label !== null).map((g) => ({ ...g, items: g.items.map((s) => ({ ...s, label: phoneLabel(s) })) }))} />
             </Suspense>
           ) : (
             <div className="mx-auto w-full max-w-6xl p-4">
-              {/* every page here applies to the whole team (Settings says "Just for you" the same way) */}
-              <AdminScope />
+              {/* the list says once that every page here applies to the whole team (PhoneRoot.tsx); not again on each */}
               {page}
             </div>
           )}
@@ -229,7 +276,8 @@ export default function AdminLayout() {
               <NavLink
                 key={s.id}
                 to={s.id ? `/admin/${s.id}` : '/admin'}
-                end
+                // an item's own page (/admin/connectors/<id>, /admin/plugins/<id>) keeps its page marked
+                end={!s.id}
                 className={({ isActive }) =>
                   clsx('flex rounded-lg hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', wide ? 'items-center gap-2.5 px-3 py-1.5 text-sm' : 'w-full flex-col items-center gap-1 px-1 py-2 text-center text-micro leading-tight', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
                 }

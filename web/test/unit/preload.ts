@@ -19,12 +19,19 @@
 //   TZ and deleted it to put back "no TZ" (audit-dates, usage-range) left every later file in New York. So TZ is set to
 //   the zone the run started in (a file puts back that value, never deletes it), and at the start of each file it is
 //   that zone again.
+// - React's act() is closed. An act, mount, click, type or unmount that was not awaited, or a test that timed out inside
+//   one, leaves an act() scope open; two that overlap leave React's act depth above 0 for good. While a scope is open
+//   React keeps every render in its act queue, so every page mounted later in the run stays `<div></div>` (2026-11-12:
+//   one such file, about 550 failures in the 88 files CI ran after it, none with Bun 1.4.4). React keeps that depth to
+//   itself, so it cannot be put back: while it is open, each file fails at once with one line that names the file that
+//   most likely left it (the last one that started with act() closed).
 //
 // The start of a file is a beforeAll that a loader plugin puts in front of each test file's own code, on its first line
 // (line numbers in errors stay right). Tests without installDom still see no `window`: the fake document is taken away
 // again right after React DOM is loaded.
 import { plugin } from 'bun'
 import { mock, setSystemTime } from 'bun:test'
+import * as React from 'react'
 import * as zustand from 'zustand'
 import { domInstalled, installDom, removeDom } from './dom-host'
 
@@ -63,8 +70,26 @@ const TZ = process.env.TZ || zoneNow()
 process.env.TZ = TZ
 const ZONE = zoneNow()
 
-/** Where every test file starts. */
-export function fileStart() {
+const reactInternals = (React as unknown as Record<string, { actQueue?: unknown } | undefined>).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE
+if (!reactInternals || !('actQueue' in reactInternals)) throw new Error('preload: React no longer keeps its act queue where this file looks (see "React\'s act() is closed")')
+/** Is an act() scope still open? A sync act() closes its own scope at once and, with none open around it, leaves no
+ * act queue behind; inside one left open the queue stays. */
+const actOpen = () => {
+  React.act(() => {})
+  return reactInternals.actQueue != null
+}
+/** the last test file that started with act() closed, and, while a scope is open, the file named for it */
+let lastFile = ''
+let actLeftBy = ''
+
+/** Where every test file starts (`file`: its path, from the loader below). */
+export function fileStart(file = '') {
+  if (actOpen()) {
+    actLeftBy ||= lastFile || 'a file before this one'
+    throw new Error(`a React act() is open, most likely left by ${actLeftBy}: an act, mount, click, type or unmount not awaited (React says "overlapping act() calls" or "without await" there), or a test that timed out inside one. While it is open nothing renders, so every file fails here.`)
+  }
+  actLeftBy = ''
+  if (file) lastFile = file
   if (domInstalled()) removeDom()
   if (process.env.TZ !== TZ) process.env.TZ = TZ
   if (zoneNow() !== ZONE) throw new Error(`the time zone is ${zoneNow()}, not the run's ${ZONE}, and cannot be put back: a file deleted process.env.TZ (Bun then keeps the last zone). Put back the value it had instead.`)
@@ -91,7 +116,7 @@ plugin({
   name: 'web-test-file-start',
   setup(build) {
     build.onLoad({ filter: /[\\/]test[\\/]unit[\\/][^\\/]+\.test\.tsx?$/ }, async ({ path }) => ({
-      contents: `import { beforeAll as __webTestFileStart } from 'bun:test'; __webTestFileStart(() => (globalThis as any)[Symbol.for('mycel.web-test.file-start')]?.());` + (await Bun.file(path).text()),
+      contents: `import { beforeAll as __webTestFileStart } from 'bun:test'; __webTestFileStart(() => (globalThis as any)[Symbol.for('mycel.web-test.file-start')]?.(${JSON.stringify(path.replace(/\\/g, '/').replace(/^.*\/(test\/unit\/)/, '$1'))}));` + (await Bun.file(path).text()),
       loader: path.endsWith('x') ? 'tsx' : 'ts',
     }))
   },

@@ -305,11 +305,17 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   /** spend control per completion (ApiMeter); `maxTokens`: sent as max_tokens (none: the provider's default) */
   meter?: ApiMeter; maxTokens?: number
   /** before each round after the first (the turn checks the person's budget; a used-up one aborts `signal`) */
-  beforeRound?: () => void }): Promise<void> {
+  beforeRound?: () => void
+  /** after beforeRound: true when the turn's tool set was built again (a service connected on a card), so the tools
+   * are listed again for this round and the ones after it */
+  toolsChanged?: () => boolean }): Promise<void> {
   // the hosted cloud: every call's address is checked first (public https only, system/egress.ts)
   const fetchFn = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: o.conf.setBy === 'admin' })
-  const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
-  const tools = (listed?.result?.tools ?? []).map((t: { name: string; description: string; inputSchema: unknown }) => ({ type: 'function', function: { name: t.name, description: t.description.slice(0, 1024), parameters: t.inputSchema } }))
+  const listTools = async () => {
+    const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
+    return (listed?.result?.tools ?? []).map((t: { name: string; description: string; inputSchema: unknown }) => ({ type: 'function', function: { name: t.name, description: t.description.slice(0, 1024), parameters: t.inputSchema } }))
+  }
+  let tools = await listTools()
   const systemPrompt = `${o.systemPrompt}\n\n${API_GROUNDING_RULES}`
   const guard = new LinkGuard(o.publicOrigins)
   // links that earlier answers of this chat showed (history in the instructions or the message) stay allowed
@@ -319,6 +325,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   for (let step = 0; step < (o.maxSteps ?? MAX_STEPS); step++) {
     if (step > 0) o.beforeRound?.()
     if (o.signal.aborted) return
+    if (step > 0 && o.toolsChanged?.()) tools = await listTools()
     let r: Awaited<ReturnType<typeof complete>>
     try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, guard, meter: o.meter, maxTokens: o.maxTokens }) } catch (e) {
       if (o.signal.aborted) return

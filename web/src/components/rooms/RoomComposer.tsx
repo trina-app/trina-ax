@@ -32,7 +32,7 @@ import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
-import { placeKey, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
+import { keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton, useMediaQuery } from '../ui'
@@ -75,6 +75,10 @@ export const MENTION_ALL_CONFIRM = 10
 
 /** the boxes on screen for each place (placeKey), each with how it reads the place's draft again */
 const boxesOf = new Map<string, Set<() => void>>()
+// another tab of mine changed a place's draft (sent it, typed in it): the boxes of that place here show it too
+onRoomDraftElsewhere((key) => {
+  for (const f of boxesOf.get(key) ?? []) f()
+})
 
 /** `above`: one quiet line over the box (a DM's status line, components/StatusMessage.tsx) */
 export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false, above }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean; above?: ReactNode }) {
@@ -82,7 +86,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const locale = useLocale()
   // the room's box and each thread's box keep their own draft
   const key = placeKey(roomId, threadRootId)
-  const [text, setTextState] = useState(() => drafts.get(key) ?? '')
+  // (the draft this device kept for the place when this page has none: the app was closed, or the page loaded again)
+  const [text, setTextState] = useState(() => {
+    restoreRoomDraft(key)
+    return drafts.get(key) ?? ''
+  })
   const [alsoInRoom, setAlsoInRoom] = useState(false)
   const [files, setFiles] = useState<Upload[]>([])
   const input = useRef<HTMLTextAreaElement>(null)
@@ -94,8 +102,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     setTextState(s)
     if (s) drafts.set(key, s)
     else drafts.delete(key)
+    keepRoomDraft(key)
   }
-  // a reply typed here lives only in this tab's memory (store/rooms.ts roomDrafts): while there is one, the page does not
+  // a reply typed here (store/rooms.ts roomDrafts, kept on this device too): while there is one, the page does not
   // reload by itself (after an update, or once the connection is back: lib/reload-guard.ts), as the chat's box does
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   // "@전체": everyone else in the room, where it is offered (useEveryone)
@@ -134,6 +143,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useEffect(() => {
     if (mention.picked.length) roomDraftMentions.set(key, mention.picked)
     else roomDraftMentions.delete(key)
+    keepRoomDraft(key)
   }, [key, mention.picked])
   // another box of this place (the same thread beside a file in the viewer) goes: what it left is this box's draft now
   const mentionNow = useRef(mention)

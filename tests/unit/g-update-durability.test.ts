@@ -55,14 +55,16 @@ describe('DB copy (vacuumInto)', () => {
     e.db.close()
   })
 
-  test('a failed copy leaves neither the target nor a .partial', async () => {
+  // the reason in the message: Bun 1.3 (the server's runtime) lost the child's error and exit code (see childCode)
+  test('a failed copy leaves neither the target nor a .partial, and says why', async () => {
     const dir = path.join(W, 'vacuum-fail')
     fs.mkdirSync(dir, { recursive: true })
     const src = path.join(dir, 'not-a-db.db')
     fs.writeFileSync(src, 'this is not sqlite '.repeat(200))
     const dst = path.join(dir, 'copy.sqlite')
-    await expect(vacuumInto(src, dst)).rejects.toThrow(/database copy failed/)
+    await expect(vacuumInto(src, dst)).rejects.toThrow('database copy failed: file is not a database')
     expect(fs.readdirSync(dir)).toEqual(['not-a-db.db'])
+    await expect(inspectDbCopyAsync(src)).rejects.toThrow('database copy is damaged (file is not a database)')
   })
 
   test('the integrity check in a child process refuses a damaged copy', async () => {

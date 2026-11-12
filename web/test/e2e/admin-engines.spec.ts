@@ -56,6 +56,37 @@ test('Providers: one row per engine with its state, what is missing, check again
   expect(realErrors(errors)).toEqual([])
 })
 
+test('a sign-in that finishes in the browser: the engine says Connected at once, without a reload, and after one', async ({ page }) => {
+  const errors = watchConsole(page)
+  await start(page)
+  // the team's subscriptions may be shared (a ChatGPT plan is one)
+  await page.goto('/admin/settings#ai')
+  const sharing = page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')
+  await sharing.press('Space')
+  await page.getByRole('dialog').getByRole('button').last().click()
+  await expect(sharing).toBeChecked()
+  await page.goto('/admin/providers')
+  const codex = page.locator('[data-engine="codex"]')
+  await expect(codex.getByTestId('engine-detail')).toBeVisible()
+  await expect(codex).toContainText(t['engines.status.not_logged_in'])
+  const asked = page.waitForRequest((r) => r.method() === 'GET' && /\/api\/admin\/engines$/.test(r.url()))
+  await page.getByTestId('provider-add-codex').click()
+  await page.getByTestId('kind-chatgpt').check()
+  await page.getByTestId('credential-label').fill('Team ChatGPT')
+  await page.getByTestId('plan-notice-ack').check()
+  await page.getByTestId('credential-submit').click()
+  await expect(page.getByTestId('chatgpt-done')).toBeVisible()
+  // the server said its engines changed: the row is read again while the dialog still shows "done"
+  await asked
+  await expect(codex).toContainText(t['engines.status.ok'])
+  await expect(codex.getByTestId('engine-detail')).toHaveCount(0)
+  await page.getByRole('dialog').getByRole('button', { name: t['common.done'] }).click()
+  await expect(page.getByTestId('credentials-codex')).toContainText('Team ChatGPT')
+  await page.reload()
+  await expect(codex).toContainText(t['engines.status.ok'])
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('the owner sets up the API engine from its row; ?engine=api opens it', async ({ page }) => {
   await start(page)
   await page.goto('/admin/providers?engine=api')
@@ -137,12 +168,16 @@ test('a usage-limits link opens Team settings at Usage limits, with the focus on
 test('Providers and the AI groups of Team settings fit a phone: nothing runs off the side, the switches stay in reach', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 390, height: 800 })
-  for (const [url, id] of [['/admin/providers?engine=api', 'engines-header'], ['/admin/settings#ai', 'team-ai-settings']]) {
+  // a phone (TC-267): ?engine= opens the engine's own page
+  for (const [url, id] of [['/admin/providers?engine=api', 'engine-page'], ['/admin/settings#ai', 'team-ai-settings']]) {
     await page.goto(url)
     await expect(page.getByTestId(id)).toBeVisible()
     const content = page.getByTestId('admin-content')
     await expect.poll(() => content.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
   }
-  await page.goto('/admin/providers')
-  for (const id of ['claude-code', 'codex', 'api']) await expect(page.locator(`[data-engine="${id}"] label`).filter({ has: page.getByTestId(`engine-switch-${id}`) })).toBeInViewport()
+  // each engine's switch is on its page, in reach
+  for (const id of ['claude-code', 'codex', 'api']) {
+    await page.goto(`/admin/providers/${id}`)
+    await expect(page.locator(`[data-engine="${id}"] label`).filter({ has: page.getByTestId(`engine-switch-${id}`) })).toBeInViewport()
+  }
 })

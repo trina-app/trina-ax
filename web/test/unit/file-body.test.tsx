@@ -32,7 +32,7 @@ async function show(ui: ReactNode): Promise<Mounted> {
   return shown
 }
 afterEach(async () => {
-  closeImageViewer(false)
+  closeImageViewer()
   globalThis.fetch = realFetch
   await shown?.unmount()
   shown = null
@@ -188,7 +188,7 @@ test('a picture opens the image viewer alone, or the caller\'s viewer when it pa
   const own = await draw(local('photo.png', 'png', 'image/png'))
   await own.click('file-panel-image')
   expect(getImageViewer()?.entry.item.name).toBe('photo.png')
-  closeImageViewer(false)
+  closeImageViewer()
 
   let opened = 0
   const theirs = await draw(local('photo.png', 'png', 'image/png'), () => opened++)

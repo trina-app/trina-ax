@@ -35,7 +35,7 @@ import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Messa
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { closeImageViewer, closeViewerSheet, getViewerSheet, notePage, openImageViewer, openViewerSheet, showEntry, skipLeftEntry, stepTargets, useImageViewer, useViewerSheet, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { closeImageViewer, closeViewerSheet, getViewerSheet, openImageViewer, openViewerSheet, showEntry, stepTargets, useImageViewer, useViewerSheet, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
 import { fileSeed } from '../lib/sideChatAsk'
 import { openFilePreview } from '../lib/sidePanel'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
@@ -113,20 +113,14 @@ export function useViewerItem(make: ((meta: ViewerMetaValue) => ViewerItem) | nu
 /** Mounted once (App.tsx): the viewer while one is open. A move to another page closes it. */
 export function ImageViewerHost() {
   const open = useImageViewer()
-  const { pathname, key } = useLocation()
+  const { pathname } = useLocation()
   const was = useRef(pathname)
   useEffect(() => {
     if (was.current === pathname) return
     was.current = pathname
-    // a page change (a notice opened meanwhile) left the viewer's history entry already: no going back
-    closeImageViewer(false)
+    // a page change (a notice opened meanwhile) took the viewer's history entry already (lib/backCloses.ts)
+    closeImageViewer()
   }, [pathname])
-  // Back past a viewer's entry left behind by such a page change (lib/imageViewer.ts skipLeftEntry)
-  useEffect(() => notePage(), [key])
-  useEffect(() => {
-    window.addEventListener('popstate', skipLeftEntry)
-    return () => window.removeEventListener('popstate', skipLeftEntry)
-  }, [])
   if (!open || typeof document === 'undefined') return null
   return createPortal(<Viewer open={open} />, document.body)
 }
@@ -651,8 +645,10 @@ function Viewer({ open }: { open: ViewerOpen }) {
           // isolate: what a document lifts inside it (a PDF's sticky toolbar) stays under the bar and a phone's sheet
           'absolute inset-x-0 bottom-0 isolate outline-none md:right-[var(--viewer-col,0px)]',
           // a document sits under the bar on a phone too (the bar does not hide there), and scrolls as a page does
-          docMode ? 'top-[calc(var(--safe-top)+3.75rem)] md:top-14' : 'top-0 touch-none overflow-hidden md:top-14',
+          docMode ? 'top-[calc(var(--safe-top)+3.75rem)] md:top-14' : 'top-0 overflow-hidden md:top-14',
         )}
+        // a picture: its own pinch, double tap and pan (touch-action: none, index.css), never the page's zoom (QA TC-246)
+        data-own-zoom={docMode ? undefined : ''}
         {...(docMode ? {} : {
           onPointerDown,
           onPointerMove,

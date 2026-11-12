@@ -832,10 +832,15 @@ function PendingRow({ roomId, p }: { roomId: string; p: PendingSend }) {
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-xs" role="alert">
-          <span className="text-danger">
-            {t('rooms.sendFailed')}
-            {p.error && ` · ${p.error}`}
-          </span>
+          {p.restored ? (
+            // kept from before the app closed: it may have reached the server (store/rooms.ts keptUnsent)
+            <span className="text-muted">{t('rooms.notConfirmed')}</span>
+          ) : (
+            <span className="text-danger">
+              {t('rooms.sendFailed')}
+              {p.error && ` · ${p.error}`}
+            </span>
+          )}
           <Button size="sm" variant="ghost" onClick={() => useRooms.getState().retry(roomId, p.clientMessageId)}>
             {t('common.retry')}
           </Button>

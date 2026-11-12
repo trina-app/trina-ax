@@ -6,7 +6,7 @@
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
 import { AlertTriangle, ArrowLeft, ArrowUpCircle, BadgeCheck, BookOpen, Cable, Check, Cpu, FileText, FileUp, Globe, Languages, Loader2, Minus, Plus, Puzzle, Search, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
 import type { PluginKind, PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
@@ -18,6 +18,7 @@ import { Badge, Button, EmptyState, IconButton, Modal, StickyHeader, confirmDial
 import { Tooltip } from '../../components/Tooltip'
 import { CardMenu } from '../../components/integrations/AppConnectorCard'
 import { Loadable, useLoad } from './common'
+import { useAdminBar, useUpTo } from './phoneBar'
 
 type T = ReturnType<typeof useT>
 
@@ -244,19 +245,20 @@ function PluginCard({ id, testId, kinds, name, official, line, lineTone, foot, a
   onOpen: () => void
 }) {
   return (
-    <li className="relative flex items-start gap-3 rounded-xl bg-subtle p-3 transition hover:bg-hover" data-testid={testId} data-plugin={id}>
-      <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2" onClick={onOpen} data-testid="plugin-open">
+    // a phone: a flat row with a hairline between (no grey frame), the line cut to one, the rest on the plugin's page
+    <li className="relative flex items-start gap-3 rounded-xl bg-subtle p-3 transition hover:bg-hover max-md:items-center max-md:rounded-none max-md:bg-transparent max-md:px-0 max-md:py-1.5 max-md:hover:bg-transparent" data-testid={testId} data-plugin={id}>
+      <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2 max-md:min-h-12 max-md:items-center" onClick={onOpen} data-testid="plugin-open">
         <PluginTile kinds={kinds} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1 text-sm font-medium">
             <span className="truncate">{name}</span>
             {official && <OfficialMark size={14} />}
           </span>
-          <span className={`mt-0.5 line-clamp-2 text-xs ${lineTone === 'warn' ? 'text-warn' : 'text-muted'}`} data-testid="plugin-line">{line}</span>
-          {foot && <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">{foot}</span>}
+          <span className={`mt-0.5 line-clamp-2 text-xs max-md:line-clamp-1 ${lineTone === 'warn' ? 'text-warn' : 'text-muted'}`} data-testid="plugin-line">{line}</span>
+          {foot && <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint max-md:hidden">{foot}</span>}
         </span>
       </button>
-      <span className="flex shrink-0 items-center gap-1">{actions}</span>
+      <span className="flex shrink-0 items-center gap-1 max-md:[&_button]:min-h-11 max-md:[&_button]:min-w-11">{actions}</span>
     </li>
   )
 }
@@ -346,7 +348,8 @@ function PluginDetail({ p, c, fileInstall, reload, review, onBack }: { p: Instal
   return (
     <section aria-labelledby={titleId} className="space-y-6" data-testid="plugin-detail" data-plugin={of.id}>
       <div className="rounded-2xl bg-subtle p-5 sm:p-6">
-        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={onBack} data-testid="plugin-back">
+        {/* a phone: the bar's ‹ above is the way back (the page has its own address) */}
+        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink max-md:hidden" onClick={onBack} data-testid="plugin-back">
           <ArrowLeft size={15} aria-hidden /> {t('admin.plugins')}
         </button>
         <div className="flex flex-wrap items-center gap-4">
@@ -358,7 +361,8 @@ function PluginDetail({ p, c, fileInstall, reload, review, onBack }: { p: Instal
             </h3>
             <p className="mt-0.5 text-sm text-muted">{t('plugins.version', { version: of.version })} · {t('plugins.publisher', { name: of.publisher.name })}</p>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {/* a phone: the buttons on their own line under the name, so the name is never squeezed beside them */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2 max-md:basis-full max-md:[&_button]:min-h-11">
             {todo && c?.availability === 'available' && (
               <Button variant="primary" busy={r.busy} onClick={() => void r.run()} data-testid="plugin-detail-install">{newer ? t('plugins.update', { version: newer }) : t('plugins.install')}</Button>
             )}
@@ -399,6 +403,8 @@ function PluginDetail({ p, c, fileInstall, reload, review, onBack }: { p: Instal
 }
 
 const sectionTitle = 'mb-3 text-sm font-semibold'
+/** two columns of cards; a phone, one row each with a hairline between (as Connectors' Discover) */
+const pluginListCls = 'grid gap-3 md:grid-cols-2 max-md:gap-0 max-md:divide-y max-md:divide-line max-md:border-y max-md:border-line'
 
 export default function Plugins() {
   const t = useT()
@@ -406,9 +412,22 @@ export default function Plugins() {
   const state = useLoad(() => api.call(API.listPlugins))
   const [plan, setPlan] = useState<PluginPlan | null>(null)
   const [query, setQuery] = useState('')
-  // a plugin's page (its id), in place of the lists; ?focus=<plugin id> opens it (a link from elsewhere in Admin)
-  const [params] = useSearchParams()
-  const [open, setOpen] = useState<string | null>(() => params.get('focus'))
+  // a plugin's page: its own address, /admin/plugins/<id> (?focus=<plugin id>, a link from elsewhere in Admin, leads
+  // there: AdminLayout.tsx), in place of the lists; Back or its way back return to them
+  const sub = useParams().sub
+  const open = sub ? decodeURIComponent(sub) : null
+  const navigate = useNavigate()
+  const upTo = useUpTo()
+  const setOpen = (id: string | null) => {
+    if (id === null) { if (open !== null) upTo('/admin/plugins'); return }
+    if (id !== open) navigate(`/admin/plugins/${encodeURIComponent(id)}`)
+  }
+  // the phone's bar names the plugin whose page this is
+  const named = open ? (state.data?.installed.find((x) => x.id === open) ?? state.data?.catalog.find((x) => x.id === open))?.name : undefined
+  useAdminBar(named ?? null)
+  // an address of a plugin this server does not list (removed, a typo): the lists
+  const unknown = open !== null && !!state.data && !named
+  useEffect(() => { if (unknown) navigate('/admin/plugins', { replace: true }) }, [unknown, navigate])
   const file = useRef<HTMLInputElement>(null)
   const installedId = useId()
   const discoverId = useId()
@@ -417,16 +436,24 @@ export default function Plugins() {
     try { setPlan(await fn()) } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) }
   }
   const review = (id: string) => inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))
-  // back from a plugin's page: the keyboard returns to the card that opened it
+  // back from a plugin's page: the keyboard returns to the card that opened it (once the lists show again: going back
+  // in the history takes a moment)
   const back = () => {
     const id = open
     setOpen(null)
-    requestAnimationFrame(() => [...document.querySelectorAll<HTMLElement>('[data-plugin]')].find((e) => e.dataset.plugin === id)?.querySelector<HTMLElement>('[data-testid="plugin-open"]')?.focus())
+    const focus = (frames: number) => requestAnimationFrame(() => {
+      const card = [...document.querySelectorAll<HTMLElement>('[data-plugin]')].find((e) => e.dataset.plugin === id && e.dataset.testid !== 'plugin-detail')
+      const button = card?.querySelector<HTMLElement>('[data-testid="plugin-open"]')
+      if (button) button.focus()
+      else if (frames > 1) focus(frames - 1)
+    })
+    focus(20)
   }
   return (
     <>
     <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="plugins-header">
-      <h2 className="text-lg font-semibold tracking-tight">{t('admin.plugins')}</h2>
+      {/* a phone: the bar above says the name, so only the search row stays here */}
+      <h2 className="text-lg font-semibold tracking-tight max-md:sr-only">{t('admin.plugins')}</h2>
       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
         <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
@@ -439,7 +466,9 @@ export default function Plugins() {
               e.target.value = ''
               if (f) void inspect(() => api.call(API.inspectPluginFile, { body: { fields: {}, file: f, filename: f.name } }))
             }} />
-            <Button className="shrink-0" onClick={() => file.current?.click()} data-testid="plugin-install-file"><FileUp size={15} aria-hidden /> {t('plugins.installFile')}</Button>
+            <Tooltip label={t('plugins.installFile')}>
+              <Button className="shrink-0 max-md:size-11 max-md:px-0" aria-label={t('plugins.installFile')} onClick={() => file.current?.click()} data-testid="plugin-install-file"><FileUp size={15} aria-hidden /> <span className="max-md:hidden">{t('plugins.installFile')}</span></Button>
+            </Tooltip>
           </>
         )}
       </div>
@@ -472,7 +501,7 @@ export default function Plugins() {
                 {installed.length > 0 && (
                   <section aria-labelledby={installedId} data-testid="plugins-installed-section">
                     <h3 id={installedId} className={sectionTitle}>{t('plugins.installed')}</h3>
-                    <ul className="grid gap-3 sm:grid-cols-2" data-testid="plugins-installed">
+                    <ul className={pluginListCls} data-testid="plugins-installed">
                       {installed.map((p) => <InstalledCard key={p.id} p={p} c={d.catalog.find((x) => x.id === p.id)} reload={reload} review={review} onOpen={() => setOpen(p.id)} />)}
                     </ul>
                   </section>
@@ -487,7 +516,7 @@ export default function Plugins() {
                       </h4>
                     </div>
                     {catalog.length > 0
-                      ? <ul className="grid gap-3 sm:grid-cols-2" data-testid="plugins-catalog">{catalog.map((c) => <DiscoverCard key={c.id} c={c} review={review} onOpen={() => setOpen(c.id)} />)}</ul>
+                      ? <ul className={pluginListCls} data-testid="plugins-catalog">{catalog.map((c) => <DiscoverCard key={c.id} c={c} review={review} onOpen={() => setOpen(c.id)} />)}</ul>
                       : <p className="text-sm text-muted">{t('plugins.catalog.none')}</p>}
                     {d.catalogSource !== 'none' && <p className="mt-4 text-xs text-faint" data-testid="plugins-catalog-source">{t(`plugins.catalog.${d.catalogSource}` as MessageKey)}</p>}
                   </section>
