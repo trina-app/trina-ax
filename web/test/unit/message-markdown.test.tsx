@@ -281,6 +281,10 @@ test('a link whose words do not show where it goes shows its real host (or addre
   expect(hiddenAddress('paypal.com', 'https://evil.example/')).toBe('evil.example')
   expect(hiddenAddress('PAYPAL.COM/x', 'https://www.paypal.com/x/')).toBeNull()
   expect(hiddenAddress('PayPal.com.', 'https://paypal.com/')).toBeNull()
+  // a site before an "@" is not the host (round 3 of the review)
+  for (const w of ['paypal.com@evil.example', 'paypal.com@evil.example/login', 'accounts.google.com@evil.example'])
+    expect(hiddenAddress(w, 'https://evil.example/login')).toBe('evil.example')
+  expect(md('[paypal.com@evil.example](https://evil.example)')).toContain('data-real-address')
   // Korean paths and hosts, a default port, a "#" on the root: the same address
   expect(hiddenAddress('https://ko.wikipedia.org/wiki/서울', 'https://ko.wikipedia.org/wiki/%EC%84%9C%EC%9A%B8')).toBeNull()
   expect(hiddenAddress('https://한국.kr', 'https://xn--3e0b707e.kr/')).toBeNull()

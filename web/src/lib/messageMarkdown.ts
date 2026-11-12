@@ -148,7 +148,8 @@ export function hiddenAddress(words: string, url: string): string | null {
   // (the words' host as the link would have it: "한국.kr" → punycode, ":443" on https → none)
   let shownHost = head
   try { shownHost = new URL(`${u.protocol}//${head}`).host.toLowerCase().replace(/^www\./, '') } catch { /* as written */ }
-  if (bidi || shownHost !== host) return host
+  // (words with an "@" before their path name a site before it, "paypal.com@evil.example": never the address shown)
+  if (bidi || head.includes('@') || shownHost !== host) return host
   // the words name an address of their own: it must be this one (scheme, path, query), compared as written and
   // percent-encoded alike ("/wiki/서울" is "/wiki/%EC%84%9C%EC%9A%B8")
   const rest = shown.slice(shown.split(/[/?#]/, 1)[0].length)
