@@ -45,12 +45,13 @@ const opens = async (who: string, id: string) => (await raw(who, 'GET', `/api/pr
 beforeAll(async () => {
   h = await startHarness({ name: 'b-old-projects-notice', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
   const db = h.ctx.db
-  for (const [id, name, role] of [['frank', 'Frank Admin', 'admin'], ['grace', 'Grace Admin', 'admin'], ['henry', 'Henry Admin', 'admin']] as const) {
+  // (henry is a member at the update, made an admin after it)
+  for (const [id, name, role] of [['frank', 'Frank Admin', 'admin'], ['henry', 'Henry Admin', 'member']] as const) {
     db.query('INSERT INTO users (id, username, name, role) VALUES (?, ?, ?, ?)').run(id, id, name, role)
     addTestPerson(id, { id, name, role, locale: 'en' })
   }
   db.query('UPDATE users SET created_at = ?').run(OLD)
-  db.query("DELETE FROM settings WHERE key = 'projectsMembersOnly.v1'").run()
+  db.query("DELETE FROM settings WHERE key IN ('projectsMembersOnly.v1', 'projectsMembersOnly.staff')").run()
   const root = h.ctx.files.fx.root
   const project = (id: string, name: string, dir: string, creator: string | null, members: string[], at = OLD) => {
     fs.mkdirSync(path.join(root, ...dir.split('/')), { recursive: true })
@@ -84,8 +85,11 @@ beforeAll(async () => {
   await new Promise((r) => setTimeout(r, 5))
   const after = new Date().toISOString()
   project(ids.fresh, 'New', 'projects/new', 'carol', ['carol'], after)
+  db.query("UPDATE users SET role = 'admin' WHERE id = 'henry'").run()
+  addTestPerson('henry', { id: 'henry', name: 'Henry Admin', role: 'admin', locale: 'en' })
   db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('dana', 'user.update', 'henry', '{\"role\":\"admin\"}', ?)").run(after)
-  db.query('UPDATE users SET created_at = ? WHERE id = ?').run(after, 'grace')
+  db.query("INSERT INTO users (id, username, name, role, created_at) VALUES ('grace', 'grace', 'Grace Admin', 'admin', ?)").run(after)
+  addTestPerson('grace', { id: 'grace', name: 'Grace Admin', role: 'admin', locale: 'en' })
   db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('frank', 'project.member_gained', ?, ?, ?)").run(ids.left, JSON.stringify({ projectId: ids.left, userId: 'frank', via: 'project', self: true }), after)
 })
 afterAll(async () => { await h.close() })
@@ -101,6 +105,13 @@ describe('the card for projects from before the update', () => {
     // an admin made after the update, and one whose role changed since: they did not read them on 0.4.0
     expect(await card('grace')).toEqual([])
     expect(await card('henry')).toEqual([])
+    // who was one at the update is kept at the first start (the audit rows age out); without it, read from the audit
+    const keptStaff = h.ctx.db.query("SELECT value FROM settings WHERE key = 'projectsMembersOnly.staff'").get() as { value: string }
+    expect(JSON.parse(keptStaff.value).sort()).toEqual(['carol', 'dana', 'frank'])
+    h.ctx.db.query("DELETE FROM settings WHERE key = 'projectsMembersOnly.staff'").run()
+    expect(await card('henry')).toEqual([])
+    expect(await card('frank')).toEqual(['Ops', 'Sales'])
+    h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('projectsMembersOnly.staff', ?)").run(keptStaff.value)
     // members never see it
     for (const who of ['alice', 'bob', 'erin']) expect(await card(who), who).toEqual([])
     // and the card names no folder
@@ -125,7 +136,7 @@ describe('the card for projects from before the update', () => {
     expect(told!.every((n) => n.membersOnly === true)).toBe(true)
     expect(JSON.stringify(told)).not.toContain('projects/')
     // she changed the Ops task after it paused: hers to turn on, not the server's
-    db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('dana', 'schedule.update', ?, '{}', ?)").run(taskOnOps, new Date().toISOString())
+    db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('dana', 'schedule.edited', ?, '{}', ?)").run(taskOnOps, new Date().toISOString())
   })
 
   test('a member who asks to join gets nothing', async () => {
@@ -170,6 +181,28 @@ describe('the card for projects from before the update', () => {
     expect(await reads('frank', 'projects/sales')).toBe(false)
   })
 
+  test('a project whose members read it through a setting above it is not joined in one go: nobody is cut out', async () => {
+    const db = h.ctx.db
+    const root = h.ctx.files.fx.root
+    // an older build's project folder with no settings of its own; everyone reads projects/ (a setting above it)
+    fs.mkdirSync(path.join(root, 'projects', 'open'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'projects', 'open', 'plan.md'), `${SECRET}\n`)
+    let top = db.query("SELECT id FROM folders WHERE path = 'projects'").get() as { id: string } | null
+    if (!top) { top = { id: uuidv7() }; db.query("INSERT INTO folders (id, path, created_at) VALUES (?, 'projects', ?)").run(top.id, OLD) }
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by) VALUES (?, ?, 'everyone', NULL, 'read', 'carol')").run(uuidv7(), top.id)
+    const openId = uuidv7()
+    db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored) VALUES (?, 'Open', 'projects/open', '', 'carol', ?, 'carol', '')").run(openId, OLD)
+    expect(await reads('alice', 'projects/open')).toBe(true)
+    expect(await card('dana')).toEqual(['Open'])
+    const r = await raw('dana', 'POST', '/api/projects/update-notice/join')
+    expect(r.json).toEqual({ joined: 0, skipped: 1 })
+    // nothing saved: alice and bob still read it, dana does not, and the card still names it (Projects has its preview)
+    expect(await reads('alice', 'projects/open')).toBe(true)
+    expect(await reads('bob', 'projects/open')).toBe(true)
+    expect(await opens('dana', openId)).toBe(false)
+    expect(await card('dana')).toEqual(['Open'])
+  })
+
   test('dismiss hides it for good and changes no access', async () => {
     expect((await raw('frank', 'POST', '/api/projects/update-notice/dismiss')).status).toBe(204)
     expect(await card('frank')).toEqual([])
@@ -179,7 +212,10 @@ describe('the card for projects from before the update', () => {
     // the projects stay in his Projects list, as not a member (Add me there still works)
     const listed = (await raw('frank', 'GET', '/api/projects?manage=1')).json.items as { id: string; member?: boolean }[]
     expect(listed.find((p) => p.id === ids.sales)?.member).toBe(false)
-    // carol's card is hers alone
-    expect(await card('carol')).toEqual(['Finance'])
+    // carol's card is hers alone: Finance and Open, and the fixture's leftover folders in projects/ that frank's Projects
+    // list just made projects (no creator, their folders from before the update), never one she is in
+    const carols = await card('carol')
+    expect(carols).toEqual(expect.arrayContaining(['Finance', 'Open', 'atlas']))
+    for (const name of ['Sales', 'Ops', 'Left', 'New']) expect(carols).not.toContain(name)
   })
 })

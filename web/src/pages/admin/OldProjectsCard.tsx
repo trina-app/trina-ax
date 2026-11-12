@@ -41,7 +41,9 @@ export function OldProjectsCard({ compact = false }: { compact?: boolean }) {
       const r = await api.call(API.joinProjectsUpdateNotice)
       if (r.joined) toast({ level: 'success', text: t('adminHome.oldProjects.done', { count: r.joined }) })
       if (r.skipped) toast({ level: 'error', text: t('adminHome.oldProjects.skipped', { count: r.skipped }) })
-      setItems(await load().catch(() => []))
+      // (the list again; when that fails, what is left as far as we know: nothing when all were joined)
+      const left = await load().catch(() => (r.skipped ? null : []))
+      if (left) setItems(left)
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
