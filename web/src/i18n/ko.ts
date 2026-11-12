@@ -4721,7 +4721,7 @@ export const ko = {
   "welcome.organize.folderName": "폴더 이름",
   "welcome.organize.isNew": "새로 만들어요",
   "welcome.organize.moveTo": "{name}의 폴더",
-  "welcome.organize.remove": "{name}은 그대로 두기",
+  "welcome.organize.remove": "'{name}' 그대로 두기",
   "welcome.organize.removed": "{n}개는 올린 자리에 그대로 둬요",
   "welcome.organize.apply": "이대로 정리",
   "welcome.organize.later": "나중에",
