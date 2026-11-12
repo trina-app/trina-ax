@@ -23400,12 +23400,19 @@ items, and Claude.ai keeps connectors under Settings › Connectors.
   connections, or a team connection they may use). On a computer the list stays on the left with Connectors marked and
   the page keeps its way back ("Connectors › Gmail", "← Connectors"); on a phone the bar says "‹ Connectors". One
   element holds the list and its pages (`ConnectorsSettings`), so a Google sign-in started from a Discover + goes on
-  when its page opens.
+  when its page opens. A page opens at the top and Back puts the list's place back, on a computer too. A Google app's
+  name is an h2 under the dialog's title and takes the keyboard when the page opens.
+- **Settings stays open while a Google sign-in waits** for its confirm step: a stray click beside the dialog or Esc does
+  nothing then (`SettingsHold`), since closing would lose the step; its ✕, the phone's tabs and Back still leave. The
+  old full page could not be closed by a stray click.
 - **Old addresses keep working**, with their query and hash: `/connectors`, `/connectors/<id>`, `/connectors/mcp/<id>`
   (App.tsx `OldConnectors`), `/settings/integrations` (the list) and `/settings/drive` (Google Drive's page). An old
   `/connectors…` link opens Settings over the page it came from (Home when opened directly), so closing Settings never
   lands on the old address again. `/connectors/authorize` (an outside app's consent) stays. On a phone the old
-  addresses are the same screens of 나 (lib/screens.ts).
+  addresses are the same screens of 나 (lib/screens.ts). Any other unknown address under Settings opens its list
+  instead of a page with no dialog.
+- **⌘K** offers "Connect an app" (Settings › Connectors) to everyone now, not only while members may add their own
+  services: with no sidebar item it is the other quick way there.
 - **Every text that sends a person to their own connections says "Settings › Connectors"** ("설정 › 커넥터") in the
   five languages, and every link opens it: the web's notices (requests, templates, Drive's reconnect, an asked app that
   is ready), search, a scheduled run's "needs your key", the onboarding Tools step, the Slack link pages and Admin's

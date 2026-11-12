@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 12:15
 - Branch: `fix/connectors-into-settings`
-- Status: in progress
+- Status: done
 - Where: web/ (Sidebar, Settings dialog, the Connectors page, links), server/ (the links and texts that name the
   place). Why: where a person's own connections live is core navigation (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. The same page in another place; old addresses keep working; no API or data change
@@ -63,4 +63,8 @@ server unit tests, and the e2e specs of the sidebar, Settings, Connectors and th
 
 ## Result
 
-(filled in at the end)
+Built as planned, PR #609. Additions from the independent review: a connector's page opens at the top on a computer
+too; Settings stays open against a stray click or Esc while a Google sign-in waits for its confirm step; a Google app's
+page is an h2 in Settings and takes focus; an unknown address under Settings opens the list; ⌘K offers Connectors to
+everyone. Connectors is first in Settings' Connections group (before Providers). Hands-on QA on a private copy of
+QA-Acme (owner and member, 1440 and 390, light and dark).
