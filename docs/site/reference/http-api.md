@@ -464,7 +464,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 |---|---|---|---|
 | `GET` | `/api/admin/team-link` | Admin | The open team invite link (address to copy again, uses, expiry, state) and the seats. |
 | `POST` | `/api/admin/team-link` | Admin | Make the team invite link (members only); the open one before it stops working. |
-| `PATCH` | `/api/admin/team-link` | Admin | Change the open team link's skill, or add groups to it; its address stays the same. |
+| `PATCH` | `/api/admin/team-link` | Admin | Change the open team link's skill or groups (for people who join from now on); its address stays the same. |
 | `DELETE` | `/api/admin/team-link` | Admin | Turn the team invite link off; its address never works again (a new link has a new token). |
 | `POST` | `/api/team-link/info` | Anyone | What a team invite link is for (team, still valid or why not). The token comes in the body, never in the path. |
 | `POST` | `/api/team-link/join` | Anyone | Create a member account with the team invite link and sign in (rate-limited per link; the owners are told). |

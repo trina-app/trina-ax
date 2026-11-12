@@ -20,7 +20,7 @@ import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { EngineId, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
-import { api, API, errorText } from '../lib/api'
+import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { deviceKind, deviceLabel } from '../lib/userAgent'
 import { offeredDownloads, parseDownloads, type DownloadItem } from '../lib/downloads'
@@ -636,6 +636,9 @@ function Security({ all = false }: { all?: boolean }) {
       await api.call(API.revokeMySession, { params: { id: s.id } })
       void load()
     } catch (e) {
+      // already signed out elsewhere (it signed itself out, or a password change ended it): the row was stale, so the
+      // list is read again instead of showing "Not found"
+      if (isApiError(e, 'not_found')) { void load(); return }
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
@@ -706,7 +709,8 @@ function Security({ all = false }: { all?: boolean }) {
       {resetLine}
       {!all && (
         <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
-          <ChangePasswordForm onDone={() => toast({ level: 'success', text: t('settings.passwordChanged') })} />
+          {/* a password change signs out every other device: the list below is read again so it shows only this one */}
+          <ChangePasswordForm onDone={() => { toast({ level: 'success', text: t('settings.passwordChanged') }); void load() }} />
         </Section>
       )}
       <Section title={t('settings.devices')} desc={t('settings.devicesHint')}>

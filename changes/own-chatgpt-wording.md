@@ -1,0 +1,1 @@
+- Settings › AI accounts: connecting your own ChatGPT account now says "Sign in with your own ChatGPT account and approve." instead of asking for the account the team will use.
