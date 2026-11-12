@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, ORGANIZE_LIMITS, cleanFolderName, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
+import { API, NOTES_FOLDER, ORGANIZE_LIMITS, cleanFolderName, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { getChatRuntime } from '../../server/src/chat/runtime'
@@ -192,6 +192,9 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
   })
 
   test('no answer in time: timeout, the name rules answer (the team\'s language: English here), the turn stopped', async () => {
+    // a notes folder already in 전사 공유 (any language) is reused by the name rules: none here, so the team's language
+    // names it (another test or the team's start may have made one; CI saw "회의록")
+    for (const n of Object.values(NOTES_FOLDER)) fs.rmSync(path.join(h.team, 'shared', n), { recursive: true, force: true })
     put('shared/t/주간 회의록.md')
     const t0 = Date.now()
     const plan: OrganizePlan = await run(['shared/t/주간 회의록.md'], { ask: fake({ sleep: 20_000 }), aiMs: 1_500 }).done
