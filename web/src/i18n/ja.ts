@@ -1587,6 +1587,8 @@ export const ja: Record<MessageKey, string> = {
   'memory.added': "メモリを追加しました。",
   'memory.updated': "メモリを更新しました。",
   'memory.editLabel': "このメモリを編集",
+  'memory.notUsed': "AIが使うのは新しいメモリ{used}件だけです。それより古い{count, plural, one {#件} other {#件}}は今は使われていません(「未使用」と表示)。また使わせるには、不要なメモリを削除してください。",
+  'memory.unused': "未使用",
   'apps.teamAddress': "チームアドレス",
   'apps.teamAddressHint': "新しい端末でアプリを開き、このアドレスを入力してください。",
   'apps.installTitle': "アプリとしてインストール",

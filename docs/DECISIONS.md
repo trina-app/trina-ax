@@ -4997,6 +4997,18 @@ Changed 2026-11-07: the hours depend on the plan (Starter 50, Team 100, Business
   `tests/security` (`createMemory` self, `updateMemory` only alice's own); `web/test/e2e/app.spec.ts` (add with the
   limit and the count, correct with Enter, Esc cancels, the first memory from the empty state).
 
+## Memories the AI does not get now are marked (fix/memories-in-use, 2026-11-12, QA TC-213)
+
+- **Problem.** Every memory was kept and listed, but a turn reads the newest 100 and the memory block holds only what
+  fits in 4,096 characters (with short memories about 85, with long ones fewer). The older ones were never given to the
+  AI and nothing said so: the AI forgot silently.
+- **Decision (the simplest option that meets the row).** Keep what the AI gets as it is, and say it where the memories
+  are: Settings › 메모리 shows "AI는 최근 메모리 N개만 써요. 그보다 오래된 M개는 지금 쓰지 않아요…" above the list and
+  marks each memory not used ("쓰지 않음", its text dimmed). `GET /api/memories` says it (`inUse`, `total` on the page,
+  `unused: true` on such items), worked out with the same function as the AI's block (`prompt.ts` `memoryLines`), so
+  the two never disagree.
+- **Not done.** A cap on how many can be kept, larger limits, and saying it in the chat when the AI remembers more.
+
 ## Scheduled tasks: run now, edit, pause (feat/small-batch-11-01, 2026-11-01)
 
 - **Run now** (`POST /api/schedules/:id/run`, `chat/schedules.ts runNow`): one run now through the same `start()` as a

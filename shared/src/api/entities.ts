@@ -473,6 +473,9 @@ export const Memory = z.object({
   text: z.string(),
   sourceChatId: Uuid7.nullable(),
   createdAt: IsoTime,
+  /** in the person's own list only: the AI does not get this memory now (it gets the newest that fit; older ones are
+   * kept, listed and marked, QA TC-213). Absent: in use, or not said */
+  unused: z.literal(true).optional(),
 })
 export type Memory = z.infer<typeof Memory>
 

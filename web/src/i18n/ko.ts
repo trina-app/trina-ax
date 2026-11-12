@@ -1614,6 +1614,8 @@ export const ko = {
   'memory.added': "메모리를 추가했어요.",
   'memory.updated': "메모리를 고쳤어요.",
   'memory.editLabel': "이 메모리 수정",
+  'memory.notUsed': "AI는 최근 메모리 {used}개만 써요. 그보다 오래된 {count}개는 지금 쓰지 않아요('쓰지 않음' 표시). 다시 쓰게 하려면 필요 없는 메모리를 지우세요.",
+  'memory.unused': "쓰지 않음",
 
   'apps.teamAddress': "팀 주소",
   'apps.teamAddressHint': "새 기기에서 앱을 열고 이 주소를 넣으세요.",

@@ -1615,6 +1615,8 @@ export const en: Record<MessageKey, string> = {
   'memory.added': "Memory added.",
   'memory.updated': "Memory updated.",
   'memory.editLabel': "Edit this memory",
+  'memory.notUsed': "The AI uses only your {used} newest memories. {count, plural, one {# older one is} other {# older ones are}} not used now (marked 'Not used'). To have them used again, delete memories you no longer need.",
+  'memory.unused': "Not used",
 
   'apps.teamAddress': "Team address",
   'apps.teamAddressHint': "Open the app on a new device and enter this address.",
