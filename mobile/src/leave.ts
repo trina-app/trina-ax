@@ -9,13 +9,22 @@ const MAX_OWED = 8
 /** The server ended the session (204) or there was none (401). */
 export const ended = (status: number) => status === 204 || status === 401
 
-/** Empties the page's own storage: local and session storage, the cookies script can reach, Cache Storage, IndexedDB and
- * service workers. The session cookie is HttpOnly: the sign-out's answer clears it, and the app clears it natively. */
-export const WIPE_JS = 'try{localStorage.clear()}catch(e){}try{sessionStorage.clear()}catch(e){}'
+/** The session storage key where the web join page keeps a team link's #t= token once it took it out of the address
+ * (web/src/lib/team-link.ts JOIN_TOKEN_KEY; a test compares the two). */
+export const JOIN_TOKEN_KEY = 'mycel.joinToken'
+
+/** Empties the page's own storage: local and session storage (but the session keys in `keep`), the cookies script can
+ * reach, Cache Storage, IndexedDB and service workers. The session cookie is HttpOnly: the sign-out's answer clears it,
+ * and the app clears it natively. */
+export const wipeJs = (keep: readonly string[] = []) => 'try{localStorage.clear()}catch(e){}'
+  + (keep.length
+    ? `try{(function(k){var v=k.map(function(n){return sessionStorage.getItem(n)});sessionStorage.clear();k.forEach(function(n,i){if(v[i]!==null)sessionStorage.setItem(n,v[i])})})(${JSON.stringify(keep)})}catch(e){}`
+    : 'try{sessionStorage.clear()}catch(e){}')
   + "try{document.cookie.split(';').forEach(function(c){var n=c.split('=')[0].trim();if(n)document.cookie=n+'=; Max-Age=0; Path=/'})}catch(e){}"
   + 'try{if(window.caches)caches.keys().then(function(k){k.forEach(function(x){caches.delete(x)})},function(){})}catch(e){}'
   + 'try{if(window.indexedDB&&indexedDB.databases)indexedDB.databases().then(function(d){d.forEach(function(x){if(x.name)indexedDB.deleteDatabase(x.name)})},function(){})}catch(e){}'
   + 'try{if(navigator.serviceWorker)navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(x){x.unregister()})},function(){})}catch(e){}'
+export const WIPE_JS = wipeJs()
 
 /** The script for the team page being left: storage first (the page may be gone before the server answers), then
  * POST <team>/api/auth/logout with the page's own session, the status back to the app with the one-time token. */
@@ -83,4 +92,24 @@ export async function signedOut(slot: Slot, origin: string): Promise<void> {
 }
 export async function owesSignOut(slot: Slot, origin: string): Promise<boolean> {
   return (await read(slot)).includes(origin)
+}
+
+/** The sign-out of `origin` owed before a switch saves the new team. The undo (the save failed) takes back only what
+ * this switch added: an entry owed by an earlier switch stays. */
+export async function oweForSwitch(slot: Slot, origin: string): Promise<() => Promise<void>> {
+  const before = await owesSignOut(slot, origin)
+  await oweSignOut(slot, origin)
+  return before ? async () => {} : () => signedOut(slot, origin)
+}
+
+/** One team switch at a time (the sign-out of the team left can take seconds): `run` answers false, without running
+ * `fn`, while another switch runs, so the screen that asked can say so instead of closing as if it had switched. */
+export class OneSwitch {
+  private running = false
+  get busy() { return this.running }
+  async run(fn: () => Promise<void>): Promise<boolean> {
+    if (this.running) return false
+    this.running = true
+    try { await fn(); return true } finally { this.running = false }
+  }
 }

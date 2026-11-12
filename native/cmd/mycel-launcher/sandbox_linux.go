@@ -11,6 +11,7 @@
 // TIOCSTI risk --new-session addresses is covered by "no controlling terminal" (setsid) + the seccomp filter.
 //
 // Fail closed (spec 3.3.9): a turn is refused when the firewall status is missing, stale or for another uid/port, when
+// the live check finds the firewall not in effect (firewallLive: the table was flushed or changed after the status), when
 // the sandbox files changed owner or mode, when the plan's concurrent-turn limit is reached, when the turn cgroup is
 // required but unavailable, or when an engine-account process listens on the model proxy port (squatting, 3.4.4).
 package main
@@ -34,6 +35,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+	"mycel/native/internal/fwprobe"
 	"mycel/native/internal/fwstatus"
 	"mycel/native/internal/plan"
 )
@@ -458,6 +460,10 @@ func (t *turnEnv) begin(cgName string) error {
 		if err != nil {
 			return fmt.Errorf("firewall_not_loaded: %v", err)
 		}
+		// the file says what was loaded at the last apply; another tool may have taken the table away since (QA TC-310)
+		if err := firewallLive(); err != nil {
+			return fmt.Errorf("firewall_off: %v", err)
+		}
 	}
 	if lx.bwrap {
 		for _, p := range lx.sbxFiles {
@@ -773,8 +779,49 @@ func platformStatus(ev map[string]any) {
 		} else {
 			fw["problem"] = err.Error()
 		}
+		// what the kernel does right now (the diagnostics' firewall line), not only what the file says
+		if lerr := firewallLive(); lerr != nil {
+			fw["live"], fw["liveProblem"] = false, lerr.Error()
+		} else {
+			fw["live"] = true
+		}
 		ev["firewall"] = fw
 	}
 }
 
 func isENOSYS(err error) bool { return errors.Is(err, syscall.ENOSYS) }
+
+// firewallLive checks that the engine firewall is in effect now (fwprobe, as the engine account). A pass is kept for
+// fwLiveFor so a burst of turns probes once; a failure is tried once more, then never kept (the next turn probes again, and the firewall
+// timer re-applies the table within 30 seconds). One probe at a time.
+func firewallLive() error {
+	fwLive.mu.Lock()
+	defer fwLive.mu.Unlock()
+	if !fwLive.okAt.IsZero() && time.Since(fwLive.okAt) < fwLiveFor {
+		return nil
+	}
+	err := fwLiveProbe(*proxyPort, time.Second)
+	if err != nil {
+		// one quick retry before refusing: a momentary hiccup (the 30 s apply swapping the table in one transaction)
+		time.Sleep(fwLiveRetry)
+		err = fwLiveProbe(*proxyPort, time.Second)
+	}
+	if err != nil {
+		fwLive.okAt = time.Time{}
+		return err
+	}
+	fwLive.okAt = time.Now()
+	return nil
+}
+
+const fwLiveFor = 3 * time.Second
+
+var fwLiveRetry = 200 * time.Millisecond
+
+var (
+	fwLive struct {
+		mu   sync.Mutex
+		okAt time.Time
+	}
+	fwLiveProbe = fwprobe.Probe
+)

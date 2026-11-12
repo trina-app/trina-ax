@@ -1,1 +1,0 @@
-- The Mac app's update notice in Korean now points to 설정 > 앱 (it said 팀 설정 > 앱), and the install guide names the AI page as the app does (Admin → AI accounts).

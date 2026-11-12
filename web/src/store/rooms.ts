@@ -700,7 +700,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
       if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 404) {
         setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
-        set((s) => ({ returned: { ...s.returned, [placeKey(roomId, p.threadRootId)]: p } }))
+        // team files I may no longer open: the server took those copies out (params.files), so they do not come back
+        const out = e.body.params?.reason === 'team_file_access' ? new Set(String(e.body.params.files ?? '').split(',')) : null
+        const back = out ? { ...p, files: p.files.filter((f) => !out.has(f.id)) } : p
+        set((s) => ({ returned: { ...s.returned, [placeKey(roomId, p.threadRootId)]: back } }))
         toast({ level: 'warn', text: error })
         return
       }

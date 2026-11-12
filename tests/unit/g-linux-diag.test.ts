@@ -190,6 +190,26 @@ describe('diagnostics of an installed Linux server', () => {
     fw({})
     expect(await check({}, 'pf_anchor')).toMatchObject({ status: 'ok', detail: '7 nftables rules (the engine account reaches 127.0.0.1:47821 only)' })
   })
+  test('firewall: the file says loaded, the launcher finds the rules not in effect (QA TC-310)', async () => {
+    const saved = status
+    try {
+      fw({})
+      status = { ...saved!, firewall: { loaded: true, at: null, live: true } }
+      expect((await check({}, 'pf_anchor'))!.status).toBe('ok')
+      status = { ...saved!, firewall: { loaded: true, at: null, live: false, liveProblem: 'a loopback connection to a port other than the model proxy went through' } }
+      const c = (await check({}, 'pf_anchor'))!
+      expect(c.status).toBe('fail')
+      expect(c.detail).toContain("network protection (its nftables rules) is off right now")
+      expect(c.detail).toContain('sudo mycel-ctl firewall apply')
+      expect(c.detail).toContain('went through')
+      const h = (await check({ hosted: true }, 'pf_anchor'))!
+      expect(h.status).toBe('fail')
+      expect(h.detail).not.toMatch(/sudo|mycel-ctl|nft|loopback/)
+      // a launcher from before the live test leaves it out: the file decides
+      status = { ...saved!, firewall: { loaded: true, at: null } }
+      expect((await check({}, 'pf_anchor'))!.status).toBe('ok')
+    } finally { status = saved }
+  })
   test('launcher and its sandbox report', async () => {
     expect(await check({}, 'launcher')).toMatchObject({ status: 'ok' })
     expect(await check()).toMatchObject({ status: 'ok', detail: 'Applied to every engine run (bwrap 0.12.0, Landlock ABI 6, seccomp)' })

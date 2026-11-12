@@ -94,7 +94,7 @@ What runs as which account inside the container:
 | Process | Account | Started by |
 |---|---|---|
 | `trina-ax-entrypoint`, `install-linux.sh` (at start only), `mycel-ctl supervise` (PID 1) | root | Docker |
-| Engine firewall (`nft` table `inet mycel`, applied again every 2 minutes) | root | supervise |
+| Engine firewall (`nft` table `inet mycel`, applied again every 30 seconds; the launcher tests that it is in effect before every turn) | root | supervise |
 | `mycel-launcher` | `axagent` (uid 981) | supervise |
 | AI engines (Claude Code, Codex) in bubblewrap + Landlock + seccomp, no network except the model proxy | `axagent` (uid 981) | launcher |
 | `mycel-bootstrap` → team server, model proxy (127.0.0.1:47821), converters in bubblewrap | `axserver` (uid 980) | supervise |

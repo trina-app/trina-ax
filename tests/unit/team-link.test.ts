@@ -286,6 +286,13 @@ describe('links from outside (phase 2): the reader and screen ④\'s gate', () =
       expect(g.retry('acme.trina.app')).toBeNull()
       const o3 = g.put(a); g.shown(o3.id, 6_000); g.answer(true, 'acme.trina.app', 7_000); g.clear()
       expect(g.retry('acme.trina.app')).toBeNull()
+      // a link that came while the last one's switch ran: that switch finishing does not clear the new one
+      const o4 = g.put(a); g.shown(o4.id, 8_000); g.answer(true, 'acme.trina.app', 9_000)
+      const o5 = g.put(evil); g.shown(o5.id, 9_100)
+      g.clear(o4.id)
+      expect(g.answer(true, 'evil.example', 10_000)).toMatchObject({ id: o5.id })
+      g.clear(o5.id)
+      expect(g.retry('evil.example')).toBeNull()
     }
   })
   test('a tapped universal link that was cut off says so; text around the address inside a scheme link is refused', () => {
