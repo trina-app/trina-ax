@@ -544,10 +544,24 @@ describe('push gateway: FCM', () => {
     }
   })
 
+  test('an FCM error answer whose body stops after the headers ends within the limit as 502', async () => {
+    const stalled = (c: Call) => new Response(new ReadableStream<Uint8Array>({
+      start(ctl) {
+        ctl.enqueue(new TextEncoder().encode('{"error":{"status":"UNAVA'))
+        c.signal?.addEventListener('abort', () => ctl.error(c.signal!.reason), { once: true })
+      },
+    }), { status: 503, headers: { 'content-type': 'application/json' } })
+    const h = harness({ fcmTimeoutMs: 50, respond: (c, n) => (c.url.startsWith('https://fcm.') ? stalled(c) : defaultResponder(c, n)) })
+    const started = performance.now()
+    await expectError(await h.send(android()), 'provider_error')
+    expect(performance.now() - started).toBeLessThan(2000)
+  })
+
   test('the default FCM time limit is shorter than the team server\'s 10 s wait', async () => {
     const { FCM_TIMEOUT_MS } = await import('../../push-gateway/src/fcm.ts')
-    const native = fs.readFileSync(path.resolve(import.meta.dir, '../../server/src/notifications/push-native.ts'), 'utf8')
-    expect(native).toContain("new PushSendError('push_timeout')), 10_000)")
+    const service = fs.readFileSync(path.resolve(import.meta.dir, '../../server/src/notifications/push-service.ts'), 'utf8')
+    expect(service).toContain('this.o.requestTimeoutMs??10_000')
+    expect(service).toContain('this.o.now()+(attempts===1?30_000:120_000)') // the first retry comes 30 s later
     expect(FCM_TIMEOUT_MS).toBeLessThan(10_000)
   })
 })

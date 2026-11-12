@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 07:57
 - Branch: `fix/push-gateway-fcm-timeout`
-- Status: in progress
+- Status: done
 - Where: `push-gateway/`. Why: the gateway is its own service in this repo (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix in the push gateway with no API change
 
@@ -14,13 +14,13 @@ The load test TC-387 lost Android pushes. When an FCM call hangs for longer than
 2. The first send is still in flight, so the gateway answers the retry with `200` (duplicate) and sends nothing.
 3. The first send then fails and the gateway releases its dedupe entry. Nobody sends the push.
 
-APNs is safe because its HTTP/2 call has a 15 s limit. FCM and the OAuth token call have no limit.
+An APNs call ends after 15 s with no data. FCM and the OAuth token call have no limit.
 
 ## Scope
 
 In:
-- One time limit of 8 s for each FCM send, shared by the OAuth token call and the send call. 8 s is less than the
-  team server's 10 s, so the team server gets the gateway's 502 `provider_error` and its retry sends again.
+- One time limit of 8 s for each FCM send, shared by the OAuth token call and the send call. The team server retries
+  30 s or more later, so the first send has ended and released its dedupe entry before the retry comes.
 - A unit test for the hang case.
 
 Out:
@@ -47,4 +47,7 @@ None for data or permissions. The limit is on the gateway's own outbound calls o
 
 ## Result
 
-(at the end)
+Built as planned: `FCM_TIMEOUT_MS` (8 s) in `push-gateway/src/fcm.ts`, three unit tests (an FCM hang, an OAuth hang,
+an error body that stops), README and DECISIONS. TC-387 hang probe on this branch: 150 of 150 delivered in both runs
+(before: 149 and 145, 5 of 5 held Android pushes lost), 0 doubled. Review (a fresh agent): merge; its doc points are
+in. PR: https://github.com/trina-app/trina-ax/pull/589

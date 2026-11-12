@@ -23,10 +23,11 @@ export interface FcmConfig { projectId: string; clientEmail: string; privateKeyP
 export const FCM_ORIGIN = 'https://fcm.googleapis.com'
 export const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging'
 /**
- * One send (the OAuth token call when needed, then the send call) ends after this long, answer read included. It is
- * shorter than the team server's 10 s wait (server/src/notifications/push-native.ts): when FCM hangs, the team server
- * gets 502 and its retry sends again. Without a limit the first send was still in flight when the retry came, the retry
- * got 200 (duplicate) and nothing was sent when the first send then failed (QA TC-387).
+ * One send (the OAuth token call when needed, then the send call) ends after this long, answer read included. A team
+ * server tries a failed push again 30 s or more later (server/src/notifications/push-service.ts), so the first send has
+ * ended, and its dedupe entry is released or kept, before any retry comes. Without a limit the first send could still
+ * be in flight then: the retry got 200 (duplicate), and nothing was sent when the first send failed (QA TC-387). It is
+ * also less than the team server's usual 10 s wait, so that server usually gets the gateway's 502.
  */
 export const FCM_TIMEOUT_MS = 8_000
 

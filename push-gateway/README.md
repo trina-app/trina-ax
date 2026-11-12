@@ -19,9 +19,9 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
   - dedupe: the same (key, token, notificationId) within 10 minutes is answered 200 without sending again. This is also
     the replay guard inside the ±5 minute timestamp window.
   - A refused or failed send is not remembered, so a retry sends.
-- Time limits: an FCM send (the OAuth token call and the send call together) ends after 8 s (`FCM_TIMEOUT_MS`), an APNs
-  call after 15 s. The FCM limit is shorter than the team server's 10 s wait, so a stalled FCM call ends as 502 and the
-  team server's retry sends.
+- Time limits: an FCM send (the OAuth token call and the send call together) ends after 8 s (`FCM_TIMEOUT_MS`); an APNs
+  call ends after 15 s with no data. A team server tries a failed push again 30 s or more later, so a stalled FCM call
+  has ended as 502 and released its dedupe entry before the retry comes, and the retry sends.
 - Notification content: there is no message content (App Review 4.5.4). The title is `APP_TITLE`; the body is a
   generic line picked from `code` and `locale` (`src/text.ts`).
 - Data the app reads:
