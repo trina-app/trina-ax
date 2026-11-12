@@ -65,3 +65,5 @@ Tests:
 
 `git merge-tree` against #399's branch lists the same conflicts with and without this change (TemplatesView,
 SettingsDialog, Connectors, settingsTabs, from dev). `ConnectorsView.tsx` and the locale files merge cleanly.
+
+PR: https://github.com/trina-app/trina-ax/pull/512
