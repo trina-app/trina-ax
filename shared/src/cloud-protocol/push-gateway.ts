@@ -21,6 +21,9 @@
 // Data:     the app reads { notificationId, code, path?, tag? }: on iOS from the APNs payload's top-level `body` object
 //           (expo-notifications reads remote data from userInfo["body"]), on Android from FCM `data` (flat strings,
 //           never a key named "body").
+// Badge:    `badge` (optional, an integer 0..PUSH_GATEWAY_MAX_BADGE) is the number for the app icon, the recipient's one
+//           count as the team server knows it: APNs `aps.badge`, FCM `android.notification.notification_count`. A
+//           count, never content; absent (an older team server): the icon is left as it is.
 
 export const PUSH_GATEWAY_SEND_PATH = '/v1/send'
 export const PUSH_GATEWAY_HEALTH_PATH = '/health'
@@ -29,6 +32,8 @@ export const PUSH_GATEWAY_MAX_SKEW_MS = 300_000
 /** the same (key, token, notificationId) within this window is sent once */
 export const PUSH_GATEWAY_DEDUPE_MS = 10 * 60_000
 export const PUSH_GATEWAY_MAX_TTL_SECONDS = 86_400
+/** the largest app icon number a request carries (the web app's count is capped well below it) */
+export const PUSH_GATEWAY_MAX_BADGE = 9999
 
 export const PUSH_PLATFORMS = ['ios', 'android'] as const
 export type PushPlatform = (typeof PUSH_PLATFORMS)[number]
@@ -56,6 +61,9 @@ export interface PushGatewaySend {
   /** the team server's id of the device row: the app ignores a tap whose tag is not the id it registered (a previous
    * team's notification) */
   tag?: string
+  /** the app icon's number: the recipient's one count (chats and rooms that want them) when this was sent; 0 clears the
+   * icon; absent leaves it */
+  badge?: number
 }
 
 /** Error codes and their HTTP status. Every answer is JSON: { ok: true } (200) or { ok: false, error: <code> }. */
@@ -95,7 +103,7 @@ const CODE_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,3}$/
 const CODE_MAX = 64
 const PATH_RE = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/
 const PATH_MAX = 200
-const SEND_KEYS = ['v', 'platform', 'environment', 'token', 'notificationId', 'code', 'locale', 'path', 'ttlSeconds', 'tag']
+const SEND_KEYS = ['v', 'platform', 'environment', 'token', 'notificationId', 'code', 'locale', 'path', 'ttlSeconds', 'tag', 'badge']
 
 export function validPushToken(platform: PushPlatform, token: unknown): boolean {
   if (typeof token !== 'string') return false
@@ -106,6 +114,11 @@ export function validPushToken(platform: PushPlatform, token: unknown): boolean 
 
 export function validPushPath(path: unknown): boolean {
   return typeof path === 'string' && path.length <= PATH_MAX && PATH_RE.test(path)
+}
+
+/** An app icon number: an integer from 0 to PUSH_GATEWAY_MAX_BADGE. */
+export function validPushBadge(badge: unknown): badge is number {
+  return typeof badge === 'number' && Number.isInteger(badge) && badge >= 0 && badge <= PUSH_GATEWAY_MAX_BADGE
 }
 
 export function validPushCode(code: unknown): boolean {
@@ -143,6 +156,10 @@ export function parsePushGatewaySend(raw: unknown): PushGatewaySend | null {
   if ('tag' in o) {
     if (typeof o.tag !== 'string' || !NOTIFICATION_ID_RE.test(o.tag)) return null
     out.tag = o.tag
+  }
+  if ('badge' in o) {
+    if (!validPushBadge(o.badge)) return null
+    out.badge = o.badge
   }
   return out
 }

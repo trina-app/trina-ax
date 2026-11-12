@@ -57,7 +57,9 @@ export function createApns(cfg: ApnsConfig, deps: ApnsDeps) {
 
   async function post(msg: PushGatewaySend, alert: { title: string; body: string }, jwt: string): Promise<{ status: number; reason: string | null }> {
     const origin = msg.environment === 'sandbox' ? deps.sandbox ?? APNS_SANDBOX : deps.production ?? APNS_PRODUCTION
-    const body = { aps: { alert, sound: 'default', ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
+    // badge: the app icon's number (the recipient's one count); iOS shows it only while the person allows badges, and an
+    // app that never asked for them ignores it
+    const body = { aps: { alert, sound: 'default', ...(msg.badge !== undefined ? { badge: msg.badge } : {}), ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
     const nowS = Math.floor(deps.now() / 1000)
     const res = await deps.fetch(`${origin}/3/device/${msg.token}`, {
       method: 'POST',

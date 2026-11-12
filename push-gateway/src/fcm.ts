@@ -99,7 +99,8 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
                 priority: 'HIGH',
                 ttl: `${msg.ttlSeconds ?? 0}s`,
                 collapse_key: msg.notificationId,
-                notification: { channel_id: 'default', tag: msg.notificationId },
+                // notification_count: the number a launcher that shows badges may put on the icon (the recipient's one count)
+                notification: { channel_id: 'default', tag: msg.notificationId, ...(msg.badge !== undefined ? { notification_count: msg.badge } : {}) },
               },
             },
           }),

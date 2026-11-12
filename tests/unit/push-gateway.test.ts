@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   PUSH_GATEWAY_ERRORS, parsePushGatewayAuthorization, parsePushGatewaySend, pushGatewayAuthorization,
-  pushGatewaySigningString, validPushPath, validPushToken,
+  pushGatewaySigningString, validPushBadge, validPushPath, validPushToken,
 } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { TEXT } from '../../server/src/notifications/text.ts'
 import { clientBucket, createGateway, type GatewayEnv, type LogLine } from '../../push-gateway/src/gateway.ts'
@@ -124,6 +124,7 @@ describe('push gateway contract', () => {
       { path: '//x' }, { path: '/rooms/../x' }, { path: '/rooms/x?y=1' }, { path: '/rooms/' }, { path: 'https://example.test/x' },
       { path: `/${'a'.repeat(200)}` }, { ttlSeconds: -1 }, { ttlSeconds: 86_401 }, { ttlSeconds: 1.5 }, { ttlSeconds: '60' }, { ttlSeconds: null },
       { tag: '' }, { tag: 'dev 42' }, { tag: 'x'.repeat(101) }, { tag: 42 }, { tag: null }, { tag: 'dev/42' },
+      { badge: -1 }, { badge: 10_000 }, { badge: 1.5 }, { badge: '3' }, { badge: null }, { badge: Number.NaN }, { badge: true },
     ]
     expect(parsePushGatewaySend({ ...ok, tag: 'x'.repeat(100) })?.tag).toBe('x'.repeat(100))
     for (const b of bad) expect(parsePushGatewaySend({ ...ok, ...b })).toBeNull()
@@ -619,5 +620,47 @@ describe('push gateway: configuration, text and logs', () => {
     const tokenIds = [IOS_TOKEN, dead, ANDROID_TOKEN].map((t) => createHash('sha256').update(t).digest('hex'))
     for (const s of [IOS_TOKEN, dead, ANDROID_TOKEN, 'broken', TEAM.pub, TEAM.keyId, 'ya29', 'room.message', 'n1', 'bearer', IP, '192.0.2', ...tokenIds, ...secrets]) expect(text).not.toContain(s)
     for (const c of h.calls) if (c.headers.get('authorization')?.startsWith('bearer ')) expect(text).not.toContain(c.headers.get('authorization')!.slice(7, 40))
+  })
+})
+
+// ------------------------------------------------------------------ the app icon's number
+
+describe('push gateway: badge', () => {
+  test('contract: an optional integer from 0 to 9999; absent stays absent (an older team server)', () => {
+    for (const n of [0, 1, 42, 9999]) expect(validPushBadge(n)).toBe(true)
+    for (const n of [-1, 10_000, 0.5, '1', null, undefined, Number.POSITIVE_INFINITY]) expect(validPushBadge(n)).toBe(false)
+    expect(parsePushGatewaySend(JSON.parse(body({ badge: 0 })))?.badge).toBe(0)
+    expect(parsePushGatewaySend(JSON.parse(body({ badge: 9999 })))?.badge).toBe(9999)
+    expect(parsePushGatewaySend(JSON.parse(body()))).not.toHaveProperty('badge')
+  })
+
+  test('APNs: aps.badge carries the count (0 too); without it the payload is as before', async () => {
+    const h = harness()
+    await expectOk(await h.send(body({ notificationId: 'b1', badge: 3, tag: 'dev_1' })))
+    await expectOk(await h.send(body({ notificationId: 'b2', code: 'schedule.failure', badge: 0 })))
+    await expectOk(await h.send(body({ notificationId: 'b3' })))
+    const [three, zero, none] = h.apnsCalls().map(c => JSON.parse(c.body) as { aps: Record<string, unknown>; body: Record<string, string> })
+    expect(three!.aps).toEqual({ alert: { title: 'Trina AX', body: 'You have a new message' }, sound: 'default', badge: 3, 'mutable-content': 1 })
+    expect(zero!.aps).toEqual({ alert: { title: 'Trina AX', body: 'A scheduled task needs your attention.' }, sound: 'default', badge: 0 })
+    expect(none!.aps).not.toHaveProperty('badge')
+    // a count only: it is never in the data the app reads, and nothing else came with it
+    for (const p of [three!, zero!, none!]) expect(Object.keys(p.body)).not.toContain('badge')
+  })
+
+  test('FCM: android.notification.notification_count; never in data', async () => {
+    const h = harness()
+    await expectOk(await h.send(android({ notificationId: 'b1', badge: 7 })))
+    await expectOk(await h.send(android({ notificationId: 'b2' })))
+    const sends = h.calls.filter(c => c.url.startsWith('https://fcm.')).map(c => JSON.parse(c.body).message)
+    expect(sends[0].android.notification).toEqual({ channel_id: 'default', tag: 'b1', notification_count: 7 })
+    expect(sends[0].data).toEqual({ notificationId: 'b1', code: 'room.message' })
+    expect(sends[1].android.notification).toEqual({ channel_id: 'default', tag: 'b2' })
+  })
+
+  test('a bad badge is refused as a bad body, before anything is sent', async () => {
+    const h = harness()
+    await expectError(await h.send(body({ badge: -1 })), 'invalid_body')
+    await expectError(await h.send(body({ badge: 10_000 })), 'invalid_body')
+    expect(h.apnsCalls().length).toBe(0)
   })
 })
