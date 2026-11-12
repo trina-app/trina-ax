@@ -30,18 +30,26 @@ the `>` prefix is the rule, the same one read-rooms uses.
 2. `typedUrls` drops quote lines before collecting addresses.
 3. Unit tests in `tests/unit/p0-webfetch-gate.test.ts`.
 4. Changelog fragment `changes/quoted-links-not-typed.md`.
+5. (Review) A display name with a line break ended the quote header early, so the rest of the name read as the
+   asker's own line. `withQuote` writes the header (name, time, file name) as one line (`oneLineName`), and
+   `PersonName` refuses control, separator and invisible characters with the room name rule (`shared/src/name-chars.ts`
+   `NAME_FORBIDDEN`, now shared). The server answers that refusal in the person's language (`FIELD_MESSAGES`). Names
+   saved before the rule still load.
 
 ## Risks
 
-A person who quotes text themselves with `> ` and wants a link in it opened gets one card (a single yes remembers it
-for the chat). That is the same reading read-rooms already makes of any quote. No migration, no UI text, no languages.
+Every name-setting path (profile, `PATCH /api/me`, admin create and edit, invite, setup, CLI create-owner) uses
+`PersonName`, so they all refuse the same characters. A person who quotes text themselves with `> ` and wants a link in it opened gets one card (a single yes remembers it
+for the chat). That is the same reading read-rooms already makes of any quote. No migration. One new error text, in all five languages (`FIELD_MESSAGES`).
 
 ## Tests
 
 `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `tests/unit/p0-webfetch-gate.test.ts`,
-`p0-exfil-server`, `b-chat-rooms`, `b-shared-chats`, `b-read-rooms-scheduled`.
+`p0-exfil-server`, `b-chat-rooms`, `b-shared-chats`, `b-read-rooms-scheduled`, `a-auth`, `a-admin`, `b-rooms`,
+`b-onboarding-profile`, web `side-chat`.
 
 ## Result
 
 Built as planned. `chat/read-rooms.ts` exports `isQuoteLine` / `withoutQuoteLines`; `quotesOnBranch` and the URL
-gate's `typedUrls` both use them. The new gate test fails without the fix. PR: see the branch's pull request to `dev`.
+gate's `typedUrls` both use them. The new gate test fails without the fix. After review: names are one line in a quote and refused with a line break or
+invisible characters (step 5). PR: see the branch's pull request to `dev`.
