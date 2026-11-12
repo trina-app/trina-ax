@@ -761,3 +761,37 @@ func TestUpdateRestartsBoxdWhenALaterStepFails(t *testing.T) {
 		t.Fatalf("%d %+v %v", code, r, tb.calls())
 	}
 }
+
+// QA TC-339: with 600 MB free, `mycel-ctl update` failed cleanly but did not say how much space it needs. The check
+// runs before the download (and before unpacking a --bundle) and names both numbers.
+func TestUpdateSaysHowMuchSpaceItNeeds(t *testing.T) {
+	const mb = int64(1 << 20)
+	// the version that runs is the estimate; three times the archive when that is larger
+	if got, want := spaceNeeded(150*mb, 540*mb), uint64(150*mb+2*540*mb+spaceMargin); got != want {
+		t.Fatalf("spaceNeeded = %d, want %d", got, want)
+	}
+	if got, want := spaceNeeded(300*mb, 0), uint64(300*mb+2*900*mb+spaceMargin); got != want {
+		t.Fatalf("spaceNeeded without a current version = %d, want %d", got, want)
+	}
+	msg := spaceError("/var/lib/mycel", "0.5.0", 1536<<20, 600<<20).Error()
+	for _, s := range []string{"not enough free space for 0.5.0", "/var/lib/mycel", "it needs about 1.5 GB free, it has 0.6 GB", "nothing was changed"} {
+		if !strings.Contains(msg, s) {
+			t.Fatalf("%q does not say %q", msg, s)
+		}
+	}
+	base := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(base, "app", "versions", "0.4.0"), 0o755))
+	must(t, os.WriteFile(filepath.Join(base, "app", "versions", "0.4.0", "main.js"), make([]byte, 4096), 0o644))
+	must(t, os.Symlink("versions/0.4.0", filepath.Join(base, "app", "current")))
+	if treeSize(filepath.Join(base, "app", "versions", "0.4.0")) != 4096 {
+		t.Fatal("treeSize does not count the version's files")
+	}
+	u := &updater{e: &env{base: base}}
+	if err := u.checkSpace("0.5.0", 1<<20); err != nil {
+		t.Fatalf("a small update on a temp disk: %v", err)
+	}
+	err := u.checkSpace("0.5.0", 1<<52) // 4 PiB: never free
+	if err == nil || !strings.Contains(err.Error(), "it needs about") || !strings.Contains(err.Error(), "free, it has") {
+		t.Fatalf("an update that cannot fit: %v", err)
+	}
+}
