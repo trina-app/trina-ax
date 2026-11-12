@@ -165,7 +165,22 @@ export class Rooms {
     if (!room) return
     this.fanout(roomId, (m) => (only && !only.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change, room: roomOut(this.db, room, m) } }))
   }
+  /** People whose own signals a bulk read holds back (hold): their rooms to send one room.updated each at the end. */
+  private held = new Map<string, Set<string>>()
+  /** Runs `fn` (synchronous) with my "notifications changed" signals held back and my own room.updated of a thread read
+   * sent once per room at the end: a bulk read (Activity's "Mark all as read", notifications/service.ts readAll) that
+   * reads many rows would otherwise make each open window read the Inbox again once per row. The caller sends the one
+   * signal. room.read and room.thread still go out per room and thread (each carries its own state). */
+  hold<T>(userId: string, fn: () => T): T {
+    const rooms = new Set<string>()
+    this.held.set(userId, rooms)
+    try { return fn() } finally {
+      this.held.delete(userId)
+      for (const roomId of rooms) this.roomEvent(roomId, 'updated', new Set([userId]))
+    }
+  }
   private notifySignal(userId: string) {
+    if (this.held.has(userId)) return
     this.ctx.services.realtime.publish(userId, { type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
   }
 
@@ -782,7 +797,9 @@ export class Rooms {
     this.markThreadNoticesRead(userId, roomId, root.id, to)
     if (moved) {
       this.ctx.services.realtime.publish(userId, { type: 'room.thread', data: { roomId, rootId: root.id, thread: threadSummary(this.db, roomId, root.id, me) } })
-      this.roomEvent(roomId, 'updated', new Set([userId]))
+      const held = this.held.get(userId)
+      if (held) held.add(roomId)
+      else this.roomEvent(roomId, 'updated', new Set([userId]))
     }
     const f = this.db.query('SELECT last_read_seq FROM room_thread_follows WHERE root_id = ? AND user_id = ?').get(root.id, userId) as { last_read_seq: number } | null
     return { lastReadSeq: f?.last_read_seq ?? 0, room: roomOut(this.db, room, memberRow(this.db, roomId, userId)!) }

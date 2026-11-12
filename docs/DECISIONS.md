@@ -23888,6 +23888,10 @@ Activity cleared notices one click at a time.
 - **The button** is a quiet text button at the end of the tools row ("Mark all as read", 모두 읽음 표시), shown only while
   the open tab has an unread row (loaded rows, or for All the server's unread count), disabled while the call runs. The
   rows and dots read at once; the page then reads the list again, and so do the sidebar's count and the tab dots.
+- **One signal per call** (follow-up review): the bulk read runs in one transaction with the rooms' per-row
+  `notifications.changed` held back (`Rooms.hold`) and sends one at the end; a thread read's own `room.updated` goes once
+  per room. `room.read` and `room.thread` still go per room and thread (each carries its own state). All builds no row
+  text (its rule always holds).
 - Tests: `tests/unit/b-rooms-inbox.test.ts` (tab by tab, only mine, idempotent, room places),
   `web/test/unit/activity-mark-all.test.tsx`, `web/test/e2e/activity-mark-all-read.spec.ts` (1440 and 390).
 

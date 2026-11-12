@@ -743,21 +743,26 @@ export class Notifications {
   readAll(userId: string, o: { tab: ActivityTab; only?: 'rooms' }, rooms: RoomReader): { read: number } {
     if (!this.active(userId)) return { read: 0 }
     const db = this.ctx.db, cutoff = this.cutoff(), now = new Date().toISOString()
-    let read = 0
-    if (o.tab === 'all' && o.only !== 'rooms') {
-      for (const table of NOTICE_TABLES) {
-        if (table === 'room_notices') continue
-        read += db.query(`UPDATE ${table} SET read_at=? WHERE user_id=? AND read_at IS NULL AND suppressed=0 AND created_at>=?`).run(now, userId, cutoff).changes
+    // one transaction, and the rooms' own per-row "notifications changed" signals held back: one signal at the end
+    const read = rooms.hold(userId, () => db.transaction(() => {
+      let n = 0
+      if (o.tab === 'all' && o.only !== 'rooms') {
+        for (const table of NOTICE_TABLES) {
+          if (table === 'room_notices') continue
+          n += db.query(`UPDATE ${table} SET read_at=? WHERE user_id=? AND read_at IS NULL AND suppressed=0 AND created_at>=?`).run(now, userId, cutoff).changes
+        }
       }
-    }
-    for (const row of roomRows(db, userId, cutoff)) {
-      if (row.read_at || !activityTabHas(this.out(row), o.tab)) continue
-      const { roomId, place, to, ids } = row.group
-      try { if (place) rooms.markThreadRead(userId, roomId, place, to); else rooms.markRead(userId, roomId, to) }
-      catch { this.ctx.log.warn('room read place not moved') }
-      db.query(`UPDATE room_notices SET read_at=? WHERE user_id=? AND read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(now, userId, ...ids)
-      read++
-    }
+      for (const row of roomRows(db, userId, cutoff)) {
+        // All holds every row: no need to build what the row says
+        if (row.read_at || (o.tab !== 'all' && !activityTabHas(this.out(row), o.tab))) continue
+        const { roomId, place, to, ids } = row.group
+        try { if (place) rooms.markThreadRead(userId, roomId, place, to); else rooms.markRead(userId, roomId, to) }
+        catch { this.ctx.log.warn('room read place not moved') }
+        db.query(`UPDATE room_notices SET read_at=? WHERE user_id=? AND read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(now, userId, ...ids)
+        n++
+      }
+      return n
+    })())
     if (read) this.signal(userId)
     return { read }
   }
@@ -766,6 +771,8 @@ export class Notifications {
 export interface RoomReader {
   markRead(userId: string, roomId: string, seq: number): unknown
   markThreadRead(userId: string, roomId: string, rootId: string, seq: number): unknown
+  /** runs fn with my per-row "notifications changed" signals held back */
+  hold<T>(userId: string, fn: () => T): T
 }
 export function notificationsOf(ctx: AppContext): Notifications {
   let service = services.get(ctx)

@@ -60,6 +60,8 @@ for (const [name, viewport, mobile] of SIZES) {
     expect(box.y).toBeLessThan(tools.y + tools.height)
     if (process.env.SHOTS) for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme })
+      // the tabs' colours move with a transition: let it end before the picture
+      await page.waitForTimeout(300)
       await page.screenshot({ path: `${dir}/mark-all-${name}-${scheme}-before.png` })
     }
     await page.emulateMedia({ colorScheme: 'light' })
@@ -74,6 +76,8 @@ for (const [name, viewport, mobile] of SIZES) {
     await expect(page.locator('[data-testid="notification-room-row"][data-unread]')).toHaveCount(2)
     if (process.env.SHOTS) for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme })
+      // the tabs' colours move with a transition: let it end before the picture
+      await page.waitForTimeout(300)
       await page.screenshot({ path: `${dir}/mark-all-${name}-${scheme}-all.png` })
     }
     await button.click()
@@ -82,6 +86,8 @@ for (const [name, viewport, mobile] of SIZES) {
     expect(sent).toEqual([{ tab: 'threads' }, { tab: 'all' }])
     if (process.env.SHOTS) for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme })
+      // the tabs' colours move with a transition: let it end before the picture
+      await page.waitForTimeout(300)
       await page.screenshot({ path: `${dir}/mark-all-${name}-${scheme}-after.png` })
     }
     // the page itself never scrolls sideways
