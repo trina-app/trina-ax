@@ -420,6 +420,9 @@ export class MockServer {
   speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
+  /** the contract endpoints the API requests reached since the server started, with how often (docs/FEATURES.md):
+   * never reset by /__test/reset, so a whole e2e run adds up; GET /__test/coverage reads it */
+  coverage = new Map<string, number>()
   /** team skills: suggestions, changes under skills/ (who manages them is the folder rules: skillGrants) */
   suggestions: SkillSuggestion[] = []
   skillChanges: SkillChange[] = []
@@ -4840,6 +4843,7 @@ export class MockServer {
       if (!route) return fail('not_found', 404)
       const h = this.handlers[route.name]
       if (!h) return fail('not_found', 404, `mock: ${route.name} not implemented`)
+      this.coverage.set(route.name, (this.coverage.get(route.name) ?? 0) + 1)
       if (req.method !== 'GET' && !req.headers.get(CSRF_HEADER)) fail('csrf', 403)
       const ep = route.ep as Endpoint
       const user = this.userOf(req)
@@ -4890,6 +4894,7 @@ export class MockServer {
   }
 
   async testControl(p: string, req: Request): Promise<Response> {
+    if (p === '/__test/coverage') return Response.json(Object.fromEntries(this.coverage))
     const body = (await req.json().catch(() => ({}))) as Json
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')

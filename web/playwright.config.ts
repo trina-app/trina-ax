@@ -13,6 +13,8 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   outputDir: 'test-results',
+  // writes test-results/feature-coverage.json: the endpoints the run reached (docs/FEATURES.md)
+  globalTeardown: './test/e2e/feature-coverage.ts',
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',

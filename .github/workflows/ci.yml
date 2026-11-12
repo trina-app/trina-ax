@@ -102,6 +102,9 @@ jobs:
           bwrap --unshare-all --ro-bind / / true
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      # every API endpoint and web screen belongs to a feature of docs/features.ts (docs/FEATURES.md); a second or two
+      - name: Feature map
+        run: bun run features:check
       - name: Onboarding documentation contracts
         run: bun run check:docs
       - name: Native build (darwin + linux, amd64 + arm64), go vet and go test
