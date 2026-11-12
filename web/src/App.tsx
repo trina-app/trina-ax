@@ -34,6 +34,7 @@ import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { noteLocation } from './lib/backStack'
+import { useAppNav } from './lib/appNav'
 import { safeNext } from './lib/nav'
 import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
 import { toast } from './store/ui'
@@ -175,6 +176,8 @@ function Gate() {
   }, [load])
 
   useSessionLifecycle()
+  // the phone app's swipe and Back follow the screens (nav-v1, lib/appNav.ts)
+  useAppNav(status.kind === 'signed-in' ? status.me.user.id : '')
 
   useEffect(() => {
     document.title = PRODUCT.displayName
