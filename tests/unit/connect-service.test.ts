@@ -864,6 +864,27 @@ describe('a service in the app\'s list (QA TC-135; editions: owner decision 2026
   })
 })
 
+describe('the step line of a template card (review of #597)', () => {
+  test('the AI names a template "Notion": the step says the verb alone while the card is open, then the template\'s own name', async () => {
+    const carol = activeUser(h.ctx.db, 'carol')!
+    const tpl = templatesOf(h.ctx).create(carol, { kind: 'mcp', name: 'Acme Wiki', url: `${svc.base}/mcp-key`, auth: 'bearer', access: { everyone: false, groups: [], users: ['alice'] } }, 'en')
+    try {
+      const t = await start('alice', { template: tpl.id, name: 'Notion' })
+      const card = await cardOf(t.turnId)
+      expect(card).toMatchObject({ name: 'Acme Wiki', template: { id: tpl.id } })
+      const live = published.filter((p) => p.ev.type === 'message.step' && p.ev.data.messageId === t.messageId && p.ev.data.step.tool === 'connect_service').map((p) => p.ev.data.step.label as string)
+      expect(live.length).toBeGreaterThan(0)
+      for (const l of live) expect(l).not.toContain('Notion')
+      expect(live.at(-1)).toBe('Connect service')
+      await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })
+      const m = await doneOf(t.messageId)
+      expect(stepOf(m).label).toBe('Connect service · Acme Wiki')
+    } finally {
+      await templatesOf(h.ctx).remove(carol, tpl.id)
+    }
+  })
+})
+
 describe('look-alike names, mixed alphabets and connections saved before the list\'s rule (fix/catalog-lookalikes)', () => {
   test('Greek capitals and a mixed-alphabet name that imitates nothing listed: titled by the host', async () => {
     const made = 'https://notion-mcp.example.com/mcp'

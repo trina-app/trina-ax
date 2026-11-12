@@ -181,6 +181,9 @@ describe('connect_service steps', () => {
     // an unknown service keeps its own name; a mixed-alphabet name that imitates nothing listed gets the host
     expect(stepLabel('connect_service', { name: 'Acme Tools', url: 'https://x.example.com/mcp' }, 'en', NONE)).toBe('Connect service · Acme Tools')
     expect(stepLabel('connect_service', { name: 'Ac\u043ce Tools', url: 'https://x.example.com/mcp' }, 'en', NONE)).toBe('Connect service · x.example.com')
+    // an admin's template by id: never the AI's name (the card is the template's); the verb alone until the outcome
+    expect(stepLabel('connect_service', { template: 'tpl1', name: 'Notion' }, 'en', NONE)).toBe('Connect service')
+    expect(stepLabel('connect_service', { template: 'tpl1', name: 'Notion' }, 'ko', NONE)).toBe('서비스 연결')
   })
 
   test('the service by name (Google Drive for the Drive card, nothing that looks like a key), and the outcome in every language', () => {

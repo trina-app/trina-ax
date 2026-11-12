@@ -23200,6 +23200,9 @@ Adds to "The chat's connect card trusts the app's list".
   same thing as the card while the card is open. When the card closes, the outcome's patch also sets the label to the
   card's own name (a step takes one patch per call), so a template or reconnect card whose name differs from the AI's
   ends up with matching labels too. Steps already saved keep their label.
+  When the AI names an admin's template by its id, the step shows the verb alone while the card is open, because the
+  AI's input holds the AI's name for it, not the template's. The outcome then adds the template's own name (review of
+  #597).
 - **The warning says whose address it is not.** When the AI's name matched a listed service at another address, the
   card request carries `notOfficial: { name, url }` (optional). The warning then reads "This is not Notion's official
   address. Notion's official address is mcp.notion.com. Connect only if you know and trust this one." For an older

@@ -305,7 +305,9 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       // the name the card may use (service-catalog.ts trustedServiceName): the list's name only at its official address,
       // the address's host for a listed or look-alike name anywhere else, so the step never says "Notion" for a card
       // that is not Notion's (QA TC-135 retest)
-      const raw = typeof a.name === 'string' ? a.name : ''
+      // an admin's template by id: the card shows the template's own name, which the AI's input does not hold, so the
+      // verb alone until the card closes (the outcome's patch then adds the template's name)
+      const raw = typeof a.name === 'string' && !a.template ? a.name : ''
       const shown = raw ? trustedServiceName(raw, typeof a.url === 'string' ? a.url : null).name : ''
       const name = a.target === 'google_drive' ? 'Google Drive' : shown ? clip(maskSecrets(shown.replace(/(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu, '')), 60) : ''
       return name ? `${verb} · ${name}` : verb!
