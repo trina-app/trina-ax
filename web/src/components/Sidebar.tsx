@@ -12,9 +12,9 @@
 // list stays open or closed, remembered in this browser. Then the account menu (the person's email or ID, Settings,
 // Usage (their own, in Settings), Deleted history, Sign out), which opens above the profile line. Below
 // 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top
-// (not the team menu: the drawer belongs to the AI's tab), 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록
-// at the bottom. A new AI chat is the 트리나 tab itself, the Inbox and Admin are in the 나 tab, 파일 is its own tab and
-// the rooms are the 대화 tab; rows are 44 px there.
+// (not the team menu: the drawer belongs to the AI's tab), 검색, 예약 작업, 팀 스킬, 커넥터, 트리나 기록, and 삭제한 기록
+// at the bottom. A new AI chat is the 트리나 tab itself, the Inbox and Admin are in the 나 tab, the projects and the team
+// folder are the 프로젝트 tab (QA TC-255: each thing in one place) and the rooms are the 대화 tab; rows are 44 px there.
 // A shared project chat I made or wrote in (docs/DECISIONS.md "Shared project chats") is a row like any other, with the
 // people icon before its title (no section of its own); its "···" offers only what I may do there. A chat of my own has
 // "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) there too, the dialog of the chat's title menu; a shared chat stays
@@ -230,7 +230,7 @@ export default function Sidebar() {
       {wide ? (
         <DesktopNav unread={unread} onNewChat={() => navigate('/')} onSearch={() => setSearchOpen(true)} />
       ) : (
-        // the phone drawer: the AI's history only (파일, the Inbox and Admin are tabs or in the 나 tab there)
+        // the phone drawer: the AI's history only (프로젝트 and 파일, the Inbox and Admin are tabs or in the 나 tab there)
         <div className="space-y-0.5 px-2">
           {/* search takes the drawer's place (and its history entry): Back closes search and shows the page */}
           <button
@@ -244,9 +244,6 @@ export default function Sidebar() {
           >
             <Search size={16} aria-hidden /> {t('sidebar.search')}
           </button>
-          <NavLink to="/projects" className={active} onClick={close}>
-            <FolderKanban size={16} aria-hidden /> {t('sidebar.projects')}
-          </NavLink>
           <NavLink to="/scheduled" className={active} onClick={close} data-testid="nav-scheduled">
             <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
           </NavLink>

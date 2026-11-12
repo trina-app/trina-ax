@@ -92,9 +92,13 @@ test('nav-v1: a notification tapped with the app open opens its room without a r
   await app(page, true)
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  await page.getByTestId('tab-files').click()
-  await expect(page).toHaveURL(/\/files/)
+  // the team folder (프로젝트 › 팀 폴더, QA TC-255): a step above the 프로젝트 tab's root
+  await page.getByTestId('tab-projects').click()
+  await expect(page).toHaveURL(/\/projects$/)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
+  await page.getByTestId('projects-team-folder-row').click()
+  await expect(page).toHaveURL(/\/files$/)
+  await expect.poll(() => heard(page)).toEqual({ canGoBack: true, home: false })
   const before = await loads(page)
   // (2) the script the app injects for a tapped notification (src/nav.ts openScript)
   await page.evaluate(openScript(`/rooms/${ROOM}`))
@@ -104,10 +108,10 @@ test('nav-v1: a notification tapped with the app open opens its room without a r
   await expect.poll(() => heard(page)).toMatchObject({ canGoBack: true })
   // Back (the app's goBack): the folder the person was in
   await page.goBack()
-  await expect(page).toHaveURL(/\/files/)
+  await expect(page).toHaveURL(/\/files$/)
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   expect(await loads(page)).toBe(before)
-  await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
+  await expect.poll(() => heard(page)).toEqual({ canGoBack: true, home: false })
   // a path the page does not open itself (not an id path): the app's script loads it, as before
   await page.evaluate(openScript('/files?path=marketing'))
   await expect(page).toHaveURL(/\/files\?path=marketing$/)

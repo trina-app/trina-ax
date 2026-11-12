@@ -33,9 +33,13 @@
 // was deleted for good) and 완전히 삭제, and has no name menu there.
 // Phones (below 768 px; QA TC-254, TC-380): the list has "+" in the top bar (components/phone/PhoneBarAction.tsx) and no
 // intro or button in the page, and is a phone list (components/phone/PhoneList.tsx), not cards: one row per project with
-// its name, who sees it, the card's "···" (44 px; a long press opens it too) and a chevron. A project's page has one bar, "‹ 프로젝트 · name · ···" (the name in the bar's title,
+// its name, who sees it, the card's "···" (44 px; a long press opens it too) and a chevron. The list is the 프로젝트 tab's
+// root (QA TC-255: no ‹ in its bar), and its last row is always "팀 폴더" (the team folder, /files, a screen of this tab;
+// its Trash is inside it). With no projects (a new team, a member in none) it says what a project is, offers 새 프로젝트
+// (everyone may make one: a personal project, a team one as the team allows, components/ProjectForm.tsx) and keeps the
+// 팀 폴더 row below. A project's page has one bar, "‹ 프로젝트 · name · ···" (the name in the bar's title,
 // the name's menu as the bar's "···" sheet; the big name for screen readers only); its files line is one row that opens
-// the project's files on a screen of the 트리나 tab (ProjectFiles below, /projects/:id/files, with no folder path line),
+// the project's files on a screen of the 프로젝트 tab (ProjectFiles below, /projects/:id/files, with no folder path line),
 // so Back returns to the project.
 import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -405,11 +409,21 @@ export function ProjectList() {
       {phone ? (
         // a phone: rows from edge to edge, like Settings' list
         <div ref={box} className="pb-8" data-testid="project-rows">
-          {(error || !items || !items.length) && (
+          {(error || !items) && (
             <div className="p-4">
               {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
               {!items && !error && <Skeleton lines={4} />}
-              {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
+            </div>
+          )}
+          {items && !items.length && (
+            // none yet: what a project is and a way to make one; the team folder still below
+            <div data-testid="projects-empty">
+              <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')}>
+                <p>{t('projects.desc')}</p>
+                <Button variant="primary" className="mt-4" onClick={() => setCreating(true)} data-testid="projects-empty-new">
+                  <Plus size={15} aria-hidden /> {t('projects.new')}
+                </Button>
+              </EmptyState>
             </div>
           )}
           {!!items?.length && (
@@ -417,6 +431,10 @@ export function ProjectList() {
               {items.map((p, i) => <ProjectRow key={p.id} project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />)}
             </PhoneListGroup>
           )}
+          {/* the team folder, always the last row (QA TC-255): 프로젝트 › 팀 폴더 reaches every file, with its Trash inside */}
+          <PhoneListGroup testId="projects-team-folder">
+            <PhoneListRow icon={<FolderOpen size={16} />} to="/files" title={t('files.root')} testId="projects-team-folder-row" />
+          </PhoneListGroup>
         </div>
       ) : (
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
@@ -862,8 +880,8 @@ export function ProjectHome() {
 export const projectDir = (raw: string | null) => (raw ?? '').split('/').filter((x) => x && x !== '.' && x !== '..').join('/')
 
 /**
- * A project's files on a phone (QA TC-254): /projects/:id/files, a screen of the 트리나 tab under the project's page
- * (lib/screens.ts), so Back goes up a folder and then to the project, never into the Files tab. No folder path line
+ * A project's files on a phone (QA TC-254): /projects/:id/files, a screen of the 프로젝트 tab under the project's page
+ * (lib/screens.ts), so Back goes up a folder and then to the project, never into the team folder. No folder path line
  * (QA TC-380: "projects/QA 프로젝트" is the server's word for it; the bar names where you are). Its folders open
  * further down here (?dir=, relative to the project's folder); a file opens in the file sheet over it (lib/sidePanel.ts,
  * Back closes it). The bar: "‹ name · 파일 (or the folder's name)" and a button to the same folder on the 파일 screen,

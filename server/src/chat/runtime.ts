@@ -14,6 +14,7 @@ import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
 import { startPresence, type Presence } from '../realtime/presence'
+import { startRoomTyping } from '../rooms/typing'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
@@ -305,6 +306,8 @@ export class ChatRuntime {
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
     // online status from the same windows (docs/DECISIONS.md "접속 상태")
     this.presence = startPresence(this.hub, ctx)
+    // "Alice is typing…" in rooms, on the same sockets (docs/DECISIONS.md "입력 중 표시")
+    startRoomTyping(this.hub, ctx)
     this.engines = o.engines ?? new LocalEngines(ctx)
     this.turnTimeoutMs = o.turnTimeoutMs ?? TURN_TIMEOUT_MS
     this.wallTimeoutMs = o.wallTimeoutMs ?? 45 * 60_000

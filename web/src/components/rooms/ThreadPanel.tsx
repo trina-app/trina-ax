@@ -138,7 +138,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
         </IconButton>
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="thread-scroller">
-        <div ref={content} className="px-4 pt-3 pb-4">
+        <div ref={content} className="px-4 pt-3 pb-6">
           {notFound ? (
             <div className="py-12 text-center" data-testid="thread-not-found">
               <p className="text-sm text-muted">{t('rooms.threadNotFound')}</p>

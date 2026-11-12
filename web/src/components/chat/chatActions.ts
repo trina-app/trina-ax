@@ -5,6 +5,7 @@ import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { chatTrashDays } from '../../lib/chat-trash'
+import { openHome } from '../../lib/screenHistory'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -44,7 +45,8 @@ export function useChatActions() {
     try {
       await api.call(API.deleteChat, { params: { id: chat.id } })
       useChats.getState().removeChat(chat.id)
-      if (chatId === chat.id) navigate('/')
+      // the chat on screen: Home, on a phone as 트리나 at its root, never on top of a project's stack (QA TC-255)
+      if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
       const undo = () => void undoDelete(chat.id, t('chat.restoreFailed', { trash: t('sidebar.trash') }))
       toast({ level: 'info', text: t('chat.deleted'), action: { label: t('common.undo'), run: undo } })
       return true
