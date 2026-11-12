@@ -326,15 +326,9 @@ export function lastCheckNote(i: Pick<Integration, 'status' | 'lastError' | 'too
   return i.toolsUpdatedAt ? { key: 'integrations.checkFailedKept', reason: i.lastError, date: i.toolsUpdatedAt } : { key: 'integrations.lastCheckFailed', reason: i.lastError, date: null }
 }
 
-/** An address without what does not change the service (letter case, a trailing slash), to compare two of them. */
-export function canonicalService(url: string): string {
-  try {
-    const u = new URL(url)
-    return `${u.host}${u.pathname.replace(/\/+$/, '')}`.toLowerCase()
-  } catch {
-    return url.trim().toLowerCase()
-  }
-}
+/** An address without what does not change the service (letter case, a trailing slash), to compare two of them
+ * (shared/src/service-catalog.ts, the server compares the same way). */
+export { canonicalService } from '@mycel/shared'
 
 /** Why a sign-in did not finish, as the server records it (server/src/integrations/connections/service.ts FlowFailure),
  * in words: an own app's Client ID or Secret refused (the person's own: check it under Advanced; a template's: ask who set

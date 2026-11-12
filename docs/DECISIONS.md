@@ -22987,6 +22987,56 @@ Reverses "Message text from another member is data, shown as plain text in the a
   text. My own questions in an AI chat stay plain.
 - The AI step still treats another member's text as untrusted input.
 
+## The chat's connect card trusts the app's list (fix/connect-card-trust, 2026-11-12, QA TC-135, bugs 2, 4, 5)
+
+Adds to "Connecting a service from a chat". Before, the card showed whatever name and address the AI put in
+`connect_service`: QA got "Sign in to Notion" for `notion-mcp.example.com`, with only the small address line to tell.
+- **One list of known services**, `shared/src/service-catalog.ts` (moved from `web/src/lib/connectors.ts`, which adds
+  the logos): each service's name and official MCP address; all sign in with OAuth. The server and the web read it.
+- **A known service is that service only at its official address** (review of #582; owner decision 2026-11-12:
+  self-hosted and regional editions are allowed, safely). In the tool handler (the server builds the card, and the
+  connect endpoint saves only what the card held):
+  - Exactly the official address (`officialService`: https, host and path; no query, port or user) under any name:
+    the list's name, kind and sign-in. A listed name at the official host with another path or no address: the
+    official address, and the tool result's `note` says the AI's address was not used.
+  - A listed name at any other address (a self-hosted GitLab, a regional edition, a made-up `notion-mcp.example.com`):
+    not refused and not rewritten. It is an unknown service at the address given, and the card's name is the address's
+    host ("Sign in to gitlab.acme.com"), so it never reads as the listed service. The connection is saved under that name.
+  - Names are compared by how they look (`nameSkeleton`: NFKD, accents dropped, Cyrillic/Greek look-alike letters and
+    0/1 made Latin), with Korean and Japanese names of popular services (노션, 피그마, 리니어, 지라, ノーション …), so
+    "Nоtion" with a Cyrillic о, "Notíon" and "노션" count as Notion. A name holding a listed one among other words
+    ("Acme GitLab") counts too, except for services named by an ordinary word (Square, Linear, Monday, Neon, Sanity,
+    Railway, Resend, Indeed, Stripe, Sentry, Postman, Intercom, Mermaid): those match only their exact name, so
+    "Square Feet API" stays its own name.
+- **The card says how far it can vouch** (`web/src/lib/connectCard.ts cardTrust`): "Official {name} address" only for
+  exactly the official address; any other address of a card that is not a template or a reconnect gets a warning box
+  with the host in bold ("This app does not know this address …"), and is named by its host when its name is (or looks
+  like) a listed service's. The own-key dialog says "{host} is {name}'s official address" by the same exact rule. An
+  admin's template and a reconnect card keep their address and name (the team's or the person's choice) and the old
+  host caution.
+- **A connection is named only to someone who may use it** (review of #582). A team request (`scope: 'team'`) from a
+  member is refused before anything is looked up. A personal request sees only the team connections the caller may
+  use. An admin's team request that finds a working team connection the admin may not use is told it exists, without
+  its name and without "its tools are yours".
+- **A service the person already uses is not connected twice** (bug 2). Before a template or a new connection, the
+  connections this person uses for the same service (the same address: their own, one
+  made from a template, a team one they may use) are checked: a working one gets "already connected" and no card;
+  their own that needs a sign-in or a key gets a card for that connection (`reconnect: true` on the request): another
+  sign-in or key goes to it, "Not now" never removes it, and the AI is told it is "still not working" if it does not
+  work after. A team one that does not work: no card, an admin fixes it (as before).
+- **Words** (bug 5): a template you sign in to says "Connect your own {name} account" and "You sign in with your own
+  account" (no "key"); the own-key dialog says "{host} is {name}'s official address" for a listed address, and
+  "Signing in lets {host} use your {name} account. Sign in only if {host} really belongs to {name}." otherwise (no
+  "sign-in token").
+- Not changed: the phone app still says "Sign in from a computer" for services other than Google (TC-137; what it
+  would take, a new native purpose and a store release, is in the plan `docs/AGENTS/plan/20261112-0622-connect-card-trust.md`).
+- Tests: `tests/unit/connect-service.test.ts` (a listed, look-alike or Korean name at a made-up or self-hosted
+  address, the official address under another name, an ordinary-word name, a member's and an outside admin's team
+  request next to a team connection for other people, own connection with a template at the same address, working
+  team connection),
+  `web/test/unit/connect-card.test.tsx`, `web/test/unit/connectors.test.ts`.
+- Version impact: **patch** (a security fix and words; one optional field on the card request, no data change).
+
 ## No members' switch for connectors (feat/admin-connectors-member-ui, 2026-11-12, product owner)
 
 - **Decision.** There is no team switch "Members can connect their own <app>" any more, for Google Drive, Gmail, Google
