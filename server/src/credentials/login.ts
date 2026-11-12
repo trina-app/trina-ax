@@ -26,7 +26,7 @@ import { ct } from './i18n'
 import { memberOwnAllowed, sharedSubscriptionsAllowed } from './policy'
 import { accessExpiry, accountRef, idClaims, maskEmail } from './openai-oauth'
 import { createCredential, duplicateOf, insertRow, replaceSecret } from './service'
-import { fingerprintOf, getRow, metaOf, noticeMember, noticeOwners, toCredential, writeSecret, type CredCtx, type Secrets } from './store'
+import { connectionsChanged, fingerprintOf, getRow, metaOf, noticeMember, noticeOwners, toCredential, writeSecret, type CredCtx, type Secrets } from './store'
 import { recordSignIn } from '../auth/team-sign-ins'
 
 export const LOGIN_TIMEOUT_MS = 16 * 60_000
@@ -124,6 +124,9 @@ class Logins {
     if (l.endedAt !== null) return
     l.state = state; l.reason = reason; l.endedAt = this.cc.now()
     audit(this.cc.db, { actor: l.userId, action: 'credential.login', target: l.loginId, detail: { kind: l.kind, state, ...(reason ? { reason } : {}) } })
+    // a connection was made or signed in again: the engine stops saying "sign-in needed" now, not after its 10-minute
+    // cache (the add/replace routes do the same, routes/credentials.ts)
+    if (state === 'done') connectionsChanged(this.cc)
     this.send(l)
   }
 

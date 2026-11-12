@@ -21,6 +21,7 @@ import { setSetting } from '../../server/src/admin/settings'
 import { createLogger } from '../../server/src/log'
 import type { SocketLauncher } from '../../server/src/native'
 import { sealSecret } from '../../web/src/lib/seal'
+import { engineStatusCache } from '../../server/src/admin/engines'
 import { waitFor } from '../lib/wait'
 
 setDefaultTimeout(60_000)
@@ -101,6 +102,10 @@ describe('Claude sign-in for the team', () => {
   let id = ''
   test('the address reaches its starter only; the pasted code gives a verified connection; nothing stays behind', async () => {
     dialed.length = 0; checks.length = 0
+    // Admin › AI providers checked Claude Code before (no connection then): that check is kept for 10 minutes
+    const engines = engineStatusCache(h.ctx)
+    await engines.get('claude-code', true, 'en')
+    expect(engines.peek('claude-code')).not.toBeNull()
     const start = await team('Team Claude')
     expect(start).toMatchObject({ kind: 'anthropic-oauth', state: 'starting', url: null, code: null })
     const w = await waiting(dana, start.loginId)
@@ -114,6 +119,13 @@ describe('Claude sign-in for the team', () => {
     expect(done.state).toBe('done')
     expect(done.credential).toMatchObject({ kind: 'anthropic-oauth', label: 'Team Claude', scope: 'team', state: 'ok' })
     id = done.credential!.id
+    // the sign-in made a connection: the engine's old "sign-in needed" is dropped (the next read checks again) and every
+    // open screen is told to ask again, before the person sees "done"
+    expect(engines.peek('claude-code')).toBeNull()
+    const doneAt = dana.frames.findIndex((f) => f.type === 'credential.login' && (f.data as CredentialLogin).loginId === start.loginId && (f.data as CredentialLogin).state === 'done')
+    const told = dana.frames.findIndex((f) => f.type === 'notice' && (f.data as { code?: string }).code === 'engine_choice_changed')
+    expect(told).toBeGreaterThanOrEqual(0); expect(told).toBeLessThan(doneAt)
+    for (const s of [alice, bob]) await s.next('notice', (f) => (f.data as { code?: string }).code === 'engine_choice_changed')
     const row = getRow(h.ctx.db, id)!
     expect(secretOf(credentialsOf(h.ctx), row as never)).toEqual({ token: FAKE_CLAUDE_TOKEN })
     expect(row.expires_at).not.toBeNull()

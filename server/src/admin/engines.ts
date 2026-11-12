@@ -14,6 +14,7 @@ import { allowedCredentialKinds, anthropicGateway, gatewayModelIds, REPO_ROOT, t
 import { findCodexBin } from '../config'
 import { openRouterKey } from '../credentials/validate'
 import { teamCredentialSummary } from '../credentials/resolve'
+import { credentialsOf } from '../credentials/store'
 import { resolveLayout } from '../system/layout'
 import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
@@ -304,10 +305,15 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
 export class EngineStatusCache {
   private last = new Map<EngineId, { at: number; status: EngineStatus; locale: Locale }>()
   private inflight = new Map<EngineId, Promise<EngineStatus>>()
+  /** bumped by forget: a check that started before is not kept (it read the setup that changed) */
+  private gen = new Map<EngineId, number>()
   constructor(private env: () => EngineEnv) {}
 
-  /** Drop one engine's last check (its setup changed). */
-  forget(id: EngineId) { this.last.delete(id) }
+  /** Drop one engine's last check (its setup changed); a check running now is not kept, the next read checks again. */
+  forget(id: EngineId) {
+    this.last.delete(id); this.inflight.delete(id)
+    this.gen.set(id, (this.gen.get(id) ?? 0) + 1)
+  }
 
   /** The last check's status, without checking. */
   peek(id: EngineId): EngineStatus['status'] | null { return this.last.get(id)?.status.status ?? null }
@@ -315,21 +321,27 @@ export class EngineStatusCache {
   async get(id: EngineId, enabled: boolean, locale: Locale, force = false): Promise<EngineStatus> {
     const c = this.last.get(id)
     if (!force && c && Date.now() - c.at < CACHE_MS && c.locale === locale) return { ...c.status, enabled }
+    const g = this.gen.get(id) ?? 0
     let p = this.inflight.get(id)
     if (!p) {
-      p = checkEngine(id, this.env(), enabled, locale).finally(() => this.inflight.delete(id))
-      this.inflight.set(id, p)
+      const mine: Promise<EngineStatus> = checkEngine(id, this.env(), enabled, locale).finally(() => { if (this.inflight.get(id) === mine) this.inflight.delete(id) })
+      this.inflight.set(id, (p = mine))
     }
     const s = await p
-    this.last.set(id, { at: Date.now(), status: s, locale })
+    if ((this.gen.get(id) ?? 0) === g) this.last.set(id, { at: Date.now(), status: s, locale })
     return { ...s, enabled }
   }
 }
 
-/** One cache per server, shared by Admin > AI engines and the composer's engine list (admin/engine-choice.ts). */
+/** One cache per server, shared by Admin > AI engines and the composer's engine list (admin/engine-choice.ts). A change
+ * of the team's AI connections (credentials/store.ts connectionsChanged) drops the two engines that use them. */
 const caches = new WeakMap<AppContext, EngineStatusCache>()
 export function engineStatusCache(ctx: AppContext): EngineStatusCache {
   let c = caches.get(ctx)
-  if (!c) { c = new EngineStatusCache(() => engineEnv(ctx)); caches.set(ctx, c) }
+  if (!c) {
+    const cache = new EngineStatusCache(() => engineEnv(ctx))
+    credentialsOf(ctx).changeListeners.add(() => { cache.forget('claude-code'); cache.forget('codex') })
+    caches.set(ctx, (c = cache))
+  }
   return c
 }

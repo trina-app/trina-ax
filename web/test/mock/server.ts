@@ -422,6 +422,8 @@ export class MockServer {
   memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
   limitFallback = false
   codexEnabled = true
+  /** a team ChatGPT sign-in finished: Codex says Connected (like the server, whose engine check follows the connections) */
+  codexSignedIn = false
   // the API engine: listed like on a real server, off here so chats and Admin Home do not count it
   apiEngineEnabled = false
   /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
@@ -603,6 +605,7 @@ export class MockServer {
     this.memberChoice = { mode: 'off', groupIds: [], userIds: [] }
     this.limitFallback = false
     this.codexEnabled = true
+    this.codexSignedIn = false
     this.apiEngineEnabled = false
     this.driveClient = 'none'
     this.driveMembers = false
@@ -4398,6 +4401,9 @@ export class MockServer {
       if (!(personal ? this.credMemberOwn : this.credSharedSubscriptions)) { l.state = 'failed'; l.reason = 'policy_changed'; pub(); return }
       if (reconnectId) { const x = this.credentials.find((y) => y.id === reconnectId); if (x) { x.state = 'ok'; x.detail = null; l.credential = x } }
       else { const c = this.newCredential(user, 'chatgpt', label, personal, 'ok'); this.credentials.push(c); l.credential = c }
+      // like the server (credentials/store.ts connectionsChanged): open screens ask GET /api/engines again, then "done"
+      if (!personal) this.codexSignedIn = true
+      this.publish({ type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } })
       l.state = 'done'; pub()
     }, 1200)
     return this.loginView(l)
@@ -4615,7 +4621,9 @@ export class MockServer {
     return {
       engines: [
         { id: 'claude-code' as const, label: 'Claude Code', enabled: true, authMode: 'local-login' as const, installed: true, version: '2.1.305', status: 'ok' as const, detail: null, models: [{ id: 'claude-sonnet', label: 'Sonnet' }, { id: 'claude-opus', label: 'Opus' }], checkedAt: now() },
-        { id: 'codex' as const, label: 'Codex', enabled: this.codexEnabled, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'not_logged_in' as const, detail: 'Run `codex login --device-auth` on the server Mac.', models: [], checkedAt: now() },
+        this.codexSignedIn
+          ? { id: 'codex' as const, label: 'Codex', enabled: this.codexEnabled, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'ok' as const, detail: null, models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }], checkedAt: now() }
+          : { id: 'codex' as const, label: 'Codex', enabled: this.codexEnabled, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'not_logged_in' as const, detail: 'Run `codex login --device-auth` on the server Mac.', models: [], checkedAt: now() },
         { id: 'api' as const, label: 'API', enabled: this.apiEngineEnabled, authMode: 'api-key' as const, installed: false, version: null, status: 'not_installed' as const, detail: 'Not set up yet. Enter the API address, model and key below.', models: [], checkedAt: now() },
       ],
       defaultEngine: this.settings.defaultEngine,
