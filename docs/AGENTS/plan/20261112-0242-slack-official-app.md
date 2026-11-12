@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:42
 - Branch: `feat/slack-official-app`
-- Status: in progress
+- Status: done (PR into dev; security: merge needs the owner's OK)
 - Where: trina-ax common code (`server/src/integrations/slack/`, `shared/src/cloud-protocol/slack-broker.ts`, Admin ›
   Slack) and the hosting service's broker (private control plane, its own plan). Why: the connector is the same for
   every company; only whether a hosting service serves the server differs (docs/REPOSITORY-RULES.md).
@@ -155,4 +155,40 @@ security matrix, `web/test/unit/slack-screens.test.tsx`; the web e2e for Admin �
 
 ## Result
 
-(filled in at the end)
+Done as planned, steps 1-6. The contract file is unchanged since its commit (the control plane's copy is re-pinned to
+it after the rebase onto `dev`: the same bytes).
+
+- `server/src/integrations/slack/broker.ts`: signed calls (the relay team key, the contract's own signing string), the
+  bot token opened with a one-time X25519 key per request, Slack's own pages only (`slackBrokerAuthorizeUrl`), errors
+  as the broker's code only, and the long-poll feed: one answer's events side by side, acknowledged with the next poll,
+  backoff 1 s … 60 s, a minute while not served; a feed that stops acknowledges what it took at once.
+- The connector's official mode (`slack_config.mode`, migration 345): "Add to Slack" bound to the owner who pressed it
+  (state hashed, verifier sealed, 10 minutes, used once, the newest only; the owner's browser only, sign in first when it
+  has no session); before the bot token is kept Slack is asked (`auth.test`: the install's workspace and bot, every
+  scope); turned on at once. Envelopes from the feed go through the same `onEnvelope`; each broker event id once.
+  Lifecycle events, an install the broker no longer has, and a token Slack refuses at a post all forget the token and
+  keep the links ("removed": add it again). A token that does not open here is fetched again (`token`). Remove calls
+  `uninstall` first (best effort). Sign in with Slack through the broker (`via = 'broker'`, a handoff instead of a code;
+  the workspace checked again, then every check as before). The own app's tokens are refused while the official app is
+  added (`official_saved`); "Add to Slack" while an own app is saved (`own_app_saved`).
+- Routes `POST /api/admin/slack/official/install` (owner) and `GET /api/integrations/slack/official/callback`; the
+  sign-in callback takes a `handoff`; the return page (`/slack/signin-return`) brings a handoff back (`to=install` for
+  the install's callback).
+- Shared: `SlackAdmin.mode`, `.official`; error codes `broker_unreachable`, `not_served`, `removed`.
+- Admin › Slack: **Add to Slack** where the hosting service serves this server and nothing of our own is saved (also on
+  a phone), *Use your own Slack app instead* for the four steps; added: the status line with Remove in place of
+  Replace tokens; the outcome of "Add to Slack" said once. Five locales.
+- Docs: `docs/SLACK.md` "The official app", `docs/DECISIONS.md` "Slack through the official Trina AX app",
+  `changes/slack-official-app.md`, the HTTP API reference.
+- Tests: `tests/unit/c-slack-broker.test.ts` (the seal vector shared with the control plane, signatures and nonces,
+  refusals, Slack's pages only, origins, the feed), `tests/unit/c-slack-official.test.ts` (fake broker
+  `tests/lib/fake-slack-broker.ts`: owner only, the owner's browser only, used once, Slack confirms the token, workspace
+  and app isolation, an event id once, sign-in through the broker, removed and added again, a stale "removed" handed out
+  again, a token refused at a post, a restore, the broker down and not serving, Remove, nothing secret in logs, rows or
+  answers), the security matrix (`startSlackInstall` owner only, the install callback), web
+  `slack-screens.test.tsx` and `slack-signin-pages.test.tsx`.
+
+Owner steps before it is used: the control plane's `docs/slack-broker.md` section 6 (the app's client secret and a new
+app-level token with `connections:write` in the hosting service's secret store, the app id and client id in its
+environment, the `app_uninstalled` and `tokens_revoked` bot events in the app's settings), then
+`MYCEL_SLACK_BROKER_URL` (or the Drive broker's variable already there) on the team servers.

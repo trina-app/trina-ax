@@ -5,9 +5,56 @@ normal chat as the person who asked, with their own permissions, engine, budget 
 in that chat in the app. It is off until the team's owner sets it up; it works on hosted and self-hosted servers alike,
 also on an office Mac without a public address (Socket Mode: the server connects out to Slack).
 
-Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터".
+Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터" and "Slack through the official Trina AX app".
 
-## Setting it up (the owner)
+There are two ways to have the Slack app. Where the hosting service serves the server, the owner adds **the official
+app** with one button and copies nothing (below). Anywhere else the owner makes **the team's own app** from our
+manifest (the four steps).
+
+## The official app ("Add to Slack")
+
+Admin › Slack shows **Add to Slack** when the hosting service serves this server (a hosted team, or a self-installed
+server the hosting service registered, the same rule as Google sign-in through it) and no own app is saved. Press it,
+choose your workspace in Slack and allow it: you come back to Admin › Slack, added and on. Nothing to copy; it works on
+a phone too. Then **invite the app** to the channels where people may ask it, `/invite @trina-ax`, as with an own app.
+*Use your own Slack app instead* opens the four steps.
+
+- **How it works.** The hosting service holds the one public Slack app "Trina AX": its client secret, and its
+  app-level token with the one Socket Mode connection. That token is app-wide (it gets every workspace's events), so
+  it never comes to a team server. The hosting service passes on only the events of the workspace this server added
+  (questions to the app, DMs, its buttons), through a long poll this server makes (`POST
+  /api/slack-broker/v1/poll`, signed with the server's relay team key, at most 25 seconds each; no public address
+  needed). Each event goes through the same checks as one from an own app's connection (the workspace and the app id
+  added here). The workspace's bot token comes to this server only, sealed to a one-time key of that request, and is
+  kept sealed like an own app's tokens; answers go to Slack from here directly.
+- **Before the token is kept**, Slack itself is asked whose it is (`auth.test`): it must be the bot of the workspace
+  the hosting service named, with every scope. So the hosting service cannot give this server another workspace's bot.
+- **Only the owner who pressed it finishes it.** Slack sends the browser to the hosting service, which sends it back
+  only to this team's address it recorded (`/api/integrations/slack/official/callback`) with a one-time handoff (2
+  minutes) that only this flow's verifier redeems. A browser signed in as someone else is refused; one with no session
+  is asked to sign in first and then goes on. 10 minutes, used once, the newest only.
+- **Sign in with Slack** to link your own account works the same way through the hosting service (its one redirect
+  URL is registered in the app): it checks Slack's answer, revokes your Slack user token at once and says only who
+  signed in; this server checks that it is a person of this workspace, as before. No https address is needed here.
+- **Removed in Slack** (the app removed from the workspace, its token revoked, or the hosting service's operator
+  removed it): the token is forgotten here and Admin › Slack says "The app was removed from Slack. Add it to Slack
+  again." People's links stay (the same workspace when it is added again). A token Slack refuses at a post means the
+  same.
+- **Remove** asks the hosting service to take the app off the workspace, then deletes the token and every person's
+  link here, as with an own app. If the hosting service cannot be reached it is removed here anyway (its operator can
+  remove the install there).
+- **The hosting service down or not serving** this server any more: Admin › Slack says "can't reach the hosting
+  service" or "does not serve this server's Slack now"; polls back off (1 s … 60 s) and resume by themselves. Events
+  Slack sent meanwhile wait at the hosting service (up to 30 minutes, while the server polled in the last 10).
+- **A restore on a new machine** (the sealed token no longer opens): the server asks the hosting service for it again.
+- **One workspace, one team.** A workspace already added for another team is refused ("connected to another team");
+  an organization-wide (Enterprise Grid) install too.
+- **Server settings.** `MYCEL_SLACK_BROKER_URL` (the console origin, e.g. `https://account.trina.app`; it falls back to
+  `MYCEL_GOOGLE_DRIVE_BROKER_URL`, which is the same console; `off` turns the official app off). Without it, or until
+  the hosting service answers that it serves this server (asked every minute, every 10 minutes once it does), nothing
+  changes: the own app's four steps. An own app saved keeps working; to switch, Remove it and add the official app.
+
+## Setting up the team's own app (the owner)
 
 Admin › Slack is a checklist of four steps; each step's title opens its page in Slack.
 
@@ -155,14 +202,20 @@ after 1, 2, 4 … seconds (at most a minute).
   before this connector existed count from that time too (from the audit log).
 - Nobody links someone else: there is no owner tool for it. Each person links their own account, by signing in to
   Slack or with the link their own Slack account got.
-- Audit log: `slack.tokens`, `slack.enabled`, `slack.disabled`, `slack.removed`, `slack.linked` (`via: slack_signin` for
-  a sign-in), `slack.link_refused`, `slack.unlinked`, `slack.posted`.
+- Audit log: `slack.tokens`, `slack.enabled`, `slack.disabled`, `slack.removed` (the official app: `via: official`
+  and whether Slack removed it), `slack.installed` ("Add to Slack"; `restored: true` for a token fetched again),
+  `slack.removed_in_slack` (with the reason), `slack.linked` (`via: slack_signin` for a sign-in), `slack.link_refused`,
+  `slack.unlinked`, `slack.posted`.
 
 ## Code and tests
 
-`server/src/integrations/slack/` (`api.ts` the Web API, `socket.ts` Socket Mode, `envelope.ts` the shapes,
-`manifest.ts`, `post-check.ts` what an answer used before it is posted, `service.ts`, `text.ts`), `server/src/routes/slack.ts`, migration `server/migrations/335_c_slack.sql`,
+`server/src/integrations/slack/` (`api.ts` the Web API, `socket.ts` Socket Mode, `broker.ts` the official app through
+the hosting service, `envelope.ts` the shapes, `manifest.ts`, `post-check.ts` what an answer used before it is posted,
+`service.ts`, `text.ts`), `server/src/routes/slack.ts`, migrations `server/migrations/335_c_slack.sql` and
+`345_c_slack_official.sql`, the wire contract with the hosting service `shared/src/cloud-protocol/slack-broker.ts` (MIT),
 contract `shared/src/api/slack.ts`, screens `web/src/pages/admin/Slack.tsx`, `web/src/pages/SlackLink.tsx`,
-`web/src/components/settings/SlackAccount.tsx`. Tests: `tests/unit/c-slack.test.ts` with the fake Slack
+`web/src/components/settings/SlackAccount.tsx`. Tests: `tests/unit/c-slack-broker.test.ts` (the sealed-token vector
+shared with the control plane, signatures, the long poll) and `tests/unit/c-slack-official.test.ts` (the official app
+against the fake broker `tests/lib/fake-slack-broker.ts`), `tests/unit/c-slack.test.ts` with the fake Slack
 `tests/lib/fake-slack.ts` (Web API, Socket Mode, response URLs, the OpenID Connect token method; nothing reaches Slack), the permission matrix
 (`tests/security/lib/slack-cases.ts`), `web/test/unit/slack-link.test.tsx` and `web/test/unit/slack-screens.test.tsx`.
