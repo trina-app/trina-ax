@@ -3,7 +3,7 @@
 // Google Sheets come from the server's Google apps (shared/src/api/google-apps.ts). Words only through message keys:
 // people see "Connect", the app's name and what the AI can do, never how it is wired.
 import type { DriveConnection, GoogleAppId, GoogleAppView } from '@mycel/shared/api'
-import type { MessageKey } from '../i18n'
+import { DICTS, type MessageKey } from '../i18n'
 import { APP_CONNECTORS, appConnectorLogo } from './connectors'
 
 export const GOOGLE_APP_ORDER: GoogleAppId[] = ['gmail', 'calendar', 'docs', 'sheets']
@@ -23,6 +23,17 @@ export const lineKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-dr
  * page's own line under it, so the text does not say it again. */
 export const aboutKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-drive' ? 'drive' : id}.about` as MessageKey
 export const categoryKey = (id: BuiltInId): MessageKey => `gapps.${id === 'google-drive' ? 'drive' : id}.category` as MessageKey
+
+/** A Google app's tools as people read them in their language (the server sends English): the title and the line of
+ * what it does from `gapps.tool.<name>` and `gapps.toolDesc.<name>`; one the app does not know yet keeps the server's
+ * words. */
+export function toolWords<T extends { name: string; title: string; description?: string }>(t: (k: MessageKey) => string, tools: readonly T[]): T[] {
+  const known = DICTS.en as Record<string, string>
+  return tools.map((x) => {
+    const title = `gapps.tool.${x.name}`, desc = `gapps.toolDesc.${x.name}`
+    return { ...x, title: title in known ? t(title as MessageKey) : x.title, description: desc in known ? t(desc as MessageKey) : x.description }
+  })
+}
 
 /** A card's state in Popular: connected (✓), needs a new sign-in, can be connected (+), or not now (with why). */
 export type CardState = 'added' | 'reconnect' | 'available' | 'off'

@@ -6,5 +6,7 @@
 - On a server whose Google sign-in comes from the hosting service, each Google connector's admin page says so in one
   line and has nothing to set up. Team settings are still there.
 - There is no "Members can connect their own …" switch any more. Once Google Drive, Gmail, Google Calendar, Google Docs
-  or Google Sheets is set up, everyone in the team can connect their own account. A team that had the switch off now
-  lets members connect.
+  or Google Sheets is set up, everyone in the team can connect their own account. **Members' existing connections that
+  an admin had turned off start being used again** (Google Drive and each Google app). This includes teams made
+  before the Drive switch existed, which had it off without anyone choosing it.
+- The Google apps' tool names and what each one does are shown in your language.

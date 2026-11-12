@@ -11,7 +11,7 @@ import { Check } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppView } from '@mycel/shared/api'
-import { builtInLogo, builtInName, canChange, categoryKey, developerKey, DRIVE_TOOL_LIST, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey } from '../../lib/googleApps'
+import { aboutKey, builtInLogo, builtInName, canChange, categoryKey, developerKey, DRIVE_TOOL_LIST, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, toolWords } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { isOwner, useMe } from '../../store/session'
 import { Button } from '../ui'
@@ -102,10 +102,11 @@ export function DriveAdminPage({ status, onSetUp, onStatus }: { status: DriveAdm
           </div>
         )}
       </>}
-      about={t('connectors.drive.about')} canChange={false}
+      about={t(aboutKey(id))} canChange={false}
       developer={t(developerKey(id))} category={t(categoryKey(id))} signIn={GOOGLE} links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
       tools={DRIVE_TOOL_LIST.map((x) => ({ name: x.name, title: t(`gapps.drive.tool.${x.name}`), changes: x.changes }))}>
-      {(status.configured || hosted) && (
+      {/* only once it is set up: a hosted server whose service does not answer yet says only that it is not set up */}
+      {status.configured && (
         <TeamSettings>
           <WhoRow count={status.connectedMembers} />
           <DriveAdminSettings onStatus={onStatus} />
@@ -127,8 +128,9 @@ export function GoogleAppAdminPage({ status, view, onSetUp }: { status: GoogleAp
   // why it cannot be connected now (not set up, or set up elsewhere); once set up Team settings has the switch and how
   // many use it
   const line = hosted || status.configured ? null : googleAppAdminLine(t, status)
-  const tools = view?.tools ?? []
-  const showApis = !hosted && status.source !== 'server' && status.apis.length > 0
+  const tools = toolWords(t, view?.tools ?? [])
+  // every source but the hosting service's (an operator's own client too, as before)
+  const showApis = status.source !== 'service' && !hosted && status.apis.length > 0
   return (
     <AppDetail embedded list={list(t)} testId="gapp-admin-detail" state={state} logo={builtInLogo(id)} name={name} byLine={t('gapps.byLine', { line: t(lineKey(id)) })}
       actions={<Actions name={name} state={state} on={on} label={t(on ? 'appConnectors.on' : 'appConnectors.notSetUp')}
@@ -142,9 +144,9 @@ export function GoogleAppAdminPage({ status, view, onSetUp }: { status: GoogleAp
       about={t('gapps.admin.about', { name })} canChange={canChange(tools)}
       developer={t(developerKey(id))} category={t(categoryKey(id))} signIn={GOOGLE} links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
       tools={tools}>
-      {(status.configured || hosted || showApis) && (
+      {(status.configured || showApis) && (
         <TeamSettings>
-          {(status.configured || hosted) && <WhoRow count={status.connectedMembers} />}
+          {status.configured && <WhoRow count={status.connectedMembers} />}
           {showApis && (
             <SettingRow heading title={t('gapps.admin.apisTitle')} desc={t('gapps.admin.apis')} testId="gapp-admin-apis-row"
               below={<div className="mt-2"><ApiList apis={status.apis} bare /></div>} />

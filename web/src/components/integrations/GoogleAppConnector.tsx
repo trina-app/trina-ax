@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom'
 import { API, type GoogleAppId, type GoogleAppView } from '@mycel/shared/api'
 import { api } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, unavailableKeys, developerKey } from '../../lib/googleApps'
+import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, toolWords, unavailableKeys, developerKey } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -205,7 +205,7 @@ export function GoogleAppDetail({ v, g, ask }: { v: GoogleAppView; g: GoogleApps
         canChange={canChange(v.tools)} asks={v.writePolicy}
         developer={t(developerKey(v.id))} category={t(categoryKey(v.id))} signIn={GOOGLE}
         links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
-        tools={v.tools} />
+        tools={toolWords(t, v.tools)} />
       {settings && <GoogleAppSettings v={v} busy={g.busy === v.id} onPolicy={(p) => void g.setPolicy(v.id, p)} onClose={() => setSettings(false)} />}
     </>
   )
