@@ -249,7 +249,7 @@ export function projectsTabCases() {
     await expect(page).toHaveURL(new RegExp(`/projects/${project}$`))
   })
 
-  test('트리나\'s tab shows Trina\'s own star, the same as the room header\'s ✦, in the tab bar\'s colours', async ({ page }) => {
+  test('트리나\'s tab shows Trina\'s own orange star, the same as the room header\'s ✦', async ({ page }) => {
     await reset(page)
     await signIn(page)
     const room = uuidv7()
