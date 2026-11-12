@@ -23025,7 +23025,7 @@ Plan: `docs/AGENTS/plan/20261112-0623-connector-approval-gate.md`.
     connection set to refuse refuses, with no card, whatever a member chose. The row goes when no rule of the
     connection includes the member any more (its rule changed, they left the group, the group went:
     `pruneMemberAllows`), so it never comes back on its own when access is given again; the member can also clear
-    their own row without access (the route deletes it, then answers "not found").
+    their own row without access (the route deletes it, then answers "not found"); the same goes for a group change on the person's own page in Admin, and disabling the account removes their rows (fix/prune-allows-user-edit).
 - **Signing in again from the chat (TC-127).** connect_service takes `connection`, the id of the person's own
   connection that needs a new sign-in or key (the AI's list of connections names it); a call that fills in the
   address of such a connection gets the same card through the address match of #582 (fix/connect-card-trust, one card

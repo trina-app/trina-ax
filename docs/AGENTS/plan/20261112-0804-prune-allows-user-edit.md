@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 08:04
 - Branch: `fix/prune-allows-user-edit`
-- Status: in progress
+- Status: done
 - Where: server `admin/users.ts`. Why: a follow-up to #583's rule that a member's own Always allow on a team connection
   goes when they lose access (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — fixes a gap in an existing rule; no new option or schema
@@ -42,4 +42,4 @@ Security only in the safe direction (fewer sends without a card). No migration.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The new test in `tests/unit/c-connector-approval-gate.test.ts` fails on the old `admin/users.ts`.

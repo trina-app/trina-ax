@@ -36,6 +36,7 @@ import { componentC } from '../team-files/component'
 import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
+import { pruneMemberAllows } from '../integrations/connections/store'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -157,6 +158,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     // their own open reset links end with the account (and stay ended if it is enabled again), and with a new role: a
     // link the owner or the server Mac made for a member would otherwise sign its holder in as the new admin
     if (changed.status === 'disabled' || changed.role !== undefined) revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
+    // a disabled account's own Always allow on team connections goes and does not come back when it is enabled again
+    if (changed.status === 'disabled') ctx.db.query('DELETE FROM integration_user_allow WHERE user_id = ?').run(id)
     // null = follow the team default again
     if (b.locale !== undefined) { setUserLocale(ctx.db, id, b.locale); changed.locale = b.locale }
     if (groups) {
@@ -164,6 +167,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
       const add = ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
       for (const g of groups) add.run(g, id)
       changed.groupIds = groups
+      // out of a group: their own Always allow on the team connections it gave them goes (never comes back on its own)
+      pruneMemberAllows(ctx.db)
     }
     if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'user.update', target: id, detail: changed })
   }).immediate()
