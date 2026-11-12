@@ -609,6 +609,7 @@ export const en: Record<MessageKey, string> = {
   'connect.hostCaution': "This address is not on {name}'s own site. Check it before you connect.",
   'connect.official': "Official {name} address",
   'connect.unlisted': "This app does not know this address, so it cannot check it. Connect only if you know and trust it.",
+  'connect.notOfficial': "This is not {name}'s official address. {name}'s official address is {official}. Connect only if you know and trust this one.",
   'connect.reconnectTitle': "Sign in to {name} again",
   'connect.reconnectKeyTitle': "New key for {name}",
   'connect.reconnectNote': "You already have {name} connected, but it needs you to sign in again. This fixes that connection. It does not add a second one.",

@@ -162,3 +162,25 @@ export function catalogNamed(name: string): { service: CatalogService; exact: bo
   }
   return contains ? { service: contains, exact: false } : undefined
 }
+
+/**
+ * The name a connection to `url` may be shown under, on the card and on the chat's step line alike (docs/DECISIONS.md
+ * "The chat's connect card trusts the app's list"):
+ * - the list's name at exactly a listed service's official address, or for a listed name ("Notion", "노션") at its
+ *   official host or with no address yet;
+ * - the address's host when the name is, looks like or holds a listed service's, or mixes alphabets in a word, and the
+ *   address is not the official one (a self-hosted edition, a made-up address);
+ * - else the name as written.
+ * `claimed`: the listed service the name pretends to be at an address that is not its official one (for the card's
+ * "not Notion's official address" line), when there is one.
+ */
+export function trustedServiceName(name: string, url?: string | null): { name: string; listed?: CatalogService; claimed?: CatalogService } {
+  const named = catalogNamed(name)
+  let u: URL | null = null
+  try { u = url ? new URL(url) : null } catch { u = null }
+  const official = url ? officialService(url) : undefined
+  if (official) return { name: official.name, listed: official }
+  if (named?.exact && (!url || (u && u.host.toLowerCase() === catalogHost(named.service)))) return { name: named.service.name, listed: named.service }
+  if (u && (named || mixedScript(name))) return { name: u.host.slice(0, 60), ...(named ? { claimed: named.service } : {}) }
+  return { name }
+}

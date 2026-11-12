@@ -19,7 +19,7 @@ import { BadgeCheck, Globe, Lock, LogIn, Plug, TriangleAlert } from 'lucide-reac
 import { useId, useState } from 'react'
 import type { TurnConnectResult } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
-import { cardTrust, connectCase, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectAccess, type ConnectServiceRequest } from '../../lib/connectCard'
+import { cardTrust, connectCase, notOfficialOf, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectAccess, type ConnectServiceRequest } from '../../lib/connectCard'
 import { mobileApp } from '../../lib/mobile'
 import { canSeal } from '../../lib/seal'
 import { useLocale, useT } from '../../i18n'
@@ -56,6 +56,8 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
   const trust = cardTrust(r)
   /** the name the card uses: an unknown service that calls itself a listed one is named by its host */
   const name = trust.kind === 'unlisted' || trust.kind === 'template' ? trust.display : r.name
+  /** the listed service this card's name claims at an address that is not its own (lib/connectCard.ts notOfficialOf) */
+  const notOff = notOfficialOf(r, trust)
   const phone = !!mobileApp()
   const secure = canSeal()
   const flow = signIn.state
@@ -223,7 +225,15 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
           </div>
         )}
         {/* a service the app does not know: the person is the only check that the address belongs to it */}
-        {trust.kind === 'unlisted' && (
+        {/* the AI named a listed service at another address: say plainly whose address this is not, and which one is */}
+        {notOff ? (
+          <p role="note" className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="connect-not-official">
+            <TriangleAlert size={14} className="mt-0.5 shrink-0" aria-hidden />
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              <strong className="font-semibold">{host}</strong> · {t('connect.notOfficial', { name: notOff.name, official: notOff.host })}
+            </span>
+          </p>
+        ) : trust.kind === 'unlisted' && (
           <p role="note" className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="connect-unlisted">
             <TriangleAlert size={14} className="mt-0.5 shrink-0" aria-hidden />
             <span className="min-w-0 [overflow-wrap:anywhere]">

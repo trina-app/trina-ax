@@ -16,7 +16,7 @@
 // service the person already uses is not connected twice: a working one is said, their own that needs a sign-in or a
 // new key gets a card for that same connection (`reconnect`).
 import { z } from 'zod'
-import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, catalogHost, catalogNamed, mixedScript, officialService, posesAsListed, ConnectServiceInput, hasSecret, uuidv7, type CatalogService } from '@mycel/shared'
+import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, officialService, posesAsListed, ConnectServiceInput, hasSecret, stepLabel, trustedServiceName, uuidv7, type CatalogService } from '@mycel/shared'
 import { IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
@@ -48,6 +48,8 @@ export function connectRows(db: Database, userId: string, scope: 'personal' | 't
 }
 
 export const CONNECT_TOOL = 'connect_service'
+/** stepLabel's browser tools: connect_service is not one */
+const NO_BROWSER_TOOLS: ReadonlySet<string> = new Set()
 /** tool names the result lists at most (the AI gets them all as tools: in this answer where it goes on, else from the
  * next message), and each one's length */
 const TOOLS_LISTED = 30
@@ -99,11 +101,13 @@ export const CONNECTED_NEXT = {
 } as const
 
 /** the tool result when the card connected it; `drive`: Google Drive, whose tools every turn already has */
-function connectedResult(exec: TurnExec, out: { name: string; status: string; tools?: string[]; note?: string }, drive = false): ToolOut {
-  exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectConnected', exec.spec.locale) }))
+function connectedResult(exec: TurnExec, out: { name: string; status: string; tools?: string[]; note?: string }, drive = false, label?: string): ToolOut {
+  exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectConnected', exec.spec.locale), ...(label ? relabel(st.label, label) : {}) }))
   const next = drive ? null : CONNECTED_NEXT[exec.noteConnected(out.name) ?? 'next']
   return { content: json({ connected: true, ...out, ...(next ? { next } : {}) }), summary: `${CONNECT_TOOL} -> connected` }
 }
+/** the step's label set to the card's (a label that already starts with it keeps what was added after it) */
+const relabel = (current: string, label: string) => current === label || current.startsWith(`${label} · `) ? {} : { label }
 /** what the AI is told when its address for a listed service was not used */
 const replacedNote = (given: string, s: CatalogService) => `The address you gave (${given}) is not ${s.name}'s official address and was not used: the card used ${s.name}'s official address, ${s.url}. Never tell the person the other address was connected.`
 /** a connection that works for this person: connected, and one made from a template holds their own key or sign-in */
@@ -134,9 +138,12 @@ export function ownNeedsSignIn(r: Row | null, userId: string): boolean {
 /** The card for signing in again to (or giving a new key for) the person's own connection: its saved name, address and
  * sign-in. It never makes a second connection, and "Not now" leaves this one as it is (ConnectCard.created false). */
 function reconnectCard(r: Row, why: string | undefined, expiresAt: string): Extract<TurnRequest, { kind: 'connect_service' }> {
+  // saved before the list's rule (#582) under a listed name at another address: titled by its host, like a new card,
+  // and the card says it is not that service's official address
+  const shown = posesAsListed(r.name, r.url) ? trustedServiceName(r.name, r.url) : { name: r.name, claimed: undefined }
   return {
-    // saved before the list's rule (#582) under a listed name at another address: titled by its host, like a new card
-    kind: 'connect_service', requestId: uuidv7(), target: 'service', name: posesAsListed(r.name, r.url) ? new URL(r.url).host.slice(0, 60) : r.name, scope: 'personal',
+    kind: 'connect_service', requestId: uuidv7(), target: 'service', name: shown.name, scope: 'personal',
+    ...(shown.claimed ? { notOfficial: { name: shown.claimed.name, url: shown.claimed.url } } : {}),
     service: { kind: r.kind, url: r.url, host: new URL(r.url).host, auth: r.auth, authHeader: r.auth_header },
     reconnect: true, ...(why ? { why } : {}), expiresAt,
   }
@@ -176,6 +183,8 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   let card: Extract<TurnRequest, { kind: 'connect_service' }>
   /** the person's own connection a reconnect card is for (the card signs in again or takes a new key for it) */
   let existing: Row | null = null
+  /** the listed service the AI's name pretends to be at an address that is not its official one (the card says so) */
+  let claimed: CatalogService | undefined
   /** the AI's address for a listed service, which the card did not use */
   let note: string | undefined
 
@@ -208,14 +217,12 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     // address at all), it is that service, with the list's address, sign-in and spelling. Its name at any other address
     // (a self-hosted or regional edition, or a made-up one) is not that service: an unknown service, named by its host,
     // so no card reads as the listed service's while it connects somewhere else (owner decision 2026-11-12).
-    const named = catalogNamed(a.data.name)
-    let given: URL | null = null
-    try { given = a.data.url ? new URL(a.data.url) : null } catch { /* IntegrationInput says why */ }
-    const listed = (a.data.url ? officialService(a.data.url) : undefined)
-      ?? (named?.exact && (!a.data.url || given?.host.toLowerCase() === catalogHost(named.service)) ? named.service : undefined)
-    // a name that mixes Latin with another alphabet inside a word ("Nоtion" with a Cyrillic о) is never shown as given,
-    // whatever look-alike table it gets past
-    const posing = !listed && given && (named || mixedScript(a.data.name)) ? given.host.slice(0, 60) : null
+    // (trustedServiceName, the same rule the step line uses) a name that mixes Latin with another alphabet inside a word
+    // ("Nоtion" with a Cyrillic о) is never shown as given either, whatever look-alike table it gets past
+    const trusted = trustedServiceName(a.data.name, a.data.url)
+    const listed = trusted.listed
+    const posing = !listed && a.data.url && trusted.name !== a.data.name ? trusted.name : null
+    claimed = trusted.claimed
     if (listed && a.data.url && officialService(a.data.url)?.id !== listed.id) note = replacedNote(a.data.url, listed)
     const kind = listed ? CATALOG_KIND : a.data.kind
     const url = listed ? listed.url : a.data.url
@@ -286,15 +293,20 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
         const notes = input.data.kind === 'http' ? cleanNotes(input.data.notes) : null
         card = {
           kind: 'connect_service', requestId: uuidv7(), target: 'service', name: oneLine(input.data.name), scope,
-          service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}), expiresAt: expiresAt(),
+          service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}),
+          ...(claimed ? { notOfficial: { name: claimed.name, url: claimed.url } } : {}), expiresAt: expiresAt(),
         }
       }
     }
   }
 
+  // the step line names what the card names (QA TC-135 retest). stepLabel already gives the trusted name from the AI's
+  // input (the host for an address that is not a listed service's official one); a step takes one patch per call
+  // (TurnExec.patchToolStep), so the card's own name (a template's or a reconnect's) goes with the outcome below
+  const shownLabel = stepLabel(CONNECT_TOOL, { name: card.name, target: card.target }, L, NO_BROWSER_TOOLS)
   // a scheduled run: nobody is there to finish a card (waitForPerson would answer at once)
   if (spec.clientKind === 'schedule') {
-    exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
+    exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectNotConnected', L), ...relabel(st.label, shownLabel) }))
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
   // after a room read this card is the call's only one (chat/turn.ts ownCard): the room card's line goes on top
@@ -308,14 +320,14 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   // never "skipped" for a connection that then appears
   if (kept.running) await kept.running.catch(() => {})
   const o = ConnectOutcome.safeParse(answer)
-  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true)
+  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true, shownLabel)
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
   // changed or removed in Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
   // through it
   if (kept.integrationId && (!made || (card.target === 'service' && !asShown(made, card)))) { made = null; kept.changed = true }
-  if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}), ...(note ? { note } : {}) }) }
-  exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
+  if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}), ...(note ? { note } : {}) }, false, shownLabel) }
+  exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectNotConnected', L), ...relabel(st.label, shownLabel) }))
   const reason = made ? `"${made.name}" ${kept.created ? 'was added but is not working yet' : 'is still not working'} (${stateOf(made)}); ${made.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix it in ${SCREEN.connectors(L)}`}`
     : kept.changed ? 'the connection this card made was changed or removed in Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
   return { content: json({ skipped: true, ...(reason ? { reason } : {}), ...(note ? { note } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
