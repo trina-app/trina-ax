@@ -64,7 +64,7 @@ export interface ConnectCard {
   /** a connect or done of this card that is running: a second one meanwhile is refused, and the tool waits for it after
    * the card closed (its time ran out, Not now, the answer was stopped) before it says what the card made */
   running: Promise<unknown> | null
-  /** the connection this card made was changed or removed in Settings meanwhile: nothing more goes through this card */
+  /** the connection this card made was changed or removed in Connectors or Admin meanwhile: nothing more goes through this card */
   changed: boolean
   /** that connection's version after this card's own last write: a later one is a change made in Settings (a new key,
    * say), which "Not now" must not undo */
@@ -227,13 +227,13 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] })
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
-  // changed or removed in Settings while the card was open: not the connection the card showed, so not "connected"
+  // changed or removed in Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
   // through it
   if (kept.integrationId && (!made || (card.target === 'service' && !asShown(made, card)))) { made = null; kept.changed = true }
   if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}) }) }
   exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
   const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix it in ${SCREEN.connectors(L)}`}`
-    : kept.changed ? 'the connection this card made was changed or removed in Settings while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
+    : kept.changed ? 'the connection this card made was changed or removed in Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
   return { content: json({ skipped: true, ...(reason ? { reason } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
 }
 
@@ -278,7 +278,7 @@ const asShown = (row: Row, card: Card) => {
 /**
  * Before each connect or done of a service card, the rules as they are now: personal connections still allowed (an
  * admin can turn them off while a card waits), and the connection this card made still the one it showed (address,
- * kind, how it signs in and the key's header). One changed or removed in Settings meanwhile is not this card's any
+ * kind, how it signs in and the key's header). One changed or removed in Connectors or Admin meanwhile is not this card's any
  * more: refused, nothing is sent to it, "Not now" leaves it alone and the person starts again. Returns the card's
  * connection, or null before it made one.
  */

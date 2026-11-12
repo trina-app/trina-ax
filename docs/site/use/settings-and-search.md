@@ -26,15 +26,18 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 | Group | Sections |
 |---|---|
 | **Account** | Profile, Security & devices, Browser, Usage, Memory |
-| **Connections** | Providers (when the team lets members add their own accounts), MCP, App connectors, AI apps |
+| **Connections** | Providers (when the team lets members add their own accounts), AI apps |
 | **App** | Notifications, Apps, About |
+
+Your connections to other services (MCP servers, Google apps, Slack) are not in Settings: they are under
+**Connectors** in the sidebar.
 
 :::steps
 #### Find a section
 Pick a section on the left, or type in **Search settings**.
 
 #### Change what you need
-Profile, language, theme (light, dark or the system's, in Profile), your default engine, MCP connections, app connectors, notifications and more.
+Profile, language, theme (light, dark or the system's, in Profile), your default engine, notifications and more.
 
 #### Close it
 Press **Esc** or choose **✕**. You are back where you were.

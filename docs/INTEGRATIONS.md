@@ -8,7 +8,7 @@ The AI can use services outside the team server with a person's or the team's ow
   tool, `api_request`, that can only call addresses under that connection's address. An API that signs in with OAuth
   (NAVER WORKS …) signs in with your own app instead of a key ("Your own app" below).
 
-Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Settings › App connectors as a
+Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Connectors (the main sidebar) as a
 card whose Connect goes straight to Google (`web/src/components/integrations/DriveConnector.tsx`; the old
 `/settings/drive` leads there), and so does asking the AI from Slack ([SLACK.md](SLACK.md)). App connectors are the
 apps this server's AI uses with a person's own account (`web/src/lib/connectors.ts` `APP_CONNECTORS`, one card each).

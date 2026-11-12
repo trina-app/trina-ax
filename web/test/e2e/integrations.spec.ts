@@ -454,6 +454,8 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   await signIn(page, BOB)
   await page.goto('/connectors')
   const gmail = page.locator('[data-testid="connector-card"][data-id="gmail"]')
+  // one that cannot be connected now comes last in Discover, behind Show all
+  await page.getByTestId('connector-show-all').click()
   await expect(gmail.getByTestId('connector-off')).toHaveText('아직 설정 안 됨')
   await gmail.getByTestId('connector-open').click()
   const detail = page.getByTestId('gapp-detail')
@@ -476,6 +478,7 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   // only the apps in the list: anything else is refused by the server
   for (const s of ['notion', 'https://mcp.notion.com/mcp', 'slack']) expect((await ask(s)).status()).toBe(400)
   await page.goto('/connectors')
+  await page.getByTestId('connector-show-all').click()
   await expect(gmail.getByTestId('connector-off')).toHaveText('요청 보냄')
   // the member's words never name an admin
   await expect(page.getByTestId('integrations')).not.toContainText('Olga')

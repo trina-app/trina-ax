@@ -136,16 +136,15 @@ test('tabs: a tap adds no entry, Back never walks into another tab, each tab kee
   expect(await idx(page)).toBe(0)
 })
 
-test('나 › 연결한 서비스 stays in 나, ‹ says so and Back returns to the list; pages name where ‹ goes', async ({ page }) => {
+test('☰ › 커넥터 stays in the AI tab, ‹ says so and Back returns to the list; pages name where ‹ goes', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await tab(page, 'tab-me').click()
-  const dialog = page.getByRole('dialog', { name: t['settings.title'] })
-  await dialog.getByTestId('settings-row-connectors').click()
+  // Connectors is an item of the drawer (no longer a row of 나's list)
+  await page.getByTestId('menu-open').click()
+  await page.getByRole('dialog', { name: t['sidebar.label'] }).getByRole('link', { name: t['integrations.title'] }).click()
   await expect(page).toHaveURL(/\/connectors$/)
-  await expect(tab(page, 'tab-me')).toHaveAttribute('aria-current', 'page')
-  await expect(tab(page, 'tab-ai')).not.toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('topbar-back-label')).toHaveText(t['settings.title'])
+  await expect(tab(page, 'tab-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('topbar-back-label')).toHaveText(ai)
   // a connector's page and ‹: back to the list, not a new entry on top
   const atList = await idx(page)
   await page.getByTestId('connector-open').first().click()
@@ -155,9 +154,11 @@ test('나 › 연결한 서비스 stays in 나, ‹ says so and Back returns to 
   await expect(page).toHaveURL(/\/connectors$/)
   expect(await idx(page)).toBe(atList)
   await page.goBack()
-  await expect(page).toHaveURL(/\/settings$/)
+  await expect(page).toHaveURL(/\/$/)
 
   // 활동 from 나: "‹ 설정"; 팀 스킬 from the drawer: "‹ 트리나"
+  await tab(page, 'tab-me').click()
+  const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   await dialog.getByTestId('settings-inbox').click()
   await expect(page).toHaveURL(/\/activity$/)
   await expect(page.getByTestId('topbar-back-label')).toHaveText(t['settings.title'])

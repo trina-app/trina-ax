@@ -17,8 +17,7 @@ const ADMIN: [MessageKey, MessageKey[]][] = [
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
 const SETTINGS: [string, MessageKey[]][] = [
-  // Browser: the mock team allows all websites for the AI's web reads (Me.team.webAllowAll), so it shows on every client
-  ['account', ['settings.profile', 'settings.security', 'settings.browser', 'settings.usage', 'settings.memory', 'settings.allowances']],
+  ['account', ['settings.profile', 'settings.security', 'settings.usage', 'settings.memory', 'settings.allowances']],
   // Connectors is not here: it is its own item of the main sidebar
   ['connections', ['settings.providers', 'aiApps.title']],
   ['app', ['notifications.title', 'settings.apps', 'settings.about']],
