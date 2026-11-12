@@ -153,7 +153,7 @@ them is `teamax-demo-1`; sign in at `http://localhost:19100`. Running it again o
 with a different owner.
 
 **Check.** The home screen shows the yellow "Development mode: no OS isolation…" banner and a **Before you start**
-list. Follow permissions → AI connection → invite the team → first skill → first backup. In **Admin → AI accounts**,
+list. Follow permissions → AI connection → invite the team → first skill → first backup. In **Admin → Connections → AI accounts**,
 Claude Code shows "Connected" with the owner's subscription login. Send "hello" in a new chat.
 
 **Language.**

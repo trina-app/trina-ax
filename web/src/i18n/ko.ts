@@ -4328,7 +4328,7 @@ export const ko = {
   "driveAdmin.ready": "설정 대기",
   "driveAdmin.readyLine": "이 서버에서 쓸 수 있어요. 아래에서 고르기 전에는 아무것도 켜지지 않아요.",
   "driveAdmin.publicHost.why": "Google Drive를 쓰려면 Google에 로그인한 사람을 이 서버로 돌려보낼 인터넷 주소(공개 주소)가 있어야 해요. 이 서버에는 아직 없어요.",
-  "driveAdmin.publicHost.owner": "공개 주소는 앱이 아니라 서버를 설치한 컴퓨터에서 켜요. 서버를 설치한 사람(직접 설치했다면 본인)이 설치 안내의 '인터넷 주소' 단계를 따라 켜면 시스템 › 연결 방식에 공개 주소가 보여요. 그다음 여기서 설정하면 돼요.",
+  "driveAdmin.publicHost.owner": "공개 주소는 앱이 아니라 서버를 설치한 컴퓨터에서 켜요. 서버를 설치한 사람(직접 설치했다면 본인)이 설치 안내의 '공개 주소' 단계를 따라 켜면 시스템 › 연결 방식에 공개 주소가 보여요. 그다음 여기서 설정하면 돼요.",
   "driveAdmin.publicHost.admin": "공개 주소는 팀장이 서버를 설치한 곳에서 켜요. 팀장에게 이 서버의 공개 주소를 켜 달라고 부탁해 주세요. 켜지면 여기서 설정할 수 있어요.",
   "driveAdmin.publicHost.openSystem": "시스템 › 연결 방식 보기",
   "driveAdmin.shares": "{count, plural, one {공유 Drive #개} other {공유 Drive #개}}",

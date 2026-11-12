@@ -4284,7 +4284,7 @@ export const ja: Record<MessageKey, string> = {
   "driveAdmin.ready": "設定待ち",
   "driveAdmin.readyLine": "このサーバーで使えます。下で選ぶまで何もオンになりません。",
   "driveAdmin.publicHost.why": "Google Driveを使うには、Googleにログインした人をこのサーバーに戻すためのインターネットアドレス(公開アドレス)が必要です。このサーバーにはまだありません。",
-  "driveAdmin.publicHost.owner": "公開アドレスはアプリではなく、サーバーをインストールしたコンピューターでオンにします。サーバーをインストールした人(ご自身でインストールした場合はあなた)がインストールガイドの「インターネットアドレス」の手順でオンにすると、システム › 接続の種類に公開アドレスが表示されます。その後ここで設定できます。",
+  "driveAdmin.publicHost.owner": "公開アドレスはアプリではなく、サーバーをインストールしたコンピューターでオンにします。サーバーをインストールした人(ご自身でインストールした場合はあなた)がインストールガイドの「公開アドレス」の手順でオンにすると、システム › 接続の種類に公開アドレスが表示されます。その後ここで設定できます。",
   "driveAdmin.publicHost.admin": "公開アドレスは、オーナーがサーバーをインストールした場所でオンにします。このサーバーの公開アドレスをオンにするようオーナーに依頼してください。オンになればここで設定できます。",
   "driveAdmin.publicHost.openSystem": "システム › 接続の種類を開く",
   "driveAdmin.shares": "{count, plural, one {共有Drive #件} other {共有Drive #件}}",

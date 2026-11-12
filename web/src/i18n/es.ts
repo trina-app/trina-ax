@@ -4284,7 +4284,7 @@ export const es: Record<MessageKey, string> = {
   "driveAdmin.ready": "Listo para configurar",
   "driveAdmin.readyLine": "Disponible en este servidor. No se activa nada hasta que elija abajo.",
   "driveAdmin.publicHost.why": "Google Drive necesita una dirección de internet (una dirección pública) para devolver a las personas a este servidor después de iniciar sesión en Google. Este servidor aún no la tiene.",
-  "driveAdmin.publicHost.owner": "La dirección pública se activa en el equipo donde está instalado el servidor, no en la app. Quien instaló el servidor (usted, si lo hizo) sigue el paso «dirección de internet» de la guía de instalación; luego aparece en Sistema › Tipo de conexión y podrá configurar Drive aquí.",
+  "driveAdmin.publicHost.owner": "La dirección pública se activa en el equipo donde está instalado el servidor, no en la app. Quien instaló el servidor (usted, si lo hizo) sigue el paso «dirección pública» de la guía de instalación; luego aparece en Sistema › Tipo de conexión y podrá configurar Drive aquí.",
   "driveAdmin.publicHost.admin": "El propietario activa la dirección pública donde está instalado el servidor. Pida al propietario que active la dirección pública de este servidor; luego podrá configurar Drive aquí.",
   "driveAdmin.publicHost.openSystem": "Abrir Sistema › Tipo de conexión",
   "driveAdmin.shares": "{count, plural, one {# Drive compartido} other {# Drives compartidos}}",

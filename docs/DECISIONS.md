@@ -21689,7 +21689,7 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   bubblewrap check; the Ubuntu host setting inside the VM should fix it, not tested); an Ubuntu 24.04 server works with
   the host setting (2026-11-11, 0.5.0-beta.1 and a kit from `dev`); Docker Desktop and Debian 13 are not tested. A full
   start of 0.4.0 still needs an OrbStack or Debian host.
-- The AI connection page is called by the name the app shows, Admin › Connections › Providers, in the install guides
+- The AI connection page is called by the name the app shows, Admin › Connections › AI accounts (관리자 › 연결 › AI 계정; it was "Providers" before), in the install guides
   and in the messages that point to it (`admin/engines.ts`, `system/messages.ts`, 5 languages).
 - Tests: `tests/unit/system-packages.test.ts` (the fallback package list), a real image build with 0.4.0 through
   `docker/test.sh` on Colima.

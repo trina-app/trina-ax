@@ -4328,7 +4328,7 @@ export const id: Record<MessageKey, string> = {
   "driveAdmin.ready": "Siap diatur",
   "driveAdmin.readyLine": "Tersedia di server ini. Belum ada yang aktif sampai Anda memilih di bawah.",
   "driveAdmin.publicHost.why": "Google Drive butuh alamat internet (alamat publik) untuk mengembalikan orang ke server ini setelah masuk ke Google. Server ini belum punya.",
-  "driveAdmin.publicHost.owner": "Alamat publik dinyalakan di komputer tempat server dipasang, bukan di aplikasi. Orang yang memasang server (Anda, jika Anda sendiri) mengikuti langkah 'alamat internet' di panduan pemasangan; setelah itu alamatnya muncul di Sistem › Cara koneksi, dan Anda bisa menyiapkan Drive di sini.",
+  "driveAdmin.publicHost.owner": "Alamat publik dinyalakan di komputer tempat server dipasang, bukan di aplikasi. Orang yang memasang server (Anda, jika Anda sendiri) mengikuti langkah 'alamat publik' di panduan pemasangan; setelah itu alamatnya muncul di Sistem › Cara koneksi, dan Anda bisa menyiapkan Drive di sini.",
   "driveAdmin.publicHost.admin": "Owner menyalakan alamat publik di tempat server dipasang. Minta owner menyalakan alamat publik server ini; setelah itu Anda bisa menyiapkan Drive di sini.",
   "driveAdmin.publicHost.openSystem": "Buka Sistem › Cara koneksi",
   "driveAdmin.shares": "{count, plural, one {# Drive dibagikan} other {# Drive dibagikan}}",
