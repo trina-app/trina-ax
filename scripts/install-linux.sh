@@ -278,6 +278,7 @@ if [ "$CMD" = uninstall ]; then
       warn "the dev environment on srt stays (no root copy of uninstall-srt.sh): run scripts/dev-env/srt/uninstall-srt.sh --id $ID"
     fi
   fi
+  rmdir "$UNIT_DIR/$ID-server.service.d" 2>/dev/null || true  # only when empty (uninstall-srt.sh leaves the folder)
   rm -rf "$BASE/app" "$BASE/root" "$BASE/run" "$BASE/run-launcher" "$BASE/agent" "$BASE/status" "$BASE/.install-tmp" \
     "$BASE/.install-stage" "$BASE/.install-root-old" "$BASE/.install-root-old.new" "$BASE/.install-root-failed"
   if [ -n "$KEEP_AUTH" ]; then
@@ -1510,6 +1511,12 @@ WAIT=60; [ "$ACTION" = switch ] && WAIT=180
 say "waiting for the server on 127.0.0.1:$PORT ($RUNNING)"
 # the dev environment on srt (self-installs): install-srt.sh restarts the server on its first run (and on a re-run only
 # when something changed), so it runs once the server answers. A failure keeps the server running without it.
+# install-srt.sh and uninstall-srt.sh restart the server: wait until it answers again
+dev_env_wait() {
+  local i
+  for i in $(seq 1 60); do curl -fsS --max-time 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && return 0; sleep 1; done
+  warn "the server did not answer within 60 s after the dev environment changed; see journalctl -u $ID-server -n 100"
+}
 dev_env_step() {
   local ins="$BASE/root/dev-env-srt/install-srt.sh" uns="$BASE/root/dev-env-srt/uninstall-srt.sh"
   local dropin="$UNIT_DIR/$ID-server.service.d/dev-env.conf"
@@ -1517,7 +1524,7 @@ dev_env_step() {
   if [ "$DEVENV_ON" = 0 ]; then
     if [ "$DEV_ENV" = 0 ] && grep -qs MYCEL_DEV_ENV_RUNNER=srt "$dropin" && [ -f "$uns" ]; then
       say "turning the dev environment off (--no-dev-env): uninstall-srt.sh"
-      bash "$uns" --id "$ID" || warn "uninstall-srt.sh failed; retry: sudo bash $uns --id $ID"
+      if bash "$uns" --id "$ID"; then dev_env_wait; else warn "uninstall-srt.sh failed; retry: sudo bash $uns --id $ID"; fi
     fi
     say "dev environment: $DEVENV_WHY"
     return 0
@@ -1528,9 +1535,7 @@ dev_env_step() {
     warn "the dev environment could not be turned on; the server runs without it. Retry: sudo bash $ins --id $ID"
     return 0
   fi
-  local i
-  for i in $(seq 1 60); do curl -fsS --max-time 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
-  [ "$i" -lt 60 ] || warn "the server did not answer within 60 s after the dev environment was turned on; see journalctl -u $ID-server -n 100"
+  dev_env_wait
   say "dev environment on (srt). Team admins turn it off in the team settings; --no-dev-env removes it from this server"
 }
 done_ok() {
