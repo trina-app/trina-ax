@@ -93,7 +93,8 @@ const SHOTS: Shot[] = [
   { file: 'slack/connected', path: '/admin/connectors/slack?slack=installed', mock: { admin: SLACK_ADDED }, crop: 'main' },
   { file: 'slack/removed', path: '/admin/connectors/slack', mock: { admin: { ...SLACK_ADDED, tokens: false, botName: null, state: 'off', lastError: 'removed', linked: 3 } }, crop: 'main' },
   { file: 'slack/linked', path: '/settings/connectors?slack=linked', crop: '[data-testid="settings-dialog"]', prepare: async (p) => {
-    await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'center' }), '[data-testid="slack-account"]'); await p.waitForTimeout(400)
+    // the dialog focuses its close button, which then shows a focus ring and its tooltip in the shot
+    await p.evaluate((s) => { (document.activeElement as HTMLElement | null)?.blur(); document.querySelector(s)?.scrollIntoView({ block: 'center' }) }, '[data-testid="slack-account"]'); await p.waitForTimeout(400)
   }, mock: { mine: { available: true, workspace: 'Acme', signIn: true, link: { slackUserId: 'U0OLGA', slackName: 'Olga', linkedAt: '2026-11-12T01:30:00.000Z' } } } },
 ]
 
