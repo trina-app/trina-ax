@@ -78,6 +78,11 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then tag="$INPUT_TAG"; else tag="$REF_NAME"; fi
+          # a manual run uses the workflow file of "Use workflow from": it must be the tag itself, not a branch
+          if [ "$GITHUB_REF" != "refs/tags/$tag" ]; then
+            echo "::error::choose the tag $tag under 'Use workflow from' (this run is from $GITHUB_REF)"
+            exit 1
+          fi
           if ! [[ "$tag" =~ ^v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}(-[0-9A-Za-z]+(\.[0-9A-Za-z]+){0,3})?$ ]]; then
             echo "::error::not a release tag (v0.3.0 or v0.3.0-beta.1 form)"
             exit 1
@@ -105,7 +110,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.release.outputs.sha }}
         run: |
-          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$SHA" --jq .status)
+          # the branch's commit, not a ref named main (a tag "main" would win in compare)
+          main=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$main...$SHA" --jq .status)
           case "$status" in
             identical|behind) echo "$SHA is on main ($status)" ;;
             *) echo "::error::$SHA is not on main (compare: $status). Merge the release to main through a reviewed PR, then tag main's commit."; exit 1 ;;

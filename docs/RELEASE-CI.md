@@ -53,7 +53,8 @@ git push origin v0.3.0-beta.1
 ```
 
 - 태그는 `v` + `server/package.json`의 version과 정확히 같아야 한다. 다르면 아무것도 하지 않고 실패한다.
-- 태그의 커밋은 main에 있어야 한다(리뷰된 커밋만 나간다). 아니면 prepare가 비밀값을 읽기 전에 멈춘다(`is not on main`).
+- 태그의 커밋은 main에 있어야 한다(리뷰된 커밋만 나간다). 아니면 prepare가 비밀값을 읽기 전에 멈춘다(`is not on main`). 손으로 다시 돌릴 때는 "Use workflow from"이 그 태그여야 한다(브랜치면 멈춘다).
+  - 이 검사는 워크플로 파일 안에 있어 실수를 막는 난간이다. 쓰기 권한이 있는 사람이 검사를 뺀 워크플로로 태그를 다는 것까지 막으려면 4장 5(태그 보호)와 6(environment `release`, 비밀값을 그 environment로)을 설정해야 한다.
 - 태그에 `-`가 있으면 beta 채널(`v0.3.0-beta.1`, `v0.3.0-rc.1`), 없으면 stable 채널(`v0.3.0`)이다.
 - stable 릴리스는 사흘에 걸쳐 나간다(아래 "단계적 배포"). 모든 서버에 한 번에 내려면 태그 메시지에 `Rollout: all` 한 줄을 넣는다.
 - 주석 없는 태그(`git tag v0.3.0`)도 된다. 그때 피드의 노트는 비고, GitHub Release는 노트를 자동으로 만든다.

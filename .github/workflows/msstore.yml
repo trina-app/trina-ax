@@ -56,7 +56,9 @@ jobs:
             echo "::error::run this from a release tag (v0.5.1): choose the tag under 'Use workflow from', not a branch"
             exit 1
           fi
-          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$SHA" --jq .status)
+          # the branch's commit, not a ref named main (a tag "main" would win in compare)
+          main=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$main...$SHA" --jq .status)
           case "$status" in
             identical|behind) echo "$TAG ($SHA) is on main ($status)" ;;
             *) echo "::error::$TAG ($SHA) is not on main (compare: $status)"; exit 1 ;;

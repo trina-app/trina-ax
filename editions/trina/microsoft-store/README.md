@@ -23,7 +23,7 @@ Partner Center에서 앱 이름 "Trina AX"를 예약하면 제품 관리 > 제�
 
 ## 빌드
 
-MSIX는 윈도우에서만 만들 수 있습니다(`makeappx.exe`). 보통은 GitHub Actions의 [Microsoft Store package](../../../.github/workflows/msstore.yml) 작업을 씁니다. Actions 탭에서 "Run workflow"를 누르고, "Use workflow from"에서 릴리스 태그(`v0.5.1`처럼 main에 있는 태그)와 스토어 버전을 고르면, 그 태그의 커밋으로 CI 시험 전체를 먼저 돌리고 통과한 뒤에만 `msstore-msix` 아티팩트로 `.msix` 파일이 나옵니다. 브랜치에서 돌리거나 main에 없는 태그면 빌드하지 않습니다. 스토어에는 이렇게 태그에서 만든 run의 파일만 올립니다. 이 폴더를 고치는 PR에서는 임시 ID(`MSSTORE_TEST=1`)로 빌드만 확인합니다.
+MSIX는 윈도우에서만 만들 수 있습니다(`makeappx.exe`). 보통은 GitHub Actions의 [Microsoft Store package](../../../.github/workflows/msstore.yml) 작업을 씁니다. Actions 탭에서 "Run workflow"를 누르고, "Use workflow from"에서 릴리스 태그(`v0.5.1`처럼 main에 있는 태그)와 스토어 버전을 고르면, 그 태그의 커밋으로 CI 시험 전체를 먼저 돌리고 통과한 뒤에만 `msstore-msix` 아티팩트로 `.msix` 파일이 나옵니다. 브랜치에서 돌리거나 main에 없는 태그면 빌드하지 않습니다. 스토어에는 이렇게 태그에서 만든 run, 즉 "Release tag on main"과 "Tests" job이 통과한 run의 파일만 올립니다(이 검사 전의 옛 태그에서 돌린 run에는 두 job이 없습니다). 이 폴더를 고치는 PR에서는 임시 ID(`MSSTORE_TEST=1`)로 빌드만 확인합니다.
 
 윈도우 PC에서 직접 만들 때:
 
