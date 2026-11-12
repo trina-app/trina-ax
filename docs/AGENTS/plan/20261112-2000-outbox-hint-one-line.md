@@ -14,3 +14,11 @@ wraps to 3 lines and the box grows from 42 to 98 px. The hint while a card waits
 - New `composer-hint-phone.spec.ts`: at 390 px, in every language, both hints are one line and the box keeps its
   idle height.
 - Changelog fragment `changes/outbox-hint-one-line.md`.
+
+## Result
+Measured at 390 px: the text has 225 px beside the mic and Stop; the old hints took 2-3 lines (box 72-98 px instead of
+46). New hints, all one line: en "Sends after this answer" / "Choose above first", ko "답이 끝나면 보낼 메시지" /
+"먼저 위에서 골라 주세요", id "Dikirim setelah jawaban" / "Pilih di atas dulu", ja "回答後に送るメッセージ" /
+"先に上で選んでください", es "Se envía tras la respuesta" / "Elija arriba primero". `composer-hint-phone`,
+`send-queue`, `ask-answer`, `composer-align`, `composer-paste-preview` e2e 29/29 (Chromium); typecheck, check:i18n,
+check:docs pass.
