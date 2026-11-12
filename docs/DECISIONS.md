@@ -23866,3 +23866,30 @@ Version impact: **patch** (no route, no migration).
   suggestion at all.
 - Tests: `tests/unit/b-form-skill.test.ts`, `tests/unit/c-move-suggest.test.ts`, `web/test/unit/form-skills.test.tsx`,
   `web/test/unit/folder-picker-suggestions.test.tsx`.
+
+## navRail: the new navigation behind one server switch (feat/nav-rail-flag, 2026-11-13, navigation redesign P0c)
+
+넣을 곳: Team AX core (`server/src/app-config.ts`, `shared/src/api/auth.ts` `Me.server.navRail`, `web/src/lib/navRail.ts`,
+`web/src/lib/rail.ts`), 이유: the navigation is the web app's; the switch is the operator's (`server.json`), like
+`roomAiMentions`. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` (approved by the owner 2026-11-13: "ux 검수하고 바로
+시작해서 끝까지 해줘"; committed here).
+
+- **One switch per server, off by default.** `"navRail": true` in `server.json` → `Me.server.navRail: true` →
+  `useNavRail()`. It turns on both new layouts at once (the computer's rail and the phone's tabs 트리나 · 대화 · 파일 · 나)
+  for everyone on that server. No per-browser override: a server is all old or all new, so nobody sees a rail on the
+  computer and the old tabs on the phone (the references' main risk: KakaoTalk 2025, Discord 2026).
+- The phases P1–P5 and P4b merge to `dev` behind it; today's sidebar, tabs and drawer stay what everyone sees and their
+  tests stay unchanged. P6 flips the default (absent = on; `false` a kill switch for one release); P7 removes the old
+  path and the switch. Releases are not held for this work.
+- **Every route has a rail place or none** (`lib/rail.ts` `railOf`): 트리나 for Home, `/new`, chats, projects, scheduled
+  tasks, team skills, deleted history, connector consent and the welcome steps; 대화 for rooms, threads and Activity's
+  멘션·스레드 (`?in=chats`); 파일; 활동; none for Admin, the Slack pages and an unknown address. Settings is a dialog: the
+  page under it decides. `web/test/unit/rail.test.ts` reads every route under `<Layout />` in `App.tsx` and fails on one
+  without a decision. Each place remembers its last page for the browser tab (sessionStorage, dropped on sign-out).
+  Started from the 11-13 draft, changed to the plan's four places (no 프로젝트 place: projects are in 트리나's list).
+- **QA:** the local QA team gets `"navRail": true` in its `server.json` and a restart, from P1 on. potenlab.trina.app gets it
+  only after P1, P2, P3 and P5 are on `dev` and passed QA. The mock has `POST /__test/nav-rail {on}` (off after every
+  reset); e2e helpers `navRail(page)` and `openRail(page, item)`.
+- Tests: `tests/unit/b-nav-rail-flag.test.ts` (Me off/on, server.json), `web/test/unit/rail.test.ts`,
+  `web/test/e2e/nav-rail-flag.spec.ts`.
+- Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
