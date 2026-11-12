@@ -197,7 +197,7 @@ test("a project's page: a file dropped away from its new-chat box is a chip on t
   await page.goto(`/projects/${id}`)
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await page.mouse.move(1439, 899)
-  const away = page.getByTestId('project-summary').or(page.getByRole('heading', { level: 1 })).first()
+  const away = page.getByRole('heading', { level: 1, name: 'acme-plan' })
   await dropOn(away, await transfer(page))
   await expect(page.getByTestId('drop-overlay')).toHaveCount(0)
   await expect(page.getByTestId('attachment-chip')).toHaveCount(1)
