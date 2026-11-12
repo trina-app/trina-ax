@@ -114,6 +114,11 @@ let forwarderA = 0
 const tb = await shell('erin', chatB, { command: server('MARK-RUN-B', [3000, 3001]), background: true, port: 3000, log_name: 'webb' })
 const b = rowOf('erin')
 await Bun.sleep(2500)
+{
+  const now = h.ctx.db.query('SELECT state, end_reason, exit_code, log_tail FROM dev_env_runs WHERE id = ?').get(b.id) as Record<string, unknown>
+  const log = (() => { try { return fs.readFileSync(path.join(BASE, 'devenv/logs/erin/webb.log'), 'utf8').slice(-800) } catch (e) { return String(e) } })()
+  say('P2-', now.state === 'running' ? null : false, 'erin\'s dev server runs', { tool: tb.slice(0, 400), row: now, log })
+}
 const lb = await open('erin', b.id, 3000)
 const pb = await page(lb.origin, lb.cookie)
 const pa2 = await page(la.origin, la.cookie)
