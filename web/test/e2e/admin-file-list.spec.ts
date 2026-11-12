@@ -1,7 +1,7 @@
-// Admin › Team settings › File list (pages/admin/FileList.tsx; server/src/file-list/): one switch on the section and a
-// short status (counts, the last and next run, whose team AI account the runs use, why it cannot run), Run now, off
-// with a question first. Light and dark, a computer (1440) and a phone (390): nothing scrolls sideways, the status reads
-// as lines, the switch and Run now stay reachable, no serious accessibility problem.
+// Admin › Team settings › File list (pages/admin/FileList.tsx; server/src/file-list/): always on, no switch (docs/
+// DECISIONS.md "File list: always on"), a short status (counts, the last and next run, whose team AI account the runs
+// use, why it cannot run) and Run now. Light and dark, a computer (1440) and a phone (390): nothing scrolls sideways, the
+// status reads as lines, Run now stays reachable, no serious accessibility problem.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { ERROR_MESSAGES } from '@mycel/shared/api'
@@ -24,34 +24,19 @@ async function audit(page: Page, where: string) {
   expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
 }
 
-test('the status, Run now, and off after a question', async ({ page }) => {
+test('the status and Run now; no switch to turn it off', async ({ page }) => {
   const errors = watchConsole(page)
   await open(page)
   const section = page.getByTestId('file-list')
   await expect(section.getByRole('heading', { level: 2 })).toHaveText(t['fileList.title'])
   await expect(page.getByTestId('file-list-counts')).toHaveText('Files listed: 1,240 · waiting to be read: 18')
   await expect(page.getByTestId('file-list-uses')).toHaveText('Uses Claude Haiku on the team AI account “Team Claude”, signed in by Dana. Each night\'s run counts against its limit.')
-  const sw = page.getByRole('checkbox', { name: t['fileList.title'] })
-  await expect(sw).toBeChecked()
+  await expect(section.getByRole('checkbox')).toHaveCount(0)
   // Run now: a run goes, then it is done (the mock ends it at the next status read)
   await page.getByTestId('file-list-run').click()
   await expect(page.getByTestId('file-list-running')).toBeVisible()
   await expect(page.getByTestId('file-list-run')).toBeVisible({ timeout: 10_000 })
   await expect(page.getByTestId('file-list-counts')).toHaveText('Files listed: 1,258')
-  // off asks first; cancelling keeps it on
-  await sw.click({ force: true })
-  await expect(page.getByTestId('dialog-confirm')).toHaveText(t['fileList.offConfirm'])
-  await page.keyboard.press('Escape')
-  await expect(sw).toBeChecked()
-  await sw.click({ force: true })
-  await page.getByTestId('dialog-confirm').click()
-  await expect(sw).not.toBeChecked()
-  await expect(page.getByTestId('file-list-off')).toHaveText(t['fileList.off'])
-  await expect(page.getByTestId('file-list-run')).toHaveCount(0)
-  // and on again
-  await sw.click({ force: true })
-  await expect(sw).toBeChecked()
-  await expect(page.getByTestId('file-list-run')).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -64,22 +49,19 @@ test('why it cannot run: no team AI account, and the host turned it off', async 
   await page.request.post('/__test/file-list', { data: { problem: 'forced_off', forcedOff: true } })
   await page.reload()
   await expect(page.getByTestId('file-list-forced')).toHaveText(t['fileList.problem.forced_off'])
-  await expect(page.getByRole('checkbox', { name: t['fileList.title'] })).toBeDisabled()
   await expect(page.getByTestId('file-list-run')).toHaveCount(0)
 })
 
-test('Run now on a screen from before it was turned off: says it is off, and the button goes away', async ({ page }) => {
+test('Run now on a screen from before the host turned it off: says so, and the button goes away', async ({ page }) => {
   const errors = watchConsole(page)
   await open(page)
   await expect(page.getByTestId('file-list-run')).toBeVisible()
-  // someone else turned it off since this screen loaded
-  await page.request.post('/__test/file-list', { data: { enabled: false, nextRunAt: null } })
+  // the host turned it off since this screen loaded
+  await page.request.post('/__test/file-list', { data: { enabled: false, forcedOff: true, nextRunAt: null } })
   await page.getByTestId('file-list-run').click()
-  await expect(page.getByText(t['fileList.runOff'])).toBeVisible()
+  await expect(page.getByText(t['fileList.problem.forced_off']).first()).toBeVisible()
   await expect(page.getByText(ERROR_MESSAGES.conflict.en)).toHaveCount(0)
-  await expect(page.getByTestId('file-list-off')).toHaveText(t['fileList.off'])
   await expect(page.getByTestId('file-list-run')).toHaveCount(0)
-  await expect(page.getByRole('checkbox', { name: t['fileList.title'] })).not.toBeChecked()
   // the refused call itself is the 409 the browser logs
   expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])
 })
@@ -93,11 +75,8 @@ for (const scheme of ['light', 'dark'] as const) {
       const section = page.getByTestId('file-list')
       await section.scrollIntoViewIfNeeded()
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
-      // the switch sits beside the heading; Run now and the switch are inside the screen
-      const heading = await section.getByRole('heading', { level: 2 }).boundingBox()
-      const knob = await section.locator('#file-list-enabled + span').boundingBox()
-      expect(Math.abs(knob!.y - heading!.y)).toBeLessThan(24)
-      expect(knob!.x + knob!.width).toBeLessThanOrEqual(size.width)
+      // no switch (always on); Run now is inside the screen
+      await expect(section.getByRole('checkbox')).toHaveCount(0)
       const run = await page.getByTestId('file-list-run').boundingBox()
       expect(run!.x + run!.width).toBeLessThanOrEqual(size.width)
       // each status line is one item of the list, at the small body size (14 px on a computer, 15 on a phone)

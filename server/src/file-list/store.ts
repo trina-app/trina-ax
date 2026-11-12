@@ -83,7 +83,7 @@ export class Sidecar {
     this.version++
   }
   delete(p: string) { this.db.query('DELETE FROM files WHERE path = ?').run(p); this.version++ }
-  /** every stored line (the switch went off, policy.ts FORGET_ON_OFF) */
+  /** every stored line */
   clear() { this.db.query('DELETE FROM files').run(); this.version++ }
   tx<T>(f: () => T): T { return this.db.transaction(f)() }
   counts(): { listed: number; waiting: number } {

@@ -23350,3 +23350,32 @@ Adds to "The chat's connect card trusts the app's list"; reverses nothing.
 Adds to "A member asks for an app": an open request reads "Request sent" right after the tap and whenever the page is
 opened again (and the card says so too); "Already asked" is gone. The member's page shows their open request (with
 "Cancel request") whatever team connections exist; only a working team connection they may use ends the ask there.
+
+## File list: always on (feat/file-list-always-on, 2026-11-12, product owner)
+
+Changes "File list — 파일 목록" (2026-11-11): its "on by default, an admin can turn it off" is reversed. The owner: "밤에
+도는 폴더 메타데이터 만드는 거는 설정에서 없애야겠다. 그냥 항상 켜져 있게". The list is what the coming upload
+suggestions and the setup's folder plan read, so a team must not be able to lose it by a switch.
+
+- **No team switch.** Admin › Team settings › File list shows the status and **Run now** only. `PATCH
+  /api/admin/file-list` is gone (404); `FileListStatus.enabled` stays for older clients and is `!forcedOff`. A stored
+  `fileList.enabled = false` from an older build is ignored (not deleted, not read): such a team is on again after the
+  update, and since the switch had deleted its lines, the next nights read its files again (the run cap and the night
+  window as before; Run now is there for an admin who wants them sooner).
+- **The host keeps its way off** (`server.json` `fileList.enabled: false`, docs/CONFIGURATION.md): an operator's choice
+  for a whole server, not a team's. Run now then answers 409 `forced_off`; the `off` reason is gone.
+- **Gone with the switch:** `FORGET_ON_OFF` and the clear on switch-off. `FileListStop` keeps `off` for the runs of
+  older builds (and a run that finds the host's config off); an aborted run is `stopped` (only the server's stop aborts
+  one now).
+- **The AI's rule says the lists are a night old** (`FILE_LIST_RULE`, prompt.ts). The owner: "하루 늦게 업데이트가 되니깐
+  클로드가 이것만 무조건 믿으면 안 되겠네". A file added today is not in a list, a file changed today keeps
+  yesterday's line. The rule now says so, tells the AI to search names and contents before it says a file is not there,
+  and to answer from the opened file, never from its line alone. Still one short paragraph (the 11-11 measurement was
+  of a short line).
+- **Catching up after missed nights** is unchanged and was checked for this: every run compares size, mtime and hash
+  with the sidecar, so new and changed files since the last run are read whatever the gap; a gap over 30 hours starts a
+  run outside the night window; a run reads at most 1,500 files and the rest waits for the next.
+- Tests: `tests/unit/c-file-list.test.ts` (no PATCH, a stored off ignored, the host's off), `tests/unit/
+  c-file-list-format.test.ts` (the rule's text), `web/test/unit/file-list-settings.test.tsx`, `web/test/e2e/
+  admin-file-list.spec.ts`.
+- Version impact: **minor** (an admin setting removed).

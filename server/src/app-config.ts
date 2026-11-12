@@ -203,8 +203,8 @@ export const AppConfigFile = z.object({
    * an operator who still wants it while people move over. Earlier answers in rooms stay as they are either way. */
   roomAiMentions: z.boolean().optional(),
   /** The file list (server/src/file-list/; docs/CONFIGURATION.md): `{ "enabled": false }` turns it off on this server
-   * whatever the team's admin chooses (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's
-   * instructions). Absent: the team's switch in Admin › Team settings decides (on by default). */
+   * (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's instructions). Absent: on; the team
+   * has no switch (docs/DECISIONS.md "File list: always on"). */
   fileList: z.object({
     enabled: z.boolean().optional(),
     /** files the model reads per run, and tokens it may use per run (default: file-list/policy.ts RUN_FILES, RUN_TOKENS) */
@@ -263,7 +263,7 @@ export interface AppConfig {
   handoverSafe?: boolean
   /** see AppConfigFile.roomAiMentions; absent = off */
   roomAiMentions?: boolean
-  /** see AppConfigFile.fileList; absent = the team's switch decides */
+  /** see AppConfigFile.fileList; absent = on (the team has no switch) */
   fileList?: { enabled?: boolean; maxFilesPerRun?: number; maxTokensPerRun?: number }
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null

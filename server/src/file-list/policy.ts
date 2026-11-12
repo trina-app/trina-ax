@@ -9,10 +9,6 @@ export const READ_PERSONAL = false
  * text files only, and Codex takes images as files). */
 export const CODEX_IMAGES = false
 
-/** (c) Turning the switch off deletes the stored lines (the sidecar's descriptions); on again reads the files again over
- * the next nights. */
-export const FORGET_ON_OFF = true
-
 /** A camera photo (a JPEG with a camera in its EXIF, or a HEIC) gets a line from its metadata only, unless the server's
  * OCR finds text in it (a photo of a document). Saves most of a phone's photo folder from the model. */
 export const CAMERA_PHOTOS_META = true
