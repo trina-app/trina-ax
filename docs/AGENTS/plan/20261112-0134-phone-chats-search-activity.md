@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 01:34
 - Branch: `feat/phone-chats-search-activity`
-- Status: in progress
+- Status: done
 - Where: this repo, `web/` (+ one field of `GET /api/notifications` in `server/` and `shared/`). Why: the phone's tabs,
   search and Inbox are core UI (docs/REPOSITORY-RULES.md: 휴대폰 is core).
 - Version impact: minor: a new phone entry point and one new optional field in an API response.
@@ -57,4 +57,6 @@ notifications server unit tests, and the new phone e2e in Chromium and WebKit on
 
 ## Result
 
-(filled in at the end)
+Built as planned (PR #530). Differences: the endpoint's summary stays as it was (the HTTP API page is generated from
+it), the new field is described in a comment; the 🔍 sits beside ⊕ with a matching space on the left, so the name stays
+in the middle. 1440 screenshots of /rooms, /activity and search are pixel-identical before and after.
