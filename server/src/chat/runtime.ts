@@ -16,11 +16,12 @@ import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-rela
 import { startPresence, type Presence } from '../realtime/presence'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
-import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type TurnSpec } from './turn'
+import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
 import { engineError, tr } from './i18n'
-import { forgetPurgedChats, retryPendingForgets } from './forget'
+import { forgetPurgedChats, launcherSockOf, retryPendingForgets } from './forget'
 import { effectiveConcurrency, memoryAdmission } from '../system/limits'
-import { teamTimeZone } from '../admin/settings'
+import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
+import { updateUnderway } from '../system/update-underway'
 import { setTeamTimeZoneSource } from '../system/time-zone'
 import { HttpError } from '../http/errors'
 import { fairOrder, selectFairHead, type QueueTiming } from './fair-queue'
@@ -55,6 +56,13 @@ export const MEMORY_RECHECK_MS = 2000
  * Only the launch waits: the turn is claimed, holds its slot and counts as running from dispatch, as before. */
 export const START_BURST = 3
 export const START_SPREAD_MS = 200
+/** after the engine launcher stopped for an update, queued answers wait at least this long while this server is about
+ * to switch versions (the update restarts it next, and they run on the new version), and at most LAUNCHER_HOLD_MAX_MS
+ * for a launcher that is back */
+const UPDATE_HOLD_MS = 120_000
+const LAUNCHER_HOLD_MAX_MS = 10 * 60_000
+/** settings key: the server stopped answers for an update (shutdown); the next start's recovery reads and clears it */
+export const STOPPED_FOR_UPDATE = 'chat.stoppedForUpdate'
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
 export const QUARANTINE_PROBE_MS = 2000
 /** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
@@ -225,6 +233,24 @@ export class ChatRuntime {
   quarantineProbeMs = QUARANTINE_PROBE_MS
   /** how long an answered turn waits for a slot after its card opened before it goes on anyway (tests) */
   slotWaitMaxMs = SLOT_WAIT_MAX_MS
+  /** the engine launcher stops or restarts (its orderly stop, QA TC-338): queued answers stay queued and launches wait
+   * (launcherReady) until a launcher answers that is not stopping */
+  private launcherHold: { stop: LauncherStop; since: number; waiters: (() => void)[] } | null = null
+  private holdTimer: ReturnType<typeof setTimeout> | null = null
+  /** how often a hold asks the launcher whether it is back; how long an update's hold lasts at least (tests) */
+  launcherHoldPollMs = 1000
+  updateHoldMs = UPDATE_HOLD_MS
+  /** a launcher answers that takes turns again (tests replace it) */
+  launcherBack: () => Promise<boolean> = async () => {
+    // the installed launcher's socket; one the server started itself (dev, local login) has none known: nothing to
+    // wait for (it does not come back without this server)
+    const sock = launcherSockOf(this.ctx)
+    if (!sock) return true
+    const st = await launcherStatus(sock, 1000)
+    return !!st && !st.stopping
+  }
+  /** why the server stops now (shutdown): an update (its answers say so, QA TC-338) or another restart; tests set it */
+  shutdownCause: () => 'update' | 'restart' = () => updateUnderway(this.ctx.config, this.ctx.version) ? 'update' : 'restart'
   private dispatching = false
   /** the last dispatch failed outside one turn: the capacity watcher runs schedule() again */
   private dispatchRetry = false
@@ -530,9 +556,51 @@ export class ChatRuntime {
     this.queueRevision++
   }
 
+  /** The launcher said it stops (a turn's exit or a refused launch, chat/turn.ts): hold the queue until it is back. */
+  launcherStopped(stop: LauncherStop) {
+    if (this.closing) return
+    if (this.launcherHold) { if (stop === 'update') this.launcherHold.stop = 'update'; return }
+    this.launcherHold = { stop, since: Date.now(), waiters: [] }
+    this.log.info('engine launcher stopping: queued answers wait for it', { stop })
+    this.pollLauncherHold()
+  }
+  get launcherHeld() { return !!this.launcherHold }
+  /** resolves once no hold is on (or the turn is stopped) */
+  launcherReady(signal?: AbortSignal): Promise<void> {
+    const h = this.launcherHold
+    if (!h || signal?.aborted) return Promise.resolve()
+    return new Promise((r) => { h.waiters.push(r); signal?.addEventListener('abort', () => r(), { once: true }) })
+  }
+  private pollLauncherHold() {
+    this.holdTimer = setTimeout(async () => {
+      this.holdTimer = null
+      const h = this.launcherHold
+      if (!h || this.closing) return
+      let back = false
+      try { back = await this.launcherBack() } catch {}
+      const held = Date.now() - h.since
+      // an update after which this server switches versions: at least updateHoldMs (the restart comes next and the queue
+      // runs on the new version); one of root files only ('update-root') goes on as soon as the launcher is back
+      if ((back && (h.stop !== 'update' || held >= this.updateHoldMs)) || held >= LAUNCHER_HOLD_MAX_MS) {
+        this.endLauncherHold(back ? 'launcher back' : 'launcher not back in time')
+        this.schedule()
+      } else this.pollLauncherHold()
+    }, this.launcherHoldPollMs)
+    this.holdTimer.unref?.()
+  }
+  private endLauncherHold(why: string) {
+    const h = this.launcherHold
+    if (!h) return
+    this.launcherHold = null
+    if (this.holdTimer) clearTimeout(this.holdTimer)
+    this.holdTimer = null
+    this.log.info('engine launcher hold ended', { why, stop: h.stop, ms: Date.now() - h.since })
+    for (const w of h.waiters.splice(0)) w()
+  }
+
   schedule() {
     try { this.grantResumes() } catch (err) { this.log.error('resuming answered turns failed', { err }) }
-    if (!this.acceptingTurns || this.dispatching) return
+    if (!this.acceptingTurns || this.dispatching || this.launcherHold) return
     this.dispatching = true
     try {
     const limit = this.concurrency()
@@ -1089,10 +1157,12 @@ export class ChatRuntime {
     const now = new Date().toISOString()
     this.db.query("UPDATE schedules SET enabled=0,pending_due_at=NULL,retry_at=NULL WHERE user_id NOT IN (SELECT id FROM users WHERE status='active' AND deleted_at IS NULL)").run()
     const running = this.db.query("SELECT id, message_id, user_id FROM turns WHERE status = 'running'").all() as { id: string; message_id: string | null; user_id: string }[]
+    // the server that ran them stopped for an update (shutdown below): their answers say so (QA TC-338)
+    const why = getSetting<string>(this.db, STOPPED_FOR_UPDATE) ? 'updating' : 'interrupted'
     this.db.transaction(() => { for (const t of running) {
       const locale = this.userLocale(t.user_id)
       this.db.query("UPDATE turns SET status = 'interrupted', ended_at = ?, error = 'interrupted' WHERE id = ?").run(now, t.id)
-      if (t.message_id) this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError('interrupted', locale)), now, t.message_id)
+      if (t.message_id) this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError(why, locale)), now, t.message_id)
       this.db.query('UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = ? AND revoked_at IS NULL').run(now, t.id)
     } })()
     // Invalid users/chats/messages never survive a restart as runnable work.
@@ -1136,8 +1206,9 @@ export class ChatRuntime {
     const stale = this.db.query("SELECT id, chat_id FROM messages WHERE status = 'streaming'").all() as { id: string; chat_id: string }[]
     for (const m of stale) if (!queuedIds.has(m.id)) {
       const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(m.chat_id) as { user_id: string } | null)?.user_id
-      this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(engineError('interrupted', owner ? this.userLocale(owner) : DEFAULT_LOCALE)), now, m.id)
+      this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(engineError(why, owner ? this.userLocale(owner) : DEFAULT_LOCALE)), now, m.id)
     }
+    this.db.query('DELETE FROM settings WHERE key = ?').run(STOPPED_FOR_UPDATE)
     if (running.length || this.queued.length) this.log.info('turn queue recovered', { interrupted: running.length, requeued: this.queued.length })
     if (this.ctx.config.mode === 'prod') {
       this.recoveryState = 'checking_launcher'
@@ -1228,9 +1299,19 @@ export class ChatRuntime {
     // turns still in the start gate are stopped below and leave it then (ungate); nothing launches after this
     if (this.launchTimer) clearTimeout(this.launchTimer)
     this.launchTimer = null
+    this.endLauncherHold('server stopping')
     this.shutdownP = (async () => {
       const execs = [...this.running.values()]
-      for (const e of execs) e.stop('shutdown')
+      let cause: 'update' | 'restart' = 'restart'
+      if (execs.length) {
+        try { cause = this.shutdownCause() } catch {}
+        // the next start's recovery words for an answer that does not end in time (recoverState)
+        if (cause === 'update') { try { setSetting(this.db, STOPPED_FOR_UPDATE, new Date().toISOString()) } catch (e) { this.log.warn('noting the update stop failed', { err: e }) } }
+        this.log.info('stopping the running answers', { n: execs.length, cause })
+      }
+      // answers that only waited for a stopping launcher never ran: their end puts them back in the queue, and the next
+      // start runs them in order (TurnExec.interruptForRequeue)
+      for (const e of execs) e.interruptForRequeue(cause)
       await Promise.race([Promise.all(execs.map((e) => e.done)), Bun.sleep(6000)])
       this.relay.close()
       this.hub.close()

@@ -8,7 +8,8 @@ import { admins } from '../credentials/store'
 import { canUseAi } from '../credentials/access'
 import { isManaged } from '../app-config'
 import { authorize } from '../policy/authorize'
-import { atLeast } from '../policy/access'
+import { atLeast, inProjectZone } from '../policy/access'
+import { canSeeProject, mayManageProject } from '../chat/projects'
 import { readScope } from '../chat/read-scope'
 import { getRow as getIntegration, mayUse as mayUseIntegration, templateCovers } from '../integrations/connections/store'
 import { shareCovers, shareRow } from '../integrations/google-drive/shares'
@@ -122,7 +123,7 @@ export class Notifications {
     if (r.changes) this.signal(userId)
     return r.changes > 0 && !quiet
   }
-  /** A dev environment job ended, or boxd stopped a box. The source is the id of the job or the stop row only. */
+  /** A dev environment job ended. The source is the id of the run row only. */
   devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, sourceId, createdAt)
   }
@@ -451,32 +452,14 @@ export class Notifications {
     }
     return result
   }
-  /** The job's text and the chat link only while the person can read the project folder now, as for a scheduled run. A
-   * stop notice has no log, and an admin must act on it, so an admin gets the project and the reason with no folder check;
-   * the link stays out, because that person cannot open the project. */
+  /** A dev environment notice. A job is a row of dev_env_runs (devEnvRunOut). The rows of the removed box runner
+   * (dev_env_jobs, dev_env_stops; docs/DECISIONS.md "Dev environment: box runner removed, srt only") show only the
+   * generic text of their event, with no project, log or link. */
   private devEnvOut(row: Row): InboxNotification {
     const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
-    const db = this.ctx.db
-    const job = row.event_type === 'dev_env.job' ? db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail FROM dev_env_jobs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string } | null : null
-    if (row.event_type === 'dev_env.job' && !job) return this.devEnvRunOut(row, base)
-    const stop = row.event_type === 'dev_env.box' ? db.query('SELECT project_id,code FROM dev_env_stops WHERE id=?').get(row.source_id) as { project_id: string; code: string } | null : null
-    const projectId = job?.project_id ?? stop?.project_id
-    const project = projectId ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(projectId) as { name: string; folder_path: string; trashed_with: string | null } | null : null
-    if (!project) return base
-    const devEnv = { projectId: projectId!, projectName: project.name }
-    try {
-      // a project whose folder is in the trash: nobody reads it (chat/projects.ts canSeeProject); an admin still gets a
-      // stop notice's project name and reason below, never the job's text
-      if (project.trashed_with !== null) throw new Error('project folder in the trash')
-      authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
-    } catch {
-      return stop && admins(db).includes(row.user_id) ? { ...base, devEnv: { ...devEnv, stopCode: stop.code } } : base
-    }
-    if (stop) return { ...base, link: 'project', devEnv: { ...devEnv, stopCode: stop.code } }
-    const chat = job!.chat_id ? db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(job!.chat_id, row.user_id) as { id: string } | null : null
-    return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : 'project', devEnv: { ...devEnv, job: { name: job!.name, exitCode: job!.exit_code, note: job!.end_note, tail: job!.log_tail } } }
+    return row.event_type === 'dev_env.job' ? this.devEnvRunOut(row, base) : base
   }
-  /** A job of the srt runner (dev_env_runs): the person's own run, from any chat, with or without a project. With a
+  /** A job (dev_env_runs): the person's own run, from any chat, with or without a project. With a
    * project it is shown while the person can see the project; with none, projectId and projectName are ''. */
   private devEnvRunOut(row: Row, base: InboxNotification): InboxNotification {
     const db = this.ctx.db
@@ -617,8 +600,9 @@ export class Notifications {
       if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name },
         ...this.scheduleOf(row.user_id, skip.schedule_id) }
       // a run whose project its owner no longer sees: says so, no link (the project is not theirs to open now)
-      const gone = this.ctx.db.query('SELECT schedule_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string } | null
-      if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true, ...this.scheduleOf(row.user_id, gone.schedule_id) }
+      const gone = this.ctx.db.query('SELECT schedule_id, project_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string; project_id: string } | null
+      if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true,
+        ...(this.membersOnlyNow(row.user_id, gone.project_id) ? { membersOnly: true as const } : {}), ...this.scheduleOf(row.user_id, gone.schedule_id) }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(SAVE_LAPSE_SOURCE)) {
       // its save folder to check again: the Scheduled page, never a chat; the task by its title while it is there
@@ -670,6 +654,20 @@ export class Notifications {
   /** A scheduled run's task by its title, while the task is the person's and there (a deleted one: nothing, and the
    * Inbox says "a scheduled task"). The person's own words, read now and never stored with the notice; a push never
    * carries it (the lock screen's text is generic, text.ts). */
+  /** A task's project that is still there, in projects/<name>, which this person (the owner or an admin) may add
+   * themselves to and does not read now: "only its members can use it now" (docs/DECISIONS.md "Projects from before the
+   * update: one card, Add me to these"). Never its name or folder. */
+  private membersOnlyNow(userId: string, projectId: string): boolean {
+    try {
+      const r = this.ctx.db.query('SELECT folder_path, created_by, trashed_with FROM projects WHERE id = ?').get(projectId) as { folder_path: string; created_by: string | null; trashed_with: string | null } | null
+      if (!r || r.trashed_with !== null) return false
+      const segs = r.folder_path.split('/')
+      if (segs.length !== 2 || !inProjectZone(segs)) return false
+      const p = this.ctx.files.principal(userId)
+      return (p.role === 'owner' || p.role === 'admin') && mayManageProject(this.ctx.files, p, r) && !canSeeProject(this.ctx.files, p, r)
+    } catch { return false }
+  }
+
   private scheduleOf(userId: string, scheduleId: string | null | undefined): Pick<InboxNotification, 'schedule'> {
     if (!scheduleId) return {}
     const s = this.ctx.db.query('SELECT title FROM schedules WHERE id=? AND user_id=?').get(scheduleId, userId) as { title: string } | null

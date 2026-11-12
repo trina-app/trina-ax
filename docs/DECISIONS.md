@@ -5856,6 +5856,55 @@ have no dev environment. The `/api/projects/:id/dev-env*` endpoints stay for old
 What only the line had: the project's run list with Stop for other people's runs, the activity, the preview, and on the
 box runner the per-project on/off and the box (stop, restart, processes).
 
+### Dev environment: box runner removed, srt only (chore/remove-box-runner, 2026-11-12)
+
+Owner (pras): "harusnya di hapus box kan kita pindah ke srt total". QA on 2026-11-12 found that the box runner was still
+the default (`MYCEL_DEV_ENV_RUNNER` unset meant the box) and that every kit still had `root/mycel-boxd` (a 0.5.0-beta.1
+VM). The team runs srt since "Dev environment on srt, behind a flag".
+
+- **srt is the only runner.** `MYCEL_DEV_ENV=1` turns the dev environment on; `MYCEL_DEV_ENV_RUNNER` is not read.
+  `install-srt.sh` still writes `MYCEL_DEV_ENV_RUNNER=srt` in its drop-in: `uninstall-srt.sh` and `mycel-ctl update`
+  know the file of srt by that line.
+- **Removed.** `native/cmd/mycel-boxd`, `root/mycel-boxd` in the kit, `server/src/devenv/boxd.ts` and `preview.ts` (the
+  preview gateway needed the box's socket; srt has no preview), the Boxd wire types (`shared/src/dev-env.ts`), the box
+  branches of `tool.ts`, `jobs.ts`, `setting.ts`, `routes/dev-env.ts`, `chat/turn.ts` and the group page, the box
+  scripts of `scripts/dev-env/` and `docs/research/dev-env-test-vm-plan.md`.
+- **API.** `PUT /api/projects/:id/dev-env` (the per-project setting) and `POST /api/projects/:id/dev-env/preview` are
+  gone (404). `POST /api/projects/:id/dev-env/box` is now `POST /api/projects/:id/dev-env/stop` with no body: it stops
+  every run of the project's chats, as the srt branch did. The project response has no `box`, `jobs`, `needsFolder` or
+  `runner`; the team response has no `runner`, and `warningVersion` is always there. Activity kinds are `command`,
+  `files` and `event`. No client used the removed parts ("Dev environment: no line on the project page").
+- **No migration.** Migrations are additive (`min_compatible_reader`), and a drop would stop a downgrade. The tables of
+  the box (`dev_env_jobs`, `dev_env_stops`), the `dev_env.box` event of `dev_env_notices` and the `devEnv.project.<id>`
+  settings rows stay. Nothing writes them; the purge deletes old `dev_env_jobs` and `dev_env_stops` rows after 30 days
+  (also a job row that never ended). An old box notice shows the generic text of its event, with no project, log or
+  link. Warning version 1 (the box's) no longer counts.
+- **Upgrade of a server of the box trial.** `mycel-ctl update` (`retireBoxRunner`) and `install-linux.sh`
+  (`retire_box_runner`) stop and disable `mycel-boxd.service`, end the boxes of `mycel-devbox` (`podman rm -af`: they run
+  in that account's own systemd session, not in the service), unmount the box mounts, delete the unit, delete the team
+  server's `dev-env.conf` when it names `MYCEL_BOXD_SOCK` and not the srt line (the dev environment is then off until
+  `install-srt.sh`), and delete `root/mycel-boxd`. `mycel-ctl update` does not run the new `mycel-ctl`: the first update
+  to this release runs the older one, which has no such step. So the step runs in two places: before the team server
+  restarts on the new version, and when an update finds the server at this version already (`retireNow`, which then
+  restarts the team server without the drop-in). A trial server needs `sudo mycel-ctl update` twice (its update timer is
+  off since the trial); `install-linux.sh update` needs one run. Until the second run the new server runs with
+  `MYCEL_DEV_ENV=1` and no srt: the dev environment says it is not available, and nobody can use it. They do not delete the box state (the account
+  `mycel-devbox`, `<base>/boxd`, `<base>/boxd-storage`, `/var/lib/mycel-boxd`, `/var/lib/mycel-boxd-trial`): box
+  folders were mounts of project folders, and a delete through a mount deletes team files. A note names what stays, and
+  `docs/INSTALL-LINUX.md` "Removed: the box runner" points to `uninstall-trial.sh` of v0.5.0-beta.1, which unmounts
+  first. Every step is a note: the update never fails or waits for it. A server where the trial never ran has no step,
+  except that `root/mycel-boxd` goes (with systemd). A roll-back to an older version after this has no box helper; that version's
+  dev environment says it is not available.
+- **Kept.** The tool name `box_shell` (steps and transcripts name it), the audit action `dev_env.box_stopped` and the
+  notice code `dev_env_box_stopped` (srt's disk stop uses them), the `dev-env.json` plan file and its parser
+  (`srt/plan.ts`, hosted files have `diskGiB`), and `diskGiB` and `idleStopMin` in the limits schema.
+- **QA.** TC-307 (box runner folder isolation) is not needed any more.
+- **Tests.** `tests/unit/dev-env.test.ts` (the parts with no runner, the purge), the login-card, conflict-copy and storage-rule cases
+  moved to `tests/unit/dev-env-srt.test.ts`, `native/cmd/mycel-ctl/update_test.go` (`TestUpdateRetiresBoxRunner`,
+  `TestUpdateKeepsTheSrtDropin`, `TestUpdateWithoutTheBoxTrial`, `TestUpdateRetireFailsIsANote`,
+  `TestUpdateRetiresWhenAlreadyAtTheVersion`, `TestMountsUnder`,
+  `TestInstallScriptRetiresBoxRunner`).
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.

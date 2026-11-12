@@ -334,7 +334,7 @@ test.describe('TC-263: phone Settings has no duplicate entries or loops (owner, 
   test.use(PHONE)
   test.beforeEach(async ({ page }) => {
     await reset(page, { teamLocale: 'en', usersFollowTeam: true })
-    expect((await page.request.post('/__test/dev-env', { data: { srt: true, sites: ['example.com'] } })).ok()).toBe(true)
+    expect((await page.request.post('/__test/dev-env', { data: { sites: ['example.com'] } })).ok()).toBe(true)
     await signIn(page)
   })
   test.afterEach(async ({ page }) => {

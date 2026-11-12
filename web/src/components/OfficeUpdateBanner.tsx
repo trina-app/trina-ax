@@ -43,7 +43,8 @@ export default function OfficeUpdateBanner() {
       <button type="button" className="underline underline-offset-2" onClick={() => navigate('/admin/system/updates')}>
         {t('officeUpdate.now')}
       </button>
-      {b.turn?.kind === 'never' ? <span className="text-muted">{t('officeUpdate.bannerNever')}</span>
+      {b.turn?.kind === 'paused' ? <span className="text-muted">{t('officeUpdate.bannerPaused')}</span>
+        : b.turn?.kind === 'never' ? <span className="text-muted">{t('officeUpdate.bannerNever')}</span>
         : b.turn ? <span className="text-muted">{t('officeUpdate.bannerTurn', { date: turnDate(b.turn.date, locale), window: b.turn.window, zone: b.turn.zone })}</span>
         : b.nightly && <span className="text-muted">{t('officeUpdate.bannerNightly', b.nightly)}</span>}
       <Tooltip label={t('common.close')}>

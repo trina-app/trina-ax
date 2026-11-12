@@ -88,6 +88,9 @@ function rootOf(parts: readonly string[]): { len: number; project: boolean } | n
 }
 /** A path under users/<id>/skills/ (a personal skill entry). */
 export const isPersonalSkill = (rel: string) => { const p = rel.split('/'); return p[0] === USERS_DIR && skillRootLength(p) === 3 }
+/** A skill in this person's own personal skills folder (users/<id>/skills/): the only skill that counts as their own
+ * words, not outside content (chat/turn.ts remember protection). */
+export const ownPersonalSkill = (rel: string, userId: string) => isPersonalSkill(rel) && rel.split('/')[1] === userId
 /** A path under groups/<folder>/skills/ (a group skill entry, or that folder itself). */
 export const isGroupSkill = (rel: string) => { const p = rel.split('/'); return p[0] === GROUPS_DIR && skillRootLength(p) === 3 }
 /** A path under projects/<name>/skills/ (a project skill entry, or that folder itself). */

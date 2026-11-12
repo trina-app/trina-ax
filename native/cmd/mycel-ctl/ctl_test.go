@@ -296,6 +296,13 @@ func updateHooks(t *testing.T, tb *testBase, onSwitch func(v string)) {
 			return "", nil
 		}
 		u.restartSrv = func() error { return nil }
+		// the launcher is told before its restart; recorded with the systemctl calls (their order)
+		u.prepareLauncher = func(reason string) {
+			if f, err := os.OpenFile(tb.sysCalls, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+				f.WriteString("prepare-stop " + reason + "\n")
+				f.Close()
+			}
+		}
 		u.healthTimeout = 3 * time.Second
 	}
 	t.Cleanup(func() { updateTestHook = nil })

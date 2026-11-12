@@ -132,7 +132,6 @@ async function until(f: () => boolean, ms = 3000) {
 
 beforeAll(async () => {
   process.env.MYCEL_DEV_ENV = '1'
-  process.env.MYCEL_DEV_ENV_RUNNER = 'srt'
   h = await startHarness({ name: 'dev-env-queue' })
   devBase = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-queue-'))
   setSrtSystem(fake, { base: devBase, id: 'mycel', plan: plan(1) })
@@ -147,7 +146,7 @@ beforeAll(async () => {
 })
 afterAll(async () => {
   setSrtSystem(null)
-  for (const k of ['MYCEL_DEV_ENV', 'MYCEL_DEV_ENV_RUNNER']) delete process.env[k]
+  delete process.env.MYCEL_DEV_ENV
   await h.close()
   fs.rmSync(devBase, { recursive: true, force: true })
 })
@@ -281,9 +280,9 @@ describe('cancel', () => {
     const p = shell('alice', chatFalcon, undefined, { id: falconId, folderPath: 'projects/falcon', name: 'Falcon' }).call({ command: 'echo mine' })
     await until(() => steps.length === 1)
     const id = steps[0]!.run.id
-    await h.api('bob').call(API.devEnvBox, { params: { id: falconId }, body: { action: 'stop' } })
+    await h.api('bob').call(API.devEnvStop, { params: { id: falconId } })
     expect(rows().find((r) => r.id === id)).toMatchObject({ state: 'waiting', foreground: 1 })
-    await h.api('alice').call(API.devEnvBox, { params: { id: falconId }, body: { action: 'stop' } })
+    await h.api('alice').call(API.devEnvStop, { params: { id: falconId } })
     expect(out(await p)).toContain('cancelled this command')
     expect(rows().some((r) => r.id === id)).toBe(false)
   })

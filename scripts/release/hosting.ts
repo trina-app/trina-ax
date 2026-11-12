@@ -6,13 +6,19 @@
 //   bun scripts/release/hosting.ts setup     bucket (if missing), Worker with the bucket binding, custom domain
 //                                            (the feed's host; Cloudflare makes its DNS record), no workers.dev
 //   bun scripts/release/hosting.ts status    what exists, and what the feed answers
+//   bun scripts/release/hosting.ts hold <stable|beta> --reason "…"    pause a bad release's roll-out (./hold.ts,
+//   bun scripts/release/hosting.ts resume <stable|beta>               docs/RELEASE-CI.md 6); held: what the heads say
 import fs from 'node:fs'
 import path from 'node:path'
 import { BUCKET, Cloudflare, HOST, listReport, WORKER } from './cloudflare'
 import { workerCode } from './worker-code'
 
-const cf = new Cloudflare()
 const cmd = process.argv[2] ?? 'status'
+if (cmd === 'hold' || cmd === 'resume' || cmd === 'held') {
+  try { await (await import('./hold')).main(process.argv.slice(2)) } catch (e) { console.error(`hold: ${(e as Error).message}`); process.exit(1) }
+  process.exit(0)
+}
+const cf = new Cloudflare()
 const { account, zone } = await cf.accountAndZone()
 
 async function status() {
@@ -52,6 +58,6 @@ if (cmd === 'setup') {
 } else if (cmd === 'status') {
   await status()
 } else {
-  console.error('usage: bun scripts/release/hosting.ts setup | status')
+  console.error('usage: bun scripts/release/hosting.ts setup | status | hold <channel> --reason "…" | resume <channel> | held <channel>')
   process.exit(2)
 }

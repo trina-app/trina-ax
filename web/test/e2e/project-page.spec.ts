@@ -139,7 +139,7 @@ test('at phone width the page fits: the box first, then the lines, then the chat
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   // a server with the dev environment on: still no line for it here
-  await page.request.post('/__test/dev-env', { data: { srt: true } })
+  await page.request.post('/__test/dev-env', { data: {} })
   await signIn(page)
   const id = await newProject(page, ['Weekly numbers'])
   await page.goto(`/projects/${id}`)

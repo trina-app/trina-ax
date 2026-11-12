@@ -1,6 +1,6 @@
-// The plan caps of the dev environment on srt: <base>/root/dev-env.json (format 1, from PR #58). The same file and the
-// same rules as mycel-boxd's parseEntitlement (native/cmd/mycel-boxd/plan.go), so a server with the box reads the same
-// file during the move. Root owns the file. The install writes the devenv slice from it too, so the server cannot
+// The plan caps of the dev environment on srt: <base>/root/dev-env.json (format 1, from PR #58). The file and its rules
+// come from the removed box runner (docs/DECISIONS.md "Dev environment on hosted team VMs"), so diskGiB is still a key
+// that must be there. Root owns the file. The install writes the devenv slice from it too, so the server cannot
 // raise these caps. An unknown key or a bad value is an error: the dev environment is then not available (fail closed).
 import fs from 'node:fs'
 import path from 'node:path'

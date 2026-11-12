@@ -210,6 +210,36 @@ export class Schedules {
     return this.get(userId, id)
   }
 
+  /**
+   * The person started to read this project again (chat/project-joins.ts: Add me, "Add me to these", a group): their
+   * tasks that a due run paused because they did not see it (runDue: `schedule.project_gone`, paused) are turned on
+   * again, with their next time from now. Only a task untouched since that pause (its latest audit row is that pause,
+   * for this project), still off, confirmed, not a finished one-time task, and that can run now. Audited
+   * `schedule.resumed` (no actor: the server did it, `via: project_member`). Returns the ids turned on.
+   */
+  resumeForProject(userId: string, projectId: string, now = new Date()): string[] {
+    const rows = this.db.query(`SELECT * FROM schedules s WHERE s.user_id = ? AND s.enabled = 0
+      AND EXISTS(SELECT 1 FROM schedule_project_skips k WHERE k.schedule_id = s.id AND k.project_id = ?)`).all(userId, projectId) as ScheduleRow[]
+    const resumed: string[] = []
+    for (const s of rows) {
+      const last = this.db.query('SELECT action, detail FROM audit_log WHERE target = ? ORDER BY id DESC LIMIT 1').get(s.id) as { action: string; detail: string | null } | null
+      let d: { project?: unknown; paused?: unknown } | null = null
+      try { d = JSON.parse(last?.detail ?? 'null') } catch { d = null }
+      if (last?.action !== 'schedule.project_gone' || d?.project !== projectId || d?.paused !== true) continue
+      if (needsReview(s) || this.resumeBlockedReason(s, now)) continue
+      if (s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(userId))) continue
+      if (this.templateProjectGone(s)) continue
+      const next = nextRun(s, now, this.rt.timeZone)
+      if (!next) continue
+      this.db.transaction(() => {
+        this.db.query('UPDATE schedules SET enabled = 1, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ? AND enabled = 0').run(next.toISOString(), s.id)
+        audit(this.db, { actor: null, action: 'schedule.resumed', target: s.id, detail: { nextRunAt: next.toISOString(), via: 'project_member', project: projectId } })
+      })()
+      resumed.push(s.id)
+    }
+    return resumed
+  }
+
   /** "지금 실행" (Settings): one run now with the rules of a scheduled run, as its person: unattended (nothing waits
    * for anyone), only the addresses and connections its card allowed, the budgets, the person's access and, for a
    * template, its folders. It is outside the schedule: the next run, on/off and a pending occurrence stay as they are;
