@@ -22347,3 +22347,28 @@ task stayed on.
   task on Shared that still runs, a project task; Add me).
 - Version impact: **patch** (a task that could no longer work is paused and its owner told; no API, data or permission
   change).
+
+## Self-installed servers sign in to Google through the hosting service (feat/google-one-library, 2026-11-11)
+
+- **Problem.** Only hosted teams could use the hosting service's Google sign-in (`driveBrokerFor` checked
+  `deployment: "hosted"`). A self-installed server, our dev server among them, had to make its own Google client,
+  register its own return address and go through Google's review.
+- **Rule.** The team server no longer checks `isHosted`: `MYCEL_GOOGLE_DRIVE_BROKER_URL` set and no Google client of its
+  own (no `client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`) is enough. Setting the variable is already the operator's
+  explicit choice; a client of its own still wins. Whether the hosting service serves it is decided there (a registered
+  key with its exact address, signed `/status`); until it says yes the card stays "Not available yet".
+- **Same as hosted for people, while it is served.** Admin › Connected apps shows the hosting service's setup
+  (`blocked: "hosted"`, no upload form, no redirect address) on such a server only while the hosting service serves it
+  (status yes). Not registered, or removed: the page lets the admin set a client of its own, which then wins, so a
+  server is never stuck at "Not available yet". A hosted server stays always blocked. No new contract value and no new
+  text. A Google apps card with a client of its own keeps it and is not blocked.
+- **`admin.js google-broker-key [--json]`** prints the relay public key (SPKI base64) and `https://<tunnel.host>` (or
+  "not set") for the hosting service's operator. Never the private key. It only reads the key: before the server
+  made it, "start the server first" (exit 1, `{ error: "no_key" }`), so a root run never leaves a root-owned key. Kept apart from `relay-key`, which is the
+  hosted service's root tool interface (signatures for enroll).
+- **No wire change.** `shared/src/cloud-protocol/drive-broker.ts` documents who is served; the registered-server list is
+  in the hosting service's own repo.
+- **Tests.** `tests/unit/c-drive-broker.test.ts` (self-installed with the variable signs with its relay key; an
+  unregistered or removed one stays off and lets the admin set a client of its own, which wins; an own client file or env client never calls the broker; no variable: as
+  before; the CLI's output) and `tests/unit/c-google-apps-signin.test.ts` (a self-installed server's cards through the
+  broker; a card's own client signs in directly).
