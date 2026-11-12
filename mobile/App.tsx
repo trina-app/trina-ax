@@ -16,13 +16,14 @@ import { devicePushToken, devices, forgetDelivered, labels, notificationPermissi
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, startRemovals } from './src/device'
 import { fill, inputError, offlineError, stringsFor } from './src/strings'
-import { checkTeam, readTeamInput, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
+import { checkTeam, leftSessions, readTeamInput, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
 import { LinkGate, readAppLink, type LinkOffer } from './src/team-link'
 import { ReinstallSignOut, reinstallDone, wasReinstalled } from './src/install'
 import { reinstallDeps } from './src/files'
 import type { TeamAddress } from './src/address'
 import { hostLineNow } from './src/team-link'
 import { readSessionCheck, sessionCheckScript } from './src/session-check'
+import { LeaveAsk, ended, oweSignOut, owesSignOut, signedOut } from './src/leave'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
 /** the hosted team domain (bare names) and the install guide link of ③, from the edition (app.config.ts) */
@@ -39,7 +40,7 @@ const LINKS = { teamDomain: service.teamDomain, loopbackHttp: false, scheme: pro
 /** The host to show for a team address: punycode with its port, as the app connected to it (never Unicode). */
 const hostOf = (origin: string) => { try { return new URL(origin).host } catch { return origin } }
 quietForeground()
-type WebHandle = { goBack(): void; reload(): void; injectJavaScript(script: string): void }
+type WebHandle = { goBack(): void; reload(): void; injectJavaScript(script: string): void; clearCache?(includeDiskFiles: boolean): void }
 // WebView 14's public component declaration omits the forwarded ref; native implementations expose these methods.
 const WebView = NativeWebView as unknown as ComponentType<WebViewProps & RefAttributes<WebHandle>>
 /** The colours around the page: the page's look once it said (appearance-v1), the phone's before. */
@@ -57,6 +58,20 @@ function windowLook(page: PageLook | null) {
  * sends none to an activity created again after BACK, so the bands around an older team's page kept the old look. */
 interface AppearanceModule extends TurboModule { getColorScheme(): string | null }
 const NativeAppearance = TurboModuleRegistry.get<AppearanceModule>('Appearance')
+/** React Native's networking module: on Android its cookie jar is the WebView's CookieManager (clearCookies removes the
+ * WebView's cookies too); on iOS it is the shared cookie storage the WebView copies from (sharedCookiesEnabled). */
+interface NetworkingModule extends TurboModule { clearCookies(callback: (ok: boolean) => void): void }
+const NativeNetworking = TurboModuleRegistry.get<NetworkingModule>('Networking')
+/** Every cookie the WebView holds goes (the phone is in one team at a time; called before the next team's page loads). */
+function clearWebCookies(): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, 2000)
+    const done = () => { clearTimeout(timer); resolve() }
+    try { if (NativeNetworking) NativeNetworking.clearCookies(done); else done() } catch { done() }
+  })
+}
+/** Asks the page of the team being left to sign out (TeamWeb); the server's status, 0 without an answer. */
+type Leaving = (origin: string) => Promise<number>
 const osScheme = (): string | null => { try { return NativeAppearance?.getColorScheme() ?? Appearance.getColorScheme() ?? null } catch { return Appearance.getColorScheme() ?? null } }
 function usePhoneScheme(): string | null {
   const [scheme, setScheme] = useState(osScheme)
@@ -109,6 +124,12 @@ export default function App() {
   // deleted and installed again: the team address (keychain) is still there, the session the WebView kept is ended once
   // (one object for the whole launch, so switching teams and back never signs out again)
   const signOut = useRef<ReinstallSignOut | null>(null)
+  // a team this phone left while its server did not confirm the sign-out: its first page signs out (and clears) first
+  const owed = useRef<ReinstallSignOut | null>(null), leaving = useRef<Leaving | null>(null)
+  const owedSignOut = async (origin: string) => {
+    owed.current = await owesSignOut(leftSessions, origin).catch(() => false)
+      ? new ReinstallSignOut(origin, () => signedOut(leftSessions, origin), () => Crypto.randomUUID(), true) : null
+  }
   // the page's look (appearance-v1): status bar text and the native screens follow it; null until a page said
   const [page, setPage] = useState<PageLook | null>(null)
   const dark = isDark(page?.dark ?? null, usePhoneScheme())
@@ -130,6 +151,7 @@ export default function App() {
       device.current = origin ? (await currentDevice(devices, origin).catch(() => { deviceRead = false; return null }))?.deviceId ?? null : null
       // what the extension may use belongs to this team and this device, or it goes (not when the device could not be read)
       if (deviceRead) await labels?.tidy(origin, device.current).catch(() => {})
+      if (origin) await owedSignOut(origin)
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
     })
@@ -138,22 +160,40 @@ export default function App() {
   // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
   // once, from the phone's look at launch)
   /** Leave the team on this phone: notifications stop, the phone is removed from the team (now, or at a later start if
-   * that server cannot be reached). Only after the person chose another team that answered and it was saved. */
+   * that server cannot be reached), and it is signed out of it (QA TC-369: the WebView kept the session, and switching
+   * back opened the team signed in). Only after the person chose another team that answered and it was saved. */
   async function leave(origin: string) {
     device.current = null; forgetDelivered()
     // the notification extension stops asking the team left for names
     await labels?.forget().catch(() => {})
     void leaveTeam(devices, origin).catch(() => {})
+    // owed already (connect): a sign-out that gets no answer (the server, or no page on the cannot-reach screen) is done
+    // at the next visit to that team; its page clears its storage and posts the sign-out with its own session
+    const status = await (leaving.current?.(origin) ?? Promise.resolve(0)).catch(() => 0)
+    if (ended(status)) await signedOut(leftSessions, origin).catch(() => {})
+    // with or without the server: no session cookie stays on the phone (Android: React Native exposes no CookieManager
+    // flush; the WebView writes it to disk soon after, and the owed sign-out covers a phone stopped before that)
+    await clearWebCookies()
   }
   // one function for the box's [{old}(으)로 돌아가기]: Android back's handler is registered once, not on every render
   const closeAdding = useCallback(() => setAdding(false), [])
+  // one switch at a time: the sign-out of the team left can take seconds
+  const connecting = useRef(false)
   async function connect(address: TeamAddress) {
-    const old = team && team.origin !== address.origin ? team.origin : null
-    // the new team is saved first: if that fails (an address the store refuses), the phone is still in the old team
-    await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true
-    if (old) await leave(old)
-    // the new team's page starts at the link's page (TeamWeb's first address)
-    setOpened(null); setPage(null); setAdding(false); setTeam(address)
+    if (connecting.current) return
+    connecting.current = true
+    try {
+      const old = team && team.origin !== address.origin ? team.origin : null
+      // the sign-out is owed before the new team is saved: an app stopped in between still signs out at the next visit
+      if (old) await oweSignOut(leftSessions, old).catch(() => {})
+      // the new team is saved first: if that fails (an address the store refuses), the phone is still in the old team
+      try { await saveTeamUrl(address.origin) } catch (e) { if (old) await signedOut(leftSessions, old).catch(() => {}); throw e }
+      since.current = Date.now(); hasTeam.current = true
+      if (old) await leave(old)
+      await owedSignOut(address.origin)
+      // the new team's page starts at the link's page (TeamWeb's first address)
+      setOpened(null); setPage(null); setAdding(false); setTeam(address)
+    } finally { connecting.current = false }
   }
   // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
   // once, from the phone's look at launch)
@@ -161,7 +201,7 @@ export default function App() {
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup current={null} onDone={connect} />
       : <>
-        <TeamWeb key={team.origin} address={team} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+        <TeamWeb key={team.origin} address={team} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={owed.current?.origin === team.origin ? owed.current : signOut.current} leaving={leaving} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
           onChangeTeam={() => setAdding(true)} />
         {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={closeAdding}
           // the same team again: its page opens there (a link's join page, or its start)
@@ -230,13 +270,15 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
   // Android back: the question, then ② / ③, then back to the team this phone is in
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      // a switch under way (the old team's sign-out): back would cancel nothing
+      if (busy) return true
       if (ask) { setAsk(null); return true }
       if (view !== 'main') { setView('main'); return true }
       if (onBack) { onBack(); return true }
       return false
     })
     return () => sub.remove()
-  }, [ask, view, onBack])
+  }, [ask, view, onBack, busy])
   // iOS: KeyboardAvoidingView; Android: the form is lifted by the keyboard (it covered the Connect button)
   const i = useSafeAreaInsets(), c = useContext(Look), keyboard = useAndroidKeyboard()
   const back = (label: string, onPress: () => void, testID: string, primary = false) =>
@@ -270,7 +312,7 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
         {!ask.hosted && <Text style={[s.askText, { color: c.ink }]}>{t.outsideBody}</Text>}
         {ask.kind === 'switch' && current && <Text style={[s.askText, { color: c.muted }]}>{fill(t.switchBody, { old: hostOf(current) })}</Text>}
         <View style={s.askRow}>
-          <Pressable ref={cancelRef} style={[s.secondary, s.askButton]} onPress={() => setAsk(null)} testID="setup-ask-cancel" accessibilityRole="button"><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
+          <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && s.off]} onPress={() => setAsk(null)} disabled={busy} testID="setup-ask-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy }}><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
           <Pressable style={[s.button, s.askButton]} onPress={() => void yes(ask)} disabled={busy} testID="setup-ask-yes" accessibilityRole="button">
             {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{ask.kind === 'switch' ? t.switchYes : t.outsideConnect}</Text>}</Pressable>
         </View>
@@ -282,7 +324,7 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
         <Pressable onPress={() => setView('unknown')} style={s.helpLink} testID="no-address" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{t.noAddress}</Text></Pressable>
         <Pressable onPress={() => setView('none')} style={s.helpLink} testID="no-team" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{t.noTeam}</Text></Pressable>
       </View>
-      {current && onBack && <Pressable onPress={onBack} style={[s.link, s.centered]} testID="setup-back" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{fill(t.backTo, { team: hostOf(current) })}</Text></Pressable>}
+      {current && onBack && <Pressable onPress={onBack} disabled={busy} style={[s.link, s.centered, busy && s.off]} testID="setup-back" accessibilityRole="button" accessibilityState={{ disabled: busy }}><Text style={[s.linkText, s.underline, { color: c.ink }]}>{fill(t.backTo, { team: hostOf(current) })}</Text></Pressable>}
     </View>
   return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: keyboard ? keyboard + i.bottom : i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={s.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView contentContainerStyle={s.setup} keyboardShouldPersistTaps="handled">{body}</ScrollView>
@@ -294,7 +336,8 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
  * [바꾸기]) only then checks the address and connects: the same path as the box, leaving the old team only now.
  */
 function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<void> }) {
-  const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), busyRef = useRef(false)
+  busyRef.current = busy
   // the connect the person said yes to could not reach the team (or not be saved): [다시 시도] goes again with that link
   const [again, setAgain] = useState(false)
   // [연결] is on only once ④ has been on screen a while (the gate counts 600 ms from gate.shown)
@@ -334,7 +377,8 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
     gate.shown(offer.id, Date.now())
     const on = setTimeout(() => setReady(true), 650)
     const id = setTimeout(() => { const n = cancelRef.current && findNodeHandle(cancelRef.current); if (n) AccessibilityInfo.setAccessibilityFocus(n) }, 300)
-    const back = BackHandler.addEventListener('hardwareBackPress', () => { no(); return true })
+    // during a switch (the old team's sign-out) back cancels nothing
+    const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!busyRef.current) no(); return true })
     return () => { clearTimeout(id); clearTimeout(on); back.remove() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer])
@@ -346,7 +390,7 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       {switching && <Text style={[s.askText, { color: c.muted }]}>{fill(t.switchBody, { old: hostOf(current!) })}</Text>}
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="link-error">{error}</Text>}
       <View style={s.askRow}>
-        <Pressable ref={cancelRef} style={[s.secondary, s.askButton]} onPress={no} testID="link-cancel" accessibilityRole="button"><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
+        <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && s.off]} onPress={no} disabled={busy} testID="link-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy }}><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
         {(!error || again) && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityState={{ disabled: busy || !ready }}>
           {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{again ? t.retry : switching ? t.switchYes : t.outsideConnect}</Text>}</Pressable>}
       </View>
@@ -354,7 +398,7 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
   </View>
 }
 type Failure = 'offline' | 'unreachable'
-function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
+function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
@@ -432,6 +476,21 @@ function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearanc
     })
     return () => sub.remove()
   }, [])
+  // leaving this team (App leave): the page clears its storage and signs out with its own session; the WebView's
+  // storage goes too (iOS: local storage and IndexedDB; Android: its cache). 0 without the page or an answer in time.
+  const leaveAsk = useRef(new LeaveAsk(() => Crypto.randomUUID()))
+  useEffect(() => {
+    const ask = leaveAsk.current
+    const run: Leaving = async origin => {
+      const page = web.current
+      if (origin !== address.origin || !page || !sameTeam(address.origin, currentUrl.current)) return 0
+      const status = await ask.start(address.origin, script => page.injectJavaScript(script))
+      try { page.clearCache?.(true) } catch { /* the cookies still go (App leave) */ }
+      return status
+    }
+    leaving.current = run
+    return () => { if (leaving.current === run) leaving.current = null; ask.cancel() }
+  }, [address.origin, leaving])
   const clear = () => { navigation.current++; cleanup.current = r.disable(); return cleanup.current }
   /** Installs the bridge on the page that has loaded; false when it did not (a newer load, a failure, not the team). */
   async function loaded(url: string): Promise<boolean> {
@@ -529,6 +588,8 @@ function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearanc
         setPathname(next)
       }}
       onMessage={event => {
+        // the leave sign-out's answer (its one-time token), not a bridge message
+        if (sameTeam(address.origin, event.nativeEvent.url) && leaveAsk.current.answer(event.nativeEvent.data)) return
         // the reinstall sign-out's answer (its one-time token), not a bridge message
         if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return
         // the answer to the app's own session check, not a bridge message
