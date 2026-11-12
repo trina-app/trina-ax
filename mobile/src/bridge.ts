@@ -97,6 +97,15 @@ export class StuckLoad {
 export const stillStuck = (o: { saved: string; current: string; origin: string; ready: boolean; failed: boolean }) =>
   o.current === o.saved && sameTeam(o.origin, o.current) && !o.ready && !o.failed
 
+/** Whether a load start fences the bridge (a new document). Android reports every same-document navigation as a load
+ * start (react-native-webview's doUpdateVisitedHistory), some of them as loading: those fenced it before, and a step
+ * back to the same address while the photo picker was up or its bytes came over (the attach sheet's history entry
+ * closing) dropped the pick (QA TC-251). Now, on Android, a load start that is not loading, or one at the address
+ * already on screen while a pick is on, is the same document: no fence. A real reload of that address still ends with
+ * a load end, which fences the pick first (App loaded). iOS reports only new documents. */
+export const loadStartFences = (o: { android: boolean; loading: boolean; sameUrl: boolean; picking: boolean }) =>
+  !o.android || (o.loading && !(o.sameUrl && o.picking))
+
 /** The script that hands a reply to the page. Delivered only if the document on screen still has the bridge the reply
  * answers (its nonce): a document that came in the meantime has none yet or its own, and drops it, so no file bytes
  * (photo-pick-v1) or token reach the next page. `bootstrap`: the next config, installed first (a session reset's). */
@@ -131,6 +140,8 @@ export class MobileReceiver {
   private enabled = true
   constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>, private photos?: PhotoPicks) {}
   private async fence() { await this.files.clear(); await this.photos?.clear() }
+  /** The bridge is on and a photo pick is under way (the picker on screen, or its bytes not all fetched yet). */
+  get picking(): boolean { return this.enabled && !!this.photos?.busy }
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.fence() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {

@@ -8,7 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
-import { FileTransfers, MobileReceiver, replyScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
+import { FileTransfers, loadStartFences, MobileReceiver, replyScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
 import { backAction, backGestures, openScript, START_TAB_SCRIPT } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { PhotoPicks } from './src/photos'
@@ -526,6 +526,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const clear = () => { navigation.current++; cleanup.current = r.disable(); return cleanup.current }
   /** Installs the bridge on the page that has loaded; false when it did not (a newer load, a failure, not the team). */
   async function loaded(url: string): Promise<boolean> {
+    // a load start that did not fence (Android, a pick on: loadStartFences) was a real load after all: the pick goes
+    // with the old document
+    if (r.picking) clear()
     const generation = navigation.current
     await cleanup.current
     const random = await Crypto.getRandomBytesAsync(32)
@@ -602,9 +605,12 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       // Android also reports a same-document navigation (history.pushState: the web app moving to its next page, as
       // after sign-in) as a load start, with no load end after it. The document and its bridge stay then, so nothing
       // is fenced: fencing it left the bridge off until the next full load (no session reset, push or file share).
+      // While a photo pick is on, a load start at the address on screen is such a step too (src/bridge.ts
+      // loadStartFences)
       onLoadStart={event => {
+        const sameUrl = event.nativeEvent.url === currentUrl.current
         currentUrl.current = event.nativeEvent.url; stuck.current.cancel()
-        if (Platform.OS === 'android' && !event.nativeEvent.loading) return
+        if (!loadStartFences({ android: Platform.OS === 'android', loading: !!event.nativeEvent.loading, sameUrl, picking: r.picking })) return
         loadFailed.current = false; ready.current = false; void clear()
         // a new document: it says where Back goes once it has its bridge
         setPageNav(null)

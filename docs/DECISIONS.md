@@ -23516,3 +23516,24 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
   `web/test/unit/folder-picker-suggestions.test.tsx`, `web/test/e2e/move-suggestions.spec.ts` (1360 and 390, light and
   dark, keyboard).
 - Version impact: **minor** (two endpoints, a new part of the Move picker).
+
+## Phone photo picker: the history waits while a pick is on (fix/mobile-photo-pick-background, 2026-11-12, QA TC-251)
+
+The phone app's own photo picker (photo-pick-v1) opened, the person picked, and nothing was attached, with no word, on
+the Android QA app and the iPhone TestFlight build. Plan and evidence:
+`docs/AGENTS/plan/20261112-1354-mobile-photo-pick-background.md`.
+- **The cause found (Android).** The attach sheet closes as its item runs, and its history entry is backed off
+  (`history.go(-1)`) right after the page asked for the pick. The Android app hears every step of the page's history
+  as a load start (react-native-webview's `doUpdateVisitedHistory`); one that says loading fenced its bridge, which
+  dropped the pick and, 10 s later, put the bridge back with a new nonce. The page took that as "moved on".
+- **Web: `holdHistory()`** (lib/backCloses.ts): no back-off of ours while the app's pick is on, from the tap to the last
+  byte. Back and the router still go; an overlay opened meanwhile pushes its entry after. Only the app's picker holds
+  it (an older app's input and browsers do not).
+- **A lost pick says so.** An AbortError while the box is still there (the bridge came back, a session reset) shows
+  사진을 가져오지 못했어요. A cancel is an empty pick and stays quiet; a box that went away says nothing.
+- **One box.** Each message box keys its attach sheet by what it writes to (room and thread, chat draft, side chat), so
+  a pick lands only in the box that started it.
+- **Native, next build:** Android, a load start at the address on screen while a pick is on is no fence
+  (`loadStartFences`); a load end after it fences the pick first. A copy whose size reads as 0 takes the picker's size
+  (`assetSize`).
+- Version impact: **patch**.

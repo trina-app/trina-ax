@@ -2,9 +2,9 @@
 // (mobile/src/photos.ts: one at a time, chunks in order and exactly as long as the file, limits, cancel, fences, idle
 // expiry, the copies deleted) and the receiver's routing. The page's side is in web/test/unit/mobile.test.ts.
 import { expect, test } from 'bun:test'
-import { FileTransfers, MobileReceiver, replyScript, type TransferIO } from '../../mobile/src/bridge'
+import { FileTransfers, loadStartFences, MobileReceiver, replyScript, type TransferIO } from '../../mobile/src/bridge'
 import { SHEET_COOLDOWN_MS, SheetGate } from '../../mobile/src/sheet'
-import { base64Bytes, PhotoPicks as Picks, PhotoRefused, pickedName, pickedType, type PickedAsset, type PickIO } from '../../mobile/src/photos'
+import { assetSize, base64Bytes, PhotoPicks as Picks, PhotoRefused, pickedName, pickedType, type PickedAsset, type PickIO } from '../../mobile/src/photos'
 /** the app's picks without the cooldown between sheets (tested on its own below) */
 class PhotoPicks extends Picks { constructor(io: PickIO, timeout?: number) { super(io, timeout, new SheetGate(0)) } }
 import { MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MOBILE_CAPABILITIES, parseMessage, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, validConfig, validPicks, type MobileConfig } from '../../mobile/src/protocol'
@@ -342,4 +342,45 @@ test('a reply reaches only the document that asked: a page that came meanwhile (
   // the reply is data, never code
   const odd = { ...reply, error: "x'});alert(1);//</script>" }
   expect(run(replyScript(odd), { nonce: 'a'.repeat(64) }).heard).toEqual([odd])
+})
+
+test('a size: the copy on disk; the picker\'s when the copy reads as none, so no file is left out without a word', () => {
+  expect(assetSize(1234, 999)).toBe(1234)
+  expect(assetSize(0, 999)).toBe(999)
+  expect(assetSize(null, 999)).toBe(999)
+  expect(assetSize(0, undefined)).toBe(0)
+  expect(assetSize(0, -1)).toBe(0)
+  expect(assetSize(0, 1.5)).toBe(0)
+})
+
+test('QA TC-251: on Android a load start at the address on screen while a pick is on is the same document, no fence; iOS and new addresses fence as before', () => {
+  // the attach sheet's history entry closing (the same address) while the picker is up
+  expect(loadStartFences({ android: true, loading: true, sameUrl: true, picking: true })).toBe(false)
+  // not loading: never a fence on Android (a pushState)
+  expect(loadStartFences({ android: true, loading: false, sameUrl: false, picking: false })).toBe(false)
+  // loading, without a pick, or at another address: a fence, as before
+  expect(loadStartFences({ android: true, loading: true, sameUrl: true, picking: false })).toBe(true)
+  expect(loadStartFences({ android: true, loading: true, sameUrl: false, picking: true })).toBe(true)
+  // iOS reports only new documents
+  expect(loadStartFences({ android: false, loading: false, sameUrl: true, picking: true })).toBe(true)
+})
+
+test('the receiver says when a pick is on: from the picker opening to done, never once the bridge is off', async () => {
+  const { p, r } = receiver()
+  expect(r.picking).toBe(false)
+  const asked = r.receive(msg({ type: 'photo-pick', limit: 1 }), 'https://team.example/')
+  await tick()
+  expect(r.picking).toBe(true)
+  p.pick([{ name: 'IMG_1.jpg', mime: 'image/jpeg', bytes: bytes(12) }])
+  await asked
+  // the bytes are not fetched yet
+  expect(r.picking).toBe(true)
+  await r.receive(msg({ type: 'photo-done' }), 'https://team.example/')
+  expect(r.picking).toBe(false)
+  const again = r.receive(msg({ id: 'pick-request-2', type: 'photo-pick', limit: 1 }), 'https://team.example/')
+  await tick()
+  await r.disable()
+  expect(r.picking).toBe(false)
+  p.pick([{ name: 'IMG_2.jpg', mime: 'image/jpeg', bytes: bytes(3) }])
+  expect(await again).toBeNull()
 })

@@ -392,7 +392,7 @@ export default function Composer({
   // message box has there (AttachSheet: 사진 보관함, 사진 찍기, 파일, 팀 파일; one picker each)
   const attachControls = phone ? (
     // the card's +: a quiet round button as tall as the picker beside it
-    <AttachSheet onFiles={(all) => void addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - live.length} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={stacked ? 20 : 19} />} testId="attach-button" filesTestId="file-input" buttonClassName={stacked ? 'size-9 rounded-full! border border-line p-0! text-ink!' : undefined} />
+    <AttachSheet key={draftId} onFiles={(all) => void addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - live.length} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={stacked ? 20 : 19} />} testId="attach-button" filesTestId="file-input" buttonClassName={stacked ? 'size-9 rounded-full! border border-line p-0! text-ink!' : undefined} />
   ) : (
     <>
       <div

@@ -4,11 +4,15 @@
 // the box's usual upload. Playwright cannot drive PHPicker, so a fake app answers the bridge the way mobile/src/photos.ts
 // does: the picked files' names, types and sizes, then their bytes in 1 MiB chunks, then done. Without the capability
 // (an older app) the row opens its input, as before. The app's own half is in tests/unit/mobile-photos.test.ts.
+// QA TC-251: the real picker answers many seconds after the sheet closed. The Android app took a step of the page's
+// history meanwhile for a new page (react-native-webview reports it as a load start) and fenced its bridge: the pick
+// was dropped and, 10 s later, the bridge came back with a new nonce, which the page took as "moved on": nothing
+// attached, no word. `androidPage` makes the fake app do the same; the sheet's back-off now waits for the pick.
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { ROOM_ID, routeRoom } from './rooms-mock'
+import { ROOM_ID, routeRoom, routeRooms } from './rooms-mock'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 TrinaAX/1.0.5'
@@ -20,7 +24,16 @@ const BEN = { id: 'ben', name: '벤' }
 test.use({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, userAgent: IPHONE_UA })
 
 type Picked = { name: string; mime: string; b64: string }
-type Win = { mycelMobile: MobileConfig; ReactNativeWebView: { postMessage(raw: string): void }; mobileMessages: MobileMessage[]; nextPick: { files: Picked[]; tooBig: string[] } }
+type Win = {
+  mycelMobile: MobileConfig; ReactNativeWebView: { postMessage(raw: string): void }; mobileMessages: MobileMessage[]; nextPick: { files: Picked[]; tooBig: string[] }
+  /** ms the picker takes before it answers (the person picking) */
+  pickMs: number
+  /** the Android app's load start: a step of the page's history while a pick is on fences the bridge (the answer is
+   * dropped) and installs it again with a new nonce a moment later (the app's 10 s, shortened) */
+  androidPage: boolean
+  /** history steps the app saw while a pick was on, and the answers it dropped for them */
+  fenced: number
+}
 
 /** The app's bridge as the page sees it. `photos`: it offers photo-pick-v1; the person picks `nextPick` (set per test). */
 async function app(page: Page, photos: boolean) {
@@ -29,7 +42,17 @@ async function app(page: Page, photos: boolean) {
     w.mycelMobile = { protocol: 1, appVersion: '1.0.5', platform: 'ios', generation: 1, nonce: 'a'.repeat(64), capabilities: ['file-share-v1', 'external-oauth-v1', ...(photos ? ['photo-pick-v1'] : [])] }
     w.mobileMessages = []
     w.nextPick = { files: [], tooBig: [] }
+    w.pickMs = 150; w.androidPage = false; w.fenced = 0
     let picked: Picked[] = []
+    let picking: ReturnType<typeof setTimeout> | null = null
+    window.addEventListener('popstate', () => {
+      if (!w.androidPage || !picking) return
+      clearTimeout(picking); picking = null; w.fenced++
+      setTimeout(() => {
+        w.mycelMobile = { ...w.mycelMobile, nonce: 'b'.repeat(64), generation: w.mycelMobile.generation + 1 }
+        window.dispatchEvent(new Event('mycel:mobile-ready'))
+      }, 300)
+    })
     w.ReactNativeWebView = { postMessage(raw) {
       const m = JSON.parse(raw) as MobileMessage
       w.mobileMessages.push(m)
@@ -42,12 +65,16 @@ async function app(page: Page, photos: boolean) {
       }
       if (m.type === 'photo-chunk') reply.b64 = btoa(atob(picked[m.index]!.b64).slice(m.offset, m.offset + 1024 * 1024))
       // the picker takes a moment; the page waits for each answer
-      setTimeout(() => window.dispatchEvent(new CustomEvent('mycel:mobile', { detail: reply })), m.type === 'photo-pick' ? 150 : 0)
+      const send = () => window.dispatchEvent(new CustomEvent('mycel:mobile', { detail: reply }))
+      if (m.type === 'photo-pick') picking = setTimeout(() => { picking = null; send() }, w.pickMs)
+      else setTimeout(send, 0)
     } }
   }, photos)
 }
 const pickNext = (page: Page, files: { name: string; mime: string; bytes: Buffer }[], tooBig: string[] = []) =>
   page.evaluate((next) => { (window as unknown as Win).nextPick = next }, { files: files.map((f) => ({ name: f.name, mime: f.mime, b64: f.bytes.toString('base64') })), tooBig })
+const phoneLike = (page: Page, pickMs: number) => page.evaluate((pickMs) => { const w = window as unknown as Win; w.pickMs = pickMs; w.androidPage = true }, pickMs)
+const isOverlayEntry = (page: Page) => page.evaluate(() => typeof (history.state as Record<string, unknown> | null)?.mycelOverlay === 'number')
 const heard = (page: Page) => page.evaluate(() => (window as unknown as Win).mobileMessages.filter((m) => m.type.startsWith('photo-')))
 
 /** Taps 사진 보관함 in the box's sheet; counts the file choosers that opened meanwhile. */
@@ -151,4 +178,72 @@ test('an older app (no photo-pick-v1): 사진 보관함 opens its input, as befo
   await chooser.setFiles([{ name: 'IMG_0003.png', mimeType: 'image/png', buffer: PNG }])
   await expect(page.getByTestId('attachment-chip')).toHaveAttribute('data-status', 'done')
   expect(await heard(page)).toEqual([])
+})
+
+test('QA TC-251: the picker answers seconds after the sheet closed; no history step meanwhile, so the Android app keeps the pick and the photo lands', async ({ page }) => {
+  await reset(page)
+  await app(page, true)
+  await signIn(page)
+  await routeRoom(page, { members: [BEN] })
+  await page.route(`**/api/rooms/${ROOM_ID}/files`, (r) => r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: '019a5f00-0000-7000-8000-000000000701', name: 'IMG_0001.png', size: PNG.length, mime: 'image/png', kind: 'image', thumb: false }) }))
+  await page.goto(`/rooms/${ROOM_ID}`)
+  await phoneLike(page, 2500)
+  await pickNext(page, [{ name: 'IMG_0001.png', mime: 'image/png', bytes: PNG }])
+  await photoLibrary(page, 'room-attach')
+  // the picker is up: the closed sheet's entry stays, the button spins
+  await page.waitForTimeout(1200)
+  expect(await isOverlayEntry(page)).toBe(true)
+  await expect(page.getByTestId('room-attach')).toHaveAccessibleName('사진을 가져오고 있어요')
+  const chip = page.getByTestId('room-file-chip')
+  await expect(chip).toHaveCount(1, { timeout: 8000 })
+  await expect(chip).toHaveAttribute('data-status', 'done')
+  expect(await page.evaluate(() => (window as unknown as Win).fenced)).toBe(0)
+  // once the bytes are in, the sheet's entry goes (Back leaves the room again, not a closed sheet)
+  await expect.poll(() => isOverlayEntry(page)).toBe(false)
+  await expect(page.getByTestId('room-attach')).toHaveAccessibleName('파일 첨부')
+  await expect(page.getByTestId('toast')).toHaveCount(0)
+})
+
+test('a pick the page lost anyway (the app put its bridge in again) says so instead of nothing; a cancelled one stays quiet', async ({ page }) => {
+  await reset(page)
+  await app(page, true)
+  await signIn(page)
+  await pickNext(page, [{ name: 'IMG_0001.png', mime: 'image/png', bytes: PNG }])
+  await page.evaluate(() => { (window as unknown as Win).pickMs = 5000 })
+  await photoLibrary(page, 'attach-button')
+  await page.waitForTimeout(300)
+  // the app's bridge again with a new nonce while the picker is up (as after a new page)
+  await page.evaluate(() => {
+    const w = window as unknown as Win
+    w.mycelMobile = { ...w.mycelMobile, nonce: 'c'.repeat(64), generation: w.mycelMobile.generation + 1 }
+    window.dispatchEvent(new Event('mycel:mobile-ready'))
+  })
+  await expect(page.getByTestId('toast').filter({ hasText: '사진을 가져오지 못했어요' })).toBeVisible()
+  await expect(page.getByTestId('attachment-chip')).toHaveCount(0)
+  await expect(page.getByTestId('attach-button')).toHaveAccessibleName('파일 첨부')
+})
+
+test('a pick started in one room does not land in the next room opened before its bytes came', async ({ page }) => {
+  await reset(page)
+  await app(page, true)
+  await signIn(page)
+  const A = '019a5f00-0000-7000-8000-00000000b001', B = '019a5f00-0000-7000-8000-00000000b002'
+  await routeRooms(page, [
+    { id: A, kind: 'group', name: '디자인 리뷰', peers: [BEN], ago: 5, last: '안녕하세요' },
+    { id: B, kind: 'group', name: '주간 회의', peers: [BEN], ago: 9, last: '내일 봬요' },
+  ])
+  const uploads: string[] = []
+  await page.route('**/api/rooms/*/files', (r) => { uploads.push(r.request().url()); return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: '019a5f00-0000-7000-8000-000000000701', name: 'IMG_0001.png', size: PNG.length, mime: 'image/png', kind: 'image', thumb: false }) }) })
+  await page.goto(`/rooms/${A}`)
+  await pickNext(page, [{ name: 'IMG_0001.png', mime: 'image/png', bytes: PNG }])
+  await page.evaluate(() => { (window as unknown as Win).pickMs = 1500 })
+  await photoLibrary(page, 'room-attach')
+  // the other room, opened by the app's router (a notification's tap) while the picker is up
+  await page.evaluate((b) => { history.pushState({ idx: 99, key: 'other', usr: null }, '', `/rooms/${b}`); window.dispatchEvent(new PopStateEvent('popstate', { state: history.state })) }, B)
+  await expect(page).toHaveURL(new RegExp(`/rooms/${B}$`))
+  await expect(page.getByTestId('room-attach')).toBeVisible()
+  await page.waitForTimeout(2500)
+  await expect(page.getByTestId('room-file-chip')).toHaveCount(0)
+  expect(uploads).toEqual([])
+  await expect(page.getByTestId('toast')).toHaveCount(0)
 })
