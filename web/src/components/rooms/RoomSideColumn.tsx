@@ -19,7 +19,7 @@ export function RoomSideColumn({ label, testId, divider, className, onClickCaptu
   return (
     <section
       className={clsx(
-        'flex min-h-0 min-w-0 flex-col bg-surface',
+        'flex min-h-0 min-w-0 flex-col bg-surface [--typing-bg:var(--c-surface)]',
         divider
           ? [
               'flex-1 md:relative md:flex-none md:border-l md:border-line',

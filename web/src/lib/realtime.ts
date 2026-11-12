@@ -14,7 +14,10 @@
 //   cannot read (a state a later server adds) is skipped, not the whole frame, so an older page keeps every other dot.
 //   This window's own `presence` frame is never queued while disconnected (only the newest state matters, and it is
 //   sent again after each hello).
-import { ClientFrame, PresenceFrame as PresenceFrameSchema, ServerEvent as ServerEventSchema, ServerFrame, WS_PATH, WS_PROTOCOL, WsClose, type PresenceFrame, type ServerEvent } from '@mycel/shared/api'
+// - `room.typing` (someone else is writing in a room's or thread's box, docs/DECISIONS.md "입력 중 표시") is a state too:
+//   no seq, never replayed (onTyping). This window's own `room.typing` is never queued while disconnected (a "typing"
+//   from a minute ago would be wrong when it arrives; the receivers expire it anyway).
+import { ClientFrame, PresenceFrame as PresenceFrameSchema, ServerEvent as ServerEventSchema, ServerFrame, WS_PATH, WS_PROTOCOL, WsClose, type PresenceFrame, type RoomTypingFrame, type ServerEvent } from '@mycel/shared/api'
 
 /** the event names this page knows (one it cannot read is then a shape it no longer agrees with) */
 const KNOWN_EVENTS: ReadonlySet<string> = new Set(ServerEventSchema.options.map((o) => o.shape.type.value as string))
@@ -56,6 +59,8 @@ export interface RealtimeOptions {
   onHello?: (h: { serverVersion: string; resumed: boolean; epoch: string }) => void
   /** who is online or away: the whole list (full) after each hello, then changes */
   onPresence?: (f: PresenceFrame) => void
+  /** someone else is writing in a room's or thread's box, or stopped */
+  onTyping?: (f: RoomTypingFrame) => void
   timers?: Timers
   random?: () => number
   pingIntervalMs?: number
@@ -162,7 +167,7 @@ export class RealtimeClient {
   send(frame: ClientFrame) {
     const s = JSON.stringify(ClientFrame.parse(frame))
     if (this.ws && this.ws.readyState === OPEN && this.state === 'open') this.ws.send(s)
-    else if (frame.type !== 'ping' && frame.type !== 'presence') {
+    else if (frame.type !== 'ping' && frame.type !== 'presence' && frame.type !== 'room.typing') {
       this.outbox.push(s)
       this.outboxBytes += s.length
       while (this.outbox.length > OUTBOX_MAX_FRAMES || (this.outboxBytes > OUTBOX_MAX_BYTES && this.outbox.length > 1)) this.outboxBytes -= this.outbox.shift()!.length
@@ -272,6 +277,9 @@ export class RealtimeClient {
         return
       case 'presence':
         return // read above (readPresence)
+      case 'room.typing':
+        this.o.onTyping?.(f)
+        return
       default: {
         if (f.seq <= this.lastSeq) return // replayed twice
         this.lastSeq = f.seq

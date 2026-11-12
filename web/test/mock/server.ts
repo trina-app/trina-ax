@@ -70,7 +70,7 @@ import type { MemberWelcome } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, RoomTypingFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   SetStatusBody, type MyStatus, type StatusClear,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
@@ -253,6 +253,9 @@ export class MockServer {
   presence = new Map<string, 'online' | 'away'>()
   /** the `presence` frames the pages sent (their own window's state), oldest first; GET /__test/presence reads them */
   presenceSent: { user: string; windowId: string; state: string }[] = []
+  /** the `room.typing` frames the pages sent, oldest first; GET /__test/typing reads them, POST tells every socket one
+   * (someone else typing, as server/src/rooms/typing.ts relays it) */
+  typingSent: { user: string; roomId: string; threadRootId: string | null; typing: boolean; at: number }[] = []
   sessions = new Map<string, string>() // token -> user id
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
@@ -521,6 +524,7 @@ export class MockServer {
     this.fileList = mockFileList()
     this.presence = new Map()
     this.presenceSent = []
+    this.typingSent = []
     this.statuses = new Map()
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
@@ -4844,6 +4848,12 @@ export class MockServer {
       if (Array.isArray(body.connections)) this.handover.connections = body.connections as MockServer['handover']['connections']
       if (body.race === true) this.handover.race = true
     }
+    else if (p === '/__test/typing' && req.method === 'GET') return Response.json({ sent: this.typingSent })
+    else if (p === '/__test/typing') {
+      // {roomId, threadRootId?, userId, typing}: someone else writes (or stopped) in that place
+      const frame = JSON.stringify(RoomTypingFrame.parse({ type: 'room.typing', roomId: body.roomId, threadRootId: body.threadRootId ?? null, userId: body.userId, typing: body.typing !== false }))
+      for (const ws of this.sockets) ws.send(frame)
+    }
     else if (p === '/__test/presence' && req.method === 'GET') return Response.json({ sent: this.presenceSent })
     else if (p === '/__test/presence') {
       // {people: [{id, state}]}: a change, told to every socket like the server's presence frame ('offline' takes one out)
@@ -5641,8 +5651,9 @@ export class MockServer {
           ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...self.presence].map(([id, state]) => ({ id, state })) })))
         },
         message(ws, msg) {
-          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string }
+          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string; roomId?: string; threadRootId?: string | null; typing?: boolean }
           if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
+          if (f.type === 'room.typing') self.typingSent.push({ user: ws.data.user, roomId: String(f.roomId), threadRootId: f.threadRootId ?? null, typing: !!f.typing, at: Date.now() })
           if (f.type === 'presence') self.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
         },
         close(ws) {

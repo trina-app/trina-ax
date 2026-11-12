@@ -1,0 +1,1 @@
+- Rooms, 1:1s and group chats: a quiet line above the message box now says when someone else is writing ("Alice is typing…", "Alice and Carol are typing…", or "Several people are typing…"). A thread's box shows only who writes in that thread. Nothing of it is saved, and only people who can read the conversation see it.

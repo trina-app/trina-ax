@@ -18,11 +18,14 @@
 // id like any upload; a line under the files says how many more people it reaches (members who cannot open the team
 // file). With the keyboard up the box keeps its text field and send in sight: its files in one sideways row, the "@"
 // list and the text field each a part of what is in sight (useMentionMenu; at most 30 % for the text).
+// While the person writes, the others in the room (in a thread: those who see it) are told "typing" (lib/roomTyping.ts,
+// at most every 3 s; "stopped" on send, an emptied box, blur, leaving), and one quiet line over the box names who else
+// is writing here (RoomTypingLine, docs/DECISIONS.md "입력 중 표시").
 // Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
 import clsx from 'clsx'
 import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
@@ -48,6 +51,8 @@ import { useFileDrop } from '../chat/ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
 import { AttachSheet } from '../chat/AttachSheet'
 import TeamFilePicker from '../chat/TeamFilePicker'
+import { sendTyping, TypingSender } from '../../lib/roomTyping'
+import { RoomTypingLine } from './RoomTypingLine'
 
 interface Upload {
   key: number
@@ -104,6 +109,17 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     else drafts.delete(key)
     keepRoomDraft(key)
   }
+  // "typing" for the others while the person changes the text in the box (not a draft put back or another tab's);
+  // "stopped" when the box empties (a send too), on blur, and when the room or thread closes
+  const typing = useMemo(() => new TypingSender((on) => sendTyping(roomId, threadRootId, on)), [roomId, threadRootId])
+  useEffect(() => () => typing.stop(), [typing])
+  const typedBefore = useRef(text)
+  useEffect(() => {
+    if (text === typedBefore.current) return
+    typedBefore.current = text
+    if (!text.trim()) typing.stop()
+    else if (typeof document !== 'undefined' && document.activeElement === input.current) typing.input(text)
+  }, [text, typing])
   // a reply typed here (store/rooms.ts roomDrafts, kept on this device too): while there is one, the page does not
   // reload by itself (after an update, or once the connection is back: lib/reload-guard.ts), as the chat's box does
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
@@ -282,6 +298,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       return
     }
     setAsking(false)
+    // "stopped" before the message, so nobody sees it arrive under "… is typing"
+    typing.stop()
     useRooms.getState().send(roomId, { body, mentions: mention.mentions(), ...(all ? { mentionsAll: true } : {}), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom })
     setText('')
     setFiles([])
@@ -293,8 +311,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }
 
   return (
-    <div ref={root} className="shrink-0 pb-[var(--box-bottom)] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
+    <div ref={root} className="relative shrink-0 pb-[var(--box-bottom)] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
       <VoiceLive voice={voice} />
+      {/* who else is writing here; out of the way while the "@" list floats over the messages on a phone */}
+      <RoomTypingLine roomId={roomId} threadRootId={threadRootId} members={members} meId={meId} hidden={!!mention.list && phone} />
       {above}
       <div
         className={clsx('relative mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
@@ -411,6 +431,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 aria-busy={voice.transcribing || undefined}
                 maxLength={ROOM_MESSAGE_MAX}
                 {...mention.inputProps}
+                onBlur={() => typing.stop()}
                 onPaste={(e) => {
                   const pasted = pastedFiles(e.clipboardData)
                   if (pasted.length) {
