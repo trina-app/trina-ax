@@ -115,6 +115,11 @@ export function validPushPath(path: unknown): boolean {
   return typeof path === 'string' && path.length <= PATH_MAX && PATH_RE.test(path)
 }
 
+/** An app icon number: a whole number from 0 to PUSH_GATEWAY_MAX_BADGE. */
+export function validPushBadge(badge: unknown): badge is number {
+  return typeof badge === 'number' && Number.isInteger(badge) && badge >= 0 && badge <= PUSH_GATEWAY_MAX_BADGE
+}
+
 export function validPushCode(code: unknown): boolean {
   return typeof code === 'string' && code.length <= CODE_MAX && CODE_RE.test(code)
 }
@@ -152,9 +157,8 @@ export function parsePushGatewaySend(raw: unknown): PushGatewaySend | null {
     out.tag = o.tag
   }
   if ('badge' in o) {
-    const b = o.badge
-    if (typeof b !== 'number' || !Number.isInteger(b) || b < 0 || b > PUSH_GATEWAY_MAX_BADGE) return null
-    out.badge = b
+    if (!validPushBadge(o.badge)) return null
+    out.badge = o.badge
   }
   return out
 }

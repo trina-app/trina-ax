@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   PUSH_GATEWAY_ERRORS, parsePushGatewayAuthorization, parsePushGatewaySend, pushGatewayAuthorization,
-  pushGatewaySigningString, validPushPath, validPushToken,
+  pushGatewaySigningString, validPushBadge, validPushPath, validPushToken,
 } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { TEXT } from '../../server/src/notifications/text.ts'
 import { clientBucket, createGateway, type GatewayEnv, type LogLine } from '../../push-gateway/src/gateway.ts'
@@ -124,7 +124,7 @@ describe('push gateway contract', () => {
       { path: '//x' }, { path: '/rooms/../x' }, { path: '/rooms/x?y=1' }, { path: '/rooms/' }, { path: 'https://example.test/x' },
       { path: `/${'a'.repeat(200)}` }, { ttlSeconds: -1 }, { ttlSeconds: 86_401 }, { ttlSeconds: 1.5 }, { ttlSeconds: '60' }, { ttlSeconds: null },
       { tag: '' }, { tag: 'dev 42' }, { tag: 'x'.repeat(101) }, { tag: 42 }, { tag: null }, { tag: 'dev/42' },
-      { badge: -1 }, { badge: 10_000 }, { badge: 1.5 }, { badge: '3' }, { badge: null }, { badge: true },
+      { badge: -1 }, { badge: 10_000 }, { badge: 1.5 }, { badge: '3' }, { badge: null }, { badge: Number.NaN }, { badge: true },
     ]
     // the app icon's number: a whole number from 0 to 9999, nothing else
     for (const b of [0, 1, 9999]) expect(parsePushGatewaySend({ ...ok, badge: b })?.badge).toBe(b)
@@ -582,6 +582,21 @@ describe('push gateway: FCM', () => {
 })
 
 // ------------------------------------------------------------------ configuration, text, logs
+
+describe('push gateway: badge', () => {
+  test('contract: an optional whole number from 0 to 9999; absent stays absent (an older team server)', () => {
+    for (const n of [0, 1, 42, 9999]) expect(validPushBadge(n)).toBe(true)
+    for (const n of [-1, 10_000, 0.5, '1', null, undefined, Number.POSITIVE_INFINITY]) expect(validPushBadge(n)).toBe(false)
+    expect(parsePushGatewaySend(JSON.parse(body()))).not.toHaveProperty('badge')
+  })
+
+  test('a bad badge is refused as a bad body, before anything is sent', async () => {
+    const h = harness()
+    await expectError(await h.send(body({ badge: -1 })), 'invalid_body')
+    await expectError(await h.send(body({ badge: 10_000 })), 'invalid_body')
+    expect(h.apnsCalls().length).toBe(0)
+  })
+})
 
 describe('push gateway: FCM badge', () => {
   test('badge: accepted, but not sent to FCM (launchers add up each notification\'s count); never in data', async () => {

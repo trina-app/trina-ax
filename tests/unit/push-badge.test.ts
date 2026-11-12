@@ -4,6 +4,8 @@
 // (400: its body schema is strict), the same push again without it.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
+import { EventEmitter } from 'node:events'
+import type https from 'node:https'
 import { roomsOf } from '../../server/src/rooms/service'
 import { pushBadge } from '../../server/src/notifications/push-badge'
 import { PushService } from '../../server/src/notifications/push-service'
@@ -67,6 +69,20 @@ test('a phone push carries the recipient\'s count at send time, a number only', 
   expect(sent[0]!.payload.code).toBe('room.dm')
   expect(sent[0]!.payload.badge).toBe(1)
   expect(Object.keys(sent[0]!.payload).sort()).toEqual(['badge', 'code', 'locale', 'notificationId', 'path', 'tag'])
+  // an Android phone gets no count (launchers count the notifications there): not even worked out
+  let asked = 0
+  await p.stop()
+  p = new PushService(h.ctx, { config: () => null, native: () => ({ url: 'https://push.example.test' }), transport: async () => { throw new Error('no web push here') }, nativeTransport: async (i) => { sent.push(i); return { statusCode: 200 } }, badge: () => { asked++; return 5 } })
+  const msid = (h.ctx.db.query('SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(mia.id) as { id: string }).id
+  p.registerDevice(mia.id, msid, { consent: true, platform: 'android', environment: 'production', token: `fcm:${'A'.repeat(140)}` })
+  await new Promise((r) => setTimeout(r, 5))
+  await send(nora.client, dm.id, 'hi mia')
+  await p.tick()
+  const toMia = sent.filter((s) => s.device.platform === 'android')
+  expect(toMia).toHaveLength(1)
+  expect('badge' in toMia[0]!.payload).toBe(false)
+  expect(asked).toBe(0)
+  sent.length = 1
   // a count that could not be read: no badge, the push goes as before
   await p.stop()
   p = new PushService(h.ctx, { config: () => null, native: () => ({ url: 'https://push.example.test' }), transport: async () => { throw new Error('no web push here') }, nativeTransport: async (i) => { sent.push(i); return { statusCode: 200 } }, badge: () => null })
@@ -113,4 +129,41 @@ test('the gateway gets badge in the signed body; a gateway from before it (400) 
     await transport(input(6))
     expect(seen.map((b) => b.badge ?? null)).toEqual([6])
   } finally { server.stop(true) }
+})
+
+test('over https too: only a 400 invalid_body to a push with a badge is an older gateway; any other 400 is the push\'s answer', async () => {
+  h = await harness('push-badge-https')
+  const bodies: Record<string, unknown>[] = []
+  let answer = (_b: Record<string, unknown>) => ({ status: 200, text: '{"ok":true}' })
+  const request = ((options: any, cb: any) => {
+    options.lookup(options.hostname, {}, () => {})
+    const req = new EventEmitter() as any; req.destroy = () => {}
+    req.end = (b: Buffer) => {
+      const body = JSON.parse(b.toString()) as Record<string, unknown>; bodies.push(body)
+      const a = answer(body)
+      queueMicrotask(() => {
+        const res = new EventEmitter() as any
+        res.statusCode = a.status; res.destroy = () => {}; res.setEncoding = () => {}
+        cb(res)
+        queueMicrotask(() => { res.emit('data', a.text); res.emit('end') })
+      })
+    }
+    return req
+  }) as unknown as typeof https.request
+  const transport = createNativeTransport({ dataDir: h.ctx.config.dataDir, request, lookup: async () => [{ address: '8.8.8.8', family: 4 }] })
+  const input = (badge?: number): NativeSend => ({ device: { platform: 'ios', token: 'ab'.repeat(32), environment: 'production' }, payload: { notificationId: 'n-1', code: 'room.dm' as never, locale: 'en', ...(badge === undefined ? {} : { badge }) }, config: { url: 'https://push.example.test' }, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 60 })
+  // a 400 that is not invalid_body (or no JSON): the push's own answer, sent once
+  answer = () => ({ status: 400, text: 'nope' })
+  expect(await transport(input(2))).toEqual({ statusCode: 400 })
+  expect(bodies.map((b) => b.badge ?? null)).toEqual([2])
+  // the older gateway: invalid_body for the badge, then the same push without it
+  bodies.length = 0
+  answer = (b) => ('badge' in b ? { status: 400, text: '{"ok":false,"error":"invalid_body"}' } : { status: 200, text: '{"ok":true}' })
+  expect(await transport(input(3))).toEqual({ statusCode: 200 })
+  expect(bodies.map((b) => b.badge ?? null)).toEqual([3, null])
+  // invalid_body to a push without a badge: nothing to drop, its answer
+  bodies.length = 0
+  answer = () => ({ status: 400, text: '{"ok":false,"error":"invalid_body"}' })
+  expect(await transport(input())).toEqual({ statusCode: 400, error: 'invalid_body' })
+  expect(bodies).toHaveLength(1)
 })

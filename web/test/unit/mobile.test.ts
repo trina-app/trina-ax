@@ -348,10 +348,10 @@ test('badge-v1: the icon gets the page\'s number when it changes, when the bridg
   expect(badges()).toEqual([3, 9999, 0, 2, 2])
   // the message carries a number and nothing else
   expect(Object.keys(messages.filter(m => m.type === 'badge').at(-1)!).sort()).toEqual(['count', 'generation', 'id', 'nonce', 'type', 'v'])
-  // a sign-in reset: the number is sent again with the new generation
+  // another session: the last one's number is not sent again; 0 until this page's count is worked out
   setMobileSession('user:badge'); await settle(() => messages.some(m => m.type === 'session-reset'))
   await settle(() => badges().length > 5)
-  expect(badges().at(-1)).toBe(2)
+  expect(badges().at(-1)).toBe(0)
   // signed out: the app clears the icon itself; the last person's number is never sent again after the reset, only 0
   messages = []
   setMobileSession(null, true)

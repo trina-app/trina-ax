@@ -275,8 +275,9 @@ export class PushService {
             // The gateway gets ids, the event code and the recipient's language; it picks generic words itself.
             const locale=getUser(this.ctx.db,allowed.sub.user_id)?.locale??teamDefaultLocale(this.ctx.db),path=pushPathOf(this.ctx,allowed.event,r.notification_id)
             // tag: this device's id on this team; the gateway hands it to the app as data.device, and the app ignores a tap for another device.
-            // badge: the person's count now (what the page would show on the icon), a number only
-            const badge=this.o.badge(allowed.sub.user_id)
+            // badge: the person's count now (what the page would show on the icon), a number only; an iPhone's only (the
+            // gateway sends none to Android: launchers count the notifications there)
+            const badge=device.platform==='ios'?this.o.badge(allowed.sub.user_id):null
             status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{}),...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
           }else{
             const config=this.o.config();if(!config)throw new Error('push_web_off')

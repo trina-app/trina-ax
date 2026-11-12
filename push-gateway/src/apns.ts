@@ -7,7 +7,7 @@
 // the title with who and where, which it asks the team server for itself (docs/DECISIONS.md "아이폰 알림의 이름"). The
 // generic alert stays as it is: an app without the extension (1.0.0), or an extension that gets no answer, shows it.
 // `badge`: the request's count for the app icon (iOS shows it only when the person allowed badges).
-import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
+import { validPushBadge, type PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importEs256, sha256Hex, signJwt, type FetchLike } from './crypto.ts'
 import { appData, type SendOutcome } from './fcm.ts'
 
@@ -58,7 +58,7 @@ export function createApns(cfg: ApnsConfig, deps: ApnsDeps) {
 
   async function post(msg: PushGatewaySend, alert: { title: string; body: string }, jwt: string): Promise<{ status: number; reason: string | null }> {
     const origin = msg.environment === 'sandbox' ? deps.sandbox ?? APNS_SANDBOX : deps.production ?? APNS_PRODUCTION
-    const body = { aps: { alert, sound: 'default', ...(msg.badge !== undefined ? { badge: msg.badge } : {}), ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
+    const body = { aps: { alert, sound: 'default', ...(validPushBadge(msg.badge) ? { badge: msg.badge } : {}), ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
     const nowS = Math.floor(deps.now() / 1000)
     const res = await deps.fetch(`${origin}/3/device/${msg.token}`, {
       method: 'POST',

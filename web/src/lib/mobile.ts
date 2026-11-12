@@ -63,9 +63,9 @@ export function setMobileSession(key: string | null, signedOut = false): void {
   // a new state of the page: the app has not heard it yet
   if (key !== sessionKey) signedOutTold = false
   sessionKey = key; pageSignedOut = out
-  // the app clears the icon itself at a sign-out: the last person's number is not sent again after the reset (another
-  // person signing in: their page's count replaces it as soon as it is worked out)
-  if (out) badge = 0
+  // the app clears the icon itself at a sign-out: the last person's number is never sent again after the reset; another
+  // session (another person) starts at 0 until its page's count is worked out
+  if (out || switched) badge = 0
   resetMobileSession(switched || out)
 }
 export function resetMobileSession(signedOut = false): void {
