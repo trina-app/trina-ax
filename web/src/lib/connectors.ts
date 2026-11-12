@@ -59,6 +59,101 @@ export type Connector = (typeof CONNECTORS)[number]
 
 export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
 
+/** What a listed service's page shows before it is connected (QA TC-132): its privacy policy, terms and MCP help page,
+ * and, where the service itself lists them, the tools it offers (their names as the service writes them, the same
+ * names its page shows once connected) with the page that lists them. Only values checked on the service's own pages
+ * on 2026-11-12 (each cited next to it); a service missing here, or without `tools`, shows the links and a plain line.
+ * Left out on purpose: Linear (its MCP page names no tools), Atlassian (its tool list is for the v2 address, the list
+ * here uses v1) and Canva's tools (its MCP pages now give another address than the one listed here). */
+export interface ConnectorDocs { privacy: string; terms: string; docs: string; toolsUrl?: string; tools?: readonly string[] }
+export const CONNECTOR_DOCS: Partial<Record<Connector['id'], ConnectorDocs>> = {
+  notion: {
+    privacy: 'https://www.notion.com/trust/privacy-policy',
+    // Notion's terms hub (its Master Subscription Agreement and Personal Use Terms)
+    terms: 'https://trust.notion.com/terms-and-privacy',
+    docs: 'https://developers.notion.com/guides/mcp/mcp-supported-tools',
+    // https://developers.notion.com/guides/mcp/mcp-supported-tools and its pages tools-search, tools-comments,
+    // tools-pages, tools-databases, tools-files, tools-skills-agents, tools-calendars
+    toolsUrl: 'https://developers.notion.com/guides/mcp/mcp-supported-tools',
+    tools: [
+      'notion-search', 'notion-connector-search', 'notion-fetch', 'notion-list-private-pages', 'notion-list-shared-pages', 'notion-list-favorite-pages',
+      'notion-list-recent-pages', 'notion-list-page-backlinks', 'notion-query-meeting-notes', 'notion-get-self', 'notion-get-teams', 'notion-get-groups',
+      'notion-get-users', 'notion-get-tool-access', 'notion-get-version-changes', 'notion-view-version', 'notion-restore-version', 'notion-restore-pages',
+      'notion-get-comments', 'notion-create-comment', 'notion-update-comment', 'notion-delete-comment', 'notion-set-discussion-resolved',
+      'notion-set-comment-reaction', 'notion-create-suggested-edit', 'notion-get-suggested-edit', 'notion-resolve-suggested-edit', 'notion-create-pages',
+      'notion-update-page', 'notion-move-pages', 'notion-duplicate-page', 'notion-delete-pages', 'notion-get-async-task', 'notion-create-database',
+      'notion-update-data-source', 'notion-query-data-sources', 'notion-query-multiple-data-sources', 'notion-create-view', 'notion-update-view',
+      'notion-delete-databases', 'notion-create-file-upload', 'notion-create-attachment', 'notion-download-attachment', 'notion-get-file-download-urls',
+      'notion-create-folder', 'notion-update-folder', 'notion-convert-page-to-skill', 'notion-download-skill', 'notion-upload-skill',
+      'notion-get-enabled-skills', 'notion-update-enabled-skills', 'notion-memory-search', 'notion-search-agents', 'notion-query-sessions',
+      'notion-search-sessions', 'notion-spawn-session', 'notion-send-message-to-session', 'notion-get-session-status', 'notion-wait-session',
+      'notion-stop-session', 'notion-list-session-events', 'notion-read-session-event', 'notion-calendar-list-calendars', 'notion-calendar-list-events',
+      'notion-calendar-list-coworkers-events', 'notion-calendar-list-calendar-resources', 'notion-calendar-list-contacts', 'notion-calendar-create-events',
+      'notion-calendar-update-events', 'notion-calendar-cancel-events',
+    ],
+  },
+  linear: {
+    privacy: 'https://linear.app/privacy',
+    terms: 'https://linear.app/terms',
+    // https://linear.app/docs/mcp (the address; it names no tools)
+    docs: 'https://linear.app/docs/mcp',
+  },
+  atlassian: {
+    privacy: 'https://www.atlassian.com/legal/privacy-policy',
+    terms: 'https://www.atlassian.com/legal/atlassian-customer-agreement',
+    // https://developer.atlassian.com/cloud/rovo-mcp/ (its tool list, guides/supported-tools, is for the v2 address)
+    docs: 'https://developer.atlassian.com/cloud/rovo-mcp/',
+  },
+  figma: {
+    privacy: 'https://www.figma.com/legal/privacy/',
+    terms: 'https://www.figma.com/legal/tos/',
+    docs: 'https://developers.figma.com/docs/figma-mcp-server/',
+    // https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/
+    toolsUrl: 'https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/',
+    tools: [
+      'get_design_context', 'get_screenshot', 'get_metadata', 'get_variable_defs', 'get_figjam', 'get_motion_context', 'download_assets',
+      'create_new_file', 'generate_diagram', 'generate_figma_design', 'generate_image', 'html_to_figma', 'upload_assets', 'use_figma',
+      'add_code_connect_map', 'get_code_connect_map', 'get_code_connect_suggestions', 'get_context_for_code_connect', 'get_libraries',
+      'search_design_system', 'send_code_connect_mappings', 'create_generative_plugin', 'get_generative_plugin', 'update_generative_plugin',
+      'list_generative_plugins', 'create_shader', 'get_shader', 'update_shader', 'list_shaders', 'list_file_shaders', 'send_code_to_figma', 'whoami',
+    ],
+  },
+  canva: {
+    privacy: 'https://www.canva.com/policies/privacy-policy/',
+    // the Terms link of Canva's developer docs (https://www.canva.dev/docs/apps/mcp/ footer)
+    terms: 'https://www.canva.com/policies/',
+    // https://www.canva.dev/docs/apps/mcp/ (its pages now give https://api.canva.com/connect/v1/mcp as the address)
+    docs: 'https://www.canva.dev/docs/apps/mcp/',
+  },
+  stripe: {
+    privacy: 'https://stripe.com/privacy',
+    terms: 'https://stripe.com/legal/ssa',
+    // https://docs.stripe.com/mcp (the address and the tools)
+    docs: 'https://docs.stripe.com/mcp',
+    toolsUrl: 'https://docs.stripe.com/mcp',
+    tools: [
+      'stripe_api_search', 'stripe_api_details', 'stripe_api_read', 'stripe_api_write', 'get_stripe_account_info', 'atlas_company_formation',
+      'stripe_analytics', 'get_balance_summary', 'convert_currency', 'send_money', 'setup_recipient', 'transfer_money', 'search_stripe_documentation',
+      'stripe_implementation_planner', 'send_stripe_feedback',
+    ],
+  },
+  supabase: {
+    privacy: 'https://supabase.com/privacy',
+    terms: 'https://supabase.com/terms',
+    // https://supabase.com/docs/guides/getting-started/mcp (the address and the tools)
+    docs: 'https://supabase.com/docs/guides/getting-started/mcp',
+    toolsUrl: 'https://supabase.com/docs/guides/getting-started/mcp',
+    tools: [
+      'list_tables', 'list_extensions', 'list_migrations', 'apply_migration', 'execute_sql', 'query_logs', 'get_advisors', 'get_project_url',
+      'get_publishable_keys', 'generate_typescript_types', 'list_edge_functions', 'get_edge_function', 'deploy_edge_function',
+      'create_edge_function_secret', 'list_projects', 'get_project', 'create_project', 'pause_project', 'restore_project', 'list_organizations',
+      'get_organization', 'get_cost', 'confirm_cost', 'search_docs', 'create_branch', 'list_branches', 'delete_branch', 'merge_branch', 'reset_branch',
+      'rebase_branch', 'submit_feedback', 'delete_feedback', 'list_storage_buckets', 'get_storage_config', 'update_storage_config', 'list_notebooks',
+      'get_notebook', 'create_notebook', 'run_notebook', 'delete_notebook',
+    ],
+  },
+}
+
 /** App connectors: apps this server's AI connects to for a person, with the person's own account and a connect flow
  * built into the server (not an MCP server someone adds): Settings › App connectors, one card each
  * (components/integrations/DriveConnector.tsx for Google Drive, GoogleAppConnector.tsx for the Google apps). Another platform is one more entry here and one card.

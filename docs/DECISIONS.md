@@ -23263,3 +23263,27 @@ Plan: `docs/AGENTS/plan/20261112-0930-request-any-connector.md`. Extends "A memb
   ask again. Both are audited.
 - **Add opens the usual setup** ("Connect for the team" for a listed service, its page for a Google one); the admin
   picks who may use it there, as for any team connection.
+
+## The connect step names what the card names (fix/connect-step-line, 2026-11-12, QA TC-135 retest)
+
+Adds to "The chat's connect card trusts the app's list".
+- **One rule for the shown name.** `trustedServiceName(name, url)` (`shared/src/service-catalog.ts`) gives the list's
+  name for exactly an official address, or for a listed name at its official host or with no address. It gives the
+  address's host when the name is, looks like or holds a listed service's name, or mixes alphabets, and the address is
+  not official. Otherwise it keeps the name as written. The connect card and the chat's step line both use it. QA saw
+  "Connect service · Notion" above a card titled `notion-mcp.example.com`.
+- **The step follows the card.** `stepLabel` for `connect_service` uses that rule from the start, so the step names the
+  same thing as the card while the card is open. When the card closes, the outcome's patch also sets the label to the
+  card's own name (a step takes one patch per call), so a template or reconnect card whose name differs from the AI's
+  ends up with matching labels too. Steps already saved keep their label.
+  When the AI names an admin's template by its id, the step shows the verb alone while the card is open, because the
+  AI's input holds the AI's name for it, not the template's. The outcome then adds the template's own name (review of
+  #597).
+- **The warning says whose address it is not.** When the AI's name matched a listed service at another address, the
+  card request carries `notOfficial: { name, url }` (optional). The warning then reads "This is not Notion's official
+  address. Notion's official address is mcp.notion.com. Connect only if you know and trust this one." For an older
+  server's card, the web works the claim out itself. An admin's template, the official address and a plain unknown
+  service do not get it. A reconnect card for a connection saved under such a name before #582 gets it too.
+- Tests: `tests/unit/step-labels-tools.test.ts`, `tests/unit/connect-service.test.ts` (the step label while the card is
+  open and after, `notOfficial` on new and reconnect cards), `web/test/unit/connect-card.test.tsx`.
+- Version impact: **patch**.

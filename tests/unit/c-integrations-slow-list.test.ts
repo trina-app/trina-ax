@@ -125,12 +125,15 @@ describe('reading a slow tools/list', () => {
 
   test('a tool call keeps its fixed limit: a slow answer fails and marks an error; a call that goes through clears it', async () => {
     const svc = integrationsOf(A.ctx)
+    A.ctx.db.query('UPDATE integrations SET last_used_at = NULL WHERE id = ?').run(id)
     // 3 pieces 350 ms apart: 700 ms, past REQUEST_MS, with no pause of IDLE_MS (the list's rule is not the calls')
     fake.pace = { methods: ['tools/call'], pieces: 3, gapMs: 350 }
     try {
       await expect(svc.callTool(getRow(A.ctx.db, id)!, 's0', {})).rejects.toThrow('did not answer within 30 seconds')
     } finally { fake.pace = null }
     expect(stored(id)).toEqual({ status: 'error', last_error: 'timeout' })
+    // the call was tried: its details say when ("Last tried"), never "Not used yet" (QA retest 2026-11-12)
+    expect((A.ctx.db.query('SELECT last_used_at FROM integrations WHERE id = ?').get(id) as { last_used_at: string | null }).last_used_at).not.toBeNull()
     // an error that was only for now (the row of a connection the 30 s cut before): a check that fails for now too
     // keeps the saved list and says so, it is not "Error"
     fake.pace = { methods: ['tools/list'], pieces: 10, gapMs: 50, stallAfter: 3 }

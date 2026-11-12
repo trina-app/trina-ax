@@ -28,7 +28,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
+import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
 import { canonicalService, connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
@@ -375,7 +375,7 @@ function ListedPage({ c }: { c: Connector }) {
         action={have.length ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
           : own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
-        description={t('connectors.mcp.about', { name: c.name })} address={have.length ? undefined : c.url} noTools={have.length > 0}>
+        description={t('connectors.mcp.about', { name: c.name })} address={have.length ? undefined : c.url} docs={have.length ? undefined : CONNECTOR_DOCS[c.id]} noTools={have.length > 0}>
         {askFor && <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />}
         {have.length > 0 && <MineRows items={have} />}
       </ConnectorDetail>

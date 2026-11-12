@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { SEAL_ALG, SealedSecret, TurnConnectBody, TurnRequest, uuidv7, type Locale, type SealingKey } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import ConnectCard from '../../src/components/chat/ConnectCard'
-import { cardTrust, connectCase, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectServiceRequest } from '../../src/lib/connectCard'
+import { cardTrust, connectCase, notOfficialOf, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectServiceRequest } from '../../src/lib/connectCard'
 import { useChats } from '../../src/store/chats'
 import { CHAT } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
@@ -361,6 +361,32 @@ describe('what the card shows', () => {
       expect(out).not.toContain('data-testid="connect-unlisted"')
     }
   })
+  test('TC-135 retest: a listed name at another address says it is not that service\'s official address, and names the official one', () => {
+    const made = 'https://notion-mcp.example.com/mcp'
+    const server = notion(made, { name: 'notion-mcp.example.com', notOfficial: { name: 'Notion', url: 'https://mcp.notion.com/mcp' } })
+    // an older server's card (the AI's name, no notOfficial) gets the same line, worked out here
+    const older = notion(made)
+    for (const r of [server, older]) expect(notOfficialOf(r, cardTrust(r))).toEqual({ name: 'Notion', host: 'mcp.notion.com' })
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      for (const r of [server, older]) {
+        const out = html(r)
+        const box = part(out, 'p', 'connect-not-official')![1]
+        expect(box).toContain('<strong class="font-semibold">notion-mcp.example.com</strong>')
+        expect(box).toContain(esc(translate(locale, 'connect.notOfficial', { name: 'Notion', official: 'mcp.notion.com' })))
+        expect(out).not.toContain('data-testid="connect-unlisted"')
+        expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.title', { name: 'notion-mcp.example.com' })))
+      }
+    }
+    setLocale('en')
+    expect(translate('en', 'connect.notOfficial', { name: 'Notion', official: 'mcp.notion.com' })).toBe("This is not Notion's official address. Notion's official address is mcp.notion.com. Connect only if you know and trust this one.")
+    // not for the official address, a plain unknown service or an admin's template
+    expect(notOfficialOf(notion('https://mcp.notion.com/mcp'), cardTrust(notion('https://mcp.notion.com/mcp')))).toBeNull()
+    expect(notOfficialOf(card(), cardTrust(card()))).toBeNull()
+    const tpl = notion(made, { template: { id: 't1', version: 1 } })
+    expect(notOfficialOf(tpl, cardTrust(tpl))).toBeNull()
+    expect(html(card())).toContain('data-testid="connect-unlisted"')
+  })
   test('TC-135 and editions: a listed name (or a look-alike) at another address is named by its host, with the warning, never "official"', () => {
     const cases = [
       ['Notion', 'https://notion-mcp.example.com/mcp'],
@@ -382,9 +408,11 @@ describe('what the card shows', () => {
       const out = html(notion('https://gitlab.acme.com/api/v4/mcp', { name: 'GitLab' }))
       expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.title', { name: 'gitlab.acme.com' })))
       expect(out).toContain(esc(translate(locale, 'connect.signIn', { name: 'gitlab.acme.com' })))
-      expect(part(out, 'p', 'connect-unlisted')![1]).toContain('<strong class="font-semibold">gitlab.acme.com</strong>')
+      expect(part(out, 'p', 'connect-not-official')![1]).toContain('<strong class="font-semibold">gitlab.acme.com</strong>')
       expect(out).not.toContain('data-testid="connect-official"')
-      expect(out).not.toContain('GitLab')
+      // only the not-official line names GitLab, to say this is not its address
+      expect(out.replace(part(out, 'p', 'connect-not-official')![0], '')).not.toContain('GitLab')
+      expect(part(out, 'p', 'connect-not-official')![1]).toContain('gitlab.com')
     }
   })
   test('a service the app does not know: the address in bold and a plain warning above the button', () => {
@@ -417,7 +445,8 @@ describe('what the card shows', () => {
       const out = html(old('Notion', 'https://notion-mcp.example.com/mcp'))
       expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectTitle', { name: 'notion-mcp.example.com' })))
       expect(out).toContain(esc(translate(locale, 'connect.signIn', { name: 'notion-mcp.example.com' })))
-      expect(out).not.toContain('Notion')
+      expect(out.replace(part(out, 'p', 'connect-not-official')![0], '')).not.toContain('Notion')
+      expect(part(out, 'p', 'connect-not-official')![1]).toContain('mcp.notion.com')
     }
   })
   test('a name that mixes Latin with another alphabet in a word is titled by its host, whatever it imitates', () => {

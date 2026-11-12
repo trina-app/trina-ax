@@ -35,7 +35,10 @@ test('Discover: the Google ones first (QA TC-138, also not set up), the rest beh
   const detail = page.getByTestId('connector-detail')
   await expect(detail.getByRole('heading', { name: 'Notion' })).toBeVisible()
   await expect(detail.getByTestId('connector-back')).toBeFocused()
-  await expect(detail.getByTestId('connector-tools-note')).toBeVisible()
+  // before connecting (QA TC-132): the tools Notion lists on its own page, and its privacy, terms and help pages
+  await expect(detail.getByTestId('connector-tools-listed').locator('li').first()).toHaveText('notion-search')
+  await expect(detail.getByTestId('connector-tools-link')).toHaveAttribute('href', 'https://developers.notion.com/guides/mcp/mcp-supported-tools')
+  await expect(detail.getByTestId('connector-privacy-link')).toHaveAttribute('href', 'https://www.notion.com/trust/privacy-policy')
   await detail.getByTestId('connector-connect').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
@@ -199,4 +202,20 @@ test('a team template for a listed service shows once: in Your connectors, not a
   await expect(page.getByTestId('connected-apps').getByTestId('template-row').filter({ hasText: 'Notion' })).toHaveCount(1)
   await page.getByTestId('connector-show-all').click()
   await expect(card(page, 'notion')).toHaveCount(0)
+})
+
+// QA TC-134 retest: "Connect for the team" is for the whole team unless the admin narrows it under Advanced
+test('Admin: "Connect for the team" saved without opening Advanced reaches the whole team', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.context().route('https://mcp.linear.app/**', (r) => r.fulfill({ contentType: 'text/html', body: '<p>Synthetic sign-in</p>' }))
+  await page.goto('/admin/connectors')
+  await discover(page, '둘러보기')
+  await card(page, 'linear').getByTestId('connector-open').click()
+  await page.getByTestId('connector-detail').getByTestId('connector-connect').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
+  await dialog.getByTestId('integration-save').click()
+  expect((await sent).postDataJSON()).toMatchObject({ name: 'Linear', access: { everyone: true, groups: [], users: [] } })
 })

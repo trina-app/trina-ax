@@ -338,10 +338,10 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(dialog.getByRole('heading', { name: '팀 서비스 추가' })).toBeVisible()
   const access = (await adv(page, 'integration-access'))
   await expect(access).toContainText('관리자도 여기에 들어 있어야')
-  // the admin starts chosen; without them the dialog says they cannot use it
-  const olga = access.getByRole('checkbox', { name: /Olga/ })
-  await expect(olga).toBeChecked()
-  await olga.uncheck()
+  // a team connection starts with the whole team (QA TC-134 retest); picking starts with nobody chosen
+  await expect(access.getByTestId('integration-access-everyone')).toBeChecked()
+  await access.getByTestId('integration-access-pick').check()
+  await expect(access.getByRole('checkbox', { name: /Olga/ })).not.toBeChecked()
   await expect(access).toContainText('아무도 고르지 않았어요')
   await access.getByRole('checkbox', { name: 'Bob' }).check()
   await expect((await adv(page, 'integration-access-not-me'))).toContainText('내 대화에서는 이 연결을 쓸 수 없어요')
@@ -686,7 +686,7 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   // what the list answers is not asked; who may use it and what the AI may change still are
   for (const id of ['integration-name', 'integration-url', 'integration-kind-http', 'integration-auth-oauth']) await expect(page.getByTestId(id)).toHaveCount(0)
   await expect((await adv(page, 'integration-write-ask'))).toBeChecked()
-  await expect((await adv(page, 'integration-access')).getByRole('checkbox', { name: /Olga/ })).toBeChecked()
+  await expect((await adv(page, 'integration-access')).getByTestId('integration-access-everyone')).toBeChecked()
   await expect(page.getByTestId('integration-save')).toHaveText('저장하고 로그인')
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
   const popup = page.waitForEvent('popup')
@@ -841,7 +841,7 @@ test('screenshots', async ({ page }) => {
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/int-admin-list${suffix}.png`, fullPage: true })
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-access')).getByRole('checkbox', { name: /Olga/ }).uncheck()
+    await (await adv(page, 'integration-access')).getByTestId('integration-access-pick').check()
     await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
     await (await adv(page, 'integration-access')).scrollIntoViewIfNeeded()
     await page.waitForTimeout(200)

@@ -297,7 +297,9 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
   const meta: string[] = []
   if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
   if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
-  meta.push(i.lastUsedAt ? t('integrations.lastUsed', { date: formatDateTime(i.lastUsedAt, locale) }) : t('integrations.neverUsed'))
+  // a call that failed counts as tried (the server keeps when): while it is failing the line says "Last tried", and
+  // "Not used yet" only when nothing was ever tried
+  meta.push(i.lastUsedAt ? t(failing ? 'integrations.lastTried' : 'integrations.lastUsed', { date: formatDateTime(i.lastUsedAt, locale) }) : t('integrations.neverUsed'))
   const signInButton = manage && canSignIn(i) && !phone && !flow && (
     <Button size="sm" variant={i.status === 'needs_auth' ? 'primary' : 'secondary'} className="shrink-0" onClick={() => void actions.signIn.start(i.id)} data-testid="integration-signin-start">
       <LogIn size={14} aria-hidden /> {t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn')}

@@ -242,14 +242,13 @@ test('a new template is for the whole team unless the admin picks people; the me
   await signIn(page)
   await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
-  // one team key starts with only you; choosing a template switches it to everyone, and back again
-  await expect((await adv(page, 'integration-access-everyone'))).not.toBeChecked()
+  // one team key and a template both start with the whole team (QA TC-134 retest); switching between them keeps it
+  await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
   await (await adv(page, 'integration-who-template')).check()
   await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
   await (await adv(page, 'integration-who-team')).check()
-  await expect((await adv(page, 'integration-access-everyone'))).not.toBeChecked()
-  await (await adv(page, 'integration-who-template')).check()
   await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
+  await (await adv(page, 'integration-who-template')).check()
   await page.getByTestId('integration-name').fill('Wiki')
   await page.getByTestId('integration-url').fill('https://mcp.wiki.example/mcp')
   await (await adv(page, 'integration-auth-key')).check()

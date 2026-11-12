@@ -81,3 +81,25 @@ describe('Always allow on a connection\'s row', () => {
     } finally { await m.unmount() }
   })
 })
+
+// QA retest 2026-11-12: a connection whose call was tried and failed does not say "Not used yet"
+describe('when it was last used', () => {
+  test('failing with a last attempt: "Last tried"; working: "Last used"; never tried: "Not used yet"', async () => {
+    const at = '2026-11-12T09:00:00.000Z'
+    const cases: [Partial<Integration>, string][] = [
+      [{ status: 'error', lastError: 'Could not reach the service.', lastUsedAt: at }, 'integrations.lastTried'],
+      [{ status: 'connected', lastUsedAt: at }, 'integrations.lastUsed'],
+      [{ status: 'error', lastError: 'Could not reach the service.', lastUsedAt: null }, 'integrations.neverUsed'],
+    ]
+    for (const [over, key] of cases) {
+      const { m } = await row({ ...base, ...over }, true)
+      try {
+        await m.click('integration-toggle')
+        const text = m.get('integration-details').textContent ?? ''
+        const label = translate('en', key as Parameters<typeof translate>[1], { date: '' }).trim()
+        expect({ key, has: text.includes(label) }).toEqual({ key, has: true })
+        if (key !== 'integrations.neverUsed') expect(text).not.toContain(translate('en', 'integrations.neverUsed'))
+      } finally { await m.unmount() }
+    }
+  })
+})

@@ -20,7 +20,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, GoogleAppView, Group, Integration, IntegrationRequest, IntegrationTemplate, RequestableService, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
+import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
 import { canonicalService, connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
@@ -162,7 +162,7 @@ export default function AdminIntegrations() {
                       ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(`/connectors/${c.id}`), testId: 'connector-connect-mine' }] : []),
                     ]} />
                 )}
-                description={t('connectors.mcp.aboutForTeam', { name: c.name })} address={have ? undefined : c.url} tools={tools} />
+                description={t('connectors.mcp.aboutForTeam', { name: c.name })} address={have ? undefined : c.url} docs={have ? undefined : CONNECTOR_DOCS[c.id]} tools={tools} />
             )
           }
           if (open?.kind === 'team') {
