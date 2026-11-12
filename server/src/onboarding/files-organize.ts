@@ -8,13 +8,17 @@
 // the W6 rule "no file content reaches these endpoints" for this step only: the page says so on the step.
 //
 // The plan is a job in memory: the start answers at once, the page polls its progress ("읽고 정리하는 중… n/N") and the
-// plan; only the caller who started it reads it, and it is forgotten after JOB_MS.
+// plan; only the caller who started it reads it, and it is forgotten after JOB_MS. A plan holds only files the caller
+// uploaded into shared/ lately (an 'upload' file event of theirs within UPLOAD_MS: the step's run), and applying is bound
+// to that plan: only its files move, and a second apply of the same plan answers the first one's result.
 //
 // Applying an approved plan moves each file as the caller (the file service's move: rules, versions and events follow),
 // making the folders that are missing, and sends folders the moves left empty to the trash. The team then has a record
 // that a plan was applied (settings 'onboarding.filesOrganized'), which hides the admins' "팀 파일 정리하기" row
 // (member-welcome.ts).
-import { ORGANIZE_LIMITS, cleanFolderName, organizePlan, type Locale, type OrganizeApplied, type OrganizePlan, type OrganizeStatus, type Role } from '@mycel/shared/api'
+import fs from 'node:fs'
+import { TEMPLATES_FOLDER } from '@mycel/shared'
+import { BRAND_FOLDER, NOTES_FOLDER, ORGANIZE_LIMITS, cleanFolderName, organizePlan, type Locale, type OrganizeApplied, type OrganizePlan, type OrganizeStatus, type Role } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ChatRuntime } from '../chat/runtime'
 import { newId } from '../db'
@@ -29,7 +33,9 @@ import { parseOrganize, type OrganizeMaterial } from './files-organize-ai'
 
 export const ORGANIZED_SETTING = 'onboarding.filesOrganized'
 /** a job is forgotten this long after it started */
-const JOB_MS = 10 * 60_000
+const JOB_MS = 60 * 60_000
+/** a file the caller uploaded at most this long ago can be in a plan */
+export const UPLOAD_MS = 24 * 60 * 60_000
 /** a file bigger than this is not read (its name still sorts it) */
 const READ_MAX_BYTES = 30 * 1024 * 1024
 
@@ -43,7 +49,7 @@ const TEXT = {
 } satisfies Record<string, Record<Locale, string>>
 
 export interface OrganizeCaller { id: string; role: Role }
-interface Job { id: string; userId: string; at: number; status: OrganizeStatus }
+interface Job { id: string; userId: string; at: number; status: OrganizeStatus; applied?: OrganizeApplied }
 const jobs = new Map<string, Job>()
 
 export interface OrganizeOptions {
@@ -65,12 +71,15 @@ function ownFiles(ctx: AppContext, userId: string, paths: readonly string[]): st
   const out: string[] = []
   const seen = new Set<string>()
   const user = ctx.files.principal(userId)
+  const since = new Date(Date.now() - UPLOAD_MS).toISOString()
+  const uploaded = (p: string) => !!ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND user_id = ? AND action = 'upload' AND at >= ? LIMIT 1").get(p, userId, since)
   for (const raw of paths) {
     const p = raw.normalize('NFC')
     if (!p.startsWith('shared/') || seen.has(p)) continue
     try {
       const r = authorize(ctx.files.fx, ctx.files.rules(), user, p, 'read', { mustExist: true })
-      if (!r.st?.isFile()) continue
+      // a file of the caller's own upload (the step's run), not any file of shared/
+      if (!r.st?.isFile() || !uploaded(r.rel)) continue
       seen.add(r.rel)
       out.push(r.rel)
     } catch { /* gone, or not theirs to read */ }
@@ -122,7 +131,10 @@ export function startOrganize(ctx: AppContext, rt: ChatRuntime, who: OrganizeCal
   jobs.set(job.id, job)
   const done = (async (): Promise<OrganizePlan> => {
     const teamLocale = teamDefaultLocale(ctx.db)
-    const existing = sharedFolders(ctx, who.id, files)
+    // every folder there counts as existing (the upload's own folder too: never "new"); the AI is not offered the
+    // upload's own folder as a place
+    const existing = sharedFolders(ctx, who.id)
+    const offered = sharedFolders(ctx, who.id, files)
     const finish = (ai: OrganizePlan['ai'], parsed: Parameters<typeof organizePlan>[0]['ai']): OrganizePlan => {
       const plan: OrganizePlan = { ai, existing, ...organizePlan({ paths: files, existing, locale: teamLocale, ai: parsed }) }
       job.status = { state: 'done', read: job.status.read, total: job.status.total, plan }
@@ -133,7 +145,7 @@ export function startOrganize(ctx: AppContext, rt: ChatRuntime, who: OrganizeCal
       // the text, within the reading time (what is not read by then goes with its name only)
       const stop = new AbortController()
       const timer = setTimeout(() => stop.abort(), Math.min(o.readMs ?? ORGANIZE_LIMITS.readMs, ORGANIZE_LIMITS.readMs))
-      const material: OrganizeMaterial = { kind: 'organize', locale: teamLocale, company: companyLines(ctx, who.id), existing, files: [] }
+      const material: OrganizeMaterial = { kind: 'organize', locale: teamLocale, company: companyLines(ctx, who.id), existing: offered, files: [] }
       const idToPath = new Map<string, string>()
       try {
         for (const [i, p] of reading.entries()) {
@@ -177,7 +189,23 @@ export function filesOrganized(ctx: Pick<AppContext, 'db'>): boolean {
  * fails leaves its file where it was. Folders under shared/ the moves left empty go to the trash (never shared/ itself,
  * nor a plan's folder). Records that a plan was applied when anything moved.
  */
-export function applyOrganize(ctx: AppContext, who: OrganizeCaller, moves: readonly { from: string; folder: string }[]): OrganizeApplied {
+export function applyOrganize(ctx: AppContext, who: OrganizeCaller, id: string, moves: readonly { from: string; folder: string }[]): OrganizeApplied {
+  sweepJobs()
+  const job = jobs.get(id)
+  if (!job || job.userId !== who.id || !job.status.plan) fail('not_found')
+  // the same plan applied again (a second tab, a retry after a lost answer): the first result
+  if (job!.applied) return job!.applied
+  const inPlan = new Set(job!.status.plan!.rows.map((r) => r.path))
+  const r = applyMoves(ctx, who, moves.filter((m) => inPlan.has(m.from.normalize('NFC'))))
+  const outside = moves.filter((m) => !inPlan.has(m.from.normalize('NFC'))).map((m) => m.from)
+  job!.applied = { moved: r.moved, failed: [...r.failed, ...outside] }
+  return job!.applied
+}
+
+/** Folders a new team has in shared/ (any language): never sent to the trash by a plan, even when emptied. */
+const DEFAULT_FOLDERS = new Set([...Object.values(TEMPLATES_FOLDER), ...Object.values(NOTES_FOLDER), ...Object.values(BRAND_FOLDER)].map((n) => String(n).normalize('NFC').toLowerCase()))
+
+function applyMoves(ctx: AppContext, who: OrganizeCaller, moves: readonly { from: string; folder: string }[]): OrganizeApplied {
   const svc = componentC(ctx).files
   const existing = new Map(sharedFolders(ctx, who.id).map((n) => [n.normalize('NFC').toLowerCase(), n]))
   const folderOf = (f: string) => { const c = cleanFolderName(f)!; return existing.get(c.toLowerCase()) ?? c }
@@ -209,8 +237,12 @@ export function applyOrganize(ctx: AppContext, who: OrganizeCaller, moves: reado
   // the folders the moves emptied (the upload's own folder), deepest first
   const keep = new Set(folders.map((f) => `shared/${f}`.toLowerCase()))
   for (const dir of [...left].sort((a, b) => b.split('/').length - a.split('/').length)) {
-    if (keep.has(dir.toLowerCase())) continue
-    try { if (!svc.tree(who.id, dir, undefined, 1).entries.length) svc.remove(who.id, dir) } catch { /* not empty, gone, or not theirs */ }
+    if (keep.has(dir.toLowerCase()) || (dir.split('/').length === 2 && DEFAULT_FOLDERS.has(dir.split('/')[1]!.normalize('NFC').toLowerCase()))) continue
+    // truly empty on disk (no hidden or temporary entry either), then to the trash
+    try {
+      const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(who.id), dir, 'write', { mustExist: true })
+      if (r.st?.isDirectory() && fs.readdirSync(r.abs).length === 0) svc.remove(who.id, dir)
+    } catch { /* gone, or not theirs */ }
   }
   if (moved.length) setSetting(ctx.db, ORGANIZED_SETTING, { at: new Date().toISOString(), by: who.id })
   return { moved, failed }

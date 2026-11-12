@@ -40,7 +40,8 @@ export const isNew = (e: OrgEdit, folder: string) => !e.existing.some((x) => sam
 /** The folders a row can go to: the list's folders that have rows, then the other existing ones. */
 export function choicesOf(e: OrgEdit): string[] {
   const used = groupsOf(e).map((g) => g.folder)
-  return [...used, ...e.existing.filter((x) => !used.some((u) => same(u, x)))]
+  // an existing folder whose name a plan cannot carry (over 40 characters, odd characters) is not offered
+  return [...used, ...e.existing.filter((x) => !used.some((u) => same(u, x)) && cleanFolderName(x) === x.normalize('NFC'))]
 }
 
 /** How many folders the plan uses now (the cap counts these). */

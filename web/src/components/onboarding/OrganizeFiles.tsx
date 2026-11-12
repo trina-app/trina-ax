@@ -14,8 +14,8 @@ import { Check, ChevronRight, FolderPlus, Loader2, X } from 'lucide-react'
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { create } from 'zustand'
-import { ORGANIZE_LIMITS, SHARED_HOME, type OrganizeApplied, type OrganizePlan } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { ORGANIZE_LIMITS, SHARED_HOME, cleanFolderName, type OrganizeApplied, type OrganizePlan } from '@mycel/shared/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { onFolderUploadsForgotten, type Run } from '../../lib/folderRuns'
 import { useFolderWords } from '../../lib/folderLabels'
 import { choicesOf, editFromPlan, folderCount, groupsOf, kept, movesOf, newFolderFor, projectBody, projectPaths, removeRow, renameFolder, setFolder, type OrgEdit, type OrgRow } from '../../lib/organize'
@@ -32,8 +32,11 @@ const GIVE_UP_MS = ORGANIZE_LIMITS.readMs + ORGANIZE_LIMITS.aiMs + 15_000
 type Org =
   | { s: 'idle' }
   | { s: 'reading'; read: number; total: number }
-  | { s: 'proposal'; plan: OrganizePlan; edit: OrgEdit; busy?: boolean; error?: string | null }
-  | { s: 'result'; plan: OrganizePlan; applied: OrganizeApplied; project: 'ask' | 'busy' | 'done' | 'later'; projectId?: string; error?: string | null }
+  | { s: 'proposal'; id: string; plan: OrganizePlan; edit: OrgEdit; busy?: boolean; error?: string | null }
+  /** project: ask · busy · done · later · taken (the project could not be made under that name: only 나중에).
+   * `where`: each moved file's place now (after a project took some); `gone`: plan folders the project emptied (trashed);
+   * `projectFailed`: the project's files that did not move */
+  | { s: 'result'; plan: OrganizePlan; applied: OrganizeApplied; project: 'ask' | 'busy' | 'done' | 'later' | 'taken'; projectId?: string; error?: string | null; where?: Record<string, string>; projectFailed?: number }
   /** nothing to sort, no plan, or put off: the run's end screen */
   | { s: 'none' }
 interface OrgState { runId: number | null; org: Org }
@@ -69,7 +72,7 @@ export async function beginOrganize(run: Run): Promise<void> {
       if (g !== generation) return
       if (st.state === 'done' && st.plan) {
         const edit = editFromPlan(st.plan)
-        set(edit.rows.length ? { s: 'proposal', plan: st.plan, edit } : { s: 'none' })
+        set(edit.rows.length ? { s: 'proposal', id: started.id, plan: st.plan, edit } : { s: 'none' })
         return
       }
       set({ s: 'reading', read: st.read, total: st.total })
@@ -95,7 +98,7 @@ export interface OrganizeViewProps {
 export function OrganizeView(p: OrganizeViewProps) {
   const org = useOrganize((s) => s.org)
   if (org.s === 'reading') return <Reading read={org.read} total={org.total} />
-  if (org.s === 'proposal') return <Proposal {...p} plan={org.plan} edit={org.edit} applying={!!org.busy} error={org.error ?? null} />
+  if (org.s === 'proposal') return <Proposal {...p} id={org.id} plan={org.plan} edit={org.edit} applying={!!org.busy} error={org.error ?? null} />
   if (org.s === 'result') return <Result {...p} org={org} />
   return null
 }
@@ -116,7 +119,7 @@ function Reading({ read, total }: { read: number; total: number }) {
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 const NEW = '\u0000new'
 
-function Proposal({ plan, edit, applying, error, uploaded, busy, phone, onDone }: OrganizeViewProps & { plan: OrganizePlan; edit: OrgEdit; applying: boolean; error: string | null }) {
+function Proposal({ id, plan, edit, applying, error, uploaded, teamGroupId, busy, phone, onDone }: OrganizeViewProps & { id: string; plan: OrganizePlan; edit: OrgEdit; applying: boolean; error: string | null }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
@@ -127,7 +130,7 @@ function Proposal({ plan, edit, applying, error, uploaded, busy, phone, onDone }
   const choices = choicesOf(edit)
   const full = folderCount(edit) >= ORGANIZE_LIMITS.folders
   const [capped, setCapped] = useState(false)
-  const change = (e: OrgEdit) => useOrganize.setState({ org: { s: 'proposal', plan, edit: e } })
+  const change = (e: OrgEdit) => useOrganize.setState({ org: { s: 'proposal', id, plan, edit: e } })
   const pickFor = (r: OrgRow, v: string) => {
     if (v === NEW) {
       const next = newFolderFor(edit, r.path, t('welcome.organize.newFolder'))
@@ -141,13 +144,15 @@ function Proposal({ plan, edit, applying, error, uploaded, busy, phone, onDone }
   const apply = async () => {
     const moves = movesOf(edit)
     if (!moves.length) return onDone(uploaded)
-    useOrganize.setState({ org: { s: 'proposal', plan, edit, busy: true } })
+    useOrganize.setState({ org: { s: 'proposal', id, plan, edit, busy: true } })
     try {
-      const applied = await api.call(API.applyOrganize, { body: { moves } })
-      const project = plan.project && plan.project.paths.length >= ORGANIZE_LIMITS.projectMin ? 'ask' : 'later'
+      const applied = await api.call(API.applyOrganize, { body: { id, moves } })
+      // a project question only with the setup's team group (a project without it would be the owner's alone, while the
+      // question says the whole team works on it)
+      const project = teamGroupId && plan.project && plan.project.paths.length >= ORGANIZE_LIMITS.projectMin ? 'ask' : 'later'
       useOrganize.setState({ org: { s: 'result', plan, applied, project } })
     } catch (e) {
-      useOrganize.setState({ org: { s: 'proposal', plan, edit, error: errorText(e, locale, t('error.network')) } })
+      useOrganize.setState({ org: { s: 'proposal', id, plan, edit, error: errorText(e, locale, t('error.network')) } })
     }
   }
   const later = () => { set({ s: 'none' }); onDone(uploaded) }
@@ -212,11 +217,21 @@ function FolderNameField({ name, id, disabled, onRename }: { name: string; id: s
   const t = useT()
   const [v, setV] = useState(name)
   useEffect(() => setV(name), [name])
-  const keep = () => { if (v.trim() && v !== name) onRename(v); else setV(name) }
+  const [bad, setBad] = useState(false)
+  // a name no folder can have (only dots, a leading dot, too long) goes back to the old one, with why
+  const keep = () => {
+    const clean = cleanFolderName(v)
+    if (v.trim() && !clean) { setBad(true); setV(name); return }
+    setBad(false)
+    if (clean && clean !== name) onRename(clean); else setV(name)
+  }
   return (
-    <input id={id} value={v} disabled={disabled} maxLength={ORGANIZE_LIMITS.folderChars} aria-label={t('welcome.organize.folderName')}
-      className="h-8 w-40 min-w-0 rounded-md border border-field-border bg-surface px-2 text-sm font-semibold text-ink max-sm:flex-1"
-      onChange={(e) => setV(e.target.value)} onBlur={keep} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); keep() } }} data-testid="organize-group-rename" />
+    <>
+      <input id={id} value={v} disabled={disabled} maxLength={ORGANIZE_LIMITS.folderChars} aria-label={t('welcome.organize.folderName')} aria-invalid={bad || undefined}
+        className="h-8 w-40 min-w-0 rounded-md border border-field-border bg-surface px-2 text-sm font-semibold text-ink max-sm:flex-1"
+        onChange={(e) => { setV(e.target.value); setBad(false) }} onBlur={keep} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); keep() } }} data-testid="organize-group-rename" />
+      {bad && <span role="alert" className="basis-full text-label text-warn" data-testid="organize-group-rename-bad">{t('welcome.organize.badName')}</span>}
+    </>
   )
 }
 
@@ -231,29 +246,50 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
   const words = useFolderWords()
   const shared = words.name(SHARED_HOME, SHARED_HOME)
   const { plan, applied } = org
-  const folders = [...new Set(applied.moved.map((m) => m.to.split('/')[1]!))]
-  const moved = new Map(applied.moved.map((m) => [m.from, m.to]))
+  // where each sorted file is now: a project may have taken some out of 전사 공유
+  const now = applied.moved.map((m) => org.where?.[m.to] ?? m.to)
+  const inFolders = now.filter((p) => p.startsWith(`${SHARED_HOME}/`) && p.split('/').length === 3)
+  const folders = [...new Set(inFolders.map((p) => p.split('/')[1]!))]
+  const moved = new Map(applied.moved.map((m) => [m.from, org.where?.[m.to] ?? m.to]))
   const forms = plan.rows.filter((r) => r.form && moved.has(r.path)).map((r) => moved.get(r.path)!)
   const project = plan.project
   const makeProject = async () => {
     if (!project) return
     useOrganize.setState({ org: { ...org, project: 'busy', error: null } })
+    let made: { id: string; folderPath: string }
     try {
-      const made = await api.call(API.createProject, { body: projectBody(project.name, teamGroupId) })
-      for (const from of projectPaths(project.paths, applied)) {
-        try { await api.call(API.move, { body: { from, to: `${made.folderPath}/${from.slice(from.lastIndexOf('/') + 1)}`, onExists: 'rename' } }) } catch { /* that file stays where it is */ }
-      }
-      useOrganize.setState({ org: { ...org, project: 'done', projectId: made.id } })
+      made = await api.call(API.createProject, { body: projectBody(project.name, teamGroupId) })
     } catch (e) {
-      useOrganize.setState({ org: { ...org, project: 'ask', error: errorText(e, locale, t('error.network')) } })
+      // a name that is taken (409): asking again would fail the same way, so only 나중에 is left
+      useOrganize.setState({ org: { ...org, project: isApiError(e, 'conflict') ? 'taken' : 'ask', error: errorText(e, locale, t('error.network')) } })
+      return
     }
+    const where: Record<string, string> = { ...org.where }
+    let failed = 0
+    for (const from of projectPaths(project.paths, applied)) {
+      try {
+        const r = await api.call(API.move, { body: { from, to: `${made.folderPath}/${from.slice(from.lastIndexOf('/') + 1)}`, onExists: 'rename' } })
+        where[from] = r.entry.path
+      } catch { failed++ }
+    }
+    // a 전사 공유 folder this plan made and the project emptied goes too (the result line no longer names it)
+    const left = [...new Set(project.paths.map((p) => projectPaths([p], applied)[0]!).filter((p) => where[p]).map((p) => p.slice(0, p.lastIndexOf('/'))))]
+    for (const dir of left) {
+      const name = dir.split('/')[1]
+      if (dir.split('/').length !== 2 || dir.split('/')[0] !== SHARED_HOME || !name || plan.existing.some((x) => x.normalize('NFC').toLowerCase() === name.normalize('NFC').toLowerCase())) continue
+      try {
+        const tr = await api.call(API.tree, { query: { path: dir } })
+        if (!tr.entries.length) await api.call(API.remove, { query: { path: dir } })
+      } catch { /* it stays */ }
+    }
+    useOrganize.setState({ org: { ...org, project: 'done', projectId: made.id, where, projectFailed: failed, error: null } })
   }
   return (
     <div className="space-y-4" data-testid="organize-result">
       <div className="space-y-1">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-ink" role="status" data-testid="organize-result-title">
           <Check size={18} className="shrink-0 text-ok" aria-hidden />
-          {t('welcome.organize.done', { n: applied.moved.length, k: folders.length })}
+          {t('welcome.organize.done', { n: inFolders.length, k: folders.length })}
         </h2>
         {folders.length > 0 && <p className="text-sm text-muted" data-testid="organize-result-folders">{shared} › {folders.join(', ')}</p>}
       </div>
@@ -264,6 +300,7 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
           {org.project === 'done' ? (
             <p className="flex flex-wrap items-center gap-2 text-sm text-ink" role="status" data-testid="organize-project-done">
               <FolderPlus size={16} className="shrink-0 text-ok" aria-hidden /> {t('welcome.organize.projectDone', { name: project.name })}
+              {!!org.projectFailed && <span className="basis-full text-label text-warn" data-testid="organize-project-failed">{t('welcome.organize.projectFailed', { n: org.projectFailed })}</span>}
               {org.projectId && <Link to={`/projects/${org.projectId}`} className={clsx(quietLink, 'text-sm')} data-testid="organize-project-open">{t('welcome.organize.projectOpen')}</Link>}
             </p>
           ) : (
@@ -272,7 +309,7 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
               <p className="text-label text-muted">{t('welcome.organize.projectHint', { team: me.team.name })}</p>
               {org.error && <ErrorNote>{org.error}</ErrorNote>}
               <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" className="max-md:min-h-11" busy={org.project === 'busy'} disabled={busy} onClick={() => void makeProject()} data-testid="organize-project-yes">{t('welcome.organize.projectYes')}</Button>
+                {org.project !== 'taken' && <Button size="sm" className="max-md:min-h-11" busy={org.project === 'busy'} disabled={busy} onClick={() => void makeProject()} data-testid="organize-project-yes">{t('welcome.organize.projectYes')}</Button>}
                 <Button size="sm" variant="ghost" className="max-md:min-h-11" disabled={org.project === 'busy' || busy} onClick={() => useOrganize.setState({ org: { ...org, project: 'later', error: null } })} data-testid="organize-project-later">{t('welcome.organize.later')}</Button>
               </div>
             </>

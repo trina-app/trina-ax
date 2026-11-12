@@ -4734,6 +4734,8 @@ export const en: Record<MessageKey, string> = {
   "welcome.organize.projectYes": "Make a project",
   "welcome.organize.projectDone": "Made the '{name}' project",
   "welcome.organize.projectOpen": "Open",
+  "welcome.organize.badName": "A folder cannot have that name · Kept the old one",
+  "welcome.organize.projectFailed": "{n, plural, one {# file} other {# files}} could not move into the project and stayed where {n, plural, one {it was} other {they were}}",
   "teamLink.landing": "People who join start with '{skill}'",
   "teamLink.landingChange": "Change",
   "audit.act.skills.share_create": "Skill share proposed",

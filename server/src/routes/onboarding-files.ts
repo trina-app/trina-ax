@@ -26,6 +26,6 @@ export const onboardingFilesRoutes: RouteModule = {
     // folders"): a job the page polls, then the approved plan applied as the caller
     kit.handle(API.startOrganize, ({ c, body, auth }) => { const j = startOrganize(ctx, getChatRuntime(ctx), auth.user, body.paths, c.get('locale')); return { id: j.id, total: j.total } })
     kit.handle(API.organizeStatus, ({ params, auth }) => organizeStatus(auth.user.id, params.id))
-    kit.handle(API.applyOrganize, ({ body, auth }) => applyOrganize(ctx, auth.user, body.moves))
+    kit.handle(API.applyOrganize, ({ body, auth }) => applyOrganize(ctx, auth.user, body.id, body.moves))
   },
 }

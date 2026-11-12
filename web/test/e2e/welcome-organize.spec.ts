@@ -54,6 +54,11 @@ test('propose → change a row → remove a row → rename a new folder → [이
   await row(page, '10월 회의록.md').getByTestId('organize-row-remove').click()
   await expect(page.getByTestId('organize-removed')).toHaveText('1개는 올린 자리에 그대로 둬요')
   await expect(row(page, '10월 회의록.md')).toHaveCount(0)
+  // a name no folder can have: said, and the old name back
+  await group(page, '제안서').getByTestId('organize-group-rename').fill('..')
+  await group(page, '제안서').getByTestId('organize-group-rename').press('Enter')
+  await expect(page.getByTestId('organize-group-rename-bad')).toHaveText('폴더 이름으로 쓸 수 없어요 · 원래 이름으로 뒀어요')
+  await expect(group(page, '제안서').getByTestId('organize-group-rename')).toHaveValue('제안서')
   // a new folder's name, typed in place
   await group(page, '제안서').getByTestId('organize-group-rename').fill('제안서 모음')
   await group(page, '제안서').getByTestId('organize-group-rename').press('Enter')
@@ -74,6 +79,9 @@ test('propose → change a row → remove a row → rename a new folder → [이
   await expect(page.getByTestId('organize-next')).toHaveText('다음: 도구 연결')
   await page.getByTestId('organize-next').click()
   await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  // apply is bound to a plan of the caller: an unknown one is not found (the same plan twice: the unit tests)
+  const again = await page.request.post('/api/onboarding/files/organize/apply', { headers: { 'x-mycel-csrf': '1' }, data: { id: 'nope', moves: [{ from: 'shared/메모.md', folder: 'x' }] } })
+  expect(again.status()).toBe(404)
   // back: the result as it was, no second plan
   await page.getByTestId('welcome-back').click()
   await expect(page.getByTestId('organize-result')).toBeVisible()
@@ -93,8 +101,14 @@ test('[프로젝트로 묶기]: a team project with the team group as participan
   page.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith('/api/projects')) made.push(r.postDataJSON()) })
   await page.getByTestId('welcome-team-files-input').setInputFiles(FILES)
   await page.getByTestId('organize-apply').click()
+  await expect(page.getByTestId('organize-result-folders')).toHaveText('전사 공유 › 양식, 회의록, 제안서')
   await page.getByTestId('organize-project-yes').click()
   await expect(page.getByTestId('organize-project-done')).toContainText("'A사 리뉴얼' 프로젝트를 만들었어요")
+  await expect(page.getByTestId('organize-project-failed')).toHaveCount(0)
+  // the folder the plan made for the project's file is empty now: gone, and the result line no longer names it
+  await expect(page.getByTestId('organize-result-folders')).toHaveText('전사 공유 › 양식, 회의록')
+  await expect(page.getByTestId('organize-result-title')).toHaveText('3개를 폴더 2개로 정리했어요')
+  expect((await tree(page, 'shared')).map((e) => e.name)).not.toContain('제안서')
   expect(made).toEqual([{ name: 'A사 리뉴얼', scope: 'team', participants: [{ subjectType: 'group', subjectId: team }], instructions: '' }])
   expect(await names(page, 'projects/A사 리뉴얼')).toEqual(['A사 견적.md', 'A사 제안서.md'])
   expect(realErrors(errors)).toEqual([])

@@ -4734,6 +4734,8 @@ export const id: Record<MessageKey, string> = {
   "welcome.organize.projectYes": "Jadikan proyek",
   "welcome.organize.projectDone": "Proyek '{name}' sudah dibuat",
   "welcome.organize.projectOpen": "Buka",
+  "welcome.organize.badName": "Nama itu tidak bisa dipakai untuk folder · Nama lama dipertahankan",
+  "welcome.organize.projectFailed": "{n} file tidak bisa dipindah ke proyek dan tetap di tempatnya",
   "teamLink.landing": "Yang bergabung mulai dari '{skill}'",
   "teamLink.landingChange": "Ubah",
   "audit.act.skills.share_create": "Usulan berbagi skill dibuat",

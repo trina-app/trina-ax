@@ -522,7 +522,7 @@ export class MockServer {
   /** the setup's folder plan (server/src/onboarding/files-organize.ts, short): `ai` as the AI would answer (done: the
    * name rules plus a project of the files whose names match `project.match`), each status call reads one more file */
   organize: { ai: 'done' | 'none' | 'failed' | 'timeout'; project: { name: string; match: string } | null } = { ai: 'done', project: null }
-  organizeJobs = new Map<string, { userId: string; paths: string[]; read: number; total: number; plan: OrganizePlan | null }>()
+  organizeJobs = new Map<string, { userId: string; paths: string[]; read: number; total: number; plan: OrganizePlan | null; applied?: { moved: { from: string; to: string }[]; failed: string[] } }>()
   organizeCalls: { paths: string[] }[] = []
   filesOrganized = false
 
@@ -3433,7 +3433,6 @@ export class MockServer {
       if (j!.read < j!.total) { j!.read++; return { state: 'reading', read: j!.read, total: j!.total, plan: null } }
       if (!j!.plan) {
         const existing = [...this.files.entries()].filter(([p, v]) => v.type === 'folder' && /^shared\/[^/]+$/.test(p)).map(([p]) => p.slice(7))
-          .filter((n) => !j!.paths.some((p) => p.startsWith(`shared/${n}/`)))
         const locale = (this.settings.defaultLocale as Locale) ?? 'ko'
         const m = this.organize.project ? new RegExp(this.organize.project.match) : null
         const ai: AiOrganize | null = this.organize.ai !== 'done' ? null : {
@@ -3447,11 +3446,15 @@ export class MockServer {
     },
     applyOrganize: (c) => {
       if (c.user.role === 'member') fail('forbidden', 403)
+      // bound to the caller's plan; the same plan again answers the first result
+      const job = this.organizeJobs.get(c.body.id as string)
+      if (!job || job.userId !== c.user.id || !job.plan) return fail('not_found', 404)
+      if (job.applied) return job.applied
       const moved: { from: string; to: string }[] = []
       const failed: string[] = []
       for (const m of c.body.moves as { from: string; folder: string }[]) {
         const n = this.files.get(m.from)
-        if (!n || n.type !== 'file' || !m.from.startsWith('shared/')) { failed.push(m.from); continue }
+        if (!n || n.type !== 'file' || !m.from.startsWith('shared/') || !job.plan.rows.some((r) => r.path === m.from)) { failed.push(m.from); continue }
         const dir = `shared/${m.folder}`
         if (!this.files.has(dir)) this.files.set(dir, { type: 'folder', mtime: now() })
         let to = `${dir}/${m.from.slice(m.from.lastIndexOf('/') + 1)}`
@@ -3466,7 +3469,8 @@ export class MockServer {
         if (v.type === 'folder' && p.startsWith('shared/') && moved.some((x) => x.from.startsWith(p + '/')) && ![...this.files.keys()].some((k) => k.startsWith(p + '/'))) this.files.delete(p)
       }
       if (moved.length) this.filesOrganized = true
-      return { moved, failed }
+      job.applied = { moved, failed }
+      return job.applied
     },
     // the step's upload run landed a file (server/src/onboarding/team-files.ts, short): 팀 파일 done, once, for a file
     // in a group's folder

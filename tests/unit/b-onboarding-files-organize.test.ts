@@ -15,6 +15,7 @@ import { organizeSystemPrompt, parseOrganize } from '../../server/src/onboarding
 import { applyOrganize, filesOrganized, ORGANIZED_SETTING, startOrganize } from '../../server/src/onboarding/files-organize'
 import { recordJoin, welcomeOf } from '../../server/src/onboarding/member-welcome'
 import { updateWelcome } from '../../server/src/onboarding/welcome'
+import { fileEvent } from '../../server/src/files/store'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -141,7 +142,13 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
   let h: Harness
   beforeAll(async () => { h = await startHarness({ name: 'b-onboarding-files-organize' }) })
   afterAll(async () => { await h?.close() })
-  const put = (rel: string, text = `${rel}의 내용`) => { fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true }); fs.writeFileSync(path.join(h.team, rel), text) }
+  /** a file in the team folder; `by`: who uploaded it (an 'upload' file event, as the step's run leaves), null: nobody */
+  const put = (rel: string, text = `${rel}의 내용`, by: string | null = 'dana') => {
+    fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true })
+    fs.writeFileSync(path.join(h.team, rel), text)
+    for (const u of by === 'dana' ? ['dana', 'carol'] : by ? [by] : []) fileEvent(h.ctx.db, { turnId: null, userId: u, path: rel, action: 'upload' })
+  }
+  const planOf = async (who: { id: string; role: 'owner' | 'admin' }, paths: string[]) => { const j = startOrganize(h.ctx, getChatRuntime(h.ctx), who, paths, 'ko', { ask: fake({ say: 'no plan' }) }); await j.done; return j.id }
   const there = (rel: string) => fs.existsSync(path.join(h.team, rel))
   const owner = { id: 'dana', role: 'owner' as const }
   const run = (paths: string[], o: Parameters<typeof startOrganize>[5]) => startOrganize(h.ctx, getChatRuntime(h.ctx), owner, paths, 'ko', o)
@@ -152,8 +159,10 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     const paths = Array.from({ length: 25 }, (_, i) => `shared/올림/문서 ${String(i).padStart(2, '0')}.md`)
     for (const p of paths) put(p)
     put('shared/올림/견적 양식.md', '견적서 양식: 품목, 수량, 단가')
+    // a file of shared/ nobody uploaded lately: never in a plan
+    put('shared/예전/오래된 양식.md', '오래된', null)
     let answer = ''
-    const j = run(['shared/올림/견적 양식.md', ...paths, 'users/dana/x.md', 'shared/없는.md'], { ask: fake({ echo: 'system' }), onAnswer: (c) => { answer = c } })
+    const j = run(['shared/올림/견적 양식.md', ...paths, 'users/dana/x.md', 'shared/없는.md', 'shared/예전/오래된 양식.md'], { ask: fake({ echo: 'system' }), onAnswer: (c) => { answer = c } })
     expect(j.total).toBe(ORGANIZE_LIMITS.read)
     const plan = await j.done
     // the instructions held the text of the first 20 files only, and nothing outside shared/
@@ -167,7 +176,10 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     expect(plan.rows.find((r) => r.path === 'shared/올림/견적 양식.md')).toEqual({ path: 'shared/올림/견적 양식.md', folder: '양식', reason: 'form', form: true })
     expect(plan.rows).toHaveLength(26)
     expect(plan.existing).toContain('양식')
-    expect(plan.existing).not.toContain('올림')
+    // the upload's own folder is there (never "new"), but the AI is not offered it as a place
+    expect(plan.existing).toContain('올림')
+    expect(answer).not.toContain('"올림"\n')
+    expect(plan.rows.some((r) => r.path === 'shared/예전/오래된 양식.md')).toBe(false)
     expect(await gone()).toBe(true)
 
     const r = await run(['shared/올림/견적 양식.md', 'shared/올림/문서 00.md', 'shared/올림/문서 01.md'], {
@@ -190,24 +202,36 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     expect(h.ctx.db.query("SELECT COUNT(*) n FROM turns WHERE user_id = 'dana' AND status IN ('queued','running')").get()).toEqual({ n: 0 })
   })
 
-  test('applying: folders made, files moved as the caller, the emptied upload folder gone, a taken name renamed, the record', () => {
+  test('applying: folders made, files of the plan moved as the caller, the emptied upload folder gone (never a default folder), a taken name renamed, the record; again: the first result', async () => {
     put('shared/회사 자료/양식/a 양식.md')
     put('shared/회사 자료/b.md')
     put('shared/새 폴더 1/c.md')
+    put('shared/브랜드/d 양식.md')
     put('shared/양식/a 양식.md', 'already one')
     expect(filesOrganized(h.ctx)).toBe(false)
-    const r = applyOrganize(h.ctx, owner, [
+    const id = await planOf(owner, ['shared/회사 자료/양식/a 양식.md', 'shared/회사 자료/b.md', 'shared/새 폴더 1/c.md', 'shared/브랜드/d 양식.md'])
+    const r = applyOrganize(h.ctx, owner, id, [
+      { from: 'shared/브랜드/d 양식.md', folder: '양식' },
       { from: 'shared/회사 자료/양식/a 양식.md', folder: '양식' },
       { from: 'shared/회사 자료/b.md', folder: 'A사' },
       { from: 'shared/없는 파일.md', folder: 'A사' },
       { from: 'users/dana/x.md', folder: 'A사' },
     ])
-    expect(r.moved).toEqual([{ from: 'shared/회사 자료/양식/a 양식.md', to: 'shared/양식/a 양식 (2).md' }, { from: 'shared/회사 자료/b.md', to: 'shared/A사/b.md' }])
+    expect(r.moved).toEqual([{ from: 'shared/브랜드/d 양식.md', to: 'shared/양식/d 양식.md' }, { from: 'shared/회사 자료/양식/a 양식.md', to: 'shared/양식/a 양식 (2).md' }, { from: 'shared/회사 자료/b.md', to: 'shared/A사/b.md' }])
     expect(r.failed).toEqual(['shared/없는 파일.md', 'users/dana/x.md'])
     expect(there('shared/회사 자료')).toBe(false)
+    // a default folder emptied by the moves stays
+    expect(there('shared/브랜드')).toBe(true)
     expect(there('shared/새 폴더 1/c.md')).toBe(true)
     expect(filesOrganized(h.ctx)).toBe(true)
-    expect(() => applyOrganize(h.ctx, owner, Array.from({ length: 9 }, (_, i) => ({ from: 'shared/새 폴더 1/c.md', folder: `f${i}` })))).toThrow()
+    // the same plan again (a second tab): the first result, nothing moved twice
+    expect(applyOrganize(h.ctx, owner, id, [{ from: 'shared/새 폴더 1/c.md', folder: 'X' }])).toBe(r)
+    expect(there('shared/새 폴더 1/c.md')).toBe(true)
+    // an unknown plan, another person's plan: not found
+    expect(() => applyOrganize(h.ctx, owner, 'nope', [])).toThrow()
+    expect(() => applyOrganize(h.ctx, { id: 'carol', role: 'admin' }, id, [])).toThrow()
+    const id2 = await planOf(owner, ['shared/새 폴더 1/c.md'])
+    expect(() => applyOrganize(h.ctx, owner, id2, Array.from({ length: 9 }, (_, i) => ({ from: 'shared/새 폴더 1/c.md', folder: `f${i}` })))).toThrow()
     h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(ORGANIZED_SETTING)
   })
 
@@ -222,16 +246,18 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     await waitFor(async () => { status = await h.api('carol').call(API.organizeStatus, { params: { id: started.id } }); return status.state === 'done' }, { timeoutMs: 40_000 })
     expect(status.plan!.rows[0]!.folder).toBe('양식')
     expect((await post('carol', '/api/onboarding/files/organize', { paths: [] })).status).toBe(400)
-    expect((await post('alice', '/api/onboarding/files/organize/apply', { moves: [{ from: 'shared/r/양식 r.md', folder: '양식' }] })).status).toBe(403)
-    expect((await post('carol', '/api/onboarding/files/organize/apply', { moves: [{ from: 'shared/r/양식 r.md', folder: 'a/b' }] })).status).toBe(400)
-    expect((await post('carol', '/api/onboarding/files/organize/apply', { moves: [{ from: 'shared/r/양식 r.md', folder: '.git' }] })).status).toBe(400)
-    const applied = await (await post('carol', '/api/onboarding/files/organize/apply', { moves: [{ from: 'shared/r/양식 r.md', folder: '양식' }] })).json()
+    const id = started.id
+    expect((await post('alice', '/api/onboarding/files/organize/apply', { id, moves: [{ from: 'shared/r/양식 r.md', folder: '양식' }] })).status).toBe(403)
+    expect((await post('carol', '/api/onboarding/files/organize/apply', { id, moves: [{ from: 'shared/r/양식 r.md', folder: 'a/b' }] })).status).toBe(400)
+    expect((await post('carol', '/api/onboarding/files/organize/apply', { id, moves: [{ from: 'shared/r/양식 r.md', folder: '.git' }] })).status).toBe(400)
+    expect((await post('dana', '/api/onboarding/files/organize/apply', { id, moves: [{ from: 'shared/r/양식 r.md', folder: '양식' }] })).status).toBe(404)
+    const applied = await (await post('carol', '/api/onboarding/files/organize/apply', { id, moves: [{ from: 'shared/r/양식 r.md', folder: '양식' }] })).json()
     expect(applied).toEqual({ moved: [{ from: 'shared/r/양식 r.md', to: 'shared/양식/양식 r.md' }], failed: [] })
     expect(await gone()).toBe(true)
     h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(ORGANIZED_SETTING)
   })
 
-  test('an admin who joined gets "팀 파일 정리하기" until a plan is applied; a member never; not without the team\'s steps', () => {
+  test('an admin who joined gets "팀 파일 정리하기" until a plan is applied; a member never; not without the team\'s steps', async () => {
     recordJoin(h.ctx, { userId: 'carol', via: 'invite', invitedBy: 'dana' })
     recordJoin(h.ctx, { userId: 'alice', via: 'invite', invitedBy: 'dana' })
     h.ctx.db.query("DELETE FROM settings WHERE key = 'onboarding.welcome'").run()
@@ -240,7 +266,8 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     expect(welcomeOf(h.ctx, 'carol')!.organizeFiles).toBe(true)
     expect(welcomeOf(h.ctx, 'alice')!.organizeFiles).toBe(false)
     put('shared/w/x 양식.md')
-    applyOrganize(h.ctx, { id: 'carol', role: 'admin' }, [{ from: 'shared/w/x 양식.md', folder: '양식' }])
+    const carol = { id: 'carol', role: 'admin' as const }
+    applyOrganize(h.ctx, carol, await planOf(carol, ['shared/w/x 양식.md']), [{ from: 'shared/w/x 양식.md', folder: '양식' }])
     expect(welcomeOf(h.ctx, 'carol')!.organizeFiles).toBe(false)
   })
 })

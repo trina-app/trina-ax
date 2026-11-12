@@ -487,9 +487,9 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `POST` | `/api/onboarding/files/organize` | Admin | The setup's folder plan for files just uploaded into shared/ (owners and admins): the server reads the text of at most 20 of them as the caller and asks the caller's AI once (a turn with no tool); the rest, and everything without AI, by name. Answers at once with a job id; the plan comes from the status call. |
+| `POST` | `/api/onboarding/files/organize` | Admin | The setup's folder plan for files the caller just uploaded into shared/ (owners and admins; other paths are left out): the server reads the text of at most 20 of them as the caller and asks the caller's AI once (a turn with no tool); the rest, and everything without AI, by name. Answers at once with a job id; the plan comes from the status call. |
 | `GET` | `/api/onboarding/files/organize/:id` | Admin | A folder plan's progress (files read of the total, then the AI) and, once done, the plan. Only the caller who started it. |
-| `POST` | `/api/onboarding/files/organize/apply` | Admin | Apply an approved folder plan as the caller (owners and admins): each file moves into shared/<folder>/ (made when missing; a taken name gets " (2)"), folders the moves left empty go, and the team records that a plan was applied. |
+| `POST` | `/api/onboarding/files/organize/apply` | Admin | Apply an approved folder plan of the caller (owners and admins): each of its files moves into shared/<folder>/ (made when missing; a taken name gets " (2)"), folders the moves left empty go, and the team records that a plan was applied. The same plan again: the first result. |
 
 ## Onboarding: the 7-day team goal
 

@@ -4690,6 +4690,8 @@ export const ja: Record<MessageKey, string> = {
   "welcome.organize.projectYes": "プロジェクトにまとめる",
   "welcome.organize.projectDone": "「{name}」プロジェクトを作りました",
   "welcome.organize.projectOpen": "開く",
+  "welcome.organize.badName": "フォルダー名には使えません · 元の名前のままにしました",
+  "welcome.organize.projectFailed": "{n, plural, one {#件} other {#件}}はプロジェクトに移動できず、元の{n, plural, one {場所} other {場所}}にあります",
   "teamLink.landing": "参加すると「{skill}」から開きます",
   "teamLink.landingChange": "変更",
   "audit.act.skills.share_create": "スキル共有の提案を作成",

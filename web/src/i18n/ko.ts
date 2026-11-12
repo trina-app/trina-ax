@@ -4734,6 +4734,8 @@ export const ko = {
   "welcome.organize.projectYes": "프로젝트로 묶기",
   "welcome.organize.projectDone": "'{name}' 프로젝트를 만들었어요",
   "welcome.organize.projectOpen": "열기",
+  "welcome.organize.badName": "폴더 이름으로 쓸 수 없어요 · 원래 이름으로 뒀어요",
+  "welcome.organize.projectFailed": "{n}개는 프로젝트로 옮기지 못해서 그대로 있어요",
   "teamLink.landing": "들어오면 '{skill}'부터 열려요",
   "teamLink.landingChange": "바꾸기",
   "audit.act.skills.share_create": "내 스킬 가져오기 제안 만들기",

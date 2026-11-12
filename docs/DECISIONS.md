@@ -23632,9 +23632,11 @@ setup, folder suggestions come from the Move picker (PR C), never from an AI cal
 - **The W6 privacy rule is reversed for this step.** W6 said no file content reaches the 팀 파일 endpoints and the AI
   sees names and metadata only. That still holds for the pick before the upload. Once the files are up in 전사 공유,
   the plan reads their text: at most 20 files (`ORGANIZE_LIMITS.read`), 3,000 characters each, the text layer only
-  (`extractText` with `textLayerOnly`, no OCR), within 8 s; only files in `shared/` that the caller can read, and that
-  their own upload run landed. The start of the step says so in one line: "팀 전체가 보는 전사 공유에 정리해 드려요 ·
-  AI가 파일 내용을 읽고 정리해요". The comment of `shared/src/api/onboarding-files.ts` says where the rule ends.
+  (`extractText` with `textLayerOnly`, no OCR), within 8 s; only files in `shared/` that the caller can read and
+  uploaded themselves within the last 24 hours (an `upload` file event of theirs: the step's run); any other path the
+  page sends is left out. The start of the step says so in one line, "팀 전체가 보는 전사 공유에 정리해 드려요 · AI가
+  파일 내용을 읽고 정리해요", shown only while an AI answers the person (without AI nothing is read). The comment of
+  `shared/src/api/onboarding-files.ts` says where the rule ends.
 - **The same path as the picks** (review must-fix): the plan is one ordinary no-tools turn of the caller
   (`file-rank.ts runFilesTurn`, extracted from `rankTeamFiles`): their AI access and budget, the chat marked in
   `onboarding_file_ranks` (its material JSON now has `kind: 'organize'`; no migration), never listed, deleted after; its
@@ -23648,27 +23650,35 @@ setup, folder suggestions come from the Move picker (PR C), never from an AI cal
   existing folder named for that kind in any language, else the kind's folder in the team's language (양식, 회의록 and
   브랜드 reuse the folders a new team has: "Team folder basics"). One level under `shared/`, at most 8 folders (the 9th
   goes to its kind's folder when that one is in, else stays), existing folders reused whatever the letter case; the
-  upload's own folder (`shared/<picked folder>/`) is not offered as a target. A file already in its folder stays. Each
+  upload's own folder (`shared/<picked folder>/`) is not offered to the AI as a place, but counts as existing (never
+  "새로 만들어요"). An existing folder whose name a plan cannot carry (over 40 characters) is not offered in the picker. A file already in its folder stays. Each
   row carries `form: true|false` for PR B. At most one project group.
 - **A job the page polls**: `POST /api/onboarding/files/organize` answers at once with an id and N; `GET …/organize/:id`
   gives "읽고 정리하는 중… n/N" and then the plan; only the one who started it reads it (404 otherwise); forgotten after
-  10 minutes. Owners and admins only.
+  an hour. Owners and admins only.
 - **The screens** (after a step run into 전사 공유 that ended without a failure): reading; the proposal, a flat list
   grouped by folder ("전사 공유 › 양식 (3)", Google Drive's "Organize my files"), each row with a folder picker (the
   plan's and the existing folders, "새 폴더…") and ✕ (the file stays where it went up; "n개는 올린 자리에 그대로 둬요"), a
-  new folder's name typed in place, [이대로 정리] and "나중에" (on to the next step, the files where they are; F5 shows
+  new folder's name typed in place (a name no folder can have goes back, with "폴더 이름으로 쓸 수 없어요"), [이대로 정리]
+  and "나중에" (on to the next step, the files where they are; F5 shows
   when coming back). Without AI the list says "AI 없이 파일 이름으로 정리했어요". Nothing to sort: the run's own F5 as
   before. No undo toast: the proposal is where the owner changes things.
-- **Applying** (`POST …/organize/apply`): each file moves as the caller through the file service's move (rules,
-  versions, events; a taken name gets " (2)"), a missing folder is made first, folders the moves emptied under `shared/`
-  go to the trash (never `shared/` itself or a plan folder), at most 8 folders (400 otherwise), folder names checked as
-  one level. Anything moved records `onboarding.filesOrganized` (settings).
+- **Applying** (`POST …/organize/apply {id, moves}`) is bound to the caller's plan: only that plan's files move (any
+  other path is answered as not moved), and the same plan applied again (a second tab, a retry after a lost answer)
+  answers the first result. Each file moves as the caller through the file service's move (rules, versions, events; a
+  taken name gets " (2)"), a missing folder is made first, at most 8 folders (400 otherwise), folder names checked as
+  one level. A folder under `shared/` the moves emptied goes to the trash only when it is truly empty on disk (no
+  hidden or temporary entry) and is neither a plan folder nor a default folder (양식, 회의록, 브랜드 in any language).
+  Anything moved records `onboarding.filesOrganized` (settings).
 - **The result**: what went where, the slot for PR B's forms card (`FormsSlot`, given the moved forms' paths; empty
   now), the project question when the AI saw one group ("이 n개는 'A사 리뉴얼' 프로젝트로 묶을까요?" [프로젝트로 묶기] /
-  나중에), then the step's next button. [프로젝트로 묶기] makes a team project (`POST /api/projects`, one folder
-  `projects/<slug>`) with the setup's team group as participant (`projectBody`; participants default to [] and a
-  project's contents are its members': without the group, people who join later would not see it) and moves its files
-  into the project's folder.
+  나중에), then the step's next button. The question shows only when the setup has a team group (without one the project
+  would be the owner's alone, while the question says the whole team works on it). [프로젝트로 묶기] makes a team project
+  (`POST /api/projects`, one folder `projects/<slug>`) with the team group as participant (`projectBody`; participants
+  default to [] and a project's contents are its members': without the group, people who join later would not see it)
+  and moves its files into the project's folder; files that do not move are counted ("n개는 프로젝트로 옮기지 못해서 그대로
+  있어요"); a 전사 공유 folder the plan made and the project emptied goes to the trash and leaves the result line. A
+  name that is taken (409) leaves only 나중에 (asking again would fail the same way).
 - **Admins**: the member welcome card gets `organizeFiles` (optional in the contract; older servers send nothing) for an
   admin while nobody applied a plan and the team has its steps row; the row "팀 파일 정리하기" (not counted) opens the
   same 팀 파일 step in a dialog. Hidden once any owner or admin applied a plan (the plan said "the owner": an admin's
@@ -23680,4 +23690,4 @@ setup, folder suggestions come from the Move picker (PR C), never from an AI cal
   `web/test/unit/organize.test.ts`, `web/test/unit/member-welcome.test.tsx`, `web/test/e2e/welcome-organize.spec.ts`
   (propose → change → remove → rename → apply → project question → 나중에 → next; a project with the team group; no AI;
   nothing to sort; 390 px light and dark), `web/test/e2e/welcome-team-files.spec.ts` (the plan after the upload).
-- Version impact: **minor** (four API routes, new screens in the setup step; no migration).
+- Version impact: **minor** (three API routes, new screens in the setup step; no migration).

@@ -16,6 +16,6 @@ export const ONBOARDING_FILES_SPECS: Record<string, Spec> = {
     const started = await c.post('/api/onboarding/files/organize', { paths: ['shared/없는 파일.md'] })
     return c.get(`/api/onboarding/files/organize/${started.json?.id ?? '00000000-0000-7000-8000-000000000000'}`)
   }, scope: 'byLevel' },
-  applyOrganize: { build: (c) => c.post('/api/onboarding/files/organize/apply', { moves: [{ from: 'groups/finance/budget.md', folder: '양식' }] }), scope: 'byLevel',
+  applyOrganize: { build: (c) => c.post('/api/onboarding/files/organize/apply', { id: 'no-such-plan', moves: [{ from: 'groups/finance/budget.md', folder: '양식' }] }), scope: 'byLevel',
     check: (r) => { if (r.status === 200 && r.text.includes('"to"')) throw new Error('a file outside shared/ was moved by a folder plan') } },
 }

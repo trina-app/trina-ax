@@ -37,6 +37,7 @@ import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../.
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
+import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
 import { beginOrganize, OrganizeView, organizeWanted, rememberLanded, useOrganize } from './OrganizeFiles'
@@ -514,10 +515,14 @@ function MacBlocked({ folder }: { folder: string }) {
 }
 
 /** The start's promise (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"): where the files go and that the AI
- * reads them to sort them (the W6 "names only" rule ends at the upload). */
+ * reads them to sort them (the W6 "names only" rule ends at the upload); shown only while an AI answers the person. */
 function OrganizeLine() {
   const t = useT()
   const words = useFolderWords()
+  // only when the AI will read them: no AI answers this person, no line (the name rules sort without reading)
+  const ai = useAiAccess()
+  useEffect(() => { void useAiAccess.getState().load() }, [])
+  if (!ai.loaded || !ai.usable) return null
   return <p className="text-label text-muted" data-testid="welcome-team-files-organize-line">{t('welcome.teamFiles.organizeLine', { shared: words.name(SHARED_HOME, SHARED_HOME) })}</p>
 }
 

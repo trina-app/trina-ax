@@ -62,8 +62,9 @@ export type OrganizeStarted = z.infer<typeof OrganizeStarted>
 export const OrganizeStatus = z.object({ state: z.enum(['reading', 'thinking', 'done']), read: z.number().int().nonnegative(), total: z.number().int().nonnegative(), plan: OrganizePlan.nullable() })
 export type OrganizeStatus = z.infer<typeof OrganizeStatus>
 
-/** [이대로 정리]: each file into shared/<folder>/ (made when missing). */
-export const OrganizeApply = z.object({ moves: z.array(z.object({ from: RelPath, folder: FolderName }).strict()).min(1).max(ORGANIZE_LIMITS.files) }).strict()
+/** [이대로 정리]: each file of the plan `id` into shared/<folder>/ (made when missing); a file not in that plan is not
+ * moved (failed). Applying the same plan again answers the first result. */
+export const OrganizeApply = z.object({ id: z.string().min(1).max(64), moves: z.array(z.object({ from: RelPath, folder: FolderName }).strict()).min(1).max(ORGANIZE_LIMITS.files) }).strict()
 export type OrganizeApply = z.infer<typeof OrganizeApply>
 export const OrganizeApplied = z.object({ moved: z.array(z.object({ from: RelPath, to: RelPath })), failed: z.array(RelPath) })
 export type OrganizeApplied = z.infer<typeof OrganizeApplied>
@@ -179,9 +180,9 @@ export function organizePlan(o: { paths: readonly string[]; existing: readonly s
 
 export const FILES_ORGANIZE = {
   startOrganize: endpoint({ method: 'POST', path: '/api/onboarding/files/organize', auth: 'admin', owner: 'B', body: OrganizeStart, response: OrganizeStarted,
-    summary: 'The setup\'s folder plan for files just uploaded into shared/ (owners and admins): the server reads the text of at most 20 of them as the caller and asks the caller\'s AI once (a turn with no tool); the rest, and everything without AI, by name. Answers at once with a job id; the plan comes from the status call.' }),
+    summary: 'The setup\'s folder plan for files the caller just uploaded into shared/ (owners and admins; other paths are left out): the server reads the text of at most 20 of them as the caller and asks the caller\'s AI once (a turn with no tool); the rest, and everything without AI, by name. Answers at once with a job id; the plan comes from the status call.' }),
   organizeStatus: endpoint({ method: 'GET', path: '/api/onboarding/files/organize/:id', auth: 'admin', owner: 'B', response: OrganizeStatus,
     summary: 'A folder plan\'s progress (files read of the total, then the AI) and, once done, the plan. Only the caller who started it.' }),
   applyOrganize: endpoint({ method: 'POST', path: '/api/onboarding/files/organize/apply', auth: 'admin', owner: 'B', body: OrganizeApply, response: OrganizeApplied,
-    summary: 'Apply an approved folder plan as the caller (owners and admins): each file moves into shared/<folder>/ (made when missing; a taken name gets " (2)"), folders the moves left empty go, and the team records that a plan was applied.' }),
+    summary: 'Apply an approved folder plan of the caller (owners and admins): each of its files moves into shared/<folder>/ (made when missing; a taken name gets " (2)"), folders the moves left empty go, and the team records that a plan was applied. The same plan again: the first result.' }),
 } as const

@@ -4690,6 +4690,8 @@ export const es: Record<MessageKey, string> = {
   "welcome.organize.projectYes": "Crear el proyecto",
   "welcome.organize.projectDone": "Se creó el proyecto «{name}»",
   "welcome.organize.projectOpen": "Abrir",
+  "welcome.organize.badName": "Una carpeta no puede llamarse así · Se mantuvo el nombre anterior",
+  "welcome.organize.projectFailed": "{n, plural, one {# archivo no se pudo mover} other {# archivos no se pudieron mover}} al proyecto y {n, plural, one {se quedó donde estaba} other {se quedaron donde estaban}}",
   "teamLink.landing": "Quien se une empieza por '{skill}'",
   "teamLink.landingChange": "Cambiar",
   "audit.act.skills.share_create": "Propuesta de compartir skills creada",
