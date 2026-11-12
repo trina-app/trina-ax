@@ -11,9 +11,9 @@
 // the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
 // everyone in <team>", common.tsx AdminScope), so page titles keep the same nouns as Settings'. Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
-// Slack is one of the connected apps (the owner's), not a menu item (owner, 2026-11-12): /admin/slack (its menu item
-// until then, and where "Add to Slack" came back with ?slack=…) opens Slack's page in Connected apps with the same
-// query; for an admin who is not the owner, Admin's list, as before.
+// Slack is one of the connected apps, not a menu item (owner, 2026-11-12): /admin/slack (its menu item until then, and
+// where "Add to Slack" came back with ?slack=…) opens Slack's page in Connected apps with the same query, for the
+// owner and admins alike (admins manage Slack too since 2026-11-13).
 //
 // Below 768 px (phones): /admin is a list (PhoneRoot.tsx) and each page opens over it with a push, under its own bar
 // (‹ and the page's name; the phone top bar steps aside for /admin). The list is always under a page, also one opened
@@ -130,11 +130,11 @@ const DETOURS = ['/files', '/projects']
 
 /** The old addresses that open another page (see the top of this file), else null. An item's page that is a phone's
  * only (adminScreens.ts ADMIN_DETAILS) is the item in its page on a computer, and the other way round. */
-export function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean, owner: boolean): string | null {
+export function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean): string | null {
   const q = new URLSearchParams(search)
   // Slack's menu item until 2026-11-12: its page in Connected apps, with the query "Add to Slack" came back with
-  // (?slack=installed); the owner's only (an admin gets Admin's list, as before)
-  if (section === 'slack') return owner ? `${SLACK_ADMIN_PATH}${search}` : '/admin'
+  // (?slack=installed)
+  if (section === 'slack') return `${SLACK_ADMIN_PATH}${search}`
   if (sub && !phone) {
     const desktop = adminDesktopOf(section, sub)
     if (desktop) return desktop
@@ -147,8 +147,8 @@ export function redirectOf(section: string, sub: string | undefined, search: str
     if (q.get('drive') === '1') return '/admin/connectors/google-drive'
   }
   // a connector this app does not list (a typo, an old link): the list
-  // (a team connection's page is /admin/connectors/mcp/<id>; Slack's is the owner's)
-  if (section === 'connectors' && sub && sub !== 'mcp' && !(sub === SLACK_APP.id && owner) && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
+  // (a team connection's page is /admin/connectors/mcp/<id>; Slack's is its own)
+  if (section === 'connectors' && sub && sub !== 'mcp' && sub !== SLACK_APP.id && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
   if (section === 'plugins' && !sub && q.get('focus')) return `/admin/plugins/${encodeURIComponent(q.get('focus')!)}`
   // a phone: an engine is a page of its own (?engine= opened its row in place)
   if (phone && section === 'providers' && !sub && q.get('engine') && q.get('tab') !== 'team') return `/admin/providers/${encodeURIComponent(q.get('engine')!)}`
@@ -206,7 +206,7 @@ export default function AdminLayout() {
   // Team settings and System: a group's page on a phone, the one page on a computer (teamSettingsGroups.ts,
   // systemGroups.ts); no other page has pages under it
   const redirect = !admin ? null
-    : redirectOf(section, sub, search, phone, isOwner(me)) ?? (section === 'settings' ? teamSettingsRedirect({ sub, hash, phone, devEnv })
+    : redirectOf(section, sub, search, phone) ?? (section === 'settings' ? teamSettingsRedirect({ sub, hash, phone, devEnv })
       : section === 'system' ? systemRedirect({ sub, phone, ...who })
       : sub && !ADMIN_DETAILS[section] ? `/admin/${section}${search}${hash}` : null)
   const group = section === 'settings' ? teamSettingsGroup(sub, devEnv) : section === 'system' ? systemGroup(sub, who) : undefined

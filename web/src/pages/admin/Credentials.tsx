@@ -449,7 +449,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
             {kind === 'anthropic-oauth' && !manual && <p className="text-sm text-muted" data-testid="claude-login-how">{t('credentials.claude.how')}</p>}
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <p className="text-sm text-muted">
-                {t('credentials.apiKey.hint')}{' '}
+                {/* a member's own key (Settings › AI accounts) is theirs, not a key made for the team */}
+                {t(personal ? 'credentials.apiKey.hintOwn' : 'credentials.apiKey.hint')}{' '}
                 {!(kind === 'anthropic-api-key' && gateway) && <a className="inline-flex items-center gap-1 text-accent-text underline" href={kind === 'anthropic-api-key' ? 'https://platform.claude.com/settings/keys' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer noopener">
                   {t(kind === 'anthropic-api-key' ? 'credentials.apiKey.consoleAnthropic' : 'credentials.apiKey.consoleOpenai')} <ExternalLink size={12} aria-hidden />
                 </a>}
@@ -462,7 +463,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
             )}
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <Field label={t('credentials.apiKey.paste')} error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t('credentials.apiKey.invalidFormat') : null}>
-                <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
+                <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); setError(null); if (move) setMove(null) }} data-testid="credential-secret" />
               </Field>
             )}
             {kind && !replace && !personal && !simple && <TargetPicker value={assignments} onChange={setAssignments} pick={pick} setPick={setPick} groups={groups} users={users} />}
@@ -508,7 +509,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                     <li>{t('credentials.setupToken.steps.4')}</li>
                   </ol>
                   <Field label={t('credentials.setupToken.paste')} error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t('credentials.setupToken.invalidFormat') : null}>
-                    <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
+                    <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); setError(null); if (move) setMove(null) }} data-testid="credential-secret" />
                   </Field>
                 </div>
               </details>

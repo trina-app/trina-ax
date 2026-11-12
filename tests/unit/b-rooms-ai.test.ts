@@ -215,7 +215,10 @@ describe('the AI in a room', () => {
     const dm = await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'bob' } })
     const { q } = await ask('alice', dm.id, `@트리나 my todo?\n${fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'Your todo has two items.' })}`)
     const preview = (await answerTo('alice', dm.id, q))!
-    expect(preview).toMatchObject({ visibility: 'private', sourceCount: 1, preview: { personal: true } })
+    // only the person's own file: nothing from the web or a connection (QA TC-509: a file path named by the call was
+    // listed as a folder, failed, and marked the answer as outside)
+    expect(preview).toMatchObject({ visibility: 'private', sourceCount: 1, preview: { personal: true, outside: false } })
+    expect(sessionOf(dm.id, 'alice')!.room_outside).toBe(0)
     const notices = (id: string) => (h.ctx.db.query("SELECT COUNT(*) n FROM room_notices WHERE user_id = 'bob' AND source_id = ?").get(id) as { n: number }).n
     expect(notices(preview.id)).toBe(0)
     const bobsRoom = await h.api('bob').call(API.getRoom, { params: { id: dm.id } })

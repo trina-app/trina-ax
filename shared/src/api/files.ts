@@ -127,6 +127,8 @@ export const HistoryResponse = z.object({
     author: UserRef.nullable(),
     turnId: Uuid7.nullable(),
     at: IsoTime.nullable(),
+    /** the AI chat of `turnId`, only when the caller may open that chat now (as FileVersion.savedChatId) */
+    chatId: Uuid7.optional(),
   }).nullable().optional(),
   /** created / edited / moved / renamed / copied / restored, by whom and in which AI turn (newest first) */
   events: z.array(FileHistoryEvent).optional(),

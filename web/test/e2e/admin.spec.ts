@@ -110,7 +110,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(result).toHaveAttribute('data-ready', 'true')
   await result.getByTestId('edit-show-people').click()
   await expect(result.getByTestId('edit-more')).toContainText('Bob')
-  await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
+  await expect(panel.getByTestId('edit-save')).toContainText(translate('ko', 'accessEdit.outGainOpen', { n: 2 }))
   await panel.getByTestId('edit-save').click()
   await expect(panel).toHaveCount(0)
   await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 볼 수 있음')

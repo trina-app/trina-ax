@@ -204,14 +204,13 @@ test('a member: /admin says it is for admins; Back never shows the Admin list', 
   await expect(page.getByTestId('admin-only').or(page.getByTestId('settings-logout'))).toBeVisible()
 })
 
-test('an admin who is not the owner: Slack\'s address goes to the list, one entry', async ({ page }) => {
+test('an admin who is not the owner: Slack\'s old address opens its page in Connected apps, no menu row of its own', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
   await signIn(page, { username: 'dana', password: 'dana password 1' })
   await page.goto('/admin/slack')
-  await expect(page).toHaveURL(/\/admin$/)
+  await expect(page).toHaveURL(/\/admin\/connectors\/slack$/)
+  await expect(page.getByTestId('slack-status')).toBeVisible()
   await expect(page.getByTestId('admin-row-slack')).toHaveCount(0)
-  await page.goBack()
-  await expect(page).not.toHaveURL(/\/admin/)
 })
 
 test('nothing is wider than the screen on any Admin page, in Spanish too', async ({ page }) => {

@@ -642,7 +642,12 @@ test.describe('a phone (390 px)', () => {
     expect(body.width).toBe(390)
     // a finger swipes: no arrows on a touch screen (the edge arrows would sit on the text; QA TC-257)
     await expect(page.getByTestId('image-viewer-next')).toBeHidden()
-    await expect(page.getByTestId('image-viewer-bar-next')).toBeHidden()
+    // the bottom bar's ‹ › stay for screen readers only (VoiceOver and TalkBack take the swipe): off screen, named
+    const barNext = page.getByTestId('image-viewer-bar-next')
+    await expect(barNext).toBeAttached()
+    const barBox = await barNext.boundingBox()
+    expect(barBox === null || (barBox.width <= 1 && barBox.height <= 1)).toBe(true)
+    await expect(barNext).toHaveAccessibleName(/.+/)
     await expect(page.getByTestId('image-viewer-panel')).toBeHidden()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await audit(page, 'viewer on a phone')

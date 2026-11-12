@@ -10,8 +10,8 @@
 // - **Discover**: what is not on yet: Google Drive, Gmail, Google Calendar, Google Docs, Google Sheets, then the listed
 //   MCP services (lib/connectors.ts), the first ten and Show all. A row opens its page; its + sets a Google one up (or
 //   opens its page) and adds a listed service for the team.
-// - **Slack** (the owner's only, as the server decides: admins never see it): a row in Connected once it is added, with
-//   its state (On, Off, Needs attention; Reconnect after the app was removed in Slack), else a card in Discover after
+// - **Slack** (the owner and admins; the team's own Slack app is the owner's alone, Slack.tsx): a row in Connected
+//   once it is added, with its state (On, Off, Needs attention; Reconnect after the app was removed in Slack), else a card in Discover after
 //   the Google ones. Until 2026-11-12 it was an Admin menu item of its own (/admin/slack leads to its page now).
 // Pages, each its own address: a Google connector's (/admin/connectors/<id>, GoogleAdminPage.tsx: the member's page with
 // Team settings; the old ?drive=1 and ?app=gmail lead there, AdminLayout.tsx), Slack's (/admin/connectors/slack,
@@ -67,9 +67,9 @@ export default function AdminIntegrations() {
   const [driveSetup, setDriveSetup] = useState(false)
   // Gmail, Google Calendar, Google Docs and Google Sheets on this server (an older server has none): set up per card
   const gapps = useLoad(async () => { try { return (await api.call(API.googleAppsAdminStatus)).apps } catch { return [] as GoogleAppAdminStatus[] } })
-  // Slack: the owner's (the server refuses admins too), so nobody else asks; it fails quietly (no row)
+  // Slack: the owner and admins (an older server refuses admins); it fails quietly (no row)
   const owner = isOwner(me)
-  const slack = useLoad(async () => { if (!owner) return null; try { return await api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }) } catch { return null as SlackAdmin | null } })
+  const slack = useLoad(async () => { try { return await api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }) } catch { return null as SlackAdmin | null } })
   // Team settings' "Members can add their own connections": off, the admin's own ("Just for me") is refused too
   const personal = useLoad(async () => { try { return (await api.call(API.listIntegrations)).personalAllowed } catch { return true } })
   // the admin's own view of them (Connectors'), for each page's tools
@@ -84,7 +84,7 @@ export default function AdminIntegrations() {
   const open: Open | null = !sub ? null
     : sub === 'google-drive' ? { kind: 'drive' }
       : isGoogleApp(sub) ? { kind: 'gapp', id: sub }
-        : sub === SLACK_APP.id ? (owner ? { kind: 'slack' } : null)
+        : sub === SLACK_APP.id ? { kind: 'slack' }
         : sub === 'mcp' ? (item ? { kind: 'team', id: item } : null)
           : (() => { const c = CONNECTORS.find((x) => x.id === sub); return c ? { kind: 'listed' as const, c } : null })()
   const pathOf = (o: Open) => (o.kind === 'drive' ? '/admin/connectors/google-drive' : o.kind === 'gapp' ? `/admin/connectors/${o.id}` : o.kind === 'slack' ? SLACK_ADMIN_PATH : o.kind === 'listed' ? `/admin/connectors/${o.c.id}` : `/admin/connectors/mcp/${o.id}`)
@@ -213,7 +213,7 @@ export default function AdminIntegrations() {
             return [{ id, name: builtInName(id), logo: builtInLogo(id), line: googleAppAdminLine(t, g), on, state: on ? 'added' as const : 'available' as const,
               onOpen: openIt, onAdd: () => { openIt(); if (g.canSetUp && !g.configured) setGappSetup(id) } }]
           })
-          // Slack (the owner's): added, a row in Connected; not yet, a card in Discover after the Google ones
+          // Slack: added, a row in Connected; not yet, a card in Discover after the Google ones
           const sl = slack.data
           const openSlack = () => setOpen({ kind: 'slack' })
           const slackLine = t('slack.admin.desc')
@@ -243,7 +243,8 @@ export default function AdminIntegrations() {
             id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c), state: 'available' as const,
             onOpen: () => setOpen({ kind: 'listed', c }), onAdd: () => setDialog({ connector: c, toList: true }),
           }))
-          const slackCard: DiscoverItem[] = sl && !slackAdded(sl)
+          // an admin gets the card only where Add to Slack is offered (the team's own app is the owner's to set up)
+          const slackCard: DiscoverItem[] = sl && !slackAdded(sl) && (owner || sl.official)
             ? [{ id: SLACK_APP.id, name: SLACK_APP.name, line: slackLine, logo: slackLogo, state: 'available', onOpen: openSlack, onAdd: openSlack }] : []
           const cards = [...builtIns.filter((b) => !b.on), ...slackCard, ...listed].filter((c) => fits(q, c.name, c.line))
           const shownCards = q || all ? cards : cards.slice(0, DISCOVER_FIRST)

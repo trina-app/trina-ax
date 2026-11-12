@@ -69,6 +69,7 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome } from '@mycel/shared/api'
+import { activityTabHas } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
 import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
@@ -263,6 +264,10 @@ export class MockServer {
    * (someone else typing, as server/src/rooms/typing.ts relays it) */
   typingSent: { user: string; roomId: string; threadRootId: string | null; typing: boolean; at: number }[] = []
   sessions = new Map<string, string>() // token -> user id
+  /** one-time password reset links made in Admin › Members (createResetLink): token → whose, until when, used when */
+  resetLinks = new Map<string, { userId: string; expiresAt: string; usedAt: string | null }>()
+  /** open account deletion requests (Settings › 계정 삭제 요청): user id → when asked */
+  deletionRequests = new Map<string, string>()
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
   users: User[] = []
@@ -307,7 +312,7 @@ export class MockServer {
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
   /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
-  teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
+  teamLink: { id: string; token: string; groupIds: string[]; groupsChosen?: boolean; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
@@ -382,11 +387,13 @@ export class MockServer {
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
   notifyPrefs = MockServer.notifyPrefsDefault()
   static notifyPrefsDefault() {
-    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
   }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
+  /** a file whose content now is an AI save (/__test/ai-version current): the chat named, or null */
+  aiCurrent = new Map<string, string | null>()
   connection: ConnectionStatus = defaultConnection()
   /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
   teamAddress: string | null = null
@@ -630,10 +637,13 @@ export class MockServer {
     this.scheduleRunMs = 200
     this.budgets = []
     this.versions = []
+    this.aiCurrent = new Map()
     this.trash = []
     this.uploads.clear()
     this.attachments.clear()
     this.jobs.clear()
+    this.resetLinks.clear()
+    this.deletionRequests.clear()
     this.files.clear()
     this.log = []
     this.engineRequests = []
@@ -1012,7 +1022,7 @@ export class MockServer {
     const named = l.skillPath ? this.teamLinkSkill(l.skillPath, viewer) : null
     const skill = l.skillPath ? { path: l.skillPath, name: named?.name ?? null, title: named?.title ?? null } : null
     return {
-      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const },
+      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const, groupsChosen: !!l.groupsChosen },
       seats: { used, limit: null },
     }
   }
@@ -1353,6 +1363,17 @@ export class MockServer {
       passwordReset: this.resets.get(u.id) ?? null,
     }
     void sid
+  }
+
+  stubDownload(id: string, key: string, ext: string, type: string) {
+    const a = this.artifacts.find((x) => x.id === id && x.key === key) ?? fail('not_found', 404)
+    return new Response(`mock ${ext}`, { headers: { 'content-type': type, 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${a.title ?? key}.${ext}`)}` } })
+  }
+
+  deletionOf(u: User) {
+    if (u.role === 'owner') return { state: 'owner' as const, requestedAt: null }
+    const at = this.deletionRequests.get(u.id)
+    return at ? { state: 'pending' as const, requestedAt: at } : { state: 'none' as const, requestedAt: null }
   }
 
   startSession(u: User) {
@@ -2194,6 +2215,38 @@ export class MockServer {
       }
     },
     mySessions: () => ({ items: [{ id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36', createdAt: now(), lastSeenAt: now(), expiresAt: now(), current: true }] }),
+    // a reset link (server/src/auth/password-reset.ts): whose account while unused; a new password ends every other session
+    // of that person and signs in here
+    passwordResetInfo: (c) => {
+      const l = this.resetLinks.get(c.params.token!) ?? fail('not_found', 404)
+      const u = this.users.find((x) => x.id === l.userId)
+      // used, expired or its person gone: nothing about the account
+      if (!u || l.usedAt || Date.parse(l.expiresAt) <= Date.now()) return { valid: false, username: null, name: null, expiresAt: null }
+      return { valid: true, username: u.username, name: u.name, expiresAt: l.expiresAt }
+    },
+    completePasswordReset: (c) => {
+      const l = this.resetLinks.get(c.params.token!)
+      if (!l || l.usedAt || Date.parse(l.expiresAt) <= Date.now()) fail('gone', 410)
+      const u = this.users.find((x) => x.id === l!.userId) ?? fail('not_found', 404)
+      this.passwords.set(u.username, c.body.newPassword)
+      u.mustChangePassword = false
+      this.tempLogins.delete(u.id)
+      l!.usedAt = now()
+      for (const [token, id] of this.sessions) if (id === u.id) this.sessions.delete(token)
+      u.lastSeenAt = now()
+      return { cookie: this.startSession(u), body: { me: this.me(u, '') } }
+    },
+    // account deletion requests (server/src/auth/deletion-requests.ts): the owner cannot ask; asking again changes nothing
+    myDeletionRequest: (c) => this.deletionOf(c.user),
+    requestAccountDeletion: (c) => {
+      if (c.user.role === 'owner') fail('conflict', 409)
+      if (!this.deletionRequests.has(c.user.id)) this.deletionRequests.set(c.user.id, now())
+      return this.deletionOf(c.user)
+    },
+    cancelAccountDeletion: (c) => {
+      this.deletionRequests.delete(c.user.id)
+      return this.deletionOf(c.user)
+    },
     inviteInfo: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token)
       if (!i) fail('not_found', 404)
@@ -2862,7 +2915,8 @@ export class MockServer {
     history: (c) => {
       const f = this.files.get(c.query.path!)
       const items = this.versions.filter((v) => v.path === c.query.path)
-      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: null, at: f.mtime } : null
+      const ai = this.aiCurrent.get(c.query.path!)
+      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: ai === undefined ? null : uuidv7(), at: f.mtime, ...(ai ? { chatId: ai } : {}) } : null
       const events = current ? [{ id: 1, at: f!.mtime, kind: 'edited' as const, by: current.author, turnId: null, path: c.query.path!, from: null, size: current.size }] : []
       return { path: c.query.path, items, currentSha256: current?.sha256 ?? null, canRestore: this.access(c.query.path!, c.user) === 'write', current, events }
     },
@@ -3033,6 +3087,11 @@ export class MockServer {
       const a = this.artifacts.find((x) => x.id === c.params.id && x.key === DECK_ARTIFACT_KEY) ?? fail('not_found', 404)
       return { artifactId: a.id, chatId: a.chatId, title: a.title ?? '', theme: 'paper' as const, slides: 1, pptx: false, pdf: false }
     },
+    // a deck's files and a promo video's MP4: a few bytes under the file's name (the mock never builds them; the specs
+    // that download first turn the info to "can be made", test/e2e/intro-deck.spec.ts, promo-video.spec.ts)
+    downloadIntroDeckPptx: (c) => this.stubDownload(c.params.id!, DECK_ARTIFACT_KEY, 'pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'),
+    downloadIntroDeckPdf: (c) => this.stubDownload(c.params.id!, DECK_ARTIFACT_KEY, 'pdf', 'application/pdf'),
+    downloadPromoVideo: (c) => this.stubDownload(c.params.id!, PROMO_ARTIFACT_KEY, 'mp4', 'video/mp4'),
     // intro decks being built (round 2): the chat's builds, newest first, and a finished slide's small picture
     listDeckBuilds: (c) => {
       if (!this.chats.some((x) => x.id === c.query.chatId)) fail('not_found', 404)
@@ -3055,9 +3114,11 @@ export class MockServer {
       return { status: 202, body: { jobId: this.transcribeJob(c.user) } }
     },
     pollCalls: () => ({ calls: [] }),
-    postResult: () => undefined,
+    // like server/src/routes/browser.ts: a result for a call this server is not waiting for is 404 (the mock never makes calls)
+    postResult: () => fail('not_found', 404),
 
-    listUsers: () => ({ items: this.users }),
+    // the people who asked to have their account deleted: the owner sees them all, an admin the members' only
+    listUsers: (c) => ({ items: this.users, deletionRequested: this.users.filter((u) => this.deletionRequests.has(u.id) && (c.user.role === 'owner' || u.role === 'member')).map((u) => u.id) }),
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
@@ -3073,6 +3134,7 @@ export class MockServer {
     },
     deleteUser: (c) => {
       const target = this.users.find((u) => u.id === c.params.id) ?? fail('not_found', 404)
+      this.deletionRequests.delete(target.id)
       const me = c.user
       // as the server: an admin removes a member only, with their password again
       if (me.role === 'admin') {
@@ -3148,7 +3210,11 @@ export class MockServer {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (u.role === 'owner') fail('forbidden', 403)
       const token = 'rst' + uuidv7().replace(/-/g, '')
-      return { token, url: `/reset-password/${token}`, expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString() }
+      const expiresAt = new Date(Date.now() + 24 * 3600_000).toISOString()
+      // only the newest link of a person works
+      for (const [k, l] of this.resetLinks) if (l.userId === u.id) this.resetLinks.delete(k)
+      this.resetLinks.set(token, { userId: u.id, expiresAt, usedAt: null })
+      return { token, url: `/reset-password/${token}`, expiresAt }
     },
     listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
     createInvite: (c) => {
@@ -3185,14 +3251,16 @@ export class MockServer {
       this.teamLink = { id: uuidv7(), token, groupIds: c.body.groupIds ?? [], skillPath: c.body.skillPath ?? null, maxUses: c.body.maxUses ?? 20, uses: 0, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInDays ?? 14) * 86_400_000).toISOString() }
       return { status: 201, body: this.teamLinkResponse(c.req, c.user) }
     },
-    // like the server: the open link's skill changes and groups are added; its address stays
+    // like the server: the open link's skill changes and groups are added or replaced (`groupIds`); its address stays
     updateTeamLink: (c) => {
       const l = this.teamLink
       if (!l || l.uses >= l.maxUses) fail('not_found', 404)
-      const b = c.body as { skillPath?: string | null; addGroupIds?: string[] }
+      const b = c.body as { skillPath?: string | null; addGroupIds?: string[]; groupIds?: string[] }
       if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
+      if ((b.groupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
       if (b.skillPath !== undefined) l!.skillPath = b.skillPath
-      l!.groupIds = [...new Set([...l!.groupIds, ...(b.addGroupIds ?? [])])]
+      l!.groupIds = [...new Set([...(b.groupIds ?? l!.groupIds), ...(b.addGroupIds ?? [])])]
+      if (b.groupIds) l!.groupsChosen = true
       return this.teamLinkResponse(c.req, c.user)
     },
     revokeTeamLink: () => {
@@ -3886,6 +3954,18 @@ export class MockServer {
       void c
       return { status: 202, body: { jobId: id } }
     },
+    // the export (server/src/system/export.ts): a job that ends with where the archive was written (the owner's folder)
+    startExport: (c) => {
+      const id = uuidv7()
+      const job: Job = { id, kind: 'export', status: 'running', progress: 0, message: 'Exporting', result: null, error: null, createdAt: now(), finishedAt: null }
+      this.jobs.set(id, job)
+      const path = `users/${c.user.id}/exports/mycel-export-20261113-0900.tar.zst${c.body.password ? '.age' : ''}`
+      setTimeout(() => {
+        Object.assign(job, { status: 'done', progress: 1, result: { path, size: 4096 }, finishedAt: now() })
+        this.publish({ type: 'job.done', data: { job } })
+      }, 200)
+      return { status: 202, body: { jobId: id } }
+    },
     // the restore: owner-reauth like the server (a wrong password is 403 with fields['body.password']); the job only
     // stages it (the server applies it at its next start)
     startRestore: (c) => {
@@ -4432,6 +4512,20 @@ export class MockServer {
       return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length, roomUnreadCount: 0 }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
+    // the server's rule (server/src/notifications/service.ts readAll): All every unread notice of mine, a tab its own
+    markAllNotificationsRead: (c) => {
+      let read = 0
+      for (const n of this.inbox) {
+        if (n.userId !== c.user.id || n.readAt) continue
+        const item = this.inboxItem(n)
+        if (c.body.only === 'rooms' && !item.room) continue
+        if (!activityTabHas(item, c.body.tab)) continue
+        n.readAt = now()
+        read++
+      }
+      if (read) this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+      return { read }
+    },
     markNotificationRead: (c) => {
       const n = this.inbox.find((x) => x.id === c.params.id && x.userId === c.user.id) ?? fail('not_found', 404)
       n.readAt ??= now()
@@ -5139,6 +5233,22 @@ export class MockServer {
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
     else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
+    else if (p === '/__test/ai-version') {
+      // a stored version of a file that an AI answer saved (POST {path, by, chatId?}): `chatId` only where the server would
+      // name the chat (the viewer may open it now: server/src/chat/version-chats.ts); without it, "by AI" alone.
+      // `current: true`: the file as it is now is that AI save (its history's current entry)
+      const path = String(body.path)
+      if (body.current) {
+        this.aiCurrent.set(path, typeof body.chatId === 'string' ? body.chatId : null)
+        return Response.json({ ok: true })
+      }
+      const by = this.users.find((u) => u.id === String(body.by)) ?? this.users[0]!
+      this.versions.push({
+        id: uuidv7(), path, version: this.versions.filter((v) => v.path === path).length + 1, sha256: crypto.randomUUID().replace(/-/g, '').padEnd(64, '0'), size: 30,
+        author: { id: by.id, name: by.name }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now(), savedBy: { id: by.id, name: by.name }, savedTurnId: uuidv7(),
+        ...(typeof body.chatId === 'string' ? { savedChatId: body.chatId } : {}),
+      })
+    }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)
