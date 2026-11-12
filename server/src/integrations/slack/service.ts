@@ -161,7 +161,8 @@ export class SlackConnector {
     this.api = new SlackApi(deps)
     this.now = deps.now ?? Date.now
     this.box = new SecretBox(path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'slack'))
-    const b = deps.broker !== undefined ? deps.broker : slackBrokerFor(ctx)
+    // a fake Slack (offline tests) never reaches a real hosting service, whatever the environment says
+    const b = deps.broker !== undefined ? deps.broker : deps.base !== undefined ? null : slackBrokerFor(ctx)
     this.broker = b ? new SlackBrokerClient({ now: this.now, ...b }) : null
     if (this.broker) {
       this.brokerTimer = setInterval(() => { if (this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : BROKER_RETRY_MS)) void this.checkBroker() }, 30_000)
@@ -230,7 +231,8 @@ export class SlackConnector {
 
   private noteState(s: SlackState, err: SlackErrorCode | null) {
     // the official app removed from the workspace: that stays the reason until it is added again
-    if (this.config()?.last_error === 'removed' && !this.config()?.secret_enc) return
+    const now = this.config()
+    if (now?.last_error === 'removed' && !now.secret_enc) return
     try { this.db.query('UPDATE slack_config SET last_error = ? WHERE id = 1 AND last_error IS NOT ?').run(err, err) } catch {}
     // each new connection reads the bot's name again: it may have been renamed in Slack's app settings
     if (s === 'connected') void this.readBotName()
@@ -846,6 +848,8 @@ export class SlackConnector {
   /** One envelope from the hosting service's long poll: Slack's own envelope, checked exactly as one from a socket of
    * our own (onEnvelope: the workspace and the app id installed here); `lifecycle`: removed from the workspace. */
   private async onBrokerEvent(e: SlackBrokerEvent) {
+    // each of the hosting service's events once (it hands one out again until it is acknowledged)
+    if (!this.seen(`b:${e.id}`)) return
     if (e.kind === 'lifecycle') {
       const ev = (e.payload as { event?: unknown } | null)?.event
       if (ev === 'uninstalled' || ev === 'tokens_revoked' || ev === 'removed') this.removedInSlack(ev)

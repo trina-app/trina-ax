@@ -211,7 +211,15 @@ export class SlackBrokerFeed {
   constructor(private readonly o: FeedOptions) {}
 
   start() { if (!this.running) this.running = this.loop() }
-  stop() { this.stopped = true; this.abort.abort() }
+  stop() { this.stopped = true; this.abort.abort(); this.flush() }
+
+  /** Stopped with events taken but not acknowledged yet (Turn off, removed from Slack): acknowledged now, so they are
+   * not handed out again later (a stale "removed" would undo an install added again meanwhile). Best effort. */
+  private flush() {
+    if (!this.ack.length) return
+    const ack = this.ack.splice(0)
+    void this.o.client.poll(ack, 0).catch(() => {})
+  }
 
   private set(s: FeedState, err: 'broker_unreachable' | 'not_served' | null) {
     if (this.state === s && this.lastError === err) return
@@ -245,16 +253,16 @@ export class SlackBrokerFeed {
       this.ack = []
       this.failures = 0
       this.set('connected', null)
-      try { this.o.onInstall(answer.install) } catch { /* the connector's note only */ }
-      if (this.stopped) return
       // one answer's envelopes side by side (each is a person's question; the connector handles an event id and a
       // message once, also when two run at once), then all of them taken
       await Promise.all(answer.events.map(async (e) => {
         try { await this.o.onEvent(e) } catch (err) { this.o.log.error('slack broker event failed', { err: err instanceof Error ? err.name : 'unknown' }) }
       }))
-      if (this.stopped) return
       // taken (handled or not): acknowledged with the next poll; a repeat after a restart is handled once anyway
       for (const e of answer.events) this.ack.push(e.id)
+      if (this.stopped) { this.flush(); return }
+      // after the events: a `lifecycle` event among them says why the install is gone better than `install: null`
+      try { this.o.onInstall(answer.install) } catch { /* the connector's note only */ }
     }
   }
 }
