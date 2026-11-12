@@ -187,12 +187,13 @@ test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, a
   expect(await historyLength(page)).toBe(length)
 })
 
-test('a member: /admin goes home and leaves no list behind', async ({ page }) => {
+test('a member: /admin says it is for admins and leaves no list behind', async ({ page }) => {
   await page.getByTestId('tab-me').click()
   await page.getByTestId('settings-logout').click()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/members')
-  await expect(page).not.toHaveURL(/\/admin/)
+  // TC-272: the admin-only notice with a way Home, in place of the page (no Admin list put under it)
+  await expect(page.getByTestId('admin-only')).toBeVisible()
   await page.goBack()
   await expect(page).not.toHaveURL(/\/admin/)
 })
