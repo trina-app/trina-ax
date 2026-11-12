@@ -6,7 +6,8 @@
 // turned off is not offered to the AI, server/src/integrations/connections/tools.ts; tools the service adds later are
 // on), and for people who manage it check again / sign in / edit / delete. Signing in stays on the line while it is what
 // the connection needs. Signing in (MCP OAuth) opens the service's page in a window reserved during the click and polls
-// the flow until the server has the tokens.
+// the flow until the server has the tokens. In the phone app a connection is changed on a computer: its row keeps its
+// state, Check again and Delete (44 px), with no Edit.
 import clsx from 'clsx'
 import { Check, ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -350,10 +351,12 @@ export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, 
               <Button size="sm" disabled={checking} onClick={() => void actions.refresh(i)} data-testid="integration-refresh">
                 <RefreshCw size={14} className={clsx(checking && 'animate-spin')} aria-hidden /> {t('integrations.refresh')}
               </Button>
-              <IconButton label={t('integrations.edit', { name: i.name })} onClick={onEdit} data-testid="integration-edit">
-                <Pencil size={15} />
-              </IconButton>
-              <IconButton label={t('integrations.delete', { name: i.name })} danger onClick={() => void actions.remove(i)} data-testid="integration-delete">
+              {!phone && (
+                <IconButton label={t('integrations.edit', { name: i.name })} onClick={onEdit} data-testid="integration-edit">
+                  <Pencil size={15} />
+                </IconButton>
+              )}
+              <IconButton label={t('integrations.delete', { name: i.name })} danger className={phone ? 'touch-hit' : undefined} onClick={() => void actions.remove(i)} data-testid="integration-delete">
                 <Trash2 size={15} />
               </IconButton>
             </div>

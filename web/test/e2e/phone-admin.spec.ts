@@ -185,6 +185,8 @@ test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, a
 test('a member: /admin goes home and leaves no list behind', async ({ page }) => {
   await page.getByTestId('tab-me').click()
   await page.getByTestId('settings-logout').click()
+  // signing out asks first on a phone
+  await page.getByTestId('dialog-confirm').click()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/members')
   await expect(page).not.toHaveURL(/\/admin/)
