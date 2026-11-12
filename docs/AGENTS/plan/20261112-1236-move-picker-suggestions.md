@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 12:36
 - Branch: `feat/move-picker-suggestions`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/team-files/move-suggest.ts`, `server/src/file-list/service.ts`,
   `shared/src/api/files.ts`, `web/src/components/FolderPicker.tsx`, Files). Why: files and the file screen are core
   (docs/REPOSITORY-RULES.md).
@@ -45,3 +45,10 @@ Out: the setup step's AI plan (PR A), forms (PR B), suggestions in Share or Save
 - Leaks: a suggestion only names a folder the person can write; scores read only names the person can see and lines
   their `_FILES.md` would show (the view's checks). A member sees nothing about folders they cannot write.
 - Cost: walk capped (folders and files per folder), no model call; the request runs in the person's own time.
+
+## Result
+
+Built as planned. Score: the folder's own name covered by the file's words (0.85), and words common in the folder's
+files and rare elsewhere (noisy-or, damped by n/(n+1)), +0.1 for a shared extension; threshold 0.5. Phone: the ✕ is a
+44 px target. Tests: `tests/unit/c-move-suggest.test.ts`, `web/test/unit/folder-picker-suggestions.test.tsx`,
+`web/test/e2e/move-suggestions.spec.ts`, two permission-matrix cases.
