@@ -4222,6 +4222,8 @@ export const ko = {
   "slack.admin.turnedOn": "Slack 연결을 켰어요.",
   "slack.admin.turnedOff": "Slack 연결을 껐어요.",
   "slack.admin.replace": "토큰 바꾸기",
+  "slack.admin.ownerOnlyApp": "이 Slack 앱은 팀장만 바꾸거나 뺄 수 있어요.",
+  "slack.admin.ownerOnlySetup": "여기서 Slack 연결은 팀장만 할 수 있어요.",
   "slack.admin.remove": "Slack 연결 삭제",
   "slack.admin.removeTitle": "Slack 연결을 삭제할까요?",
   "slack.admin.removeBody": "토큰과 모든 사람의 계정 연결이 지워져요. Slack의 앱은 Slack에서 따로 지워 주세요.",

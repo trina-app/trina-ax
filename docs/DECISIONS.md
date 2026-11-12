@@ -23866,3 +23866,32 @@ Version impact: **patch** (no route, no migration).
   suggestion at all.
 - Tests: `tests/unit/b-form-skill.test.ts`, `tests/unit/c-move-suggest.test.ts`, `web/test/unit/form-skills.test.tsx`,
   `web/test/unit/folder-picker-suggestions.test.tsx`.
+
+## Admins manage Slack too (fix/slack-admins, 2026-11-13, the owner)
+
+Supersedes "Owner only, for every Admin › Slack route: the app answers as every linked person, which is more than an
+admin's own reach" ("Slack 커넥터", 2026-11-05) and the "Who" line of "Slack inside Admin › Connected apps" (2026-11-12).
+The owner (2026-11-13, final): "Admins may manage Slack too." They agreed with the reasoning that admins already add
+team connections and change members' access, and that Slack answers as a person only after that person links their own
+Slack account.
+- **Admins and the owner:** Slack in Admin › Connected apps (Connected or Discover), its state and linked count, "Add to
+  Slack" through the official app, Reconnect (Add to Slack again), Turn off / Turn on, and Remove of the official app.
+  Routes `GET /api/admin/slack`, `POST /api/admin/slack/enabled`, `DELETE /api/admin/slack` and
+  `POST /api/admin/slack/official/install` are `auth: 'admin'`; the "Add to Slack" return finishes only for the person
+  who pressed it if they are still the owner or an admin.
+- **The owner only:** the team's own Slack app, i.e. pasting its bot and app-level tokens and its client secret
+  (`PUT /api/admin/slack/tokens` stays `auth: 'owner'`), and removing it while it is saved (`DELETE` answers an admin
+  403 `owner_only`, nothing changes): removing it would destroy the owner's setup, which an admin could not restore. An
+  admin's Turn off / on of the own app is allowed (it touches no token). No answer reveals a token to anyone, as before.
+  Picked as the option that widens access least where the decision did not say (Remove of the own app).
+- **Screens.** An admin gets the same Slack page without the own app's parts: no "Use your own Slack app instead", no
+  four steps, no "Replace tokens" and no Remove of it; one plain line says "Only the team owner can change or remove
+  this Slack app." (set up) or "Only the team owner can connect Slack here." (nothing added and no Add to Slack). The old
+  `/admin/slack` opens Slack's page for admins too. Members: unchanged.
+- **Audit.** Unchanged: every change (`slack.installed`, `slack.enabled`, `slack.disabled`, `slack.removed`) names who
+  made it.
+- Tests: `tests/unit/c-slack.test.ts` (route levels pinned; admin sees, turns off, refused on tokens and on removing the
+  own app), `tests/unit/c-slack-official.test.ts` (admin adds, turns off and on, removes; demoted meanwhile: not added),
+  the security route matrix (`tests/security/lib/slack-cases.ts`, by level), `web/test/unit/slack-screens.test.tsx`,
+  `web/test/e2e/slack-in-connectors.spec.ts`, `web/test/e2e/phone-admin.spec.ts`.
+- Version impact: **minor** (a wider role on existing routes; no new route).

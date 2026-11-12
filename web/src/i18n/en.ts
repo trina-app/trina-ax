@@ -4223,6 +4223,8 @@ export const en: Record<MessageKey, string> = {
   "slack.admin.turnedOn": "Slack is on.",
   "slack.admin.turnedOff": "Slack is off.",
   "slack.admin.replace": "Replace tokens",
+  "slack.admin.ownerOnlyApp": "Only the team owner can change or remove this Slack app.",
+  "slack.admin.ownerOnlySetup": "Only the team owner can connect Slack here.",
   "slack.admin.remove": "Remove Slack",
   "slack.admin.removeTitle": "Remove the Slack connection?",
   "slack.admin.removeBody": "The tokens and everyone's account links are deleted. Delete the app itself in Slack.",

@@ -4179,6 +4179,8 @@ export const ja: Record<MessageKey, string> = {
   "slack.admin.turnedOn": "Slack連携をオンにしました。",
   "slack.admin.turnedOff": "Slack連携をオフにしました。",
   "slack.admin.replace": "トークンを変更",
+  "slack.admin.ownerOnlyApp": "このSlackアプリを変更・削除できるのはチームのオーナーだけです。",
+  "slack.admin.ownerOnlySetup": "ここでSlackを連携できるのはチームのオーナーだけです。",
   "slack.admin.remove": "Slack連携を削除",
   "slack.admin.removeTitle": "Slack連携を削除しますか？",
   "slack.admin.removeBody": "トークンと全員のアカウント連携が削除されます。Slackのアプリ自体はSlack側で削除してください。",

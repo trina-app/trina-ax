@@ -1,9 +1,9 @@
 // Route module "slack" — owner: component C (docs/WORKPLAN.md). The Slack connector's screens (contract:
-// shared/src/api/slack.ts; logic: server/src/integrations/slack/service.ts): the owner's Admin › Connected apps ›
-// Slack, each person's own link (Settings) and the one-time link page (/slack/link?t=…, its token only ever in a POST
+// shared/src/api/slack.ts; logic: server/src/integrations/slack/service.ts): Admin › Connected apps › Slack (the
+// owner and admins; the team's own app's tokens the owner's alone: saveSlackTokens is 'owner', remove checks it), each person's own link (Settings) and the one-time link page (/slack/link?t=…, its token only ever in a POST
 // body). With the hosting service's official app: "Add to Slack" (official/install) and the browser's return from it
-// (official/callback), bound to the owner who pressed it like "Sign in with Slack" is to its person.
-// init() makes the connector and opens the connection when the owner turned it on.
+// (official/callback), bound to the owner or admin who pressed it like "Sign in with Slack" is to its person.
+// init() makes the connector and opens the connection when it was turned on.
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { HttpError } from '../http/errors'
@@ -91,11 +91,12 @@ export const slackRoutes: RouteModule = {
       const r = encodeURIComponent(out.result === 'signin_needed' ? 'signin_failed' : out.result)
       return c.redirect(out.client === 'web' ? `/settings/connectors?slack=${r}` : `/slack/done?slack=${r}`, 303)
     })
-    kit.handle(API.removeSlack, ({ c, auth }) => safe(c.get('locale'), () => slack().remove(auth.user.id)))
+    // the team's own app (its tokens) is the owner's alone: the service refuses an admin there
+    kit.handle(API.removeSlack, ({ c, auth }) => safe(c.get('locale'), () => slack().remove(auth.user.id, { owner: auth.user.role === 'owner' })))
     // "Add to Slack" (the hosting service's official app): Slack's install page; the browser comes back below
     kit.handle(API.startSlackInstall, ({ c, body, auth }) => safe(c.get('locale'), () => slack().startInstall(auth.user.id, auth.session.id, auth.session.client, teamOrigin(c, ctx, body.origin))))
     // The hosting service sends the browser back here after Slack's "Add to Slack" (only to this team's address it
-    // recorded). Signed in as the owner who pressed it: added. No session in this browser: sign in first, then the
+    // recorded). Signed in as the owner or admin who pressed it: added. No session in this browser: sign in first, then the
     // fixed return page brings it back here. Another person's session: refused. Then Admin › Connected apps › Slack
     // (/admin/connectors/slack; the web app sends the old /admin/slack there too) says how it went (a flow started in
     // the desktop or phone app: a page saying it is done).

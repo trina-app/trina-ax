@@ -370,9 +370,11 @@ export class SlackConnector {
   }
 
   /** Forget the tokens and every link. The official app: the hosting service takes it off the workspace first (best
-   * effort: unreachable, it is removed here anyway and its operator can remove the install there). */
-  async remove(actor: string): Promise<SlackAdmin> {
+   * effort: unreachable, it is removed here anyway and its operator can remove the install there). The team's own app
+   * (its tokens saved here): the owner's alone; an admin removes the official app, or a row with no tokens left. */
+  async remove(actor: string, by: { owner: boolean }): Promise<SlackAdmin> {
     const cfg = this.config()
+    if (!by.owner && cfg?.mode !== 'official' && cfg?.secret_enc) throw new SlackError('owner_only', 'forbidden')
     let slack: 'removed' | 'unavailable' | null = null
     // an install still waiting for Slack's check is not taken up after this
     this.pending = null
@@ -734,7 +736,7 @@ export class SlackConnector {
     return !!answer
   }
 
-  /** The owner pressed "Add to Slack" (Slack's admin page): a flow bound to them (state hashed, its PKCE verifier
+  /** The owner or an admin pressed "Add to Slack" (Slack's admin page): a flow bound to them (state hashed, its PKCE verifier
    * sealed, 10 minutes, used once, the newest only), and Slack's own install page from the hosting service. `origin`:
    * the team's address the page is open at (where links in Slack will open). */
   async startInstall(userId: string, sessionId: string, client: string, origin: string): Promise<{ authorizationUrl: string }> {
@@ -760,8 +762,8 @@ export class SlackConnector {
     }
   }
 
-  /** The hosting service sent the owner's browser back after Slack's "Add to Slack": only a browser signed in as the
-   * owner who started it finishes it (no session: sign in first, the flow waits; another person: refused and ended).
+  /** The hosting service sent the browser back after Slack's "Add to Slack": only a browser signed in as the owner
+   * or admin who started it finishes it (no session: sign in first, the flow waits; another person: refused and ended).
    * The handoff is redeemed with this flow's verifier for the install and its bot token (sealed to a key made for
    * that request), which Slack itself must confirm (auth.test) before it is kept. */
   async finishInstall(input: { state?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
@@ -776,9 +778,9 @@ export class SlackConnector {
     if (browser.userId !== f.user_id) return end('signin_other_user')
     if (!this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'used' WHERE id = ? AND state = 'pending'").run(f.id).changes) return out('install_expired')
     const fail = (reason: string) => { this.db.query('UPDATE slack_install_flows SET reason = ? WHERE id = ?').run(reason, f.id); return out(reason) }
-    // still the team's owner (a role can change in 10 minutes)
-    const owner = this.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(f.user_id)
-    if (!owner || !this.broker) return fail('install_failed')
+    // still the team's owner or an admin (a role can change in 10 minutes)
+    const allowed = this.db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(f.user_id)
+    if (!allowed || !this.broker) return fail('install_failed')
     let verifier: string
     try { verifier = this.box.open<{ verifier: string }>(`slack:install-flow:${f.id}`, f.verifier_enc, f.key_version).verifier } catch { return fail('install_failed') }
     let got: { install: SlackBrokerInstallInfo; botToken: string }

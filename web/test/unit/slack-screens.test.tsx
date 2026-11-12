@@ -1,5 +1,6 @@
 // Admin › Connected apps › Slack and Settings › Connectors › Slack (docs/SLACK.md). Slack is one row of Admin ›
-// Connected apps (the owner's only), not a menu item of its own; /admin/slack leads to its page. The setup is four
+// Connected apps (the owner's and admins'; an admin never gets the team's own app's steps, tokens or its Remove), not a
+// menu item of its own; /admin/slack leads to its page. The setup is four
 // steps, each with its Slack page,
 // and no manifest on the page; a refused token is said under its own field until the next try, never in a toast; once
 // set up, one status line with one button, a problem names the one place to fix it, "Remove" waits behind "Replace
@@ -30,6 +31,8 @@ let calls: string[] = []
 let sealingKey: unknown
 let installAnswer: () => Response
 let enabledAnswer: () => Response
+/** who is signed in: the owner, unless a test says an admin */
+const signedIn = (role: 'owner' | 'admin') => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'u1', username: 'olga', name: 'Olga', email: null, role, locale: 'en', localeChoice: 'en', mustChangePassword: false, prefs: {} }, groups: [], team: { name: 'Acme', defaultLocale: 'en' }, server: { version: '0', dev: false, features: {} } } } } as never)
 
 const base = (o: Partial<SlackAdmin> = {}): SlackAdmin => ({
   mode: 'own', official: false, enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0,
@@ -51,6 +54,7 @@ beforeAll(async () => {
 })
 afterAll(() => { removeDom(); (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realResizeObserver; delete (globalThis as { location?: unknown }).location })
 beforeEach(() => {
+  signedIn('owner')
   calls = []
   assigned = []
   adminQueries = []
@@ -307,13 +311,11 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
     await m.unmount()
   })
 
-  test('the old address: the owner gets Slack\'s page with the query Add to Slack came back with; an admin the list', () => {
-    expect(redirectOf('slack', undefined, '?slack=installed', false, true)).toBe('/admin/connectors/slack?slack=installed')
-    expect(redirectOf('slack', undefined, '', true, true)).toBe('/admin/connectors/slack')
-    expect(redirectOf('slack', undefined, '?slack=installed', false, false)).toBe('/admin')
-    // its page is the owner's; an admin who types it gets Connected apps
-    expect(redirectOf('connectors', 'slack', '', false, true)).toBeNull()
-    expect(redirectOf('connectors', 'slack', '', false, false)).toBe('/admin/connectors')
+  test('the old address: the owner and admins get Slack\'s page with the query Add to Slack came back with', () => {
+    expect(redirectOf('slack', undefined, '?slack=installed', false)).toBe('/admin/connectors/slack?slack=installed')
+    expect(redirectOf('slack', undefined, '', true)).toBe('/admin/connectors/slack')
+    // its page is the owner's and admins' (Admin is theirs only)
+    expect(redirectOf('connectors', 'slack', '', false)).toBeNull()
   })
 
   test('its state on the row: on, off, a problem, Reconnect after it was removed in Slack; not added: Discover', () => {
@@ -382,18 +384,56 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
     } finally { useSession.setState({ status } as never) }
   })
 
-  test('an admin who is not the owner: no Slack, and its state is not asked for (the server refuses it)', async () => {
+  test('an admin: Slack in Connected (or Discover) as for the owner; its page has Add to Slack, Turn off and Remove, never the own app', async () => {
     const status = useSession.getState().status
     try {
-      admin = on()
-      const m = await list('admin')
-      await m.until(() => m.find('connector-discover'), 'the list')
-      await m.settle()
-      expect(slackRow(m, 'connected-app')).toBeNull()
-      expect(slackRow(m, 'connector-card')).toBeNull()
-      expect(calls).not.toContain('GET /api/admin/slack')
+      admin = on({ mode: 'official', official: true })
+      let m = await list('admin')
+      expect((await m.until(() => slackRow(m, 'connected-app'), 'the Slack row')).getAttribute('data-state')).toBe('on')
+      await m.unmount()
+      admin = base({ official: true })
+      m = await list('admin')
+      await m.until(() => slackRow(m, 'connector-card'), 'the Slack card')
+      await m.unmount()
+      // not added, the hosting service serves it: Add to Slack, but no "Use your own Slack app"
+      m = await list('admin', '/admin/connectors/slack')
+      await m.click(await m.until(() => m.find('slack-add'), 'Add to Slack'))
+      expect(calls).toContain('POST /api/admin/slack/official/install')
+      expect(m.find('slack-own-app')).toBeNull()
+      await m.unmount()
+      // added: Turn off and Remove
+      admin = on({ mode: 'official', official: true })
+      enabledAnswer = () => json(on({ mode: 'official', official: true, enabled: false, state: 'off' }))
+      m = await list('admin', '/admin/connectors/slack')
+      await m.click(await m.until(() => m.find('slack-toggle'), 'Turn off'))
+      await m.until(() => (m.find('slack-toggle')?.textContent === 'Turn on' ? true : null), 'turned off')
+      expect(m.find('slack-remove')).not.toBeNull()
+      expect(m.find('slack-replace')).toBeNull()
       await m.unmount()
     } finally { useSession.setState({ status } as never) }
+  })
+
+  test('an admin and the team\'s own app: its state and Turn off, but no steps, tokens, Replace or Remove; one line says only the owner can', async () => {
+    signedIn('admin')
+    // set up: the status line with its button; "Replace tokens" is a plain line instead
+    admin = on({ state: 'error', lastError: 'invalid_auth' })
+    let m = await page()
+    await m.until(() => m.find('slack-status'), 'the status')
+    expect(m.find('slack-toggle')).not.toBeNull()
+    expect(m.find('slack-replace')).toBeNull()
+    expect(m.find('slack-remove')).toBeNull()
+    expect(m.get('slack-owner-only').textContent).toBe('Only the team owner can change or remove this Slack app.')
+    // the fix "[Replace tokens]" is words only (no button to open the token form)
+    expect(m.get('slack-error').querySelector('button')).toBeNull()
+    expect(m.find('slack-bot-token')).toBeNull()
+    await m.unmount()
+    // not set up and no "Add to Slack" here: no four steps, one line
+    admin = base()
+    m = await page()
+    expect((await m.until(() => m.find('slack-owner-only'), 'the line')).textContent).toContain('Only the team owner can connect Slack here.')
+    expect(m.find('slack-setup')).toBeNull()
+    expect(m.find('slack-bot-token')).toBeNull()
+    await m.unmount()
   })
 })
 
