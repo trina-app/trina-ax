@@ -24,11 +24,12 @@ describe('healthAnswer', () => {
     expect(isMigrating(null)).toBe(false)
   })
 
-  const port = 19821
+  // a free port each run: a fixed one stopped the whole file when another program on the Mac held it
   const server = Bun.serve({
-    hostname: '127.0.0.1', port,
+    hostname: '127.0.0.1', port: 0,
     fetch: () => Response.json({ ok: false, status: 'migrating', version: '0.3.0', migrating: { since: 'x', pending: 1, copiedBytes: 0, dbBytes: 1 << 20 } }, { status: 503 }),
   })
+  const port = server.port!
   afterAll(() => server.stop(true))
   test('probeHealth reads a 503 "migrating" answer', async () => {
     expect(await probeHealth(port)).toEqual({ migrating: '0.3.0', progress: '1 migrations pending' })
