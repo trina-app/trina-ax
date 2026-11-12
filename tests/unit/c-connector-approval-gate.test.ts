@@ -297,6 +297,44 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
   })
 
+  test('the user edit page: out of the group that gave access, or the account disabled, the member\'s own Always allow goes and does not come back', async () => {
+    // a group with a real id (the user edit page takes ids of groups)
+    const group = crypto.randomUUID().replace(/^(.{14})./, '$17')
+    A.ctx.db.query('INSERT INTO groups (id, name) VALUES (?, ?)').run(group, 'Edit page group')
+    A.ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?), (?, ?)').run(group, 'erin', group, 'bob')
+    const t = (await json('carol', '/api/admin/integrations', 'POST', { kind: 'mcp', name: 'Group board', url: `${fake.base}/mcp-open?team=group`, auth: 'none', writePolicy: 'ask', access: { everyone: false, groups: [group], users: [] } })).body
+    const rows = () => (A.ctx.db.query('SELECT user_id FROM integration_user_allow WHERE integration_id = ? ORDER BY user_id').all(t.id) as { user_id: string }[]).map((r) => r.user_id)
+    const groupsOf = (who: string) => (A.ctx.db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(who) as { group_id: string }[]).map((r) => r.group_id).filter((g) => /^[0-9a-f-]{36}$/.test(g))
+    try {
+      for (const who of ['bob', 'erin'] as const) expect((await turn(who, { person: asker('always') }).call('team_groupboard__create_task', { title: who })).isError).toBe(false)
+      expect(rows()).toEqual(['bob', 'erin'])
+      // erin is taken out of the group on her own page: her choice goes, bob's stays
+      const out = await json('carol', '/api/admin/users/erin', 'PATCH', { groupIds: groupsOf('erin').filter((g) => g !== group) })
+      expect(out.status, JSON.stringify(out.body)).toBe(200)
+      expect(rows()).toEqual(['bob'])
+      // put back: she is asked again
+      const back = await json('carol', '/api/admin/users/erin', 'PATCH', { groupIds: [...groupsOf('erin'), group] })
+      expect(back.status, JSON.stringify(back.body)).toBe(200)
+      const erin = asker('no')
+      const again = await turn('erin', { person: erin }).call('team_groupboard__create_task', { title: 'again' })
+      expect(again.isError, again.summary).toBe(true)
+      expect(erin.cards).toHaveLength(1)
+      // bob's account is disabled: his choice goes, and enabling it again does not bring it back (the fixture's groups
+      // have no UUIDv7 ids, which the route's answer would refuse: he keeps only this group here)
+      A.ctx.db.query("DELETE FROM group_members WHERE user_id = 'bob' AND group_id <> ?").run(group)
+      expect((await json('carol', '/api/admin/users/bob', 'PATCH', { status: 'disabled' })).status).toBe(200)
+      expect(rows()).toEqual([])
+      expect((await json('carol', '/api/admin/users/bob', 'PATCH', { status: 'active' })).status).toBe(200)
+      expect(rows()).toEqual([])
+    } finally {
+      A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id)
+      A.ctx.db.query('DELETE FROM group_members WHERE group_id = ?').run(group)
+      A.ctx.db.query('DELETE FROM groups WHERE id = ?').run(group)
+      // the fixture's groups back as they were
+      A.ctx.db.query("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES ('finance', 'bob'), ('marketing', 'erin')").run()
+    }
+  })
+
   test('an HTTP API\'s card offers it too; a connection that already sends without asking offers no Always allow', async () => {
     const p = asker('always')
     expect((await turn('alice', { person: p }).call('api_request', { connection: 'team_askingapi', method: 'POST', path: '/tasks', body: { title: 'x' } })).isError).toBe(false)
