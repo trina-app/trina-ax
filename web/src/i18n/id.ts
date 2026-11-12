@@ -1154,6 +1154,7 @@ export const id: Record<MessageKey, string> = {
   'profile.photo': 'Foto',
   'profile.photoChoose': 'Pilih foto',
   'profile.photoChange': 'Ganti foto',
+  'profile.photoAdd': 'Tambah foto',
   'profile.photoRemove': 'Hapus foto',
   "profile.photoHint": "Pilih foto. Foto dipotong menjadi persegi.",
   'profile.photoProblem': 'Berkas ini tidak bisa dipakai sebagai foto. Pilih foto PNG, JPEG, atau WebP.',

@@ -901,14 +901,15 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
       {/* the one eye button above shows both fields */}
       <PasswordField label={t('auth.passwordAgain')} error={errorOf('next2')} reveal={reveal} eye={false} name="next2" value={form.next2} onChange={set('next2')} required autoComplete="new-password" data-testid="password-new2" />
       <CapsLockNote reveal={reveal} />
-      {/* the forced change is a sign-in style page: its button stays above a phone's keyboard; in Settings it is a plain row */}
+      {/* the forced change is a sign-in style page: its button stays above a phone's keyboard; in Settings it is a plain row,
+          and on a phone (Settings › Security & devices › Change password, QA TC-382) one button the form's width */}
       <SubmitBar plain={!forced}>
         {error && (
           <p role="alert" className="text-sm text-danger">
             {error}
           </p>
         )}
-        <Button type="submit" variant="primary" busy={busy} className={forced ? 'w-full' : undefined} data-testid="password-submit">
+        <Button type="submit" variant="primary" busy={busy} className={forced ? 'w-full' : 'max-md:mt-2 max-md:w-full'} data-testid="password-submit">
           {t('auth.changePassword')}
         </Button>
       </SubmitBar>

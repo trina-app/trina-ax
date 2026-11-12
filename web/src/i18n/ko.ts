@@ -1153,6 +1153,7 @@ export const ko = {
   'profile.photo': '사진',
   'profile.photoChoose': '사진 고르기',
   'profile.photoChange': '사진 바꾸기',
+  'profile.photoAdd': '사진 넣기',
   'profile.photoRemove': '사진 지우기',
   "profile.photoHint": "사진을 고르면 정사각형으로 잘라서 올려요.",
   'profile.photoProblem': '이 파일은 사진으로 쓸 수 없어요. PNG, JPEG, WebP 사진을 골라 주세요.',

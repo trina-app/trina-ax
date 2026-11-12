@@ -1127,6 +1127,7 @@ export const es: Record<MessageKey, string> = {
   'profile.photo': 'Foto',
   'profile.photoChoose': 'Elegir una foto',
   'profile.photoChange': 'Cambiar la foto',
+  'profile.photoAdd': 'Añadir foto',
   'profile.photoRemove': 'Quitar la foto',
   "profile.photoHint": "Elija una foto. Se recorta a un cuadrado.",
   'profile.photoProblem': 'Este archivo no se puede usar como foto. Elija una foto PNG, JPEG o WebP.',

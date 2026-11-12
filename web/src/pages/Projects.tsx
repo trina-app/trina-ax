@@ -31,11 +31,12 @@
 // members dialog) loads the page again. Deleting a team project in projects/ moves it to the trash with its folder; a
 // project in the trash says so on its page with 되돌리기 (the owner and admins; gone once the server says its folder
 // was deleted for good) and 완전히 삭제, and has no name menu there.
-// Phones (below 768 px; QA TC-254): the list has "+" in the top bar (components/phone/PhoneBarAction.tsx) and no intro
-// or button in the page, its cards' "···" 44 px; a project's page has one bar, "‹ 프로젝트 · name · ···" (the name in the
-// bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its files line is one row
-// that opens the project's files on a screen of the 트리나 tab (ProjectFiles below, /projects/:id/files), so Back
-// returns to the project.
+// Phones (below 768 px; QA TC-254, TC-380): the list has "+" in the top bar (components/phone/PhoneBarAction.tsx) and no
+// intro or button in the page, and is a phone list (components/phone/PhoneList.tsx), not cards: one row per project with
+// its name, who sees it, the card's "···" (44 px; a long press opens it too) and a chevron. A project's page has one bar, "‹ 프로젝트 · name · ···" (the name in the bar's title,
+// the name's menu as the bar's "···" sheet; the big name for screen readers only); its files line is one row that opens
+// the project's files on a screen of the 트리나 tab (ProjectFiles below, /projects/:id/files, with no folder path line),
+// so Back returns to the project.
 import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -63,6 +64,8 @@ import { whoSees } from '../lib/sharedChat'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
+import { useRowMenu } from '../components/rooms/RoomMenu'
+import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { isProjectsFolder } from '../lib/projectFolders'
@@ -193,17 +196,24 @@ function useRenameProject() {
 }
 
 /** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
- * it shows on hover and keyboard focus, on a touch screen always. */
-function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }) {
+ * it shows on hover and keyboard focus, on a touch screen always. A phone's row (`row`: useRowMenu's signals) has it
+ * always, 44 px, before the chevron (as the AI chat rows in ☰ have theirs), and a long press opens it too. */
+function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void; row?: { openSignal: number; openRequest: number } }) {
   const t = useT()
   const phone = useMediaQuery(PHONE)
   const { copy } = useCopy()
   const remove = useDeleteProject()
   const renameProject = useRenameProject()
-  // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there
+  // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there; a "…" not on
+  // screen (none should be) gives the keyboard to its row's link instead of losing it
   const more = useRef<HTMLButtonElement>(null)
+  const focusBack = () => {
+    const b = more.current
+    if (b && b.offsetParent !== null) b.focus()
+    else b?.closest('li')?.querySelector<HTMLElement>('[data-row-focus]')?.focus()
+  }
   const select = (fn: () => unknown) => () => {
-    more.current?.focus()
+    focusBack()
     void fn()
   }
   const rename = async () => {
@@ -220,6 +230,23 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { proj
     { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
     ...(mayManage(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => remove(p).then((d) => d && onDeleted(d))), testId: 'project-card-delete' }] : []),
   ]
+  if (row)
+    return (
+      <MenuButton
+        label={t('rooms.menu.rowLabel', { name: p.name })}
+        tip={t('rooms.menu.label')}
+        items={items}
+        sheetTitle={p.name}
+        // in the room the row keeps for it before its chevron (phone/PhoneList.tsx): 44 px from the screen's edge
+        className="absolute inset-y-0 right-11 flex items-center"
+        buttonClassName="size-11 hover:bg-surface"
+        buttonRef={more}
+        focusBack={focusBack}
+        openSignal={row.openSignal}
+        openRequest={row.openRequest}
+        testId="project-card-menu"
+      />
+    )
   return (
     <MenuButton
       label={t('rooms.menu.rowLabel', { name: p.name })}
@@ -271,6 +298,44 @@ function ProjectCardLines({ project: p }: { project: Project }) {
   )
 }
 
+/** A project on a phone's list (QA TC-380): a row like Settings' (components/phone/PhoneList.tsx) with its name (a lock
+ * after it when I may not see its contents), who sees it in its 멤버 line's words ("in the trash" while it is), the
+ * card's "···" (44 px; a long press opens it too) and a chevron. No instructions here (the page has them), and no
+ * time: the project has no last-activity field, and the chats this app holds are only mine, so a time would mislead. */
+function ProjectRow({ project: p, onRenamed, onDeleted, onMembers }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }) {
+  const t = useT()
+  const menu = useRowMenu()
+  const who = whoSeesProject(t, p, 'projects.whoMembers')
+  return (
+    <PhoneListRow
+      icon={<FolderKanban size={16} className="text-accent-text" />}
+      to={`/projects/${p.id}`}
+      testId="project-row"
+      title={
+        <span className="block min-w-0">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{p.name}</span>
+            {p.member === false && !p.inTrash && (
+              <>
+                <Lock size={12} className="shrink-0 text-faint" aria-hidden />
+                <span className="sr-only">{t('projects.cardMembersOnly')}</span>
+              </>
+            )}
+          </span>
+          {/* the card's words and their test ids (ProjectCardLines) */}
+          {(who || p.inTrash) && (
+            <span className="block truncate text-xs text-faint" data-testid="project-row-sub">
+              <span data-testid="project-card-who">{who}</span>
+              {p.inTrash && <span data-testid="project-card-state">{who ? ' · ' : ''}{t('chat.project.inTrash')}</span>}
+            </span>
+          )}
+        </span>
+      }
+      menu={{ row: menu.row, guard: menu.guard, node: <ProjectCardMenu project={p} onRenamed={onRenamed} onDeleted={onDeleted} onMembers={onMembers} row={menu} /> }}
+    />
+  )
+}
+
 export function ProjectList() {
   const t = useT()
   const locale = useLocale()
@@ -305,6 +370,13 @@ export function ProjectList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const phone = useMediaQuery(PHONE)
+  const renamed = (r: Project) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
+  const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
+    // in the trash: the card stays, saying so
+    if (d !== 'gone') return setItems((xs) => xs && xs.map((x) => (x.id === d.id ? d : x)))
+    removed(i)
+    setItems((xs) => xs && xs.filter((x) => x.id !== p.id))
+  }
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {phone ? (
@@ -330,6 +402,23 @@ export function ProjectList() {
           }
         />
       )}
+      {phone ? (
+        // a phone: rows from edge to edge, like Settings' list
+        <div ref={box} className="pb-8" data-testid="project-rows">
+          {(error || !items || !items.length) && (
+            <div className="p-4">
+              {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
+              {!items && !error && <Skeleton lines={4} />}
+              {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
+            </div>
+          )}
+          {!!items?.length && (
+            <PhoneListGroup>
+              {items.map((p, i) => <ProjectRow key={p.id} project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />)}
+            </PhoneListGroup>
+          )}
+        </div>
+      ) : (
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
@@ -346,21 +435,12 @@ export function ProjectList() {
                 </span>
                 <ProjectCardLines project={p} />
               </Link>
-              <ProjectCardMenu
-                project={p}
-                onRenamed={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))}
-                onDeleted={(d) => {
-                  // in the trash: the card stays, saying so
-                  if (d !== 'gone') return setItems((xs) => xs && xs.map((x) => (x.id === d.id ? d : x)))
-                  removed(i)
-                  setItems((xs) => xs && xs.filter((x) => x.id !== p.id))
-                }}
-                onMembers={() => setMembers(p)}
-              />
+              <ProjectCardMenu project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />
             </li>
           ))}
         </ul>
       </div>
+      )}
       {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
       {/* the card as the server sees it now (an owner or admin who added or took out themselves: its instructions come or go) */}
       {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? r : x)))} />}
@@ -783,7 +863,8 @@ export const projectDir = (raw: string | null) => (raw ?? '').split('/').filter(
 
 /**
  * A project's files on a phone (QA TC-254): /projects/:id/files, a screen of the 트리나 tab under the project's page
- * (lib/screens.ts), so Back goes up a folder and then to the project, never into the Files tab. Its folders open
+ * (lib/screens.ts), so Back goes up a folder and then to the project, never into the Files tab. No folder path line
+ * (QA TC-380: "projects/QA 프로젝트" is the server's word for it; the bar names where you are). Its folders open
  * further down here (?dir=, relative to the project's folder); a file opens in the file sheet over it (lib/sidePanel.ts,
  * Back closes it). The bar: "‹ name · 파일 (or the folder's name)" and a button to the same folder on the 파일 screen,
  * where it can be changed (upload, rename, move). A computer has the 파일 line on the project's page and the 파일 screen:
@@ -850,7 +931,6 @@ export function ProjectFiles() {
         </PhoneBarAction>
       )}
       <div className="px-4 pt-2 pb-8">
-        {path !== null && <p className="truncate pb-1 text-xs text-faint" title={path || t('files.root')}>{path || t('files.root')}</p>}
         {error && <ErrorNote onRetry={() => read()}>{error}</ErrorNote>}
         {p?.member === false && <p className="py-3 text-sm break-keep text-muted" data-testid="project-files-members-only">{t('projects.membersOnly')}</p>}
         {!list && !error && p?.member !== false && <Skeleton lines={4} />}
