@@ -501,7 +501,10 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const keyboard = useAndroidKeyboard()
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
-      if (state === 'active') web.current?.injectJavaScript("window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('mycel:mobile-foreground'));true;")
+      if (state !== 'active') return
+      web.current?.injectJavaScript("window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('mycel:mobile-foreground'));true;")
+      // back from the background: ask again (a session may have ended meanwhile, or the last check was a blip)
+      if (ready.current) checkSession()
     })
     return () => sub.remove()
   }, [])
@@ -627,7 +630,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
         if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return
         // the answer to the app's own session check, not a bridge message
         const session = sameTeam(address.origin, event.nativeEvent.url) ? readSessionCheck(event.nativeEvent.data, sessionCheck.current) : null
-        if (session !== null) { setSignedIn(session); setAnswered(true); return }
+        // a blip (offline, a relay 502) keeps what the last answer said; it still counts as the first answer
+        if (session !== null) { if (session !== 'unknown') setSignedIn(session === 'in'); setAnswered(true); return }
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {
           if (!reply) return
           // only to the document that asked (its nonce): a page that came meanwhile drops it (src/bridge.ts replyScript)

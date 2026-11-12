@@ -14,3 +14,7 @@ counted as "signed out", so the line came up under a signed-in page until the ne
 - App.tsx: 'in'/'out' set signedIn; 'unknown' keeps it (and only counts as answered on the first check, as before).
 - Ask again when the app comes back to the foreground.
 - tests/unit/mobile-push.test.ts: the three answers; the App wiring.
+
+## Result
+`tests/unit/mobile-push.test.ts` 43/43 (in/out/unknown, the App wiring); mobile `tsc --noEmit` passes. Ships with the
+next app build (iOS build 10).
