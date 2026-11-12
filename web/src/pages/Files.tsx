@@ -54,7 +54,7 @@ import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
-import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, PhoneTargets, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
@@ -1084,21 +1084,19 @@ export default function Files() {
           </div>
           {/* phones: what to do with the selection, at the bottom where the thumb is (above the tab bar) */}
           {phone && anyChecked && (
-            <PhoneTargets.Provider value>
-              <BulkBar
-                count={chosen.length}
-                readOnly={chosen.length - movable.length - fixedChosen}
-                fixed={fixedChosen}
-                canMove={movable.length > 0}
-                canShare={shareable.length > 0}
-                running={running}
-                onMove={() => setBulkPick('move')}
-                onShare={() => setBulkPick('share')}
-                onDelete={() => void bulkDelete()}
-                onClear={clearChecked}
-                bottom
-              />
-            </PhoneTargets.Provider>
+            <BulkBar
+              count={chosen.length}
+              readOnly={chosen.length - movable.length - fixedChosen}
+              fixed={fixedChosen}
+              canMove={movable.length > 0}
+              canShare={shareable.length > 0}
+              running={running}
+              onMove={() => setBulkPick('move')}
+              onShare={() => setBulkPick('share')}
+              onDelete={() => void bulkDelete()}
+              onClear={clearChecked}
+              bottom
+            />
           )}
         </>
       )}
@@ -1593,8 +1591,6 @@ function TrashView() {
   }
   const sorted = useMemo(() => items ?? [], [items])
   return (
-    // phones: 44 px buttons
-    <PhoneTargets.Provider value={phone}>
     <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
       <p className="mb-3 text-xs text-faint" data-testid="trash-note">{t(phone ? 'files.trashNoteShort' : 'files.trashNote')}</p>
       {error && <ErrorNote onRetry={() => void load(false)}>{error}</ErrorNote>}
@@ -1634,6 +1630,5 @@ function TrashView() {
         </div>
       )}
     </div>
-    </PhoneTargets.Provider>
   )
 }
