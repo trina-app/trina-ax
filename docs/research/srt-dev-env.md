@@ -1,7 +1,9 @@
 # Dev environment on srt (design)
 
-Status: built behind `MYCEL_DEV_ENV_RUNNER=srt` on branch `feat/srt-dev-env` (2026-11-04). The box stays the default.
-Section 12 lists what the build changed from this design and what is not done.
+Status: built on branch `feat/srt-dev-env` (2026-11-04). Since 2026-11-12 srt is the only runner: the box runner is
+removed (`docs/DECISIONS.md` "Dev environment: box runner removed, srt only"), and `MYCEL_DEV_ENV_RUNNER` is not read
+any more. The text about the box below is the history of the move. Section 12 lists what the build changed from this
+design and what is not done.
 
 Decision (owner and Dion, 2026-11-04): the dev environment drops the podman box (`mycel-boxd`). The AI's commands run
 directly on the team server inside Anthropic's sandbox runtime **srt** (npm `@anthropic-ai/sandbox-runtime`,
@@ -22,7 +24,7 @@ Rule for this design: keep it simple. Each fallback gets one line.
 
 - One setting for the team (`devEnv.team`, admins): `enabled`, `scope` (everyone, or selected groups and people),
   `network`, `limits`, `consent` (to warning version 2), and `extraDomains`. The per-project setting
-  (`devEnv.project.<id>`) stays for the box runner only. Admins edit the whole team setting in Team settings ›
+  (`devEnv.project.<id>`) of the removed box runner is not read. Admins edit the whole team setting in Team settings ›
   Dev environment (`web/src/pages/admin/DevEnvTeam.tsx`, `PUT /api/admin/dev-env`), so a team with no projects can
   turn it on. A save sends only the changed fields (a change of network or limits stops every run). The section shows
   when `Me.server.devEnv` is set (the flag). On srt the project page shows the team setting too, and its settings
@@ -404,8 +406,8 @@ server with the box still reads the same file during the move:
 | `network` | `offline` forces every project offline |
 | `diskGiB` | not used |
 
-- The server reads the file with a TS port of `parseEntitlement` (`native/cmd/mycel-boxd/plan.go`), with the same
-  ranges. An unknown key or a bad value is an error: the dev environment is then not available (fail closed).
+- The server reads the file with `parsePlan` (`server/src/devenv/srt/plan.ts`; it came from the removed box runner's
+  Go parser), with the same ranges. An unknown key or a bad value is an error: the dev environment is then not available (fail closed).
 - The install writes `/etc/systemd/system/<ID>-devenv.slice` from the same file, as root: `MemoryMax=memoryMiB`,
   `CPUQuota=cpus*100%`, `TasksMax=pids*(2*maxRunning+2)`. The name makes it a child of `<ID>.slice`. The server
   cannot raise these values.
@@ -541,7 +543,7 @@ answers a card (`docs/DECISIONS.md` "Dev environment: sites a person allows").
   2. the srt runner behind the flag, the migration, unit tests and attack tests;
   3. install and team image (section 9);
   4. UI and i18n (section 8);
-  5. **a separate PR later** removes the box: `native/cmd/mycel-boxd/`, `server/src/devenv/boxd.ts`, the Boxd* wire
+  5. **a separate PR later** removes the box (done 2026-11-12, chore/remove-box-runner): `native/cmd/mycel-boxd/`, `server/src/devenv/boxd.ts`, the Boxd* wire
      types, the box parts of `scripts/dev-env/`, the boxd parts of `native/build.sh`, `scripts/build-bundle.ts`,
      `scripts/install-linux.sh` and `native/cmd/mycel-ctl/update.go`, the matching test lines, and the box parts of
      `docs/DECISIONS.md` and `docs/INSTALL-LINUX.md`.

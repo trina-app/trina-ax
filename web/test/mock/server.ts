@@ -42,7 +42,7 @@
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
-// POST /__test/dev-env {srt?: true, network?: 'offline', sites?: string[]} turns the dev environment (experiment) on until
+// POST /__test/dev-env {network?: 'offline', sites?: string[]} turns the dev environment (experiment) on until
 // the next reset (sites: the first person's own allowed sites).
 // POST /__test/html-pdf {on: boolean} says whether this server prints HTML to PDF (Me.server.htmlPdf; off by default, as
 // a server without a headless browser) until the next reset; GET /__test/html-pdf lists the pages printed so far.
@@ -466,8 +466,8 @@ export class MockServer {
    * team setting is off */
   oftenAsked: { team: string[]; groups: Record<string, string[]> } = { team: [], groups: {} }
   /** POST /__test/dev-env: the dev environment (experiment) is on until the next reset (Me.server.devEnv, Team settings
-   * › Dev environment); srt: true is the srt runner (warning version 2, the queue of the chat's runs); otherwise its
-   * endpoints answer 404, like a server without MYCEL_DEV_ENV */
+   * › Dev environment, warning version 2, the queue of the chat's runs); otherwise its endpoints answer 404, like a
+   * server without MYCEL_DEV_ENV */
   devEnv: { srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
   /** POST /__test/html-pdf: the server prints HTML to PDF ("PDF로 저장" in an .html preview); the pages printed, with how */
   htmlPdf = false
@@ -490,9 +490,8 @@ export class MockServer {
   }
   devEnvTeamView() {
     if (!this.devEnv) fail('not_found', 404)
-    const srt = !!this.devEnv!.srt
-    return { setting: this.devEnvTeam, defaultDomains: ['registry.npmjs.org', 'pypi.org', 'github.com'], plan: srt ? { plan: 'starter', maxRunning: 1, cpus: 2, memoryMiB: 3072, pids: 1024, network: 'open' } : null,
-      runner: srt ? 'srt' as const : 'box' as const, warningVersion: srt ? 2 : 1, availability: { available: true } }
+    return { setting: this.devEnvTeam, defaultDomains: ['registry.npmjs.org', 'pypi.org', 'github.com'], plan: { plan: 'starter', maxRunning: 1, cpus: 2, memoryMiB: 3072, pids: 1024, network: 'open' },
+      warningVersion: 2, availability: { available: true } }
   }
 
   constructor(o: { setup?: boolean } = {}) {
@@ -585,6 +584,8 @@ export class MockServer {
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
+    this.beforeUpdate = new Set()
+    this.updateNoticeDismissed = new Set()
     this.trashedProjects.clear()
     this.projectRowIds.clear()
     this.memories = []
@@ -780,6 +781,16 @@ export class MockServer {
   entry(path: string, n: FileNode, user: User): FileEntry {
     return { name: path.slice(path.lastIndexOf('/') + 1), path, type: n.type, size: n.type === 'file' ? n.data!.byteLength : null, mtime: n.mtime, mime: n.type === 'file' ? mimeOf(path) : null, access: this.access(path, user),
       ...(n.type === 'file' && this.downloadOnly.has(path) ? { downloadOnly: true as const } : {}) }
+  }
+  /** POST /__test/project {beforeUpdate: true}: a team project from before the update to members-only projects; and who
+   * dismissed the card about them (server/src/chat/old-projects.ts) */
+  beforeUpdate = new Set<string>()
+  updateNoticeDismissed = new Set<string>()
+  /** like server/src/chat/old-projects.ts updateNoticeProjects: the owner's or an admin's projects from before the update
+   * they manage and do not read now, until they dismiss the card */
+  updateNoticeOf(u: User): Project[] {
+    if (u.role === 'member' || this.updateNoticeDismissed.has(u.id)) return []
+    return this.projects.filter((p) => this.beforeUpdate.has(p.id) && !p.inTrash && this.projectManages(p, u) && !this.projectSees(p, u)).sort((a, b) => a.name.localeCompare(b.name))
   }
   /** POST /__test/download-only {path}: a file Safe operations 1A generated (quarantined: FileEntry.downloadOnly) */
   downloadOnly = new Set<string>()
@@ -2424,6 +2435,22 @@ export class MockServer {
       return { status: 201, body: p }
     },
     getProject: (c) => this.projectFor(c, c.query.manage === '1'),
+    getProjectsUpdateNotice: (c) => ({ items: this.updateNoticeOf(c.user).map((p) => ({ id: p.id, name: p.name })) }),
+    // "Add me to these": a member of each, as Add me saves it (its members told)
+    joinProjectsUpdateNotice: (c) => {
+      let joined = 0, skipped = 0
+      for (const p of this.updateNoticeOf(c.user)) {
+        const pm = this.projectMembers.get(p.folderPath)
+        if (!pm) { skipped++; continue }
+        const before = new Set(this.sharedAudience(p).map((u) => u.id))
+        pm.participants = [...pm.participants, { subjectType: 'user', subjectId: c.user.id }]
+        pm.version++
+        for (const id of before) this.note(id, { kind: 'project_joined', joinerId: c.user.id, projectId: p.id })
+        joined++
+      }
+      return { joined, skipped }
+    },
+    dismissProjectsUpdateNotice: (c) => { this.updateNoticeDismissed.add(c.user.id); return undefined },
     // a new name is management (also without reading it); its instructions and chat sharing are its contents
     updateProject: (c) => {
       const p = this.projectFor(c, true)
@@ -2523,7 +2550,7 @@ export class MockServer {
       p.folderPath = to
       return p
     },
-    // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on (srt) needs the
+    // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on needs the
     // current warning accepted
     devEnvTeam: () => this.devEnvTeamView(),
     myDevEnvSites: (c) => this.devEnvSitesOf(c.user.id),
@@ -2544,7 +2571,7 @@ export class MockServer {
       const b = c.body
       const before = this.devEnvTeam
       const after = { ...before, limits: { ...before.limits, ...(b.limits ?? {}) }, ...(b.extraDomains ? { extraDomains: b.extraDomains } : {}), ...(b.scope ? { scope: b.scope } : {}), ...(b.network ? { network: b.network } : {}), ...(b.enabled !== undefined ? { enabled: b.enabled } : {}) }
-      if (v.runner === 'srt' && after.enabled && !(before.enabled && before.consent?.warningVersion === v.warningVersion) && after.consent?.warningVersion !== v.warningVersion) {
+      if (after.enabled && !(before.enabled && before.consent?.warningVersion === v.warningVersion) && after.consent?.warningVersion !== v.warningVersion) {
         if (b.acceptWarning !== v.warningVersion) fail('conflict', 409, '먼저 개발 환경 경고를 확인해 주세요.')
         after.consent = { by: { id: c.user.id, name: c.user.name }, at: now(), warningVersion: v.warningVersion }
       }
@@ -4859,7 +4886,7 @@ export class MockServer {
     else if (p === '/__test/dev-env') {
       if (body.network === 'offline') this.devEnvTeam.network = 'offline'
       if (Array.isArray(body.sites)) this.devEnvSites.set(this.users[0]!.id, { sites: (body.sites as string[]).map((host) => ({ host, createdAt: now() })), full: false })
-      this.devEnv = body.srt ? { srt: { running: [], waiting: [] } } : {}
+      this.devEnv = { srt: { running: [], waiting: [] } }
     }
     else if (p === '/__test/pack-examples') this.packExamples = (body.examples as typeof this.packExamples | undefined) ?? {}
     else if (p === '/__test/packs-fail') this.packsFail = body.on !== false
@@ -4958,6 +4985,8 @@ export class MockServer {
       this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
       const pr: Project = { id: uuidv7(), name: String(body.name), folderPath, instructions: String(body.instructions ?? ''), createdBy: { id: by.id, name: by.name }, createdAt: now(), canEdit: true }
       this.projects.push(pr)
+      // made before the update to members-only projects (the card on Admin › Home, GET /api/projects/update-notice)
+      if (body.beforeUpdate === true) this.beforeUpdate.add(pr.id)
       for (const [name, text] of Object.entries((body.files as Record<string, string> | undefined) ?? {})) this.putFile(`${folderPath}/${name}`, text)
       // a chat of the caller there (`chatsOf`: whose, by id; their own chats stay theirs, also after they lose it)
       for (const [uid, title] of (body.chats as [string, string][] | undefined) ?? []) {

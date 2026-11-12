@@ -101,6 +101,9 @@ export const CHAT_ERROR_MESSAGES = {
   refused: { code: 'forbidden', ko: 'AI가 이 요청에 답하지 않았어요. 표현을 바꿔 다시 시도해 주세요.', en: 'The AI declined this request. Try rephrasing it.', id: 'AI menolak permintaan ini. Coba ubah kalimatnya.', ja: "AIがこのリクエストを拒否しました。表現を変えてお試しください。", es: "La IA rechazó esta solicitud. Intente reformularla." },
   crash: { code: 'internal', ko: "답하다가 멈췄어요. 다시 해 주세요.", en: "The answer stopped partway. Please try again.", id: "Jawaban berhenti di tengah jalan. Coba lagi.", ja: "回答の途中で止まりました。もう一度お試しください。", es: "La respuesta se detuvo a medias. Vuelva a intentarlo." },
   interrupted: { code: 'unavailable', ko: '서버가 다시 시작되어 답변이 중단됐어요.', en: 'The answer was interrupted because the server restarted.', id: 'Jawaban terputus karena server dimulai ulang.', ja: "サーバーが再起動したため、回答が中断されました。", es: "La respuesta se interrumpió porque se reinició el servidor." },
+  // an update ended the answer (the server or the engine launcher restarted for it: chat/turn.ts, the launcher's orderly
+  // stop, QA TC-338): not a crash; the person sends it again
+  updating: { code: 'unavailable', ko: "트리나가 업데이트되는 동안 답이 멈췄어요. 다시 보내 주세요.", en: "This answer stopped because Trina was updating. Send it again.", id: "Jawaban ini berhenti karena Trina sedang diperbarui. Kirim lagi.", ja: "トリナの更新中だったため、この回答は止まりました。もう一度送ってください。", es: "Esta respuesta se detuvo porque Trina se estaba actualizando. Vuelva a enviarla." },
   // the AI cannot start here (no engine program, none set up, the core down): a member is told it is not ready and can
   // tell an admin with one button; the owner and admins read their own words with [Connect AI] (web/src/lib/chatErrors.ts)
   engine_missing: { code: 'engine_unavailable', ko: "트리나가 아직 준비되지 않았어요.", en: "Trina isn't ready yet.", id: "Trina belum siap.", ja: "トリナはまだ準備ができていません。", es: "Trina todavía no está lista." },

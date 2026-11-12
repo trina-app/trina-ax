@@ -3,8 +3,8 @@
 # system packages"). Every install path reads the list through these functions, and none keeps a list of its own
 # (tests/unit/system-packages.test.ts):
 #   - scripts/install-linux.sh sources the kit's copy (app/<v>/root/packages.sh, signed with the bundle);
-#   - scripts/image/customize.sh, scripts/dev-env/srt/install-srt.sh, scripts/dev-env/install-trial.sh and
-#     scripts/dev-env/vm-setup.sh source the copy next to them (system/ in a staged folder) or scripts/system/;
+#   - scripts/image/customize.sh and scripts/dev-env/srt/install-srt.sh source the copy next to them (system/ in a staged
+#     folder) or scripts/system/;
 #   - scripts/office/office-install.sh sources the zip's app/scripts/system/packages.sh;
 #   - `mycel-ctl update` runs `<base>/root/packages.sh sync` once a release's root files and app are in place.
 #

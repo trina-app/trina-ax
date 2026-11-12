@@ -9,7 +9,8 @@
 #   - srt in /opt/trina/srt/<version> (the list's version) from the pinned package-lock.json (npm ci --ignore-scripts),
 #     root-owned;
 #   - /opt/trina/devenv/run-wrap, the polkit rule for the job scopes, the <ID>-devenv.slice with the plan caps;
-#   - a drop-in of the server unit: MYCEL_DEV_ENV=1, MYCEL_DEV_ENV_RUNNER=srt, ReadWritePaths=-<base>/devenv, and an
+#   - a drop-in of the server unit: MYCEL_DEV_ENV=1, MYCEL_DEV_ENV_RUNNER=srt (the server does not read it: it marks the
+#     file as srt's for uninstall-srt.sh and mycel-ctl update), ReadWritePaths=-<base>/devenv, and an
 #     ExecStartPre=+ that makes <base>/devenv, so a new data disk never stops the server.
 # Everything that srt or a run executes is outside <base>: the srt settings hide all of <base>.
 # The first run restarts the team server, so it ends the running answers. A re-run changes only what changed.

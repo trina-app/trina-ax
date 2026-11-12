@@ -17,7 +17,7 @@ import { autoUpdateDecision, runUpdate } from '../../server/src/system/update-jo
 const VECTORS = path.resolve(import.meta.dir, '..', '..', 'native', 'cmd', 'mycel-ctl', 'testdata', 'rollout.json')
 interface Case {
   why: string; rollout?: unknown; publishedAt: string; urgent?: boolean; channel: 'stable' | 'beta'; installId: string; now: string
-  percent: number; in: boolean; wait: boolean; turn?: string | null
+  percent: number; in: boolean; wait: boolean; turn?: string | null; paused?: boolean
 }
 const T = JSON.parse(fs.readFileSync(VECTORS, 'utf8')) as {
   defaultRamp: unknown; lastBucket: number; buckets: { salt: string; installId: string; bucket: number }[]; cases: Case[]
@@ -63,8 +63,8 @@ describe('the shared vectors (the root update timer reads the same file)', () =>
       const f = { rollout: readRollout(c.rollout), publishedAt: c.publishedAt, urgent: c.urgent ?? false }
       const o = { now: new Date(c.now), channel: c.channel }
       const t = rolloutTurn(f, c.installId, o)
-      const got = { why: c.why, percent: rolloutPercent(f, o), in: inRollout(f, c.installId, o), wait: t.wait, turn: t.wait ? t.at?.toISOString() ?? null : undefined }
-      expect(got).toEqual({ why: c.why, percent: c.percent, in: c.in, wait: c.wait, turn: c.wait ? c.turn : undefined })
+      const got = { why: c.why, percent: rolloutPercent(f, o), in: inRollout(f, c.installId, o), wait: t.wait, turn: t.wait ? t.at?.toISOString() ?? null : undefined, paused: c.paused === undefined ? undefined : t.wait && !!t.paused }
+      expect(got).toEqual({ why: c.why, percent: c.percent, in: c.in, wait: c.wait, turn: c.wait ? c.turn : undefined, paused: c.paused })
     }
   })
   test('publishedAt is read as RFC 3339 only (what Go reads too)', () => {

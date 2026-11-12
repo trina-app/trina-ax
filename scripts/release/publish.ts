@@ -184,6 +184,13 @@ export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'he
       if (!o.ifNewer) throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
       log(`${channel} is at ${prev.version}, newer than ${version}: its head is left as it is`)
       headStays = true
+    } else if (prev.version === version && prev.rollout?.changedAt) {
+      // a head of this version that a hold or resume changed (scripts/release/hold.ts) stays as it is: a re-run must
+      // neither lift a hold nor undo a resume
+      log(prev.rollout.hold
+        ? `${headKey} holds ${version} (paused since ${prev.rollout.hold.at}): left as it is; \`bun scripts/release/hosting.ts resume ${channel}\` gives the roll-out back`
+        : `${headKey} was resumed (${prev.rollout.changedAt}): left as it is`)
+      headStays = true
     } else log(`${channel} is at ${prev.version} now`)
   }
   const there = await alreadyPublished(arts, read, o.retry)

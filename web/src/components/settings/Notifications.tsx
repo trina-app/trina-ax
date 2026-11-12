@@ -55,14 +55,13 @@ export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'tem
 export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
 export const END_REASONS: ReadonlySet<string> = new Set<DevEnvEndReason>(['timeout', 'oom', 'stopped', 'idle', 'disk', 'setting', 'expired', 'lost'])
 
-/** The text of a dev environment notice: with the job or the project while the person can still read that project. */
+/** The text of a dev environment notice: with the job while the person can still see its project. A notice of the
+ * removed box runner has no job: the generic text of its event. */
 const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
   const d = item.devEnv
-  // srt runner: a job with no exit code says why it ended (a reason the page does not know is the old text)
+  // a job with no exit code says why it ended (a reason the page does not know is the old text)
   if (d?.job && d.job.exitCode === null && d.job.reason && END_REASONS.has(d.job.reason)) return t('notifications.event.dev_env.jobReason', { name: d.job.name, why: t(`devEnv.end.${d.job.reason as DevEnvEndReason}`) })
   if (d?.job) return d.job.exitCode === null ? t('notifications.event.dev_env.jobNoCode', { name: d.job.name }) : t('notifications.event.dev_env.jobEnded', { name: d.job.name, code: d.job.exitCode })
-  if (d?.stopCode === 'disk') return t('notifications.event.dev_env.boxDisk', { project: d.projectName })
-  if (d?.stopCode === 'busy_max') return t('notifications.event.dev_env.boxBusy', { project: d.projectName })
   return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
 }
 
@@ -122,6 +121,11 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'schedule.failure' && item.needsKey) return title
     ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
     : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+  // a task paused because only the project's members can use it now (the owner or an admin who may add themselves):
+  // it starts again once they do (docs/DECISIONS.md "Projects from before the update: one card, Add me to these")
+  if (item.code === 'schedule.failure' && item.projectGone && item.membersOnly) return title
+    ? isolate(locale, 'notifications.event.schedule.membersOnlyNamed', { title }, ['title'])
+    : t('notifications.event.schedule.membersOnly')
   // a run that did not start because its owner no longer sees the task's project
   if (item.code === 'schedule.failure' && item.projectGone) return title
     ? isolate(locale, 'notifications.event.schedule.projectGoneNamed', { title }, ['title'])

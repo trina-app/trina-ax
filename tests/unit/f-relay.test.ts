@@ -177,7 +177,7 @@ describe('HTTP through the relay', () => {
 
 describe('WebSockets through the relay', () => {
   function open(path: string, protocols?: string[]) {
-    const ws = new WebSocket(teamUrl(PORT, 'acme-co', path).replace('http', 'ws'), { protocols, headers: { origin: `http://acme-co.localhost:${PORT}`, cookie: 'sid=abc' } } as never)
+    const ws = new WebSocket(teamUrl(PORT, 'acme-co', path).replace('http', 'ws'), { protocols, headers: { origin: `http://acme-co.localhost:${PORT}`, cookie: 'mycel-dev-sid=abc; other=1' } } as never)
     const msgs: (string | ArrayBuffer)[] = []
     const closed = new Promise<{ code: number; reason: string }>((r) => { ws.onclose = (e) => r({ code: e.code, reason: e.reason }) })
     const opened = new Promise<void>((r, j) => { ws.onopen = () => r(); ws.onerror = () => j(new Error('ws error')) })
@@ -186,12 +186,12 @@ describe('WebSockets through the relay', () => {
     return { ws, msgs, closed, opened }
   }
 
-  test('subprotocol chosen by the team side, cookies and Origin forwarded, text / binary / large messages', async () => {
+  test('subprotocol chosen by the team side, the session cookie (only) and Origin forwarded, text / binary / large messages', async () => {
     const c = open('/api/ws?windowId=abcdefgh', ['mycel.bearer.tok', 'mycel.v1'])
     await c.opened
     expect(c.ws.protocol).toBe('mycel.v1')
     await until(() => c.msgs.length >= 1)
-    expect(JSON.parse(c.msgs[0] as string)).toEqual({ type: 'hello', protocol: 'mycel.v1', origin: `http://acme-co.localhost:${PORT}`, cookie: 'sid=abc' })
+    expect(JSON.parse(c.msgs[0] as string)).toEqual({ type: 'hello', protocol: 'mycel.v1', origin: `http://acme-co.localhost:${PORT}`, cookie: 'mycel-dev-sid=abc' })
     c.ws.send('ping')
     c.ws.send(new Uint8Array([1, 2, 3]))
     c.ws.send('big:300000')

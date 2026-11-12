@@ -1,4 +1,4 @@
-// The Remotion scene of srt-vm-bench.ts: the T4 scene (feasibility step.sh, from scripts/dev-env/in-box/remotion.sh) at 1920x1080, 30 fps,
+// The Remotion scene of srt-vm-bench.ts: the T4 scene (feasibility step.sh; the box runner's render probe, removed) at 1920x1080, 30 fps,
 // 450 frames (15 s). It is copied into the project folder of the test; it is not built with the repo.
 import React from 'react'
 import { AbsoluteFill, Composition, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion'

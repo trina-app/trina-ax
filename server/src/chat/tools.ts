@@ -578,6 +578,8 @@ function skillTools(exec: TurnExec): Tool[] {
           }
         }
         exec.noteTaint('read', { file_path: skill.path })
+        // the person's own personal skill: what an AI turn that wrote it had seen comes with it (chat/turn.ts noteOwnSkill)
+        exec.noteOwnSkill(skill.path)
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
         addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(skill.path))])
         // reporting is auxiliary (admin/skill-usage.ts: team and group skills, never a personal one); a loaded skill is a
